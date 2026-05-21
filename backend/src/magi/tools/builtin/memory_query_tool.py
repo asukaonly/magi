@@ -6,6 +6,7 @@ from dataclasses import asdict
 from typing import Any, Dict, Optional
 
 from ...memory.hybrid_retrieval import build_query
+from ...memory.hybrid_retrieval.models import ConversationTurn
 from ...memory.provider import get_hybrid_retrieval_service
 from ...plugins.provider import resolve_plugin_manager
 from ...memory.retrieval_projection import project_historical_recall
@@ -146,6 +147,17 @@ class MemoryQueryTool(Tool):
                     min_value=1,
                     max_value=100,
                 ),
+                ToolParameter(
+                    name="conversation_context",
+                    type=ParameterType.ARRAY,
+                    array_item_type=ParameterType.OBJECT,
+                    description=(
+                        "Optional. Recent conversation turns (each {role, content, timestamp}) "
+                        "providing context for indexical references like '当时'/'我说'/'just now'. "
+                        "Auto-injected by the runtime — callers should not need to populate this manually."
+                    ),
+                    required=False,
+                ),
             ],
             tags=["memory", "search", "history"],
             timeout=30,
@@ -202,6 +214,30 @@ class MemoryQueryTool(Tool):
             # unless a caller explicitly opts into session-local lookup.
             session_id = parameters.get("session_id")
             current_user_text = context.env_vars.get("current_user_text") or None
+            # Parse incoming conversation_context (list of dicts → list[ConversationTurn]).
+            # Auto-injected by the runtime for indexical reference resolution; tolerant
+            # of malformed entries (skip items missing required keys).
+            raw_context = parameters.get("conversation_context") or []
+            conversation_context: Optional[list[ConversationTurn]] = None
+            if raw_context:
+                turns: list[ConversationTurn] = []
+                for item in raw_context:
+                    if not isinstance(item, dict):
+                        continue
+                    if not {"role", "content", "timestamp"} <= item.keys():
+                        continue
+                    try:
+                        turns.append(
+                            ConversationTurn(
+                                role=item["role"],
+                                content=item["content"],
+                                timestamp=float(item["timestamp"]),
+                            )
+                        )
+                    except (TypeError, ValueError):
+                        continue
+                if turns:
+                    conversation_context = turns
             request = build_query(
                 query=parameters["query"],
                 user_id=user_id,
@@ -213,6 +249,7 @@ class MemoryQueryTool(Tool):
                 summary_categories=parameters.get("summary_categories", []) or [],
                 limit=parameters.get("limit", 20),
                 exclude_user_text=current_user_text,
+                conversation_context=conversation_context,
             )
             payload = await self._get_service().query(request)
             payload_dict = asdict(payload) if hasattr(payload, "__dataclass_fields__") else {
