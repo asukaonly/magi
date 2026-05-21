@@ -204,3 +204,48 @@ class ThematicGenerationResult:
     candidate: L3Candidate
     summary_overrides: dict[str, object] = field(default_factory=dict)
     used_fallback: bool = False
+
+
+@dataclass(slots=True)
+class EpisodicEvidenceItem:
+    """Compact episodic-summary evidence item derived from an L1 event."""
+
+    event_id: str
+    event_type: str
+    content: str
+    timestamp: float | None = None
+    importance_score: float | None = None
+
+
+@dataclass(slots=True)
+class EpisodicEvidencePack:
+    """Compact prompt payload for episode-bounded summarization."""
+
+    episode_id: str
+    episode_type: str
+    time_start: float
+    time_end: float
+    primary_entity_ids: list[str] = field(default_factory=list)
+    primary_topic_keys: list[str] = field(default_factory=list)
+    source_event_count: int = 0
+    source_event_ids: list[str] = field(default_factory=list)
+    events: list[EpisodicEvidenceItem] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class EpisodicSummaryLLMOutput:
+    """Structured LLM output for episodic summary."""
+
+    label: str
+    content: str
+    key_topics: list[str] = field(default_factory=list)
+    key_entities: list[dict[str, object]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class EpisodicGenerationResult:
+    """Outcome of episodic summary generation with fallback awareness."""
+
+    candidate: L3Candidate
+    summary_overrides: dict[str, object] = field(default_factory=dict)
+    used_fallback: bool = False
