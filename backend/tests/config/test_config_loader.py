@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Dict
 
 import yaml
 
@@ -30,6 +31,44 @@ def _patch_config_paths(monkeypatch, root: Path) -> None:
     (root / "llm_providers.yaml").write_text(packaged_llm_registry.read_text(encoding="utf-8"), encoding="utf-8")
     packaged_lifecycle = Path(__file__).resolve().parents[2] / "configs" / "lifecycle.example.yaml"
     (root / "lifecycle.example.yaml").write_text(packaged_lifecycle.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+# Builtin plugins now declare their own defaults in plugin.toml. The loader's
+# seed step reads those manifests via the index's ``manifest_path`` entries.
+# For tests that exercise first-time seeding, we point each builtin's
+# manifest_path at the real plugin.toml shipped alongside the magi-plugins
+# repo. Directory names map to plugin ids (the ``calendar`` plugin lives in
+# ``calendar_plugin/``, etc.).
+_PLUGINS_REPO_ROOT = Path(__file__).resolve().parents[4] / "magi-plugins" / "plugins"
+_BUILTIN_PLUGIN_DIRS = {
+    "photo-library": "photo-library",
+    "chrome-history": "chrome-history",
+    "calendar": "calendar_plugin",
+    "git-activity": "git_activity",
+    "screen-time": "screen_time",
+    "system-media": "system_media",
+    "terminal-history": "terminal_history",
+}
+
+
+def _seed_builtin_manifest_paths(plugins_dir: Path) -> None:
+    """Write a plugins/index.yaml pointing each builtin at its real plugin.toml.
+
+    Needed because manifest-driven defaults require ``manifest_path`` to be
+    populated before the loader's seed step runs. In production the plugin
+    manager fills this in during its scan; tests have to seed it explicitly.
+    """
+    plugins_dir.mkdir(parents=True, exist_ok=True)
+    packages: Dict[str, Dict[str, Any]] = {}
+    for plugin_id, dir_name in _BUILTIN_PLUGIN_DIRS.items():
+        manifest = _PLUGINS_REPO_ROOT / dir_name / "plugin.toml"
+        if manifest.is_file():
+            packages[plugin_id] = {"manifest_path": str(manifest)}
+    if packages:
+        (plugins_dir / "index.yaml").write_text(
+            yaml.safe_dump({"packages": packages}, sort_keys=False),
+            encoding="utf-8",
+        )
 
 
 def test_loader_migrates_inline_plugin_settings_to_split_files(tmp_path: Path, monkeypatch) -> None:
@@ -126,6 +165,7 @@ def test_loader_save_rejects_invalid_config_without_writing(tmp_path: Path, monk
 
 def test_loader_default_photo_library_settings_live_in_the_dedicated_plugin(tmp_path: Path, monkeypatch) -> None:
     _patch_config_paths(monkeypatch, tmp_path)
+    _seed_builtin_manifest_paths(tmp_path / "config" / "plugins")
 
     loader = ConfigLoader()
     config = loader.load()
@@ -141,6 +181,7 @@ def test_loader_default_photo_library_settings_live_in_the_dedicated_plugin(tmp_
 
 def test_loader_enables_builtin_sensor_plugins_while_leaving_sources_disabled(tmp_path: Path, monkeypatch) -> None:
     _patch_config_paths(monkeypatch, tmp_path)
+    _seed_builtin_manifest_paths(tmp_path / "config" / "plugins")
 
     loader = ConfigLoader()
     config = loader.load()
@@ -169,6 +210,7 @@ def test_loader_migrates_legacy_disabled_chrome_history_plugin(tmp_path: Path, m
     config_dir = tmp_path / "config" / "plugins"
     config_dir.mkdir(parents=True, exist_ok=True)
     (tmp_path / "config" / "agent.yaml").write_text("plugins:\n  scan_paths:\n    - plugins\n", encoding="utf-8")
+    chrome_manifest = _PLUGINS_REPO_ROOT / "chrome-history" / "plugin.toml"
     (config_dir / "index.yaml").write_text(
         yaml.safe_dump(
             {
@@ -177,7 +219,7 @@ def test_loader_migrates_legacy_disabled_chrome_history_plugin(tmp_path: Path, m
                         "enabled": False,
                         "trusted": False,
                         "source": "builtin",
-                        "manifest_path": "/tmp/magi/plugins/chrome-history/plugin.toml",
+                        "manifest_path": str(chrome_manifest),
                     }
                 }
             },

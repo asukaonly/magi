@@ -65,6 +65,35 @@ def _write_manifest(path: Path, body: str) -> None:
     path.write_text(body, encoding="utf-8")
 
 
+# Most builtin plugins have migrated their defaults into their plugin.toml
+# manifest, leaving the hardcoded map nearly empty. The fallback-rail tests
+# below inject a synthetic hardcoded entry via monkeypatch so the dual-rail
+# behavior stays exercised regardless of how many plugins remain in the map.
+_FAKE_HARDCODED_DEFAULTS = {
+    "core-tools": {},
+    "photo-library": {
+        "sensors": {
+            "photo_library": {
+                "enabled": False,
+                "sync_mode": "manual",
+                "sync_interval_minutes": 60,
+            }
+        }
+    },
+}
+
+
+def _patch_hardcoded_map(monkeypatch) -> None:
+    """Force ``_default_plugin_settings_map`` to a deterministic synthetic value."""
+    from magi.config.plugin_layout import ConfigPluginLayoutMixin
+
+    monkeypatch.setattr(
+        ConfigPluginLayoutMixin,
+        "_default_plugin_settings_map",
+        lambda self: dict(_FAKE_HARDCODED_DEFAULTS),
+    )
+
+
 def test_manifest_default_settings_seed_plugin_yaml(tmp_path: Path, monkeypatch) -> None:
     """A plugin that ships [plugin.default_settings] gets that exact dict written."""
     _patch_config_paths(monkeypatch, tmp_path)
@@ -116,6 +145,7 @@ def test_hardcoded_map_fallback_when_manifest_lacks_default_settings(
 ) -> None:
     """Plugin in hardcoded map but with no manifest defaults uses the map."""
     _patch_config_paths(monkeypatch, tmp_path)
+    _patch_hardcoded_map(monkeypatch)
     plugins_dir = tmp_path / "config" / "plugins"
     manifest_path = tmp_path / "photo_lib" / "plugin.toml"
     _write_manifest(
@@ -152,6 +182,7 @@ version = "0.1.0"
 def test_manifest_defaults_win_over_hardcoded_map(tmp_path: Path, monkeypatch) -> None:
     """Plugin present in BOTH map and manifest: manifest wins."""
     _patch_config_paths(monkeypatch, tmp_path)
+    _patch_hardcoded_map(monkeypatch)
     plugins_dir = tmp_path / "config" / "plugins"
     manifest_path = tmp_path / "photo_lib" / "plugin.toml"
     _write_manifest(
@@ -234,6 +265,7 @@ def test_invalid_toml_in_manifest_falls_back_to_hardcoded_map(
 ) -> None:
     """Manifest with broken TOML must not raise; falls back to hardcoded map."""
     _patch_config_paths(monkeypatch, tmp_path)
+    _patch_hardcoded_map(monkeypatch)
     plugins_dir = tmp_path / "config" / "plugins"
     manifest_path = tmp_path / "broken" / "plugin.toml"
     _write_manifest(manifest_path, "this is not = valid TOML [[[")
@@ -263,6 +295,7 @@ def test_missing_manifest_path_falls_back_to_hardcoded_map(
 ) -> None:
     """manifest_path pointing to a non-existent file falls back silently."""
     _patch_config_paths(monkeypatch, tmp_path)
+    _patch_hardcoded_map(monkeypatch)
     plugins_dir = tmp_path / "config" / "plugins"
     _seed_index(
         plugins_dir,

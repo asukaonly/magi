@@ -16,6 +16,7 @@ the manifest dict (if present) wins over the hardcoded entry. See
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict
 
@@ -23,6 +24,8 @@ try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
     import tomli as tomllib  # type: ignore[no-redef]
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigPluginLayoutMixin:
@@ -71,98 +74,15 @@ class ConfigPluginLayoutMixin:
         return merged
 
     def _default_plugin_settings_map(self) -> Dict[str, Dict[str, Any]]:
-        """Return default per-plugin settings."""
+        """Return default per-plugin settings.
+
+        NOTE: All migrated plugins now declare their own defaults via
+        ``[plugin.default_settings]`` in their plugin.toml. This map only
+        retains entries for plugins that haven't migrated yet (core-tools
+        is empty and will be removed in P3 cleanup).
+        """
         return {
             "core-tools": {},
-            "photo-library": {
-                "sensors": {
-                    "photo_library": {
-                        "enabled": False,
-                        "sync_mode": "manual",
-                        "sync_interval_minutes": 60,
-                        "default_retention_mode": "analyze_only",
-                        "storage_mode": "external_reference",
-                        "source_paths": [],
-                        "exclude_patterns": [],
-                        "analysis_features": ["exif"],
-                        "edge_whitelist": ["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
-                    },
-                }
-            },
-            "chrome-history": {
-                "sensors": {
-                    "chrome_history": {
-                        "enabled": False,
-                        "sync_mode": "interval",
-                        "sync_interval_minutes": 30,
-                        "default_retention_mode": "analyze_only",
-                        "storage_mode": "managed",
-                        "profile": "Default",
-                        "lookback_hours": 24,
-                        "max_items_per_sync": 1000,
-                        "edge_whitelist": ["VISITED", "VIEWED"],
-                    }
-                }
-            },
-            "calendar": {
-                "sensors": {
-                    "calendar": {
-                        "enabled": False,
-                        "sync_mode": "interval",
-                        "sync_interval_minutes": 30,
-                        "lookback_days": 30,
-                        "recurring_expansion_days": 30,
-                        "default_retention_mode": "full",
-                    }
-                }
-            },
-            "git-activity": {
-                "sensors": {
-                    "git_activity": {
-                        "enabled": False,
-                        "repos": [],
-                        "sync_interval_minutes": 30,
-                        "initial_sync_policy": "lookback_days",
-                        "initial_sync_lookback_days": 30,
-                        "sensitive_mode": "redact",
-                        "sensitive_keywords": [],
-                        "default_retention_mode": "analyze_only",
-                    }
-                }
-            },
-            "screen-time": {
-                "sensors": {
-                    "screen_time": {
-                        "enabled": False,
-                        "sync_interval_minutes": 5,
-                    }
-                }
-            },
-            "system-media": {
-                "sensors": {
-                    "system_media": {
-                        "enabled": False,
-                        "sync_interval_minutes": 1,
-                        "min_session_seconds": 30,
-                        "pause_timeout_seconds": 300,
-                    }
-                }
-            },
-            "terminal-history": {
-                "sensors": {
-                    "terminal_history": {
-                        "enabled": False,
-                        "sync_interval_minutes": 15,
-                        "initial_sync_policy": "lookback_days",
-                        "initial_sync_lookback_days": 7,
-                        "initial_sync_configured": False,
-                        "sensitive_mode": "redact",
-                        "sensitive_keywords": [],
-                        "dedup_window_seconds": 60,
-                        "default_retention_mode": "analyze_only",
-                    }
-                }
-            },
         }
 
     def _load_manifest_defaults_for_known_plugins(self) -> Dict[str, Dict[str, Any]]:
@@ -211,7 +131,14 @@ class ConfigPluginLayoutMixin:
         return defaults
 
     def _migrate_chrome_history_plugin_defaults(self, index_data: Dict[str, Any]) -> bool:
-        """Promote legacy chrome-history package state to the new builtin defaults."""
+        """Promote legacy chrome-history package state to the new builtin defaults.
+
+        Defaults now live in chrome-history's ``plugin.toml`` manifest. This
+        helper reads them from there via
+        :meth:`_load_manifest_defaults_for_known_plugins`; if the manifest
+        lookup turns up empty (e.g. manifest missing or malformed) we skip
+        seeding rather than crash.
+        """
         packages = index_data.setdefault("packages", {})
         package_data = packages.setdefault(
             "chrome-history",
@@ -232,11 +159,17 @@ class ConfigPluginLayoutMixin:
             changed = True
 
         if not settings_data:
-            self._write_yaml_file(
-                settings_file,
-                self._default_plugin_settings_map()["chrome-history"],
-            )
-            changed = True
+            manifest_defaults = self._load_manifest_defaults_for_known_plugins()
+            chrome_defaults = manifest_defaults.get("chrome-history")
+            if chrome_defaults:
+                self._write_yaml_file(settings_file, chrome_defaults)
+                changed = True
+            else:
+                logger.warning(
+                    "chrome-history manifest defaults unavailable; skipping "
+                    "legacy seed migration. Plugin will pick up defaults on "
+                    "next manifest load."
+                )
 
         return changed
 
