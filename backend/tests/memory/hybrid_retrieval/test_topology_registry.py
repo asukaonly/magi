@@ -260,3 +260,31 @@ def test_place_spec_includes_likes_dislikes_for_affinity_parity():
     assert "LIKES" in place_predicates
     assert "DISLIKES" in place_predicates
     assert "VISITED" in place_predicates
+
+
+def test_software_spec_includes_dislikes_for_negative_polarity_parity():
+    """Regression guard: software primary_predicates must include DISLIKES.
+    retrieval_projection_findings._default weights DISLIKES at 0.25 for
+    negative-polarity queries ("what software do I dislike?"). Without DISLIKES
+    in the fetch, those queries silently return empty.
+
+    Same bug pattern as commit 42fe1029 fixed for 'place'."""
+    from magi.memory.hybrid_retrieval.topology_registry import (
+        ANSWER_KIND_TOPOLOGIES,
+    )
+    software_predicates = set(ANSWER_KIND_TOPOLOGIES["software"].primary_predicates)
+    assert "DISLIKES" in software_predicates
+    assert "LIKES" in software_predicates
+    assert "USES" in software_predicates
+
+
+def test_topic_spec_includes_dislikes_for_negative_polarity_parity():
+    """Regression guard: topic primary_predicates must include DISLIKES.
+    Same rationale as software_spec_includes_dislikes."""
+    from magi.memory.hybrid_retrieval.topology_registry import (
+        ANSWER_KIND_TOPOLOGIES,
+    )
+    topic_predicates = set(ANSWER_KIND_TOPOLOGIES["topic"].primary_predicates)
+    assert "DISLIKES" in topic_predicates
+    assert "LIKES" in topic_predicates
+    assert "INTERESTED_IN" in topic_predicates

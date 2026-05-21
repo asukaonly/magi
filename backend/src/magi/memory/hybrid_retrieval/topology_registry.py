@@ -46,14 +46,14 @@ ANSWER_KIND_TOPOLOGIES: dict[str, TopologySpec] = {
         bridge_skip_evidence_filter=True,
     ),
     "topic": TopologySpec(
-        primary_predicates=("LIKES", "INTERESTED_IN", "FOLLOWS"),
+        primary_predicates=("LIKES", "DISLIKES", "INTERESTED_IN", "FOLLOWS"),
         primary_object_types=("topic",),
         bridge_predicate=None,
         bridge_object_types=(),
         bridge_skip_evidence_filter=False,
     ),
     "software": TopologySpec(
-        primary_predicates=("USES", "LIKES", "INTERESTED_IN"),
+        primary_predicates=("USES", "LIKES", "DISLIKES", "INTERESTED_IN"),
         primary_object_types=("software",),
         bridge_predicate=None,
         bridge_object_types=(),
