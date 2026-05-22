@@ -110,6 +110,14 @@ class HybridRetrievalService(
         self._refresh_runtime_config()
         self._refresh_handlers()
 
+        # Capture original caller intent BEFORE any inference / indexical
+        # override mutates request.query_mode. This flag — combined with the
+        # indexical-override flag below — gates RRF profile selection further
+        # down. Heuristic-inferred modes (Phase 4) must NOT distort RRF
+        # weights; only caller-authored modes (or the high-confidence
+        # indexical resolver) are authoritative enough to swap profiles.
+        caller_supplied_query_mode = bool(request.query_mode)
+
         # 0. Indexical resolution — must run BEFORE the intent decider so its
         #    overrides are authoritative. When a query contains an indexical
         #    cue (e.g. '当时', 'just now') AND conversation context contains
@@ -211,12 +219,23 @@ class HybridRetrievalService(
             for plan in decision.plans
         ]
 
-        # 4. Build mode-adapted L1 handler with RRF weights from mode plan
-        #    Only apply RRF overrides when query_mode was explicitly provided
-        #    by the caller (tool call / API). Auto-classified modes use default
-        #    weights to avoid keyword-heuristic errors distorting retrieval.
+        # 4. Build mode-adapted L1 handler with RRF weights from mode plan.
+        #    Only apply RRF overrides when the mode is AUTHORITATIVE:
+        #      - caller-supplied (tool call / API caller chose this mode), OR
+        #      - indexical-override (Phase 3 resolver fired with confidence
+        #        >= 0.9 on a temporal/episodic cue).
+        #    Heuristic-inferred modes (Phase 4 infer_query_mode) MUST NOT
+        #    drive RRF profile selection — keyword-heuristic errors would
+        #    distort retrieval. They still route to the right layers but use
+        #    default RRF weights.
         effective_l1 = self._l1
-        if mode_explicit and mode_plan.rrf_profile and self._l1 is not None:
+        authoritative_mode = caller_supplied_query_mode or indexical.is_indexical
+        if (
+            authoritative_mode
+            and mode_explicit
+            and mode_plan.rrf_profile
+            and self._l1 is not None
+        ):
             adapted_config = dc_replace(
                 self._config,
                 **{k: v for k, v in mode_plan.rrf_profile.items() if hasattr(self._config, k)},
