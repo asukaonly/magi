@@ -129,13 +129,18 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         )
         _emotional_or_crisis = _routing_register in {"emotional", "crisis"}
 
-        if (
-            request.intent.memory_route == "explicit_query"
-            and "memory_query" in selected_tools
-        ):
-            selected_tools = ["memory_query"] + [
-                tool for tool in selected_tools if tool != "memory_query"
-            ]
+        if "memory_query" in selected_tools:
+            # Attach the don't-paraphrase guidance whenever memory_query is in
+            # the selected tools, regardless of how the upstream router
+            # classified the turn (memory_route). Originally this was gated on
+            # memory_route == "explicit_query"; turns where the selector pulled
+            # in memory_query through other routes (low-confidence routing,
+            # selector LLM picking it directly, future route values) got the
+            # tool without the guidance — reintroducing the paraphrase bug.
+            if request.intent.memory_route == "explicit_query":
+                selected_tools = ["memory_query"] + [
+                    tool for tool in selected_tools if tool != "memory_query"
+                ]
             system_prompt = f"{system_prompt}\n\n{MEMORY_QUERY_GUIDANCE_BLOCK}"
         scope_guidance_block = _build_scope_guidance_block(
             getattr(request.tool_selection, "task_hint", None)
