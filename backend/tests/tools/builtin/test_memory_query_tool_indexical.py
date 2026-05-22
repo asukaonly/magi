@@ -242,3 +242,43 @@ def test_inject_preserves_realistic_unix_timestamps():
     )
     assert cc[1]["timestamp"] == t_real
     assert cc[2]["content"] == "当时我说什么"
+
+
+def test_memory_query_schema_query_mode_is_optional():
+    """Phase 4: query_mode parameter must be optional (required=False)."""
+    from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+    tool = MemoryQueryTool()
+    schema = tool.get_schema()
+    qm_param = next(p for p in schema.parameters if p.name == "query_mode")
+    assert qm_param.required is False
+
+
+@pytest.mark.asyncio
+async def test_memory_query_executes_without_query_mode():
+    """Tool must not crash when parameters dict omits query_mode."""
+    from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+    from magi.tools.schema import ToolExecutionContext
+
+    tool = MemoryQueryTool()
+    fake_service = AsyncMock()
+    fake_service.query = AsyncMock(return_value=AsyncMock(
+        l0_workbench=[], l1_events=[], l1_evidence_bundles=[],
+        l1_timeline_summary=[], l2_entity_cards=[], l2_relationships=[],
+        l2_assertions=[], l3_reflections=[], l4_procedures=[], trace={},
+    ))
+
+    with patch.object(tool, "_get_service", return_value=fake_service):
+        result = await tool.execute(
+            parameters={"query": "who is asuka"},  # NO query_mode
+            context=ToolExecutionContext(
+                agent_id="agent-1",
+                workspace="/tmp",
+                env_vars={"user_id": "u1", "session_id": ""},
+                permissions=[],
+            ),
+        )
+
+    assert result.success is True
+    call = fake_service.query.await_args
+    request = call.args[0] if call.args else call.kwargs["request"]
+    assert request.query_mode is None

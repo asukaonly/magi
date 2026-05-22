@@ -127,8 +127,12 @@ class MemoryQueryTool(Tool):
                 ToolParameter(
                     name="query_mode",
                     type=ParameterType.STRING,
-                    description=_QUERY_MODE_DESCRIPTION,
-                    required=True,
+                    description=(
+                        "Optional. The system auto-detects the retrieval mode from the query "
+                        "content + conversation context. Pass a value only when overriding "
+                        "the automatic detection (rare)."
+                    ),
+                    required=False,
                     enum=["exact_fact", "current_state", "episode_recall", "cross_session", "temporal_compare", "summary", "activity_summary", "strategy"],
                 ),
                 ToolParameter(
