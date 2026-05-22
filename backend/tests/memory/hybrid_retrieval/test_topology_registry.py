@@ -3,9 +3,13 @@
 The registry-driven executor must:
 1. Fetch primary edges via batch_get_relationships using spec.primary_predicates
    and spec.primary_object_types, forwarding evidence_classes from the plan.
-2. When spec.bridge_predicate is set, issue a second batch_get_relationships
-   call (omitting evidence_classes when spec.bridge_skip_evidence_filter is True).
-3. Return tagged edges suitable for downstream channel merging.
+2. Return primary edges suitable for downstream channel merging.
+
+Note: TopologySpec retains bridge_predicate/bridge_object_types/
+bridge_skip_evidence_filter as registry-level config, but the executor itself
+no longer performs bridge resolution — Phase 5's entity_catalog canonical-name
+resolution superseded the previous ``_resolved_identity`` sidecar (which had
+no production reader).
 """
 
 from __future__ import annotations
@@ -38,40 +42,36 @@ def _make_plan(answer_kind: str, *, with_evidence_filter: bool = True) -> L2Grou
 
 
 @pytest.mark.asyncio
-async def test_execute_topology_creator_runs_primary_and_bridge_calls():
-    """The creator spec has a PRESENCE_OF bridge — executor must issue
-    two batch_get_relationships calls: primary (with evidence_classes) and
-    bridge (without — bridge_skip_evidence_filter=True)."""
+async def test_execute_topology_creator_runs_primary_only_no_bridge_call():
+    """The creator spec has bridge_predicate='PRESENCE_OF' on the registry,
+    but the executor no longer issues the bridge fetch — Phase 5's
+    entity_catalog canonical-name resolution superseded the dead
+    ``_resolved_identity`` sidecar.
+
+    Contract: only ONE batch_get_relationships call (primary), and the
+    returned edges must NOT carry a ``_resolved_identity`` field.
+    """
     from magi.memory.hybrid_retrieval.topology_registry import (
         ANSWER_KIND_TOPOLOGIES,
         _execute_topology,
     )
 
     store = AsyncMock()
-    # First call: primary edges
     store.batch_get_relationships = AsyncMock(
-        side_effect=[
-            {"user:u1": [
-                {"triple_id": "p1", "subject_id": "user:u1",
-                 "predicate": "FOLLOWS", "object_id": "presence:acct_a1",
-                 "object_type": "presence"},
-            ]},
-            # Second call: bridge resolution
-            {"presence:acct_a1": [
-                {"triple_id": "b1", "subject_id": "presence:acct_a1",
-                 "predicate": "PRESENCE_OF", "object_id": "person:nana",
-                 "object_type": "person", "object": "nana"},
-            ]},
-        ]
+        return_value={"user:u1": [
+            {"triple_id": "p1", "subject_id": "user:u1",
+             "predicate": "FOLLOWS", "object_id": "presence:acct_a1",
+             "object_type": "presence"},
+        ]}
     )
 
     plan = _make_plan("creator")
     spec = ANSWER_KIND_TOPOLOGIES["creator"]
     result = await _execute_topology(spec=spec, plan=plan, store=store, limit=20)
 
-    # Two store calls — primary + bridge
-    assert store.batch_get_relationships.await_count == 2
-    primary_call, bridge_call = store.batch_get_relationships.await_args_list
+    # Only ONE store call — primary fetch, no bridge resolution.
+    assert store.batch_get_relationships.await_count == 1
+    primary_call = store.batch_get_relationships.await_args_list[0]
 
     # Primary call forwards evidence_classes
     assert primary_call.kwargs["evidence_classes"] == [
@@ -81,16 +81,8 @@ async def test_execute_topology_creator_runs_primary_and_bridge_calls():
         "FOLLOWS", "LIKES", "INTERESTED_IN", "DISLIKES"
     }
 
-    # Bridge call OMITS evidence_classes (bridge_skip_evidence_filter=True)
-    assert bridge_call.kwargs["evidence_classes"] is None
-    assert bridge_call.kwargs["predicates"] == ["PRESENCE_OF"]
-
-    # Bridge resolution attaches _resolved_identity
-    assert result[0].get("_resolved_identity") == {
-        "object_id": "person:nana",
-        "object_type": "person",
-        "object": "nana",
-    }
+    # No _resolved_identity sidecar should be attached.
+    assert "_resolved_identity" not in result[0]
 
 
 def test_registry_has_five_answer_kinds():

@@ -94,36 +94,19 @@ class TestBatchForwarding:
             )
 
     @pytest.mark.asyncio
-    async def test_creator_topology_skips_evidence_filter_on_identity_bridge(self):
-        """``_topology_creator`` issues two batch calls:
+    async def test_creator_topology_runs_recall_only_no_identity_bridge(self):
+        """``_topology_creator`` previously issued a second PRESENCE_OF batch
+        call to attach a ``_resolved_identity`` sidecar to each primary edge,
+        but no production consumer read that field — Phase 5's
+        ``entity_catalog`` canonical-name resolution superseded it.
 
-        1. user -> presence/person via FOLLOWS/LIKES (recall path — must filter)
-        2. presence -> person via PRESENCE_OF (identity bridge — must NOT filter)
-
-        Filtering the identity bridge by the question's evidence classes would
-        orphan candidate identities (PRESENCE_OF is system-asserted, not a
-        user_self_report)."""
+        Contract after dead-code removal:
+        * No PRESENCE_OF batch call is issued from the topology executor.
+        * Every recall-path call still forwards the plan's evidence_classes.
+        """
         store = _make_store()
-
-        # The structured-graph and topology-creator channels run concurrently
-        # and may interleave; route by predicate so the topology bridge sees
-        # a presence row to resolve regardless of call order.
-        async def fake_batch(**kwargs):
-            preds = kwargs.get("predicates") or []
-            if "PRESENCE_OF" in preds:
-                return {
-                    "presence:p1": [
-                        {
-                            "triple_id": "t2",
-                            "subject_id": "presence:p1",
-                            "predicate": "PRESENCE_OF",
-                            "object_id": "person:q1",
-                            "object_type": "person",
-                        }
-                    ]
-                }
-            # Recall pull: structured graph or topology creator entry call.
-            return {
+        store.batch_get_relationships = AsyncMock(
+            return_value={
                 "user:u1": [
                     {
                         "triple_id": "t1",
@@ -134,8 +117,7 @@ class TestBatchForwarding:
                     }
                 ]
             }
-
-        store.batch_get_relationships = AsyncMock(side_effect=fake_batch)
+        )
 
         plan = _plan_with_subject(
             answer_kind="creator",
@@ -144,9 +126,6 @@ class TestBatchForwarding:
 
         await retrieve_knowledge(plan, store)
 
-        # The topology creator fires inside retrieve_knowledge, and so does the
-        # structured_graph channel. Find calls that target presence/person
-        # entities (the topology recall) vs PRESENCE_OF (the identity bridge).
         presence_of_calls = [
             c for c in store.batch_get_relationships.await_args_list
             if c.kwargs.get("predicates") == ["PRESENCE_OF"]
@@ -156,12 +135,11 @@ class TestBatchForwarding:
             if c.kwargs.get("predicates") != ["PRESENCE_OF"]
         ]
 
-        assert presence_of_calls, "expected a PRESENCE_OF identity-bridge call"
-        for call in presence_of_calls:
-            assert call.kwargs.get("evidence_classes") is None, (
-                "PRESENCE_OF identity-bridge call must NOT carry "
-                f"evidence_classes; got {call}"
-            )
+        # Bridge resolution removed — no PRESENCE_OF call should be issued.
+        assert not presence_of_calls, (
+            "PRESENCE_OF identity-bridge call should no longer fire; "
+            f"got {presence_of_calls}"
+        )
         assert non_presence_of_calls, "expected at least one recall-path call"
         for call in non_presence_of_calls:
             assert call.kwargs.get("evidence_classes") == [
