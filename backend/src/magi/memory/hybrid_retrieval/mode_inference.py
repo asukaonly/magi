@@ -10,23 +10,55 @@ Pure heuristic — no LLM call. Conservative default: exact_fact.
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 
-_SUMMARY_CUES: tuple[str, ...] = (
+# CJK cues — substring match (no word-boundary concept needed)
+_SUMMARY_CUES_CJK: tuple[str, ...] = (
     "总结", "概况", "汇总", "回顾", "概述",
-    "summarize", "summary", "overview", "recap", "rundown",
 )
-
-_TEMPORAL_COMPARE_CUES: tuple[str, ...] = (
-    "vs", "对比", "比较", "差别", "比起",
-    "compare", "versus", "difference",
+_TEMPORAL_COMPARE_CUES_CJK: tuple[str, ...] = (
+    "对比", "比较", "差别", "比起",
 )
-
-_CURRENT_STATE_CUES: tuple[str, ...] = (
+_CURRENT_STATE_CUES_CJK: tuple[str, ...] = (
     "现在", "目前", "最近", "这几天", "今天", "本周", "本月",
-    "now", "currently", "lately", "this week", "this month",
 )
+
+# English cues — word-boundary regex to avoid substring false-positives
+# (e.g. 'now' inside 'known' / 'snow' / 'knowledge', 'vs' inside 'advise',
+# 'recap' inside 'recapture'). Mirrors the Phase 2A evidence_routing.py
+# pattern that explicitly fixed this bug class for browse⊂browser.
+_SUMMARY_CUES_EN = re.compile(
+    r"\b(summarize|summary|overview|recap|rundown)\b",
+    re.IGNORECASE,
+)
+_TEMPORAL_COMPARE_CUES_EN = re.compile(
+    r"\b(vs|compare|versus|difference)\b",
+    re.IGNORECASE,
+)
+_CURRENT_STATE_CUES_EN = re.compile(
+    r"\b(now|currently|lately|this\s+week|this\s+month)\b",
+    re.IGNORECASE,
+)
+
+
+def _matches_summary(query: str) -> bool:
+    if any(cue in query for cue in _SUMMARY_CUES_CJK):
+        return True
+    return bool(_SUMMARY_CUES_EN.search(query))
+
+
+def _matches_temporal_compare(query: str) -> bool:
+    if any(cue in query for cue in _TEMPORAL_COMPARE_CUES_CJK):
+        return True
+    return bool(_TEMPORAL_COMPARE_CUES_EN.search(query))
+
+
+def _matches_current_state(query: str) -> bool:
+    if any(cue in query for cue in _CURRENT_STATE_CUES_CJK):
+        return True
+    return bool(_CURRENT_STATE_CUES_EN.search(query))
 
 
 def infer_query_mode(
@@ -47,11 +79,10 @@ def infer_query_mode(
         return caller_hint
     if not query:
         return "exact_fact"
-    lowered = query.lower()
-    if any(cue in query or cue in lowered for cue in _SUMMARY_CUES):
+    if _matches_summary(query):
         return "summary"
-    if any(cue in query or cue in lowered for cue in _TEMPORAL_COMPARE_CUES):
+    if _matches_temporal_compare(query):
         return "temporal_compare"
-    if any(cue in query or cue in lowered for cue in _CURRENT_STATE_CUES):
+    if _matches_current_state(query):
         return "current_state"
     return "exact_fact"
