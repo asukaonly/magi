@@ -285,8 +285,27 @@ class MemoryQueryTool(Tool):
                     if rel.get("object_id"):
                         entity_ids.add(str(rel["object_id"]))
             for assertion in (payload_dict.get("l2_assertions") or []):
-                if isinstance(assertion, dict) and assertion.get("entity_id"):
-                    entity_ids.add(str(assertion["entity_id"]))
+                if isinstance(assertion, dict):
+                    if assertion.get("entity_id"):
+                        entity_ids.add(str(assertion["entity_id"]))
+                    # Assertions can also carry a target_entity_id that the
+                    # projection layer resolves through canonical_names.
+                    if assertion.get("target_entity_id"):
+                        entity_ids.add(str(assertion["target_entity_id"]))
+            # Round 3 C1: entity_cards feed the entity_refs surface — their
+            # entity_ids must also be resolved so refs don't silently drop.
+            for card in (payload_dict.get("l2_entity_cards") or []):
+                if isinstance(card, dict) and card.get("entity_id"):
+                    entity_ids.add(str(card["entity_id"]))
+            # Round 3 C1: resolved_entities from the L2 query trace are the
+            # other source for entity_refs (see retrieval_projection_refs).
+            trace_dict = payload_dict.get("trace") or {}
+            if isinstance(trace_dict, dict):
+                l2_trace = trace_dict.get("l2_query_trace")
+                if isinstance(l2_trace, dict):
+                    for ent in (l2_trace.get("resolved_entities") or []):
+                        if isinstance(ent, dict) and ent.get("entity_id"):
+                            entity_ids.add(str(ent["entity_id"]))
 
             # Resolve via entity_catalog. The projection layer treats
             # ``canonical_names is None`` as legacy mode (no entity-leak
