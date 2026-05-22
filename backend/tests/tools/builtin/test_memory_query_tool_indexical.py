@@ -67,12 +67,15 @@ async def test_memory_query_passes_conversation_context_to_retrieval_query():
 
 def test_inject_memory_query_context_when_missing():
     """memory_query call with no explicit conversation_context gets the last
-    N=4 turns from recent session messages."""
+    N=4 PRIOR turns from recent session messages — the current user turn
+    (the one that triggered this tool call) is excluded since it IS the
+    indexical query."""
     from magi.agent.execution.function_calling.tool_execution import (
         _inject_memory_query_context,
     )
 
     recent = [
+        {"role": "user", "content": "first", "timestamp": 0.5},
         {"role": "user", "content": "hi", "timestamp": 1.0},
         {"role": "assistant", "content": "hello", "timestamp": 2.0},
         {"role": "user", "content": "again", "timestamp": 3.0},
@@ -84,15 +87,43 @@ def test_inject_memory_query_context_when_missing():
     enriched = _inject_memory_query_context("memory_query", params, recent)
 
     assert "conversation_context" in enriched
-    # Only the last 4 turns from a 5-turn history.
+    # Last 4 PRIOR turns (excluding the current user turn at idx 5).
     assert len(enriched["conversation_context"]) == 4
-    assert enriched["conversation_context"][-1]["content"] == "当时我说了什么"
-    assert enriched["conversation_context"][-1]["role"] == "user"
-    assert enriched["conversation_context"][-1]["timestamp"] == 5.0
-    # Earliest turn preserved is the second turn of the original window.
-    assert enriched["conversation_context"][0]["content"] == "hello"
+    # Current turn must NOT appear in the context.
+    contents = [t["content"] for t in enriched["conversation_context"]]
+    assert "当时我说了什么" not in contents
+    # Last preserved turn is the assistant's prior reply.
+    assert enriched["conversation_context"][-1]["content"] == "again hello"
+    assert enriched["conversation_context"][-1]["role"] == "assistant"
+    assert enriched["conversation_context"][-1]["timestamp"] == 4.0
+    # Earliest preserved turn is "hi" at the start of the 4-turn window.
+    assert enriched["conversation_context"][0]["content"] == "hi"
     # Original parameters must remain untouched (no mutation).
     assert "conversation_context" not in params
+
+
+def test_inject_excludes_current_user_turn():
+    """Round 5 I5: the most recent user message is the current query and
+    must not be re-injected as conversation_context."""
+    from magi.agent.execution.function_calling.tool_execution import (
+        _inject_memory_query_context,
+    )
+
+    recent = [
+        {"role": "user", "content": "earlier", "timestamp": 1.0},
+        {"role": "assistant", "content": "earlier reply", "timestamp": 2.0},
+        {"role": "user", "content": "上次我说了什么", "timestamp": 3.0},
+    ]
+    enriched = _inject_memory_query_context(
+        "memory_query", {"query": "上次我说了什么"}, recent
+    )
+
+    cc = enriched["conversation_context"]
+    # Only the two prior turns; the current user query is dropped.
+    assert len(cc) == 2
+    assert cc[0]["content"] == "earlier"
+    assert cc[1]["content"] == "earlier reply"
+    assert all(t["content"] != "上次我说了什么" for t in cc)
 
 
 def test_inject_does_not_overwrite_explicit_context():
@@ -163,6 +194,9 @@ def test_inject_handles_structured_content_blocks():
             "timestamp": 1.5,
         },
         {"role": "assistant", "content": "a sunset", "timestamp": 2.5},
+        # Current user turn (the indexical query itself) — excluded from
+        # injection per Round 5 I5.
+        {"role": "user", "content": "当时的内容是什么", "timestamp": 3.5},
     ]
     enriched = _inject_memory_query_context(
         "memory_query", {"query": "当时的内容是什么"}, recent
@@ -184,14 +218,19 @@ def test_inject_skips_messages_with_empty_content():
         {"role": "user", "content": "", "timestamp": 1.0},
         {"role": "assistant", "content": "   ", "timestamp": 2.0},
         {"role": "user", "content": "real text", "timestamp": 3.0},
+        {"role": "assistant", "content": "ok", "timestamp": 4.0},
+        # Current user turn — excluded from injection per Round 5 I5.
+        {"role": "user", "content": "q", "timestamp": 5.0},
     ]
     enriched = _inject_memory_query_context(
         "memory_query", {"query": "q"}, recent
     )
 
     assert "conversation_context" in enriched
-    assert len(enriched["conversation_context"]) == 1
-    assert enriched["conversation_context"][0]["content"] == "real text"
+    # "real text" and "ok" survive; the two empty messages are dropped and
+    # the current user turn at idx 4 is excluded.
+    contents = [t["content"] for t in enriched["conversation_context"]]
+    assert contents == ["real text", "ok"]
 
 
 def test_inject_tolerates_missing_or_invalid_timestamp():
@@ -204,6 +243,8 @@ def test_inject_tolerates_missing_or_invalid_timestamp():
     recent = [
         {"role": "user", "content": "no stamp"},
         {"role": "assistant", "content": "bad stamp", "timestamp": "not-a-number"},
+        # Current user turn — excluded from injection per Round 5 I5.
+        {"role": "user", "content": "current query", "timestamp": 99.0},
     ]
     enriched = _inject_memory_query_context(
         "memory_query", {"query": "q"}, recent
@@ -229,6 +270,7 @@ def test_inject_preserves_realistic_unix_timestamps():
     recent = [
         {"role": "user", "content": "q", "timestamp": t_real - 30},
         {"role": "assistant", "content": "a", "timestamp": t_real},
+        # Current user turn — excluded from injection per Round 5 I5.
         {"role": "user", "content": "当时我说什么", "timestamp": t_real + 60},
     ]
     enriched = _inject_memory_query_context(
@@ -240,8 +282,10 @@ def test_inject_preserves_realistic_unix_timestamps():
         f"timestamps should be realistic unix seconds; got "
         f"{[item['timestamp'] for item in cc]}"
     )
+    # Two PRIOR turns preserved; current user turn dropped.
+    assert len(cc) == 2
+    assert cc[0]["timestamp"] == t_real - 30
     assert cc[1]["timestamp"] == t_real
-    assert cc[2]["content"] == "当时我说什么"
 
 
 def test_memory_query_schema_query_mode_is_optional():

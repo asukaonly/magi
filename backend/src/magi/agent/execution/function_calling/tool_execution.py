@@ -54,6 +54,11 @@ def _inject_memory_query_context(
     injects the last :data:`_MEMORY_QUERY_CONTEXT_TURNS` turns from the live
     chat session history before ``Tool.execute`` is invoked.
 
+    Round 5 I5: the current user turn (the one that triggered this tool
+    call) is excluded — it IS the indexical query and would be a no-op for
+    resolution. The slice walks back from the most recent user message,
+    grabbing only PRIOR turns.
+
     Returns a new ``parameters`` dict — the input is never mutated.
     """
     if tool_name != "memory_query":
@@ -63,7 +68,17 @@ def _inject_memory_query_context(
     if not recent_messages:
         return parameters
 
-    last_n = recent_messages[-_MEMORY_QUERY_CONTEXT_TURNS:]
+    # Find the most recent user message (the current turn) and exclude it
+    # plus anything after it (assistant tool-call response, etc.).
+    cutoff = len(recent_messages)
+    for idx in range(len(recent_messages) - 1, -1, -1):
+        msg = recent_messages[idx]
+        if isinstance(msg, dict) and str(msg.get("role") or "").strip() == "user":
+            cutoff = idx
+            break
+
+    prior = recent_messages[:cutoff]
+    last_n = prior[-_MEMORY_QUERY_CONTEXT_TURNS:]
     enriched_turns: list[dict[str, Any]] = []
     for msg in last_n:
         if not isinstance(msg, dict):
