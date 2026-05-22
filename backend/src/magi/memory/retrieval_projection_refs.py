@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .entity_display import display_name_for
 from .hybrid_retrieval.models import RetrievalPayload
 
 
@@ -101,12 +102,12 @@ def normalize_entity_ref(
 ) -> dict[str, Any] | None:
     """Normalize a single entity ref candidate into the rendered shape.
 
-    When ``canonical_names`` is provided, the catalog-resolved name takes
-    precedence over any name field already on the row, and a ref whose
-    ``entity_id`` is unresolved (no catalog entry AND no pre-resolved
-    name field) is DROPPED — returning ``None`` so the caller filters it
-    out. This prevents raw entity hashes from leaking into the UI chip
-    surface ("关系 74f953b57f75").
+    When ``canonical_names`` is provided, the display name is resolved via
+    :func:`magi.memory.entity_display.display_name_for` (catalog → slug →
+    ``(未命名 {type})``) with any pre-resolved upstream name field taking
+    precedence over the slug/未命名 fallbacks. A ref is DROPPED (returns
+    ``None``) only when no source produces any name — preserving Phase 5's
+    safety invariant against rendering raw hashes as chip labels.
 
     When ``canonical_names`` is ``None`` the legacy fallback chain is
     preserved for backward compatibility.
@@ -120,13 +121,15 @@ def normalize_entity_ref(
     pre_canonical = str(item.get("canonical_name") or item.get("name") or item.get("label") or "").strip() or None
 
     if canonical_names is not None:
-        resolved = canonical_names.get(entity_id)
-        resolved_name = str(resolved or "").strip() or None
-        canonical_name = resolved_name or pre_canonical
+        # Round 4: catalog name wins, else pre-resolved upstream name (richer
+        # than slug), else slug / '(未命名 {type})' via display_name_for.
+        # Drop only when none of these produce a usable display string —
+        # which now requires the id to lack a 'type:slug' shape entirely.
+        if entity_id in canonical_names:
+            canonical_name = canonical_names[entity_id]
+        else:
+            canonical_name = pre_canonical or display_name_for(entity_id, canonical_names)
         if not canonical_name:
-            # No catalog entry and no upstream-resolved name — dropping is
-            # the only safe rendering: emitting the raw entity_id as a chip
-            # label is the bug Phase 5 was created to close.
             return None
     else:
         canonical_name = pre_canonical

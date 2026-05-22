@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .entity_display import display_name_for
 from .hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
 from .recall_rendering import is_echo_finding
 from .retrieval_projection_summary import split_relationship_statement
@@ -237,11 +238,12 @@ def _project_relationships(
 
     Returns ``(findings, dropped_count)``.
 
-    When ``canonical_names`` is provided, subject and object are resolved via
-    that map. Findings whose ``subject_id`` or ``object_id`` has no canonical
-    name (and no pre-resolved ``subject``/``object`` field on the item) are
-    DROPPED — never rendered with the raw id as a placeholder, which would
-    otherwise leak entity hashes into the user-facing envelope.
+    When ``canonical_names`` is provided, subject/object are resolved via
+    :func:`magi.memory.entity_display.display_name_for` — catalog name wins;
+    else the slug part of ``type:slug``; else ``(未命名 {type})`` for
+    hash-like slugs; else dropped when the id is not even a ``type:slug``.
+    A pre-resolved ``subject``/``object`` string on the item is used as a
+    last-resort fallback when the id resolution returns None.
 
     When ``canonical_names`` is None, behavior matches the legacy fallback
     chain (``subject`` then ``subject_id``) for backward compatibility.
@@ -257,15 +259,14 @@ def _project_relationships(
         pre_object = str(item.get("object") or "").strip()
 
         if canonical_names is not None:
+            # Round 4: try catalog → slug → '(未命名 {type})' → fall through
+            # to pre-resolved upstream value → drop.
             resolved_subject = (
-                canonical_names.get(subject_id) if subject_id else None
+                display_name_for(subject_id, canonical_names) if subject_id else None
             )
             resolved_object = (
-                canonical_names.get(object_id) if object_id else None
+                display_name_for(object_id, canonical_names) if object_id else None
             )
-            # Prefer a canonical-name resolution; fall back to a pre-resolved
-            # ``subject``/``object`` if the upstream stage already did its
-            # own resolution. Only drop when no source of a real name exists.
             subject = (resolved_subject or pre_subject).strip()
             object_value = (resolved_object or pre_object).strip()
             if not subject or not object_value:
@@ -305,10 +306,11 @@ def _project_assertions(
 
     Returns ``(findings, dropped_count)``.
 
-    When ``canonical_names`` is provided, the subject is resolved via the
-    map; assertions whose ``entity_id`` has no canonical name (and no
-    pre-resolved ``subject`` field) are DROPPED to avoid leaking raw
-    entity hashes into the rendered envelope.
+    When ``canonical_names`` is provided, subject and ``target_entity_id``
+    are resolved via :func:`magi.memory.entity_display.display_name_for`
+    (catalog → slug → ``(未命名 {type})`` → None). Assertions are only
+    dropped when the resolver returns None AND no upstream pre-resolved
+    field exists.
 
     When ``canonical_names`` is None, behavior matches the legacy fallback
     chain (``subject`` then ``entity_id``) for backward compatibility.
@@ -323,7 +325,7 @@ def _project_assertions(
 
         if canonical_names is not None:
             resolved_subject = (
-                canonical_names.get(entity_id) if entity_id else None
+                display_name_for(entity_id, canonical_names) if entity_id else None
             )
             subject = (resolved_subject or pre_subject).strip()
             if not subject:
@@ -334,11 +336,10 @@ def _project_assertions(
 
         predicate = str(item.get("predicate") or item.get("trait_name") or item.get("trait_family") or "").strip()
 
-        # Round 3 C3: when claim/content/trait_value are empty, the legacy
-        # fallback chain put the raw target_entity_id into the user-facing
-        # statement (same hash-leak class Phase 5 was created to close).
-        # Resolve target_entity_id through canonical_names instead, and drop
-        # the assertion when no resolution is available.
+        # Round 3 C3 + Round 4 C2: when claim/content/trait_value are empty,
+        # resolve target_entity_id through display_name_for (catalog name →
+        # slug → '(未命名 {type})'); drop the assertion only if the id has
+        # no parseable type:slug shape at all.
         direct_value = (
             str(item.get("claim") or "").strip()
             or str(item.get("content") or "").strip()
@@ -350,9 +351,10 @@ def _project_assertions(
             value = direct_value
         elif target_id:
             if canonical_names is not None:
-                resolved_target = canonical_names.get(target_id)
+                resolved_target = display_name_for(target_id, canonical_names)
                 if not resolved_target:
-                    # Same drop policy as the subject side: never leak raw ids.
+                    # Same safety invariant as Phase 5: never leak raw ids.
+                    # Only reached when target_id is not 'type:slug' shaped.
                     dropped += 1
                     continue
                 value = resolved_target
