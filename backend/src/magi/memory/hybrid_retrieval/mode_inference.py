@@ -19,7 +19,7 @@ _SUMMARY_CUES_CJK: tuple[str, ...] = (
     "总结", "概况", "汇总", "回顾", "概述",
 )
 _TEMPORAL_COMPARE_CUES_CJK: tuple[str, ...] = (
-    "对比", "比较", "差别", "比起",
+    "对比", "相比", "比较", "差别", "比起",
 )
 _CURRENT_STATE_CUES_CJK: tuple[str, ...] = (
     "现在", "目前", "最近", "这几天", "今天", "本周", "本月",

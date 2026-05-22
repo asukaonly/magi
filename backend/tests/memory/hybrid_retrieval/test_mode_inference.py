@@ -28,6 +28,11 @@ def test_temporal_compare_cue():
     assert infer_query_mode(query="本月 vs 上月 我做了什么", caller_hint=None) == "temporal_compare"
 
 
+def test_temporal_compare_cue_chinese_xiangbi():
+    """Round 5 #11: 相比 is a temporal_compare cue alongside 对比."""
+    assert infer_query_mode(query="本月相比上月有什么变化", caller_hint=None) == "temporal_compare"
+
+
 def test_current_state_cue_chinese():
     assert infer_query_mode(query="我最近在听什么音乐", caller_hint=None) == "current_state"
 
