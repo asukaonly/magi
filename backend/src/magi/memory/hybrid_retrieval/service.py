@@ -27,6 +27,50 @@ from .service_postprocessing import HybridRetrievalPostProcessingMixin
 
 logger = logging.getLogger(__name__)
 
+
+# Round 5 I2: trace keys emitted to ops logs so the routing decisions
+# (mode_source, indexical_resolved, etc.) and quality counters
+# (dropped_unresolved_entity_count) are visible without dumping
+# the payload object. Keep this short — log line, not dump.
+_TRACE_KEYS_LOGGED: tuple[str, ...] = (
+    "query_mode",
+    "mode_source",
+    "inferred_mode",
+    "indexical_resolved",
+    "indexical_cue",
+    "indexical_cue_orphaned",
+    "mode_rrf_applied",
+    "l1_retrieval_scopes",
+    "dropped_unresolved_entity_count",
+)
+
+
+def _log_retrieval_trace(payload: "RetrievalPayload") -> None:
+    """Emit selected trace keys to the module logger.
+
+    Trace keys that are unset on a given request are omitted so the line
+    stays short and easy to grep. ``dropped_unresolved_entity_count`` is
+    only included when > 0 (the projection layer only writes it then).
+    """
+    trace = getattr(payload, "trace", None) or {}
+    if not trace:
+        return
+    parts: list[str] = []
+    for key in _TRACE_KEYS_LOGGED:
+        if key not in trace:
+            continue
+        value = trace[key]
+        # Drop falsy values (None, "", [], False, 0) — keeps the line short
+        # and ensures dropped_unresolved_entity_count is only emitted when
+        # there's actually something dropped.
+        if not value:
+            continue
+        parts.append(f"{key}={value!r}")
+    if not parts:
+        return
+    logger.info("retrieval trace: %s", " ".join(parts))
+
+
 def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalConfig:
     """Build retrieval config from the runtime app config."""
     reranker = app_config.agent.memory.reranker
@@ -255,11 +299,13 @@ class HybridRetrievalService(
             payload.trace["l1_retrieval_scopes"] = list(indexical_scopes)
         payload.trace["mode_explicit"] = mode_explicit
 
-        return await self._execute_query(
+        result = await self._execute_query(
             request, decision, intent_input, payload,
             effective_l1=effective_l1,
             mode_plan=mode_plan,
         )
+        _log_retrieval_trace(result)
+        return result
 
     def _refresh_handlers(self) -> None:
         """Rebuild layer handlers only when the underlying stores change.
