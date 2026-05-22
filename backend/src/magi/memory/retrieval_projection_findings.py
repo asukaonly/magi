@@ -333,13 +333,37 @@ def _project_assertions(
             subject = (pre_subject or entity_id).strip()
 
         predicate = str(item.get("predicate") or item.get("trait_name") or item.get("trait_family") or "").strip()
-        value = str(
-            item.get("claim")
-            or item.get("content")
-            or item.get("trait_value")
-            or item.get("target_entity_id")
-            or ""
-        ).strip()
+
+        # Round 3 C3: when claim/content/trait_value are empty, the legacy
+        # fallback chain put the raw target_entity_id into the user-facing
+        # statement (same hash-leak class Phase 5 was created to close).
+        # Resolve target_entity_id through canonical_names instead, and drop
+        # the assertion when no resolution is available.
+        direct_value = (
+            str(item.get("claim") or "").strip()
+            or str(item.get("content") or "").strip()
+            or str(item.get("trait_value") or "").strip()
+        )
+        target_id = str(item.get("target_entity_id") or "").strip()
+
+        if direct_value:
+            value = direct_value
+        elif target_id:
+            if canonical_names is not None:
+                resolved_target = canonical_names.get(target_id)
+                if not resolved_target:
+                    # Same drop policy as the subject side: never leak raw ids.
+                    dropped += 1
+                    continue
+                value = resolved_target
+            else:
+                # Legacy mode (canonical_names=None): preserve old fall-through
+                # so callers that have not opted into resolution still get the
+                # raw id as before. Phase 5 callers always pass a dict.
+                value = target_id
+        else:
+            value = ""
+
         if not subject or not predicate or not value:
             if canonical_names is not None:
                 dropped += 1
