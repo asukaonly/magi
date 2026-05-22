@@ -117,6 +117,10 @@ def _coerce_request(request: RetrievalQuery | dict[str, Any]) -> RetrievalQuery:
         return request
     if not isinstance(request, dict):
         return RetrievalQuery(query="", user_id=None, session_id=None, time_range={})
+    # Round 5 #8: propagate ALL RetrievalQuery fields. The dict path is used
+    # by tests + plugin code; silently dropping fields like exclude_user_text
+    # (echo filter) or conversation_context (indexical anchor) degrades
+    # behavior in ways callers wouldn't expect.
     return RetrievalQuery(
         query=str(request.get("query") or ""),
         user_id=request.get("user_id"),
@@ -125,7 +129,10 @@ def _coerce_request(request: RetrievalQuery | dict[str, Any]) -> RetrievalQuery:
         query_mode=request.get("query_mode"),
         source_filters=list(request.get("source_filters") or []),
         domain_filters=list(request.get("domain_filters") or []),
+        summary_categories=list(request.get("summary_categories") or []),
         limit=int(request.get("limit") or 10),
+        exclude_user_text=request.get("exclude_user_text"),
+        conversation_context=request.get("conversation_context"),
     )
 
 
