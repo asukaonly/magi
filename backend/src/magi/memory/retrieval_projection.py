@@ -20,8 +20,19 @@ def project_historical_recall(
     payload: RetrievalPayload | dict[str, Any],
     request: RetrievalQuery | dict[str, Any],
     plugin_manager: Any | None = None,
+    canonical_names: dict[str, str] | None = None,
 ) -> HistoricalRecallPayload:
-    """Project a raw retrieval payload into an answer-facing recall contract."""
+    """Project a raw retrieval payload into an answer-facing recall contract.
+
+    When ``canonical_names`` is supplied, findings whose subject/object
+    ``entity_id`` has no entry in the map are DROPPED rather than rendered
+    with the raw id. The drop count is recorded in ``payload.trace`` as
+    ``dropped_unresolved_entity_count`` (only when greater than zero).
+
+    When ``canonical_names`` is ``None`` (the default), behavior is
+    identical to the legacy projection — callers that pre-resolve names
+    via the ``subject``/``object`` fields keep working unchanged.
+    """
     normalized_payload = _coerce_payload(payload)
     normalized_request = _coerce_request(request)
     plugin_recall_artifacts = _build_plugin_recall_artifacts(
@@ -31,7 +42,11 @@ def project_historical_recall(
         plugin_manager=plugin_manager,
     )
 
-    findings = _build_findings(normalized_payload, normalized_request)
+    findings, dropped_unresolved = _build_findings(
+        normalized_payload, normalized_request, canonical_names
+    )
+    if dropped_unresolved > 0:
+        normalized_payload.trace["dropped_unresolved_entity_count"] = dropped_unresolved
     entity_refs = _build_entity_refs(
         normalized_payload,
         plugin_entity_refs=plugin_recall_artifacts.get("entity_refs", []),

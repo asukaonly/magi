@@ -50,12 +50,21 @@ _PREDICATE_BONUS: dict[str, dict[str, dict[str, float]]] = {
 # Public API
 # ---------------------------------------------------------------------------
 
-def build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[dict[str, Any]]:
+def build_findings(
+    payload: RetrievalPayload,
+    request: RetrievalQuery,
+    canonical_names: dict[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
     """Build a ranked list of findings from all memory layers.
 
     Every layer's results are projected, scored with a unified quality
     metric, and sorted.  Mode preference is a soft bonus rather than a
     hard layer selector.
+
+    Returns ``(findings, dropped_count)``. ``dropped_count > 0`` when
+    ``canonical_names`` is supplied and some L2 findings were filtered
+    because their referenced entity_ids had no canonical name (would
+    otherwise leak raw hashes into the user-facing envelope).
     """
     mode = str(request.query_mode or "").strip() or "exact_fact"
     explicit_chat_source = _has_explicit_chat_source(request.source_filters)
@@ -68,8 +77,17 @@ def build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[d
             explicit_chat_source=explicit_chat_source,
         )
     )
-    candidates.extend(_project_relationships(payload.l2_relationships))
-    candidates.extend(_project_assertions(payload.l2_assertions))
+
+    rel_findings, rel_dropped = _project_relationships(
+        payload.l2_relationships, canonical_names
+    )
+    candidates.extend(rel_findings)
+
+    asrt_findings, asrt_dropped = _project_assertions(
+        payload.l2_assertions, canonical_names
+    )
+    candidates.extend(asrt_findings)
+
     candidates.extend(_project_reflections(payload.l3_reflections))
     candidates.extend(_project_procedures(payload.l4_procedures))
 
@@ -94,7 +112,7 @@ def build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[d
     selected = candidates[:limit]
     for finding in selected:
         finding["topic"] = _derive_finding_topic(finding)
-    return selected
+    return selected, rel_dropped + asrt_dropped
 
 
 # ---------------------------------------------------------------------------
@@ -211,15 +229,56 @@ def _attach_score(
 # Per-layer projection helpers
 # ---------------------------------------------------------------------------
 
-def _project_relationships(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _project_relationships(
+    items: list[dict[str, Any]],
+    canonical_names: dict[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Project L2 relationships into findings.
+
+    Returns ``(findings, dropped_count)``.
+
+    When ``canonical_names`` is provided, subject and object are resolved via
+    that map. Findings whose ``subject_id`` or ``object_id`` has no canonical
+    name (and no pre-resolved ``subject``/``object`` field on the item) are
+    DROPPED — never rendered with the raw id as a placeholder, which would
+    otherwise leak entity hashes into the user-facing envelope.
+
+    When ``canonical_names`` is None, behavior matches the legacy fallback
+    chain (``subject`` then ``subject_id``) for backward compatibility.
+    """
     findings: list[dict[str, Any]] = []
+    dropped = 0
     for item in items:
         if not isinstance(item, dict):
             continue
-        subject = str(item.get("subject") or item.get("subject_id") or "").strip()
+        subject_id = str(item.get("subject_id") or "").strip()
+        object_id = str(item.get("object_id") or "").strip()
+        pre_subject = str(item.get("subject") or "").strip()
+        pre_object = str(item.get("object") or "").strip()
+
+        if canonical_names is not None:
+            resolved_subject = (
+                canonical_names.get(subject_id) if subject_id else None
+            )
+            resolved_object = (
+                canonical_names.get(object_id) if object_id else None
+            )
+            # Prefer a canonical-name resolution; fall back to a pre-resolved
+            # ``subject``/``object`` if the upstream stage already did its
+            # own resolution. Only drop when no source of a real name exists.
+            subject = (resolved_subject or pre_subject).strip()
+            object_value = (resolved_object or pre_object).strip()
+            if not subject or not object_value:
+                dropped += 1
+                continue
+        else:
+            subject = (pre_subject or subject_id).strip()
+            object_value = (pre_object or object_id).strip()
+
         predicate = str(item.get("predicate") or "").strip()
-        object_value = str(item.get("object") or item.get("object_id") or "").strip()
         if not subject or not predicate or not object_value:
+            if canonical_names is not None:
+                dropped += 1
             continue
         finding: dict[str, Any] = {
             "kind": "relationship",
@@ -235,15 +294,44 @@ def _project_relationships(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if evidence_text:
             finding["evidence_text"] = evidence_text
         findings.append(finding)
-    return findings
+    return findings, dropped
 
 
-def _project_assertions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _project_assertions(
+    items: list[dict[str, Any]],
+    canonical_names: dict[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Project L2 assertions into findings.
+
+    Returns ``(findings, dropped_count)``.
+
+    When ``canonical_names`` is provided, the subject is resolved via the
+    map; assertions whose ``entity_id`` has no canonical name (and no
+    pre-resolved ``subject`` field) are DROPPED to avoid leaking raw
+    entity hashes into the rendered envelope.
+
+    When ``canonical_names`` is None, behavior matches the legacy fallback
+    chain (``subject`` then ``entity_id``) for backward compatibility.
+    """
     findings: list[dict[str, Any]] = []
+    dropped = 0
     for item in items:
         if not isinstance(item, dict):
             continue
-        subject = str(item.get("subject") or item.get("entity_id") or "").strip()
+        entity_id = str(item.get("entity_id") or "").strip()
+        pre_subject = str(item.get("subject") or "").strip()
+
+        if canonical_names is not None:
+            resolved_subject = (
+                canonical_names.get(entity_id) if entity_id else None
+            )
+            subject = (resolved_subject or pre_subject).strip()
+            if not subject:
+                dropped += 1
+                continue
+        else:
+            subject = (pre_subject or entity_id).strip()
+
         predicate = str(item.get("predicate") or item.get("trait_name") or item.get("trait_family") or "").strip()
         value = str(
             item.get("claim")
@@ -253,6 +341,8 @@ def _project_assertions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             or ""
         ).strip()
         if not subject or not predicate or not value:
+            if canonical_names is not None:
+                dropped += 1
             continue
         findings.append(
             {
@@ -266,7 +356,7 @@ def _project_assertions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "_retrieval_score": float(item.get("confidence") or item.get("confidence_score") or 0.0),
             }
         )
-    return findings
+    return findings, dropped
 
 
 _FACT_LIKE_QUERY_MODES = frozenset(

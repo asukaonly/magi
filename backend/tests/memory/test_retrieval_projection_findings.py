@@ -5,7 +5,20 @@ from __future__ import annotations
 import pytest
 
 from magi.memory.hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
-from magi.memory.retrieval_projection_findings import build_findings
+from magi.memory.retrieval_projection_findings import build_findings as _build_findings_impl
+
+
+def build_findings(payload, request, canonical_names=None):
+    """Test-only wrapper that returns just the findings list.
+
+    The production ``build_findings`` returns ``(findings, dropped_count)``
+    as of Phase 5. These tests pre-date that contract and only care about
+    the findings; the wrapper keeps them ergonomic without rewriting every
+    callsite (the drop count is exercised in
+    ``test_retrieval_projection_canonical_names.py``).
+    """
+    findings, _dropped = _build_findings_impl(payload, request, canonical_names)
+    return findings
 
 
 def _make_query(query: str = "test", mode: str = "exact_fact", limit: int = 10) -> RetrievalQuery:
