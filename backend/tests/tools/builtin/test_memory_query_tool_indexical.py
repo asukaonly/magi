@@ -282,3 +282,61 @@ async def test_memory_query_executes_without_query_mode():
     call = fake_service.query.await_args
     request = call.args[0] if call.args else call.kwargs["request"]
     assert request.query_mode is None
+
+
+@pytest.mark.asyncio
+async def test_memory_query_resolves_canonical_names_before_projection():
+    """The tool executor must collect entity_ids from the retrieval payload,
+    batch-resolve them via get_canonical_names, and pass the resolved dict
+    into project_historical_recall.
+
+    We verify by:
+    1. Mocking get_canonical_names to return a fixed canonical-name map
+    2. Mocking the service to return a payload with l2_relationships referencing
+       a specific entity_id
+    3. Asserting the resulting envelope's findings use the canonical name
+       (not the raw id)"""
+    from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+    from magi.tools.schema import ToolExecutionContext
+
+    tool = MemoryQueryTool()
+    fake_service = AsyncMock()
+    from magi.memory.hybrid_retrieval.models import RetrievalPayload
+    fake_payload = RetrievalPayload(
+        l2_relationships=[
+            {
+                "subject_id": "user:local_user",
+                "predicate": "INTERESTED_IN",
+                "object_id": "74f953b57f75",
+                "confidence": 0.99,
+                "status": "active",
+            }
+        ],
+    )
+    fake_service.query = AsyncMock(return_value=fake_payload)
+    fake_service.memory_db_path = "/tmp/fake_memory.db"
+
+    async def fake_lookup(db_path, entity_ids):
+        return {"user:local_user": "asuka", "74f953b57f75": "字节跳动"}
+
+    with patch.object(tool, "_get_service", return_value=fake_service), \
+         patch("magi.tools.builtin.memory_query_tool.get_canonical_names",
+               side_effect=fake_lookup):
+        result = await tool.execute(
+            parameters={"query": "who am I interested in"},
+            context=ToolExecutionContext(
+                agent_id="agent-1", workspace="/tmp",
+                env_vars={"user_id": "u1", "session_id": ""},
+                permissions=[],
+            ),
+        )
+
+    assert result.success is True
+    envelope = result.data["historical_recall"]
+    findings = envelope["findings"]
+    assert any("字节跳动" in f["statement"] for f in findings), (
+        f"expected canonical name '字节跳动' in findings; got {findings}"
+    )
+    assert not any("74f953b57f75" in str(f) for f in findings), (
+        f"raw hash leaked into findings: {findings}"
+    )

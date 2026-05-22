@@ -94,6 +94,17 @@ class HybridRetrievalService(
             shadow_eval_enabled=self._config.intent_shadow_eval_enabled,
         )
 
+    @property
+    def memory_db_path(self) -> Optional[str]:
+        """Path to the shared memory SQLite database.
+
+        Exposed for downstream consumers (e.g. the memory_query tool) that
+        need to perform direct lookups against catalog tables alongside the
+        retrieval payload. Returns ``None`` when the underlying unified
+        memory does not expose a database path (e.g. test doubles).
+        """
+        return getattr(self._memory, "memory_db_path", None)
+
     async def query(self, request: RetrievalQuery) -> RetrievalPayload:
         """Execute a layer-aware retrieval query."""
         self._refresh_runtime_config()
