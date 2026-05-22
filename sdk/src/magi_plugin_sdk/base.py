@@ -72,6 +72,26 @@ class Plugin(ABC):
         self.settings = dict(settings)
         self._i18n = None
 
+    async def shutdown(self) -> None:
+        """Release any long-lived resources owned by this plugin.
+
+        Called by the host immediately before unloading the plugin (e.g. on
+        disable, on settings update which triggers reload, on backend
+        shutdown). Plugins that spawn subprocesses, run background timers,
+        or hold OS observers MUST override this and tear them down here.
+
+        Without this hook, host-driven reload (e.g. when the user updates
+        settings via the UI) creates a fresh plugin instance alongside the
+        old one — the old instance's timers keep ticking and its
+        subprocess keeps consuming resources until the backend exits. The
+        symptom is "I changed the interval to 120s and now captures fire
+        every 3s" — actually four sensor instances at 12s each, stacking.
+
+        Default is a no-op. Must be idempotent: the host may call shutdown
+        multiple times. Should not raise; the host will log and continue
+        if you do, but the next reload will still proceed.
+        """
+
     def t(
         self,
         key: str,

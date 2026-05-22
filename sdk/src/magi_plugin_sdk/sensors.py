@@ -59,7 +59,12 @@ class SensorActivity:
     source: ActivityFacet
     action: ActivityFacet
     object: ActivityFacet | None = None
-    qualifiers: dict[str, str] = field(default_factory=dict)
+    # Qualifiers carry typed scalar values — str/int/float/bool. Plugins
+    # were previously coerced to str across the board, which round-tripped
+    # ints like capture_count and duration_seconds through JSON as strings
+    # ("1", "0") and made downstream aggregation awkward. Keep the native
+    # type when it's a JSON-safe primitive; coerce anything else to str.
+    qualifiers: dict[str, str | int | float | bool] = field(default_factory=dict)
 
 
 @dataclass(slots=True, frozen=True)
@@ -414,11 +419,23 @@ class SensorBase(ABC):
         qualifiers: dict[str, Any] | None = None,
     ) -> SensorActivity:
         """Return the structured activity envelope for a sensor output."""
-        normalized_qualifiers = {
-            str(key): str(value)
-            for key, value in dict(qualifiers or {}).items()
-            if str(key).strip() and str(value).strip()
-        }
+        def _coerce_qualifier_value(value: Any) -> Any:
+            # Preserve JSON-native primitives. Strings get an empty-check
+            # downstream; numerics/bools always round-trip cleanly through
+            # the JSON metadata column.
+            if isinstance(value, (int, float, bool)):
+                return value
+            return str(value)
+
+        normalized_qualifiers: dict[str, str | int | float | bool] = {}
+        for raw_key, raw_value in dict(qualifiers or {}).items():
+            key = str(raw_key).strip()
+            if not key:
+                continue
+            coerced = _coerce_qualifier_value(raw_value)
+            if isinstance(coerced, str) and not coerced.strip():
+                continue
+            normalized_qualifiers[key] = coerced
         return SensorActivity(
             source=source,
             action=action,

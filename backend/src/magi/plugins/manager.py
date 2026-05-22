@@ -1,6 +1,7 @@
 """Unified plugin manager for tool and sensor extensions."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import importlib
 import inspect
@@ -107,6 +108,10 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         self._registered_tools: dict[str, list[str]] = {}
         self._registered_sensors: dict[str, list[str]] = {}
         self._registered_hooks: dict[str, list[tuple[Any, Any]]] = {}
+        # Tasks spawned by unload_plugin to run plugins' shutdown coroutines.
+        # We hold strong refs so they're not GC'd while pending; entries
+        # remove themselves via a done callback.
+        self._pending_plugin_shutdowns: set[asyncio.Task] = set()
 
     @property
     def search_paths(self) -> list[Path]:
@@ -377,7 +382,15 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
             self._registered_hooks[plugin_id] = recorded
 
     def unload_plugin(self, plugin_id: str) -> None:
-        """Unload a plugin and unregister its contributions."""
+        """Unload a plugin and unregister its contributions.
+
+        Invokes the plugin's ``shutdown()`` hook to give it a chance to
+        tear down sensors / subprocesses / timers before its instance is
+        discarded. Without this, every reload (settings update, disable,
+        upgrade) leaks the previous instance's resources — the visible
+        symptom being multiple sensor timers and helper subprocesses
+        stacking up after each reload.
+        """
 
         for tool_name in self._registered_tools.pop(plugin_id, []):
             self._tool_registry.unregister(tool_name)
@@ -392,13 +405,56 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
                         registry.unregister(event_type, handler)
                     except Exception:
                         pass
-        self._plugin_instances.pop(plugin_id, None)
+        plugin_instance = self._plugin_instances.pop(plugin_id, None)
+        if plugin_instance is not None:
+            self._fire_plugin_shutdown(plugin_id, plugin_instance)
         state = self._package_states.get(plugin_id)
         if state is not None:
             state.loaded = False
             state.contributions = self._placeholder_contributions(state.manifest)
         self._purge_plugin_modules(plugin_id)
         request_sensor_schedule_refresh()
+
+    def _fire_plugin_shutdown(self, plugin_id: str, instance: Any) -> None:
+        """Invoke ``plugin.shutdown()`` regardless of caller sync/async context.
+
+        - In an async context: schedules the shutdown coroutine on the running
+          loop and returns immediately. The new plugin instance can start
+          loading concurrently with the old one tearing down. This brief
+          overlap is benign because (a) the old sensor is already
+          unregistered from SensorRegistry above so the host won't pull
+          from it, and (b) the SDK's ManagedSubprocess registry catches
+          any subprocess we didn't get to in time.
+        - In sync context (rare): runs the shutdown to completion via
+          asyncio.run().
+        """
+        shutdown = getattr(instance, "shutdown", None)
+        if shutdown is None:
+            return
+
+        async def _run() -> None:
+            try:
+                result = shutdown()
+                if asyncio.iscoroutine(result):
+                    await asyncio.wait_for(result, timeout=5.0)
+            except Exception:
+                logger.exception("plugin.shutdown_failed plugin_id=%s", plugin_id)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(_run())
+            except Exception:
+                logger.exception(
+                    "plugin.shutdown_sync_runner_failed plugin_id=%s", plugin_id
+                )
+            return
+
+        task = loop.create_task(_run())
+        # Keep a strong ref so the task isn't GC'd mid-flight.
+        self._pending_plugin_shutdowns.add(task)
+        task.add_done_callback(self._pending_plugin_shutdowns.discard)
 
     def enable_plugin(self, plugin_id: str) -> PluginPackageState:
         """Persist enable/trust state and load the plugin."""
