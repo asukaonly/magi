@@ -11,6 +11,7 @@ from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
 from .evidence.session_bundles import EvidenceBundleMixin
 from .indexical_resolver import resolve as resolve_indexical
 from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider
+from .mode_inference import infer_query_mode
 from .mode_registry import MODE_REGISTRY, VALID_MODES
 from .router import normalize_query_mode
 from .models import (
@@ -124,6 +125,25 @@ class HybridRetrievalService(
             indexical_trace["indexical_cue"] = indexical.cue_matched
         elif indexical.cue_matched:
             indexical_trace["indexical_cue_orphaned"] = indexical.cue_matched
+
+        # 0b. Mode source resolution — runs AFTER the indexical block so the
+        #     resolver's authoritative override wins. Three branches:
+        #       - indexical_override : Phase 3 already set request.query_mode.
+        #       - caller             : caller supplied a non-empty query_mode.
+        #       - inferred           : caller omitted it; run the heuristic
+        #                              inference module and apply the result.
+        if indexical.is_indexical:
+            indexical_trace["mode_source"] = "indexical_override"
+        elif request.query_mode:
+            indexical_trace["mode_source"] = "caller"
+        else:
+            inferred_mode = infer_query_mode(
+                query=request.query,
+                caller_hint=None,
+            )
+            request = dc_replace(request, query_mode=inferred_mode)
+            indexical_trace["mode_source"] = "inferred"
+            indexical_trace["inferred_mode"] = inferred_mode
 
         # 1. Resolve query mode — normalize legacy names first
         resolved_mode = normalize_query_mode(request.query_mode)

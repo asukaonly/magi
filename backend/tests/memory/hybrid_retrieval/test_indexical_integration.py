@@ -155,23 +155,43 @@ async def test_service_infers_query_mode_when_caller_omits():
     """Phase 4 north star: when query_mode is None and no indexical cue,
     the service calls infer_query_mode, sets a resolved mode, and traces
     mode_source='inferred'."""
-    from magi.memory.hybrid_retrieval.models import RetrievalQuery
-    from magi.memory.hybrid_retrieval.service import HybridRetrievalService
-
-    # Build minimal mocked service. The implementer fills in based on the
-    # actual service constructor signature (likely the same stub setup used
-    # by test_service_applies_indexical_overrides_to_request).
     request = RetrievalQuery(
         query="总结一下我最近的活动",  # contains '总结' cue → infer "summary"
         query_mode=None,
         conversation_context=None,
     )
-    # ... build service with mocked downstream ...
-    # payload = await service.query(request)
-    # assert payload.trace.get("mode_source") == "inferred"
-    # assert payload.trace.get("inferred_mode") == "summary"
-    pytest.skip(
-        "Scaffold — implementer wires the mocked service once Task 3's "
-        "service integration lands. CONTRACT: payload.trace['mode_source'] "
-        "must equal 'inferred' and 'inferred_mode' must equal 'summary'."
+    svc = HybridRetrievalService(
+        _empty_memory(),
+        config=RetrievalConfig(intent_decider_llm_enabled=False),
     )
+    payload = await svc.query(request)
+
+    assert isinstance(payload, RetrievalPayload)
+    assert payload.trace.get("mode_source") == "inferred"
+    assert payload.trace.get("inferred_mode") == "summary"
+    # The inferred mode flows into the standard resolution pipeline.
+    assert payload.trace.get("resolved_query_mode") == "summary"
+
+
+@pytest.mark.asyncio
+async def test_service_traces_caller_when_query_mode_explicit():
+    """When the caller explicitly supplies query_mode, trace records
+    mode_source='caller' and the caller's mode is preserved unchanged
+    (no inference, no indexical override)."""
+    request = RetrievalQuery(
+        query="who is asuka",
+        query_mode="exact_fact",
+        conversation_context=None,
+    )
+    svc = HybridRetrievalService(
+        _empty_memory(),
+        config=RetrievalConfig(intent_decider_llm_enabled=False),
+    )
+    payload = await svc.query(request)
+
+    assert isinstance(payload, RetrievalPayload)
+    assert payload.trace.get("mode_source") == "caller"
+    # inferred_mode key must NOT leak in for caller-supplied path.
+    assert "inferred_mode" not in payload.trace
+    # Caller mode preserved through the pipeline.
+    assert payload.trace.get("resolved_query_mode") == "exact_fact"
