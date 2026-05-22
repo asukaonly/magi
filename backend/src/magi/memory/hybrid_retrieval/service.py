@@ -120,25 +120,26 @@ class HybridRetrievalService(
 
         # 0. Indexical resolution — must run BEFORE the intent decider so its
         #    overrides are authoritative. When a query contains an indexical
-        #    cue (e.g. '当时', 'just now') AND conversation context contains
-        #    at least one assistant turn, force episode_recall + a temporal
-        #    window anchored on that assistant turn. dataclasses.replace keeps
-        #    the caller's request object untouched.
+        #    cue (e.g. '当时', 'just now') AND conversation context exists,
+        #    force episode_recall mode (which routes to L1 conversation_only
+        #    via mode_plan.l1_retrieval_scopes). dataclasses.replace keeps the
+        #    caller's request object untouched.
+        #
+        #    Design correction (2026-05-22): the resolver no longer mutates
+        #    request.time_range. '当时/那时/上次' typically reference deep
+        #    historical context, not the immediate prior turn ±2min. L1
+        #    content matching (BM25 + vector) finds the actually-referenced
+        #    events across all conversation history. See
+        #    indexical_resolver.py module docstring for the full rationale.
         indexical = resolve_indexical(
             query=request.query,
             conversation_context=request.conversation_context,
         )
         indexical_trace: Dict[str, Any] = {}
         if indexical.is_indexical:
-            anchor = indexical.temporal_anchor
             request = dc_replace(
                 request,
                 query_mode=indexical.force_mode,
-                time_range=(
-                    {"start": anchor[0], "end": anchor[1]}
-                    if anchor is not None
-                    else request.time_range
-                ),
             )
             indexical_trace["indexical_resolved"] = True
             indexical_trace["indexical_cue"] = indexical.cue_matched
@@ -223,7 +224,7 @@ class HybridRetrievalService(
         #    Only apply RRF overrides when the mode is AUTHORITATIVE:
         #      - caller-supplied (tool call / API caller chose this mode), OR
         #      - indexical-override (Phase 3 resolver fired with confidence
-        #        >= 0.9 on a temporal/episodic cue).
+        #        >= 0.9 on an indexical cue).
         #    Heuristic-inferred modes (Phase 4 infer_query_mode) MUST NOT
         #    drive RRF profile selection — keyword-heuristic errors would
         #    distort retrieval. They still route to the right layers but use

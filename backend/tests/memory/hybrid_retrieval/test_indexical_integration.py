@@ -1,7 +1,12 @@
 """Phase 3 north star: indexical query + conversation_context produces
-authoritative routing overrides (episode_recall + conversation_only +
-temporal anchor), bypassing the LLMIntentDecider chain that would otherwise
-send the query to L2 KG."""
+authoritative routing overrides (episode_recall + conversation_only),
+bypassing the LLMIntentDecider chain that would otherwise send the query
+to L2 KG.
+
+Design correction (2026-05-22): the resolver no longer produces a
+temporal_anchor — '当时/那时/上次' typically reference deep historical
+context, not the immediate prior turn ±2min. Phase 3 is now pure routing
+override; L1 content matching does the actual finding."""
 
 from __future__ import annotations
 
@@ -25,7 +30,10 @@ from magi.memory.hybrid_retrieval.service import HybridRetrievalService
 def test_resolve_indexical_query_with_assistant_anchor():
     """Mirror the original bug scenario: user follow-up '当时我怎么说的'
     + 2-turn context where the assistant just said something about names.
-    Resolver must return is_indexical=True with anchor from the assistant turn."""
+    Resolver must return is_indexical=True with the routing override
+    (episode_recall + conversation_only) — but NO temporal anchor, since
+    '当时' typically references deep history, not the immediate prior
+    turn ±2min."""
     T_ASSISTANT = 1700000100.0  # arbitrary unix seconds
     turns = [
         ConversationTurn(role="user", content="你知道我是谁吗",
@@ -46,13 +54,10 @@ def test_resolve_indexical_query_with_assistant_anchor():
     )
     assert result.force_mode == "episode_recall"
     assert result.l1_retrieval_scope == "conversation_only"
-    assert result.temporal_anchor is not None
-    start, end = result.temporal_anchor
-    # Anchor on the assistant turn ±120s
-    assert start == T_ASSISTANT - 120.0
-    assert end == T_ASSISTANT + 120.0
     assert result.cue_matched == "当时"
     assert result.confidence >= 0.9
+    # Design correction: never a temporal anchor.
+    assert "temporal_anchor" not in IndexicalResolution.__dataclass_fields__
 
 
 def _empty_memory() -> MagicMock:
@@ -78,6 +83,10 @@ async def test_service_applies_indexical_overrides_to_request():
          original 'exact_fact' was overridden by the resolver before the
          intent decider chain ran).
       4. l1_retrieval_scopes is the indexical scope ['conversation_only'].
+
+    Design correction (2026-05-22): the resolver no longer mutates
+    request.time_range. The intent_decider's raw_time_range trace key
+    must therefore reflect the caller's original time_range (None here).
     """
     T = 1700000100.0
     request = RetrievalQuery(
@@ -105,13 +114,25 @@ async def test_service_applies_indexical_overrides_to_request():
     assert payload.trace.get("query_mode") == "episode_recall"
     # L1 scope override applied authoritatively.
     assert payload.trace.get("l1_retrieval_scopes") == ["conversation_only"]
+    # Resolver MUST NOT have mutated time_range — it's now pure routing.
+    # No time_range-related key should reflect a synthetic anchor.
+    assert "time_range" not in payload.trace, (
+        "Phase 3 design correction: resolver must not overlay a time_range; "
+        f"got trace={payload.trace!r}"
+    )
 
 
 @pytest.mark.asyncio
-async def test_service_marks_orphaned_cue_when_no_assistant_turn():
-    """Cue present but no assistant turn in context → resolver returns
+async def test_service_marks_orphaned_cue_when_no_context():
+    """Cue present but NO conversation context at all → resolver returns
     is_indexical=False with cue_matched populated. Service must surface the
-    orphan annotation without forcing episode_recall."""
+    orphan annotation without forcing episode_recall.
+
+    Design correction (2026-05-22): the orphan gate is now "no context",
+    not "no assistant turn" — without anchor extraction the role
+    distribution doesn't matter, only that *some* prior context exists
+    to ground the follow-up vs. a session-start accidental cue match.
+    """
     request = RetrievalQuery(
         query="当时我说什么",
         query_mode="exact_fact",

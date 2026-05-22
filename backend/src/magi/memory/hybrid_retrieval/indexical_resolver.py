@@ -1,14 +1,37 @@
-"""Indexical reference detection and temporal anchor extraction.
+"""Indexical reference detection — routes follow-up queries to L1.
 
 Phase 3: when a user query contains indexical references like '当时' / '我之前
 说' / 'just now', route the query to L1 conversation log retrieval (not L2 KG)
-with a temporal anchor extracted from recent conversation context.
+by forcing ``query_mode=episode_recall`` and
+``l1_retrieval_scope=conversation_only``.
 
 The resolver runs BEFORE the intent decider chain and produces authoritative
-overrides for query_mode + l1_retrieval_scope + time_range.
+routing overrides. Pure heuristic — no LLM. Conservative: returns
+``is_indexical=False`` on ambiguous queries so the existing intent-decider
+chain handles them.
 
-Pure heuristic — no LLM. Conservative: returns is_indexical=False on
-ambiguous queries so the existing intent-decider chain handles them.
+Design correction (2026-05-22)
+------------------------------
+
+Earlier versions extracted a ``temporal_anchor`` (±120s around the most
+recent assistant turn) and overlaid it as a ``time_range`` filter on the
+retrieval request. That assumption was semantically wrong: in Chinese,
+'当时' / '那时' / '上次' (and similar English cues) typically reference
+*deep historical context* — a topic discussed days/weeks/months ago —
+not the immediate prior turn. ±120s anchoring on the last assistant turn
+would systematically filter OUT the actually-referenced events.
+
+A defensive guard (``_MIN_REALISTIC_TIMESTAMP_SECONDS``) accidentally
+made production correct by dropping the anchor when callers forgot to
+thread real wall-clock timestamps. Threading real timestamps in (a once-
+planned follow-up) would have started firing the buggy anchor in
+production. The fix is to remove anchor extraction entirely: Phase 3 is
+now pure routing override; L1 content matching (BM25 + vector) handles
+the actual event finding across all conversation history.
+
+The ``conversation_context`` parameter is retained because it gates
+detection — without ANY context to ground the follow-up intent, a cue
+match at session start is more likely accidental than indexical.
 """
 
 from __future__ import annotations
@@ -22,10 +45,12 @@ from .models import ConversationTurn
 
 @dataclass(frozen=True)
 class IndexicalResolution:
-    """Result of indexical resolution. Authoritative overrides for the
-    downstream retrieval pipeline when is_indexical=True."""
+    """Result of indexical resolution. Authoritative routing overrides
+    for the downstream retrieval pipeline when ``is_indexical=True``.
+
+    No temporal anchor — see module docstring for the design correction.
+    """
     is_indexical: bool
-    temporal_anchor: Optional[tuple[float, float]] = None
     force_mode: Optional[str] = None
     l1_retrieval_scope: Optional[str] = None
     confidence: float = 0.0
@@ -47,18 +72,6 @@ _INDEXICAL_CUES_EN = re.compile(
     re.IGNORECASE,
 )
 
-# ±2 minutes around the anchor turn. Configurable as a module-level constant.
-ANCHOR_WINDOW_SECONDS = 120.0
-
-# Defensive sanity check: real chat events occur after 2001-09-09 (unix sec
-# 1_000_000_000). If a caller forgets to thread real timestamps in and the
-# turns default to ``0.0``, the naive anchor would be ``(-120, +120)`` —
-# epoch ± 2min — which actively prunes ALL real L1 events from indexical
-# query results. Below this threshold we drop the anchor (keeping the
-# ``force_mode`` + ``l1_retrieval_scope`` overrides intact) so the indexical
-# routing still fires but the time filter is omitted.
-_MIN_REALISTIC_TIMESTAMP_SECONDS = 1_000_000_000.0
-
 
 def _detect_cue(query: str) -> Optional[str]:
     """Return the matched cue (for observability) or None."""
@@ -73,45 +86,6 @@ def _detect_cue(query: str) -> Optional[str]:
     return None
 
 
-def _find_latest_assistant_turn(
-    conversation_context: list[ConversationTurn],
-) -> Optional[ConversationTurn]:
-    """Return the most recent assistant turn in context, or None."""
-    if not conversation_context:
-        return None
-    for turn in reversed(conversation_context):
-        if turn.role == "assistant":
-            return turn
-    return None
-
-
-def _extract_anchor_from_context(
-    conversation_context: list[ConversationTurn],
-) -> Optional[tuple[float, float]]:
-    """Anchor on the most recent assistant turn — that's typically what
-    'when I said back then' references in a follow-up.
-
-    Returns (start, end) timestamp range, ±ANCHOR_WINDOW_SECONDS around the
-    anchor turn. Returns None if no assistant turn in context OR if the
-    most-recent assistant turn carries a clearly-bogus timestamp (e.g. the
-    epoch-default ``0.0`` when callers forget to thread real wall-clock
-    times). The bogus-timestamp guard prevents an actively-harmful
-    ``(-120, +120)`` window from pruning every real L1 event.
-    """
-    turn = _find_latest_assistant_turn(conversation_context)
-    if turn is None:
-        return None
-    if turn.timestamp < _MIN_REALISTIC_TIMESTAMP_SECONDS:
-        # Refuse to anchor on a fake/epoch timestamp; the upstream is
-        # responsible for threading real timestamps but we must not
-        # silently corrupt retrieval when they fail to do so.
-        return None
-    return (
-        turn.timestamp - ANCHOR_WINDOW_SECONDS,
-        turn.timestamp + ANCHOR_WINDOW_SECONDS,
-    )
-
-
 def resolve(
     *,
     query: str,
@@ -120,38 +94,34 @@ def resolve(
     """Detect indexical references and produce routing overrides.
 
     ``is_indexical=True`` requires:
-    1. Query contains an indexical cue
-    2. Conversation context contains at least one assistant turn
+      1. Query contains an indexical cue.
+      2. Conversation context is non-empty (at least one prior turn).
 
-    A realistic timestamp on that assistant turn is preferred but not
-    required — when the timestamp is missing/epoch we still fire the
-    routing overrides (``force_mode`` + ``l1_retrieval_scope``) but omit
-    ``temporal_anchor`` so downstream does not apply a bogus time filter.
+    Condition (2) gates accidental cue matches at session start — when no
+    prior turn exists, the follow-up intent can't be grounded. Role
+    distribution within context is irrelevant (we no longer anchor on
+    assistant turns).
+
+    When detected, returns force_mode='episode_recall' and
+    l1_retrieval_scope='conversation_only'. L1 content matching (BM25 +
+    vector) finds the actually-referenced events across all history.
     """
     cue = _detect_cue(query)
     if not cue:
         return IndexicalResolution(is_indexical=False)
 
-    context = conversation_context or []
-    assistant_turn = _find_latest_assistant_turn(context)
-    if assistant_turn is None:
-        # No assistant turn to anchor against; the cue alone is too weak
-        # to override routing.
+    if not conversation_context:
+        # Orphan cue (no context to ground): record but don't override routing.
         return IndexicalResolution(
             is_indexical=False,
             confidence=0.5,
             cue_matched=cue,
         )
 
-    anchor = _extract_anchor_from_context(context)
-    # Confidence drops slightly when we have a turn but no usable timestamp,
-    # so observers can see the degraded mode in traces.
-    confidence = 0.95 if anchor is not None else 0.85
     return IndexicalResolution(
         is_indexical=True,
-        temporal_anchor=anchor,
         force_mode="episode_recall",
         l1_retrieval_scope="conversation_only",
-        confidence=confidence,
+        confidence=0.95,
         cue_matched=cue,
     )
