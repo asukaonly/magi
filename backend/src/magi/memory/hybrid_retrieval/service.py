@@ -157,10 +157,7 @@ class HybridRetrievalService(
         elif request.query_mode:
             indexical_trace["mode_source"] = "caller"
         else:
-            inferred_mode = infer_query_mode(
-                query=request.query,
-                caller_hint=None,
-            )
+            inferred_mode = infer_query_mode(query=request.query)
             request = dc_replace(request, query_mode=inferred_mode)
             indexical_trace["mode_source"] = "inferred"
             indexical_trace["inferred_mode"] = inferred_mode

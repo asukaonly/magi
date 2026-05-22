@@ -61,22 +61,17 @@ def _matches_current_state(query: str) -> bool:
     return bool(_CURRENT_STATE_CUES_EN.search(query))
 
 
-def infer_query_mode(
-    *,
-    query: Optional[str],
-    caller_hint: Optional[str],
-) -> str:
-    """Resolve the query_mode.
+def infer_query_mode(*, query: Optional[str]) -> str:
+    """Resolve the query_mode from the query body.
 
-    Priority:
-    1. caller_hint (if non-empty, trust it — backward compat for callers that
-       explicitly set query_mode).
-    2. Linguistic heuristics on the query body, in priority order:
-       summary > temporal_compare > current_state.
-    3. Default: exact_fact.
+    Caller-supplied modes are handled upstream (`service.py` short-circuits
+    the inference call when `request.query_mode` is set). This function only
+    runs when caller did NOT supply a mode, so a `caller_hint` parameter
+    would always be None — see Round 5 #9 review.
+
+    Linguistic heuristics, in priority order:
+      summary > temporal_compare > current_state > exact_fact (default).
     """
-    if caller_hint:
-        return caller_hint
     if not query:
         return "exact_fact"
     if _matches_summary(query):
