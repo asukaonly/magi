@@ -50,6 +50,7 @@ def project_historical_recall(
     entity_refs = _build_entity_refs(
         normalized_payload,
         plugin_entity_refs=plugin_recall_artifacts.get("entity_refs", []),
+        canonical_names=canonical_names,
     )
     asset_refs = _build_asset_refs(
         normalized_payload,
