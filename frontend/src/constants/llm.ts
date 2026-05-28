@@ -36,8 +36,8 @@ export const RECOMMENDED_MODELS: Record<string, RecommendedModelSet> = {
     embedding: 'openai/text-embedding-3-small',
   },
   deepseek: {
-    context_decider: 'deepseek-chat',
-    core: 'deepseek-chat',
+    context_decider: 'deepseek-v4-flash',
+    core: 'deepseek-v4-pro',
     embedding: null,
   },
 };
