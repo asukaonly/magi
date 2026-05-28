@@ -784,42 +784,6 @@ providers:
           output_per_million_tokens: 0.87
           source: https://api-docs.deepseek.com/quick_start/pricing
           source_note: 75% promotional discount until 2026-05-31; full price is 4x these values afterward.
-      - id: deepseek-chat
-        label: DeepSeek Chat (deprecated alias)
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 128000
-          max_output_tokens: 8192
-          max_concurrency: 6
-        cost:
-          currency: USD
-          input_per_million_tokens: 0.14
-          cached_input_per_million_tokens: 0.0028
-          output_per_million_tokens: 0.28
-          source: https://api-docs.deepseek.com/quick_start/pricing
-          source_note: Deprecated alias — maps to deepseek-v4-flash non-thinking mode.
-      - id: deepseek-reasoner
-        label: DeepSeek Reasoner (deprecated alias)
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 128000
-          max_output_tokens: 8192
-          max_concurrency: 2
-        cost:
-          currency: USD
-          input_per_million_tokens: 0.14
-          cached_input_per_million_tokens: 0.0028
-          output_per_million_tokens: 0.28
-          source: https://api-docs.deepseek.com/quick_start/pricing
-          source_note: Deprecated alias — maps to deepseek-v4-flash thinking mode.
     fields:
       model:
         visible: true
