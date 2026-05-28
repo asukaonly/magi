@@ -186,6 +186,20 @@ class HybridRetrievalService(
             shadow_eval_enabled=self._config.intent_shadow_eval_enabled,
         )
 
+        # Post-retrieval grounding filter. Sits between _execute_query
+        # (raw RRF-fused candidate set) and the answer LLM, trims
+        # noise so the chat LLM only sees evidence that the cheap
+        # filter LLM agrees is relevant. Disabled if no bridge is
+        # configured — degrades to "pass raw payload through".
+        from .grounding_filter import GroundingFilter
+        self._grounding_filter = GroundingFilter(
+            llm_bridge=llm_provider_bridge,
+            timeout_seconds=getattr(
+                self._config, "grounding_filter_timeout_seconds", 3.0
+            ),
+            enabled=getattr(self._config, "grounding_filter_enabled", True),
+        )
+
         # Round 5 #7: one-shot evidence_class staleness warning per db_path.
         _warn_if_evidence_class_stale(getattr(unified_memory, "memory_db_path", None))
 
@@ -355,6 +369,11 @@ class HybridRetrievalService(
             effective_l1=effective_l1,
             mode_plan=mode_plan,
         )
+        # Trim noise BEFORE the answer LLM sees this. The filter is
+        # additive — if it can't run (no bridge / timeout / etc) the
+        # raw payload flows through unchanged, with the reason logged
+        # in trace.grounding_filter.
+        result = await self._grounding_filter.apply(result, request)
         _log_retrieval_trace(result)
         return result
 
