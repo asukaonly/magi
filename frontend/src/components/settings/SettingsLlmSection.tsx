@@ -50,7 +50,7 @@ export function SettingsLlmSection({
         })}
         crossEncoderConfig={draftConfig.memory.reranker?.cross_encoder}
         onCrossEncoderConfigChange={(updater) => patchDraftConfig((draft) => {
-          draft.memory.reranker.cross_encoder ??= { enabled: false, managed_model_id: null };
+          draft.memory.reranker.cross_encoder ??= { enabled: false, managed_model_id: null, variant: null };
           updater(draft.memory.reranker.cross_encoder);
         })}
       />

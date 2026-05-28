@@ -3,6 +3,13 @@
  */
 import { apiClient } from '../client';
 
+export interface LocalRerankerVariantInfo {
+  name: string;
+  file: string;
+  size_mb: number;
+  downloaded: boolean;
+}
+
 export interface LocalRerankerModelInfo {
   id: string;
   label: string;
@@ -15,6 +22,8 @@ export interface LocalRerankerModelInfo {
   downloaded: boolean;
   download_in_progress: boolean;
   download_progress_pct: number | null;
+  variants: LocalRerankerVariantInfo[];
+  default_variant: string | null;
 }
 
 export interface RerankerDownloadStatusResponse {
@@ -30,8 +39,13 @@ export const localRerankerApi = {
     return res.data;
   },
 
-  async downloadModel(modelId: string): Promise<void> {
-    await apiClient.post(`/local-reranker/models/${encodeURIComponent(modelId)}/download`);
+  async downloadModel(modelId: string, variant?: string | null): Promise<void> {
+    const config = variant ? { params: { variant } } : undefined;
+    await apiClient.post(
+      `/local-reranker/models/${encodeURIComponent(modelId)}/download`,
+      undefined,
+      config,
+    );
   },
 
   async getDownloadStatus(modelId: string): Promise<RerankerDownloadStatusResponse> {
