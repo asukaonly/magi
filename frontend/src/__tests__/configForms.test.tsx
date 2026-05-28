@@ -216,12 +216,12 @@ vi.mock('../api/modules/config', async () => {
         display_name: 'DeepSeek',
         description: 'Reasoning and coding models',
         icon: 'deepseek',
-        default_model: 'deepseek-chat',
+        default_model: 'deepseek-v4-flash',
         default_base_url: 'https://api.deepseek.com',
         chat_models: [
           {
-            id: 'deepseek-chat',
-            label: 'DeepSeek Chat',
+            id: 'deepseek-v4-flash',
+            label: 'DeepSeek V4 Flash',
             capabilities: {
               vision: false,
               image_output: false,
