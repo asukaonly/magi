@@ -10,7 +10,8 @@ from ...config.models import LocalEmbeddingSettings
 from ...utils.runtime import RuntimePaths, get_runtime_paths
 from .local_embedding_encoding import LocalEmbeddingEncodingMixin
 from .local_embedding_lifecycle import LocalEmbeddingLifecycleMixin
-from .local_embedding_resolution import LocalEmbeddingModelResolutionMixin, _find_onnx_model
+from .local_embedding_resolution import LocalEmbeddingModelResolutionMixin
+from ..onnx_variants import _find_onnx_model
 
 
 class LocalEmbeddingManager(

@@ -330,14 +330,14 @@ class TestDetectPlatformKey:
 
     def test_darwin_arm64(self) -> None:
         from unittest.mock import patch
-        from magi.memory.embedding import local_embedding_resolution as res
+        from magi.memory import onnx_variants as res
         with patch.object(res.sys, "platform", "darwin"), \
              patch.object(res.platform, "machine", return_value="arm64"):
             assert res.detect_platform_key() == "darwin_arm64"
 
     def test_win32_amd64_uppercase(self) -> None:
         from unittest.mock import patch
-        from magi.memory.embedding import local_embedding_resolution as res
+        from magi.memory import onnx_variants as res
         with patch.object(res.sys, "platform", "win32"), \
              patch.object(res.platform, "machine", return_value="AMD64"):
             # platform.machine() returns "AMD64" on Windows — must be lowercased.
@@ -345,7 +345,7 @@ class TestDetectPlatformKey:
 
     def test_linux_x86_64(self) -> None:
         from unittest.mock import patch
-        from magi.memory.embedding import local_embedding_resolution as res
+        from magi.memory import onnx_variants as res
         with patch.object(res.sys, "platform", "linux"), \
              patch.object(res.platform, "machine", return_value="x86_64"):
             assert res.detect_platform_key() == "linux_x86_64"
@@ -384,12 +384,12 @@ class TestResolveVariantName:
         )
 
     def test_override_wins(self) -> None:
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        from magi.memory.onnx_variants import resolve_variant_name
         meta = self._meta()
         assert resolve_variant_name(meta, override="fp32", platform_key="darwin_arm64") == "fp32"
 
     def test_override_invalid_falls_back_to_platform_default(self, caplog) -> None:
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        from magi.memory.onnx_variants import resolve_variant_name
         meta = self._meta()
         with caplog.at_level("WARNING"):
             result = resolve_variant_name(meta, override="nonexistent", platform_key="darwin_arm64")
@@ -397,22 +397,22 @@ class TestResolveVariantName:
         assert any("nonexistent" in r.message for r in caplog.records)
 
     def test_platform_default_darwin(self) -> None:
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        from magi.memory.onnx_variants import resolve_variant_name
         meta = self._meta()
         assert resolve_variant_name(meta, override=None, platform_key="darwin_arm64") == "fp16"
 
     def test_platform_default_windows(self) -> None:
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        from magi.memory.onnx_variants import resolve_variant_name
         meta = self._meta()
         assert resolve_variant_name(meta, override=None, platform_key="win32_amd64") == "quantized"
 
     def test_fallback_when_platform_unknown(self) -> None:
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        from magi.memory.onnx_variants import resolve_variant_name
         meta = self._meta()
         assert resolve_variant_name(meta, override=None, platform_key="bsd_riscv64") == "quantized"
 
     def test_emergency_chain_when_default_missing_from_variants(self) -> None:
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        from magi.memory.onnx_variants import resolve_variant_name
         # default points to a variant the YAML doesn't actually define.
         # Emergency chain picks first of (quantized, int8, fp16, fp32) present.
         meta = self._meta(variant_names=["fp32", "int8"], default={"_fallback": "quantized"})
@@ -420,7 +420,7 @@ class TestResolveVariantName:
 
     def test_no_variants_returns_none(self) -> None:
         from magi.config.local_embedding_registry import LocalEmbeddingModelMeta
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        from magi.memory.onnx_variants import resolve_variant_name
         meta = LocalEmbeddingModelMeta(
             id="m", label="M", repo="o/m", onnx_repo="o/m",
             dimension=512, max_tokens=512,
@@ -428,15 +428,15 @@ class TestResolveVariantName:
         assert resolve_variant_name(meta, override=None, platform_key="darwin_arm64") is None
 
     def test_none_meta_returns_none(self) -> None:
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        from magi.memory.onnx_variants import resolve_variant_name
         assert resolve_variant_name(None) is None
 
     def test_default_platform_key_used_when_omitted(self) -> None:
         """If platform_key is not passed, function calls detect_platform_key()."""
         from unittest.mock import patch
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        from magi.memory.onnx_variants import resolve_variant_name
         meta = self._meta()
-        with patch("magi.memory.embedding.local_embedding_resolution.detect_platform_key", return_value="win32_amd64"):
+        with patch("magi.memory.onnx_variants.detect_platform_key", return_value="win32_amd64"):
             assert resolve_variant_name(meta, override=None) == "quantized"
 
 
@@ -464,7 +464,7 @@ class TestResolveVariantPath:
         )
 
     def test_picks_resolved_variant_when_present(self, tmp_path: Path) -> None:
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_path
+        from magi.memory.onnx_variants import resolve_variant_path
         (tmp_path / "onnx").mkdir()
         (tmp_path / "onnx" / "model_fp16.onnx").touch()
         (tmp_path / "onnx" / "model_quantized.onnx").touch()
@@ -475,7 +475,7 @@ class TestResolveVariantPath:
         assert result == tmp_path / "onnx" / "model_fp16.onnx"
 
     def test_override_picks_specific_variant(self, tmp_path: Path) -> None:
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_path
+        from magi.memory.onnx_variants import resolve_variant_path
         (tmp_path / "onnx").mkdir()
         (tmp_path / "onnx" / "model.onnx").touch()
         (tmp_path / "onnx" / "model_quantized.onnx").touch()
@@ -487,7 +487,7 @@ class TestResolveVariantPath:
 
     def test_chosen_variant_missing_on_disk_returns_none(self, tmp_path: Path) -> None:
         """If resolver picks fp16 but only fp32 is downloaded, return None — do NOT silently load fp32."""
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_path
+        from magi.memory.onnx_variants import resolve_variant_path
         (tmp_path / "onnx").mkdir()
         (tmp_path / "onnx" / "model.onnx").touch()  # only fp32 present
 
@@ -498,7 +498,7 @@ class TestResolveVariantPath:
 
     def test_flat_layout_fallback(self, tmp_path: Path) -> None:
         """Variant file is 'onnx/model_fp16.onnx' but user flattened it to model_fp16.onnx at root."""
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_path
+        from magi.memory.onnx_variants import resolve_variant_path
         (tmp_path / "model_fp16.onnx").touch()
 
         result = resolve_variant_path(
@@ -508,7 +508,7 @@ class TestResolveVariantPath:
 
     def test_no_variants_block_falls_back_to_legacy_scan(self, tmp_path: Path) -> None:
         from magi.config.local_embedding_registry import LocalEmbeddingModelMeta
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_path
+        from magi.memory.onnx_variants import resolve_variant_path
         (tmp_path / "model_quantized.onnx").touch()
         bare_meta = LocalEmbeddingModelMeta(
             id="m", label="M", repo="o/m", onnx_repo="o/m",
@@ -518,7 +518,7 @@ class TestResolveVariantPath:
         assert result == tmp_path / "model_quantized.onnx"
 
     def test_meta_is_none_falls_back_to_legacy_scan(self, tmp_path: Path) -> None:
-        from magi.memory.embedding.local_embedding_resolution import resolve_variant_path
+        from magi.memory.onnx_variants import resolve_variant_path
         (tmp_path / "model.onnx").touch()
         result = resolve_variant_path(tmp_path, None)
         assert result == tmp_path / "model.onnx"
@@ -561,7 +561,7 @@ class TestLifecycleVariantWiring:
             LocalEmbeddingModelRegistry,
         )
         from magi.memory.embedding.local_embedding_manager import LocalEmbeddingManager
-        from magi.memory.embedding import local_embedding_resolution as res
+        from magi.memory import onnx_variants as res
 
         # Build a fake managed dir with fp16 + quantized files
         (tmp_path / "onnx").mkdir()
@@ -642,7 +642,7 @@ class TestLifecycleVariantWiring:
             LocalEmbeddingModelRegistry,
         )
         from magi.memory.embedding.local_embedding_manager import LocalEmbeddingManager
-        from magi.memory.embedding import local_embedding_resolution as res
+        from magi.memory import onnx_variants as res
 
         (tmp_path / "onnx").mkdir()
         (tmp_path / "onnx" / "model_fp16.onnx").touch()

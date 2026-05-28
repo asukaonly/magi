@@ -9,22 +9,9 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from ..onnx_variants import _find_onnx_model
+
 logger = logging.getLogger(__name__)
-
-
-def _find_onnx_model(model_dir: Path) -> Optional[Path]:
-    """Find the best ONNX model file in a model directory."""
-    for base in [model_dir, model_dir / "onnx"]:
-        if not base.is_dir():
-            continue
-        for name in ["model_quantized.onnx", "model_int8.onnx", "model.onnx"]:
-            candidate = base / name
-            if candidate.exists():
-                return candidate
-        fallback = sorted(base.glob("*.onnx"))
-        if fallback:
-            return fallback[0]
-    return None
 
 
 class CrossEncoderScorer:
