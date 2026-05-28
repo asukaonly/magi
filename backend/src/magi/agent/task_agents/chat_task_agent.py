@@ -495,6 +495,28 @@ class ChatTaskAgent(
         core_model_supports_vision = bool(
             getattr(getattr(core_selection, "capabilities", None), "vision", False)
         )
+        # Build a fresh RunControl bundle for this turn. The bundle provides
+        # cooperative cancel/retract/suspend/detach/steer signals that
+        # DirectLLMHandler (and future handlers) can poll. Task 10 will wire
+        # cancel_token to the real SessionRunCancelToken; for now a null token
+        # is used so the existing session-level cancel/steer plumbing is
+        # unaffected.
+        from ...agent.run_control import (
+            DetachSignal,
+            RetractSignal,
+            RunControl,
+            SteerInbox,
+            SuspendSignal,
+        )
+        from ...agent.cancel import null_cancel_token
+
+        turn_control = RunControl(
+            cancel_token=null_cancel_token(),
+            detach_signal=DetachSignal(),
+            retract_signal=RetractSignal(),
+            suspend_signal=SuspendSignal(),
+            steer_inbox=SteerInbox(),
+        )
         return ChatRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
             recent_facts=list(
@@ -550,6 +572,7 @@ class ChatTaskAgent(
             streaming_chat_enabled=streaming_chat_enabled,
             allow_media_grounding_for_conversation=allow_media_grounding_for_conversation,
             core_model_supports_vision=core_model_supports_vision,
+            control=turn_control,
         )
 
     async def _resolve_context_persona_id(self, latest_payload: object) -> str | None:
