@@ -24,6 +24,11 @@ token:
   exact same LLM turn without re-running the work that was already
   completed.
 
+* :class:`RunControl` — bundle of all five cooperative signals
+  (``CancelToken``, ``DetachSignal``, ``SteerInbox``, ``RetractSignal``,
+  ``SuspendSignal``) passed as one parameter to every node in a run.
+  Construct with :func:`null_run_control` for tests / default callers.
+
 Boundary choice
 ---------------
 Both primitives are polled at the **top of each orchestrator iteration**
@@ -52,7 +57,10 @@ import asyncio
 from collections import deque
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .cancel import CancelToken
 
 __all__ = [
     "DetachRequested",
@@ -60,13 +68,15 @@ __all__ = [
     "OrchestratorSnapshot",
     "RetractRequested",
     "RetractSignal",
+    "RunControl",
     "SteerInbox",
     "SteerMessage",
     "SteerReason",
     "SuspendRequested",
     "SuspendSignal",
-    "current_detach_signal",
     "bind_detach_signal",
+    "current_detach_signal",
+    "null_run_control",
 ]
 
 
@@ -313,6 +323,50 @@ class SuspendSignal:
         # so on this line `_payload` is always set.
         assert self._payload is not None
         return self._payload
+
+
+@dataclass(slots=True)
+class RunControl:
+    """Bundle of cooperative control signals shared by every node in a run.
+
+    Polled together at one boundary (top of node iteration, after
+    previous tool batch appended, before next LLM call). Keeping a single
+    bundle instead of five separate parameters means new signals can be
+    added without re-threading every node/handler signature.
+
+    The fields are *not* frozen because some signals (``SuspendSignal``)
+    are clearable. The bundle itself is constructed once per run and
+    shared by reference; concurrent producers/consumers coordinate via
+    each individual signal's internal lock.
+
+    All callers must run on the same asyncio event loop; the bundle does
+    not provide cross-loop synchronization beyond what each individual
+    signal already enforces.
+    """
+
+    cancel_token: "CancelToken"
+    detach_signal: DetachSignal
+    retract_signal: RetractSignal
+    suspend_signal: SuspendSignal
+    steer_inbox: SteerInbox
+
+
+def null_run_control() -> RunControl:
+    """Return a RunControl whose every signal is a no-op.
+
+    Useful for tests, for callers that do not need control, and as a
+    safe default for handler signatures during the Phase A migration
+    while existing call sites are updated.
+    """
+    from .cancel import null_cancel_token
+
+    return RunControl(
+        cancel_token=null_cancel_token(),
+        detach_signal=DetachSignal(),
+        retract_signal=RetractSignal(),
+        suspend_signal=SuspendSignal(),
+        steer_inbox=SteerInbox(),
+    )
 
 
 # ---------------------------------------------------------------------
