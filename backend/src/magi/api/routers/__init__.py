@@ -25,6 +25,7 @@ from .mcp import mcp_router
 from .schedules import schedules_router
 from .code_agent import code_agent_router
 from .profile import profile_router
+from .availability_routes import availability_router
 
 __all__ = [
     "tools_router",
@@ -49,4 +50,5 @@ __all__ = [
     "schedules_router",
     "code_agent_router",
     "profile_router",
+    "availability_router",
 ]
