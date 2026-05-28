@@ -235,6 +235,7 @@ class L2CognitionStore(
                         recommended_snapshot_field=snapshot_field,
                         natural_summary=str(assertion.get("natural_summary") or "").strip(),
                         expires_at=(float(assertion["expires_at"]) if assertion.get("expires_at") is not None else None),
+                        trait_family=str(assertion.get("trait_family") or "").strip(),
                     )
                 )
             await db.commit()

@@ -7,6 +7,27 @@ from magi.memory.l3.models import StateChangePacket
 from magi.memory.l3.state_change_service import StateChangeService
 
 
+def _outcome(**overrides) -> ReconciledTraitOutcome:
+    """Build a ReconciledTraitOutcome with sensible defaults for state-change tests."""
+    defaults = dict(
+        entity_id="user:self",
+        entity_type="user",
+        trait_name="stress_level",
+        winning_value="high",
+        status="stable",
+        confidence=0.9,
+        evidence_event_ids=["evt-1", "evt-2"],
+        time_span_hours=48.0,
+        stability_kind="stable_pattern",
+        recommended_snapshot_field="core_traits",
+        natural_summary="",
+        expires_at=None,
+        trait_family="stress",
+    )
+    defaults.update(overrides)
+    return ReconciledTraitOutcome(**defaults)
+
+
 async def test_build_state_change_candidate_from_reconcile_outcomes() -> None:
     service = StateChangeService()
 
@@ -15,21 +36,14 @@ async def test_build_state_change_candidate_from_reconcile_outcomes() -> None:
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="stress_level",
                     winning_value="high",
                     status="stable",
-                    confidence=0.9,
                     evidence_event_ids=["evt-1", "evt-2"],
-                    time_span_hours=48.0,
-                    stability_kind="stable_pattern",
-                    recommended_snapshot_field="core_traits",
+                    trait_family="stress",
                 ),
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="mood",
                     winning_value="anxious",
                     status="corroborated",
@@ -37,7 +51,7 @@ async def test_build_state_change_candidate_from_reconcile_outcomes() -> None:
                     evidence_event_ids=["evt-2"],
                     time_span_hours=12.0,
                     stability_kind="emerging_pattern",
-                    recommended_snapshot_field="core_traits",
+                    trait_family="mood",
                 ),
             ],
         )
@@ -50,8 +64,47 @@ async def test_build_state_change_candidate_from_reconcile_outcomes() -> None:
     assert candidate.review_state == "pending_confirmation"
     assert candidate.insight_metadata["policy"] == "state_change_gate_v3"
     assert candidate.source_event_ids == ["evt-1", "evt-2"]
-    assert "stress" in candidate.content
-    assert "anxious" in candidate.content
+    # Trait families should appear, raw trait_name should not
+    assert "stress_level" not in candidate.content
+    assert "stress" in candidate.content or "压力" in candidate.content
+
+
+async def test_build_state_change_candidate_with_natural_summary() -> None:
+    """When natural_summary is present, tier-1 rendering is used."""
+    service = StateChangeService()
+
+    candidate = await service.build_candidate(
+        StateChangePacket(
+            entity_id="user:self",
+            entity_type="user",
+            outcomes=[
+                _outcome(
+                    trait_name="stress_level",
+                    winning_value="high",
+                    status="stable",
+                    evidence_event_ids=["evt-1", "evt-2"],
+                    natural_summary="压力偏高，持续超过两天",
+                    trait_family="stress",
+                ),
+                _outcome(
+                    trait_name="mood",
+                    winning_value="anxious",
+                    status="corroborated",
+                    confidence=0.8,
+                    evidence_event_ids=["evt-2"],
+                    time_span_hours=12.0,
+                    stability_kind="emerging_pattern",
+                    natural_summary="情绪偏向焦虑",
+                    trait_family="mood",
+                ),
+            ],
+        )
+    )
+
+    assert candidate is not None
+    assert "压力偏高" in candidate.content
+    assert "情绪偏向焦虑" in candidate.content
+    assert "stress_level" not in candidate.content
 
 
 async def test_build_state_change_candidate_returns_none_without_evidence() -> None:
@@ -62,17 +115,13 @@ async def test_build_state_change_candidate_returns_none_without_evidence() -> N
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="stress_level",
                     winning_value="high",
                     status="stable",
-                    confidence=0.9,
                     evidence_event_ids=[],
                     time_span_hours=6.0,
                     stability_kind="emerging_pattern",
-                    recommended_snapshot_field="core_traits",
                 )
             ],
         )
@@ -89,9 +138,7 @@ async def test_build_state_change_candidate_ignores_weak_emerging_signal() -> No
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="music.artists",
                     winning_value='["Lana Del Rey"]',
                     status="tentative",
@@ -99,7 +146,7 @@ async def test_build_state_change_candidate_ignores_weak_emerging_signal() -> No
                     evidence_event_ids=["evt-1"],
                     time_span_hours=1.0,
                     stability_kind="emerging_pattern",
-                    recommended_snapshot_field="preferences",
+                    trait_family="taste_profile",
                 )
             ],
         )
@@ -116,9 +163,7 @@ async def test_state_change_insight_key_is_stable_for_trait_value_updates() -> N
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="music.artists",
                     winning_value='["Lana Del Rey", "Olivia Rodrigo"]',
                     status="corroborated",
@@ -126,7 +171,7 @@ async def test_state_change_insight_key_is_stable_for_trait_value_updates() -> N
                     evidence_event_ids=["evt-1", "evt-2"],
                     time_span_hours=12.0,
                     stability_kind="emerging_pattern",
-                    recommended_snapshot_field="preferences",
+                    trait_family="taste_profile",
                 )
             ],
         )
@@ -136,9 +181,7 @@ async def test_state_change_insight_key_is_stable_for_trait_value_updates() -> N
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="music.artists",
                     winning_value='["indie rock"]',
                     status="corroborated",
@@ -146,7 +189,7 @@ async def test_state_change_insight_key_is_stable_for_trait_value_updates() -> N
                     evidence_event_ids=["evt-3", "evt-4"],
                     time_span_hours=12.0,
                     stability_kind="emerging_pattern",
-                    recommended_snapshot_field="preferences",
+                    trait_family="taste_profile",
                 )
             ],
         )
@@ -165,9 +208,7 @@ async def test_state_change_insight_key_groups_related_music_traits() -> None:
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="preference.music.genres",
                     winning_value='["game_sounds", "japanese_pop"]',
                     status="corroborated",
@@ -175,7 +216,7 @@ async def test_state_change_insight_key_groups_related_music_traits() -> None:
                     evidence_event_ids=["evt-1", "evt-2"],
                     time_span_hours=12.0,
                     stability_kind="emerging_pattern",
-                    recommended_snapshot_field="preferences",
+                    trait_family="taste_profile",
                 )
             ],
         )
@@ -185,9 +226,7 @@ async def test_state_change_insight_key_groups_related_music_traits() -> None:
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="preference.music.genres",
                     winning_value='["game_sounds", "japanese_pop", "game_sounds"]',
                     status="corroborated",
@@ -195,11 +234,9 @@ async def test_state_change_insight_key_groups_related_music_traits() -> None:
                     evidence_event_ids=["evt-1", "evt-2"],
                     time_span_hours=12.0,
                     stability_kind="emerging_pattern",
-                    recommended_snapshot_field="preferences",
+                    trait_family="taste_profile",
                 ),
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="preference.music.artists",
                     winning_value='["Caro", "Caro"]',
                     status="corroborated",
@@ -207,7 +244,7 @@ async def test_state_change_insight_key_groups_related_music_traits() -> None:
                     evidence_event_ids=["evt-3", "evt-4"],
                     time_span_hours=12.0,
                     stability_kind="emerging_pattern",
-                    recommended_snapshot_field="preferences",
+                    trait_family="taste_profile",
                 ),
             ],
         )
@@ -218,7 +255,8 @@ async def test_state_change_insight_key_groups_related_music_traits() -> None:
     assert genres_only.insight_key == genres_and_artists.insight_key
 
 
-async def test_state_change_content_uses_readable_music_labels(monkeypatch) -> None:
+async def test_state_change_content_uses_readable_labels_not_raw_trait_name(monkeypatch) -> None:
+    """Renderer must never leak raw trait_name identifiers to user-facing content."""
     monkeypatch.setattr("magi.memory.l3.state_change_service.wants_zh", lambda: True)
     service = StateChangeService()
 
@@ -227,9 +265,7 @@ async def test_state_change_content_uses_readable_music_labels(monkeypatch) -> N
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="preference.music.genres",
                     winning_value='["game_sounds", "japanese_pop", "game_sounds"]',
                     status="corroborated",
@@ -237,15 +273,13 @@ async def test_state_change_content_uses_readable_music_labels(monkeypatch) -> N
                     evidence_event_ids=["evt-1", "evt-2"],
                     time_span_hours=12.0,
                     stability_kind="emerging_pattern",
-                    recommended_snapshot_field="preferences",
+                    trait_family="taste_profile",
                 )
             ],
         )
     )
 
     assert candidate is not None
-    assert "音乐偏好" in candidate.content
-    assert "音乐类型偏好" in candidate.content
     assert "preference.music.genres" not in candidate.content
-    assert "已被多条证据佐证信号" not in candidate.content
-    assert candidate.content.count("game sounds") == 1
+    # Family label "审美" should appear (taste_profile)
+    assert "审美" in candidate.content

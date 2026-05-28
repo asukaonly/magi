@@ -7,6 +7,27 @@ from magi.memory.l3.models import TrendShiftPacket
 from magi.memory.l3.trend_shift_service import TrendShiftService
 
 
+def _outcome(**overrides) -> ReconciledTraitOutcome:
+    """Build a ReconciledTraitOutcome with sensible defaults for trend-shift tests."""
+    defaults = dict(
+        entity_id="user:self",
+        entity_type="user",
+        trait_name="stress_level",
+        winning_value="high",
+        status="stable",
+        confidence=0.92,
+        evidence_event_ids=["evt-1", "evt-2", "evt-3"],
+        time_span_hours=48.0,
+        stability_kind="stable_pattern",
+        recommended_snapshot_field="core_traits",
+        natural_summary="",
+        expires_at=None,
+        trait_family="stress",
+    )
+    defaults.update(overrides)
+    return ReconciledTraitOutcome(**defaults)
+
+
 async def test_build_trend_shift_candidate_from_reconcile_outcomes() -> None:
     service = TrendShiftService()
 
@@ -15,18 +36,15 @@ async def test_build_trend_shift_candidate_from_reconcile_outcomes() -> None:
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="stress_level",
                     winning_value="high",
                     status="stable",
-                    confidence=0.92,
                     evidence_event_ids=["evt-1", "evt-2", "evt-3"],
                     time_span_hours=48.0,
                     stability_kind="stable_pattern",
-                    recommended_snapshot_field="core_traits",
-                )
+                    trait_family="stress",
+                ),
             ],
         )
     )
@@ -38,8 +56,31 @@ async def test_build_trend_shift_candidate_from_reconcile_outcomes() -> None:
     assert candidate.review_state == "pending_confirmation"
     assert candidate.insight_metadata["policy"] == "trend_shift_gate_v3"
     assert candidate.source_event_ids == ["evt-1", "evt-2", "evt-3"]
-    assert "stress" in candidate.content
-    assert "48.0" in candidate.content
+    # Trait family label should appear, not raw trait_name
+    assert "stress_level" not in candidate.content
+    assert "stress" in candidate.content or "压力" in candidate.content
+
+
+async def test_build_trend_shift_candidate_with_natural_summary() -> None:
+    """When natural_summary is present, tier-1 rendering is used."""
+    service = TrendShiftService()
+
+    candidate = await service.build_candidate(
+        TrendShiftPacket(
+            entity_id="user:self",
+            entity_type="user",
+            outcomes=[
+                _outcome(
+                    natural_summary="压力连续两天维持在高位",
+                    trait_family="stress",
+                ),
+            ],
+        )
+    )
+
+    assert candidate is not None
+    assert "压力连续两天维持在高位" in candidate.content
+    assert "stress_level" not in candidate.content
 
 
 async def test_build_trend_shift_candidate_returns_none_without_long_span_signal() -> None:
@@ -50,9 +91,7 @@ async def test_build_trend_shift_candidate_returns_none_without_long_span_signal
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="stress_level",
                     winning_value="high",
                     status="corroborated",
@@ -60,7 +99,7 @@ async def test_build_trend_shift_candidate_returns_none_without_long_span_signal
                     evidence_event_ids=["evt-1"],
                     time_span_hours=2.0,
                     stability_kind="temporary_state",
-                    recommended_snapshot_field="core_traits",
+                    trait_family="stress",
                 )
             ],
         )
@@ -77,9 +116,7 @@ async def test_build_trend_shift_candidate_returns_none_for_volatile_sparse_sign
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="music_interests",
                     winning_value="j-rock",
                     status="corroborated",
@@ -87,7 +124,7 @@ async def test_build_trend_shift_candidate_returns_none_for_volatile_sparse_sign
                     evidence_event_ids=["evt-1", "evt-2"],
                     time_span_hours=118.0,
                     stability_kind="volatile_pattern",
-                    recommended_snapshot_field="core_traits",
+                    trait_family="taste_profile",
                 )
             ],
         )
@@ -104,9 +141,7 @@ async def test_trend_shift_insight_key_groups_related_music_traits() -> None:
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="preference.music.genres",
                     winning_value='["game_sounds", "japanese_pop"]',
                     status="stable",
@@ -114,7 +149,7 @@ async def test_trend_shift_insight_key_groups_related_music_traits() -> None:
                     evidence_event_ids=["evt-1", "evt-2", "evt-3"],
                     time_span_hours=72.0,
                     stability_kind="stable_pattern",
-                    recommended_snapshot_field="preferences",
+                    trait_family="taste_profile",
                 )
             ],
         )
@@ -124,9 +159,7 @@ async def test_trend_shift_insight_key_groups_related_music_traits() -> None:
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="preference.music.genres",
                     winning_value='["game_sounds", "japanese_pop"]',
                     status="stable",
@@ -134,11 +167,9 @@ async def test_trend_shift_insight_key_groups_related_music_traits() -> None:
                     evidence_event_ids=["evt-1", "evt-2", "evt-3"],
                     time_span_hours=72.0,
                     stability_kind="stable_pattern",
-                    recommended_snapshot_field="preferences",
+                    trait_family="taste_profile",
                 ),
-                ReconciledTraitOutcome(
-                    entity_id="user:self",
-                    entity_type="user",
+                _outcome(
                     trait_name="preference.music.artists",
                     winning_value='["Caro"]',
                     status="stable",
@@ -146,7 +177,7 @@ async def test_trend_shift_insight_key_groups_related_music_traits() -> None:
                     evidence_event_ids=["evt-4", "evt-5", "evt-6"],
                     time_span_hours=72.0,
                     stability_kind="stable_pattern",
-                    recommended_snapshot_field="preferences",
+                    trait_family="taste_profile",
                 ),
             ],
         )

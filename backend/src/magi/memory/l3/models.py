@@ -68,7 +68,7 @@ class ContradictionPacket:
     """Normalized contradiction outcomes for downstream L3 insights."""
 
     source_event_ids: list[str] = field(default_factory=list)
-    contradictions: list[dict[str, object]] = field(default_factory=list)
+    outcomes: list[ReconciledTraitOutcome] = field(default_factory=list)
     trigger_reason: str = "l2_contradiction"
 
 
