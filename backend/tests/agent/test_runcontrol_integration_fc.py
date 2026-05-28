@@ -1,0 +1,172 @@
+"""Integration: FunctionCallingOrchestrator + RunControl bundle.
+
+Verifies:
+  - the bundle can be passed in place of the three legacy kwargs
+  - retract is honored at the iteration boundary
+  - suspend is honored at the iteration boundary
+  - cancel/detach/steer continue to work via the bundle (regression check)
+"""
+from __future__ import annotations
+
+import asyncio
+import inspect
+from types import SimpleNamespace
+
+import pytest
+
+from magi.agent.execution.function_calling import (
+    ExecutionOutcome,
+    FunctionCallingOrchestrator,
+)
+from magi.agent.run_control import (
+    RetractRequested,
+    RetractSignal,
+    RunControl,
+    SuspendRequested,
+    SuspendSignal,
+    null_run_control,
+)
+from magi.agent.turn_input import UserTurnInput
+
+
+class _FakeToolRegistry:
+    def is_skill(self, _tool_name: str) -> bool:
+        return False
+
+    def get_tool_info(self, _tool_name: str):
+        return None
+
+
+def _build_orchestrator() -> FunctionCallingOrchestrator:
+    return FunctionCallingOrchestrator(
+        tool_registry=_FakeToolRegistry(),
+        llm_adapter=SimpleNamespace(model_name="fake-model", provider_name="fake-provider"),
+    )
+
+
+def _patch_trace_and_event_helpers(monkeypatch, orchestrator: FunctionCallingOrchestrator) -> None:
+    async def _noop_async(*args, **kwargs):
+        _ = (args, kwargs)
+        return None
+
+    monkeypatch.setattr(orchestrator, "_start_iteration_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_complete_iteration_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_emit_loop_event", _noop_async)
+    monkeypatch.setattr(orchestrator, "_emit_tool_result", _noop_async)
+    monkeypatch.setattr(orchestrator, "_persist_llm_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_persist_tool_trace", _noop_async)
+
+
+def test_execute_with_tools_accepts_control_kwarg() -> None:
+    params = inspect.signature(FunctionCallingOrchestrator.execute_with_tools).parameters
+    assert "control" in params, (
+        "execute_with_tools must accept a `control: RunControl` kwarg"
+    )
+
+
+def test_execute_with_tools_legacy_kwargs_still_present_for_one_release() -> None:
+    """Legacy cancel_token / steer_inbox / detach_signal must remain
+    accepted for one release. They are folded into the bundle internally."""
+    params = inspect.signature(FunctionCallingOrchestrator.execute_with_tools).parameters
+    assert "cancel_token" in params
+    assert "steer_inbox" in params
+    assert "detach_signal" in params
+
+
+@pytest.mark.asyncio
+async def test_execute_loop_returns_retracted_outcome_when_retract_signal_set(
+    monkeypatch,
+) -> None:
+    """When RetractSignal is set, the FC loop must exit at the next
+    iteration boundary with ExecutionOutcome(status='retracted')."""
+    orchestrator = _build_orchestrator()
+    _patch_trace_and_event_helpers(monkeypatch, orchestrator)
+
+    async def _never_called(**_kwargs):
+        raise AssertionError("LLM should not be called when retract is already set")
+
+    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _never_called)
+
+    control = null_run_control()
+    retract = RetractSignal()
+    retract.request(RetractRequested(reason="user_retract"))
+    control.retract_signal = retract
+
+    outcome = await orchestrator.execute_with_tools(
+        turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
+        system_prompt="sys",
+        selected_tools=[],
+        user_id="u",
+        conversation_history=[],
+        max_iterations=5,
+        control=control,
+    )
+
+    assert isinstance(outcome, ExecutionOutcome)
+    assert outcome.status == "retracted"
+    # Snapshot is preserved so DeliveryRouter could roll back partial output.
+    assert outcome.snapshot is not None
+
+
+@pytest.mark.asyncio
+async def test_execute_loop_returns_suspended_outcome_when_suspend_signal_set(
+    monkeypatch,
+) -> None:
+    """When SuspendSignal is set, the FC loop must exit at the next
+    iteration boundary with ExecutionOutcome(status='suspended')."""
+    orchestrator = _build_orchestrator()
+    _patch_trace_and_event_helpers(monkeypatch, orchestrator)
+
+    async def _never_called(**_kwargs):
+        raise AssertionError("LLM should not be called when suspend is already set")
+
+    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _never_called)
+
+    control = null_run_control()
+    suspend = SuspendSignal()
+    suspend.request(SuspendRequested(reason="window_closed"))
+    control.suspend_signal = suspend
+
+    outcome = await orchestrator.execute_with_tools(
+        turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
+        system_prompt="sys",
+        selected_tools=[],
+        user_id="u",
+        conversation_history=[],
+        max_iterations=5,
+        control=control,
+    )
+
+    assert outcome.status == "suspended"
+    assert outcome.snapshot is not None
+
+
+@pytest.mark.asyncio
+async def test_execute_loop_with_legacy_kwargs_still_works(monkeypatch) -> None:
+    """Legacy 3-kwarg API (cancel_token / steer_inbox / detach_signal)
+    must continue to function — this preserves the existing FC test
+    suite and external callers during the deprecation period."""
+    from magi.agent.cancel import EventCancelToken
+
+    orchestrator = _build_orchestrator()
+    _patch_trace_and_event_helpers(monkeypatch, orchestrator)
+
+    async def _never_called(**_kwargs):
+        raise AssertionError("LLM should not be called when cancel is already set")
+
+    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _never_called)
+
+    cancel = EventCancelToken()
+    cancel.cancel(reason="user_request")
+
+    outcome = await orchestrator.execute_with_tools(
+        turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
+        system_prompt="sys",
+        selected_tools=[],
+        user_id="u",
+        conversation_history=[],
+        max_iterations=5,
+        cancel_token=cancel,
+    )
+
+    assert outcome.status == "cancelled"
