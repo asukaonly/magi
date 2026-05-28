@@ -63,6 +63,8 @@ __all__ = [
     "SteerInbox",
     "SteerMessage",
     "SteerReason",
+    "SuspendRequested",
+    "SuspendSignal",
     "current_detach_signal",
     "bind_detach_signal",
 ]
@@ -247,6 +249,64 @@ class RetractSignal:
 
     async def wait(self) -> RetractRequested:
         """Block until retract is requested and return the payload."""
+        await self._event.wait()
+        assert self._payload is not None
+        return self._payload
+
+
+@dataclass(slots=True, frozen=True)
+class SuspendRequested:
+    """Metadata describing why a suspend was requested.
+
+    A suspend is distinct from a detach: detach hands ownership to a
+    background executor; suspend pauses the run in place expecting the
+    user to reattach. Suspend is also unique in that it is *clearable*
+    — when the user reattaches, the same RunControl can resume with
+    ``clear()`` rather than constructing a fresh signal.
+    """
+
+    reason: SteerReason = "window_closed"
+    requested_by: str = "user"
+    note: str = ""
+
+
+class SuspendSignal:
+    """One-shot but clearable suspend-request flag.
+
+    Polled at the same boundary as :class:`CancelToken`. When set, the
+    node returns a ``suspended`` outcome and the kernel persists the
+    snapshot in place. ``clear()`` resets the flag for resume.
+    """
+
+    __slots__ = ("_event", "_payload")
+
+    def __init__(self) -> None:
+        self._event = asyncio.Event()
+        self._payload: SuspendRequested | None = None
+
+    def request(self, payload: SuspendRequested | None = None) -> None:
+        """Flag a suspend request. Idempotent."""
+        if self._event.is_set():
+            return
+        self._payload = payload or SuspendRequested()
+        self._event.set()
+
+    def clear(self) -> None:
+        """Reset the suspend flag. Used on resume to make the same
+        RunControl reusable across a suspend/resume cycle."""
+        self._event.clear()
+        self._payload = None
+
+    def is_requested(self) -> bool:
+        return self._event.is_set()
+
+    @property
+    def payload(self) -> SuspendRequested | None:
+        """Return the recorded request payload, or ``None``."""
+        return self._payload
+
+    async def wait(self) -> SuspendRequested:
+        """Block until suspend is requested and return the payload."""
         await self._event.wait()
         assert self._payload is not None
         return self._payload
