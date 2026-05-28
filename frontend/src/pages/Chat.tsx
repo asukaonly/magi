@@ -5,6 +5,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useChatComposerController } from '@/hooks/useChatComposerController';
+import { useFirstConversationFlag } from '@/hooks/useFirstConversationFlag';
 import type { PendingAskAnswerPayload } from '@/hooks/useChatSendMessage';
 import { useChatMessageOverlays } from '@/hooks/useChatMessageOverlays';
 import { useChatMessageMutations } from '@/hooks/useChatMessageMutations';
@@ -14,6 +15,7 @@ import { useChatTraceDrawer } from '@/hooks/useChatTraceDrawer';
 import { useChatExecutionControls } from '@/hooks/useChatExecutionControls';
 import { useConversationStore } from '@/stores';
 import { ChatComposerPane } from '@/components/chat/ChatComposerPane';
+import { FirstConversationChips } from '@/components/chat/FirstConversationChips';
 import { ComposerAskQuickReplies } from '@/components/chat/ComposerAskQuickReplies';
 import { ChatPageOverlays } from '@/components/chat/ChatPageOverlays';
 import { ChatTimelinePane } from '@/components/chat/ChatTimelinePane';
@@ -303,6 +305,22 @@ export const ChatPage: React.FC = () => {
 
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
+  const { completed: firstConvDone, markCompleted: markFirstConvCompleted } = useFirstConversationFlag();
+  const showFirstConversationChips = !firstConvDone && messages.length === 0;
+  const handleComposerPrimaryActionWithFlag = React.useCallback(() => {
+    handleComposerPrimaryAction();
+    if (!firstConvDone) {
+      void markFirstConvCompleted();
+    }
+  }, [handleComposerPrimaryAction, firstConvDone, markFirstConvCompleted]);
+  const handleFirstConversationChipPick = React.useCallback(
+    (prompt: string) => {
+      setInputValue(prompt);
+      composerTextareaRef.current?.focus();
+    },
+    [setInputValue],
+  );
+
   const mentions = useChatComposerMentions({
     inputValue,
     setInputValue,
@@ -480,9 +498,16 @@ export const ChatPage: React.FC = () => {
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (mentions.onKeyDown(event)) return;
       if (commands.onKeyDown(event)) return;
+      const wasSubmit = !event.defaultPrevented
+        && event.key === 'Enter'
+        && !event.shiftKey
+        && !event.nativeEvent.isComposing;
       handleComposerKeyDown(event);
+      if (wasSubmit && !firstConvDone && inputValue.trim().length > 0) {
+        void markFirstConvCompleted();
+      }
     },
-    [commands, handleComposerKeyDown, mentions],
+    [commands, firstConvDone, handleComposerKeyDown, inputValue, markFirstConvCompleted, mentions],
   );
 
   useEffect(() => {
@@ -637,6 +662,12 @@ export const ChatPage: React.FC = () => {
         onDeleteMessage={handleDeleteMessage}
       />
 
+      {showFirstConversationChips && (
+        <div className="px-2 pb-2">
+          <FirstConversationChips onPick={handleFirstConversationChipPick} />
+        </div>
+      )}
+
       <ChatComposerPane
         composerRef={composerRef}
         textareaRef={composerTextareaRef}
@@ -658,7 +689,7 @@ export const ChatPage: React.FC = () => {
         onPickFile={() => fileInputRef.current?.click()}
         sessionId={currentSessionId}
         sendingMessage={sendingMessage}
-        onPrimaryAction={handleComposerPrimaryAction}
+        onPrimaryAction={handleComposerPrimaryActionWithFlag}
         imageInputRef={imageInputRef}
         fileInputRef={fileInputRef}
         onAttachmentInputChange={handleAttachmentInputChange}
