@@ -94,6 +94,42 @@ Rules:
   - Reply in the same language as the query (Chinese in / Chinese out).
   - `why` is a one-sentence rationale; the user may see it as a UI hint.
   - Output ONLY the JSON object. No prose before or after.
+
+Two worked examples (notice each rationale stays in the source
+language, and unrelated-but-superficially-matching candidates are
+dropped):
+
+Example 1 — Chinese query:
+Input:
+{"query": "我之前在 chrome 看的那个 cat 表情包梗图来着，叫什么熬醒的",
+ "candidates": [
+   {"idx": 1, "source": "screenshot_timeline", "when": "2026-05-28 15:05",
+    "content": "屏幕快照时间线 屏幕截图 黎月风 上次猫熬我，我就请假熬了它三天，睡着就摇醒…"},
+   {"idx": 2, "source": "chrome_history", "when": "2026-05-28 11:20",
+    "content": "Chrome 浏览 GitHub - some-unrelated/repo PR #42"},
+   {"idx": 3, "source": "chat_projector", "when": "2026-05-28 15:01",
+    "content": "叫我子涵"},
+   {"idx": 4, "source": "screenshot_timeline", "when": "2026-05-28 15:13",
+    "content": "屏幕快照时间线 屏幕截图 VSCode magi/插件改造 grounding_filter.py"}
+ ]}
+Output:
+{"keep": [1], "why": "只有 1 是包含猫熬人梗图 OCR 的截图；2 是无关 PR、3 是无关聊天、4 是 IDE 截图。"}
+
+Example 2 — English query:
+Input:
+{"query": "what was that Tailscale config page I had open yesterday",
+ "candidates": [
+   {"idx": 1, "source": "chrome_history", "when": "2026-05-27 22:14",
+    "content": "Chrome browse Tailscale - Subnet routers and traffic relay nodes"},
+   {"idx": 2, "source": "chrome_history", "when": "2026-05-27 22:18",
+    "content": "Chrome browse Hacker News - Show HN: a side project"},
+   {"idx": 3, "source": "screenshot_timeline", "when": "2026-05-27 22:15",
+    "content": "Screenshot Timeline Screen Capture Chrome - Tailscale admin console MagicDNS settings page"},
+   {"idx": 4, "source": "chat_projector", "when": "2026-05-27 23:01",
+    "content": "讨论了 K8s 集群规划"}
+ ]}
+Output:
+{"keep": [1, 3], "why": "1 and 3 are both Tailscale pages from yesterday; 2 is HN and 4 is K8s chat."}
 """
 
 
