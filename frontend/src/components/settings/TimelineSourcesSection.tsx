@@ -6,18 +6,11 @@ import { useTranslation } from 'react-i18next';
 import type { ActivationFlowSpec } from '@/api/modules/plugins';
 import type { UserMode } from '@/api/modules/config';
 import { sensorsApi, type SensorSourceStatusItem } from '@/api/modules/sensors';
+import { PluginActivationDialog } from '@/components/plugins/PluginActivationDialog';
 import PluginSettingsCustomBlocks from '@/components/settings/PluginSettingsCustomBlocks';
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { getTimelineSourceDescription, getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
@@ -184,29 +177,11 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     onPluginFieldChange(source.plugin_id, enabledKey, true);
   };
 
-  /**
-   * Resolution order (Phase 4):
-   *   1. ``flow.{key}_translated`` (API, plugin i18n)
-   *   2. raw ``fallback`` (English value from the manifest)
-   */
-  const getActivationText = (
-    flow: ActivationFlowSpec,
-    key: 'title' | 'description' | 'confirm_label' | 'cancel_label',
-    fallback: string
-  ) => {
-    const translatedKey = `${key}_translated` as
-      | 'title_translated'
-      | 'description_translated'
-      | 'confirm_label_translated'
-      | 'cancel_label_translated';
-    return flow[translatedKey] || fallback;
-  };
-
-  const confirmActivationFlow = async () => {
+  const confirmActivationFlow = async (values: Record<string, any>) => {
     if (!activationDialog) {
       return;
     }
-    const { source, flow, values } = activationDialog;
+    const { source, flow } = activationDialog;
     if (flow.authorize_on_confirm) {
       try {
         const result = await sensorsApi.requestAuthorization(source.source_name, values);
@@ -502,68 +477,16 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
         </div>
       </SectionBlock>
 
-      <Dialog open={Boolean(activationDialog)} onOpenChange={(open) => !open && setActivationDialog(null)}>
-        <DialogContent className="max-w-lg">
-          {activationDialog ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>
-                  {getActivationText(
-                    activationDialog.flow,
-                    'title',
-                    activationDialog.flow.title
-                  )}
-                </DialogTitle>
-                <DialogDescription>
-                  {getActivationText(
-                    activationDialog.flow,
-                    'description',
-                    activationDialog.flow.description
-                  )}
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="px-6 pb-6">
-                <PluginSettingsFields
-                  fields={activationDialog.flow.fields}
-                  values={activationDialog.values}
-                  onChange={(key, nextValue) =>
-                    setActivationDialog((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            values: {
-                              ...prev.values,
-                              [key]: nextValue,
-                            },
-                          }
-                        : prev
-                    )
-                  }
-                  pluginId={activationDialog.source.plugin_id}
-                />
-              </div>
-
-              <DialogFooter>
-                <Button type="button" variant="ghost" onClick={() => setActivationDialog(null)}>
-                  {getActivationText(
-                    activationDialog.flow,
-                    'cancel_label',
-                    activationDialog.flow.cancel_label
-                  )}
-                </Button>
-                <Button type="button" onClick={() => void confirmActivationFlow()}>
-                  {getActivationText(
-                    activationDialog.flow,
-                    'confirm_label',
-                    activationDialog.flow.confirm_label
-                  )}
-                </Button>
-              </DialogFooter>
-            </>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+      {activationDialog ? (
+        <PluginActivationDialog
+          open
+          onClose={() => setActivationDialog(null)}
+          flow={activationDialog.flow}
+          initialValues={activationDialog.values}
+          onConfirm={(values) => confirmActivationFlow(values)}
+          pluginId={activationDialog.source.plugin_id}
+        />
+      ) : null}
     </div>
   );
 };
