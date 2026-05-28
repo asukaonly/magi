@@ -162,6 +162,11 @@
     "expertMode": "Mode: Expert",
     "selectMode": "Select a mode first"
   },
+  "llmSetup": {
+    "embeddingFallbackHint": "This provider has no embedding model. Configure one separately below.",
+    "showAdvanced": "Configure each scenario separately",
+    "hideAdvanced": "Hide advanced model settings"
+  },
   "llm": {
     "modelSelection": {
       "title": "Model Selection",

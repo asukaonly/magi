@@ -163,6 +163,11 @@
     "expertMode": "当前：专家模式",
     "selectMode": "先选择模式"
   },
+  "llmSetup": {
+    "embeddingFallbackHint": "这个提供商没有 embedding 模型，请在下方单独配置一个。",
+    "showAdvanced": "分别配置每个 scenario 的模型",
+    "hideAdvanced": "隐藏高级模型设置"
+  },
   "llm": {
     "modelSelection": {
       "title": "模型选择",
