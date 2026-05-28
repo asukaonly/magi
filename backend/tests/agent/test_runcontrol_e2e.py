@@ -22,8 +22,6 @@ from magi.agent.cancel import EventCancelToken
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator
 from magi.agent.run_control import (
     RetractRequested,
-    RetractSignal,
-    RunControl,
     null_run_control,
 )
 from magi.agent.task_agents.common.contracts import (
@@ -85,6 +83,11 @@ async def test_e2e_direct_llm_retract_via_coordinator_emits_event() -> None:
     """E2E: SessionRunCoordinator.request_retract → DirectLLMHandler
     observes retract → empty result with abort_reason → postprocess
     emits run.retracted."""
+    # Retract is pre-set before handler executes — validates the fast-exit
+    # path where the signal is already raised at the first LLM call.
+    # The concurrent "retract arrives during stream" case for the DirectLLM
+    # path is left as a Phase B follow-up (test 4 covers concurrent cancel).
+
     # 1. Set up the coordinator with an active run + registered bundle.
     coordinator, control = build_coordinator_with_active_run(session_id="e2e_s1")
 
@@ -116,7 +119,7 @@ async def test_e2e_direct_llm_retract_via_coordinator_emits_event() -> None:
     # 6. Send the result to postprocess and verify event emission.
     service, captured_events = build_postprocess_with_capture()
     # Pull the active run's run_id from the coordinator's store.
-    active = coordinator._run_store.get_active_run("e2e_s1")
+    active = coordinator.get_active_run("e2e_s1")
     assert active is not None
     pp_context = build_minimal_chat_context(
         session_id="e2e_s1",
@@ -153,9 +156,7 @@ async def test_e2e_function_calling_retract_via_signal_emits_event() -> None:
 
     # Build a bundle with pre-set retract.
     control = null_run_control()
-    retract = RetractSignal()
-    retract.request(RetractRequested(reason="user_retract"))
-    control.retract_signal = retract
+    control.retract_signal.request(RetractRequested(reason="user_retract"))
 
     outcome = await orchestrator.execute_with_tools(
         turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
@@ -305,7 +306,7 @@ async def test_e2e_coordinator_request_retract_propagates_payload_metadata() -> 
         },
     )
 
-    active = coordinator._run_store.get_active_run("e2e_meta")
+    active = coordinator.get_active_run("e2e_meta")
     assert active is not None
     pp_context = build_minimal_chat_context(
         session_id="e2e_meta",
