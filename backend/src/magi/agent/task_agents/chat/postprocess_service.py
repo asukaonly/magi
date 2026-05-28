@@ -556,6 +556,8 @@ class ChatPostProcessService:
         Emission failures are logged but never propagate — this method is
         non-fatal so that the normal postprocess teardown still runs.
         """
+        from dataclasses import asdict
+
         from ....events.domain_payloads import RunRetracted, RunSuspended
 
         terminal_status = self._detect_terminal_status(result)
@@ -583,7 +585,7 @@ class ChatPostProcessService:
                 )
                 await event_emitter.emit_runtime_event(
                     event_type=EventTypes.RUN_RETRACTED,
-                    payload=payload,
+                    payload=asdict(payload),
                 )
             else:  # suspended
                 payload = RunSuspended(
@@ -595,7 +597,7 @@ class ChatPostProcessService:
                 )
                 await event_emitter.emit_runtime_event(
                     event_type=EventTypes.RUN_SUSPENDED,
-                    payload=payload,
+                    payload=asdict(payload),
                 )
         except Exception as exc:
             logger.warning(
