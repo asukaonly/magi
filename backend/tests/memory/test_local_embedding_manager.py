@@ -349,3 +349,92 @@ class TestDetectPlatformKey:
         with patch.object(res.sys, "platform", "linux"), \
              patch.object(res.platform, "machine", return_value="x86_64"):
             assert res.detect_platform_key() == "linux_x86_64"
+
+
+class TestResolveVariantName:
+    """Verify variant selection: override > platform default > _fallback > emergency chain."""
+
+    def _meta(
+        self,
+        variant_names: list[str] | None = None,
+        default: dict[str, str] | None = None,
+    ):
+        from magi.config.local_embedding_registry import (
+            LocalEmbeddingModelMeta,
+            LocalEmbeddingVariantMeta,
+        )
+        names = variant_names or ["fp32", "fp16", "quantized", "int8"]
+        v = {
+            name: LocalEmbeddingVariantMeta(file=f"onnx/model_{name}.onnx", size_mb=100)
+            for name in names
+        }
+        return LocalEmbeddingModelMeta(
+            id="m",
+            label="M",
+            repo="o/m",
+            onnx_repo="o/m",
+            dimension=512,
+            max_tokens=512,
+            variants=v,
+            default_variant=default or {
+                "darwin_arm64": "fp16",
+                "win32_amd64": "quantized",
+                "_fallback": "quantized",
+            },
+        )
+
+    def test_override_wins(self) -> None:
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        meta = self._meta()
+        assert resolve_variant_name(meta, override="fp32", platform_key="darwin_arm64") == "fp32"
+
+    def test_override_invalid_falls_back_to_platform_default(self, caplog) -> None:
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        meta = self._meta()
+        with caplog.at_level("WARNING"):
+            result = resolve_variant_name(meta, override="nonexistent", platform_key="darwin_arm64")
+        assert result == "fp16"
+        assert any("nonexistent" in r.message for r in caplog.records)
+
+    def test_platform_default_darwin(self) -> None:
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        meta = self._meta()
+        assert resolve_variant_name(meta, override=None, platform_key="darwin_arm64") == "fp16"
+
+    def test_platform_default_windows(self) -> None:
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        meta = self._meta()
+        assert resolve_variant_name(meta, override=None, platform_key="win32_amd64") == "quantized"
+
+    def test_fallback_when_platform_unknown(self) -> None:
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        meta = self._meta()
+        assert resolve_variant_name(meta, override=None, platform_key="bsd_riscv64") == "quantized"
+
+    def test_emergency_chain_when_default_missing_from_variants(self) -> None:
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        # default points to a variant the YAML doesn't actually define.
+        # Emergency chain picks first of (quantized, int8, fp16, fp32) present.
+        meta = self._meta(variant_names=["fp32", "int8"], default={"_fallback": "quantized"})
+        assert resolve_variant_name(meta, override=None, platform_key="anything") == "int8"
+
+    def test_no_variants_returns_none(self) -> None:
+        from magi.config.local_embedding_registry import LocalEmbeddingModelMeta
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        meta = LocalEmbeddingModelMeta(
+            id="m", label="M", repo="o/m", onnx_repo="o/m",
+            dimension=512, max_tokens=512,
+        )
+        assert resolve_variant_name(meta, override=None, platform_key="darwin_arm64") is None
+
+    def test_none_meta_returns_none(self) -> None:
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        assert resolve_variant_name(None) is None
+
+    def test_default_platform_key_used_when_omitted(self) -> None:
+        """If platform_key is not passed, function calls detect_platform_key()."""
+        from unittest.mock import patch
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_name
+        meta = self._meta()
+        with patch("magi.memory.embedding.local_embedding_resolution.detect_platform_key", return_value="win32_amd64"):
+            assert resolve_variant_name(meta, override=None) == "quantized"
