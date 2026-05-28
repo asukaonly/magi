@@ -222,6 +222,10 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/me": {"GET", "PATCH"},
         "/me/refresh": {"POST"},
     },
+    "availability": {
+        "/availability": {"GET"},
+        "/availability/refresh": {"POST"},
+    },
 
 }
 
@@ -266,6 +270,7 @@ def register_api_routes(app: FastAPI) -> None:
         commands_router,
         code_agent_router,
         profile_router,
+        availability_router,
     )
 
     app.include_router(
@@ -375,4 +380,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(profile_router, _PUBLIC_ROUTE_METHODS["profile"]),
         prefix="/api/profile",
         tags=["Profile"],
+    )
+    app.include_router(
+        _build_public_router(availability_router, _PUBLIC_ROUTE_METHODS["availability"]),
+        prefix="/api",
+        tags=["Availability"],
     )
