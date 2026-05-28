@@ -229,6 +229,10 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
     "chat_preview": {
         "/chat/preview": {"POST"},
     },
+    "system_suggestions": {
+        "/system-suggestions/check": {"POST"},
+        "/system-suggestions/dismiss": {"POST"},
+    },
 
 }
 
@@ -275,6 +279,7 @@ def register_api_routes(app: FastAPI) -> None:
         profile_router,
         availability_router,
         chat_preview_router,
+        system_suggestions_router,
     )
 
     app.include_router(
@@ -394,4 +399,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(chat_preview_router, _PUBLIC_ROUTE_METHODS["chat_preview"]),
         prefix="/api",
         tags=["Chat Preview"],
+    )
+    app.include_router(
+        _build_public_router(system_suggestions_router, _PUBLIC_ROUTE_METHODS["system_suggestions"]),
+        prefix="/api",
+        tags=["System Suggestions"],
     )
