@@ -310,6 +310,11 @@ class FunctionCallingLlmMixin:
                 chunks: List[str] = []
                 if control is not None:
                     # Route via CancellableLLMClient for mid-chunk polling.
+                    # TODO(phase-A-task-8): CancellableLLMClient does not yet
+                    # support rate-limit retry callbacks; this path bypasses
+                    # _invoke_with_rate_limit_backoff. Acceptable today (no
+                    # production caller threads control here yet); revisit when
+                    # Task 8+ wires control through fallback paths.
                     cancellable = CancellableLLMClient(bridge=host.provider_bridge)
                     async for event in cancellable.stream(
                         system_prompt=system_prompt,
@@ -367,6 +372,11 @@ class FunctionCallingLlmMixin:
                     # rate-limit retries within an already-signaled run create
                     # more confusion than value. If rate-limit handling on the
                     # no-tools path becomes important, revisit Task 8+.
+                    # TODO(phase-A-task-8): CancellableLLMClient does not yet
+                    # support rate-limit retry callbacks; this path bypasses
+                    # _invoke_with_rate_limit_backoff. Acceptable today (no
+                    # production caller threads control here yet); revisit when
+                    # Task 8+ wires control through fallback paths.
                     cancellable = CancellableLLMClient(bridge=host.provider_bridge)
                     llm_result = await cancellable.call(
                         system_prompt=system_prompt,
@@ -460,6 +470,12 @@ class FunctionCallingLlmMixin:
             if streamed:
                 result["streamed"] = True
             return result
+        except (CancellationRaised, RetractRaised):
+            # Pre-poll raises are outside this try block, but mid-stream raises
+            # from CancellableLLMClient.stream() / .call() land here. Re-raise
+            # so step_executor's try/except catches them; signal abort is not
+            # an LLM error and should not pollute failure metrics.
+            raise
         except Exception as exc:
             duration_ms = int((time.time() - start_time) * 1000)
             log_llm_response(

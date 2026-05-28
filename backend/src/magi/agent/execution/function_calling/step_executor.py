@@ -14,7 +14,6 @@ from ...run_control import RunControl
 from .types import ToolCallResult
 
 
-
 MAX_RUNTIME_STATUS_CHARS = 2_000
 
 
