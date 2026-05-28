@@ -88,6 +88,8 @@ export function LLMLocalEmbeddingModelPanel({
               })),
             ];
 
+            const isDownloadingThis = downloadingModelId === selectedModel.id;
+
             return (
               <label className="space-y-2">
                 <span className="text-sm font-medium">
@@ -98,11 +100,15 @@ export function LLMLocalEmbeddingModelPanel({
                   triggerClassName={inputClassName}
                   value={embeddingConfig.local.variant ?? ''}
                   allowEmpty={false}
+                  disabled={isDownloadingThis}
                   options={variantOptions}
                   onChange={(value) => onEmbeddingConfigChange((draft) => {
                     draft.local.variant = value === '' ? null : value;
                   })}
                 />
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {tApp('settings.memory.fields.embedding_local_variant.description')}
+                </p>
               </label>
             );
           })() : null}
