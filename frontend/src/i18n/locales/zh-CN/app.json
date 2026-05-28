@@ -2273,7 +2273,9 @@
         "skills": "Magi 学到的做事方式"
       },
       "advancedToggle": "调试细节",
-      "noResults": "没找到合适的记忆，可以换一个更具体的词。"
+      "noResults": "没找到合适的记忆，可以换一个更具体的词。",
+      "emptyStateIntro": "magi 对你的了解还很有限。来加一条记忆，或者让我看看你的活动：",
+      "manualEntry": "手动添加一条记忆"
     },
     "governance": {
       "title": "整理",

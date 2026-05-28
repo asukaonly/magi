@@ -7,6 +7,8 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { SelectField } from '@/components/config-forms/fields';
 import { useMemory } from '@/hooks/useMemory';
 import type { MemorySearchQueryMode } from '@/api/modules/memory';
+import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
+import { QuickEntrySheet } from '@/components/timeline/manual-entries/QuickEntrySheet';
 import MemoryPageFrame, {
   MEMORY_FILTER_INPUT_CLASS,
   MEMORY_FILTER_SELECT_CLASS,
@@ -32,6 +34,7 @@ export const MemoryRecallPage = () => {
   const [mode, setMode] = useState<RecallMode>('auto');
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [entrySheetOpen, setEntrySheetOpen] = useState(false);
   const {
     searchQuery, setSearchQuery, searchResults, searching, handleSearch,
   } = useMemory({ initialLoadScope: 'overview' });
@@ -55,6 +58,21 @@ export const MemoryRecallPage = () => {
 
   return (
     <MemoryPageFrame title={t('memory.recall.title')} description={t('memory.recall.subtitle')}>
+      {!hasSearched && (
+        <div className="mb-6 flex flex-col gap-4">
+          <p className="text-sm text-[#7d685a] dark:text-[#c8b7a7]">
+            {t('memory.recall.emptyStateIntro')}
+          </p>
+          <EmptyStateAvailableSensors />
+          <button
+            type="button"
+            onClick={() => setEntrySheetOpen(true)}
+            className="self-start rounded-full border border-[#d8c9b8] px-4 py-1.5 text-xs text-[#35261f] dark:border-[#7d685a] dark:text-[#f4eadf]"
+          >
+            {t('memory.recall.manualEntry')}
+          </button>
+        </div>
+      )}
       <section data-testid="memory-recall-search" className="space-y-4">
         <div className="grid gap-2 md:grid-cols-[168px_minmax(0,1fr)_auto]">
           <SelectField
@@ -95,6 +113,11 @@ export const MemoryRecallPage = () => {
           </div>
         ) : null}
       </section>
+      <QuickEntrySheet
+        open={entrySheetOpen}
+        onClose={() => setEntrySheetOpen(false)}
+        onSaved={() => setEntrySheetOpen(false)}
+      />
     </MemoryPageFrame>
   );
 };
