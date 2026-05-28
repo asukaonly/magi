@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -239,6 +239,12 @@ class PluginManifest(BaseModel):
     place other keys here too. Read from the ``[plugin.default_settings]`` table
     in ``plugin.toml``.
     """
+    suggestion_descriptor: "SuggestionDescriptor | None" = None
+    """Optional declaration of how/when this plugin should be auto-suggested.
+
+    See :class:`SuggestionDescriptor` and the onboarding redesign spec
+    (``docs/superpowers/specs/2026-05-28-onboarding-redesign-design.md``).
+    """
 
     model_config = {"populate_by_name": True}
 
@@ -325,3 +331,97 @@ class SummaryProfileSpec(BaseModel):
     min_events: int = 4
     intent_verbs: list[str] = Field(default_factory=list)
     prompt_hints: dict[str, Any] = Field(default_factory=dict)
+
+
+# --- SuggestionDescriptor (added for plan-1 of onboarding redesign) ---
+
+
+class Triggers(BaseModel):
+    """Conditions under which a plugin should be auto-suggested.
+
+    All three categories are OR-combined: any matching intent, entity, or keyword
+    contributes to the match score (weighted by signal type in the matcher)."""
+
+    intents: list[str] = Field(default_factory=list)
+    entities: list[str] = Field(default_factory=list)
+    keywords: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Locale (e.g., 'zh', 'en') to keyword list mapping.",
+    )
+
+
+class LocalizedText(BaseModel):
+    zh: str
+    en: str
+
+
+class LocalRequirementFileExists(BaseModel):
+    check_kind: Literal["file_exists"] = "file_exists"
+    paths_per_platform: dict[str, str] = Field(
+        description=(
+            "Map of platform key (darwin / win32 / linux) to file path. "
+            "Path may use ~ for home and %VAR% for environment variables. "
+            "If the current platform key is absent, the requirement is "
+            "considered failed."
+        )
+    )
+
+
+class LocalRequirementExecutableInPath(BaseModel):
+    check_kind: Literal["executable_in_path"] = "executable_in_path"
+    names: list[str] = Field(
+        description="Any-one-of executable names searched via shutil.which()."
+    )
+
+
+class LocalRequirementAppInstalled(BaseModel):
+    check_kind: Literal["app_installed"] = "app_installed"
+    identifier_per_platform: dict[str, str] = Field(
+        description=(
+            "Map platform key to a platform-native identifier: "
+            "macOS bundle id (com.example.App), Windows uninstall registry "
+            "key DisplayName fragment, or Linux .desktop file basename."
+        )
+    )
+
+
+LocalRequirement = Annotated[
+    Union[
+        LocalRequirementFileExists,
+        LocalRequirementExecutableInPath,
+        LocalRequirementAppInstalled,
+    ],
+    Field(discriminator="check_kind"),
+]
+
+
+class SuggestionDescriptor(BaseModel):
+    """Declares how this plugin should be surfaced to users who lack it.
+
+    See docs/plugin-suggestion-descriptor.md for the author guide.
+    """
+
+    category: str = Field(
+        description=(
+            "Free-form group key. Sibling plugins (e.g. chrome-history / "
+            "safari-history) share a category so the suggestion UI can bundle them."
+        )
+    )
+    triggers: Triggers
+    platform_support: list[str] = Field(
+        description="Platforms where the plugin can run, in sys.platform values."
+    )
+    local_requirements: list[LocalRequirement] = Field(
+        default_factory=list,
+        description="AND-combined; all must pass for the plugin to be 'available'.",
+    )
+    rationale: LocalizedText
+    setup_time_estimate_seconds: int = 30
+    data_locality: Literal["local_only", "uploads"] = "local_only"
+    icon: str | None = Field(
+        default=None,
+        description="Optional icon path; if unset, the plugin's default icon is used.",
+    )
+
+
+PluginManifest.model_rebuild()
