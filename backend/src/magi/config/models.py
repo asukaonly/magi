@@ -24,6 +24,7 @@ class LLMProvider(str, Enum):
     DASHSCOPE = "dashscope"
     KIMI = "kimi"
     MINIMAX = "minimax"
+    XIAOMIMIMO = "xiaomimimo"
     LOCAL = "local"
     CUSTOM = "custom"
 

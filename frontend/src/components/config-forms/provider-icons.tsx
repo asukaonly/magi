@@ -6,6 +6,7 @@ import grokIcon from '@/assets/provider-icons/grok.svg?raw';
 import kimiIcon from '@/assets/provider-icons/kimi.svg?raw';
 import minimaxIcon from '@/assets/provider-icons/minimax-color.svg?raw';
 import openaiIcon from '@/assets/provider-icons/openai.svg?raw';
+import xiaomimimoIcon from '@/assets/provider-icons/xiaomimimo.svg?raw';
 import zaiIcon from '@/assets/provider-icons/zai.svg?raw';
 import { cn } from '@/lib/utils';
 
@@ -43,6 +44,7 @@ const ICON_SVGS: Record<string, string> = {
   bailian: bailianIcon,
   kimi: kimiIcon,
   minimax: minimaxIcon,
+  xiaomimimo: xiaomimimoIcon,
 };
 
 function sanitizeSvgMarkup(svgMarkup: string): string {
