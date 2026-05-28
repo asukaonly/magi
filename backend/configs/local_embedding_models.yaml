@@ -92,24 +92,25 @@ models:
       linux_x86_64:  quantized
       _fallback:     quantized
 
-  - id: bge-small-en-v1.5
-    label: "BGE Small English v1.5"
-    repo: "BAAI/bge-small-en-v1.5"
-    onnx_repo: "onnx-community/bge-small-en-v1.5-ONNX"
-    dimension: 384
-    max_tokens: 512
-    pooling: cls
+  - id: embeddinggemma-300m
+    label: "EmbeddingGemma 300M"
+    repo: "google/embeddinggemma-300m"
+    onnx_repo: "onnx-community/embeddinggemma-300m-ONNX"
+    dimension: 768
+    max_tokens: 2048
+    pooling: mean
     normalize: true
-    size_mb: 33
-    size_fp32_mb: 134
+    size_mb: 309
+    size_fp32_mb: 1235
     quantized: true
-    languages: [en]
-    recommended: false
-    description: "Lightweight English embedding model"
+    languages: [multi]
+    recommended: true
+    description: "Google EmbeddingGemma 300M, multilingual (100+ languages, 768d), Sep 2025, Gemma license"
     variants:
-      fp32:      { file: "onnx/model.onnx",            size_mb: 134 }
-      fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 67 }
-      quantized: { file: "onnx/model_quantized.onnx",  size_mb: 33 }
+      fp32:      { file: "onnx/model.onnx",            size_mb: 1235 }
+      fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 618 }
+      quantized: { file: "onnx/model_quantized.onnx",  size_mb: 309 }
+      q4f16:     { file: "onnx/model_q4f16.onnx",      size_mb: 176 }
     default_variant:
       darwin_arm64:  fp16
       win32_amd64:   quantized

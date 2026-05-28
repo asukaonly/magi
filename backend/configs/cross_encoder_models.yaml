@@ -37,20 +37,20 @@ models:
       linux_x86_64:  quantized
       _fallback:     quantized
 
-  - id: bge-reranker-base
-    label: "BGE Reranker Base"
-    repo: "BAAI/bge-reranker-base"
-    onnx_repo: "onnx-community/bge-reranker-base-ONNX"
-    max_tokens: 512
-    size_mb: 280
-    languages: [en, zh]
+  - id: gte-reranker-modernbert-base
+    label: "GTE Reranker (ModernBERT base)"
+    repo: "Alibaba-NLP/gte-reranker-modernbert-base"
+    onnx_repo: "Alibaba-NLP/gte-reranker-modernbert-base"
+    max_tokens: 8192
+    size_mb: 151
+    languages: [multi]
     recommended: false
-    description: "Lightweight Chinese-English cross-encoder, good balance of speed and accuracy"
+    description: "Modern multilingual cross-encoder on ModernBERT (8k context, faster than classic BERT), Alibaba, Apache 2.0"
     variants:
-      fp32:      { file: "model.onnx",            size_mb: 1112 }
-      fp16:      { file: "model_fp16.onnx",       size_mb: 556 }
-      quantized: { file: "model_quantized.onnx",  size_mb: 280 }
-      int8:      { file: "model_int8.onnx",       size_mb: 280 }
+      fp32:      { file: "onnx/model.onnx",            size_mb: 599 }
+      fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 300 }
+      quantized: { file: "onnx/model_quantized.onnx",  size_mb: 151 }
+      int8:      { file: "onnx/model_int8.onnx",       size_mb: 151 }
     default_variant:
       darwin_arm64:  fp16
       win32_amd64:   quantized
@@ -73,28 +73,6 @@ models:
       x86_avx512_int8:      { file: "onnx/model_qint8_avx512.onnx",       size_mb: 23 }
       x86_avx512_vnni_int8: { file: "onnx/model_qint8_avx512_vnni.onnx",  size_mb: 23 }
       x86_avx2_int8:        { file: "onnx/model_quint8_avx2.onnx",        size_mb: 23 }
-    default_variant:
-      darwin_arm64:  arm64_int8
-      win32_amd64:   x86_avx2_int8
-      linux_x86_64:  x86_avx2_int8
-      _fallback:     x86_avx2_int8
-
-  - id: ms-marco-MiniLM-L-12-v2
-    label: "MS MARCO MiniLM L-12"
-    repo: "cross-encoder/ms-marco-MiniLM-L12-v2"
-    onnx_repo: "cross-encoder/ms-marco-MiniLM-L12-v2"
-    max_tokens: 512
-    size_mb: 34
-    languages: [en]
-    recommended: false
-    description: "Lightweight English cross-encoder, slightly better than L-6"
-    variants:
-      fp32:                 { file: "onnx/model.onnx",                    size_mb: 134 }
-      fp16:                 { file: "onnx/model_O4.onnx",                 size_mb: 67 }
-      arm64_int8:           { file: "onnx/model_qint8_arm64.onnx",        size_mb: 34 }
-      x86_avx512_int8:      { file: "onnx/model_qint8_avx512.onnx",       size_mb: 34 }
-      x86_avx512_vnni_int8: { file: "onnx/model_qint8_avx512_vnni.onnx",  size_mb: 34 }
-      x86_avx2_int8:        { file: "onnx/model_quint8_avx2.onnx",        size_mb: 34 }
     default_variant:
       darwin_arm64:  arm64_int8
       win32_amd64:   x86_avx2_int8
