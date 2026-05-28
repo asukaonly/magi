@@ -1,7 +1,7 @@
 /**
  * Chat page - desktop-focused conversation workspace
  */
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useChatComposerController } from '@/hooks/useChatComposerController';
@@ -16,6 +16,10 @@ import { useChatExecutionControls } from '@/hooks/useChatExecutionControls';
 import { useConversationStore } from '@/stores';
 import { ChatComposerPane } from '@/components/chat/ChatComposerPane';
 import { FirstConversationChips } from '@/components/chat/FirstConversationChips';
+import { SystemSuggestionTopBar } from '@/components/chat/SystemSuggestionTopBar';
+import { SystemSuggestionSideCard } from '@/components/chat/SystemSuggestionSideCard';
+import { useSystemSuggestions } from '@/hooks/useSystemSuggestions';
+import type { SuggestionProposal } from '@/api/modules/systemSuggestions';
 import { ComposerAskQuickReplies } from '@/components/chat/ComposerAskQuickReplies';
 import { ChatPageOverlays } from '@/components/chat/ChatPageOverlays';
 import { ChatTimelinePane } from '@/components/chat/ChatTimelinePane';
@@ -121,7 +125,7 @@ const resolvePendingAskComposerState = (
 };
 
 export const ChatPage: React.FC = () => {
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
   const shouldReduceMotion = useReducedMotion();
   const reduceTimelineMotion = Boolean(shouldReduceMotion);
   const currentSessionId = useConversationStore((state) => state.currentSessionId);
@@ -307,6 +311,23 @@ export const ChatPage: React.FC = () => {
 
   const { completed: firstConvDone, markCompleted: markFirstConvCompleted } = useFirstConversationFlag();
   const showFirstConversationChips = !firstConvDone && messages.length === 0;
+
+  // System suggestions: fire after each completed user→assistant turn.
+  const triggerText = useMemo(() => {
+    const lastTwo = messages.slice(-2);
+    if (lastTwo.length < 2) return '';
+    const [maybeUser, maybeAssistant] = lastTwo;
+    if (maybeUser.role !== 'user' || maybeAssistant.role !== 'assistant') return '';
+    if (maybeAssistant.streaming) return '';
+    return `${maybeUser.content}\n${maybeAssistant.content}`;
+  }, [messages]);
+  const suggestionLocale: 'zh' | 'en' = (i18n.language === 'zh-CN' || i18n.language === 'zh') ? 'zh' : 'en';
+  const { proposals: systemSuggestions, dismiss: dismissSystemSuggestion } = useSystemSuggestions({
+    triggerText,
+    locale: suggestionLocale,
+  });
+  const [sideCardProposal, setSideCardProposal] = useState<SuggestionProposal | null>(null);
+  const topBarProposal = systemSuggestions.length > 0 ? systemSuggestions[0] : null;
   const handleComposerPrimaryActionWithFlag = React.useCallback(() => {
     handleComposerPrimaryAction();
     if (!firstConvDone) {
@@ -628,6 +649,24 @@ export const ChatPage: React.FC = () => {
       transition={{ duration: 0.15 }}
       className="relative flex h-full min-h-0 flex-col px-3 pb-3 pt-2"
     >
+      <SystemSuggestionTopBar
+        proposal={topBarProposal}
+        onOpen={(p) => setSideCardProposal(p)}
+        onDismiss={(dedupeKey, kind) => {
+          void dismissSystemSuggestion(dedupeKey, kind);
+        }}
+      />
+      {sideCardProposal && (
+        <SystemSuggestionSideCard
+          proposal={sideCardProposal}
+          onClose={() => setSideCardProposal(null)}
+          onDecline={(dedupeKey) => {
+            void dismissSystemSuggestion(dedupeKey, 'explicit');
+            setSideCardProposal(null);
+          }}
+          onActivated={() => setSideCardProposal(null)}
+        />
+      )}
       <ChatTimelinePane
         messages={messages}
         assistantName={aiName}

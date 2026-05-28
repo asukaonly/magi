@@ -201,6 +201,12 @@
       }
     }
   },
+  "systemSuggestion": {
+    "dismiss": "Dismiss",
+    "connect": "Connect",
+    "decline": "Not now",
+    "fallbackHeading": "A suggestion"
+  },
   "llm": {
     "modelSelection": {
       "title": "Model Selection",

@@ -202,6 +202,12 @@
       }
     }
   },
+  "systemSuggestion": {
+    "dismiss": "关闭",
+    "connect": "立即连接",
+    "decline": "先不用",
+    "fallbackHeading": "一个建议"
+  },
   "llm": {
     "modelSelection": {
       "title": "模型选择",

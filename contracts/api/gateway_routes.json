@@ -558,6 +558,11 @@
       "owner_file": "backend/src/magi/api/routers/skills.py"
     },
     {
+      "prefix": "/api/system-suggestions",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/system_suggestions_routes.py"
+    },
+    {
       "prefix": "/api/timeline",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/api/routers/timeline.py"
