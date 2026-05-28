@@ -8,7 +8,9 @@ import uuid
 from typing import Any, Awaitable, Callable, Optional
 
 from .cancel import CancelToken, null_cancel_token
+from .run_control import RunControl, null_run_control
 from ..core.logger import get_logger
+from ..llm.cancellable_client import CancellationRaised, RetractRaised
 from ..agent.runtime.contracts import FactRecord
 from ..events.events import Event, EventTypes
 from ..events.domain_payloads import (
@@ -261,15 +263,23 @@ class TaskOrchestrator(
         user_message: str,
         run_id: str | None = None,
         run_revision: int = 0,
-        turn_id: Optional[str],
+        turn_id: Optional[str] = None,
         history: list[dict[str, Any]],
         history_key: str,
-        correlation_id: Optional[str],
+        correlation_id: Optional[str] = None,
         orchestration_strategy: dict[str, Any],
         persona_id: str | None = None,
         cancel_token: CancelToken | None = None,
+        control: RunControl | None = None,
     ) -> OrchestrationExecutionResult:
-        resolved_cancel_token = cancel_token or null_cancel_token()
+        # Resolve the RunControl bundle.  If the caller supplies both
+        # cancel_token (legacy path) and control (new path), control wins
+        # and we overlay the legacy token onto it so both signals fire.
+        if control is None:
+            control = null_run_control()
+            if cancel_token is not None:
+                control.cancel_token = cancel_token
+        resolved_cancel_token = control.cancel_token
 
         def _cancelled_result() -> OrchestrationExecutionResult:
             return OrchestrationExecutionResult(
@@ -305,6 +315,29 @@ class TaskOrchestrator(
         except _PlanningCancelled:
             logger.info(
                 "Aborted orchestration planner request after cancellation",
+                session_id=session_id,
+                run_id=run_id,
+                run_revision=run_revision,
+            )
+            return _cancelled_result()
+        except RetractRaised:
+            logger.info(
+                "Orchestration plan aborted by retract signal",
+                session_id=session_id,
+                run_id=run_id,
+                run_revision=run_revision,
+            )
+            return OrchestrationExecutionResult(
+                response="",
+                skip_emit=True,
+                root_user_message=user_message,
+                correlation_id=correlation_id,
+                turn_id=turn_id,
+                retracted=True,
+            )
+        except CancellationRaised:
+            logger.info(
+                "Orchestration plan aborted by cancellation (CancellableLLMClient)",
                 session_id=session_id,
                 run_id=run_id,
                 run_revision=run_revision,
