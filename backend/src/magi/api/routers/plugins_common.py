@@ -326,8 +326,18 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
     )
     replace_plugin_directory(plugin_source, dest_dir)
 
-    save_config({f"plugins.packages.{entry.plugin_id}": {"enabled": True}})
-    logger.info("Saved lightweight plugin install config", extra={"plugin_id": entry.plugin_id})
+    # Libraries are always trusted+enabled (they're installed as deps, not
+    # by user toggle). Plugin packages stay at the legacy default
+    # (enabled, untrusted — caller may upgrade trust later).
+    is_library = entry.kind == "library"
+    package_config: dict[str, Any] = {"enabled": True}
+    if is_library:
+        package_config["trusted"] = True
+    save_config({f"plugins.packages.{entry.plugin_id}": package_config})
+    logger.info(
+        "Saved lightweight plugin install config",
+        extra={"plugin_id": entry.plugin_id, "kind": entry.kind},
+    )
 
     ctypes: list[ContributionType] = []
     for ct in entry.contribution_types:
@@ -344,16 +354,129 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
             description=entry.description,
             author=entry.author,
             official=entry.official,
+            kind=entry.kind,
             contribution_types=ctypes,
+            depends_on=list(entry.depends_on),
             platforms=entry.platforms,
             plugin_dir=str(dest_dir),
             source="external",
         ),
         enabled=True,
-        trusted=False,
+        trusted=is_library,
         loaded=False,
         healthy=True,
     )
+
+
+async def _resolve_install_closure(
+    target_id: str,
+    registry: PluginRegistryClient,
+    *,
+    already_installed: set[str],
+) -> list[PluginRegistryEntry]:
+    """Walk the registry to compute install order for *target_id* + missing deps.
+
+    Returns registry entries in install order (deps first, target last).
+    Entries whose ``plugin_id`` is already in *already_installed* are skipped.
+    Raises ``ValueError`` if any required entry is missing from the registry
+    or if a cycle is detected — both indicate a registry packaging bug.
+    """
+    install_order: list[PluginRegistryEntry] = []
+    visiting: set[str] = set()
+    resolved: set[str] = set()
+
+    async def _visit(plugin_id: str) -> None:
+        if plugin_id in resolved or plugin_id in already_installed:
+            return
+        if plugin_id in visiting:
+            raise ValueError(
+                f"Cyclic plugin dependency detected involving {plugin_id}"
+            )
+        entry = await registry.fetch_entry(plugin_id)
+        if entry is None:
+            raise ValueError(f"Plugin not found in registry: {plugin_id}")
+        visiting.add(plugin_id)
+        for dep_id in entry.depends_on:
+            await _visit(dep_id)
+        visiting.discard(plugin_id)
+        resolved.add(plugin_id)
+        install_order.append(entry)
+
+    await _visit(target_id)
+    return install_order
+
+
+async def install_with_closure(
+    target_id: str,
+    registry: PluginRegistryClient,
+    manager,  # PluginManager | None
+    *,
+    progress_reporter=None,
+) -> tuple[PluginPackageState, list[str]]:
+    """Install *target_id* and any missing registry-declared dependencies.
+
+    Returns ``(state_of_target, extra_installed_ids)`` where the second
+    element lists plugin_ids installed solely as deps (in install order,
+    excluding the target). Caller can surface "also installed: …" UX.
+
+    Uses the active *manager* when available; otherwise falls back to
+    :func:`_lightweight_install`. Both paths persist state via the config
+    layer so a later scan picks them up identically.
+    """
+    if manager is not None:
+        already_installed = set(manager._package_states.keys())  # noqa: SLF001
+    else:
+        from ...config import get_config
+
+        already_installed = set(get_config().plugins.packages.keys())
+
+    order = await _resolve_install_closure(
+        target_id, registry, already_installed=already_installed
+    )
+    if not order:
+        # Target was already installed and no missing deps — refresh by
+        # treating it as a normal single-entry install.
+        entry = await registry.fetch_entry(target_id)
+        if entry is None:
+            raise ValueError(f"Plugin not found in registry: {target_id}")
+        order = [entry]
+
+    extra_installed: list[str] = []
+    target_state: PluginPackageState | None = None
+
+    for entry in order:
+        is_target = entry.plugin_id == target_id
+        if progress_reporter is not None:
+            label = "Installing" if is_target else "Installing dependency"
+            progress_reporter(
+                "install",
+                f"{label}: {entry.name}",
+                None,
+            )
+        plugin_dir = await registry.clone_plugin(entry)
+        if manager is not None:
+            state = await _to_thread(
+                manager.install_plugin_from_directory,
+                plugin_dir,
+                progress_reporter=progress_reporter,
+            )
+        else:
+            state = await _to_thread(_lightweight_install, plugin_dir, entry)
+        if is_target:
+            target_state = state
+        else:
+            extra_installed.append(entry.plugin_id)
+
+    assert target_state is not None  # _resolve_install_closure guarantees this
+    return target_state, extra_installed
+
+
+async def _to_thread(func, /, *args, **kwargs):
+    """Thin wrapper so this module doesn't pull asyncio at import time
+    in tests that don't need it."""
+    import asyncio
+
+    return await asyncio.to_thread(func, *args, **kwargs)
 
 
 def _serialize_package(state: PluginPackageState) -> PluginPackageResponse:
@@ -424,6 +547,8 @@ __all__ = [
     "_get_plugin_i18n",
     "_get_registry_client",
     "_lightweight_install",
+    "_resolve_install_closure",
+    "install_with_closure",
     "_require_package",
     "_serialize_activation_flow",
     "_serialize_contribution",

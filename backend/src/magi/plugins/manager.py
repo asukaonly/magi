@@ -170,11 +170,40 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         return self.list_packages()
 
     def activate_enabled_plugins(self) -> None:
-        """Load every enabled and trusted plugin package."""
+        """Load every enabled plugin package.
+
+        Each plugin's load is wrapped in try/except so that one broken plugin
+        (e.g. a missing Python dep) cannot crash the runtime startup. Failed
+        plugins are left with ``healthy=False`` and a non-empty ``last_error``;
+        the user can disable or repair them via the UI. Library packages
+        (``kind == "library"``) ship Python modules consumed by other plugins
+        and have no :class:`Plugin` instance to instantiate, so we just mark
+        them loaded once they exist on disk.
+        """
 
         for state in self.list_packages():
-            if state.enabled:
+            if not state.enabled:
+                continue
+            if state.manifest.kind == "library":
+                # Libraries are "loaded" just by being present on disk; their
+                # code gets onto sys.path via _instantiate_plugin when a
+                # consumer plugin loads.
+                state.loaded = True
+                state.healthy = True
+                state.last_error = None
+                continue
+            try:
                 self.load_plugin(state.manifest.plugin_id)
+            except Exception as exc:
+                # load_plugin already recorded last_error / healthy=False
+                # on the state and called unload_plugin to clean up partial
+                # registrations. Log and continue so other plugins still
+                # come up.
+                logger.warning(
+                    "plugin.load_failed_during_startup plugin_id=%s error=%s",
+                    state.manifest.plugin_id,
+                    exc,
+                )
 
     def rescan_runtime(self, *, persist_discovery: bool = True) -> list[PluginPackageState]:
         """Rescan plugin manifests and reload enabled plugins in the current runtime."""
@@ -197,7 +226,12 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         return list(self._plugin_instances.values())
 
     def load_plugin(self, plugin_id: str) -> PluginPackageState:
-        """Load a plugin and register all of its contributions."""
+        """Load a plugin and register all of its contributions.
+
+        Library packages (``kind == "library"``) are not instantiated — they
+        only ship Python modules consumed by other plugins. We mark them as
+        loaded once their directory is present on disk.
+        """
 
         state = self._require_package(plugin_id)
         if state.loaded:
@@ -205,10 +239,21 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         if not state.trusted and state.manifest.source != "builtin":
             raise RuntimeError(f"Plugin {plugin_id} must be trusted before loading")
 
+        if state.manifest.kind == "library":
+            state.loaded = True
+            state.healthy = True
+            state.last_error = None
+            return state
+
         self._purge_plugin_modules(plugin_id)
-        plugin_instance = self._instantiate_plugin(state.manifest, state.current_settings)
         registered_contributions: list[PluginContribution] = []
         try:
+            # _instantiate_plugin can raise (missing dep, syntax error in
+            # plugin code, etc.). Keep it inside the try so any failure
+            # marks the state unhealthy with a clear last_error — without
+            # this guard, import-time errors would bypass error recording
+            # entirely and propagate as a bare exception.
+            plugin_instance = self._instantiate_plugin(state.manifest, state.current_settings)
             settings_actions = self._collect_settings_actions(plugin_instance)
             tool_names: list[str] = []
             for tool_class in plugin_instance.get_tools():
@@ -456,10 +501,37 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         self._pending_plugin_shutdowns.add(task)
         task.add_done_callback(self._pending_plugin_shutdowns.discard)
 
+    def iter_consumers(self, library_id: str) -> list[str]:
+        """Return plugin_ids that declare ``library_id`` in their ``depends_on``.
+
+        Used by uninstall flows to refcount-protect library packages: a
+        library can only be physically removed once no installed plugin
+        still references it.
+        """
+
+        return [
+            state.manifest.plugin_id
+            for state in self._package_states.values()
+            if library_id in state.manifest.depends_on
+        ]
+
+    def _reject_library(self, state: PluginPackageState, action: str) -> None:
+        """Forbid user-facing toggle operations on library packages.
+
+        Libraries are auto-installed via dep closure and refcounted on
+        uninstall — they have no meaningful enable/disable semantics.
+        """
+        if state.manifest.kind == "library":
+            raise ValueError(
+                f"Cannot {action} library package {state.manifest.plugin_id}: "
+                f"libraries are managed automatically as dependencies."
+            )
+
     def enable_plugin(self, plugin_id: str) -> PluginPackageState:
         """Persist enable/trust state and load the plugin."""
 
         state = self._require_package(plugin_id)
+        self._reject_library(state, "enable")
         save_config(
             {
                 f"plugins.packages.{plugin_id}.enabled": True,
@@ -477,6 +549,7 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         """Persist disabled state and unregister plugin contributions."""
 
         state = self._require_package(plugin_id)
+        self._reject_library(state, "disable")
         self.unload_plugin(plugin_id)
         save_config({f"plugins.packages.{plugin_id}.enabled": False})
         self.scan(persist_discovery=False)
@@ -603,8 +676,16 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         for plugin_id, manifest in manifests.items():
             if plugin_id in config.plugins.packages:
                 continue
-            enabled = bool(manifest.official and manifest.source == "builtin")
-            trusted = enabled
+            if manifest.kind == "library":
+                # Libraries are not user-toggled. Always enabled + trusted
+                # so they pass through the load-time gates if any consumer
+                # plugin references them. (They still don't get instantiated
+                # — see load_plugin.)
+                enabled = True
+                trusted = True
+            else:
+                enabled = bool(manifest.official and manifest.source == "builtin")
+                trusted = enabled
             updates[f"plugins.packages.{plugin_id}.enabled"] = enabled
             updates[f"plugins.packages.{plugin_id}.trusted"] = trusted
             updates[f"plugins.packages.{plugin_id}.source"] = manifest.source
@@ -636,6 +717,24 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         deps_dir = Path(manifest.plugin_dir) / ".deps"
         if deps_dir.is_dir() and str(deps_dir) not in sys.path:
             sys.path.append(str(deps_dir))
+
+        # For each declared plugin-level dep (typically a library package),
+        # add its install-root *parent* to sys.path so that
+        # ``import <library_module>`` works inside the plugin code. Libraries
+        # are installed as siblings under ~/.magi/plugins/, so the parent
+        # path is shared across consumers. We refuse to load when a declared
+        # dep is missing — better a clear error here than a deep
+        # ModuleNotFoundError later.
+        for dep_id in manifest.depends_on:
+            dep_state = self._package_states.get(dep_id)
+            if dep_state is None or not Path(dep_state.manifest.plugin_dir).is_dir():
+                raise RuntimeError(
+                    f"Plugin {manifest.plugin_id} depends on missing package: {dep_id}. "
+                    f"Reinstall {manifest.plugin_id} to fetch dependencies."
+                )
+            dep_parent = str(Path(dep_state.manifest.plugin_dir).parent)
+            if dep_parent not in sys.path:
+                sys.path.append(dep_parent)
 
         spec = importlib.util.spec_from_file_location(
             f"magi_plugin_{manifest.plugin_id.replace('-', '_')}",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from ... import i18n as core_i18n
 from ...core.logger import get_logger
@@ -53,13 +53,26 @@ async def _refresh_channels_after_plugin_change(plugin_id: str, reason: str) -> 
 
 
 @plugins_core_router.get("", response_model=PluginsListResponse)
-async def list_plugins():
+async def list_plugins(
+    include: str | None = Query(
+        default=None,
+        description=(
+            "Comma-separated extras to include. Pass 'libraries' to also "
+            "return library packages (hidden by default — they are auto-"
+            "installed and managed via refcount, not user toggle)."
+        ),
+    ),
+):
     legacy = legacy_plugins_module()
     try:
         manager = legacy.resolve_plugin_manager()
     except RuntimeError:
         return PluginsListResponse(plugins=[], total=0)
     packages = manager.list_packages()
+    include_set = {p.strip() for p in (include or "").split(",") if p.strip()}
+    include_libraries = "libraries" in include_set
+    if not include_libraries:
+        packages = [p for p in packages if p.manifest.kind != "library"]
     return PluginsListResponse(
         plugins=[legacy._serialize_package(item) for item in packages],
         total=len(packages),

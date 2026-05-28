@@ -211,8 +211,19 @@ class PluginManifest(BaseModel):
     entry_module: str = "plugin"
     entry_class: str = "Plugin"
     official: bool = False
+    kind: Literal["plugin", "library"] = "plugin"
+    """Package kind. ``library`` means the package only ships Python modules
+    consumed by other plugins via ``depends_on`` — it is not loaded as a
+    :class:`Plugin` instance, never appears in user-facing market/installed
+    lists, and is auto-installed and refcounted by the plugin manager."""
     contribution_types: list[ContributionType] = Field(default_factory=list)
     dependencies: list[str] = Field(default_factory=list)
+    """PIP package dependencies installed under the plugin's ``.deps/`` dir."""
+    depends_on: list[str] = Field(default_factory=list)
+    """Other plugins (typically libraries) this plugin imports from. Each
+    entry is a ``plugin_id``. The manager auto-installs missing entries
+    during install, refcount-protects them on uninstall, and injects their
+    install-root parent onto ``sys.path`` before loading this plugin."""
     min_sdk_version: str = ""
     platforms: list[str] = Field(default_factory=list)
     homepage: str = ""
@@ -274,7 +285,12 @@ class PluginRegistryEntry(BaseModel):
     description_i18n: dict[str, str] = Field(default_factory=dict)
     author: str = ""
     official: bool = False
+    kind: Literal["plugin", "library"] = "plugin"
+    """Mirrors :attr:`PluginManifest.kind`; libraries are hidden from
+    user-facing market listings and installed via dep closure only."""
     contribution_types: list[str] = Field(default_factory=list)
+    depends_on: list[str] = Field(default_factory=list)
+    """Other registry entries this plugin imports from (plugin_ids)."""
     platforms: list[str] = Field(default_factory=list)
     min_sdk_version: str = ""
     homepage: str = ""
