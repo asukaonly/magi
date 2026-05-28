@@ -323,3 +323,29 @@ class TestShutdown:
         await asyncio.sleep(0)  # let the task start
         await mgr.shutdown()
         assert cancelled
+
+
+class TestDetectPlatformKey:
+    """Verify platform key format matches what default_variant keys use."""
+
+    def test_darwin_arm64(self) -> None:
+        from unittest.mock import patch
+        from magi.memory.embedding import local_embedding_resolution as res
+        with patch.object(res.sys, "platform", "darwin"), \
+             patch.object(res.platform, "machine", return_value="arm64"):
+            assert res.detect_platform_key() == "darwin_arm64"
+
+    def test_win32_amd64_uppercase(self) -> None:
+        from unittest.mock import patch
+        from magi.memory.embedding import local_embedding_resolution as res
+        with patch.object(res.sys, "platform", "win32"), \
+             patch.object(res.platform, "machine", return_value="AMD64"):
+            # platform.machine() returns "AMD64" on Windows — must be lowercased.
+            assert res.detect_platform_key() == "win32_amd64"
+
+    def test_linux_x86_64(self) -> None:
+        from unittest.mock import patch
+        from magi.memory.embedding import local_embedding_resolution as res
+        with patch.object(res.sys, "platform", "linux"), \
+             patch.object(res.platform, "machine", return_value="x86_64"):
+            assert res.detect_platform_key() == "linux_x86_64"

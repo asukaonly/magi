@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import platform
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +12,15 @@ from ...config.local_embedding_registry import (
     get_local_embedding_registry,
 )
 from ...config.models import LocalEmbeddingModelSource
+
+
+def detect_platform_key() -> str:
+    """Return a stable key used to look up `default_variant` in registry YAML.
+
+    Format: f"{sys.platform}_{platform.machine().lower()}"
+    Examples: 'darwin_arm64', 'win32_amd64', 'linux_x86_64'.
+    """
+    return f"{sys.platform}_{platform.machine().lower()}"
 
 
 def _find_onnx_model(model_dir: Path) -> Path | None:
@@ -56,4 +67,8 @@ class LocalEmbeddingModelResolutionMixin:
         return get_local_embedding_registry().get(model_id)
 
 
-__all__ = ["LocalEmbeddingModelResolutionMixin", "_find_onnx_model"]
+__all__ = [
+    "LocalEmbeddingModelResolutionMixin",
+    "_find_onnx_model",
+    "detect_platform_key",
+]
