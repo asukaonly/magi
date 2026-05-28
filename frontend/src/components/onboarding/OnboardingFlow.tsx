@@ -616,10 +616,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     form.setFieldsValue(merged);
   };
 
-  /** Handle welcome screen mode selection. */
-  const handleWelcomeSelectMode = (selectedMode: 'quick' | 'expert') => {
-    setMode(selectedMode);
-    form.setFieldValue(['preferences', 'user_mode'], selectedMode);
+  /**
+   * Handle welcome screen continue action.
+   *
+   * Plan 2 removes the quick/expert mode selection from Welcome. Until Task 9
+   * collapses the full step array, we default to 'quick' so the rest of the
+   * existing flow remains traversable. This default is temporary and is
+   * removed when the full flow is collapsed.
+   */
+  const handleWelcomeContinue = () => {
+    const effectiveMode: 'quick' | 'expert' = mode ?? 'quick';
+    if (mode !== effectiveMode) {
+      setMode(effectiveMode);
+      form.setFieldValue(['preferences', 'user_mode'], effectiveMode);
+    }
     setPhase('guided');
     setCurrent(0);
     saveProgress(form.getFieldsValue(true));
@@ -828,7 +838,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         <WelcomeScreen
           language={currentLang}
           onLanguageChange={handleWelcomeLanguageChange}
-          onSelectMode={handleWelcomeSelectMode}
+          onContinue={handleWelcomeContinue}
         />
       </Form>
     );

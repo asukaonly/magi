@@ -56,10 +56,7 @@
   "welcome": {
     "title": "Welcome to Magi",
     "subtitle": "Your Intelligent Life Companion",
-    "quickMode": "Quick Mode",
-    "quickModeDesc": "Pick a scenario and get started in minutes",
-    "expertMode": "Expert Mode",
-    "expertModeDesc": "Full control over every setting"
+    "getStarted": "Get Started"
   },
   "scenario": {
     "title": "Choose Your Use Case",

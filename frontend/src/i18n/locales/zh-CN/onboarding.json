@@ -57,10 +57,7 @@
   "welcome": {
     "title": "欢迎来到 Magi",
     "subtitle": "你的智能生活伙伴",
-    "quickMode": "快速模式",
-    "quickModeDesc": "选好场景，几分钟上手",
-    "expertMode": "专家模式",
-    "expertModeDesc": "完全掌控每一项配置"
+    "getStarted": "开始"
   },
   "scenario": {
     "title": "选择使用场景",

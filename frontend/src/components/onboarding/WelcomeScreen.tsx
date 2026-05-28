@@ -1,6 +1,5 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Rocket, Settings } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import magiMark from '@/assets/magi-mark.png';
@@ -10,7 +9,7 @@ type LanguageCode = 'zh' | 'en';
 interface WelcomeScreenProps {
   language: LanguageCode;
   onLanguageChange: (lang: LanguageCode) => void;
-  onSelectMode: (mode: 'quick' | 'expert') => void;
+  onContinue: () => void;
 }
 
 const languages: { value: LanguageCode; label: string }[] = [
@@ -18,13 +17,10 @@ const languages: { value: LanguageCode; label: string }[] = [
   { value: 'en', label: 'EN' },
 ];
 
-const modeCardBaseClass =
-  'group relative flex flex-col items-start gap-3 overflow-hidden rounded-[28px] border p-6 text-left transition duration-200 backdrop-blur-sm focus-visible:outline-none focus-visible:ring-2';
-
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   language,
   onLanguageChange,
-  onSelectMode,
+  onContinue,
 }) => {
   const { t } = useTranslation('onboarding');
   const shouldReduceMotion = useReducedMotion();
@@ -58,62 +54,21 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         </h1>
 
         {/* Subtitle */}
-        <p className="mb-12 text-lg text-[#7b6557] dark:text-[#c8b8aa] sm:text-xl">
+        <p className="mb-4 text-lg text-[#7b6557] dark:text-[#c8b8aa] sm:text-xl">
           {t('welcome.subtitle')}
         </p>
 
-        {/* Mode cards */}
-        <div className="grid w-full max-w-2xl gap-4 sm:grid-cols-2">
-          <motion.button
-            type="button"
-            onClick={() => onSelectMode('quick')}
-            className={cn(
-              modeCardBaseClass,
-              'border-[#e7d8ca]/85 bg-[#fff9f3]/84 shadow-[0_24px_60px_-38px_rgba(170,107,66,0.36)]',
-              'hover:border-[#d18b63] hover:bg-[#fffdf9] hover:shadow-[0_28px_64px_-36px_rgba(170,107,66,0.42)]',
-              'focus-visible:ring-[#d18b63]/45',
-              'dark:border-[#5b4437]/72 dark:bg-[#241c18]/88 dark:hover:border-[#c58a61] dark:hover:bg-[#2a201c]'
-            )}
-            whileHover={shouldReduceMotion ? undefined : { y: -4 }}
-            transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}
-          >
-            <div className="absolute right-[-1.25rem] top-[-1.25rem] h-24 w-24 rounded-full bg-[#efc6a9]/36 blur-2xl dark:bg-[#7f573f]/22" />
-            <div className="relative z-10 flex h-11 w-11 items-center justify-center rounded-xl bg-[#f6e1d0] text-[#b56d3c] transition group-hover:bg-[#f2d4be] dark:bg-[#3b2b23] dark:text-[#f0b489] dark:group-hover:bg-[#4a352b]">
-              <Rocket className="h-5 w-5" />
-            </div>
-            <div className="relative z-10">
-              <div className="text-lg font-semibold text-[#35261f] dark:text-[#f4eadf]">{t('welcome.quickMode')}</div>
-              <p className="mt-1 text-sm leading-relaxed text-[#7d685a] dark:text-[#c8b7a7]">
-                {t('welcome.quickModeDesc')}
-              </p>
-            </div>
-          </motion.button>
-
-          <motion.button
-            type="button"
-            onClick={() => onSelectMode('expert')}
-            className={cn(
-              modeCardBaseClass,
-              'border-[#e7d8ca]/85 bg-[#fff9f3]/84 shadow-[0_24px_60px_-38px_rgba(170,107,66,0.36)]',
-              'hover:border-[#d18b63] hover:bg-[#fffdf9] hover:shadow-[0_28px_64px_-36px_rgba(170,107,66,0.42)]',
-              'focus-visible:ring-[#d18b63]/45',
-              'dark:border-[#5b4437]/72 dark:bg-[#241c18]/88 dark:hover:border-[#c58a61] dark:hover:bg-[#2a201c]'
-            )}
-            whileHover={shouldReduceMotion ? undefined : { y: -4 }}
-            transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}
-          >
-            <div className="absolute right-[-1.25rem] top-[-1.25rem] h-24 w-24 rounded-full bg-[#efc6a9]/36 blur-2xl dark:bg-[#7f573f]/22" />
-            <div className="relative z-10 flex h-11 w-11 items-center justify-center rounded-xl bg-[#f6e1d0] text-[#b56d3c] transition group-hover:bg-[#f2d4be] dark:bg-[#3b2b23] dark:text-[#f0b489] dark:group-hover:bg-[#4a352b]">
-              <Settings className="h-5 w-5" />
-            </div>
-            <div className="relative z-10">
-              <div className="text-lg font-semibold text-[#35261f] dark:text-[#f4eadf]">{t('welcome.expertMode')}</div>
-              <p className="mt-1 text-sm leading-relaxed text-[#7d685a] dark:text-[#c8b7a7]">
-                {t('welcome.expertModeDesc')}
-              </p>
-            </div>
-          </motion.button>
-        </div>
+        {/* Get Started CTA */}
+        <motion.button
+          type="button"
+          onClick={onContinue}
+          className="mt-12 inline-flex items-center justify-center rounded-full bg-[#35261f] px-10 py-3 text-lg font-medium text-white shadow-md transition hover:brightness-110 dark:bg-[#f4eadf] dark:text-[#35261f]"
+          whileHover={shouldReduceMotion ? undefined : { scale: 1.02 }}
+          whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
+          transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}
+        >
+          {t('welcome.getStarted')}
+        </motion.button>
       </motion.div>
 
       {/* Language toggle - bottom left */}

@@ -57,7 +57,7 @@ describe('OnboardingFlow', () => {
     localStorageMock.removeItem.mockClear();
   });
 
-  it('shows the welcome entrypoint first and keeps quick mode focused on scenario and LLM setup', async () => {
+  it('shows the welcome entrypoint first and advances into scenario and LLM setup', async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
@@ -77,7 +77,7 @@ describe('OnboardingFlow', () => {
     expect(screen.getByText('welcome.title')).toBeInTheDocument();
     expect(screen.getByText('welcome.subtitle')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' }));
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
 
     expect(await screen.findByText('steps.scenario')).toBeInTheDocument();
     expect(screen.getByText('steps.llmProviders')).toBeInTheDocument();
@@ -85,29 +85,7 @@ describe('OnboardingFlow', () => {
     expect(screen.queryByText('steps.personality')).not.toBeInTheDocument();
   });
 
-  it('includes a dedicated model-selection step after entering expert mode', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(
-      <OnboardingFlow
-        initialConfig={{
-          ...DEFAULT_SYSTEM_CONFIG,
-          preferences: {
-            ...DEFAULT_SYSTEM_CONFIG.preferences,
-            user_mode: 'expert',
-          },
-        }}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: 'welcome.expertMode welcome.expertModeDesc' }));
-
-    expect(await screen.findByText('steps.llmProviders')).toBeInTheDocument();
-    expect(screen.getByText('steps.llmModels')).toBeInTheDocument();
-  });
-
-  it('renders the welcome mode selection entrypoint with both mode cards', () => {
+  it('renders the welcome entrypoint with a single Get Started action and no mode cards', () => {
     localStorageMock.getItem.mockReturnValue(null);
 
     render(
@@ -124,8 +102,11 @@ describe('OnboardingFlow', () => {
 
     expect(screen.getByText('welcome.title')).toBeInTheDocument();
     expect(screen.getByText('welcome.subtitle')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'welcome.expertMode welcome.expertModeDesc' })).toBeInTheDocument();
+    // The Get Started CTA is the single primary action on Welcome.
+    expect(screen.getByRole('button', { name: /welcome\.getStarted/ })).toBeInTheDocument();
+    // Mode cards no longer exist anywhere in the flow.
+    expect(screen.queryByText(/welcome\.quickMode/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/welcome\.expertMode/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '中文' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'EN' })).toBeInTheDocument();
   });
@@ -146,7 +127,7 @@ describe('OnboardingFlow', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' }));
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
     await user.click(await screen.findByRole('button', { name: /scenario\.chatAssistant/ }));
     await user.click(screen.getByRole('button', { name: 'actions.next' }));
 
@@ -177,7 +158,7 @@ describe('OnboardingFlow', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' }));
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
     await user.click(await screen.findByRole('button', { name: /scenario\.knowledgePartner/ }));
     await user.click(screen.getByRole('button', { name: 'actions.next' }));
 
@@ -251,7 +232,7 @@ describe('OnboardingFlow', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' }));
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
     await user.click(await screen.findByRole('button', { name: /scenario\.knowledgePartner/ }));
     await user.click(screen.getByRole('button', { name: 'actions.next' }));
 
