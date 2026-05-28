@@ -149,3 +149,64 @@ async def test_download_model_endpoint_accepts_variant_query_param(tmp_path: Pat
         await asyncio.sleep(0)
 
     assert captured["variant"] == "quantized"
+
+
+@pytest.mark.asyncio
+async def test_list_models_includes_variants_with_downloaded_status(tmp_path: Path) -> None:
+    """Each model in the list response must include its variants and which are downloaded."""
+    from magi.config.local_embedding_registry import LocalEmbeddingModelRegistry
+
+    meta = _meta_with_variants()
+    registry = LocalEmbeddingModelRegistry(models=[meta])
+
+    paths = MagicMock()
+    model_dir = tmp_path / meta.id
+    (model_dir / "onnx").mkdir(parents=True)
+    (model_dir / "onnx" / "model_fp16.onnx").touch()  # only fp16 downloaded
+    (model_dir / "tokenizer.json").touch()
+    paths.managed_embedding_model_dir = MagicMock(return_value=str(model_dir))
+
+    with patch.object(router_mod, "get_local_embedding_registry", return_value=registry), \
+         patch.object(router_mod, "RuntimePaths", return_value=paths), \
+         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"):
+        result = await router_mod.list_models()
+
+    assert len(result) == 1
+    info = result[0]
+    variant_names = {v.name for v in info.variants}
+    assert variant_names == {"fp32", "fp16", "quantized"}
+    by_name = {v.name: v for v in info.variants}
+    assert by_name["fp16"].downloaded is True
+    assert by_name["fp32"].downloaded is False
+    assert by_name["quantized"].downloaded is False
+    assert info.default_variant == "fp16"  # darwin_arm64 default
+    assert by_name["fp32"].size_mb == 2400
+    assert by_name["fp32"].file == "onnx/model.onnx"
+
+
+@pytest.mark.asyncio
+async def test_list_models_legacy_model_has_empty_variants_list(tmp_path: Path) -> None:
+    """A model without a variants block returns an empty variants list and None default_variant."""
+    from magi.config.local_embedding_registry import LocalEmbeddingModelMeta, LocalEmbeddingModelRegistry
+
+    bare_meta = LocalEmbeddingModelMeta(
+        id="legacy",
+        label="Legacy",
+        repo="o/l",
+        onnx_repo="o/l",
+        dimension=384,
+        max_tokens=512,
+    )
+    registry = LocalEmbeddingModelRegistry(models=[bare_meta])
+
+    paths = MagicMock()
+    paths.managed_embedding_model_dir = MagicMock(return_value=str(tmp_path / "legacy"))
+
+    with patch.object(router_mod, "get_local_embedding_registry", return_value=registry), \
+         patch.object(router_mod, "RuntimePaths", return_value=paths):
+        result = await router_mod.list_models()
+
+    assert len(result) == 1
+    info = result[0]
+    assert info.variants == []
+    assert info.default_variant is None
