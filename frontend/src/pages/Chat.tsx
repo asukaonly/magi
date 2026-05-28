@@ -318,6 +318,7 @@ export const ChatPage: React.FC = () => {
     if (lastTwo.length < 2) return '';
     const [maybeUser, maybeAssistant] = lastTwo;
     if (maybeUser.role !== 'user' || maybeAssistant.role !== 'assistant') return '';
+    if (maybeAssistant.streaming) return '';
     return `${maybeUser.content}\n${maybeAssistant.content}`;
   }, [messages]);
   const suggestionLocale: 'zh' | 'en' = (i18n.language === 'zh-CN' || i18n.language === 'zh') ? 'zh' : 'en';
