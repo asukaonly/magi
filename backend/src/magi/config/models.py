@@ -367,6 +367,14 @@ class LocalEmbeddingSettings(BaseModel):
     managed_model_id: Optional[str] = Field(default=None)
     model_dir_path: Optional[str] = Field(default=None)
     idle_timeout_seconds: int = Field(default=1800, ge=60)
+    variant: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional ONNX quantization variant override (e.g. 'fp32', 'fp16', "
+            "'quantized', 'int8'). When None, the platform default from the "
+            "model's registry entry is used."
+        ),
+    )
 
 
 class MemoryL0Settings(BaseModel):

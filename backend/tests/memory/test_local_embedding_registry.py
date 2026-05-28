@@ -99,6 +99,63 @@ class TestLocalEmbeddingRegistry:
         assert len(registry.models) == 1
         assert registry.models[0].id == "good-model"
 
+    def test_variants_loaded(self, tmp_path: Path) -> None:
+        content = dedent("""\
+            models:
+              - id: m1
+                label: "M1"
+                repo: "org/m1"
+                dimension: 512
+                max_tokens: 512
+                variants:
+                  fp32:      { file: "onnx/model.onnx",           size_mb: 96 }
+                  quantized: { file: "onnx/model_quantized.onnx", size_mb: 24 }
+                  fp16:      { file: "onnx/model_fp16.onnx",      size_mb: 48 }
+                default_variant:
+                  darwin_arm64:  fp16
+                  win32_amd64:   quantized
+                  _fallback:     quantized
+        """)
+        path = tmp_path / "registry.yaml"
+        path.write_text(content, encoding="utf-8")
+        registry = load_local_embedding_registry(path)
+        m = registry.get("m1")
+        assert m is not None
+        assert set(m.variants.keys()) == {"fp32", "quantized", "fp16"}
+        assert m.variants["fp32"].file == "onnx/model.onnx"
+        assert m.variants["fp32"].size_mb == 96
+        assert m.default_variant["darwin_arm64"] == "fp16"
+        assert m.default_variant["_fallback"] == "quantized"
+
+    def test_missing_variants_block_yields_empty_dicts(self, registry_yaml: Path) -> None:
+        registry = load_local_embedding_registry(registry_yaml)
+        small = registry.get("test-model-small")
+        assert small is not None
+        assert small.variants == {}
+        assert small.default_variant == {}
+
+    def test_malformed_variant_entry_skipped(self, tmp_path: Path) -> None:
+        content = dedent("""\
+            models:
+              - id: m1
+                label: "M1"
+                repo: "org/m1"
+                dimension: 512
+                max_tokens: 512
+                variants:
+                  ok:      { file: "onnx/model.onnx", size_mb: 10 }
+                  bad:     "not-a-dict"
+                  no_file: { size_mb: 5 }
+                default_variant:
+                  _fallback: ok
+        """)
+        path = tmp_path / "registry.yaml"
+        path.write_text(content, encoding="utf-8")
+        registry = load_local_embedding_registry(path)
+        m = registry.get("m1")
+        assert m is not None
+        assert set(m.variants.keys()) == {"ok"}
+
     def test_empty_yaml(self, tmp_path: Path) -> None:
         path = tmp_path / "empty.yaml"
         path.write_text("", encoding="utf-8")

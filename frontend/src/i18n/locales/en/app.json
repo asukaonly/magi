@@ -1445,6 +1445,11 @@
           "label": "Preset model",
           "placeholder": "Select a preset model"
         },
+        "embedding_local_variant": {
+          "label": "Quantization",
+          "auto": "Auto",
+          "description": "Picks the best variant for your platform automatically. Override if you want a specific quantization."
+        },
         "embedding_local_model_dir_path": {
           "label": "Model directory",
           "placeholder": "/path/to/your/onnx-model-dir"

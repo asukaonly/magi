@@ -3,15 +3,19 @@
 # Each entry defines a model that can be downloaded and used locally.
 # Models are stored under ~/.magi/cache/models/embed/{id}/
 #
-# ONNX files may reside at the repo root or in an onnx/ subdirectory.
-# The loader checks both locations and prefers quantized > int8 > fp32.
+# `variants` enumerates the per-quantization ONNX files available in the upstream
+# HuggingFace repo. `default_variant` maps a platform key (sys.platform + "_" +
+# platform.machine().lower()) to the variant the runtime picks when the user has
+# not set an explicit override. `_fallback` is used if no platform-specific entry
+# matches.
 #
-# Required files in each model directory:
-#   onnx/model_quantized.onnx (or model.onnx)  — ONNX model weights
-#   tokenizer.json                               — HuggingFace fast tokenizer
-#   config.json                                  — Model config (hidden_size, etc.)
+# Required sidecar files: tokenizer.json + config.json. (Some models also need
+# tokenizer_config.json, special_tokens_map.json, vocab.txt, sentencepiece.bpe.model
+# — the loader always pulls all of these when present.)
 #
-# Users can also place custom ONNX models in the embed directory manually.
+# External weight data: large variants (e.g. Qwen3 fp32/fp16) ship a sibling
+# `{file}.onnx_data` file alongside `.onnx`. The downloader unconditionally
+# probes for these siblings, so variants do not need to declare them here.
 
 models:
   - id: bge-small-zh-v1.5
@@ -22,14 +26,21 @@ models:
     max_tokens: 512
     pooling: cls
     normalize: true
-    size_mb: 24
+    size_mb: 24            # legacy/summary: size of default variant on x86 (quantized)
     size_fp32_mb: 96
-    quantized: true
-    languages:
-      - zh
-      - en
+    quantized: true        # legacy/summary: true iff default variant != fp32
+    languages: [zh, en]
     recommended: true
     description: "Lightweight Chinese-English model, recommended for personal use"
+    variants:
+      fp32:      { file: "onnx/model.onnx",            size_mb: 96 }
+      fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 48 }
+      quantized: { file: "onnx/model_quantized.onnx",  size_mb: 24 }
+    default_variant:
+      darwin_arm64:  fp16
+      win32_amd64:   quantized
+      linux_x86_64:  quantized
+      _fallback:     quantized
 
   - id: snowflake-arctic-embed-m-v2.0
     label: "Snowflake Arctic Embed M v2.0"
@@ -42,10 +53,19 @@ models:
     size_mb: 311
     size_fp32_mb: 1230
     quantized: true
-    languages:
-      - multi
+    languages: [multi]
     recommended: true
     description: "High-quality multilingual model (74 languages, 768d), Dec 2024, Apache 2.0"
+    variants:
+      fp32:      { file: "onnx/model.onnx",            size_mb: 1230 }
+      fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 615 }
+      quantized: { file: "onnx/model_quantized.onnx",  size_mb: 311 }
+      int8:      { file: "onnx/model_int8.onnx",       size_mb: 311 }
+    default_variant:
+      darwin_arm64:  fp16
+      win32_amd64:   quantized
+      linux_x86_64:  quantized
+      _fallback:     quantized
 
   - id: qwen3-embedding-0.6b
     label: "Qwen3 Embedding 0.6B"
@@ -58,10 +78,19 @@ models:
     size_mb: 585
     size_fp32_mb: 2300
     quantized: true
-    languages:
-      - multi
+    languages: [multi]
     recommended: true
     description: "Qwen3 decoder-only embedding (100+ languages, 1024d), Jun 2025, Apache 2.0"
+    variants:
+      fp32:      { file: "onnx/model.onnx",            size_mb: 2400 }
+      fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 1200 }
+      quantized: { file: "onnx/model_quantized.onnx",  size_mb: 585 }
+      int8:      { file: "onnx/model_int8.onnx",       size_mb: 585 }
+    default_variant:
+      darwin_arm64:  fp16
+      win32_amd64:   quantized
+      linux_x86_64:  quantized
+      _fallback:     quantized
 
   - id: bge-small-en-v1.5
     label: "BGE Small English v1.5"
@@ -74,7 +103,15 @@ models:
     size_mb: 33
     size_fp32_mb: 134
     quantized: true
-    languages:
-      - en
+    languages: [en]
     recommended: false
     description: "Lightweight English embedding model"
+    variants:
+      fp32:      { file: "onnx/model.onnx",            size_mb: 134 }
+      fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 67 }
+      quantized: { file: "onnx/model_quantized.onnx",  size_mb: 33 }
+    default_variant:
+      darwin_arm64:  fp16
+      win32_amd64:   quantized
+      linux_x86_64:  quantized
+      _fallback:     quantized
