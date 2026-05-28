@@ -172,6 +172,28 @@
     "confirm": "选这个",
     "capReached": "这个人格试得差不多了 — 选它或换一个。"
   },
+  "emptyState": {
+    "heading": "让 magi 看看你的活动",
+    "connect": "连接",
+    "plugins": {
+      "chromeHistory": {
+        "title": "Chrome 历史",
+        "value": "让 magi 看到你最近在网上读什么"
+      },
+      "calendar": {
+        "title": "日历",
+        "value": "让 magi 看到你的日程"
+      },
+      "gitActivity": {
+        "title": "Git 活动",
+        "value": "让 magi 看到你在做什么项目"
+      },
+      "photoLibrary": {
+        "title": "照片库",
+        "value": "让 magi 看到你的照片"
+      }
+    }
+  },
   "llm": {
     "modelSelection": {
       "title": "模型选择",
