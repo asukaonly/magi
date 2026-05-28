@@ -12,6 +12,10 @@
 # Required sidecar files: tokenizer.json + config.json. (Some models also need
 # tokenizer_config.json, special_tokens_map.json, vocab.txt, sentencepiece.bpe.model
 # — the loader always pulls all of these when present.)
+#
+# External weight data: large variants (e.g. Qwen3 fp32/fp16) ship a sibling
+# `{file}.onnx_data` file alongside `.onnx`. The downloader unconditionally
+# probes for these siblings, so variants do not need to declare them here.
 
 models:
   - id: bge-small-zh-v1.5
@@ -32,7 +36,6 @@ models:
       fp32:      { file: "onnx/model.onnx",            size_mb: 96 }
       fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 48 }
       quantized: { file: "onnx/model_quantized.onnx",  size_mb: 24 }
-      int8:      { file: "onnx/model_int8.onnx",       size_mb: 24 }
     default_variant:
       darwin_arm64:  fp16
       win32_amd64:   quantized
@@ -79,8 +82,8 @@ models:
     recommended: true
     description: "Qwen3 decoder-only embedding (100+ languages, 1024d), Jun 2025, Apache 2.0"
     variants:
-      fp32:      { file: "onnx/model.onnx",            size_mb: 2300, ext_data: true }
-      fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 1150 }
+      fp32:      { file: "onnx/model.onnx",            size_mb: 2400 }
+      fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 1200 }
       quantized: { file: "onnx/model_quantized.onnx",  size_mb: 585 }
       int8:      { file: "onnx/model_int8.onnx",       size_mb: 585 }
     default_variant:
@@ -107,7 +110,6 @@ models:
       fp32:      { file: "onnx/model.onnx",            size_mb: 134 }
       fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 67 }
       quantized: { file: "onnx/model_quantized.onnx",  size_mb: 33 }
-      int8:      { file: "onnx/model_int8.onnx",       size_mb: 33 }
     default_variant:
       darwin_arm64:  fp16
       win32_amd64:   quantized
