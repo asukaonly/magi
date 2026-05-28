@@ -443,6 +443,11 @@
   ],
   "proxied_prefixes": [
     {
+      "prefix": "/api/availability",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/availability_routes.py"
+    },
+    {
       "prefix": "/api/background-tasks",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/api/routers/background_tasks.py"

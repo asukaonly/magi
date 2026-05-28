@@ -20,6 +20,8 @@ from magi.api.routers.availability_schemas import (
 )
 from magi.availability import AvailabilityResolver
 
+from .plugins_common import _try_plugin_manager
+
 ResolverDep = Callable[[], AvailabilityResolver]
 PluginIdsDep = Callable[[], list[str]]
 
@@ -30,25 +32,8 @@ _resolver: AvailabilityResolver | None = None
 _resolver_lock = Lock()
 
 
-def _resolve_plugin_manager_or_none():
-    """Return the plugin manager if initialized, otherwise ``None``.
-
-    Matches the access pattern used by ``plugins_common._try_plugin_manager``
-    so we don't crash before the runtime has wired up the manager.
-    """
-    # Imported lazily to avoid module import-cycle with plugins.* during
-    # FastAPI startup.
-    from .plugins_common import legacy_plugins_module
-
-    legacy = legacy_plugins_module()
-    try:
-        return legacy.resolve_plugin_manager()
-    except RuntimeError:
-        return None
-
-
 def _default_manifest_provider(plugin_id: str):
-    manager = _resolve_plugin_manager_or_none()
+    manager = _try_plugin_manager()
     if manager is None:
         return None
     pkg = manager.get_package(plugin_id)
@@ -56,7 +41,7 @@ def _default_manifest_provider(plugin_id: str):
 
 
 def _default_all_plugin_ids() -> list[str]:
-    manager = _resolve_plugin_manager_or_none()
+    manager = _try_plugin_manager()
     if manager is None:
         return []
     return [pkg.manifest.plugin_id for pkg in manager.list_packages()]
@@ -79,15 +64,17 @@ def create_availability_router(
 ) -> APIRouter:
     """Construct the router given dependency callables.
 
-    The router uses paths that are already prefixed with ``/availability``
-    (``/availability`` and ``/availability/refresh``), so include it WITHOUT a
-    ``prefix=`` argument:
+    Router declares full sub-paths (``/availability``, ``/availability/refresh``).
+    Mount with ``prefix='/api'`` in production (see
+    :func:`magi.api.routes.register_api_routes`), or with no prefix in tests
+    that hit ``/availability`` directly.
 
         app.include_router(
             create_availability_router(
                 lambda: app.state.availability_resolver,
                 lambda: [p.manifest.plugin_id for p in plugin_manager.list_packages()],
             ),
+            prefix="/api",
         )
     """
     router = APIRouter()
