@@ -20,8 +20,9 @@ export function useFirstConversationFlag(): UseFirstConversationFlagResult {
     let cancelled = false;
     configApi
       .get()
-      .then((cfg: any) => {
+      .then((response: any) => {
         if (cancelled) return;
+        const cfg = response?.data; // unwrap gateway envelope
         setCompleted(Boolean(cfg?.preferences?.first_conversation_completed));
       })
       .catch(() => {
@@ -40,7 +41,8 @@ export function useFirstConversationFlag(): UseFirstConversationFlagResult {
   const markCompleted = useCallback(async () => {
     setCompleted(true); // optimistic
     try {
-      const current = await configApi.get();
+      const response = await configApi.get();
+      const current = (response as any)?.data;
       if (!current) return;
       const next = structuredClone(current) as any;
       if (!next.preferences) next.preferences = {};

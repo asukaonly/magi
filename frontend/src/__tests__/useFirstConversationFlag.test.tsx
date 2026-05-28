@@ -26,7 +26,8 @@ describe('useFirstConversationFlag', () => {
 
   it('returns true when preferences.first_conversation_completed === true', async () => {
     mockGet.mockResolvedValue({
-      preferences: { first_conversation_completed: true },
+      success: true,
+      data: { preferences: { first_conversation_completed: true } },
     });
     const { result } = renderHook(() => useFirstConversationFlag());
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -34,7 +35,7 @@ describe('useFirstConversationFlag', () => {
   });
 
   it('returns false when preferences are missing the field', async () => {
-    mockGet.mockResolvedValue({ preferences: {} });
+    mockGet.mockResolvedValue({ success: true, data: { preferences: {} } });
     const { result } = renderHook(() => useFirstConversationFlag());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.completed).toBe(false);
@@ -45,7 +46,7 @@ describe('useFirstConversationFlag', () => {
       preferences: { first_conversation_completed: false, language: 'en' },
       llm: { providers: { foo: { enabled: true } } },
     };
-    mockGet.mockResolvedValue(fullCurrentConfig);
+    mockGet.mockResolvedValue({ success: true, data: fullCurrentConfig });
     mockUpdate.mockResolvedValue({});
     const { result } = renderHook(() => useFirstConversationFlag());
     await waitFor(() => expect(result.current.loading).toBe(false));
