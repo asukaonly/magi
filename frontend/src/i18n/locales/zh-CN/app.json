@@ -1458,6 +1458,11 @@
           "label": "预设模型",
           "placeholder": "选择预设模型"
         },
+        "embedding_local_variant": {
+          "label": "量化精度",
+          "auto": "自动",
+          "description": "根据当前平台自动选择最优变体。若要指定精度，手动选择。"
+        },
         "embedding_local_model_dir_path": {
           "label": "模型目录",
           "placeholder": "/path/to/your/onnx-model-dir"
