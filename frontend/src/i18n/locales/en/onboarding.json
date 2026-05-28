@@ -171,7 +171,12 @@
     "chip1": "Tell me an embarrassing story",
     "chip2": "I'm feeling a bit low",
     "chip3": "What do you think about AI?",
-    "chip4": "Just say hi for a moment"
+    "chip4": "Just say hi for a moment",
+    "emptyHint": "Pick a chip below or type a message to hear this persona.",
+    "composerPlaceholder": "Say something to try this persona…",
+    "send": "Send",
+    "confirm": "Choose",
+    "capReached": "You've tried this persona enough — choose it or try another."
   },
   "llm": {
     "modelSelection": {

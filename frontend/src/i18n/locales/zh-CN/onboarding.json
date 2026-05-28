@@ -172,7 +172,12 @@
     "chip1": "讲个让人尴尬的事",
     "chip2": "我心情有点低落",
     "chip3": "你怎么看 AI",
-    "chip4": "随便聊聊"
+    "chip4": "随便聊聊",
+    "emptyHint": "选下面的话题或自己输入一句话试试这个人格。",
+    "composerPlaceholder": "说点什么试试这个人格…",
+    "send": "发送",
+    "confirm": "选这个",
+    "capReached": "这个人格试得差不多了 — 选它或换一个。"
   },
   "llm": {
     "modelSelection": {
