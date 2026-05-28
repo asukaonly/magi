@@ -1,0 +1,38 @@
+"""Public contracts for the system suggestion subsystem."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from enum import StrEnum
+
+from pydantic import BaseModel, Field
+
+
+class DismissalKind(StrEnum):
+    """How the user dismissed a suggestion. Determines the TTL applied."""
+
+    TRANSIENT = "transient"  # close ×: 7-day suppression
+    EXPLICIT = "explicit"    # "先不用" button: 30-day suppression
+    NEVER = "never"          # "don't ask again": permanent
+
+
+class DismissalRecord(BaseModel):
+    dedupe_key: str
+    dismissed_at: datetime
+    kind: DismissalKind
+
+
+class SuggestionProposal(BaseModel):
+    """A single suggestion produced by the matcher.
+
+    Multiple sibling plugins (e.g. chrome-history + safari-history both under
+    browser_history) collapse into one SuggestionProposal with all matched
+    plugin_ids listed. The UI bundles them into a single side card.
+    """
+
+    dedupe_key: str
+    category: str
+    plugin_ids: list[str] = Field(min_length=1)
+    confidence: float = Field(ge=0.0, le=1.0)
+    rationale: dict[str, str]
+    """Locale → user-facing rationale text. At least 'zh' and 'en' expected."""
