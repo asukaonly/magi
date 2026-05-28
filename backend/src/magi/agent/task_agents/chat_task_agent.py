@@ -501,6 +501,13 @@ class ChatTaskAgent(
         # actions can fire it.
         from ...agent.run_control import null_run_control  # local import: only used here pending Task 10
         turn_control = null_run_control()
+        # Register the bundle with the session store so external callers
+        # (SessionRunCoordinator.request_retract, future cancel/detach
+        # entry points) can fire its signals at the live in-flight run.
+        if run_decision.active_run is not None:
+            self._session_run_coordinator._run_store.register_active_run_control(
+                session_id, run_decision.active_run.run_id, turn_control
+            )
         return ChatRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
             recent_facts=list(
@@ -658,7 +665,16 @@ class ChatTaskAgent(
     async def parse_result(
         self, context: ChatRuntimeContext, raw_result: ExecutionResult
     ) -> None:
-        await self._postprocess_service.handle(context, raw_result)
+        try:
+            await self._postprocess_service.handle(context, raw_result)
+        finally:
+            # Unregister the turn's RunControl now that the turn is done.
+            # The bundle's signals (asyncio.Event etc.) are not persistable
+            # so keeping a dead reference accomplishes nothing.
+            if context.session_id and context.session_run_id:
+                self._session_run_coordinator._run_store.unregister_active_run_control(
+                    context.session_id, context.session_run_id
+                )
 
     def get_conversation_history(self, user_id: str, session_id: str) -> list[dict]:
         return self._history_service.get_conversation_history(user_id, session_id)
