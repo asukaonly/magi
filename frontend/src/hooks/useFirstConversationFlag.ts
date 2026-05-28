@@ -38,11 +38,14 @@ export function useFirstConversationFlag(): UseFirstConversationFlagResult {
   }, []);
 
   const markCompleted = useCallback(async () => {
-    setCompleted(true);
+    setCompleted(true); // optimistic
     try {
-      await configApi.update({
-        preferences: { first_conversation_completed: true } as any,
-      });
+      const current = await configApi.get();
+      if (!current) return;
+      const next = structuredClone(current) as any;
+      if (!next.preferences) next.preferences = {};
+      next.preferences.first_conversation_completed = true;
+      await configApi.update(next);
     } catch (err) {
       console.warn('failed to persist first_conversation_completed', err);
     }
