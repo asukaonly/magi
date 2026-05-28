@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-from magi.availability.checks import check_executable_in_path, check_file_exists
-from magi_plugin_sdk.contracts import LocalRequirementExecutableInPath, LocalRequirementFileExists
+from magi.availability.checks import (
+    check_app_installed,
+    check_executable_in_path,
+    check_file_exists,
+)
+from magi_plugin_sdk.contracts import (
+    LocalRequirementAppInstalled,
+    LocalRequirementExecutableInPath,
+    LocalRequirementFileExists,
+)
 
 
 def test_file_exists_passes_for_existing_path(tmp_path: Path) -> None:
@@ -112,3 +122,76 @@ def test_executable_in_path_short_circuits_on_first_hit() -> None:
     )
     ok, _ = check_executable_in_path(req)
     assert ok is True
+
+
+def test_app_installed_uses_macos_mdfind(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On macOS, the check shells out to `mdfind`."""
+    req = LocalRequirementAppInstalled(
+        check_kind="app_installed",
+        identifier_per_platform={"darwin": "com.google.Chrome"},
+    )
+
+    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "darwin")
+
+    fake = subprocess.CompletedProcess(
+        args=["mdfind", "..."], returncode=0, stdout="/Applications/Google Chrome.app\n"
+    )
+    with patch("subprocess.run", return_value=fake):
+        ok, _ = check_app_installed(req)
+    assert ok is True
+
+
+def test_app_installed_macos_negative(monkeypatch: pytest.MonkeyPatch) -> None:
+    req = LocalRequirementAppInstalled(
+        check_kind="app_installed",
+        identifier_per_platform={"darwin": "com.does.not.exist"},
+    )
+    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "darwin")
+    fake = subprocess.CompletedProcess(args=["mdfind", "..."], returncode=0, stdout="")
+    with patch("subprocess.run", return_value=fake):
+        ok, detail = check_app_installed(req)
+    assert ok is False
+    assert "com.does.not.exist" in detail
+
+
+def test_app_installed_linux_finds_desktop_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    desktop_dir = tmp_path / "applications"
+    desktop_dir.mkdir()
+    (desktop_dir / "google-chrome.desktop").write_text("[Desktop Entry]\nName=Chrome\n")
+
+    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "linux")
+    monkeypatch.setattr(
+        "magi.availability.checks._LINUX_DESKTOP_DIRS", [desktop_dir], raising=False
+    )
+
+    req = LocalRequirementAppInstalled(
+        check_kind="app_installed",
+        identifier_per_platform={"linux": "google-chrome"},
+    )
+    ok, _ = check_app_installed(req)
+    assert ok is True
+
+
+def test_app_installed_windows_best_effort(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Windows path returns honest (False, 'not yet implemented') when winreg isn't usable."""
+    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "win32")
+    req = LocalRequirementAppInstalled(
+        check_kind="app_installed",
+        identifier_per_platform={"win32": "Google Chrome"},
+    )
+    # Force the winreg-availability flag off so the stub path runs deterministically
+    monkeypatch.setattr("magi.availability.checks._WINDOWS_REGISTRY_AVAILABLE", False, raising=False)
+    ok, detail = check_app_installed(req)
+    assert ok is False
+    assert "not yet implemented" in (detail or "")
+
+
+def test_app_installed_missing_current_platform() -> None:
+    req = LocalRequirementAppInstalled(
+        check_kind="app_installed",
+        identifier_per_platform={"some-os": "x"},
+    )
+    ok, detail = check_app_installed(req)
+    assert ok is False

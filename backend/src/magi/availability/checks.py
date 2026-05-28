@@ -9,10 +9,12 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 from magi_plugin_sdk.contracts import (
+    LocalRequirementAppInstalled,
     LocalRequirementExecutableInPath,
     LocalRequirementFileExists,
 )
@@ -64,3 +66,71 @@ def check_executable_in_path(
             return True, None
     names = ", ".join(req.names)
     return False, f"no executable found for any of: {names}"
+
+
+_LINUX_DESKTOP_DIRS = [
+    Path("/usr/share/applications"),
+    Path("/usr/local/share/applications"),
+    Path.home() / ".local/share/applications",
+]
+
+try:
+    import winreg  # noqa: F401 — present only on Windows
+
+    _WINDOWS_REGISTRY_AVAILABLE = sys.platform == "win32"
+except ImportError:
+    _WINDOWS_REGISTRY_AVAILABLE = False
+
+
+def check_app_installed(
+    req: LocalRequirementAppInstalled,
+) -> tuple[bool, str | None]:
+    platform = _current_platform_key()
+    identifier = req.identifier_per_platform.get(platform)
+    if identifier is None:
+        return False, f"no identifier declared for platform {platform!r}"
+
+    if platform == "darwin":
+        return _check_macos_app(identifier)
+    if platform == "linux":
+        return _check_linux_app(identifier)
+    if platform == "win32":
+        return _check_windows_app(identifier)
+    return False, f"app_installed check not supported on {platform}"
+
+
+def _check_macos_app(bundle_id: str) -> tuple[bool, str | None]:
+    try:
+        result = subprocess.run(
+            ["mdfind", f"kMDItemCFBundleIdentifier == '{bundle_id}'"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        return False, f"mdfind failed: {exc}"
+    if result.returncode != 0:
+        return False, f"mdfind exit {result.returncode}"
+    if result.stdout.strip():
+        return True, None
+    return False, f"bundle id not installed: {bundle_id}"
+
+
+def _check_linux_app(desktop_basename: str) -> tuple[bool, str | None]:
+    # Match desktop_basename against any installed .desktop file's stem.
+    for directory in _LINUX_DESKTOP_DIRS:
+        if not directory.exists():
+            continue
+        candidate = directory / f"{desktop_basename}.desktop"
+        if candidate.exists():
+            return True, None
+    return False, f"no .desktop file matching {desktop_basename}"
+
+
+def _check_windows_app(display_name_fragment: str) -> tuple[bool, str | None]:
+    if not _WINDOWS_REGISTRY_AVAILABLE:
+        return False, "windows app detection not yet implemented"
+    # Plan 1 ships a stub. Plan 4 (or a follow-on) implements full winreg scan.
+    # When you implement: scan HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall
+    # plus the WOW6432Node sibling, read DisplayName values, match fragment case-insensitive.
+    return False, "windows app detection not yet implemented"
