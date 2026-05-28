@@ -76,6 +76,39 @@ def resolve_variant_name(
     return next(iter(meta.variants))
 
 
+def resolve_variant_path(
+    model_dir: Path,
+    meta: "LocalEmbeddingModelMeta | None",
+    *,
+    override: str | None = None,
+    platform_key: str | None = None,
+) -> Path | None:
+    """Resolve which .onnx file in ``model_dir`` should be loaded.
+
+    For managed models with a ``variants`` block, returns the file the resolver
+    picked (or ``None`` if that file isn't present on disk — caller should
+    trigger a download). For models without ``variants`` (legacy YAML or
+    ``model_source: external``), falls back to the scan-based priority via
+    :func:`_find_onnx_model`.
+    """
+    if meta is None or not meta.variants:
+        return _find_onnx_model(model_dir)
+
+    name = resolve_variant_name(meta, override=override, platform_key=platform_key)
+    if name is None:
+        return _find_onnx_model(model_dir)
+
+    variant = meta.variants[name]
+    candidate = model_dir / variant.file
+    if candidate.exists():
+        return candidate
+    # Some users may have flattened the upstream onnx/ layout.
+    bare = model_dir / Path(variant.file).name
+    if bare.exists():
+        return bare
+    return None
+
+
 def _find_onnx_model(model_dir: Path) -> Path | None:
     """Find the best ONNX model file, checking root and onnx/ subdirectory.
 
@@ -125,4 +158,5 @@ __all__ = [
     "_find_onnx_model",
     "detect_platform_key",
     "resolve_variant_name",
+    "resolve_variant_path",
 ]

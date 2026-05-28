@@ -438,3 +438,87 @@ class TestResolveVariantName:
         meta = self._meta()
         with patch("magi.memory.embedding.local_embedding_resolution.detect_platform_key", return_value="win32_amd64"):
             assert resolve_variant_name(meta, override=None) == "quantized"
+
+
+class TestResolveVariantPath:
+    """resolve_variant_path: from (model_dir, meta) to concrete .onnx path."""
+
+    def _make_meta(self):
+        from magi.config.local_embedding_registry import (
+            LocalEmbeddingModelMeta,
+            LocalEmbeddingVariantMeta,
+        )
+        return LocalEmbeddingModelMeta(
+            id="m",
+            label="M",
+            repo="o/m",
+            onnx_repo="o/m",
+            dimension=512,
+            max_tokens=512,
+            variants={
+                "fp32":      LocalEmbeddingVariantMeta(file="onnx/model.onnx",            size_mb=100),
+                "fp16":      LocalEmbeddingVariantMeta(file="onnx/model_fp16.onnx",       size_mb=50),
+                "quantized": LocalEmbeddingVariantMeta(file="onnx/model_quantized.onnx",  size_mb=25),
+            },
+            default_variant={"darwin_arm64": "fp16", "_fallback": "quantized"},
+        )
+
+    def test_picks_resolved_variant_when_present(self, tmp_path: Path) -> None:
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_path
+        (tmp_path / "onnx").mkdir()
+        (tmp_path / "onnx" / "model_fp16.onnx").touch()
+        (tmp_path / "onnx" / "model_quantized.onnx").touch()
+
+        result = resolve_variant_path(
+            tmp_path, self._make_meta(), override=None, platform_key="darwin_arm64"
+        )
+        assert result == tmp_path / "onnx" / "model_fp16.onnx"
+
+    def test_override_picks_specific_variant(self, tmp_path: Path) -> None:
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_path
+        (tmp_path / "onnx").mkdir()
+        (tmp_path / "onnx" / "model.onnx").touch()
+        (tmp_path / "onnx" / "model_quantized.onnx").touch()
+
+        result = resolve_variant_path(
+            tmp_path, self._make_meta(), override="fp32", platform_key="darwin_arm64"
+        )
+        assert result == tmp_path / "onnx" / "model.onnx"
+
+    def test_chosen_variant_missing_on_disk_returns_none(self, tmp_path: Path) -> None:
+        """If resolver picks fp16 but only fp32 is downloaded, return None — do NOT silently load fp32."""
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_path
+        (tmp_path / "onnx").mkdir()
+        (tmp_path / "onnx" / "model.onnx").touch()  # only fp32 present
+
+        result = resolve_variant_path(
+            tmp_path, self._make_meta(), override=None, platform_key="darwin_arm64"
+        )
+        assert result is None
+
+    def test_flat_layout_fallback(self, tmp_path: Path) -> None:
+        """Variant file is 'onnx/model_fp16.onnx' but user flattened it to model_fp16.onnx at root."""
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_path
+        (tmp_path / "model_fp16.onnx").touch()
+
+        result = resolve_variant_path(
+            tmp_path, self._make_meta(), override=None, platform_key="darwin_arm64"
+        )
+        assert result == tmp_path / "model_fp16.onnx"
+
+    def test_no_variants_block_falls_back_to_legacy_scan(self, tmp_path: Path) -> None:
+        from magi.config.local_embedding_registry import LocalEmbeddingModelMeta
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_path
+        (tmp_path / "model_quantized.onnx").touch()
+        bare_meta = LocalEmbeddingModelMeta(
+            id="m", label="M", repo="o/m", onnx_repo="o/m",
+            dimension=512, max_tokens=512,
+        )
+        result = resolve_variant_path(tmp_path, bare_meta)
+        assert result == tmp_path / "model_quantized.onnx"
+
+    def test_meta_is_none_falls_back_to_legacy_scan(self, tmp_path: Path) -> None:
+        from magi.memory.embedding.local_embedding_resolution import resolve_variant_path
+        (tmp_path / "model.onnx").touch()
+        result = resolve_variant_path(tmp_path, None)
+        assert result == tmp_path / "model.onnx"
