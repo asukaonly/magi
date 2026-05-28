@@ -112,19 +112,34 @@ class MemoryQueryTool(Tool):
                     ),
                     required=False,
                 ),
-                ToolParameter(
-                    name="sources",
-                    type=ParameterType.ARRAY,
-                    array_item_type=ParameterType.STRING,
-                    description=(
-                        "Optional source filter. Common values: 'chat' (conversation), "
-                        "'timeline' (events from sensors like browsing/photos), 'profile' "
-                        "(user preferences and persona facts), 'settings' (configured defaults), "
-                        "'relationship' (people the user has talked about), 'worker' "
-                        "(autonomous agent work)."
-                    ),
-                    required=False,
-                ),
+                # NOTE: a `sources` parameter used to live here, exposed to
+                # the LLM. We removed it on purpose. Reasoning:
+                #
+                # 1. The LLM doesn't know what concrete source values exist
+                #    (no enum, the documented examples like "timeline" were
+                #    not even real values — the real values are plugin-
+                #    chosen strings like "screenshot_timeline" or
+                #    "chrome_history").
+                # 2. BM25 / vector / temporal-BM25 / keyword retrieval all
+                #    run against ALL sources regardless of this filter —
+                #    the filter only kicks in during the post-fusion
+                #    hydration step, which means a wrong source list
+                #    *throws away* already-found real matches without
+                #    saving any retrieval CPU.
+                # 3. Other axes already do the actual signal work:
+                #      - l1_retrieval_scope         (mode → scope filter)
+                #      - allowed_evidence_classes   (evidence routing)
+                #      - memory_domain              (provenance partition)
+                #    source is an operational/provenance tag, not a
+                #    retrieval-relevance axis. Letting the LLM filter on
+                #    it leaks an internal axis upstream.
+                #
+                # `RetrievalQuery.source_filters` is kept downstream so
+                # internal programmatic callers can still narrow by source
+                # when they have authoritative knowledge (e.g. an agent
+                # that explicitly only wants browser history). For the
+                # user-facing memory_query tool, we just pass [] and let
+                # the engine search everything.
                 ToolParameter(
                     name="query_mode",
                     type=ParameterType.STRING,
@@ -249,7 +264,11 @@ class MemoryQueryTool(Tool):
                 session_id=session_id,
                 time_range=parameters.get("time_range", {}),
                 query_mode=parameters.get("query_mode"),
-                source_filters=parameters.get("sources", []) or [],
+                # source_filters is no longer LLM-controllable — see the
+                # block-comment above where the `sources` ToolParameter
+                # used to be declared. Internal callers can still set
+                # source_filters on RetrievalQuery directly via build_query.
+                source_filters=[],
                 domain_filters=parameters.get("domains", []) or [],
                 summary_categories=parameters.get("summary_categories", []) or [],
                 limit=parameters.get("limit", 20),

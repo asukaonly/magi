@@ -42,13 +42,25 @@ class TestMemoryQueryTool:
         param_names = [p.name for p in schema.parameters]
         assert "query" in param_names
         assert "time_range" in param_names
-        assert "sources" in param_names
+        # `sources` was deliberately removed — the LLM has no reliable
+        # mapping from natural language to concrete source identifiers
+        # and the resulting filter was a post-rank exclude that threw
+        # away real hits. Source narrowing now lives only on the
+        # internal RetrievalQuery API. See memory_query_tool.py for the
+        # full rationale.
+        assert "sources" not in param_names
         assert "query_mode" in param_names
 
         query_param = next(p for p in schema.parameters if p.name == "query")
         assert query_param.required is True
         query_mode_param = next(p for p in schema.parameters if p.name == "query_mode")
-        assert query_mode_param.required is True
+        # query_mode is optional — the engine auto-detects the mode from
+        # query text; LLM only passes one when explicitly overriding.
+        # The spec's description says so; the assertion below was a
+        # latent stale test (it never fired previously because an
+        # earlier assertion on the now-removed `sources` param failed
+        # first).
+        assert query_mode_param.required is False
         assert query_mode_param.enum is not None
         assert "exact_fact" in query_mode_param.enum
         time_range_param = next(p for p in schema.parameters if p.name == "time_range")
@@ -243,6 +255,11 @@ class TestMemoryQueryTool:
 
         assert claude_format["name"] == "memory_query"
         assert "input_schema" in claude_format
-        assert "properties" in claude_format["input_schema"]
-        assert claude_format["input_schema"]["properties"]["sources"]["type"] == "array"
-        assert claude_format["input_schema"]["properties"]["sources"]["items"] == {"type": "string"}
+        properties = claude_format["input_schema"]["properties"]
+        # `sources` is intentionally NOT exposed to the LLM — see the
+        # block-comment in memory_query_tool.py for why.
+        assert "sources" not in properties
+        # Sanity-check that legitimate params are still there.
+        assert "query" in properties
+        assert "time_range" in properties
+        assert "query_mode" in properties

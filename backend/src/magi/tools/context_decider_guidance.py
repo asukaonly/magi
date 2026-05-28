@@ -63,11 +63,18 @@ class ContextDeciderGuidanceMixin:
 
         Returns a boolean recommendation only. The core chat LLM is the
         single decision point for the ``memory_query`` tool's parameters
-        (``query_mode``, ``time_range``, ``sources``, ``summary_categories``)
+        (``query_mode``, ``time_range``, ``summary_categories``)
         — the schema description tells it how. No pre-call parameter
         injection is performed here, so the chat LLM is not biased by
         rule-based guesses that historically misrouted queries like
         "我最近在用 chrome 看什么".
+
+        ``sources`` used to be exposed to the LLM here too; it was
+        removed because the LLM has no reliable way to map natural-
+        language hints to actual source identifiers (the documented
+        examples didn't even match the real plugin-emitted values).
+        Source narrowing now happens only via internal programmatic
+        callers that set RetrievalQuery.source_filters directly.
 
         Args:
             user_message: User's message.
