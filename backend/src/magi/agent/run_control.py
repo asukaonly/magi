@@ -308,6 +308,9 @@ class SuspendSignal:
     async def wait(self) -> SuspendRequested:
         """Block until suspend is requested and return the payload."""
         await self._event.wait()
+        # `request` sets `_payload` before setting the event; `clear()`
+        # is only safe to call after the `wait()` consumer has returned,
+        # so on this line `_payload` is always set.
         assert self._payload is not None
         return self._payload
 

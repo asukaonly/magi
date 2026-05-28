@@ -73,6 +73,7 @@ from magi.agent.run_control import (  # noqa: E402
 async def test_suspend_signal_starts_not_requested() -> None:
     signal = SuspendSignal()
     assert not signal.is_requested()
+    assert signal.payload is None
 
 
 @pytest.mark.asyncio
@@ -107,3 +108,46 @@ async def test_suspend_signal_request_with_no_arg_uses_default_payload() -> None
     assert signal.is_requested()
     assert signal.payload == SuspendRequested()
     assert signal.payload.reason == "window_closed"
+
+
+@pytest.mark.asyncio
+async def test_suspend_signal_wait_unblocks_after_request() -> None:
+    signal = SuspendSignal()
+
+    async def requester() -> None:
+        await asyncio.sleep(0.01)
+        signal.request(SuspendRequested(reason="window_closed"))
+
+    asyncio.create_task(requester())
+    payload = await signal.wait()
+    assert payload.reason == "window_closed"
+
+
+@pytest.mark.asyncio
+async def test_suspend_signal_is_idempotent_keeps_first_payload() -> None:
+    signal = SuspendSignal()
+    first = SuspendRequested(reason="window_closed", note="first")
+    second = SuspendRequested(reason="explicit_pause", note="second")
+
+    signal.request(first)
+    signal.request(second)
+
+    assert signal.payload == first
+
+
+@pytest.mark.asyncio
+async def test_suspend_signal_clear_then_request_accepts_new_payload() -> None:
+    """After clear(), a subsequent request() must be honored (the
+    idempotency guard only applies while the signal is set)."""
+    signal = SuspendSignal()
+    first = SuspendRequested(reason="window_closed", note="first")
+    second = SuspendRequested(reason="explicit_pause", note="second")
+
+    signal.request(first)
+    assert signal.payload == first
+
+    signal.clear()
+    signal.request(second)
+
+    assert signal.is_requested()
+    assert signal.payload == second
