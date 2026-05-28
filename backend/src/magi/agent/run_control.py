@@ -58,6 +58,8 @@ __all__ = [
     "DetachRequested",
     "DetachSignal",
     "OrchestratorSnapshot",
+    "RetractRequested",
+    "RetractSignal",
     "SteerInbox",
     "SteerMessage",
     "SteerReason",
@@ -193,6 +195,59 @@ class OrchestratorSnapshot:
             reason=str(data.get("reason") or "detached"),
             note=str(data.get("note") or ""),
         )
+
+
+@dataclass(slots=True, frozen=True)
+class RetractRequested:
+    """Metadata describing why a retract was requested.
+
+    A retract is distinct from a cancel: it asks the run to stop AND
+    requests that any partial output already delivered to a channel be
+    rolled back. ``CancelToken`` leaves delivered partials in place;
+    ``RetractSignal`` instructs the DeliveryRouter to undo them.
+    """
+
+    reason: SteerReason = "user_retract"
+    requested_by: str = "user"
+    note: str = ""
+
+
+class RetractSignal:
+    """One-shot retract-request flag polled by run nodes.
+
+    Polled at the same boundary as :class:`CancelToken` and
+    :class:`DetachSignal`. When set, the node returns a ``retracted``
+    outcome and the kernel calls ``DeliveryRouter.fanout_retract`` on
+    the receipts collected during the node's execution.
+
+    ``request`` is idempotent — the first payload wins so cascading
+    retract triggers do not overwrite the original reason.
+    """
+
+    __slots__ = ("_event", "_payload")
+
+    def __init__(self) -> None:
+        self._event = asyncio.Event()
+        self._payload: RetractRequested | None = None
+
+    def request(self, payload: RetractRequested | None = None) -> None:
+        """Flag a retract request. Idempotent."""
+        if self._event.is_set():
+            return
+        self._payload = payload or RetractRequested()
+        self._event.set()
+
+    def is_requested(self) -> bool:
+        return self._event.is_set()
+
+    @property
+    def payload(self) -> RetractRequested | None:
+        return self._payload
+
+    async def wait(self) -> RetractRequested:
+        await self._event.wait()
+        assert self._payload is not None
+        return self._payload
 
 
 # ---------------------------------------------------------------------
