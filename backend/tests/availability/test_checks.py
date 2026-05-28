@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from magi.availability.checks import check_file_exists
-from magi_plugin_sdk.contracts import LocalRequirementFileExists
+from magi.availability.checks import check_executable_in_path, check_file_exists
+from magi_plugin_sdk.contracts import LocalRequirementExecutableInPath, LocalRequirementFileExists
 
 
 def test_file_exists_passes_for_existing_path(tmp_path: Path) -> None:
@@ -80,4 +80,35 @@ def test_file_exists_expands_env_vars(tmp_path: Path, monkeypatch: pytest.Monkey
         },
     )
     ok, _ = check_file_exists(req)
+    assert ok is True
+
+
+def test_executable_in_path_finds_known_binary() -> None:
+    """`python` should be on PATH in any developer environment."""
+    req = LocalRequirementExecutableInPath(
+        check_kind="executable_in_path",
+        names=["python", "python3"],
+    )
+    ok, detail = check_executable_in_path(req)
+    assert ok is True
+    assert detail is None
+
+
+def test_executable_in_path_returns_false_for_missing() -> None:
+    req = LocalRequirementExecutableInPath(
+        check_kind="executable_in_path",
+        names=["definitely-not-a-real-binary-xyzzy"],
+    )
+    ok, detail = check_executable_in_path(req)
+    assert ok is False
+    assert detail is not None
+    assert "xyzzy" in detail
+
+
+def test_executable_in_path_short_circuits_on_first_hit() -> None:
+    req = LocalRequirementExecutableInPath(
+        check_kind="executable_in_path",
+        names=["python", "definitely-not-a-real-binary"],
+    )
+    ok, _ = check_executable_in_path(req)
     assert ok is True

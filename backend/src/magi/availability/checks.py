@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
-from magi_plugin_sdk.contracts import LocalRequirementFileExists
+from magi_plugin_sdk.contracts import (
+    LocalRequirementExecutableInPath,
+    LocalRequirementFileExists,
+)
 
 
 def _current_platform_key() -> str:
@@ -50,3 +54,13 @@ def check_file_exists(req: LocalRequirementFileExists) -> tuple[bool, str | None
     if Path(expanded).exists():
         return True, None
     return False, f"path missing: {expanded}"
+
+
+def check_executable_in_path(
+    req: LocalRequirementExecutableInPath,
+) -> tuple[bool, str | None]:
+    for name in req.names:
+        if shutil.which(name) is not None:
+            return True, None
+    names = ", ".join(req.names)
+    return False, f"no executable found for any of: {names}"
