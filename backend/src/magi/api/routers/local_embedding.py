@@ -16,6 +16,10 @@ from ...config.local_embedding_registry import (
     LocalEmbeddingModelMeta,
     get_local_embedding_registry,
 )
+from ...memory.embedding.local_embedding_resolution import (
+    detect_platform_key,
+    resolve_variant_name,
+)
 from ...utils.runtime import RuntimePaths
 
 logger = logging.getLogger(__name__)
@@ -106,8 +110,16 @@ async def list_models() -> list[LocalEmbeddingModelInfo]:
 
 
 @local_embedding_router.post("/models/{model_id}/download")
-async def download_model(model_id: str) -> DownloadStatusResponse:
-    """Trigger download of a preset model."""
+async def download_model(
+    model_id: str,
+    variant: Optional[str] = None,
+) -> DownloadStatusResponse:
+    """Trigger download of a preset model.
+
+    Optional ``variant`` query parameter selects a specific ONNX quantization
+    variant (e.g. ``fp32``, ``fp16``, ``quantized``). When omitted, the
+    platform-preferred default from the registry is used.
+    """
     registry = get_local_embedding_registry()
     meta = registry.get(model_id)
     if meta is None:
@@ -138,7 +150,9 @@ async def download_model(model_id: str) -> DownloadStatusResponse:
 
     # Start download task
     _download_progress[model_id] = {"pct": 0.0, "error": None}
-    task = asyncio.create_task(_download_model_task(meta, model_dir))
+    task = asyncio.create_task(
+        _download_model_task(meta, model_dir, variant_override=variant)
+    )
     _download_tasks[model_id] = task
 
     return DownloadStatusResponse(
@@ -286,8 +300,19 @@ _DOWNLOAD_ETAG_TIMEOUT = 30
 _DOWNLOAD_READ_TIMEOUT = 60
 
 
-async def _download_model_task(meta: LocalEmbeddingModelMeta, model_dir: Path) -> None:
-    """Background task to download a model from HuggingFace with retry."""
+async def _download_model_task(
+    meta: LocalEmbeddingModelMeta,
+    model_dir: Path,
+    *,
+    variant_override: str | None = None,
+) -> None:
+    """Background task to download a model from HuggingFace with retry.
+
+    If the meta declares a ``variants`` block, only the resolved variant's
+    .onnx file (and its optional sidecar weights) is fetched, alongside the
+    usual tokenizer/config files. Without a ``variants`` block, falls back to
+    the legacy broad allow patterns.
+    """
     model_id = meta.id
     try:
         from huggingface_hub import snapshot_download
@@ -299,11 +324,7 @@ async def _download_model_task(meta: LocalEmbeddingModelMeta, model_dir: Path) -
         return
 
     repo_id = meta.onnx_repo or meta.repo
-    allow_patterns = [
-        "*.onnx",
-        "onnx/*.onnx",
-        "*.onnx_data",
-        "onnx/*.onnx_data",
+    sidecars = [
         "tokenizer.json",
         "tokenizer_config.json",
         "config.json",
@@ -311,6 +332,42 @@ async def _download_model_task(meta: LocalEmbeddingModelMeta, model_dir: Path) -
         "vocab.txt",
         "sentencepiece.bpe.model",
     ]
+
+    if meta.variants:
+        variant_name = resolve_variant_name(meta, override=variant_override)
+        if variant_name is None:
+            _download_progress[model_id] = {
+                "pct": None,
+                "error": f"Could not resolve a variant for {model_id}",
+            }
+            return
+        variant = meta.variants[variant_name]
+        # Always probe both ``.onnx_data`` and ``.onnx.data`` naming
+        # conventions — snapshot_download silently skips patterns that don't
+        # match anything in the repo, so listing both is free even for
+        # variants without sidecar weights (e.g. Snowflake, Qwen3 quantized).
+        allow_patterns = [
+            variant.file,
+            f"{variant.file}_data",
+            f"{variant.file}.data",
+            *sidecars,
+        ]
+        logger.info(
+            "Resolved variant %r for model %s (platform=%s, override=%r)",
+            variant_name,
+            model_id,
+            detect_platform_key(),
+            variant_override,
+        )
+    else:
+        # Legacy fallback: meta has no variants block, pull everything.
+        allow_patterns = [
+            "*.onnx",
+            "onnx/*.onnx",
+            "*.onnx_data",
+            "onnx/*.onnx_data",
+            *sidecars,
+        ]
 
     last_exc: Exception | None = None
     for attempt in range(1, _DOWNLOAD_MAX_RETRIES + 1):
