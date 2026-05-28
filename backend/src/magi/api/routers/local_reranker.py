@@ -16,6 +16,10 @@ from ...config.cross_encoder_registry import (
     CrossEncoderModelMeta,
     get_cross_encoder_registry,
 )
+from ...memory.onnx_variants import (
+    detect_platform_key,
+    resolve_variant_name,
+)
 from ...utils.runtime import RuntimePaths
 
 logger = logging.getLogger(__name__)
@@ -27,6 +31,15 @@ _download_progress: dict[str, dict[str, Any]] = {}
 
 
 # ── Response models ─────────────────────────────────────────────────────
+
+
+class LocalRerankerVariantInfo(BaseModel):
+    """One quantization/architecture variant of a cross-encoder model."""
+
+    name: str
+    file: str
+    size_mb: int
+    downloaded: bool
 
 
 class LocalRerankerModelInfo(BaseModel):
@@ -43,6 +56,8 @@ class LocalRerankerModelInfo(BaseModel):
     downloaded: bool
     download_in_progress: bool
     download_progress_pct: Optional[float] = None
+    variants: list[LocalRerankerVariantInfo] = []
+    default_variant: Optional[str] = None
 
 
 class DownloadStatusResponse(BaseModel):
@@ -68,6 +83,23 @@ async def list_models() -> list[LocalRerankerModelInfo]:
         downloaded = _is_model_downloaded(model_dir)
         in_progress = model.id in _download_tasks and not _download_tasks[model.id].done()
         progress = _download_progress.get(model.id, {})
+        variants_info: list[LocalRerankerVariantInfo] = []
+        for vname, vmeta in model.variants.items():
+            candidate = model_dir / vmeta.file
+            bare = model_dir / Path(vmeta.file).name
+            variants_info.append(
+                LocalRerankerVariantInfo(
+                    name=vname,
+                    file=vmeta.file,
+                    size_mb=vmeta.size_mb,
+                    downloaded=candidate.exists() or bare.exists(),
+                )
+            )
+
+        default_variant_name = (
+            resolve_variant_name(model) if model.variants else None
+        )
+
         result.append(
             LocalRerankerModelInfo(
                 id=model.id,
@@ -81,14 +113,23 @@ async def list_models() -> list[LocalRerankerModelInfo]:
                 downloaded=downloaded,
                 download_in_progress=in_progress,
                 download_progress_pct=progress.get("pct"),
+                variants=variants_info,
+                default_variant=default_variant_name,
             )
         )
     return result
 
 
 @local_reranker_router.post("/models/{model_id}/download")
-async def download_model(model_id: str) -> DownloadStatusResponse:
-    """Trigger download of a preset cross-encoder model."""
+async def download_model(
+    model_id: str,
+    variant: Optional[str] = None,
+) -> DownloadStatusResponse:
+    """Trigger download of a preset cross-encoder model.
+
+    Optional ``variant`` query parameter selects a specific ONNX variant;
+    defaults to the platform's preferred variant from the registry.
+    """
     registry = get_cross_encoder_registry()
     meta = registry.get(model_id)
     if meta is None:
@@ -111,15 +152,27 @@ async def download_model(model_id: str) -> DownloadStatusResponse:
             progress_pct=progress.get("pct"),
         )
 
-    # Check if already downloaded
+    # Check if the *specific* variant requested is already downloaded.
+    # Falls back to the model-level check for legacy YAML (no variants block).
     paths = RuntimePaths()
     model_dir = Path(paths.managed_reranker_model_dir(model_id))
-    if _is_model_downloaded(model_dir):
-        return DownloadStatusResponse(model_id=model_id, status="completed")
+    if meta.variants:
+        variant_name = resolve_variant_name(meta, override=variant)
+        if variant_name is not None:
+            variant_file = meta.variants[variant_name].file
+            candidate = model_dir / variant_file
+            bare = model_dir / Path(variant_file).name
+            if candidate.exists() or bare.exists():
+                return DownloadStatusResponse(model_id=model_id, status="completed")
+    else:
+        if _is_model_downloaded(model_dir):
+            return DownloadStatusResponse(model_id=model_id, status="completed")
 
     # Start download task
     _download_progress[model_id] = {"pct": 0.0, "error": None}
-    task = asyncio.create_task(_download_model_task(meta, model_dir))
+    task = asyncio.create_task(
+        _download_model_task(meta, model_dir, variant_override=variant)
+    )
     _download_tasks[model_id] = task
 
     return DownloadStatusResponse(
@@ -219,8 +272,19 @@ _DOWNLOAD_MAX_RETRIES = 3
 _DOWNLOAD_ETAG_TIMEOUT = 30
 
 
-async def _download_model_task(meta: CrossEncoderModelMeta, model_dir: Path) -> None:
-    """Background task to download a cross-encoder model from HuggingFace with retry."""
+async def _download_model_task(
+    meta: CrossEncoderModelMeta,
+    model_dir: Path,
+    *,
+    variant_override: str | None = None,
+) -> None:
+    """Background task to download a cross-encoder model from HuggingFace with retry.
+
+    If the meta declares a ``variants`` block, only the resolved variant's
+    .onnx file (and its optional .onnx_data sidecar) is fetched, alongside
+    the tokenizer/config sidecars. Without a ``variants`` block, falls
+    back to the legacy broad allow patterns.
+    """
     model_id = meta.id
     try:
         from huggingface_hub import snapshot_download
@@ -232,11 +296,7 @@ async def _download_model_task(meta: CrossEncoderModelMeta, model_dir: Path) -> 
         return
 
     repo_id = meta.onnx_repo or meta.repo
-    allow_patterns = [
-        "*.onnx",
-        "onnx/*.onnx",
-        "*.onnx_data",
-        "onnx/*.onnx_data",
+    sidecars = [
         "tokenizer.json",
         "tokenizer_config.json",
         "config.json",
@@ -244,6 +304,36 @@ async def _download_model_task(meta: CrossEncoderModelMeta, model_dir: Path) -> 
         "vocab.txt",
         "sentencepiece.bpe.model",
     ]
+
+    if meta.variants:
+        variant_name = resolve_variant_name(meta, override=variant_override)
+        if variant_name is None:
+            _download_progress[model_id] = {
+                "pct": None,
+                "error": f"Could not resolve a variant for {model_id}",
+            }
+            return
+        variant = meta.variants[variant_name]
+        # Unconditionally include the .onnx_data sidecar pattern.
+        # snapshot_download silently skips patterns that don't match, so
+        # this is free for variants without external data.
+        allow_patterns = [
+            variant.file,
+            f"{variant.file}_data",
+            *sidecars,
+        ]
+        logger.info(
+            "Resolved reranker variant %r for model %s (platform=%s, override=%r)",
+            variant_name, model_id, detect_platform_key(), variant_override,
+        )
+    else:
+        allow_patterns = [
+            "*.onnx",
+            "onnx/*.onnx",
+            "*.onnx_data",
+            "onnx/*.onnx_data",
+            *sidecars,
+        ]
 
     last_exc: Exception | None = None
     for attempt in range(1, _DOWNLOAD_MAX_RETRIES + 1):

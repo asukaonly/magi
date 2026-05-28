@@ -455,6 +455,14 @@ class CrossEncoderSettings(BaseModel):
 
     enabled: bool = Field(default=False)
     managed_model_id: Optional[str] = Field(default=None)
+    variant: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional ONNX quantization variant override (e.g. 'fp32', 'fp16', "
+            "'quantized', 'arm64_int8', 'x86_avx512_int8'). When None, the "
+            "platform default from the model's registry entry is used."
+        ),
+    )
 
 
 class MemoryRerankerSettings(BaseModel):

@@ -127,6 +127,7 @@ def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalCo
         reranker_top_k=reranker.top_k,
         cross_encoder_enabled=reranker.cross_encoder.enabled,
         cross_encoder_model_id=reranker.cross_encoder.managed_model_id,
+        cross_encoder_variant=reranker.cross_encoder.variant,
         query_expansion_enabled=qe.enabled,
         graph_spreading_enabled=gs.enabled,
     )

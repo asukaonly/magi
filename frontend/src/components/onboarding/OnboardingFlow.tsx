@@ -745,7 +745,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         crossEncoderConfig={crossEncoderConfig}
         onCrossEncoderConfigChange={(updater) => {
           setCrossEncoderConfig((prev) => {
-            const base = prev ?? { enabled: false, managed_model_id: null };
+            const base = prev ?? { enabled: false, managed_model_id: null, variant: null };
             const draft = { ...base };
             updater(draft);
             form.setFieldValue(['memory', 'reranker', 'cross_encoder'], draft);

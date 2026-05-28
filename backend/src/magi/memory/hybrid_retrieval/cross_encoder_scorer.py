@@ -9,22 +9,9 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from ..onnx_variants import _find_onnx_model
+
 logger = logging.getLogger(__name__)
-
-
-def _find_onnx_model(model_dir: Path) -> Optional[Path]:
-    """Find the best ONNX model file in a model directory."""
-    for base in [model_dir, model_dir / "onnx"]:
-        if not base.is_dir():
-            continue
-        for name in ["model_quantized.onnx", "model_int8.onnx", "model.onnx"]:
-            candidate = base / name
-            if candidate.exists():
-                return candidate
-        fallback = sorted(base.glob("*.onnx"))
-        if fallback:
-            return fallback[0]
-    return None
 
 
 class CrossEncoderScorer:
@@ -34,9 +21,21 @@ class CrossEncoderScorer:
         self,
         model_dir: Path,
         *,
+        model_file_path: Optional[Path] = None,
         idle_timeout_seconds: int = 1800,
     ) -> None:
+        """Construct a scorer.
+
+        ``model_dir`` is the directory containing the tokenizer + config files
+        (and historically also the .onnx file under the legacy scan layout).
+        ``model_file_path`` is the specific .onnx file to load — when given,
+        it overrides scan-based discovery so the caller can target a variant
+        outside the legacy priority order. When ``None``, falls back to
+        :func:`_find_onnx_model` over ``model_dir`` (used by callers that
+        don't know about the variant system, e.g. user-supplied directories).
+        """
         self._model_dir = model_dir
+        self._model_file_path = model_file_path
         self._idle_timeout_seconds = idle_timeout_seconds
         self._session: Any = None
         self._tokenizer: Any = None
@@ -85,7 +84,7 @@ class CrossEncoderScorer:
         except ImportError as exc:
             raise RuntimeError("Cross-encoder requires: pip install onnxruntime tokenizers") from exc
 
-        model_path = _find_onnx_model(self._model_dir)
+        model_path = self._model_file_path or _find_onnx_model(self._model_dir)
         if model_path is None:
             raise FileNotFoundError(f"No ONNX model found in {self._model_dir}")
 

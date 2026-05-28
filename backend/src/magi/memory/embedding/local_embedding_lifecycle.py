@@ -34,7 +34,7 @@ class LocalEmbeddingLifecycleMixin:
                 "Embedding model directory not found. Please download the model first."
             )
 
-        from .local_embedding_resolution import resolve_variant_path
+        from ..onnx_variants import resolve_variant_path
 
         meta = self._get_preset_meta()
         variant_override = getattr(self._config, "variant", None)

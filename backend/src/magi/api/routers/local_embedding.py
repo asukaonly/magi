@@ -16,7 +16,7 @@ from ...config.local_embedding_registry import (
     LocalEmbeddingModelMeta,
     get_local_embedding_registry,
 )
-from ...memory.embedding.local_embedding_resolution import (
+from ...memory.onnx_variants import (
     detect_platform_key,
     resolve_variant_name,
 )

@@ -10,7 +10,7 @@ from typing import Any
 
 from ...config.local_embedding_registry import get_local_embedding_registry
 from ...utils.runtime import RuntimePaths, get_runtime_paths
-from .local_embedding_resolution import resolve_variant_path
+from ..onnx_variants import resolve_variant_path
 
 LOCAL_EMBEDDING_RUNTIME_FAMILY = "onnxruntime"
 _SIDE_CAR_FILES = (

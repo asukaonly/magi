@@ -1259,11 +1259,13 @@ describe('config forms', () => {
         downloaded: false,
         download_in_progress: false,
         download_progress_pct: null,
+        variants: [],
+        default_variant: null,
       },
     ];
 
     const RerankerPanelHarness = () => {
-      const [config, setConfig] = React.useState({ enabled: false, managed_model_id: null as string | null });
+      const [config, setConfig] = React.useState({ enabled: false, managed_model_id: null as string | null, variant: null as string | null });
 
       return (
         <LLMRerankerModelPanel

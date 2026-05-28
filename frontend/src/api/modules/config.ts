@@ -435,6 +435,7 @@ export interface MemoryL4Config {
 export interface CrossEncoderConfig {
   enabled: boolean;
   managed_model_id: string | null;
+  variant: string | null;
 }
 
 export interface MemoryRerankerConfig {
@@ -691,6 +692,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       cross_encoder: {
         enabled: false,
         managed_model_id: null,
+        variant: null,
       },
     },
     query_expansion: {
