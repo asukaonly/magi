@@ -184,6 +184,32 @@ def test_run_control_bundles_all_five_signals() -> None:
     assert control.steer_inbox is steer
 
 
+def test_run_control_fields_are_reassignable() -> None:
+    """The bundle is intentionally non-frozen so callers can swap in
+    real signals over the null defaults (e.g.,
+    ``control.cancel_token = SessionRunCancelToken(...)``).
+    Pin this design contract so a future ``frozen=True`` change
+    breaks loudly instead of silently."""
+    control = null_run_control()
+    real_cancel = EventCancelToken()
+    real_detach = DetachSignal()
+    real_retract = RetractSignal()
+    real_suspend = SuspendSignal()
+    real_steer = SteerInbox()
+
+    control.cancel_token = real_cancel
+    control.detach_signal = real_detach
+    control.retract_signal = real_retract
+    control.suspend_signal = real_suspend
+    control.steer_inbox = real_steer
+
+    assert control.cancel_token is real_cancel
+    assert control.detach_signal is real_detach
+    assert control.retract_signal is real_retract
+    assert control.suspend_signal is real_suspend
+    assert control.steer_inbox is real_steer
+
+
 def test_null_run_control_is_safe_to_poll() -> None:
     control = null_run_control()
     assert control.cancel_token is not None
