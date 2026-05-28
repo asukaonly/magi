@@ -51,10 +51,12 @@ async def test_download_only_fetches_chosen_variant_files(tmp_path: Path) -> Non
          patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"):
         await router_mod._download_model_task(meta, tmp_path, variant_override=None)
 
-    # Critical: only fp16 file in patterns, plus its sidecar variants
+    # Critical: only fp16 file in patterns, plus its sidecar
     assert "onnx/model_fp16.onnx" in captured_patterns
     assert "onnx/model_fp16.onnx_data" in captured_patterns
-    assert "onnx/model_fp16.onnx.data" in captured_patterns
+    # The `.onnx.data` (dot) form is not a real upstream convention; we only
+    # ship `.onnx_data` (underscore).
+    assert "onnx/model_fp16.onnx.data" not in captured_patterns
     # Other variants MUST NOT be downloaded
     assert "onnx/model.onnx" not in captured_patterns
     assert "onnx/model_quantized.onnx" not in captured_patterns

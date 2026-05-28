@@ -385,14 +385,16 @@ async def _download_model_task(
             }
             return
         variant = meta.variants[variant_name]
-        # Always probe both ``.onnx_data`` and ``.onnx.data`` naming
-        # conventions — snapshot_download silently skips patterns that don't
-        # match anything in the repo, so listing both is free even for
-        # variants without sidecar weights (e.g. Snowflake, Qwen3 quantized).
+        # Unconditionally include the ``.onnx_data`` sidecar pattern —
+        # snapshot_download silently skips patterns that don't match anything,
+        # so this is free for variants without external data (e.g. Snowflake,
+        # Qwen3 quantized) and required for variants that do (Qwen3 fp32/fp16,
+        # all BGE variants). Naming convention is HuggingFace's underscore
+        # form; the dot form (`.onnx.data`) is not used by any upstream we
+        # care about.
         allow_patterns = [
             variant.file,
             f"{variant.file}_data",
-            f"{variant.file}.data",
             *sidecars,
         ]
         logger.info(
