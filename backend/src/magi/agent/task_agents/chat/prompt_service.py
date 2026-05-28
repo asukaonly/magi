@@ -5,6 +5,7 @@ import json
 import re
 from typing import Any, AsyncIterator
 
+from ....agent.run_control import RunControl
 from ....config.models import LLMScenario, ThinkingDepth
 from ....llm.streaming_events import LLMStreamEvent
 from ...orchestration import WorkerResult
@@ -41,6 +42,7 @@ class ChatPromptService:
         timeout_seconds: float | None = None,
         llm_trace_callback=None,
         event_context: dict[str, Any] | None = None,
+        control: RunControl | None = None,
     ) -> str:
         return await self._llm_service.call(
             system_prompt=system_prompt,
@@ -52,6 +54,7 @@ class ChatPromptService:
             timeout_seconds=timeout_seconds,
             llm_trace_callback=llm_trace_callback,
             event_context=event_context,
+            control=control,
         )
 
     async def call_llm_stream(
@@ -64,6 +67,7 @@ class ChatPromptService:
         json_mode: bool = False,
         timeout_seconds: float | None = None,
         event_context: dict[str, Any] | None = None,
+        control: RunControl | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         """Streaming variant of call_llm(). Yields typed LLM stream events."""
         async for event in self._llm_service.call_stream(
@@ -75,6 +79,7 @@ class ChatPromptService:
             json_mode=json_mode,
             timeout_seconds=timeout_seconds,
             event_context=event_context,
+            control=control,
         ):
             yield event
 

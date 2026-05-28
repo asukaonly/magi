@@ -209,3 +209,82 @@ def test_retract_raised_with_none_payload_constructs_cleanly() -> None:
     exc = RetractRaised(payload=None)
     assert "retracted" in str(exc).lower()
     assert exc.payload is None
+
+
+@pytest.mark.asyncio
+async def test_task_agent_llm_service_accepts_optional_control() -> None:
+    """TaskAgentLLMService.call must accept an optional RunControl
+    and route through CancellableLLMClient when supplied."""
+    from magi.agent.task_agents.common.llm_service import TaskAgentLLMService
+
+    import inspect
+    params = inspect.signature(TaskAgentLLMService.call).parameters
+    assert "control" in params, (
+        "TaskAgentLLMService.call must accept a `control: RunControl` kwarg"
+    )
+    sig_stream = inspect.signature(TaskAgentLLMService.call_stream).parameters
+    assert "control" in sig_stream
+
+
+@pytest.mark.asyncio
+async def test_prompt_service_call_llm_accepts_optional_control() -> None:
+    from magi.agent.task_agents.chat.prompt_service import ChatPromptService
+
+    import inspect
+    params = inspect.signature(ChatPromptService.call_llm).parameters
+    assert "control" in params
+    params_stream = inspect.signature(ChatPromptService.call_llm_stream).parameters
+    assert "control" in params_stream
+
+
+@pytest.mark.asyncio
+async def test_task_agent_llm_service_with_control_aborts_on_cancel() -> None:
+    """When control.cancel_token is set, TaskAgentLLMService.call(...,
+    control=...) must surface the cancellation via the LLM error path
+    (existing log_llm_response failure path is taken; the exception
+    propagates)."""
+    from magi.agent.task_agents.common.llm_service import TaskAgentLLMService
+
+    service = TaskAgentLLMService(logger_name="test")
+    # Inject the fake bridge + cancellable client so we don't need a
+    # real LLM adapter.
+    service._provider_bridge = _FakeBridge(chunks=["unused"])
+    service._cancellable_client = CancellableLLMClient(bridge=service._provider_bridge)
+    # Also short-circuit _resolve_llm so it doesn't try to rebuild.
+    service._llm = object()  # any truthy non-None
+    service._llm_pool = None
+
+    cancel = EventCancelToken()
+    cancel.cancel(reason="user_request")
+    control = null_run_control()
+    control.cancel_token = cancel
+
+    with pytest.raises(CancellationRaised):
+        await service.call(
+            system_prompt="sys",
+            messages=[{"role": "user", "content": "hi"}],
+            control=control,
+        )
+
+
+@pytest.mark.asyncio
+async def test_task_agent_llm_service_without_control_uses_legacy_path() -> None:
+    """When control is omitted/None, TaskAgentLLMService routes via
+    the existing provider_bridge.chat_response path (no cancellable
+    client invoked)."""
+    from magi.agent.task_agents.common.llm_service import TaskAgentLLMService
+
+    service = TaskAgentLLMService(logger_name="test")
+    bridge = _FakeBridge(chunks=["legacy ", "path"])
+    service._provider_bridge = bridge
+    service._cancellable_client = CancellableLLMClient(bridge=bridge)
+    service._llm = object()
+    service._llm_pool = None
+
+    result = await service.call(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    assert result == "legacy path"
+    assert bridge.chat_response_calls == 1
