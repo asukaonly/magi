@@ -17,6 +17,19 @@ logger = logging.getLogger(__name__)
 _REGISTRY_FILENAME = "cross_encoder_models.yaml"
 
 
+@dataclass(slots=True, frozen=True)
+class CrossEncoderVariantMeta:
+    """One quantization/architecture variant of a cross-encoder model.
+
+    ``file`` is the path inside the upstream HuggingFace repo (e.g.
+    "onnx/model_qint8_arm64.onnx"). ``size_mb`` is the on-disk total —
+    including any accompanying .onnx_data sidecar — for UI display.
+    """
+
+    file: str
+    size_mb: int = 0
+
+
 @dataclass(slots=True)
 class CrossEncoderModelMeta:
     """Metadata for one preset cross-encoder model."""
@@ -30,6 +43,8 @@ class CrossEncoderModelMeta:
     languages: list[str] = field(default_factory=list)
     recommended: bool = False
     description: str = ""
+    variants: dict[str, CrossEncoderVariantMeta] = field(default_factory=dict)
+    default_variant: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -65,6 +80,36 @@ def load_cross_encoder_registry(config_path: Path) -> CrossEncoderModelRegistry:
         if not isinstance(entry, dict) or not entry.get("id"):
             continue
         try:
+            # Parse variants block
+            raw_variants = entry.get("variants") or {}
+            variants: dict[str, CrossEncoderVariantMeta] = {}
+            if isinstance(raw_variants, dict):
+                for name, payload in raw_variants.items():
+                    if not isinstance(payload, dict):
+                        logger.warning(
+                            "Skipping malformed variant %r in model %r",
+                            name, entry.get("id"),
+                        )
+                        continue
+                    file_path = payload.get("file")
+                    if not file_path or not isinstance(file_path, str):
+                        logger.warning(
+                            "Variant %r in model %r missing 'file'; skipped",
+                            name, entry.get("id"),
+                        )
+                        continue
+                    variants[str(name)] = CrossEncoderVariantMeta(
+                        file=file_path,
+                        size_mb=int(payload.get("size_mb") or 0),
+                    )
+
+            raw_default = entry.get("default_variant") or {}
+            default_variant: dict[str, str] = {}
+            if isinstance(raw_default, dict):
+                for plat, vname in raw_default.items():
+                    if isinstance(plat, str) and isinstance(vname, str):
+                        default_variant[plat] = vname
+
             models.append(
                 CrossEncoderModelMeta(
                     id=str(entry["id"]),
@@ -76,6 +121,8 @@ def load_cross_encoder_registry(config_path: Path) -> CrossEncoderModelRegistry:
                     languages=list(entry.get("languages") or []),
                     recommended=bool(entry.get("recommended", False)),
                     description=str(entry.get("description") or ""),
+                    variants=variants,
+                    default_variant=default_variant,
                 )
             )
         except (ValueError, TypeError) as exc:
