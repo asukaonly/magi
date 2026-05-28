@@ -116,3 +116,60 @@ def test_plugin_manifest_with_descriptor() -> None:
     )
     assert manifest.suggestion_descriptor is not None
     assert manifest.suggestion_descriptor.category == "browser_history"
+
+
+def test_plugin_manifest_parses_descriptor_from_toml() -> None:
+    """A plugin.toml that includes [plugin.suggestion_descriptor] must load.
+
+    This mirrors the wire format authors will write.
+    """
+    import tomllib
+
+    toml_text = """
+[plugin]
+id = "chrome-history"
+name = "Chrome History"
+version = "0.1.0"
+entry_module = "plugin"
+entry_class = "ChromeHistoryPlugin"
+contribution_types = ["sensor"]
+
+[plugin.suggestion_descriptor]
+category = "browser_history"
+setup_time_estimate_seconds = 10
+data_locality = "local_only"
+platform_support = ["darwin", "win32", "linux"]
+
+[plugin.suggestion_descriptor.triggers]
+intents = ["user_asks_about_browsing"]
+entities = ["url", "website"]
+
+[plugin.suggestion_descriptor.triggers.keywords]
+zh = ["浏览", "上网", "看过"]
+en = ["browsing", "website", "read online"]
+
+[plugin.suggestion_descriptor.rationale]
+zh = "magi 会读取你的 Chrome 历史回答这类问题"
+en = "magi will read your Chrome history to answer these questions"
+
+[[plugin.suggestion_descriptor.local_requirements]]
+check_kind = "file_exists"
+
+[plugin.suggestion_descriptor.local_requirements.paths_per_platform]
+darwin = "~/Library/Application Support/Google/Chrome/Default/History"
+win32 = "%LOCALAPPDATA%/Google/Chrome/User Data/Default/History"
+linux = "~/.config/google-chrome/Default/History"
+"""
+    raw = tomllib.loads(toml_text)
+    manifest = PluginManifest.model_validate(raw["plugin"])
+    assert manifest.suggestion_descriptor is not None
+    assert manifest.suggestion_descriptor.category == "browser_history"
+    assert manifest.suggestion_descriptor.triggers.keywords["zh"] == [
+        "浏览",
+        "上网",
+        "看过",
+    ]
+    assert len(manifest.suggestion_descriptor.local_requirements) == 1
+    req = manifest.suggestion_descriptor.local_requirements[0]
+    assert req.check_kind == "file_exists"
+    assert "darwin" in req.paths_per_platform
