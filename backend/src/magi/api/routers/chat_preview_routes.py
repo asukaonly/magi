@@ -19,7 +19,7 @@ Tests inject their own callables for isolation.
 from __future__ import annotations
 
 from threading import Lock
-from typing import AsyncIterator, Callable
+from typing import TYPE_CHECKING, AsyncIterator, Callable
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -27,9 +27,30 @@ from fastapi.responses import StreamingResponse
 from magi.api.routers.chat_preview_schemas import PreviewMessageRequest
 from magi.chat_preview import PreviewMessage, PreviewMode, run_preview
 
+if TYPE_CHECKING:
+    from magi.personality.loader import PersonalityLoader
+
 PersonaLoaderDep = Callable[[], Callable[[str], str]]
 LLMCallDep = Callable[[], Callable[..., AsyncIterator[str]]]
 CoreModelDep = Callable[[], str]
+
+
+# Module-scoped lazily-initialized PersonalityLoader. The loader holds an
+# instance-level ``_cache`` dict; sharing a singleton lets that cache survive
+# across requests. Mirrors the resolver pattern in
+# :mod:`magi.api.routers.availability_routes`.
+_PERSONA_LOADER: "PersonalityLoader | None" = None
+_PERSONA_LOADER_LOCK = Lock()
+
+
+def _get_or_create_persona_loader() -> "PersonalityLoader":
+    from magi.personality.loader import PersonalityLoader
+
+    global _PERSONA_LOADER
+    with _PERSONA_LOADER_LOCK:
+        if _PERSONA_LOADER is None:
+            _PERSONA_LOADER = PersonalityLoader()
+        return _PERSONA_LOADER
 
 
 def build_default_chat_preview_router(
@@ -89,9 +110,7 @@ def _resolve_persona_prompt(seed_slug: str) -> str:
     :mod:`magi.personality.bootstrap_service` so the preview chat speaks in the
     persona's voice without dragging in registers, layers, or quiet hours.
     """
-    from magi.personality.loader import PersonalityLoader
-
-    loader = PersonalityLoader()
+    loader = _get_or_create_persona_loader()
     try:
         config = loader.load(seed_slug)
     except Exception as exc:  # FileNotFoundError, JSON errors, etc.
@@ -107,9 +126,6 @@ def _resolve_persona_prompt(seed_slug: str) -> str:
 
 def _default_persona_loader_dep() -> Callable[[str], str]:
     return _resolve_persona_prompt
-
-
-_LLM_CALL_LOCK = Lock()
 
 
 def _default_llm_call_dep() -> Callable[..., AsyncIterator[str]]:
