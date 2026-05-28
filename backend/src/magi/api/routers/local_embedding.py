@@ -176,8 +176,20 @@ async def download_model(
     # Check if already downloaded
     paths = RuntimePaths()
     model_dir = Path(paths.managed_embedding_model_dir(model_id))
-    if _is_model_downloaded(model_dir):
-        return DownloadStatusResponse(model_id=model_id, status="completed")
+    # Check if the *specific* variant requested is already downloaded.
+    # Falls back to the model-level check for legacy YAML (no variants block).
+    if meta.variants:
+        variant_name = resolve_variant_name(meta, override=variant)
+        if variant_name is not None:
+            variant_file = meta.variants[variant_name].file
+            candidate = model_dir / variant_file
+            bare = model_dir / Path(variant_file).name
+            if candidate.exists() or bare.exists():
+                return DownloadStatusResponse(model_id=model_id, status="completed")
+        # else: emergency-chain returned no variant; let the task try anyway
+    else:
+        if _is_model_downloaded(model_dir):
+            return DownloadStatusResponse(model_id=model_id, status="completed")
 
     # Start download task
     _download_progress[model_id] = {"pct": 0.0, "error": None}

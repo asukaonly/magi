@@ -50,9 +50,12 @@ def compute_local_embedding_model_fingerprint(
     if model_dir is None or not model_dir.exists():
         return None
 
-    meta = get_local_embedding_registry().get(
-        str(getattr(local_config, "managed_model_id", "") or "").strip()
-    )
+    source = _enum_value(getattr(local_config, "model_source", "managed"))
+    meta = None
+    if source == "managed":
+        model_id = str(getattr(local_config, "managed_model_id", "") or "").strip()
+        if model_id:
+            meta = get_local_embedding_registry().get(model_id)
     variant_override = getattr(local_config, "variant", None)
     model_path = resolve_variant_path(model_dir, meta, override=variant_override)
     if model_path is None:

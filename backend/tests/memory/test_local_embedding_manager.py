@@ -700,3 +700,120 @@ class TestLifecycleVariantWiring:
 
         if mgr._unload_task and not mgr._unload_task.done():
             mgr._unload_task.cancel()
+
+
+class TestComputeFingerprintVariantAware:
+    """compute_local_embedding_model_fingerprint must respect variant and model_source."""
+
+    def _setup_model_dir(self, tmp_path, variants_present: list[str]) -> None:
+        """Create a managed model dir with the named variant files + tokenizer/config."""
+        (tmp_path / "onnx").mkdir(exist_ok=True)
+        filename_map = {
+            "fp32":      "model.onnx",
+            "fp16":      "model_fp16.onnx",
+            "quantized": "model_quantized.onnx",
+            "int8":      "model_int8.onnx",
+        }
+        for v in variants_present:
+            (tmp_path / "onnx" / filename_map[v]).write_bytes(b"fake-onnx-bytes-" + v.encode())
+        (tmp_path / "tokenizer.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "config.json").write_text('{"hidden_size": 768}', encoding="utf-8")
+
+    def test_identity_changes_when_variant_changes(self, tmp_path, monkeypatch) -> None:
+        from magi.config.models import LocalEmbeddingSettings, LocalEmbeddingModelSource
+        from magi.config.local_embedding_registry import (
+            LocalEmbeddingModelMeta,
+            LocalEmbeddingVariantMeta,
+            LocalEmbeddingModelRegistry,
+        )
+        from magi.memory.embedding.local_embedding_identity import (
+            compute_local_embedding_model_fingerprint,
+        )
+        from unittest.mock import MagicMock
+
+        self._setup_model_dir(tmp_path, ["fp16", "quantized"])
+
+        meta = LocalEmbeddingModelMeta(
+            id="test-model", label="Test", repo="o/t", onnx_repo="o/t",
+            dimension=768, max_tokens=512,
+            variants={
+                "fp16":      LocalEmbeddingVariantMeta(file="onnx/model_fp16.onnx", size_mb=50),
+                "quantized": LocalEmbeddingVariantMeta(file="onnx/model_quantized.onnx", size_mb=25),
+            },
+            default_variant={"darwin_arm64": "fp16", "_fallback": "quantized"},
+        )
+        registry = LocalEmbeddingModelRegistry(models=[meta])
+        monkeypatch.setattr(
+            "magi.memory.embedding.local_embedding_identity.get_local_embedding_registry",
+            lambda: registry,
+        )
+
+        runtime_paths = MagicMock()
+        runtime_paths.managed_embedding_model_dir.return_value = str(tmp_path)
+
+        cfg_fp16 = LocalEmbeddingSettings(
+            model_source=LocalEmbeddingModelSource.MANAGED,
+            managed_model_id="test-model",
+            variant="fp16",
+        )
+        cfg_quantized = LocalEmbeddingSettings(
+            model_source=LocalEmbeddingModelSource.MANAGED,
+            managed_model_id="test-model",
+            variant="quantized",
+        )
+
+        fp_a = compute_local_embedding_model_fingerprint(cfg_fp16, runtime_paths=runtime_paths)
+        fp_b = compute_local_embedding_model_fingerprint(cfg_quantized, runtime_paths=runtime_paths)
+
+        assert fp_a is not None and fp_b is not None
+        assert fp_a.identity_key != fp_b.identity_key, (
+            "switching variant must produce a different identity_key"
+        )
+
+    def test_identity_for_external_source_ignores_residual_managed_id(self, tmp_path, monkeypatch) -> None:
+        """Bug C3 regression: external source must not consult the registry."""
+        from magi.config.models import LocalEmbeddingSettings, LocalEmbeddingModelSource
+        from magi.config.local_embedding_registry import (
+            LocalEmbeddingModelMeta,
+            LocalEmbeddingVariantMeta,
+            LocalEmbeddingModelRegistry,
+        )
+        from magi.memory.embedding.local_embedding_identity import (
+            compute_local_embedding_model_fingerprint,
+        )
+
+        # External dir has just a plain model.onnx (no onnx/ subdir).
+        (tmp_path / "model.onnx").write_bytes(b"external-model-bytes")
+        (tmp_path / "tokenizer.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "config.json").write_text('{"hidden_size": 384}', encoding="utf-8")
+
+        # Registry has a managed entry whose variant files DON'T exist in tmp_path.
+        registry_meta = LocalEmbeddingModelMeta(
+            id="some-other-managed",
+            label="Other",
+            repo="o/o",
+            onnx_repo="o/o",
+            dimension=1024,
+            max_tokens=512,
+            variants={
+                "fp16": LocalEmbeddingVariantMeta(file="onnx/model_fp16.onnx", size_mb=100),
+            },
+            default_variant={"_fallback": "fp16"},
+        )
+        registry = LocalEmbeddingModelRegistry(models=[registry_meta])
+        monkeypatch.setattr(
+            "magi.memory.embedding.local_embedding_identity.get_local_embedding_registry",
+            lambda: registry,
+        )
+
+        cfg = LocalEmbeddingSettings(
+            model_source=LocalEmbeddingModelSource.EXTERNAL,
+            model_dir_path=str(tmp_path),
+            # Residual id from when source was managed — must be ignored.
+            managed_model_id="some-other-managed",
+            variant=None,
+        )
+        fp = compute_local_embedding_model_fingerprint(cfg)
+        assert fp is not None, "external-source fingerprint must succeed via legacy scan"
+        assert fp.model_dir == tmp_path
+        assert fp.model_file_hash, "model_file_hash must be a non-empty digest"

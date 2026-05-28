@@ -97,7 +97,7 @@ export function LLMLocalEmbeddingModelPanel({
                   className="w-full"
                   triggerClassName={inputClassName}
                   value={embeddingConfig.local.variant ?? ''}
-                  allowEmpty={true}
+                  allowEmpty={false}
                   options={variantOptions}
                   onChange={(value) => onEmbeddingConfigChange((draft) => {
                     draft.local.variant = value === '' ? null : value;
