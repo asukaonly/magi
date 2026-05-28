@@ -79,11 +79,12 @@ async def test_cross_encoder_reranker_combines_heuristic_and_ce():
     mock_scorer.score_pairs.return_value = [0.6, 0.8]
 
     mock_model_dir = Path("/fake/model/dir")
+    mock_model_file = mock_model_dir / "onnx" / "model.onnx"
 
     with (
         patch(
-            "magi.memory.hybrid_retrieval.cross_encoder._resolve_cross_encoder_model_dir",
-            return_value=mock_model_dir,
+            "magi.memory.hybrid_retrieval.cross_encoder._resolve_cross_encoder_paths",
+            return_value=(mock_model_dir, mock_model_file),
         ),
         patch(
             "magi.memory.hybrid_retrieval.cross_encoder._get_or_create_scorer",
@@ -121,7 +122,7 @@ async def test_cross_encoder_reranker_falls_back_on_missing_model():
     ]
 
     with patch(
-        "magi.memory.hybrid_retrieval.cross_encoder._resolve_cross_encoder_model_dir",
+        "magi.memory.hybrid_retrieval.cross_encoder._resolve_cross_encoder_paths",
         return_value=None,
     ):
         result = await reranker.rerank(
@@ -153,11 +154,12 @@ async def test_cross_encoder_reranker_falls_back_on_scorer_error():
     mock_scorer = AsyncMock()
     mock_scorer.score_pairs.side_effect = RuntimeError("ONNX crash")
     mock_model_dir = Path("/fake/model/dir")
+    mock_model_file = mock_model_dir / "onnx" / "model.onnx"
 
     with (
         patch(
-            "magi.memory.hybrid_retrieval.cross_encoder._resolve_cross_encoder_model_dir",
-            return_value=mock_model_dir,
+            "magi.memory.hybrid_retrieval.cross_encoder._resolve_cross_encoder_paths",
+            return_value=(mock_model_dir, mock_model_file),
         ),
         patch(
             "magi.memory.hybrid_retrieval.cross_encoder._get_or_create_scorer",
@@ -261,3 +263,170 @@ class TestRetrievalConfigVariant:
         assert rc.cross_encoder_enabled is True
         assert rc.cross_encoder_model_id == "bge-reranker-v2-m3"
         assert rc.cross_encoder_variant == "fp16"
+
+
+class TestVariantAwareModelDirResolution:
+    """The caller must resolve variant -> file path before instantiating the scorer."""
+
+    def test_resolves_specific_variant_file_for_managed_model(self, tmp_path, monkeypatch) -> None:
+        from magi.config.cross_encoder_registry import (
+            CrossEncoderModelMeta,
+            CrossEncoderModelRegistry,
+            CrossEncoderVariantMeta,
+        )
+        from magi.memory.hybrid_retrieval import cross_encoder as ce
+        from magi.memory.hybrid_retrieval.models import RetrievalConfig
+
+        model_id = "ms-marco-test"
+        (tmp_path / "onnx").mkdir()
+        (tmp_path / "onnx" / "model_qint8_arm64.onnx").touch()
+        (tmp_path / "onnx" / "model.onnx").touch()
+        (tmp_path / "tokenizer.json").write_text("{}", encoding="utf-8")
+
+        meta = CrossEncoderModelMeta(
+            id=model_id,
+            label="MS MARCO Test",
+            repo="cross-encoder/test",
+            onnx_repo="cross-encoder/test",
+            variants={
+                "fp32":       CrossEncoderVariantMeta(file="onnx/model.onnx", size_mb=91),
+                "arm64_int8": CrossEncoderVariantMeta(file="onnx/model_qint8_arm64.onnx", size_mb=23),
+            },
+            default_variant={"darwin_arm64": "arm64_int8", "_fallback": "arm64_int8"},
+        )
+        registry = CrossEncoderModelRegistry(models=[meta])
+        monkeypatch.setattr(
+            "magi.memory.hybrid_retrieval.cross_encoder.get_cross_encoder_registry",
+            lambda: registry,
+        )
+        monkeypatch.setattr(
+            "magi.memory.onnx_variants.detect_platform_key",
+            lambda: "darwin_arm64",
+        )
+
+        from unittest.mock import MagicMock
+        runtime_paths = MagicMock()
+        runtime_paths.managed_reranker_model_dir = MagicMock(return_value=str(tmp_path))
+        monkeypatch.setattr(
+            "magi.memory.hybrid_retrieval.cross_encoder.RuntimePaths",
+            lambda: runtime_paths,
+        )
+
+        config = RetrievalConfig(
+            cross_encoder_enabled=True,
+            cross_encoder_model_id=model_id,
+            cross_encoder_variant=None,  # auto -> arm64_int8 on darwin
+        )
+
+        result = ce._resolve_cross_encoder_paths(config)
+        assert result is not None
+        model_dir, model_file = result
+        assert model_dir == tmp_path
+        assert model_file.name == "model_qint8_arm64.onnx"
+
+    def test_variant_override_picks_specific_file(self, tmp_path, monkeypatch) -> None:
+        from magi.config.cross_encoder_registry import (
+            CrossEncoderModelMeta,
+            CrossEncoderModelRegistry,
+            CrossEncoderVariantMeta,
+        )
+        from magi.memory.hybrid_retrieval import cross_encoder as ce
+        from magi.memory.hybrid_retrieval.models import RetrievalConfig
+
+        model_id = "ms-marco-test"
+        (tmp_path / "onnx").mkdir()
+        (tmp_path / "onnx" / "model_qint8_arm64.onnx").touch()
+        (tmp_path / "onnx" / "model.onnx").touch()
+
+        meta = CrossEncoderModelMeta(
+            id=model_id,
+            label="MS MARCO Test",
+            repo="cross-encoder/test",
+            onnx_repo="cross-encoder/test",
+            variants={
+                "fp32":       CrossEncoderVariantMeta(file="onnx/model.onnx", size_mb=91),
+                "arm64_int8": CrossEncoderVariantMeta(file="onnx/model_qint8_arm64.onnx", size_mb=23),
+            },
+            default_variant={"darwin_arm64": "arm64_int8", "_fallback": "arm64_int8"},
+        )
+        registry = CrossEncoderModelRegistry(models=[meta])
+        monkeypatch.setattr(
+            "magi.memory.hybrid_retrieval.cross_encoder.get_cross_encoder_registry",
+            lambda: registry,
+        )
+
+        from unittest.mock import MagicMock
+        runtime_paths = MagicMock()
+        runtime_paths.managed_reranker_model_dir = MagicMock(return_value=str(tmp_path))
+        monkeypatch.setattr(
+            "magi.memory.hybrid_retrieval.cross_encoder.RuntimePaths",
+            lambda: runtime_paths,
+        )
+
+        config = RetrievalConfig(
+            cross_encoder_enabled=True,
+            cross_encoder_model_id=model_id,
+            cross_encoder_variant="fp32",  # explicit override
+        )
+
+        result = ce._resolve_cross_encoder_paths(config)
+        assert result is not None
+        _, model_file = result
+        assert model_file.name == "model.onnx"
+
+    def test_returns_none_when_model_id_unset(self) -> None:
+        from magi.memory.hybrid_retrieval import cross_encoder as ce
+        from magi.memory.hybrid_retrieval.models import RetrievalConfig
+
+        config = RetrievalConfig(cross_encoder_enabled=True, cross_encoder_model_id=None)
+        assert ce._resolve_cross_encoder_paths(config) is None
+
+    def test_returns_none_when_resolved_file_missing(self, tmp_path, monkeypatch) -> None:
+        """If the chosen variant isn't on disk, _resolve_cross_encoder_paths returns None."""
+        from magi.config.cross_encoder_registry import (
+            CrossEncoderModelMeta,
+            CrossEncoderModelRegistry,
+            CrossEncoderVariantMeta,
+        )
+        from magi.memory.hybrid_retrieval import cross_encoder as ce
+        from magi.memory.hybrid_retrieval.models import RetrievalConfig
+
+        (tmp_path / "onnx").mkdir()
+        (tmp_path / "onnx" / "model.onnx").touch()  # only fp32 on disk
+
+        meta = CrossEncoderModelMeta(
+            id="m",
+            label="M",
+            repo="o/m",
+            onnx_repo="o/m",
+            variants={
+                "fp32":       CrossEncoderVariantMeta(file="onnx/model.onnx", size_mb=91),
+                "arm64_int8": CrossEncoderVariantMeta(file="onnx/model_qint8_arm64.onnx", size_mb=23),
+            },
+            default_variant={"darwin_arm64": "arm64_int8", "_fallback": "arm64_int8"},
+        )
+        registry = CrossEncoderModelRegistry(models=[meta])
+        monkeypatch.setattr(
+            "magi.memory.hybrid_retrieval.cross_encoder.get_cross_encoder_registry",
+            lambda: registry,
+        )
+        monkeypatch.setattr(
+            "magi.memory.onnx_variants.detect_platform_key",
+            lambda: "darwin_arm64",
+        )
+
+        from unittest.mock import MagicMock
+        runtime_paths = MagicMock()
+        runtime_paths.managed_reranker_model_dir = MagicMock(return_value=str(tmp_path))
+        monkeypatch.setattr(
+            "magi.memory.hybrid_retrieval.cross_encoder.RuntimePaths",
+            lambda: runtime_paths,
+        )
+
+        config = RetrievalConfig(
+            cross_encoder_enabled=True,
+            cross_encoder_model_id="m",
+            cross_encoder_variant=None,  # darwin_arm64 -> arm64_int8, but file not on disk
+        )
+
+        assert ce._resolve_cross_encoder_paths(config) is None
