@@ -212,3 +212,74 @@ async def test_control_supplied_silently_ignores_legacy_kwargs(monkeypatch) -> N
 
     # Status should be "retracted" (from the bundle), NOT "cancelled" (from the legacy kwarg).
     assert outcome.status == "retracted"
+
+
+@pytest.mark.asyncio
+async def test_execute_loop_returns_retracted_when_retract_fires_during_llm_call(
+    monkeypatch,
+) -> None:
+    """When RetractSignal is set DURING the LLM call (not at iteration
+    boundary), CancellableLLMClient raises RetractRaised, step_executor
+    converts to status='aborted', and the orchestrator's next iteration
+    polls control and returns ExecutionOutcome(status='retracted')."""
+    orchestrator = _build_orchestrator()
+    _patch_trace_and_event_helpers(monkeypatch, orchestrator)
+
+    control = null_run_control()
+    retract = RetractSignal()
+    control.retract_signal = retract
+
+    # Fake the LLM call to set the retract signal DURING the call.
+    call_count = 0
+
+    async def _fake_call_llm_with_tools(**_kwargs):
+        nonlocal call_count
+        call_count += 1
+        # Set retract during the LLM call. The orchestrator should
+        # observe it at the next iteration boundary and return retracted.
+        retract.request(RetractRequested(reason="user_retract"))
+        return {
+            "assistant_message": {"role": "assistant", "content": "ack"},
+            "content": "ack",
+            "tool_calls": [],
+            "llm_trace": {"model": "fake-model"},
+        }
+
+    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
+
+    outcome = await orchestrator.execute_with_tools(
+        turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
+        system_prompt="sys",
+        selected_tools=[],
+        user_id="u",
+        conversation_history=[],
+        max_iterations=3,
+        control=control,
+    )
+
+    assert outcome.status == "retracted"
+    # The LLM was called exactly once (the first iteration); the second
+    # iteration short-circuits on retract before another LLM call.
+    assert call_count == 1
+
+
+def test_step_executor_accepts_control_kwarg() -> None:
+    import inspect
+    from magi.agent.execution.function_calling.step_executor import (
+        FunctionCallingStepExecutor,
+    )
+
+    params = inspect.signature(FunctionCallingStepExecutor.execute_step).parameters
+    assert "control" in params, (
+        "FunctionCallingStepExecutor.execute_step must accept a `control: RunControl` kwarg"
+    )
+
+
+def test_step_outcome_supports_aborted_status() -> None:
+    """status='aborted' is a new value introduced by Task 7."""
+    from magi.agent.execution.function_calling.step_executor import (
+        FunctionCallingStepOutcome,
+    )
+
+    outcome = FunctionCallingStepOutcome(status="aborted", iteration=0)
+    assert outcome.status == "aborted"

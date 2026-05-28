@@ -465,7 +465,12 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 orchestration_strategy=orchestration_strategy,
                 llm_timeout_seconds=llm_timeout_seconds,
                 cancel_token=control.cancel_token,
+                control=control,
             )
+            if step_outcome.status == "aborted":
+                # CancellationRaised/RetractRaised was caught by step_executor.
+                # Loop back so the top-of-loop signal poll returns the right outcome.
+                continue
             if step_outcome.status == "continue":
                 if get_stream_sink() is not None:
                     await emit_stream_event(LLMStreamEvent(kind="text_flush"))

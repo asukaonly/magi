@@ -7,16 +7,23 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Protocol, cast
 
 from ....config.constants import DEFAULT_MAX_TOKENS
 from ....config.models import ThinkingDepth
 from ....llm.base import LLMAdapter
+from ....llm.cancellable_client import (
+    CancellableLLMClient,
+    CancellationRaised,
+    RetractRaised,
+)
 from ....llm.provider_bridge import LLMProviderBridge, ToolStreamResult
 from ....llm.streaming_events import get_stream_sink
 from ....runtime_trace import enrich_event_context_with_turn_trace
 from ....utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 from ..context_compactor import ContextCompactor
+from ...run_control import RunControl
 from .types import ToolCall
 
 logger = logging.getLogger(__name__)
@@ -87,6 +94,7 @@ class FunctionCallingLlmMixin:
         intent: str = "unknown",
         execution_agent_id: str = "chat_agent",
         iteration: int | None = None,
+        control: RunControl | None = None,
     ) -> Dict[str, Any]:
         """
         Call LLM with tools parameter
@@ -94,10 +102,28 @@ class FunctionCallingLlmMixin:
         Returns dict with either:
         - content: str (text response)
         - tool_calls: List[ToolCall] (tool calls to execute)
+
+        Cancel/retract semantics: if ``control`` is supplied, the method
+        pre-polls the signals before invoking the bridge. The bridge's
+        ``chat_with_tools[_stream]`` calls are NOT wrapped by
+        ``CancellableLLMClient`` yet, so mid-call cancellation is not
+        honored for tool calls — only the iteration boundary check in
+        ``FunctionCallingOrchestrator._execute_with_tools_impl`` catches
+        signals fired during a tool-call LLM invocation. This pre-poll is
+        the only opportunity to short-circuit before the request hits the
+        provider.
         """
         host = cast(_LlmHostProtocol, self)
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
+
+        # Pre-poll: if control is supplied AND already signaled, raise
+        # immediately rather than starting the LLM call.
+        if control is not None:
+            if control.retract_signal.is_requested():
+                raise RetractRaised(control.retract_signal.payload)
+            if await control.cancel_token.is_cancelled():
+                raise CancellationRaised(control.cancel_token.reason)
 
         llm = host._resolve_llm()
         model_name = llm.model_name
@@ -244,11 +270,29 @@ class FunctionCallingLlmMixin:
         intent: str = "unknown",
         execution_agent_id: str = "chat_agent",
         iteration: int | None = None,
+        control: RunControl | None = None,
     ) -> Dict[str, Any]:
-        """Call LLM without tools for final response"""
+        """Call LLM without tools for final response.
+
+        Cancel/retract semantics: when ``control`` is supplied, this method
+        routes through :class:`CancellableLLMClient` which polls cancel/retract
+        signals before every yielded chunk (streaming) or once before dispatch
+        (non-streaming). This is the full mid-call abort path, in contrast to
+        :meth:`_call_llm_with_tools` which only pre-polls (the tool-variant
+        bridge calls are not yet wrapped by ``CancellableLLMClient``).
+        """
         host = cast(_LlmHostProtocol, self)
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
+
+        # Pre-poll matches _call_llm_with_tools behavior: catch signals that
+        # were already set before we even build the request kwargs.
+        if control is not None:
+            if control.retract_signal.is_requested():
+                raise RetractRaised(control.retract_signal.payload)
+            if await control.cancel_token.is_cancelled():
+                raise CancellationRaised(control.cancel_token.reason)
+
         llm = host._resolve_llm()
         model_name = llm.model_name
 
@@ -264,35 +308,70 @@ class FunctionCallingLlmMixin:
             streamed = False
             if get_stream_sink() is not None and not json_mode:
                 chunks: List[str] = []
-                async for event in host.provider_bridge.chat_response_stream(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    max_tokens=DEFAULT_MAX_TOKENS,
-                    temperature=0.7,
-                    thinking_depth=thinking_depth,
-                    timeout_seconds=self._resolve_llm_timeout(
-                        timeout_seconds, thinking_depth=thinking_depth
-                    ),
-                    event_context=_build_llm_event_context(
-                        request_id=request_id,
-                        request_kind="function_calling:final_response",
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        execution_agent_id=execution_agent_id,
-                        intent=intent,
-                        iteration=iteration,
-                    ),
-                ):
-                    if event.kind == "text_delta" and event.text:
-                        chunks.append(event.text)
+                if control is not None:
+                    # Route via CancellableLLMClient for mid-chunk polling.
+                    cancellable = CancellableLLMClient(bridge=host.provider_bridge)
+                    async for event in cancellable.stream(
+                        system_prompt=system_prompt,
+                        messages=messages,
+                        control=control,
+                        max_tokens=DEFAULT_MAX_TOKENS,
+                        temperature=0.7,
+                        thinking_depth=thinking_depth,
+                        timeout_seconds=self._resolve_llm_timeout(
+                            timeout_seconds, thinking_depth=thinking_depth
+                        ),
+                        event_context=_build_llm_event_context(
+                            request_id=request_id,
+                            request_kind="function_calling:final_response",
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            execution_agent_id=execution_agent_id,
+                            intent=intent,
+                            iteration=iteration,
+                        ),
+                    ):
+                        if event.kind == "text_delta" and event.text:
+                            chunks.append(event.text)
+                else:
+                    async for event in host.provider_bridge.chat_response_stream(
+                        system_prompt=system_prompt,
+                        messages=messages,
+                        max_tokens=DEFAULT_MAX_TOKENS,
+                        temperature=0.7,
+                        thinking_depth=thinking_depth,
+                        timeout_seconds=self._resolve_llm_timeout(
+                            timeout_seconds, thinking_depth=thinking_depth
+                        ),
+                        event_context=_build_llm_event_context(
+                            request_id=request_id,
+                            request_kind="function_calling:final_response",
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            execution_agent_id=execution_agent_id,
+                            intent=intent,
+                            iteration=iteration,
+                        ),
+                    ):
+                        if event.kind == "text_delta" and event.text:
+                            chunks.append(event.text)
                 content = "".join(chunks)
                 streamed = True
                 provider_response = None
             else:
-                provider_response = await host._invoke_with_rate_limit_backoff(
-                    lambda: host.provider_bridge.chat_response(
+                if control is not None:
+                    # Route via CancellableLLMClient.call for a pre-dispatch
+                    # signal check. Note: _invoke_with_rate_limit_backoff is
+                    # intentionally bypassed here — the cancellable client
+                    # does not support the lambda-factory retry pattern, and
+                    # rate-limit retries within an already-signaled run create
+                    # more confusion than value. If rate-limit handling on the
+                    # no-tools path becomes important, revisit Task 8+.
+                    cancellable = CancellableLLMClient(bridge=host.provider_bridge)
+                    llm_result = await cancellable.call(
                         system_prompt=system_prompt,
                         messages=messages,
+                        control=control,
                         max_tokens=DEFAULT_MAX_TOKENS,
                         temperature=0.7,
                         thinking_depth=thinking_depth,
@@ -309,9 +388,37 @@ class FunctionCallingLlmMixin:
                             intent=intent,
                             iteration=iteration,
                         ),
-                    ),
-                    label="chat_response",
-                )
+                    )
+                    provider_response = SimpleNamespace(
+                        content=llm_result.content,
+                        metadata=llm_result.metadata,
+                        assistant_message=None,
+                        tool_calls=None,
+                    )
+                else:
+                    provider_response = await host._invoke_with_rate_limit_backoff(
+                        lambda: host.provider_bridge.chat_response(
+                            system_prompt=system_prompt,
+                            messages=messages,
+                            max_tokens=DEFAULT_MAX_TOKENS,
+                            temperature=0.7,
+                            thinking_depth=thinking_depth,
+                            json_mode=json_mode,
+                            timeout_seconds=self._resolve_llm_timeout(
+                                timeout_seconds, thinking_depth=thinking_depth
+                            ),
+                            event_context=_build_llm_event_context(
+                                request_id=request_id,
+                                request_kind="function_calling:final_response",
+                                session_id=session_id,
+                                turn_id=turn_id,
+                                execution_agent_id=execution_agent_id,
+                                intent=intent,
+                                iteration=iteration,
+                            ),
+                        ),
+                        label="chat_response",
+                    )
                 content = provider_response.content
 
             duration_ms = int((time.time() - start_time) * 1000)
