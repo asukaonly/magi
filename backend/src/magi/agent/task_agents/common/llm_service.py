@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from types import SimpleNamespace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 from ....agent.run_control import RunControl
@@ -10,11 +11,7 @@ from ....config import get_config
 from ....config.models import LLMScenario, ThinkingDepth
 from ....config.constants import DEFAULT_MAX_TOKENS
 from ....core.logger import get_logger
-from ....llm.cancellable_client import (
-    CancellableLLMClient,
-    CancellationRaised,
-    RetractRaised,
-)
+from ....llm.cancellable_client import CancellableLLMClient
 from ....llm.provider_bridge import LLMProviderBridge, _coerce_thinking_depth
 from ....llm.streaming_events import LLMStreamEvent
 from ....utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
@@ -87,7 +84,6 @@ class TaskAgentLLMService:
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         try:
             if control is not None and self._cancellable_client is not None:
-                from types import SimpleNamespace
                 result = await self._cancellable_client.call(
                     system_prompt=system_prompt,
                     messages=messages,
@@ -166,7 +162,10 @@ class TaskAgentLLMService:
         event_context: dict[str, Any] | None = None,
         control: RunControl | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
-        """Streaming variant of call(). See call() docstring."""
+        """Streaming variant of call(). Yields LLMStreamEvent instances; the
+final response text is logged on completion. Accepts an optional
+``control: RunControl`` to enable cancel/retract via
+:class:`~magi.llm.cancellable_client.CancellableLLMClient`."""
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
         llm = self._resolve_llm()
