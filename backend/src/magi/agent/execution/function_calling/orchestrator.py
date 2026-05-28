@@ -517,6 +517,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 llm_timeout_seconds=llm_timeout_seconds,
                 final_response_json_mode=final_response_json_mode,
                 cancel_token=control.cancel_token,
+                control=control,
             ),
         )
 

@@ -8,6 +8,7 @@ from typing import Any, Protocol, cast
 
 from ....config.models import ThinkingDepth
 from ...cancel import CancelToken, null_cancel_token
+from ...run_control import RunControl
 from .step_executor import FunctionCallingStepState
 from .types import ExecutionOutcome, ToolCall, ToolCallResult
 
@@ -54,6 +55,7 @@ class _FallbackHostProtocol(Protocol):
         intent: str = "unknown",
         execution_agent_id: str = "chat_agent",
         iteration: int | None = None,
+        control: RunControl | None = None,
     ) -> dict[str, Any]: ...
 
     def _format_exception_trace_text(self, exc: Exception, *, max_length: int = 600) -> str: ...
@@ -122,6 +124,7 @@ class FunctionCallingFallbackMixin:
         llm_timeout_seconds: float | None,
         final_response_json_mode: bool,
         cancel_token: CancelToken | None = None,
+        control: RunControl | None = None,
     ) -> ExecutionOutcome:
         """Run the legacy no-tools fallback once the bounded step loop stops."""
         host = cast(_FallbackHostProtocol, self)
@@ -159,6 +162,7 @@ class FunctionCallingFallbackMixin:
                 intent=intent,
                 execution_agent_id=execution_agent_id,
                 iteration=state.iteration,
+                control=control,
             )
         except Exception as exc:
             error_text = host._format_exception_trace_text(exc)
@@ -252,6 +256,7 @@ class FunctionCallingFallbackMixin:
                     intent=intent,
                     execution_agent_id=execution_agent_id,
                     iteration=state.iteration,
+                    control=control,
                 )
             except Exception as exc:
                 error_text = host._format_exception_trace_text(exc)
@@ -304,6 +309,7 @@ class FunctionCallingFallbackMixin:
                     intent=intent,
                     execution_agent_id=execution_agent_id,
                     iteration=state.iteration,
+                    control=control,
                 )
             except Exception as exc:
                 return ExecutionOutcome(

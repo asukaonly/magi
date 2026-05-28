@@ -11,7 +11,7 @@ from ....config import get_config
 from ....config.models import LLMScenario, ThinkingDepth
 from ....config.constants import DEFAULT_MAX_TOKENS
 from ....core.logger import get_logger
-from ....llm.cancellable_client import CancellableLLMClient
+from ....llm.cancellable_client import CancellableLLMClient, CancellationRaised, RetractRaised
 from ....llm.provider_bridge import LLMProviderBridge, _coerce_thinking_depth
 from ....llm.streaming_events import LLMStreamEvent
 from ....utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
@@ -137,6 +137,10 @@ class TaskAgentLLMService:
                 if hasattr(callback_result, "__await__"):
                     await callback_result
             return response
+        except (CancellationRaised, RetractRaised):
+            # Signal-driven aborts are not LLM failures; re-raise without
+            # logging as failure to keep metrics clean.
+            raise
         except Exception as exc:
             duration_ms = int((time.time() - start_time) * 1000)
             log_llm_response(
@@ -221,6 +225,10 @@ final response text is logged on completion. Accepts an optional
                 success=True,
                 duration_ms=duration_ms,
             )
+        except (CancellationRaised, RetractRaised):
+            # Signal-driven aborts are not LLM failures; re-raise without
+            # logging as failure to keep metrics clean.
+            raise
         except Exception as exc:
             duration_ms = int((time.time() - start_time) * 1000)
             log_llm_response(

@@ -283,3 +283,24 @@ def test_step_outcome_supports_aborted_status() -> None:
 
     outcome = FunctionCallingStepOutcome(status="aborted", iteration=0)
     assert outcome.status == "aborted"
+
+
+def test_function_calling_handler_passes_context_control_to_orchestrator() -> None:
+    """Regression guard: FunctionCallingHandler must forward
+    request.context.control as control= to execute_with_tools so signals
+    fired via SessionRunCoordinator.request_retract reach the FC loop.
+
+    Pre-fix: handler passed only legacy kwargs (cancel_token, detach_signal,
+    steer_inbox), causing _resolve_control() to discard the registered bundle.
+    """
+    import inspect
+    from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
+
+    src = inspect.getsource(FunctionCallingHandler.execute)
+    assert "control=" in src and (
+        "request.context.control" in src or "context.control" in src
+    ), (
+        "FunctionCallingHandler.execute must pass `control=request.context.control` "
+        "to execute_with_tools; otherwise SessionRunCoordinator.request_retract "
+        "cannot reach the FC orchestrator"
+    )
