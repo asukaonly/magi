@@ -33,6 +33,15 @@ _download_progress: dict[str, dict[str, Any]] = {}
 # ── Response models ─────────────────────────────────────────────────────
 
 
+class LocalRerankerVariantInfo(BaseModel):
+    """One quantization/architecture variant of a cross-encoder model."""
+
+    name: str
+    file: str
+    size_mb: int
+    downloaded: bool
+
+
 class LocalRerankerModelInfo(BaseModel):
     """Preset cross-encoder model info with download status."""
 
@@ -47,6 +56,8 @@ class LocalRerankerModelInfo(BaseModel):
     downloaded: bool
     download_in_progress: bool
     download_progress_pct: Optional[float] = None
+    variants: list[LocalRerankerVariantInfo] = []
+    default_variant: Optional[str] = None
 
 
 class DownloadStatusResponse(BaseModel):
@@ -72,6 +83,23 @@ async def list_models() -> list[LocalRerankerModelInfo]:
         downloaded = _is_model_downloaded(model_dir)
         in_progress = model.id in _download_tasks and not _download_tasks[model.id].done()
         progress = _download_progress.get(model.id, {})
+        variants_info: list[LocalRerankerVariantInfo] = []
+        for vname, vmeta in model.variants.items():
+            candidate = model_dir / vmeta.file
+            bare = model_dir / Path(vmeta.file).name
+            variants_info.append(
+                LocalRerankerVariantInfo(
+                    name=vname,
+                    file=vmeta.file,
+                    size_mb=vmeta.size_mb,
+                    downloaded=candidate.exists() or bare.exists(),
+                )
+            )
+
+        default_variant_name = (
+            resolve_variant_name(model) if model.variants else None
+        )
+
         result.append(
             LocalRerankerModelInfo(
                 id=model.id,
@@ -85,6 +113,8 @@ async def list_models() -> list[LocalRerankerModelInfo]:
                 downloaded=downloaded,
                 download_in_progress=in_progress,
                 download_progress_pct=progress.get("pct"),
+                variants=variants_info,
+                default_variant=default_variant_name,
             )
         )
     return result

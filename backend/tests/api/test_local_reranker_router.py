@@ -194,3 +194,59 @@ async def test_endpoint_triggers_download_when_chosen_variant_missing(tmp_path: 
 
     assert captured["called"] is True
     assert response.status == "downloading"
+
+
+@pytest.mark.asyncio
+async def test_list_models_includes_variants(tmp_path: Path) -> None:
+    """Each model in the list returns its variants[] and resolved default_variant."""
+    meta = _meta_with_variants()
+    registry = CrossEncoderModelRegistry(models=[meta])
+
+    model_dir = tmp_path / meta.id
+    (model_dir / "onnx").mkdir(parents=True)
+    (model_dir / "onnx" / "model_qint8_arm64.onnx").touch()  # only arm64_int8 on disk
+    (model_dir / "tokenizer.json").touch()
+
+    paths = MagicMock()
+    paths.managed_reranker_model_dir = MagicMock(return_value=str(model_dir))
+
+    with patch.object(router_mod, "get_cross_encoder_registry", return_value=registry), \
+         patch.object(router_mod, "RuntimePaths", return_value=paths), \
+         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"):
+        result = await router_mod.list_models()
+
+    assert len(result) == 1
+    info = result[0]
+    by_name = {v.name: v for v in info.variants}
+    assert set(by_name.keys()) == {"fp32", "arm64_int8", "x86_avx2_int8"}
+    assert by_name["arm64_int8"].downloaded is True
+    assert by_name["fp32"].downloaded is False
+    assert by_name["x86_avx2_int8"].downloaded is False
+    assert by_name["fp32"].file == "onnx/model.onnx"
+    assert by_name["arm64_int8"].size_mb == 23
+    # darwin_arm64 default per meta._meta_with_variants
+    assert info.default_variant == "arm64_int8"
+
+
+@pytest.mark.asyncio
+async def test_list_models_legacy_returns_empty_variants(tmp_path: Path) -> None:
+    """A model without a variants block returns variants=[] and default_variant=None."""
+    legacy_meta = CrossEncoderModelMeta(
+        id="legacy",
+        label="Legacy",
+        repo="o/l",
+        onnx_repo="o/l",
+    )
+    registry = CrossEncoderModelRegistry(models=[legacy_meta])
+
+    paths = MagicMock()
+    paths.managed_reranker_model_dir = MagicMock(return_value=str(tmp_path / "legacy"))
+
+    with patch.object(router_mod, "get_cross_encoder_registry", return_value=registry), \
+         patch.object(router_mod, "RuntimePaths", return_value=paths):
+        result = await router_mod.list_models()
+
+    assert len(result) == 1
+    info = result[0]
+    assert info.variants == []
+    assert info.default_variant is None
