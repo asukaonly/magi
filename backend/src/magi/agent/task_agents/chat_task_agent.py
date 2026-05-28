@@ -495,28 +495,12 @@ class ChatTaskAgent(
         core_model_supports_vision = bool(
             getattr(getattr(core_selection, "capabilities", None), "vision", False)
         )
-        # Build a fresh RunControl bundle for this turn. The bundle provides
-        # cooperative cancel/retract/suspend/detach/steer signals that
-        # DirectLLMHandler (and future handlers) can poll. Task 10 will wire
-        # cancel_token to the real SessionRunCancelToken; for now a null token
-        # is used so the existing session-level cancel/steer plumbing is
-        # unaffected.
-        from ...agent.run_control import (
-            DetachSignal,
-            RetractSignal,
-            RunControl,
-            SteerInbox,
-            SuspendSignal,
-        )
-        from ...agent.cancel import null_cancel_token
-
-        turn_control = RunControl(
-            cancel_token=null_cancel_token(),
-            detach_signal=DetachSignal(),
-            retract_signal=RetractSignal(),
-            suspend_signal=SuspendSignal(),
-            steer_inbox=SteerInbox(),
-        )
+        # Build a fresh RunControl bundle for this turn. Task 10 will
+        # replace the null cancel token with a real SessionRunCancelToken
+        # bound to this session/run/revision so external "cancel button"
+        # actions can fire it.
+        from ...agent.run_control import null_run_control  # local import: only used here pending Task 10
+        turn_control = null_run_control()
         return ChatRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
             recent_facts=list(

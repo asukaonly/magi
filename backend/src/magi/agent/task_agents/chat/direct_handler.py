@@ -115,7 +115,7 @@ class DirectLLMHandler(BaseExecutionHandler):
         partial :class:`ExecutionResult` with an ``abort_reason`` entry in
         ``llm_trace``.
         """
-        control = getattr(request.context, "control", None)
+        control = request.context.control
         llm_trace: dict[str, object] = {}
         streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
 
@@ -151,7 +151,7 @@ class DirectLLMHandler(BaseExecutionHandler):
             except CancellationRaised as exc:
                 abort_reason = f"cancel:{exc.reason or 'unknown'}"
             except RetractRaised as exc:
-                abort_reason = f"retract:{exc.payload.reason if exc.payload else 'unknown'}"
+                abort_reason = f"retract:{(exc.payload.reason if exc.payload else None) or 'unknown'}"
             response_text = "".join(chunks)
             llm_trace_out = dict(llm_trace)
             if abort_reason:
@@ -191,7 +191,7 @@ class DirectLLMHandler(BaseExecutionHandler):
                 response_text="",
                 root_user_message=request.context.latest_user_message,
                 turn_id=turn_id,
-                llm_trace={**llm_trace, "abort_reason": f"retract:{exc.payload.reason if exc.payload else 'unknown'}"},
+                llm_trace={**llm_trace, "abort_reason": f"retract:{(exc.payload.reason if exc.payload else None) or 'unknown'}"},
                 ux_plan=_serialize_ux_plan(request.intent),
             )
         return ExecutionResult(

@@ -142,3 +142,32 @@ async def test_direct_llm_handler_aborts_non_streaming_call_on_pre_cancel(
     abort_reason = (result.llm_trace or {}).get("abort_reason", "")
     assert "cancel" in abort_reason
     assert call_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_aborts_non_streaming_call_on_pre_retract(
+    monkeypatch,
+) -> None:
+    """Non-streaming direct LLM with pre-retract control returns empty
+    response with abort_reason='retract:user_retract' and bridge call not made."""
+    from agent.fixtures_direct_handler import (
+        build_direct_handler_with_simple_call,
+        build_minimal_direct_request,
+    )
+
+    handler, prompt_service, call_count = build_direct_handler_with_simple_call(
+        response_text="should-not-be-returned",
+    )
+    control = null_run_control()
+    retract = RetractSignal()
+    retract.request(RetractRequested(reason="user_retract"))
+    control.retract_signal = retract
+
+    request = build_minimal_direct_request(control=control, streaming_enabled=False)
+    result = await handler.execute(request)
+
+    assert result.response_text == ""
+    abort_reason = (result.llm_trace or {}).get("abort_reason", "")
+    assert "retract" in abort_reason
+    assert "user_retract" in abort_reason
+    assert call_count() == 0
