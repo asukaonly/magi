@@ -599,6 +599,10 @@ class TaskOrchestrator(
             state.updated_at = time.time()
             await self._orchestration_store.save_orchestration(state)
 
+            # TODO(phase-B): thread RunControl into aggregate callback so
+            # a retract during aggregation observes the signal directly
+            # rather than completing the aggregate before the user-visible
+            # cancellation propagates.
             final_response = await self._aggregate_orchestration(state)
             state.final_response = final_response
             state.status = "completed" if final_response.strip() else "failed"

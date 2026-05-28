@@ -149,6 +149,9 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             correlation_id=request.correlation_id,
             orchestration_strategy=orchestration_plan.to_strategy_dict(),
             persona_id=getattr(request.context, "active_persona_id", None),
+            # cancel_token= kept for call-site backward compat; ignored by
+            # start_orchestration when control= is supplied (the handler has
+            # already overlaid the cancel token onto control.cancel_token above).
             cancel_token=cancel_token,
             control=control,
         )
