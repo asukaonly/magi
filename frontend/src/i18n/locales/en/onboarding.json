@@ -5,16 +5,9 @@
     "badge": "Takes about 2 minutes"
   },
   "steps": {
-    "language": "Language",
-    "mode": "Mode",
-    "scenario": "Use Case",
-    "llm": "LLM",
-    "llmProviders": "Provider Configuration",
-    "llmModels": "Model Selection",
-    "personality": "Personality",
-    "memory": "Memory",
-    "sensors": "Sensors",
-    "tools": "Tools",
+    "welcome": "Welcome",
+    "llmSetup": "LLM Setup",
+    "personaPreview": "Choose Magi",
     "complete": "Done"
   },
   "actions": {
@@ -56,10 +49,7 @@
   "welcome": {
     "title": "Welcome to Magi",
     "subtitle": "Your Intelligent Life Companion",
-    "quickMode": "Quick Mode",
-    "quickModeDesc": "Pick a scenario and get started in minutes",
-    "expertMode": "Expert Mode",
-    "expertModeDesc": "Full control over every setting"
+    "getStarted": "Get Started"
   },
   "scenario": {
     "title": "Choose Your Use Case",
@@ -164,6 +154,22 @@
     "quickMode": "Mode: Quick",
     "expertMode": "Mode: Expert",
     "selectMode": "Select a mode first"
+  },
+  "llmSetup": {
+    "embeddingFallbackHint": "This provider has no embedding model. Configure one separately below.",
+    "showAdvanced": "Configure each scenario separately",
+    "hideAdvanced": "Hide advanced model settings"
+  },
+  "personaPreview": {
+    "chip1": "Tell me an embarrassing story",
+    "chip2": "I'm feeling a bit low",
+    "chip3": "What do you think about AI?",
+    "chip4": "Just say hi for a moment",
+    "emptyHint": "Pick a chip below or type a message to hear this persona.",
+    "composerPlaceholder": "Say something to try this persona…",
+    "send": "Send",
+    "confirm": "Choose",
+    "capReached": "You've tried this persona enough — choose it or try another."
   },
   "llm": {
     "modelSelection": {

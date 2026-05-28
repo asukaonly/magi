@@ -5,16 +5,9 @@
     "badge": "约 2 分钟完成配置"
   },
   "steps": {
-    "language": "语言",
-    "mode": "模式选择",
-    "scenario": "场景选择",
-    "llm": "LLM",
-    "llmProviders": "供应商配置",
-    "llmModels": "模型选择",
-    "personality": "人格",
-    "memory": "记忆",
-    "sensors": "传感器",
-    "tools": "工具",
+    "welcome": "欢迎",
+    "llmSetup": "配置模型",
+    "personaPreview": "选择 Magi",
     "complete": "完成"
   },
   "actions": {
@@ -57,10 +50,7 @@
   "welcome": {
     "title": "欢迎来到 Magi",
     "subtitle": "你的智能生活伙伴",
-    "quickMode": "快速模式",
-    "quickModeDesc": "选好场景，几分钟上手",
-    "expertMode": "专家模式",
-    "expertModeDesc": "完全掌控每一项配置"
+    "getStarted": "开始"
   },
   "scenario": {
     "title": "选择使用场景",
@@ -165,6 +155,22 @@
     "quickMode": "当前：快速模式",
     "expertMode": "当前：专家模式",
     "selectMode": "先选择模式"
+  },
+  "llmSetup": {
+    "embeddingFallbackHint": "这个提供商没有 embedding 模型，请在下方单独配置一个。",
+    "showAdvanced": "分别配置每个 scenario 的模型",
+    "hideAdvanced": "隐藏高级模型设置"
+  },
+  "personaPreview": {
+    "chip1": "讲个让人尴尬的事",
+    "chip2": "我心情有点低落",
+    "chip3": "你怎么看 AI",
+    "chip4": "随便聊聊",
+    "emptyHint": "选下面的话题或自己输入一句话试试这个人格。",
+    "composerPlaceholder": "说点什么试试这个人格…",
+    "send": "发送",
+    "confirm": "选这个",
+    "capReached": "这个人格试得差不多了 — 选它或换一个。"
   },
   "llm": {
     "modelSelection": {

@@ -290,6 +290,18 @@ const createApiClient = (): AxiosInstance => {
 
 export const apiClient = createApiClient();
 
+/**
+ * Returns the API base URL prefix that {@link apiClient} uses. Useful for
+ * code paths (e.g. streaming) that bypass axios and call `fetch` directly.
+ */
+export function resolveApiBaseUrl(): string {
+  const configured = apiClient.defaults.baseURL;
+  if (configured) {
+    return configured.replace(/\/+$/, '');
+  }
+  return getRuntimeConfig().apiBaseUrl.replace(/\/+$/, '');
+}
+
 export const configureApiClient = (options: {
   baseUrl?: string;
   sessionToken?: string;
