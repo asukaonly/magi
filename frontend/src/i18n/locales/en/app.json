@@ -2260,7 +2260,9 @@
         "skills": "Skills Magi has learned"
       },
       "advancedToggle": "Debug details",
-      "noResults": "No matching memories found. Try a more specific term."
+      "noResults": "No matching memories found. Try a more specific term.",
+      "emptyStateIntro": "Magi doesn't know much about you yet. Add a memory or let me see your activity:",
+      "manualEntry": "Add a memory manually"
     },
     "governance": {
       "title": "Manage",

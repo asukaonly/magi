@@ -197,6 +197,14 @@ class MemoryConfigModel(BaseModel):
 
 class UserPreferencesModel(BaseModel):
     onboarding_completed: bool = Field(default=False)
+    first_conversation_completed: bool = Field(
+        default=False,
+        description=(
+            "True once the user has sent at least one message in their very "
+            "first conversation after onboarding. Used to hide the quick-start "
+            "chips component once it has served its purpose."
+        ),
+    )
     user_mode: Optional[str] = Field(default=None)
     scenario: Optional[str] = Field(default=None)
     language: str = Field(default="zh")
