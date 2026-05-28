@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ...agent.orchestration import get_orchestration_store
+from ...agent.run_control import null_run_control
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...agent.trace import now_wall_ms
 from ...chat import ChatProjector, ChatReadService, ChatStore
@@ -495,17 +496,19 @@ class ChatTaskAgent(
         core_model_supports_vision = bool(
             getattr(getattr(core_selection, "capabilities", None), "vision", False)
         )
-        # Build a fresh RunControl bundle for this turn. Task 10 will
-        # replace the null cancel token with a real SessionRunCancelToken
-        # bound to this session/run/revision so external "cancel button"
-        # actions can fire it.
-        from ...agent.run_control import null_run_control  # local import: only used here pending Task 10
+        # Build a fresh RunControl bundle for this turn. The signals
+        # (retract, suspend, detach, steer) are functional — fired via
+        # the SessionRunCoordinator's request_* methods or future
+        # detach/steer entry points. The cancel_token slot is still a
+        # no-op; a future task will swap in SessionRunCancelToken so
+        # the legacy session-level cancel pathway also flows through
+        # the bundle.
         turn_control = null_run_control()
         # Register the bundle with the session store so external callers
         # (SessionRunCoordinator.request_retract, future cancel/detach
         # entry points) can fire its signals at the live in-flight run.
         if run_decision.active_run is not None:
-            self._session_run_coordinator._run_store.register_active_run_control(
+            self._session_run_coordinator.register_active_run_control(
                 session_id, run_decision.active_run.run_id, turn_control
             )
         return ChatRuntimeContext(
@@ -672,7 +675,7 @@ class ChatTaskAgent(
             # The bundle's signals (asyncio.Event etc.) are not persistable
             # so keeping a dead reference accomplishes nothing.
             if context.session_id and context.session_run_id:
-                self._session_run_coordinator._run_store.unregister_active_run_control(
+                self._session_run_coordinator.unregister_active_run_control(
                     context.session_id, context.session_run_id
                 )
 

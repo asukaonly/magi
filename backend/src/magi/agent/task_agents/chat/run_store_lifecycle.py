@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from threading import RLock
 from time import time
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
 
 from ....core.logger import get_logger
