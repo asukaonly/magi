@@ -292,7 +292,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       values.preferences.onboarding_completed = true;
       // Ensure the latest LLM state and selected persona slug land in the payload.
       values.llm = llmValue;
-      (values as any).personalitySeedSlug = seedSlug || undefined;
       await configApi.completeOnboarding(values);
 
       const locale = (values.preferences?.language || 'en').startsWith('zh') ? 'zh' : 'en';

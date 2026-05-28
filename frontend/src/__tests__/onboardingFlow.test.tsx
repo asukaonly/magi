@@ -272,7 +272,6 @@ describe('OnboardingFlow (linear 4-step)', () => {
     await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
     const payload = completeOnboarding.mock.calls[0][0] as any;
     expect(payload.preferences.onboarding_completed).toBe(true);
-    expect(payload.personalitySeedSlug).toBe('ember');
     expect(payload.llm.providers.openai.enabled).toBe(true);
     expect(payload.llm.providers.openai.api_key).toBe('sk-test');
 
