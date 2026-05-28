@@ -170,3 +170,45 @@ async def test_execute_loop_with_legacy_kwargs_still_works(monkeypatch) -> None:
     )
 
     assert outcome.status == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_control_supplied_silently_ignores_legacy_kwargs(monkeypatch) -> None:
+    """When both `control` and legacy kwargs are passed, the bundle is
+    canonical and the legacy kwargs are silently dropped (by design —
+    callers should pick one API or the other, not mix). Pin this
+    behavior so a future "fix" that raises on the mixed-call path
+    doesn't accidentally break external callers who pass extras."""
+    from magi.agent.cancel import EventCancelToken
+
+    orchestrator = _build_orchestrator()
+    _patch_trace_and_event_helpers(monkeypatch, orchestrator)
+
+    async def _never_called(**_kwargs):
+        raise AssertionError("LLM should not be called when retract is already set")
+
+    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _never_called)
+
+    # Bundle has retract set — that's what should win.
+    control = null_run_control()
+    retract = RetractSignal()
+    retract.request(RetractRequested(reason="user_retract"))
+    control.retract_signal = retract
+
+    # Legacy kwarg has a cancelled token — this should be IGNORED.
+    legacy_cancel = EventCancelToken()
+    legacy_cancel.cancel(reason="legacy_should_be_ignored")
+
+    outcome = await orchestrator.execute_with_tools(
+        turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
+        system_prompt="sys",
+        selected_tools=[],
+        user_id="u",
+        conversation_history=[],
+        max_iterations=5,
+        cancel_token=legacy_cancel,
+        control=control,
+    )
+
+    # Status should be "retracted" (from the bundle), NOT "cancelled" (from the legacy kwarg).
+    assert outcome.status == "retracted"

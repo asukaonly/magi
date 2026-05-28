@@ -610,7 +610,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         reason = payload.reason if payload is not None else "user_retract"
         note = payload.note if payload is not None else ""
         snapshot = OrchestratorSnapshot(
-            messages=list(state.messages),
+            messages=[dict(msg) for msg in state.messages],
             iterations=state.iteration,
             reason=reason,
             note=note,
@@ -641,7 +641,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         reason = payload.reason if payload is not None else "window_closed"
         note = payload.note if payload is not None else ""
         snapshot = OrchestratorSnapshot(
-            messages=list(state.messages),
+            messages=[dict(msg) for msg in state.messages],
             iterations=state.iteration,
             reason=reason,
             note=note,
@@ -658,11 +658,11 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             snapshot=snapshot,
         )
 
+    @staticmethod
     def _resolve_control(
-        self,
         *,
         control: RunControl | None,
-        cancel_token: "CancelToken | None",
+        cancel_token: CancelToken | None,
         steer_inbox: SteerInbox | None,
         detach_signal: DetachSignal | None,
     ) -> RunControl:
