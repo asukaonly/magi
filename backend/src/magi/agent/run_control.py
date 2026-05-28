@@ -242,9 +242,11 @@ class RetractSignal:
 
     @property
     def payload(self) -> RetractRequested | None:
+        """Return the recorded request payload, or ``None``."""
         return self._payload
 
     async def wait(self) -> RetractRequested:
+        """Block until retract is requested and return the payload."""
         await self._event.wait()
         assert self._payload is not None
         return self._payload

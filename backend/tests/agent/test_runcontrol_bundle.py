@@ -52,3 +52,12 @@ async def test_retract_signal_wait_unblocks_after_request() -> None:
     asyncio.create_task(requester())
     payload = await signal.wait()
     assert payload.reason == "user_retract"
+
+
+@pytest.mark.asyncio
+async def test_retract_signal_request_with_no_arg_uses_default_payload() -> None:
+    signal = RetractSignal()
+    signal.request()  # no payload supplied
+    assert signal.is_requested()
+    assert signal.payload == RetractRequested()
+    assert signal.payload.reason == "user_retract"
