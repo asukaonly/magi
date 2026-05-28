@@ -168,6 +168,12 @@
     "showAdvanced": "分别配置每个 scenario 的模型",
     "hideAdvanced": "隐藏高级模型设置"
   },
+  "personaPreview": {
+    "chip1": "讲个让人尴尬的事",
+    "chip2": "我心情有点低落",
+    "chip3": "你怎么看 AI",
+    "chip4": "随便聊聊"
+  },
   "llm": {
     "modelSelection": {
       "title": "模型选择",
