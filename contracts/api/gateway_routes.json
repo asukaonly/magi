@@ -453,6 +453,11 @@
       "owner_file": "backend/src/magi/api/routers/background_tasks.py"
     },
     {
+      "prefix": "/api/chat/preview",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/chat_preview_routes.py"
+    },
+    {
       "prefix": "/api/code_agent",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/api/routers/code_agent.py"

@@ -226,6 +226,9 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/availability": {"GET"},
         "/availability/refresh": {"POST"},
     },
+    "chat_preview": {
+        "/chat/preview": {"POST"},
+    },
 
 }
 
@@ -271,6 +274,7 @@ def register_api_routes(app: FastAPI) -> None:
         code_agent_router,
         profile_router,
         availability_router,
+        chat_preview_router,
     )
 
     app.include_router(
@@ -385,4 +389,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(availability_router, _PUBLIC_ROUTE_METHODS["availability"]),
         prefix="/api",
         tags=["Availability"],
+    )
+    app.include_router(
+        _build_public_router(chat_preview_router, _PUBLIC_ROUTE_METHODS["chat_preview"]),
+        prefix="/api",
+        tags=["Chat Preview"],
     )

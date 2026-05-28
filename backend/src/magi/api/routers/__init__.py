@@ -26,6 +26,7 @@ from .schedules import schedules_router
 from .code_agent import code_agent_router
 from .profile import profile_router
 from .availability_routes import availability_router
+from .chat_preview_routes import chat_preview_router
 
 __all__ = [
     "tools_router",
@@ -51,4 +52,5 @@ __all__ = [
     "code_agent_router",
     "profile_router",
     "availability_router",
+    "chat_preview_router",
 ]
