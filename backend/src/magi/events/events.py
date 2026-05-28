@@ -188,3 +188,7 @@ class EventTypes:
     SENSOR_EVENT_EMITTED = "SensorEventEmitted"
     SPAN_COMPLETED = "SpanCompleted"
     SKILL_INVOCATION_COMPLETED = "SkillInvocationCompleted"
+
+    # Run lifecycle events (Phase A run control)
+    RUN_RETRACTED = "run.retracted"
+    RUN_SUSPENDED = "run.suspended"

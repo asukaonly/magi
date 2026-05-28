@@ -131,3 +131,40 @@ class SkillInvocationCompleted:
     allowed_tools: Optional[tuple[str, ...]]
     error: Optional[ToolError]
     context: TaskContext
+
+
+@dataclass(frozen=True)
+class RunRetracted:
+    """Payload for the run.retracted lifecycle event.
+
+    Fired when a chat run terminates with retracted status — either
+    DirectLLMHandler caught CancellableLLMClient's RetractRaised,
+    FunctionCallingOrchestrator returned ExecutionOutcome(status='retracted'),
+    or TaskOrchestrator's plan/aggregate callback observed retract.
+
+    Distinct from RUN_CANCELLED in that the caller is expected to
+    treat any partial output as rolled back (DeliveryRouter in Phase G
+    will perform the actual rollback).
+    """
+
+    session_id: str
+    run_id: str
+    reason: str
+    requested_by: str = "user"
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class RunSuspended:
+    """Payload for the run.suspended lifecycle event.
+
+    Fired when a run is paused in place expecting a future resume.
+    Distinct from RUN_DETACHED in that the run is not handed off to a
+    background executor — it stays addressable in the same session.
+    """
+
+    session_id: str
+    run_id: str
+    reason: str
+    requested_by: str = "user"
+    note: str = ""
