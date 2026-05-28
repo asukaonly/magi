@@ -10,7 +10,7 @@ from typing import Any
 
 from ...config.local_embedding_registry import get_local_embedding_registry
 from ...utils.runtime import RuntimePaths, get_runtime_paths
-from .local_embedding_resolution import _find_onnx_model
+from .local_embedding_resolution import resolve_variant_path
 
 LOCAL_EMBEDDING_RUNTIME_FAMILY = "onnxruntime"
 _SIDE_CAR_FILES = (
@@ -50,7 +50,11 @@ def compute_local_embedding_model_fingerprint(
     if model_dir is None or not model_dir.exists():
         return None
 
-    model_path = _find_onnx_model(model_dir)
+    meta = get_local_embedding_registry().get(
+        str(getattr(local_config, "managed_model_id", "") or "").strip()
+    )
+    variant_override = getattr(local_config, "variant", None)
+    model_path = resolve_variant_path(model_dir, meta, override=variant_override)
     if model_path is None:
         return None
 
