@@ -3,6 +3,13 @@
  */
 import { apiClient } from '../client';
 
+export interface LocalEmbeddingVariantInfo {
+  name: string;
+  file: string;
+  size_mb: number;
+  downloaded: boolean;
+}
+
 export interface LocalEmbeddingModelInfo {
   id: string;
   label: string;
@@ -15,6 +22,8 @@ export interface LocalEmbeddingModelInfo {
   recommended: boolean;
   description: string;
   downloaded: boolean;
+  variants: LocalEmbeddingVariantInfo[];
+  default_variant: string | null;
 }
 
 export interface DiscoveredModel {
@@ -37,8 +46,13 @@ export const localEmbeddingApi = {
     return res.data;
   },
 
-  async downloadModel(modelId: string): Promise<void> {
-    await apiClient.post(`/local-embedding/models/${encodeURIComponent(modelId)}/download`);
+  async downloadModel(modelId: string, variant?: string | null): Promise<void> {
+    const params = variant ? { variant } : undefined;
+    await apiClient.post(
+      `/local-embedding/models/${encodeURIComponent(modelId)}/download`,
+      undefined,
+      params ? { params } : undefined,
+    );
   },
 
   async getDownloadStatus(modelId: string): Promise<DownloadStatusResponse> {

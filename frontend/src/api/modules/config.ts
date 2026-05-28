@@ -454,6 +454,7 @@ export interface LocalEmbeddingConfig {
   managed_model_id: string | null;
   model_dir_path: string | null;
   idle_timeout_seconds: number;
+  variant: string | null;
 }
 
 export interface EmbeddingConfig {
@@ -682,6 +683,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
         managed_model_id: null,
         model_dir_path: null,
         idle_timeout_seconds: 1800,
+        variant: null,
       },
     },
     reranker: {
