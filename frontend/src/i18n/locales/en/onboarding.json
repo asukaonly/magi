@@ -5,16 +5,9 @@
     "badge": "Takes about 2 minutes"
   },
   "steps": {
-    "language": "Language",
-    "mode": "Mode",
-    "scenario": "Use Case",
-    "llm": "LLM",
-    "llmProviders": "Provider Configuration",
-    "llmModels": "Model Selection",
-    "personality": "Personality",
-    "memory": "Memory",
-    "sensors": "Sensors",
-    "tools": "Tools",
+    "welcome": "Welcome",
+    "llmSetup": "LLM Setup",
+    "personaPreview": "Choose Magi",
     "complete": "Done"
   },
   "actions": {

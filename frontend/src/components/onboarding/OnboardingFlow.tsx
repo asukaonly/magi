@@ -7,73 +7,30 @@ import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/api/client';
 import { STORAGE_KEYS } from '@/constants/app';
 import { configApi } from '../../api/modules/config';
-import type { SystemConfig, EmbeddingConfig, CrossEncoderConfig } from '../../api/modules/config';
-import { personasApi, selectDefaultSeedPreview } from '../../api/modules/personas';
+import type {
+  LLMConfig,
+  LLMProviderConfig,
+  LLMProviderRegistry,
+  SystemConfig,
+} from '../../api/modules/config';
+import { personasApi } from '../../api/modules/personas';
 import type { SeedPreview } from '../../api/modules/personas';
-import LLMForm from '../config-forms/LLMForm';
-import PersonalityForm from '../config-forms/PersonalityForm';
-import MemoryForm from '../config-forms/MemoryForm';
-import ToolsForm from '../config-forms/ToolsForm';
-import { validateToolsConfig, type ToolValidationIssue } from '../config-forms/tool-validation';
+import {
+  buildRegistryFromCatalog,
+  cloneLLMConfig,
+} from '../config-forms/llm-form-state';
 import GuidedConfigFrame from '../config-forms/GuidedConfigFrame';
 import WelcomeScreen from './WelcomeScreen';
-import ScenarioSelection from './ScenarioSelection';
-import type { ScenarioId } from './ScenarioSelection';
-import { SCENARIO_NEEDS_SENSORS } from './ScenarioSelection';
-import SensorSelection from './SensorSelection';
-import type { SensorInstallStatus } from './SensorSelection';
 import StepIndicator from './StepIndicator';
 import CompletionScreen from './CompletionScreen';
+import LLMSetupStep from './LLMSetupStep';
+import { PersonaPreviewChat } from './PersonaPreviewChat';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { validateLLMCustomProviderReadiness, type LLMValidationIssue } from '../config-forms/llm-form-state';
-
-type Mode = 'quick' | 'expert' | null;
-type Phase = 'welcome' | 'guided';
-
-const QUICK_MODE_PERSONALITY_SEEDS: Record<string, Record<'zh' | 'en', string>> = {
-  chat_assistant: {
-    zh: 'echo',
-    en: 'nova',
-  },
-  life_monitor: {
-    zh: 'sumen',
-    en: 'ember',
-  },
-  knowledge_partner: {
-    zh: 'sichen',
-    en: 'halberd',
-  },
-  default: {
-    zh: 'echo',
-    en: 'nova',
-  },
-};
 
 const STORAGE_KEY = STORAGE_KEYS.ONBOARDING_STATE;
-const BUILTIN_SCENARIOS = ['context_decider', 'core', 'embedding'] as const;
 const RUNTIME_READY_WAIT_INTERVAL_MS = 500;
 const RUNTIME_READY_WAIT_TIMEOUT_MS = 12_000;
 const toI18nLanguage = (language?: string): 'en' | 'zh-CN' => (language === 'en' ? 'en' : 'zh-CN');
-
-interface QuickScenarioPresetOptions {
-  retentionDays: number;
-  queryExpansionEnabled: boolean;
-  autoBackgroundEnabled: boolean;
-  weatherEnabled: boolean;
-  webSearchEnabled: boolean;
-  webFetchEnabled: boolean;
-  l2Enabled: boolean;
-  l3Enabled: boolean;
-  l4Enabled: boolean;
-}
-
-type DeepPartial<T> = {
-  [K in keyof T]?: T[K] extends Array<infer U>
-    ? Array<U>
-    : T[K] extends Record<string, any>
-      ? DeepPartial<T[K]>
-      : T[K];
-};
 
 interface RuntimeReadyResponse {
   success: boolean;
@@ -118,146 +75,6 @@ async function waitForRuntimeReadyAfterOnboarding() {
 }
 
 
-function selectQuickModeSeedSlug(
-  locale: 'zh' | 'en',
-  scenario: string | null | undefined,
-  previews: SeedPreview[]
-): string | undefined {
-  const scenarioKey = scenario && scenario in QUICK_MODE_PERSONALITY_SEEDS ? scenario : 'default';
-  const preferredSeedSlug = QUICK_MODE_PERSONALITY_SEEDS[scenarioKey]?.[locale];
-  if (preferredSeedSlug && previews.some((preview) => preview.seed_slug === preferredSeedSlug)) {
-    return preferredSeedSlug;
-  }
-  return selectDefaultSeedPreview(previews)?.seed_slug;
-}
-
-/** Scenario preset config overrides for quick mode.
- *
- * These shape conversation, memory, and tool defaults.
- * Sensor / timeline source config is handled by plugin installation
- * in the SensorSelection step.
- */
-const buildQuickScenarioPreset = ({
-  retentionDays,
-  queryExpansionEnabled,
-  autoBackgroundEnabled,
-  weatherEnabled,
-  webSearchEnabled,
-  webFetchEnabled,
-  l2Enabled,
-  l3Enabled,
-  l4Enabled,
-}: QuickScenarioPresetOptions): DeepPartial<SystemConfig> => ({
-  agent: {
-    background_tasks: {
-      auto_detect_long_task: autoBackgroundEnabled,
-    },
-  },
-  memory: {
-    db_path: '~/.magi/data/memories',
-    retention_days: retentionDays,
-    history_behavior: 'delete',
-    embedding: {
-      mode: 'off',
-      local: {
-        model_source: 'managed',
-        managed_model_id: null,
-        model_dir_path: null,
-        idle_timeout_seconds: 1800,
-      },
-    },
-    reranker: {
-      top_k: 8,
-      cross_encoder: {
-        enabled: false,
-        managed_model_id: null,
-      },
-    },
-    query_expansion: { enabled: queryExpansionEnabled },
-    l0: { enabled: true, checkpoint_interval_seconds: 30 },
-    l1: { enabled: true, vectors_enabled: true },
-    l2: {
-      enabled: l2Enabled,
-      vectors_enabled: l2Enabled,
-      batch_flush_interval_seconds: 60,
-      auto_extract_relations: l2Enabled,
-      conflict_arbitration_enabled: l2Enabled,
-      conflict_arbitration_min_confidence: 0.85,
-    },
-    l3: {
-      enabled: l3Enabled,
-      vectors_enabled: l3Enabled,
-      llm_summary_enabled: l3Enabled,
-      temporal_llm_timeout_seconds: 3.0,
-      temporal_llm_min_event_count: 2,
-      summary_interval_minutes: 60,
-    },
-    l4: {
-      enabled: l4Enabled,
-      vectors_enabled: l4Enabled,
-    },
-  },
-  preferences: {
-    allow_interjection: false,
-    allow_ask_in_background: false,
-  },
-  tools: {
-    builtIn: {
-      weather: { enabled: weatherEnabled, provider: 'qweather' },
-      webSearch: { enabled: webSearchEnabled, provider: 'duckduckgo' },
-      webFetch: { enabled: webFetchEnabled, usePlaywright: false },
-    },
-    skills: [],
-  },
-});
-
-const SCENARIO_PRESETS: Record<ScenarioId, DeepPartial<SystemConfig>> = {
-  chat_assistant: buildQuickScenarioPreset({
-    retentionDays: 60,
-    queryExpansionEnabled: false,
-    autoBackgroundEnabled: false,
-    weatherEnabled: false,
-    webSearchEnabled: true,
-    webFetchEnabled: true,
-    l2Enabled: false,
-    l3Enabled: false,
-    l4Enabled: false,
-  }),
-  life_monitor: buildQuickScenarioPreset({
-    retentionDays: 180,
-    queryExpansionEnabled: false,
-    autoBackgroundEnabled: false,
-    weatherEnabled: true,
-    webSearchEnabled: true,
-    webFetchEnabled: true,
-    l2Enabled: true,
-    l3Enabled: true,
-    l4Enabled: false,
-  }),
-  knowledge_partner: buildQuickScenarioPreset({
-    retentionDays: 365,
-    queryExpansionEnabled: true,
-    autoBackgroundEnabled: true,
-    weatherEnabled: false,
-    webSearchEnabled: true,
-    webFetchEnabled: true,
-    l2Enabled: true,
-    l3Enabled: true,
-    l4Enabled: true,
-  }),
-  default: buildQuickScenarioPreset({
-    retentionDays: 120,
-    queryExpansionEnabled: false,
-    autoBackgroundEnabled: false,
-    weatherEnabled: false,
-    webSearchEnabled: true,
-    webFetchEnabled: true,
-    l2Enabled: true,
-    l3Enabled: false,
-    l4Enabled: false,
-  }),
-};
-
 interface OnboardingFlowProps {
   initialConfig: SystemConfig;
 }
@@ -267,32 +84,26 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const shouldReduceMotion = useReducedMotion();
   const [form] = Form.useForm();
   const navigate = useNavigate();
-  const [phase, setPhase] = useState<Phase>('welcome');
-  const [mode, setMode] = useState<Mode>(initialConfig.preferences.user_mode);
-  const [scenario, setScenario] = useState<ScenarioId | null>(
-    (initialConfig.preferences.scenario as ScenarioId) || null
-  );
   const [current, setCurrent] = useState(0);
   const [saving, setSaving] = useState(false);
   const [finishingRuntime, setFinishingRuntime] = useState(false);
   const finishInFlightRef = useRef(false);
-  const [sensorInstallStatus, setSensorInstallStatus] = useState<SensorInstallStatus>({
-    canContinue: true,
-    isInstalling: false,
-  });
   const [renderLanguage, setRenderLanguage] = useState(i18n.resolvedLanguage || i18n.language);
-  const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig | undefined>(
-    () => initialConfig.memory?.embedding
+  const [llmValid, setLlmValid] = useState(false);
+  const [llmValue, setLlmValue] = useState<LLMConfig>(() =>
+    cloneLLMConfig(initialConfig.llm)
   );
-  const [crossEncoderConfig, setCrossEncoderConfig] = useState<CrossEncoderConfig | undefined>(
-    () => initialConfig.memory?.reranker?.cross_encoder
-  );
-  const [llmValidationIssues, setLlmValidationIssues] = useState<LLMValidationIssue[]>([]);
-  const [toolValidationIssues, setToolValidationIssues] = useState<ToolValidationIssue[]>(
-    () => validateToolsConfig(initialConfig)
-  );
+  const [seedSlug, setSeedSlug] = useState<string | null>(null);
+
+  // Registry + custom-provider defaults (loaded once on mount).
+  const [registry, setRegistry] = useState<LLMProviderRegistry | null>(null);
+  const [customProviderDefaults, setCustomProviderDefaults] =
+    useState<LLMProviderConfig | null>(null);
+
+  // Persona previews (loaded once on mount for the active locale).
+  const [seedPreviews, setSeedPreviews] = useState<SeedPreview[]>([]);
+
   const activeLanguage = i18n.resolvedLanguage || i18n.language;
-  const isQuickMode = mode === 'quick';
   const debugI18n = localStorage.getItem('magi_i18n_debug') === '1';
 
   useEffect(() => {
@@ -307,54 +118,67 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
   }, [i18n, initialConfig.preferences?.language]);
 
-  // Quick mode steps: Scenario → [Sensors] → Provider → Models → Complete
-  // Expert mode steps: Provider → Models → Personality → Memory → Sensors → Tools → Complete
-  const needsSensors = scenario ? SCENARIO_NEEDS_SENSORS[scenario] : false;
-  const steps = useMemo(() => {
-    if (mode === 'quick') {
-      const base = [t('steps.scenario')];
-      if (needsSensors) base.push(t('steps.sensors'));
-      base.push(t('steps.llmProviders'), t('steps.llmModels'), t('steps.complete'));
-      return base;
-    }
-    return [
-      t('steps.llmProviders'),
-      t('steps.llmModels'),
-      t('steps.personality'),
-      t('steps.memory'),
-      t('steps.sensors'),
-      t('steps.tools'),
+  // Linear 4-step sequence: Welcome → LLM Setup → Persona Preview → Complete
+  const steps = useMemo(
+    () => [
+      t('steps.welcome'),
+      t('steps.llmSetup'),
+      t('steps.personaPreview'),
       t('steps.complete'),
-    ];
-  }, [mode, needsSensors, t, activeLanguage]);
+    ],
+    [t, activeLanguage]
+  );
 
   const isLastStep = current === steps.length - 1;
-  const isSensorStep = (isQuickMode && needsSensors && current === 1) || (!isQuickMode && current === 4);
-  const sensorStepBlocksNext = isSensorStep && !sensorInstallStatus.canContinue;
-  const providerStepIndex = isQuickMode ? (needsSensors ? 2 : 1) : 0;
-  const modelStepIndex = isQuickMode ? providerStepIndex + 1 : 1;
-  const llmStepBlocksNext = (current === providerStepIndex || current === modelStepIndex) && llmValidationIssues.length > 0;
-  const isToolsStep = !isQuickMode && current === 5;
-  const toolStepBlocksNext = isToolsStep && toolValidationIssues.length > 0;
 
-  const formatLlmValidationIssue = (issue: LLMValidationIssue): string => {
-    const serviceLabel = t(`llm.providerConfiguration.serviceLabels.${issue.serviceName}`);
-    if (issue.code === 'customScenarioModelMissing' && issue.scenario && issue.model) {
-      return t('llm.validation.customScenarioModelMissing', {
-        provider: issue.providerName,
-        scenario: t(`llm.scenarios.${issue.scenario}.title`),
-        model: issue.model,
-        service: serviceLabel,
-      });
-    }
-    return t('llm.validation.customServiceModelRequired', {
-      provider: issue.providerName,
-      service: serviceLabel,
-    });
-  };
+  // Load the provider catalog + custom-provider template once on mount.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [catalog, template] = await Promise.all([
+          configApi.resolveLLMProviderCatalog({ providers: llmValue.providers || {} }),
+          configApi.getLLMCustomProviderTemplate(),
+        ]);
+        if (cancelled) return;
+        if (catalog && template) {
+          setRegistry(buildRegistryFromCatalog(catalog, template));
+          setCustomProviderDefaults(template.defaults ?? null);
+        }
+      } catch {
+        // Surface only at use time; LLMSetupStep falls back gracefully when
+        // registry is empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally only run on mount — re-resolving on every llmValue change
+    // is handled inside LLMSetupStep via its child components.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const formatToolValidationIssue = (issue: ToolValidationIssue): string =>
-    t(issue.messageKey, issue.values);
+  // Load persona seed previews for the current locale once on mount and when
+  // language changes. This keeps the avatar rail in sync with i18n.
+  useEffect(() => {
+    let cancelled = false;
+    const locale = (initialConfig.preferences?.language || 'en').startsWith('zh')
+      ? 'zh'
+      : 'en';
+    void (async () => {
+      try {
+        const resp = await personasApi.seedPreviews(locale);
+        if (cancelled) return;
+        const data = (resp as any)?.data ?? [];
+        setSeedPreviews(Array.isArray(data) ? data : []);
+      } catch {
+        // Persona preview is best-effort; chat preview server may be offline.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialConfig.preferences?.language]);
 
   // Restore saved progress
   useEffect(() => {
@@ -363,20 +187,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     try {
       const parsed = JSON.parse(cached) as {
         current?: number;
-        mode?: Mode;
-        phase?: Phase;
-        scenario?: ScenarioId | null;
         values?: SystemConfig;
+        seedSlug?: string | null;
       };
-      if (parsed.mode) {
-        setMode(parsed.mode);
-        setPhase('guided');
-      }
-      if (parsed.scenario) {
-        setScenario(parsed.scenario);
-      }
       if (typeof parsed.current === 'number') {
         setCurrent(parsed.current);
+      }
+      if (parsed.seedSlug) {
+        setSeedSlug(parsed.seedSlug);
       }
       if (parsed.values) {
         const savedLanguage = localStorage.getItem('magi_language');
@@ -388,7 +206,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           },
         };
         form.setFieldsValue(mergedValues);
-        setToolValidationIssues(validateToolsConfig(mergedValues));
+        if (parsed.values.llm) {
+          setLlmValue(cloneLLMConfig(parsed.values.llm));
+        }
       }
     } catch {
       // Ignore invalid cached state.
@@ -402,15 +222,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
   }, [form]);
 
-  const saveProgress = (values: SystemConfig) => {
+  const saveProgress = (values: SystemConfig, nextSeedSlug: string | null = seedSlug) => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
         current,
-        mode,
-        phase,
-        scenario,
         values,
+        seedSlug: nextSeedSlug,
       })
     );
   };
@@ -433,7 +251,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       }
     }
     saveProgress(allValues);
-    setToolValidationIssues(validateToolsConfig(allValues));
   };
 
   useEffect(() => {
@@ -457,6 +274,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     };
   }, [i18n]);
 
+  const handleLlmChange = (next: LLMConfig) => {
+    setLlmValue(next);
+    form.setFieldValue(['llm'], next);
+    saveProgress(form.getFieldsValue(true));
+  };
+
   const handleFinish = async () => {
     if (finishInFlightRef.current) {
       return;
@@ -465,57 +288,26 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     setSaving(true);
 
     try {
-      const values = form.getFieldsValue(true);
+      const values = form.getFieldsValue(true) as SystemConfig;
       values.preferences.onboarding_completed = true;
+      // Ensure the latest LLM state and selected persona slug land in the payload.
+      values.llm = llmValue;
+      (values as any).personalitySeedSlug = seedSlug || undefined;
       await configApi.completeOnboarding(values);
 
-      // Seed builtin personas into the registry and set the selected one active
       const locale = (values.preferences?.language || 'en').startsWith('zh') ? 'zh' : 'en';
       try {
-        const quickSeedPreviewsPromise =
-          mode === 'quick' ? personasApi.seedPreviews(locale) : Promise.resolve(null);
         await personasApi.seed(locale);
-        const [listResult, quickSeedPreviews] = await Promise.all([
-          personasApi.list(),
-          quickSeedPreviewsPromise,
-        ]);
+        const listResult = await personasApi.list();
         const personas = listResult.data || [];
-        const quickDefaultSeedSlug = quickSeedPreviews
-          ? selectQuickModeSeedSlug(locale, values.preferences?.scenario, quickSeedPreviews.data || [])
-          : undefined;
-
-        // Determine which persona to activate:
-        // - Quick mode: use the scenario-mapped seed preview when available
-        // - Expert mode with preset: use the seed_slug saved by PersonalityForm
-        // - Expert mode with custom: create a new persona entry
-        const seedSlug: string | undefined =
-          mode === 'quick' ? quickDefaultSeedSlug : values.personalitySeedSlug;
-
         let activatedPersonaId: string | undefined;
-
         if (seedSlug) {
           const match = personas.find((p) => p.slug === seedSlug);
           if (match) activatedPersonaId = match.persona_id;
         }
-
-        if (!activatedPersonaId && !seedSlug && values.personality) {
-          // Expert mode with a custom/generated persona — create a new registry entry
-          try {
-            const configJson = JSON.stringify(values.personality);
-            const created = await personasApi.create({ config_json: configJson, locale });
-            if (created.data?.persona_id) activatedPersonaId = created.data.persona_id;
-          } catch {
-            // Fall through to name-based matching
-          }
+        if (!activatedPersonaId && personas.length > 0) {
+          activatedPersonaId = personas[0].persona_id;
         }
-
-        // Fallback: match by name, then first persona
-        if (!activatedPersonaId) {
-          const selectedName = values.personality?.name;
-          const fallback = personas.find((p) => p.name === selectedName) || personas[0];
-          if (fallback) activatedPersonaId = fallback.persona_id;
-        }
-
         if (activatedPersonaId) {
           await personasApi.setActive(activatedPersonaId);
         }
@@ -550,91 +342,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
   };
 
-  const hasEnabledProvider = (): boolean => {
-    const llmConfig = form.getFieldValue(['llm']);
-    return Object.values(llmConfig?.providers || {}).some((provider: any) => provider?.enabled);
-  };
-
-  const validateProviderFields = (): { valid: boolean; message?: string } => {
-    const llmConfig = form.getFieldValue(['llm']);
-    const providers = llmConfig?.providers || {};
-    const modelReadinessIssue = validateLLMCustomProviderReadiness(llmConfig)?.[0];
-    if (modelReadinessIssue) {
-      return { valid: false, message: formatLlmValidationIssue(modelReadinessIssue) };
-    }
-
-    for (const [providerId, provider] of Object.entries(providers) as [string, any][]) {
-      if (!provider?.enabled) continue;
-      const chatService = provider.services?.chat;
-
-      if (provider.provider_type === 'custom') {
-        if (!provider.display_name?.trim()) {
-          return { valid: false, message: t('llm.validation.customProviderNameRequired') };
-        }
-        if (chatService?.enabled && !(chatService.api_key?.trim() || provider.api_key?.trim())) {
-          return { valid: false, message: t('llm.validation.customProviderApiKeyRequired') };
-        }
-        if (chatService?.enabled && !(chatService.base_url?.trim() || provider.base_url?.trim())) {
-          return { valid: false, message: t('llm.validation.customProviderBaseUrlRequired') };
-        }
-      }
-
-      for (const service of Object.values(provider.services || {}) as any[]) {
-        if (service?.enabled && !(service.api_key?.trim() || provider.api_key?.trim())) {
-          return {
-            valid: false,
-            message: t('llm.validation.apiKeyRequired', { provider: provider.display_name || providerId }),
-          };
-        }
-      }
-    }
-
-    return { valid: true };
-  };
-
-  const hasValidSelections = (): boolean => {
-    const llmConfig = form.getFieldValue(['llm']);
-    return BUILTIN_SCENARIOS.every((scenario) => {
-      // Skip embedding validation when embedding mode is off or local
-      if (scenario === 'embedding' && embeddingConfig?.mode !== 'remote') return true;
-      const selection = llmConfig?.selections?.[scenario];
-      return Boolean(
-        selection?.provider_id &&
-        selection?.model &&
-        llmConfig?.providers?.[selection.provider_id]?.enabled
-      );
-    });
-  };
-
-  /** Apply scenario presets to the form values. */
-  const applyScenarioPreset = (scenarioId: ScenarioId) => {
-    const preset = SCENARIO_PRESETS[scenarioId];
-    if (!preset || Object.keys(preset).length === 0) return;
-    // Deep merge preset into current form values
-    const currentValues = form.getFieldsValue(true);
-    const merged = deepMerge(currentValues, preset);
-    form.setFieldsValue(merged);
-  };
-
-  /**
-   * Handle welcome screen continue action.
-   *
-   * Plan 2 removes the quick/expert mode selection from Welcome. Until Task 9
-   * collapses the full step array, we default to 'quick' so the rest of the
-   * existing flow remains traversable. This default is temporary and is
-   * removed when the full flow is collapsed.
-   */
-  const handleWelcomeContinue = () => {
-    const effectiveMode: 'quick' | 'expert' = mode ?? 'quick';
-    if (mode !== effectiveMode) {
-      setMode(effectiveMode);
-      form.setFieldValue(['preferences', 'user_mode'], effectiveMode);
-    }
-    setPhase('guided');
-    setCurrent(0);
-    saveProgress(form.getFieldsValue(true));
-  };
-
   /** Handle language change from welcome screen. */
   const handleWelcomeLanguageChange = (lang: 'zh' | 'en') => {
     form.setFieldValue(['preferences', 'language'], lang);
@@ -644,187 +351,78 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     void i18n.changeLanguage(mapped);
   };
 
-  /** Get the provider config step index for the current mode. */
-  const getProviderStepIndex = (): number => (isQuickMode ? (needsSensors ? 2 : 1) : 0);
-
-  /** Get the model selection step index for the current mode. */
-  const getModelStepIndex = (): number => (isQuickMode ? getProviderStepIndex() + 1 : 1);
-
   const handleNext = async () => {
-    if (sensorStepBlocksNext) {
-      toast.warning(
-        sensorInstallStatus.isInstalling
-          ? t('sensorSelection.installingBlockNext')
-          : t('sensorSelection.installBeforeNextHint')
-      );
+    if (current === 1 && !llmValid) {
+      toast.warning(t('llm.completeSelections'));
       return;
     }
 
-    if (toolStepBlocksNext) {
-      toast.warning(formatToolValidationIssue(toolValidationIssues[0]));
+    if (isLastStep) {
+      await handleFinish();
       return;
     }
 
-    try {
-      setSaving(true);
-      await form.validateFields();
-
-      // Quick mode: step 0 = scenario, then sensors (if needed), then providers, then models, then complete
-      if (isQuickMode && current === 0) {
-        if (!scenario) {
-          toast.warning(t('scenario.description'));
-          return;
-        }
-        applyScenarioPreset(scenario);
-        form.setFieldValue(['preferences', 'scenario'], scenario);
-        saveProgress(form.getFieldsValue(true));
-        setCurrent(1);
-        return;
-      }
-
-      const providerStep = getProviderStepIndex();
-      if (current === providerStep) {
-        if (!hasEnabledProvider()) {
-          toast.warning(t('llm.providerConfiguration.enableProviderFirst'));
-          return;
-        }
-        const validation = validateProviderFields();
-        if (!validation.valid) {
-          toast.warning(validation.message || t('messages.validationFailed'));
-          return;
-        }
-      }
-
-      if (current === getModelStepIndex()) {
-        const modelReadinessIssue = validateLLMCustomProviderReadiness(form.getFieldValue(['llm']))?.[0];
-        if (modelReadinessIssue) {
-          toast.warning(formatLlmValidationIssue(modelReadinessIssue));
-          return;
-        }
-        if (!hasValidSelections()) {
-          toast.warning(t('llm.completeSelections'));
-          return;
-        }
-      }
-
-      if (isLastStep) {
-        await handleFinish();
-      } else {
-        setCurrent((prev) => prev + 1);
-      }
-    } catch (error: any) {
-      if (error?.errorFields?.length) {
-        // Inline field errors are already displayed by SimpleForm.
-      } else {
-        toast.error(error?.message || t('messages.saveFailed'));
-      }
-    } finally {
-      setSaving(false);
-    }
+    setCurrent((prev) => Math.min(steps.length - 1, prev + 1));
   };
 
   const handlePrev = () => {
-    if (current === 0) {
-      // Go back to welcome screen
-      setPhase('welcome');
-      return;
-    }
     setCurrent((prev) => Math.max(0, prev - 1));
   };
 
+  // Step 2 (persona preview) advances itself via onConfirm; the global Next
+  // button is hidden on that step to avoid a redundant control. Step 3 shows
+  // the completion screen and uses CompletionScreen's own Enter App CTA, so
+  // the footer is hidden there too.
+  const hideFooter = current === 2 || isLastStep;
+
   const renderStepContent = () => {
-    if (!mode) return null;
-
-    const language = form.getFieldValue(['preferences', 'language']) || 'zh';
-    const renderLLMModelStep = (quickModeForStep: boolean) => (
-      <LLMForm
-        quickMode={quickModeForStep}
-        view="models"
-        onValidationChange={setLlmValidationIssues}
-        embeddingConfig={embeddingConfig}
-        onEmbeddingConfigChange={(updater) => {
-          setEmbeddingConfig((prev) => {
-            const base = prev ?? (form.getFieldValue(['memory', 'embedding']) as EmbeddingConfig);
-            const draft = { ...base, local: { ...base.local } };
-            updater(draft);
-            form.setFieldValue(['memory', 'embedding'], draft);
-            saveProgress(form.getFieldsValue(true));
-            return draft;
-          });
-        }}
-        crossEncoderConfig={crossEncoderConfig}
-        onCrossEncoderConfigChange={(updater) => {
-          setCrossEncoderConfig((prev) => {
-            const base = prev ?? { enabled: false, managed_model_id: null, variant: null };
-            const draft = { ...base };
-            updater(draft);
-            form.setFieldValue(['memory', 'reranker', 'cross_encoder'], draft);
-            saveProgress(form.getFieldsValue(true));
-            return draft;
-          });
-        }}
-      />
-    );
-
-    if (isQuickMode) {
-      const providerIdx = needsSensors ? 2 : 1;
-      const modelIdx = providerIdx + 1;
-      const completeIdx = modelIdx + 1;
-
-      if (current === 0) {
+    if (current === 1) {
+      if (!registry) {
         return (
-          <ScenarioSelection
-            value={scenario}
-            onChange={(s) => {
-              setScenario(s);
-              form.setFieldValue(['preferences', 'scenario'], s);
-              saveProgress(form.getFieldsValue(true));
-            }}
-          />
+          <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+            {t('llm.loading')}
+          </div>
         );
       }
-      if (needsSensors && current === 1) {
-        return <SensorSelection scenario={scenario!} onInstallStatusChange={setSensorInstallStatus} />;
-      }
-      if (current === providerIdx) {
-        return <LLMForm quickMode view="providers" onValidationChange={setLlmValidationIssues} />;
-      }
-      if (current === modelIdx) return renderLLMModelStep(true);
-      if (current === completeIdx) {
-        return (
-          <CompletionScreen
-            onFinish={handleFinish}
-            loading={saving || finishingRuntime}
-            loadingLabel={finishingRuntime ? t('actions.startingRuntime') : t('actions.saving')}
-          />
-        );
-      }
-    } else {
-      // Expert: 0=Providers, 1=Models, 2=Personality, 3=Memory, 4=Sensors, 5=Tools, 6=Complete
-      if (current === 0) {
-        return <LLMForm quickMode={false} view="providers" onValidationChange={setLlmValidationIssues} />;
-      }
-      if (current === 1) return renderLLMModelStep(false);
-      if (current === 2) return <PersonalityForm quickMode={false} language={language} />;
-      if (current === 3) return <MemoryForm />;
-      if (current === 4) return <SensorSelection onInstallStatusChange={setSensorInstallStatus} />;
-      if (current === 5) return <ToolsForm validationIssues={toolValidationIssues} />;
-      if (current === 6) {
-        return (
-          <CompletionScreen
-            onFinish={handleFinish}
-            loading={saving || finishingRuntime}
-            loadingLabel={finishingRuntime ? t('actions.startingRuntime') : t('actions.saving')}
-          />
-        );
-      }
+      return (
+        <LLMSetupStep
+          registry={registry}
+          value={llmValue}
+          onChange={handleLlmChange}
+          onValid={setLlmValid}
+          customProviderDefaults={customProviderDefaults}
+        />
+      );
+    }
+
+    if (current === 2) {
+      return (
+        <PersonaPreviewChat
+          previews={seedPreviews}
+          onConfirm={(slug) => {
+            setSeedSlug(slug);
+            saveProgress(form.getFieldsValue(true), slug);
+            setCurrent(3);
+          }}
+        />
+      );
+    }
+
+    if (current === 3) {
+      return (
+        <CompletionScreen
+          onFinish={handleFinish}
+          loading={saving || finishingRuntime}
+          loadingLabel={finishingRuntime ? t('actions.startingRuntime') : t('actions.saving')}
+        />
+      );
     }
 
     return null;
   };
 
-  // Welcome phase: full-screen welcome
-  if (phase === 'welcome') {
+  // Step 0: full-screen welcome
+  if (current === 0) {
     const currentLang = (form.getFieldValue(['preferences', 'language']) as 'zh' | 'en') ||
       (initialConfig.preferences?.language as 'zh' | 'en') || 'zh';
 
@@ -838,7 +436,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         <WelcomeScreen
           language={currentLang}
           onLanguageChange={handleWelcomeLanguageChange}
-          onContinue={handleWelcomeContinue}
+          onContinue={() => {
+            setCurrent(1);
+            saveProgress(form.getFieldsValue(true));
+          }}
         />
       </Form>
     );
@@ -853,14 +454,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           layoutClassName="h-full"
           sidebarClassName="lg:w-44"
           sidebar={<StepIndicator steps={steps} current={current} />}
-          footer={isLastStep ? null : (
+          footer={hideFooter ? null : (
             <div className="flex items-center justify-between gap-3">
               <Button variant="outline" onClick={handlePrev}>
                 {t('actions.previous')}
               </Button>
               <Button
                 onClick={handleNext}
-                disabled={saving || sensorStepBlocksNext || llmStepBlocksNext || toolStepBlocksNext}
+                disabled={saving || (current === 1 && !llmValid)}
               >
                 {saving
                   ? (finishingRuntime ? t('actions.startingRuntime') : t('actions.saving'))
@@ -878,7 +479,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
             <AnimatePresence mode="wait">
               <motion.div
                 className="flex min-h-0 flex-1 flex-col"
-                key={`${renderLanguage}-${mode ?? 'none'}-${current}`}
+                key={`${renderLanguage}-${current}`}
                 initial={shouldReduceMotion ? false : { opacity: 0, x: 24 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={shouldReduceMotion ? undefined : { opacity: 0, x: -24 }}
@@ -893,27 +494,5 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     </div>
   );
 };
-
-/** Deep merge helper for applying scenario presets. */
-function deepMerge<T extends Record<string, any>>(base: T, patch: DeepPartial<T>): T {
-  const result = { ...base } as Record<string, any>;
-  for (const key of Object.keys(patch)) {
-    const patchVal = (patch as any)[key];
-    const baseVal = result[key];
-    if (
-      patchVal != null &&
-      typeof patchVal === 'object' &&
-      !Array.isArray(patchVal) &&
-      baseVal != null &&
-      typeof baseVal === 'object' &&
-      !Array.isArray(baseVal)
-    ) {
-      result[key] = deepMerge(baseVal, patchVal);
-    } else {
-      result[key] = patchVal;
-    }
-  }
-  return result as T;
-}
 
 export default OnboardingFlow;

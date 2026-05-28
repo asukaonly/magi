@@ -5,16 +5,9 @@
     "badge": "约 2 分钟完成配置"
   },
   "steps": {
-    "language": "语言",
-    "mode": "模式选择",
-    "scenario": "场景选择",
-    "llm": "LLM",
-    "llmProviders": "供应商配置",
-    "llmModels": "模型选择",
-    "personality": "人格",
-    "memory": "记忆",
-    "sensors": "传感器",
-    "tools": "工具",
+    "welcome": "欢迎",
+    "llmSetup": "配置模型",
+    "personaPreview": "选择 Magi",
     "complete": "完成"
   },
   "actions": {
