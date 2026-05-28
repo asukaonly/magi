@@ -13,8 +13,10 @@ from typing import Any
 import pytest
 
 from magi.memory.hybrid_retrieval.grounding_filter import (
+    CONTENT_CAP_CHARS,
     GroundingFilter,
     SKIP_THRESHOLD,
+    _build_prompt_payload,
     _parse_keep_response,
 )
 from magi.memory.hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
@@ -224,3 +226,89 @@ async def test_disabled_via_flag_even_with_bridge() -> None:
     out = await f.apply(payload, _make_request())
     assert len(out.l1_events) == 20
     assert "grounding_filter" not in out.trace
+
+
+# ---------- regression: content must reach the filter LLM in full ----------
+
+
+def test_prompt_payload_includes_full_content_not_short_snippet() -> None:
+    """Regression: earlier design truncated content to 80 chars and
+    dropped real matches whose key passage lived past that point
+    (e.g. the "猫熬我" passage was around char 200 of a real OCR
+    record). Now we feed the filter LLM the full content (capped only
+    by CONTENT_CAP_CHARS as a defensive net against 100KB+ rows)."""
+    long_ocr = (
+        "屏幕快照时间线 屏幕截图 "
+        + ("EXPLORER OPEN EDITORS MAGI cache models plugins " * 5)  # UI chrome filler
+        + " 黎月风 上次猫熬我，我就请假熬了它三天 摇醒 摇不醒就飞起来"
+    )
+    event = {
+        "event_id": "ev_long",
+        "source": "screenshot_timeline",
+        "content": long_ocr,
+        "timestamp": 1779944800,
+    }
+    prompt_body = _build_prompt_payload("猫叫醒人的图", [event])
+    # The relevant Chinese phrase MUST appear in the payload — that's
+    # the signal the filter LLM needs to keep this candidate.
+    assert "猫熬我" in prompt_body
+    assert "摇醒" in prompt_body
+    # Content field used (not 'snippet')
+    assert '"content":' in prompt_body
+
+
+def test_prompt_payload_caps_pathological_content_with_marker() -> None:
+    """Defensive cap: a single 100KB OCR row shouldn't single-handedly
+    blow the prompt budget. Confirmed by 'truncated' marker and that
+    payload size stays bounded."""
+    huge = "A" * (CONTENT_CAP_CHARS + 500)
+    event = {
+        "event_id": "ev_huge",
+        "source": "screenshot_timeline",
+        "content": huge,
+        "timestamp": 1779944800,
+    }
+    prompt_body = _build_prompt_payload("anything", [event])
+    # Original is bigger than cap; payload contains the truncation marker.
+    assert "[truncated]" in prompt_body
+    # Even with JSON-encoded escaping, the payload comfortably stays
+    # within a small multiple of the cap.
+    assert len(prompt_body) < CONTENT_CAP_CHARS * 2
+
+
+@pytest.mark.asyncio
+async def test_filter_can_match_signal_buried_past_first_80_chars() -> None:
+    """The exact failure mode that motivated dropping the 80-char cap:
+    relevant keyword lives in the middle of the OCR, not the head."""
+    # Fill the first ~200 chars with chrome (sidebar menu, file
+    # tabs) then drop the real content at the end.
+    events = _make_events(SKIP_THRESHOLD)  # base set
+    events[2] = {
+        "event_id": "ev_buried",
+        "source": "screenshot_timeline",
+        "content": (
+            "Chat\nNew session\nRoutines\nCustomize\nCowork\nCode\n"
+            "Recents Fix memory tool recall Redesign task sidebar "
+            "Review and evaluate Personality Review skills General coding "
+            "Fix status bar layout 长长长长 chrome 占位文字一堆 ..."
+            "\n\n黎月风 上次猫熬我，请假熬了它三天 摇醒 摇不醒就飞起来"
+        ),
+        "timestamp": 1779944803,
+    }
+    payload = RetrievalPayload(l1_events=events)
+
+    # Mock bridge that 'reads' the prompt and only keeps the one with 猫.
+    class _SmartBridge:
+        async def chat(self, **kwargs: Any) -> str:
+            user_msg = kwargs["messages"][-1]["content"]
+            # Decide via substring match — what a real LLM would do.
+            if "猫熬我" in user_msg:
+                return '{"keep": [3], "why": "candidate 3 mentions the cat passage"}'
+            return '{"keep": [], "why": "no match"}'
+
+    f = GroundingFilter(llm_bridge=_SmartBridge(), timeout_seconds=1.0)
+    out = await f.apply(payload, _make_request("猫叫醒人的图"))
+    # The buried-signal candidate must survive; with old 80-char
+    # snippet the "猫" passage was past the cap and got dropped.
+    assert len(out.l1_events) == 1
+    assert out.l1_events[0]["event_id"] == "ev_buried"

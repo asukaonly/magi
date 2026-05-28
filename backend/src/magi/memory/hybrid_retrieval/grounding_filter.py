@@ -26,7 +26,16 @@ Design contract:
 
   - The model call uses ``IntentDecider``-style cheap LLM (qwen-flash
     or similar) injected by the caller. The grounding pass is short
-    (sub-3s), takes minimal tokens (compact candidate summaries).
+    (sub-3s).
+
+  - **The filter sees the same content the answer LLM will see.**
+    Per-candidate content is NOT truncated for prompt-size reasons —
+    only by a defensive 4KB cap against pathological inputs. The
+    earlier "snippet=content[:80]" design caused silent recall
+    failures: OCR records whose key passage started past char 80
+    looked irrelevant to the filter and got dropped, so the answer
+    LLM never saw them. Token cost is a worthwhile trade for
+    eliminating that whole class of bug.
 """
 from __future__ import annotations
 
@@ -50,9 +59,19 @@ SKIP_THRESHOLD = 10
 # never had a real chance of being scored by the answer LLM anyway.
 SKIP_THRESHOLD_MAX = 60
 
-# Per-candidate content snippet length fed into the prompt. Tight —
-# we want intent matching, not full-text grounding.
-CONTENT_SNIPPET_CHARS = 80
+# Per-candidate content cap. The grounding LLM MUST see the same
+# textual content as the answer LLM downstream — otherwise it can
+# silently drop a candidate whose key signal lives past the cap, and
+# the user gets "I couldn't find anything" for a record that was
+# actually retrieved. An earlier version of this filter capped at 80
+# chars which caused exactly that failure mode on real OCR content
+# (the "猫熬我" passage starts ~200 chars into the screenshot text).
+#
+# The cap here is a safety net against pathological inputs only
+# (e.g. a single L1 row with 100KB of OCR text would explode the
+# prompt). Set well above the 95th percentile of real fact_events.content
+# lengths so it's effectively "give the LLM everything" in normal use.
+CONTENT_CAP_CHARS = 4000
 
 
 _SYSTEM_PROMPT = """\
@@ -214,24 +233,31 @@ class GroundingFilter:
 def _build_prompt_payload(query: str, events: list[dict[str, Any]]) -> str:
     """Construct the user-message JSON we feed to the filter LLM.
 
-    Each event reduces to ``{idx, source, when, snippet}`` — just
-    enough for an intent-match decision. We intentionally do NOT pass
-    the whole content / metadata blob; tokens add up fast and the LLM
-    here is a filter, not an answerer.
+    Each event carries its full ``content`` field (capped only by
+    CONTENT_CAP_CHARS as a defensive net against pathological 100KB+
+    rows). The filter LLM MUST see the same textual content the
+    answer LLM downstream will see — anything less risks the filter
+    dropping a candidate whose key signal lives past the cap, leaving
+    the answer LLM with no candidate that could have matched.
     """
     candidates: list[dict[str, Any]] = []
     for i, event in enumerate(events, start=1):
-        snippet = str(event.get("content") or "")
-        if len(snippet) > CONTENT_SNIPPET_CHARS:
-            snippet = snippet[:CONTENT_SNIPPET_CHARS].rstrip() + "…"
-        snippet = snippet.replace("\n", " ")
+        content = str(event.get("content") or "")
+        if len(content) > CONTENT_CAP_CHARS:
+            # Pathological-input guard. In normal use real OCR /
+            # chat events are well under this cap.
+            content = content[:CONTENT_CAP_CHARS].rstrip() + "…[truncated]"
+        # Newlines preserved — the model can read a chunk of OCR as
+        # naturally as it would in the answer-LLM prompt. We don't
+        # collapse to a single line because OCR layout cues (line
+        # breaks) genuinely help relevance judgement.
         when_ts = event.get("timestamp") or event.get("occurred_at")
         candidates.append(
             {
                 "idx": i,
                 "source": str(event.get("source") or "unknown"),
                 "when": _format_when(when_ts),
-                "snippet": snippet,
+                "content": content,
             }
         )
     body = {"query": query, "candidates": candidates}
