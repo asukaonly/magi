@@ -27,7 +27,7 @@ from ..agent.run_control import (
     RetractRequested,
     RunControl,
 )
-from .provider_bridge import LLMProviderBridge
+from .provider_bridge import LLMProviderBridge, _coerce_thinking_depth
 from .streaming_events import LLMStreamEvent
 
 
@@ -53,7 +53,7 @@ class CancellationRaised(Exception):
     ``NodeResult(status='cancelled')``."""
 
     def __init__(self, reason: str | None) -> None:
-        super().__init__(f"LLM call cancelled: {reason}")
+        super().__init__(f"LLM call cancelled: {reason or '(no reason)'}")
         self.reason = reason
 
 
@@ -144,16 +144,18 @@ class CancellableLLMClient:
         """
         await self._raise_if_signaled(control)
 
+        # chat_response_stream does NOT accept disable_thinking; resolve to
+        # thinking_depth here so we never forward an unknown kwarg.
+        resolved_thinking = _coerce_thinking_depth(thinking_depth, disable_thinking)
+
         kwargs: dict[str, Any] = {
             "system_prompt": system_prompt,
             "messages": messages,
             "temperature": temperature,
-            "disable_thinking": disable_thinking,
+            "thinking_depth": resolved_thinking,
         }
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
-        if thinking_depth is not None:
-            kwargs["thinking_depth"] = thinking_depth
         if json_mode:
             kwargs["json_mode"] = json_mode
         if timeout_seconds is not None:
@@ -174,6 +176,9 @@ class CancellableLLMClient:
         and detach are not raised here; those are graceful boundaries observed
         at node iteration boundaries by the calling orchestrator loop.
         """
+        # Instance method (not @staticmethod) so subclasses can override
+        # to add tracing/telemetry around the signal checks without
+        # changing the call sites in call()/stream().
         if control.retract_signal.is_requested():
             raise RetractRaised(control.retract_signal.payload)
         if await control.cancel_token.is_cancelled():
