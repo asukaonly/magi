@@ -171,6 +171,14 @@
     "confirm": "Choose",
     "capReached": "You've tried this persona enough — choose it or try another."
   },
+  "firstConversation": {
+    "chips": {
+      "refineText": "Polish this text for me",
+      "plan": "Help me plan something",
+      "codeThisWeek": "What code did I change this week?",
+      "recallContact": "Remind me what I told you about Alex"
+    }
+  },
   "emptyState": {
     "heading": "Let me see your activity",
     "connect": "Connect",
