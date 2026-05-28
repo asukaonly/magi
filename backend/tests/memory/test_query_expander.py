@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from magi.memory.hybrid_retrieval.query_expander import QueryExpander
+from magi.memory.hybrid_retrieval.query_expander import (
+    QueryExpander,
+    _drop_cross_script_expansions,
+    _has_cjk,
+)
 
 
 class _MockBridge:
@@ -85,3 +89,77 @@ async def test_expand_filters_empty_strings():
     expander = QueryExpander(bridge)
     result = await expander.expand("test")
     assert result == ["good query", "another good"]
+
+
+# ---------- script-class same-language guard ----------
+
+
+def test_has_cjk_detects_chinese() -> None:
+    assert _has_cjk("猫熬我")
+    assert _has_cjk("mixed 中文 and English")
+
+
+def test_has_cjk_detects_japanese() -> None:
+    assert _has_cjk("会議")        # kanji
+    assert _has_cjk("ひらがな")     # hiragana
+    assert _has_cjk("カタカナ")     # katakana
+
+
+def test_has_cjk_detects_korean() -> None:
+    assert _has_cjk("안녕하세요")
+
+
+def test_has_cjk_false_for_pure_latin() -> None:
+    assert not _has_cjk("hello world")
+    assert not _has_cjk("café résumé")  # Latin diacritics, still not CJK
+    assert not _has_cjk("")
+
+
+def test_drop_cross_script_drops_english_when_query_chinese() -> None:
+    """Real bug we hit: CJK query, LLM expanded to English. Indexed
+    content is CJK, English keywords never match. Drop them."""
+    kept = _drop_cross_script_expansions(
+        "我刚刚在一个群里看到有个图是说猫什么的",
+        ["cat wake up photo", "funny cat sleeping picture", "猫 叫醒 图"],
+    )
+    assert kept == ["猫 叫醒 图"]
+
+
+def test_drop_cross_script_keeps_mixed_script_expansion() -> None:
+    """Don't be too aggressive — code/product names like 'claude 截图'
+    are LEGITIMATE mixed expansions. Only fully-translated ones go."""
+    kept = _drop_cross_script_expansions(
+        "我在 claude 里看到截图功能",
+        ["claude 截图 ocr", "screenshot feature in app"],
+    )
+    # First kept (has CJK so matches), second dropped (pure Latin).
+    assert kept == ["claude 截图 ocr"]
+
+
+def test_drop_cross_script_symmetric_for_english_query() -> None:
+    """English-origin query expanded into Chinese is also wrong —
+    the user's English memories aren't indexed under Chinese tokens."""
+    kept = _drop_cross_script_expansions(
+        "what was the meeting about",
+        ["meeting agenda decisions", "会议议程", "team standup notes"],
+    )
+    assert "会议议程" not in kept
+    assert "meeting agenda decisions" in kept
+    assert "team standup notes" in kept
+
+
+def test_drop_cross_script_handles_empty_input() -> None:
+    assert _drop_cross_script_expansions("anything", []) == []
+
+
+@pytest.mark.asyncio
+async def test_expand_filters_cross_script_end_to_end() -> None:
+    """End-to-end: CJK query + English LLM response → empty result.
+
+    Matches the exact failure mode observed in production: the LLM
+    translated despite the prompt rule; the post-process filter
+    rescues us by dropping translated expansions."""
+    bridge = _MockBridge('["cat wake up photo", "funny cat sleeping picture"]')
+    expander = QueryExpander(bridge)
+    result = await expander.expand("刚刚群里那只猫的梗")
+    assert result == []  # Both English expansions dropped.
