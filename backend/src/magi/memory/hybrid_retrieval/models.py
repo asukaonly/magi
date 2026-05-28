@@ -246,6 +246,7 @@ class RetrievalConfig:
     # Cross-encoder reranking (optional, on top of heuristic)
     cross_encoder_enabled: bool = False
     cross_encoder_model_id: str | None = None
+    cross_encoder_variant: str | None = None
 
     # Query expansion (LLM-based alternative query generation)
     query_expansion_enabled: bool = True
