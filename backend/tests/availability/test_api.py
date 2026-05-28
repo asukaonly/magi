@@ -91,3 +91,65 @@ def test_refresh_all(app_with_resolver) -> None:
     assert response.status_code == 200
     # When no specific IDs given, response echoes the cleared set (or empty list).
     assert "invalidated_plugin_ids" in response.json()
+
+
+def test_full_path_manifest_to_http_response(tmp_path: Path) -> None:
+    """End-to-end: a real plugin.toml parses, the resolver probes, the API serves."""
+    import tomllib
+
+    target = tmp_path / "history.db"
+    target.write_text("")
+
+    toml_text = f"""
+[plugin]
+id = "e2e-test"
+name = "E2E Test"
+version = "0.0.1"
+entry_module = "plugin"
+entry_class = "X"
+
+[plugin.suggestion_descriptor]
+category = "test"
+platform_support = ["darwin", "win32", "linux"]
+setup_time_estimate_seconds = 5
+
+[plugin.suggestion_descriptor.triggers]
+intents = ["test_intent"]
+
+[plugin.suggestion_descriptor.rationale]
+zh = "测试"
+en = "test"
+
+[[plugin.suggestion_descriptor.local_requirements]]
+check_kind = "file_exists"
+
+[plugin.suggestion_descriptor.local_requirements.paths_per_platform]
+darwin = "{target}"
+win32 = "{target}"
+linux = "{target}"
+"""
+    from magi_plugin_sdk.contracts import PluginManifest
+
+    raw = tomllib.loads(toml_text)
+    manifest = PluginManifest.model_validate(raw["plugin"])
+    manifests = {"e2e-test": manifest}
+
+    resolver = AvailabilityResolver(manifest_provider=lambda pid: manifests.get(pid))
+    app = FastAPI()
+    app.include_router(
+        create_availability_router(lambda: resolver, lambda: list(manifests.keys())),
+    )
+    client = TestClient(app)
+
+    response = client.get("/availability", params={"plugin_ids": "e2e-test"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["entries"][0]["available"] is True
+    assert payload["entries"][0]["reason"] == "available"
+
+    # Delete the target file and refresh — should now be unavailable.
+    target.unlink()
+    client.post("/availability/refresh", json={"plugin_ids": ["e2e-test"]})
+    response = client.get("/availability", params={"plugin_ids": "e2e-test"})
+    assert response.json()["entries"][0]["available"] is False
+    assert response.json()["entries"][0]["reason"] == "missing_file"
