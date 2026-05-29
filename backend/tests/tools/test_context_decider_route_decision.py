@@ -139,3 +139,11 @@ def test_chat_coordinator_match_intent_signature_returns_intent_decision_from_ro
         "match_intent must consume RouteDecision fields directly, not "
         "the legacy orchestration_strategy dict"
     )
+
+
+def test_task_orchestrator_start_accepts_route_decision_kwarg() -> None:
+    import inspect
+    from magi.agent.task_orchestrator import TaskOrchestrator
+
+    sig = inspect.signature(TaskOrchestrator.start_orchestration)
+    assert "route_decision" in sig.parameters
