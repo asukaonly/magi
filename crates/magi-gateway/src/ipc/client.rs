@@ -50,8 +50,6 @@ pub struct IpcClient {
     write_tx: mpsc::Sender<String>,
     /// In-flight request map (shared with the read loop).
     pending: Arc<Mutex<PendingMap>>,
-    /// Channel for unsolicited events pushed by Python.
-    event_tx: mpsc::Sender<(String, Value)>,
 }
 
 impl IpcClient {
@@ -97,11 +95,7 @@ impl IpcClient {
         tokio::spawn(Self::read_loop(reader, read_pending, read_event_tx));
 
         Ok((
-            Self {
-                write_tx,
-                pending,
-                event_tx,
-            },
+            Self { write_tx, pending },
             event_rx,
         ))
     }

@@ -7,7 +7,7 @@ import { getRuntimeConfig } from '@/runtime/config';
 import { useBackendHealthStore } from '@/stores/backend-health';
 
 // API response types
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   message: string;
   data?: T;
@@ -20,7 +20,7 @@ export interface ApiError {
   message: string;
   detail?: string;
   error_code?: string;
-  details?: any;
+  details?: unknown;
 }
 
 export type ApiClientErrorKind = 'http' | 'network' | 'backend-not-ready' | 'cancelled' | 'request';
@@ -317,23 +317,30 @@ export const configureApiClient = (options: {
   }
 };
 
-// Generic API helpers
+// Generic API helpers.
+//
+// Note on `T = any` defaults: the response type parameter still defaults to
+// `any` (not `unknown`) because hundreds of call sites rely on positional
+// access of the unwrapped result without a type assertion. Migrating those
+// to `unknown` is a separate, codebase-wide refactor — track it as a
+// dedicated task. Request bodies are typed `unknown` because the blast
+// radius there is much smaller (callers already pass typed objects).
 export const api = {
   get: <T = any>(url: string, paramsOrConfig?: Record<string, unknown> | ApiRequestConfig) => {
     const config = normalizeGetConfig(paramsOrConfig);
     return apiClient.get<ApiResponse<T>>(url, config).then(unwrapApiResponse);
   },
 
-  post: <T = any>(url: string, data?: any, config?: ApiRequestConfig) =>
+  post: <T = any>(url: string, data?: unknown, config?: ApiRequestConfig) =>
     apiClient.post<ApiResponse<T>>(url, data, config).then(unwrapApiResponse),
 
-  put: <T = any>(url: string, data?: any, config?: ApiRequestConfig) =>
+  put: <T = any>(url: string, data?: unknown, config?: ApiRequestConfig) =>
     apiClient.put<ApiResponse<T>>(url, data, config).then(unwrapApiResponse),
 
   delete: <T = any>(url: string, config?: ApiRequestConfig) =>
     apiClient.delete<ApiResponse<T>>(url, config).then(unwrapApiResponse),
 
-  patch: <T = any>(url: string, data?: any, config?: ApiRequestConfig) =>
+  patch: <T = any>(url: string, data?: unknown, config?: ApiRequestConfig) =>
     apiClient.patch<ApiResponse<T>>(url, data, config).then(unwrapApiResponse),
 };
 
