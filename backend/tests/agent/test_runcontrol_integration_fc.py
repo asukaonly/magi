@@ -314,3 +314,17 @@ def test_function_calling_orchestrator_execute_with_tools_accepts_route_decision
     assert "route_decision" in sig.parameters, (
         "FunctionCallingOrchestrator.execute_with_tools must accept route_decision"
     )
+
+
+def test_function_calling_handler_passes_route_decision_to_orchestrator() -> None:
+    """FunctionCallingHandler.execute must forward request.intent.route_decision
+    as route_decision= to execute_with_tools."""
+    import inspect
+    from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
+
+    src = inspect.getsource(FunctionCallingHandler.execute)
+    assert "route_decision" in src and (
+        "request.intent" in src or "intent.route_decision" in src
+    ), (
+        "FunctionCallingHandler.execute must pass intent.route_decision through"
+    )
