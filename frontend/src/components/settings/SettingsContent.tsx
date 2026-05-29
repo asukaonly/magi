@@ -15,6 +15,7 @@ import {
 } from '@/components/settings';
 import { SettingsControlSection } from '@/components/settings/SettingsControlSection';
 import { HooksSection } from '@/components/settings/HooksSection';
+import { SettingsSuggestionsSection } from '@/components/settings/SettingsSuggestionsSection';
 import { SettingsConversationSection } from '@/components/settings/SettingsConversationSection';
 import { SettingsIntegrationsSection, type SettingsIntegrationsSectionId } from '@/components/settings/SettingsIntegrationsSection';
 import { SettingsLlmSection } from '@/components/settings/SettingsLlmSection';
@@ -357,6 +358,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'hooks':
         return <HooksSection />;
+
+      case 'suggestions':
+        return <SettingsSuggestionsSection />;
 
       default:
         return null;
