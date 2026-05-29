@@ -110,3 +110,26 @@ def test_chat_execution_coordinator_no_longer_builds_orchestration_plan() -> Non
     assert "_build_orchestration_plan_from_route" not in src, (
         "_build_orchestration_plan_from_route is no longer needed"
     )
+
+
+def test_orchestration_plan_dataclass_is_deleted() -> None:
+    """Phase C Task 10: OrchestrationPlan is removed from common/contracts."""
+    import importlib
+
+    contracts = importlib.import_module(
+        "magi.agent.task_agents.common.contracts"
+    )
+    assert not hasattr(contracts, "OrchestrationPlan"), (
+        "OrchestrationPlan must be deleted; route_decision is the typed "
+        "replacement"
+    )
+
+
+def test_base_intent_decision_no_longer_has_orchestration_plan_field() -> None:
+    """The orchestration_plan field is removed from BaseIntentDecision;
+    consumers read route_decision instead."""
+    from magi.agent.task_agents.common.contracts import BaseIntentDecision
+
+    field_names = {f.name for f in BaseIntentDecision.__dataclass_fields__.values()}
+    assert "orchestration_plan" not in field_names
+    assert "route_decision" in field_names
