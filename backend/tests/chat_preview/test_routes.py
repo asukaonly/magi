@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -200,6 +202,46 @@ def test_post_preview_accepts_persona_override() -> None:
     assert "a calm, curious companion" in prompt
     assert "short and warm" in prompt
     assert "seed prompt" not in prompt
+
+
+class _FakeBridge:
+    """Captures the kwargs and yields a mixed reasoning/text/usage stream."""
+
+    def __init__(self) -> None:
+        self.kwargs: dict = {}
+
+    def chat_response_stream(self, **kwargs):
+        self.kwargs = kwargs
+
+        async def _gen():
+            yield SimpleNamespace(kind="reasoning_delta", text="(thinking...)")
+            yield SimpleNamespace(kind="text_delta", text="Hello")
+            yield SimpleNamespace(kind="text_delta", text=" there")
+            yield SimpleNamespace(kind="usage", text=None)
+
+        return _gen()
+
+
+@pytest.mark.asyncio
+async def test_stream_preview_text_yields_visible_text_with_thinking_off() -> None:
+    """The preview streams only visible text_delta and requests thinking OFF."""
+    from magi.api.routers.chat_preview_routes import _stream_preview_text
+    from magi.config.models import ThinkingDepth
+
+    bridge = _FakeBridge()
+    out = [
+        chunk
+        async for chunk in _stream_preview_text(
+            bridge, system_prompt="sys", messages=[{"role": "user", "content": "hi"}]
+        )
+    ]
+
+    # Reasoning + usage events are dropped; only visible text is yielded.
+    assert out == ["Hello", " there"]
+    # Thinking is disabled and the system prompt is forwarded.
+    assert bridge.kwargs["thinking_depth"] == ThinkingDepth.NONE
+    assert bridge.kwargs["system_prompt"] == "sys"
+    assert bridge.kwargs["messages"] == [{"role": "user", "content": "hi"}]
 
 
 def test_resolve_persona_prompt_reads_locale_preset() -> None:

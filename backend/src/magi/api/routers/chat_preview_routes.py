@@ -20,7 +20,8 @@ Tests inject their own callables for isolation.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, AsyncIterator, Callable, Optional
+import time
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -30,9 +31,15 @@ from magi.api.routers.chat_preview_schemas import (
     PreviewPersonaOverride,
 )
 from magi.chat_preview import PreviewMessage, PreviewMode, run_preview
+from magi.core.logger import get_logger
 
 if TYPE_CHECKING:
     from magi.config.models import LLMSettings
+
+logger = get_logger(__name__)
+
+# Persona preview replies are short; cap output so a chatty model can't run long.
+_PREVIEW_MAX_TOKENS = 512
 
 # The persona loader resolves a (seed_slug, locale) pair to a flat prompt.
 PersonaLoaderDep = Callable[[], Callable[[str, str], str]]
@@ -57,6 +64,14 @@ def build_default_chat_preview_router(
 
     @router.post("/chat/preview")
     async def chat_preview(request: PreviewMessageRequest) -> StreamingResponse:
+        logger.info(
+            "chat_preview.request",
+            seed_slug=request.seed_slug,
+            locale=request.locale,
+            persona_override=request.persona_override is not None,
+            history_turns=len(request.history),
+            has_llm_override=request.llm_override is not None,
+        )
         # Exactly one persona source is required.
         if request.persona_override is None and not request.seed_slug:
             raise HTTPException(
@@ -148,38 +163,95 @@ def _default_persona_loader_dep() -> Callable[[str], str]:
     return _resolve_persona_prompt
 
 
+async def _stream_preview_text(
+    bridge: Any,
+    *,
+    system_prompt: str,
+    messages: list[dict],
+) -> AsyncIterator[str]:
+    """Yield only the visible assistant text from a provider-bridge stream.
+
+    Preview chat runs the core model with **thinking disabled**
+    (``ThinkingDepth.NONE``) and streaming on, mirroring the design: a quick,
+    voice-only reply with no deep reasoning. The bridge separates reasoning
+    from visible content, so we forward only ``text_delta`` events (dropping
+    ``reasoning_delta`` / ``usage``).
+    """
+    from magi.config.models import ThinkingDepth
+
+    async for event in bridge.chat_response_stream(
+        system_prompt=system_prompt,
+        messages=messages,
+        max_tokens=_PREVIEW_MAX_TOKENS,
+        thinking_depth=ThinkingDepth.NONE,
+    ):
+        if getattr(event, "kind", None) == "text_delta" and getattr(event, "text", None):
+            yield event.text
+
+
 def _default_llm_call_dep(
     llm_override: "LLMSettings | None" = None,
 ) -> Callable[..., AsyncIterator[str]]:
-    """Return an async callable that streams text chunks from the core adapter.
+    """Return an async callable that streams visible reply text for the preview.
 
     The shape required by :func:`magi.chat_preview.run_preview` is
-    ``(*, system_prompt, messages, model) -> AsyncIterator[str]``. The
-    underlying primitive is :meth:`LLMAdapter.chat_stream`; we prepend the
-    system prompt as a ``{"role": "system", ...}`` message.
+    ``(*, system_prompt, messages, model) -> AsyncIterator[str]``.
 
     The core adapter is resolved *eagerly* from the override (or persisted
     config when ``llm_override`` is ``None``) via
-    :func:`magi.llm.draft.resolve_adapter_for_scenario`, mirroring how the
-    provider test-connection and persona generation paths build a throwaway
-    adapter from unsaved settings. Resolving eagerly lets a missing
-    selection/provider surface as a 400 (the caller wraps this in
+    :func:`magi.llm.draft.resolve_adapter_for_scenario`, then wrapped in a
+    :class:`~magi.llm.provider_bridge.LLMProviderBridge` so the call goes through
+    the same provider-options path the real chat uses — crucially, this lets us
+    pass ``ThinkingDepth.NONE`` to disable reasoning (the raw adapter has no
+    thinking control, so reasoning models were running slow). Resolving eagerly
+    lets a missing selection/provider surface as a 400 (the caller wraps this in
     ``try/except ValueError``) rather than a 500 mid-stream.
     """
     from magi.config.models import LLMScenario
     from magi.llm.draft import resolve_adapter_for_scenario
+    from magi.llm.provider_bridge import LLMProviderBridge
 
     adapter = resolve_adapter_for_scenario(
         LLMScenario.CORE, llm_settings=llm_override
     )
+    bridge = LLMProviderBridge(adapter)
 
     async def invoke(*, system_prompt: str, messages: list[dict], model: str):
-        wire_messages: list[dict] = []
-        if system_prompt:
-            wire_messages.append({"role": "system", "content": system_prompt})
-        wire_messages.extend(messages)
-        async for chunk in adapter.chat_stream(wire_messages):
-            yield chunk
+        started = time.monotonic()
+        first_token_at: float | None = None
+        char_count = 0
+        logger.info(
+            "chat_preview.invoke.start",
+            model=model,
+            provider=getattr(adapter, "provider_name", None),
+            message_count=len(messages),
+            thinking="none",
+            streaming=True,
+            override=bool(llm_override),
+        )
+        try:
+            async for text in _stream_preview_text(
+                bridge, system_prompt=system_prompt, messages=messages
+            ):
+                if first_token_at is None:
+                    first_token_at = time.monotonic()
+                    logger.info(
+                        "chat_preview.invoke.first_token",
+                        ttft_ms=round((first_token_at - started) * 1000),
+                    )
+                char_count += len(text)
+                yield text
+        finally:
+            logger.info(
+                "chat_preview.invoke.done",
+                total_ms=round((time.monotonic() - started) * 1000),
+                ttft_ms=(
+                    round((first_token_at - started) * 1000)
+                    if first_token_at is not None
+                    else None
+                ),
+                chars=char_count,
+            )
 
     return invoke
 
