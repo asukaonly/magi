@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ...task_agents.common.contracts import ExecutionMode, ExecutionResult
 from ..nodes.protocol import NodeOutcome, NodeResult
 
 if TYPE_CHECKING:
@@ -63,6 +62,9 @@ class ValidateNode:
         # Success: build a minimal ExecutionResult carrying the verify
         # summary. The chat coordinator's response merger appends this
         # text to the primary node's response.
+        # Lazy import to avoid circular dependency via task_agents.__init__
+        from ...task_agents.common.contracts import ExecutionMode, ExecutionResult  # noqa: PLC0415
+
         data = getattr(tool_result, "data", None) or {}
         summary = str(data.get("summary") if isinstance(data, dict) else None or "Verification passed")
         return NodeResult(
@@ -76,7 +78,7 @@ class ValidateNode:
     @staticmethod
     def _build_tool_context(request: "ExecutionRequest") -> dict[str, Any]:
         """Extract the minimal context a tool needs: session + workspace."""
-        ctx = request.context
+        ctx = getattr(request, "context", None)
         return {
             "session_id": getattr(ctx, "session_id", None),
             "user_id": getattr(ctx, "user_id", None),

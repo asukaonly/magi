@@ -13,13 +13,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ..task_agents.common.contracts import ExecutionMode, ExecutionResult
 from .nodes.protocol import NodeOutcome
 from .registry import NodeRegistry
 from .spec import NodeSpec
 
 if TYPE_CHECKING:
-    from ..task_agents.common.contracts import ExecutionRequest
+    from ..task_agents.common.contracts import ExecutionMode, ExecutionRequest, ExecutionResult
 
 
 class NodeSequenceRunner:
@@ -94,6 +93,9 @@ def _merge_accumulated_into_result(
     its non-text fields like attachments, ux_plan, message_payload).
     The text fields from every node are joined with double-newlines.
     """
+    # Lazy import to avoid circular dependency via task_agents.__init__
+    from ..task_agents.common.contracts import ExecutionMode, ExecutionResult  # noqa: PLC0415
+
     combined_text = "\n\n".join(t for t in accumulated_texts if t).strip()
     if primary_result is None:
         # No node produced an ExecutionResult; build a minimal one to

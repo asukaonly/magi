@@ -37,10 +37,13 @@ from .contracts import (
     TraceDisplayMode,
     TurnUXPlan,
 )
+from ...run.builder import GraphBuilder
 from ...run.nodes.plan_fanout import PlanFanoutNode
 from ...run.nodes.reply import ReplyNode
 from ...run.nodes.tool_loop import ToolLoopNode
+from ...run.nodes.validate import ValidateNode
 from ...run.registry import NodeRegistry
+from ...run.runner import NodeSequenceRunner
 from .attachment_context import resolve_effective_turn_attachments
 from .fact_classifier import ChatFactClassifier
 
@@ -166,6 +169,15 @@ class ChatExecutionCoordinator:
             self._node_registry.register(
                 PlanFanoutNode(orchestration_launch_handler=_orchestration_launch)
             )
+        # Phase D: ValidateNode runs verify tool after coding turns.
+        # GraphBuilder + NodeSequenceRunner drive multi-node graphs.
+        self._node_registry.register(
+            ValidateNode(tool_registry=tool_registry)
+        )
+        self._graph_builder = GraphBuilder()
+        self._node_sequence_runner = NodeSequenceRunner(
+            node_registry=self._node_registry,
+        )
 
     async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
         planner_fact_kind = (
@@ -377,19 +389,19 @@ class ChatExecutionCoordinator:
         return await handler.build_request(request)
 
     async def execute(self, request: ExecutionRequest):
-        # Phase C: dispatch user-message paths via the NodeRegistry when a
-        # graph_shape is present on the route decision. Non-route paths
-        # (worker updates, explore renders, fact-only) fall through to the
-        # legacy ExecutionHandlerRegistry.
+        # Phase D: build node sequence from RouteDecision (profile-aware:
+        # coding profile auto-appends ValidateNode). Run via the
+        # NodeSequenceRunner which handles single-node AND multi-node
+        # graphs uniformly. Non-route paths fall through to the legacy
+        # ExecutionHandlerRegistry.
         route_decision = getattr(request.intent, "route_decision", None)
         if route_decision is not None:
-            node = self._node_registry.get(route_decision.graph_shape)
-            if node is not None:
-                node_result = await node.execute(request)
-                if node_result.execution_result is not None:
-                    return node_result.execution_result
-                # FAILED outcome with no execution_result: fall back to the
-                # legacy handler so the existing error path runs.
+            node_specs = self._graph_builder.build_node_sequence(route_decision)
+            runner_result = await self._node_sequence_runner.run(
+                node_specs=node_specs, request=request,
+            )
+            if runner_result is not None:
+                return runner_result
         handler = self._handler_registry.get(request.mode)
         return await handler.execute(request)
 
