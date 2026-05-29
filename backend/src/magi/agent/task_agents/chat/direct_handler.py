@@ -6,6 +6,7 @@ from ....agent.message_utils import append_latest_user_message
 from ....agent.turn_input import UserTurnInput
 from ....context.scenarios import Scenario
 from .... import i18n as core_i18n
+from ....llm.cancellable_client import CancellationRaised, RetractRaised
 from ..common import (
     BaseExecutionHandler,
     DirectLLMRequest,
@@ -104,6 +105,17 @@ class DirectLLMHandler(BaseExecutionHandler):
         )
 
     async def execute(self, request: DirectLLMRequest) -> ExecutionResult:
+        """Execute a direct LLM call, propagating RunControl cancel/retract signals.
+
+        Reads ``request.context.control`` and passes it to both the streaming
+        and non-streaming prompt-service paths.  When the token is already
+        cancelled (or retracted) before any chunks are emitted, or mid-stream,
+        the handler catches :class:`~magi.llm.cancellable_client.CancellationRaised`
+        and :class:`~magi.llm.cancellable_client.RetractRaised` and returns a
+        partial :class:`ExecutionResult` with an ``abort_reason`` entry in
+        ``llm_trace``.
+        """
+        control = request.context.control
         llm_trace: dict[str, object] = {}
         streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
 
@@ -125,32 +137,63 @@ class DirectLLMHandler(BaseExecutionHandler):
 
         if streaming_enabled:
             chunks: list[str] = []
-            async for event in self._deps.prompt_service.call_llm_stream(
-                system_prompt=request.system_prompt,
-                messages=request.messages,
-                thinking_depth=request.thinking_depth,
-                event_context=event_context,
-            ):
-                if event.kind == "text_delta" and event.text:
-                    chunks.append(event.text)
+            abort_reason: str | None = None
+            try:
+                async for event in self._deps.prompt_service.call_llm_stream(
+                    system_prompt=request.system_prompt,
+                    messages=request.messages,
+                    thinking_depth=request.thinking_depth,
+                    event_context=event_context,
+                    control=control,
+                ):
+                    if event.kind == "text_delta" and event.text:
+                        chunks.append(event.text)
+            except CancellationRaised as exc:
+                abort_reason = f"cancel:{exc.reason or 'unknown'}"
+            except RetractRaised as exc:
+                abort_reason = f"retract:{(exc.payload.reason if exc.payload else None) or 'unknown'}"
             response_text = "".join(chunks)
+            llm_trace_out = dict(llm_trace)
+            if abort_reason:
+                llm_trace_out["abort_reason"] = abort_reason
             return ExecutionResult(
                 mode=request.mode,
                 response_text=response_text,
                 root_user_message=request.context.latest_user_message,
                 turn_id=turn_id,
-                llm_trace=dict(llm_trace),
+                llm_trace=llm_trace_out,
                 ux_plan=_serialize_ux_plan(request.intent),
                 streamed=bool(response_text),
             )
 
-        response_text = await self._deps.prompt_service.call_llm(
-            system_prompt=request.system_prompt,
-            messages=request.messages,
-            thinking_depth=request.thinking_depth,
-            llm_trace_callback=_capture_llm_trace,
-            event_context=event_context,
-        )
+        # Non-streaming path
+        try:
+            response_text = await self._deps.prompt_service.call_llm(
+                system_prompt=request.system_prompt,
+                messages=request.messages,
+                thinking_depth=request.thinking_depth,
+                llm_trace_callback=_capture_llm_trace,
+                event_context=event_context,
+                control=control,
+            )
+        except CancellationRaised as exc:
+            return ExecutionResult(
+                mode=request.mode,
+                response_text="",
+                root_user_message=request.context.latest_user_message,
+                turn_id=turn_id,
+                llm_trace={**llm_trace, "abort_reason": f"cancel:{exc.reason or 'unknown'}"},
+                ux_plan=_serialize_ux_plan(request.intent),
+            )
+        except RetractRaised as exc:
+            return ExecutionResult(
+                mode=request.mode,
+                response_text="",
+                root_user_message=request.context.latest_user_message,
+                turn_id=turn_id,
+                llm_trace={**llm_trace, "abort_reason": f"retract:{(exc.payload.reason if exc.payload else None) or 'unknown'}"},
+                ux_plan=_serialize_ux_plan(request.intent),
+            )
         return ExecutionResult(
             mode=request.mode,
             response_text=response_text,

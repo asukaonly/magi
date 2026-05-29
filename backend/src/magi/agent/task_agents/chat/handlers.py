@@ -15,6 +15,7 @@ from ....agent.run_control import (
     DetachSignal,
     SteerInbox,
     bind_detach_signal,
+    null_run_control,
 )
 from ....agent.turn_input import UserTurnInput
 from ....context.service import ContextAssemblyService
@@ -200,6 +201,16 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                 return result
 
             cancel_token = self._build_cancel_token(request)
+            # Build the RunControl bundle from context (Task 8 ensures it is
+            # always present on ChatRuntimeContext). Overlay the locally-built
+            # cancel_token so the legacy cancel-button path continues to work.
+            _ctx_control = (
+                request.context.control
+                if hasattr(request.context, "control")
+                else None
+            )
+            control = _ctx_control if _ctx_control is not None else null_run_control()
+            control.cancel_token = cancel_token
             execution_outcome = (
                 await self._deps.function_calling_orchestrator.execute_with_tools(
                     turn=UserTurnInput(
@@ -228,9 +239,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                         if request.intent.orchestration_plan is not None
                         else None
                     ),
-                    cancel_token=cancel_token,
-                    detach_signal=detach_signal,
-                    steer_inbox=steer_inbox,
+                    control=control,
                 )
             )
 
@@ -507,6 +516,17 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                     )
                     continue
 
+            _fallback_ctx_control = (
+                request.context.control
+                if hasattr(request.context, "control")
+                else None
+            )
+            _fallback_control = (
+                _fallback_ctx_control
+                if _fallback_ctx_control is not None
+                else null_run_control()
+            )
+            _fallback_control.cancel_token = cancel_token
             execution_outcome = await orchestrator._execute_fallback_final_response(
                 state=step_state,
                 thinking_depth=request.thinking_depth,
@@ -526,6 +546,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                 llm_timeout_seconds=None,
                 final_response_json_mode=False,
                 cancel_token=cancel_token,
+                control=_fallback_control,
             )
         return FunctionCallingExecutionResult(
             mode=request.mode,

@@ -153,6 +153,9 @@ class ChatPostProcessService:
         ux_plan = result.ux_plan if isinstance(result.ux_plan, dict) else {}
 
         if result.skip_emit:
+            # Detect retracted/suspended terminal status even when the main
+            # emit path is skipped (OrchestrationLaunchHandler path — Task 9).
+            await self._maybe_emit_run_lifecycle_event(context, result)
             if await self._complete_turn_without_visible_response(
                 context=context,
                 result=result,
@@ -183,6 +186,10 @@ class ChatPostProcessService:
                 # the user does not silently lose the turn.
                 response_text = "Failed to move this task to the background."
         if not response_text:
+            # Detect retracted/suspended terminal status for the DirectLLMHandler
+            # path (abort_reason in llm_trace) and the FunctionCallingHandler path
+            # (execution_outcome['status']).
+            await self._maybe_emit_run_lifecycle_event(context, result)
             if await self._complete_turn_without_visible_response(
                 context=context,
                 result=result,
@@ -529,6 +536,146 @@ class ChatPostProcessService:
         except json.JSONDecodeError:
             return {}
         return parsed if isinstance(parsed, dict) else {}
+
+    async def _maybe_emit_run_lifecycle_event(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+    ) -> None:
+        """Emit run.retracted or run.suspended if the result indicates
+        the run terminated in one of those states.
+
+        Detection covers three paths introduced in Tasks 6-9:
+          1. result.llm_trace['abort_reason'] starting with 'retract:'
+             (DirectLLMHandler path — Task 8)
+          2. result.llm_trace.get('retracted') is True
+             (OrchestrationLaunchHandler path — Task 9)
+          3. result.execution_outcome['status'] in ('retracted', 'suspended')
+             (FunctionCallingHandler path — Tasks 6+7)
+
+        Emission failures are logged but never propagate — this method is
+        non-fatal so that the normal postprocess teardown still runs.
+        """
+        from dataclasses import asdict
+
+        from ....events.domain_payloads import RunRetracted, RunSuspended
+
+        terminal_status = self._detect_terminal_status(result)
+        if terminal_status not in {"retracted", "suspended"}:
+            return
+
+        run_id = str(context.session_run_id or "").strip()
+        if not run_id:
+            return
+
+        reason, requested_by, note = self._extract_terminal_metadata(result, terminal_status)
+
+        event_emitter = self._get_event_emitter()
+        if event_emitter is None:
+            return
+
+        try:
+            if terminal_status == "retracted":
+                payload = RunRetracted(
+                    session_id=context.session_id,
+                    run_id=run_id,
+                    reason=reason,
+                    requested_by=requested_by,
+                    note=note,
+                )
+                await event_emitter.emit_runtime_event(
+                    event_type=EventTypes.RUN_RETRACTED,
+                    payload=asdict(payload),
+                )
+            else:  # suspended
+                payload = RunSuspended(
+                    session_id=context.session_id,
+                    run_id=run_id,
+                    reason=reason,
+                    requested_by=requested_by,
+                    note=note,
+                )
+                await event_emitter.emit_runtime_event(
+                    event_type=EventTypes.RUN_SUSPENDED,
+                    payload=asdict(payload),
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to emit run lifecycle event",
+                event_type=terminal_status,
+                session_id=context.session_id,
+                run_id=run_id,
+                error=str(exc),
+            )
+
+    def _detect_terminal_status(self, result: ExecutionResult) -> str | None:
+        """Return 'retracted' or 'suspended' if result indicates one of those
+        terminal statuses; otherwise None.
+
+        Detection sources:
+          1. result.llm_trace['abort_reason'] starting with 'retract:'
+             (DirectLLMHandler path — Task 8)
+          2. result.llm_trace.get('retracted') is True
+             (OrchestrationLaunchHandler path — Task 9)
+          3. result.execution_outcome['status'] in ('retracted', 'suspended')
+             (FunctionCallingHandler path — Tasks 6+7)
+        """
+        llm_trace = result.llm_trace if isinstance(result.llm_trace, dict) else {}
+
+        # Path 3: FunctionCalling execution_outcome — check first because it is
+        # more specific (carries both 'retracted' and 'suspended').
+        if isinstance(result, FunctionCallingExecutionResult):
+            outcome = result.execution_outcome
+            if isinstance(outcome, dict):
+                status = outcome.get("status")
+                if status in {"retracted", "suspended"}:
+                    return status
+
+        # Path 2: OrchestrationLaunchHandler llm_trace flag.
+        if llm_trace.get("retracted") is True:
+            return "retracted"
+
+        # Path 1: DirectLLMHandler abort_reason.
+        abort_reason = str(llm_trace.get("abort_reason") or "")
+        if abort_reason.startswith("retract:"):
+            return "retracted"
+
+        return None
+
+    def _extract_terminal_metadata(
+        self,
+        result: ExecutionResult,
+        terminal_status: str,
+    ) -> tuple[str, str, str]:
+        """Return (reason, requested_by, note) extracted from the result
+        based on which path produced the terminal status. Falls back to
+        sane defaults when fields are absent."""
+        llm_trace = result.llm_trace if isinstance(result.llm_trace, dict) else {}
+
+        # FunctionCalling path carries reason/note in execution_outcome.snapshot.
+        if isinstance(result, FunctionCallingExecutionResult):
+            outcome = result.execution_outcome
+            if isinstance(outcome, dict):
+                snapshot = outcome.get("snapshot")
+                if isinstance(snapshot, dict):
+                    reason = str(snapshot.get("reason") or "")
+                    note = str(snapshot.get("note") or "")
+                    if reason:
+                        return (reason, "user", note)
+
+        # DirectLLMHandler path: abort_reason="retract:<reason>"
+        abort_reason = str(llm_trace.get("abort_reason") or "")
+        if abort_reason.startswith("retract:"):
+            reason = abort_reason[len("retract:"):] or "user_retract"
+            return (reason, "user", "")
+
+        # OrchestrationLaunchHandler path: only a boolean flag present.
+        if llm_trace.get("retracted") is True:
+            return ("user_retract", "user", "")
+
+        # Fallback.
+        default_reason = "user_retract" if terminal_status == "retracted" else "window_closed"
+        return (default_reason, "user", "")
 
     async def _complete_turn_without_visible_response(
         self,

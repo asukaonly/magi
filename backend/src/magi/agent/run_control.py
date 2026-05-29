@@ -24,6 +24,11 @@ token:
   exact same LLM turn without re-running the work that was already
   completed.
 
+* :class:`RunControl` — bundle of all five cooperative signals
+  (``CancelToken``, ``DetachSignal``, ``SteerInbox``, ``RetractSignal``,
+  ``SuspendSignal``) passed as one parameter to every node in a run.
+  Construct with :func:`null_run_control` for tests / default callers.
+
 Boundary choice
 ---------------
 Both primitives are polled at the **top of each orchestrator iteration**
@@ -52,17 +57,26 @@ import asyncio
 from collections import deque
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .cancel import CancelToken
 
 __all__ = [
     "DetachRequested",
     "DetachSignal",
     "OrchestratorSnapshot",
+    "RetractRequested",
+    "RetractSignal",
+    "RunControl",
     "SteerInbox",
     "SteerMessage",
     "SteerReason",
-    "current_detach_signal",
+    "SuspendRequested",
+    "SuspendSignal",
     "bind_detach_signal",
+    "current_detach_signal",
+    "null_run_control",
 ]
 
 
@@ -193,6 +207,166 @@ class OrchestratorSnapshot:
             reason=str(data.get("reason") or "detached"),
             note=str(data.get("note") or ""),
         )
+
+
+@dataclass(slots=True, frozen=True)
+class RetractRequested:
+    """Metadata describing why a retract was requested.
+
+    A retract is distinct from a cancel: it asks the run to stop AND
+    requests that any partial output already delivered to a channel be
+    rolled back. ``CancelToken`` leaves delivered partials in place;
+    ``RetractSignal`` instructs the DeliveryRouter to undo them.
+    """
+
+    reason: SteerReason = "user_retract"
+    requested_by: str = "user"
+    note: str = ""
+
+
+class RetractSignal:
+    """One-shot retract-request flag polled by run nodes.
+
+    Polled at the same boundary as :class:`CancelToken` and
+    :class:`DetachSignal`. When set, the node returns a ``retracted``
+    outcome and the kernel calls ``DeliveryRouter.fanout_retract`` on
+    the receipts collected during the node's execution.
+
+    ``request`` is idempotent — the first payload wins so cascading
+    retract triggers do not overwrite the original reason.
+    """
+
+    __slots__ = ("_event", "_payload")
+
+    def __init__(self) -> None:
+        self._event = asyncio.Event()
+        self._payload: RetractRequested | None = None
+
+    def request(self, payload: RetractRequested | None = None) -> None:
+        """Flag a retract request. Idempotent."""
+        if self._event.is_set():
+            return
+        self._payload = payload or RetractRequested()
+        self._event.set()
+
+    def is_requested(self) -> bool:
+        return self._event.is_set()
+
+    @property
+    def payload(self) -> RetractRequested | None:
+        """Return the recorded request payload, or ``None``."""
+        return self._payload
+
+    async def wait(self) -> RetractRequested:
+        """Block until retract is requested and return the payload."""
+        await self._event.wait()
+        assert self._payload is not None
+        return self._payload
+
+
+@dataclass(slots=True, frozen=True)
+class SuspendRequested:
+    """Metadata describing why a suspend was requested.
+
+    A suspend is distinct from a detach: detach hands ownership to a
+    background executor; suspend pauses the run in place expecting the
+    user to reattach. Suspend is also unique in that it is *clearable*
+    — when the user reattaches, the same RunControl can resume with
+    ``clear()`` rather than constructing a fresh signal.
+    """
+
+    reason: SteerReason = "window_closed"
+    requested_by: str = "user"
+    note: str = ""
+
+
+class SuspendSignal:
+    """One-shot but clearable suspend-request flag.
+
+    Polled at the same boundary as :class:`CancelToken`. When set, the
+    node returns a ``suspended`` outcome and the kernel persists the
+    snapshot in place. ``clear()`` resets the flag for resume.
+    """
+
+    __slots__ = ("_event", "_payload")
+
+    def __init__(self) -> None:
+        self._event = asyncio.Event()
+        self._payload: SuspendRequested | None = None
+
+    def request(self, payload: SuspendRequested | None = None) -> None:
+        """Flag a suspend request. Idempotent."""
+        if self._event.is_set():
+            return
+        self._payload = payload or SuspendRequested()
+        self._event.set()
+
+    def clear(self) -> None:
+        """Reset the suspend flag. Used on resume to make the same
+        RunControl reusable across a suspend/resume cycle."""
+        self._event.clear()
+        self._payload = None
+
+    def is_requested(self) -> bool:
+        return self._event.is_set()
+
+    @property
+    def payload(self) -> SuspendRequested | None:
+        """Return the recorded request payload, or ``None``."""
+        return self._payload
+
+    async def wait(self) -> SuspendRequested:
+        """Block until suspend is requested and return the payload."""
+        await self._event.wait()
+        # `request` sets `_payload` before setting the event; `clear()`
+        # is only safe to call after the `wait()` consumer has returned,
+        # so on this line `_payload` is always set.
+        assert self._payload is not None
+        return self._payload
+
+
+@dataclass(slots=True)
+class RunControl:
+    """Bundle of cooperative control signals shared by every node in a run.
+
+    Polled together at one boundary (top of node iteration, after
+    previous tool batch appended, before next LLM call). Keeping a single
+    bundle instead of five separate parameters means new signals can be
+    added without re-threading every node/handler signature.
+
+    The fields are *not* frozen because some signals (``SuspendSignal``)
+    are clearable. The bundle itself is constructed once per run and
+    shared by reference; concurrent producers/consumers coordinate via
+    each individual signal's internal lock.
+
+    All callers must run on the same asyncio event loop; the bundle does
+    not provide cross-loop synchronization beyond what each individual
+    signal already enforces.
+    """
+
+    cancel_token: "CancelToken"
+    detach_signal: DetachSignal
+    retract_signal: RetractSignal
+    suspend_signal: SuspendSignal
+    steer_inbox: SteerInbox
+
+
+def null_run_control() -> RunControl:
+    """Return a RunControl whose every signal is a no-op.
+
+    Useful for tests, for callers that do not need control, and as a
+    safe default for handler signatures during the Phase A migration
+    while existing call sites are updated.
+    """
+    from .cancel import null_cancel_token
+
+    return RunControl(
+        cancel_token=null_cancel_token(),
+        detach_signal=DetachSignal(),
+        retract_signal=RetractSignal(),
+        suspend_signal=SuspendSignal(),
+        steer_inbox=SteerInbox(),
+    )
 
 
 # ---------------------------------------------------------------------

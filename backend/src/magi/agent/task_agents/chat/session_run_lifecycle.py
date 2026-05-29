@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from ....agent.runtime.contracts import FactRecord
+from ....agent.run_control import RunControl
 from ..common import UserMessagePayload
 from .fact_classifier import ClassifiedFact
 from .run_contracts import ActiveRun, RunResult, RunResultDisposition
@@ -106,6 +107,31 @@ class SessionRunLifecycleMixin:
             run_id=run_id,
             revision=revision,
         )
+
+    def register_active_run_control(
+        self,
+        session_id: str,
+        run_id: str,
+        control: RunControl,
+    ) -> None:
+        """Proxy to ``SessionRunStore.register_active_run_control``."""
+        self._run_store.register_active_run_control(session_id, run_id, control)
+
+    def get_active_run_control(
+        self,
+        session_id: str,
+        run_id: str,
+    ) -> "RunControl | None":
+        """Proxy to ``SessionRunStore.get_active_run_control``."""
+        return self._run_store.get_active_run_control(session_id, run_id)
+
+    def unregister_active_run_control(
+        self,
+        session_id: str,
+        run_id: str,
+    ) -> None:
+        """Proxy to ``SessionRunStore.unregister_active_run_control``."""
+        self._run_store.unregister_active_run_control(session_id, run_id)
 
     def _record_classified_result(
         self,

@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any
 
 from ....agent.runtime.contracts import FactRecord
+from ....agent.run_control import RunControl, null_run_control
 from ....personality.turn_planner import PersonaRoutingHint
 from ..common import BaseIntentDecision, BaseRuntimeContext, GenericFactPayload, IncomingFactKind, TaskFactPayload
 from .run_contracts import ActiveRun, PendingTurn
@@ -86,6 +87,7 @@ class ChatRuntimeContext(BaseRuntimeContext):
     streaming_chat_enabled: bool = False
     allow_media_grounding_for_conversation: bool = False
     core_model_supports_vision: bool = False
+    control: RunControl = field(default_factory=null_run_control)
 
 
 @dataclass(slots=True)

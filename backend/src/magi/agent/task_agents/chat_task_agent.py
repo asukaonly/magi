@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ...agent.orchestration import get_orchestration_store
+from ...agent.run_control import null_run_control
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...agent.trace import now_wall_ms
 from ...chat import ChatProjector, ChatReadService, ChatStore
@@ -495,6 +496,21 @@ class ChatTaskAgent(
         core_model_supports_vision = bool(
             getattr(getattr(core_selection, "capabilities", None), "vision", False)
         )
+        # Build a fresh RunControl bundle for this turn. The signals
+        # (retract, suspend, detach, steer) are functional — fired via
+        # the SessionRunCoordinator's request_* methods or future
+        # detach/steer entry points. The cancel_token slot is still a
+        # no-op; a future task will swap in SessionRunCancelToken so
+        # the legacy session-level cancel pathway also flows through
+        # the bundle.
+        turn_control = null_run_control()
+        # Register the bundle with the session store so external callers
+        # (SessionRunCoordinator.request_retract, future cancel/detach
+        # entry points) can fire its signals at the live in-flight run.
+        if run_decision.active_run is not None:
+            self._session_run_coordinator.register_active_run_control(
+                session_id, run_decision.active_run.run_id, turn_control
+            )
         return ChatRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
             recent_facts=list(
@@ -550,6 +566,7 @@ class ChatTaskAgent(
             streaming_chat_enabled=streaming_chat_enabled,
             allow_media_grounding_for_conversation=allow_media_grounding_for_conversation,
             core_model_supports_vision=core_model_supports_vision,
+            control=turn_control,
         )
 
     async def _resolve_context_persona_id(self, latest_payload: object) -> str | None:
@@ -651,7 +668,16 @@ class ChatTaskAgent(
     async def parse_result(
         self, context: ChatRuntimeContext, raw_result: ExecutionResult
     ) -> None:
-        await self._postprocess_service.handle(context, raw_result)
+        try:
+            await self._postprocess_service.handle(context, raw_result)
+        finally:
+            # Unregister the turn's RunControl now that the turn is done.
+            # The bundle's signals (asyncio.Event etc.) are not persistable
+            # so keeping a dead reference accomplishes nothing.
+            if context.session_id and context.session_run_id:
+                self._session_run_coordinator.unregister_active_run_control(
+                    context.session_id, context.session_run_id
+                )
 
     def get_conversation_history(self, user_id: str, session_id: str) -> list[dict]:
         return self._history_service.get_conversation_history(user_id, session_id)

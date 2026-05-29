@@ -267,6 +267,11 @@ class ChatPlanningService(ChatPlanningPromptMixin):
         request_profile: str,
         workspace_root: str | None = None,
     ) -> Optional[SubtaskPlan]:
+        # TODO(phase-B): thread `control: RunControl` into this planner so
+        # mid-LLM retract/cancel observe the signal directly rather than
+        # relying on the wrapper `except RetractRaised` in TaskOrchestrator.
+        # Today: signal observed only at the next worker-await boundary or
+        # via the wrapper if CancellableLLMClient raises mid-stream.
         recent_history = [
             {
                 "role": str(item.get("role", "unknown")),
@@ -411,6 +416,11 @@ class ChatPlanningService(ChatPlanningPromptMixin):
         run_revision: int = 0,
         workspace_root: str | None = None,
     ) -> Optional[SubtaskPlan]:
+        # TODO(phase-B): thread `control: RunControl` into this planner so
+        # mid-LLM retract/cancel observe the signal directly rather than
+        # relying on the wrapper `except RetractRaised` in TaskOrchestrator.
+        # Today: signal observed only at the next worker-await boundary or
+        # via the wrapper if CancellableLLMClient raises mid-stream.
         context = self._build_agent_tool_context(
             user_id,
             session_id,

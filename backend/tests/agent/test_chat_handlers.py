@@ -48,6 +48,7 @@ class _FakePromptService:
         timeout_seconds=None,
         llm_trace_callback=None,
         event_context=None,
+        control=None,
     ):
         self.call_llm_calls += 1
         self.event_contexts.append(event_context)

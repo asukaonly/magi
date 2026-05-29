@@ -9,6 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from ....core.logger import get_logger
+from ...run_control import RunControl
 from .run_contracts import ActiveRun, PendingTurn
 
 logger = get_logger(__name__)
@@ -19,6 +20,7 @@ class SessionRunLifecycleMixin:
 
     _lock: RLock
     _l0_store: Any
+    _run_controls: "dict[tuple[str, str], RunControl]"
 
     def create_active_run(
         self,
@@ -254,6 +256,53 @@ class SessionRunLifecycleMixin:
                 )
             ]
             return pending_turns
+
+    def register_active_run_control(
+        self,
+        session_id: str,
+        run_id: str,
+        control: RunControl,
+    ) -> None:
+        """Bind a live RunControl bundle to the (session_id, run_id) pair.
+
+        Called by ChatTaskAgent at turn start so external callers
+        (SessionRunCoordinator.request_retract, eventual cancel/detach
+        external APIs) can locate the bundle and fire its signals.
+
+        The bundle contains asyncio Events and inboxes that cannot be
+        persisted; it is the runtime-only counterpart to the persisted
+        ActiveRun record.
+        """
+        with self._lock:
+            self._run_controls[(session_id, run_id)] = control
+
+    def get_active_run_control(
+        self,
+        session_id: str,
+        run_id: str,
+    ) -> RunControl | None:
+        """Return the live bundle for this run, or None if not registered.
+
+        Background-restored runs do not have a registered control — callers
+        must tolerate a None return rather than assuming the bundle exists.
+        """
+        with self._lock:
+            return self._run_controls.get((session_id, run_id))
+
+    def unregister_active_run_control(
+        self,
+        session_id: str,
+        run_id: str,
+    ) -> None:
+        """Drop the binding for (session_id, run_id). No-op if not registered.
+
+        Called by ChatTaskAgent on terminal status so the dict does not
+        accumulate stale references after runs complete. The bundle's
+        asyncio.Events and inboxes are not persistable, so keeping a dead
+        reference accomplishes nothing.
+        """
+        with self._lock:
+            self._run_controls.pop((session_id, run_id), None)
 
     def bump_revision(
         self,

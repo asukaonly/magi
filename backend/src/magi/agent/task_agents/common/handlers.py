@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional, Protocol
 
 from ....agent.cancel import CancelToken, null_cancel_token
+from ....agent.run_control import null_run_control
 from ....agent.runtime.contracts import FactRecord
 from ...task_orchestrator import TaskOrchestrator
 from .contracts import (
@@ -125,6 +126,17 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             if self._deps.build_cancel_token is not None
             else null_cancel_token()
         )
+        # Read the RunControl bundle from the chat runtime context (Task 8
+        # ensures it's always present on ChatRuntimeContext). Overlay the
+        # cancel_token built above so legacy cancel-button paths continue
+        # to function alongside the bundle's other signals.
+        #
+        # We use getattr with a fallback to null_run_control() so this handler
+        # stays safe against non-chat contexts that may not carry a .control
+        # field, while still reading request.context.control when present.
+        _ctx_control = request.context.control if hasattr(request.context, "control") else None
+        control = _ctx_control if _ctx_control is not None else null_run_control()
+        control.cancel_token = cancel_token
         raw_result = await self._deps.task_orchestrator.start_orchestration(
             user_id=request.context.user_id,
             session_id=request.context.session_id,
@@ -137,7 +149,11 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             correlation_id=request.correlation_id,
             orchestration_strategy=orchestration_plan.to_strategy_dict(),
             persona_id=getattr(request.context, "active_persona_id", None),
+            # cancel_token= kept for call-site backward compat; ignored by
+            # start_orchestration when control= is supplied (the handler has
+            # already overlaid the cancel token onto control.cancel_token above).
             cancel_token=cancel_token,
+            control=control,
         )
         return ExecutionResult(
             mode=request.mode,
@@ -149,6 +165,7 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             message_started_at=raw_result.message_started_at,
             turn_id=raw_result.turn_id,
             streamed=raw_result.streamed,
+            llm_trace={"retracted": True} if raw_result.retracted else {},
             ux_plan=_serialize_ux_plan(request),
         )
 

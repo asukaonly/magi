@@ -1,7 +1,7 @@
 """Session-scoped execution coordination for chat task-agent turns."""
 from __future__ import annotations
 
-from ....agent.run_control import DetachSignal
+from ....agent.run_control import DetachSignal, RetractRequested
 from ....agent.runtime.contracts import FactRecord
 from ..common import IncomingFactKind, TaskFactPayload, UserMessagePayload
 from .fact_classifier import ClassifiedFact
@@ -32,6 +32,35 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         self._run_store = run_store or SessionRunStore()
         self._interruption_classifier = interruption_classifier or InterruptionClassifier()
         self._detach_signals: dict[str, DetachSignal] = {}
+
+    def request_retract(
+        self,
+        *,
+        session_id: str,
+        payload: RetractRequested | None = None,
+    ) -> bool:
+        """Request retract on the active run for ``session_id``.
+
+        Looks up the active run, then its registered RunControl, then
+        fires the bundle's ``retract_signal``. The execution path
+        (DirectLLMHandler / FunctionCallingHandler / OrchestrationLaunchHandler)
+        observes the signal on its next iteration boundary or LLM-stream
+        chunk and returns a retracted outcome.
+
+        Returns True if a live RunControl was found and signaled.
+        Returns False when:
+          - no active run exists for the session
+          - active run exists but has no registered control (e.g., a
+            background-restored run whose control was not bound)
+        """
+        active_run = self._run_store.get_active_run(session_id)
+        if active_run is None:
+            return False
+        control = self._run_store.get_active_run_control(session_id, active_run.run_id)
+        if control is None:
+            return False
+        control.retract_signal.request(payload)
+        return True
 
     def coordinate(self, classified_fact: ClassifiedFact) -> SessionFactDecision:
         """Resolve the visible fact and session-run state for one batch."""
