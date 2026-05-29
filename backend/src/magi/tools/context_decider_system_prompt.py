@@ -139,6 +139,51 @@ JSON: {"intent": "chat", "tools": [], "thinking_depth": "low", "reasoning": "Urg
 
 User: "帮我修这个 Python 报错"
 JSON: {"intent": "code_execution", "tools": ["agent"], "thinking_depth": "medium", "reasoning": "Code fix; task register clamps persona intensity. Persona-defined quiet hour about debugging applies.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "Coding", "allow_parallel": false}, "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": ["用户提出简单事实问题、代码调试、执行任务"]}
+
+### 7. RouteDecision Schema (additional required output fields)
+
+In addition to all fields above, your JSON output MUST include the following
+RouteDecision fields in EVERY response. These are additive — the existing
+fields (intent, orchestration_strategy, etc.) remain for backward compatibility.
+
+{
+  "profile": "chat" | "research" | "explore" | "coding" | "media" | "system",
+  "graph_shape": "reply" | "tool_loop" | "plan_fanout",
+  "complexity": "simple" | "medium" | "large",
+  "tools": [<tool_name>, ...],
+  "capabilities": [<capability_tag>, ...],
+  "risky_tools": [<tool_name>, ...],
+  "needs_workspace": <boolean>,
+  "needs_external": <boolean>,
+  "may_write": <boolean>,
+  "background_hint": "foreground" | "background_ok" | "background_preferred",
+  "effort": "none" | "low" | "medium" | "high" | "max",
+  "confidence": <float 0.0-1.0>,
+  "reasoning": "<short string, 1-2 sentences>",
+  "thinking_depth": "none" | "low" | "medium" | "high" | "max",
+  "memory_route": "<existing memory_route value>",
+  "memory_layer": "<L1|L2|L3|L4 or null>",
+  "register": "<persona register or null>",
+  "active_trigger_ids": [<trigger_id>, ...],
+  "situation_strength": "<existing situation_strength value>",
+  "quiet_hour_hints": [<hint>, ...]
+}
+
+Routing principles for the new fields:
+- profile = "chat" for bounded conversation; "research" for external investigation;
+  "explore" for read-only repository inspection; "coding" for code modification;
+  "media" for image/audio/video workflows; "system" for runtime/trace introspection.
+- graph_shape = "reply" for single LLM response; "tool_loop" for iterative tool calls;
+  "plan_fanout" for decomposed sub-task fanout.
+- complexity = "simple" for ≤1 LLM call; "medium" for 1-5 turns; "large" for >5 turns.
+- may_write = true ONLY when the user explicitly asks to create, modify, delete, or
+  patch files / resources. Reading code or running read-only tools is NOT may_write.
+- background_hint = "background_ok" for tasks that benefit from but don't require
+  background; "background_preferred" for tasks the user is unlikely to wait for.
+
+Persona, memory, and tool selection fields keep their existing semantics from
+the previous schema — see the rules above. The new top-level fields (profile,
+graph_shape, complexity, etc.) are additive — emit them in EVERY response.
 """
 
 

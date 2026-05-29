@@ -159,3 +159,21 @@ def test_legacy_strategy_dict_for_explore() -> None:
     assert legacy["mode"] == "decompose"
     assert legacy["default_leaf_type"] == "CodeExplore"
     assert legacy["allow_parallel"] is True
+
+
+def test_context_decider_system_prompt_mentions_route_decision_fields() -> None:
+    """Source check: the system prompt must request the RouteDecision
+    schema's enum fields so the LLM outputs strict JSON that the new
+    parser can validate."""
+    from magi.tools.context_decider_system_prompt import CONTEXT_DECIDER_SYSTEM_PROMPT
+
+    prompt = CONTEXT_DECIDER_SYSTEM_PROMPT
+    assert "profile" in prompt
+    assert "graph_shape" in prompt
+    assert "complexity" in prompt
+    # Each profile value must be mentioned so the LLM knows the allowed set
+    for value in ("chat", "research", "explore", "coding", "media", "system"):
+        assert value in prompt, f"system prompt must mention profile value {value!r}"
+    # Each graph_shape value
+    for value in ("reply", "tool_loop", "plan_fanout"):
+        assert value in prompt, f"system prompt must mention graph_shape value {value!r}"
