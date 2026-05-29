@@ -203,4 +203,20 @@ describe('pluginsApi.getSettingsResource', () => {
     expect(progressSnapshots).toEqual(['running', 'completed']);
     expect(result.manifest.plugin_id).toBe('calendar');
   });
+
+  it('fetches the registry without cache-bypass params by default', async () => {
+    vi.mocked(api.get).mockResolvedValue({ plugins: [], registry_version: 'v1' } as any);
+
+    await pluginsApi.getRegistry();
+
+    expect(api.get).toHaveBeenCalledWith('/plugins/registry');
+  });
+
+  it('passes refresh=true to bypass the registry cache when forced', async () => {
+    vi.mocked(api.get).mockResolvedValue({ plugins: [], registry_version: 'v1' } as any);
+
+    await pluginsApi.getRegistry({ force: true });
+
+    expect(api.get).toHaveBeenCalledWith('/plugins/registry', { refresh: true });
+  });
 });

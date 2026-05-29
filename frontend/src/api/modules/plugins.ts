@@ -501,8 +501,13 @@ export const pluginsApi = {
   // Registry / Marketplace
   // -----------------------------------------------------------------------
 
-  getRegistry: async (): Promise<PluginRegistryResponse> => {
-    const response = await api.get<PluginRegistryResponse>('/plugins/registry');
+  getRegistry: async (options?: { force?: boolean }): Promise<PluginRegistryResponse> => {
+    // `force` bypasses the backend's in-memory registry TTL cache so a
+    // freshly published plugin version shows up immediately (wired to the
+    // marketplace refresh button).
+    const response = options?.force
+      ? await api.get<PluginRegistryResponse>('/plugins/registry', { refresh: true })
+      : await api.get<PluginRegistryResponse>('/plugins/registry');
     return unwrapPayload(response as PluginRegistryResponse | ApiResponse<PluginRegistryResponse>);
   },
 

@@ -28,13 +28,22 @@ async def list_registry_plugins(
             "installed automatically as dependencies, not by user choice)."
         ),
     ),
+    refresh: bool = Query(
+        default=False,
+        description=(
+            "Bypass the registry client's in-memory TTL cache and re-fetch "
+            "the index from the remote source. Wired to the marketplace "
+            "'refresh' button so a freshly published version shows up "
+            "immediately instead of after the cache expires."
+        ),
+    ),
 ):
     """List all available plugins from the remote registry."""
     legacy = legacy_plugins_module()
     manager = legacy._try_plugin_manager()
     registry = legacy._get_registry_client()
     try:
-        index = await registry.fetch_index()
+        index = await registry.fetch_index(force=refresh)
     except Exception as exc:
         legacy.logger.exception("Failed to fetch plugin registry")
         raise HTTPException(

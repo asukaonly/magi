@@ -53,11 +53,11 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const [processingIds, setProcessingIds] = useState<Record<string, string>>({});
   const [installSnapshots, setInstallSnapshots] = useState<Record<string, PluginInstallJobSnapshot>>({});
 
-  const fetchRegistry = useCallback(async () => {
+  const fetchRegistry = useCallback(async (options?: { force?: boolean }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await pluginsApi.getRegistry();
+      const response = await pluginsApi.getRegistry(options);
       setRegistryEntries(response.plugins);
     } catch (err: any) {
       const message = err?.message || 'unknown';
@@ -221,7 +221,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => void fetchRegistry()}
+            onClick={() => void fetchRegistry({ force: true })}
             disabled={loading}
           >
             <RefreshCw className={loading ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
@@ -263,7 +263,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
         <div className="space-y-3 py-8 text-center">
           <p className="text-sm text-destructive">{t('settings.marketplace.error')}</p>
           <p className="text-xs text-muted-foreground">{error}</p>
-          <Button type="button" variant="outline" size="sm" onClick={() => void fetchRegistry()}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void fetchRegistry({ force: true })}>
             {t('settings.marketplace.actions.retry')}
           </Button>
         </div>
