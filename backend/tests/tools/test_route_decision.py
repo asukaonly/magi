@@ -111,3 +111,51 @@ def test_route_decision_accepts_all_graph_shape_values() -> None:
     for shape in ("reply", "tool_loop", "plan_fanout"):
         decision = RouteDecision(profile="chat", graph_shape=shape, complexity="simple")
         assert decision.graph_shape == shape
+
+
+def test_route_decision_is_importable_from_context_routing_package() -> None:
+    """RouteDecision must be re-exported from the package init so
+    consumers can write ``from magi.tools.context_routing import RouteDecision``
+    without reaching into the route_decision submodule."""
+    from magi.tools.context_routing import RouteDecision
+
+    assert RouteDecision.__name__ == "RouteDecision"
+
+
+def test_legacy_strategy_dict_for_plan_fanout_coding() -> None:
+    """Adapter: graph_shape=plan_fanout with profile=coding maps to
+    mode=decompose, default_leaf_type=Coding."""
+    from magi.tools.context_routing import RouteDecision
+
+    decision = RouteDecision(
+        profile="coding", graph_shape="plan_fanout", complexity="large", may_write=True,
+    )
+    legacy = decision.to_legacy_strategy_dict()
+    assert legacy["mode"] == "decompose"
+    assert legacy["default_leaf_type"] == "Coding"
+    assert legacy["allow_parallel"] is True
+
+
+def test_legacy_strategy_dict_for_reply_chat() -> None:
+    """Adapter: graph_shape=reply with profile=chat maps to mode=direct,
+    default_leaf_type=general-purpose, allow_parallel=False."""
+    from magi.tools.context_routing import RouteDecision
+
+    decision = RouteDecision(profile="chat", graph_shape="reply", complexity="simple")
+    legacy = decision.to_legacy_strategy_dict()
+    assert legacy["mode"] == "direct"
+    assert legacy["default_leaf_type"] == "general-purpose"
+    assert legacy["allow_parallel"] is False
+
+
+def test_legacy_strategy_dict_for_explore() -> None:
+    from magi.tools.context_routing import RouteDecision
+
+    decision = RouteDecision(
+        profile="explore", graph_shape="plan_fanout", complexity="medium",
+        needs_workspace=True,
+    )
+    legacy = decision.to_legacy_strategy_dict()
+    assert legacy["mode"] == "decompose"
+    assert legacy["default_leaf_type"] == "CodeExplore"
+    assert legacy["allow_parallel"] is True
