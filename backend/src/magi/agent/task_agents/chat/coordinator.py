@@ -551,15 +551,27 @@ class ChatExecutionCoordinator:
     ) -> None:
         """Stream one chunk to every configured channel for this user/session.
 
+        Resolves the user's stored delivery preferences via the injected
+        ``user_prefs_provider`` (same source ``execute()`` uses for the
+        final fanout) so streaming chunks reach the SAME set of channels
+        the assembled response will. Without this, the streaming and
+        fanout paths would silently disagree on the target list — a
+        user with ``{"delivery_channels": ["chat_sse", "telegram"]}``
+        would only see chunks on chat_sse but get the final reply on
+        both, which is exactly the wire-up bug Phase G+1 exists to
+        prevent.
+
         No-op when no delivery router is wired (legacy / test paths) or
         session_id is empty. Errors per channel are isolated inside
-        DeliveryRouter.fanout_chunk.
+        DeliveryRouter.fanout_chunk. Errors from the prefs provider are
+        already swallowed by ``_resolve_user_prefs`` (returns ``{}``).
         """
         if self._delivery_router is None or not session_id:
             return
         from magi_plugin_sdk.delivery import DeliveryChunk
+        user_prefs = await self._resolve_user_prefs(user_id)
         targets = resolve_delivery_targets(
-            user_id=user_id, session_id=session_id, user_prefs={},
+            user_id=user_id, session_id=session_id, user_prefs=user_prefs,
         )
         await self._delivery_router.fanout_chunk(
             chunk=DeliveryChunk(text=text, is_final=is_final, seq=seq),
