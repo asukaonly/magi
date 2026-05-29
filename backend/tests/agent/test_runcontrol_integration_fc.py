@@ -328,3 +328,19 @@ def test_function_calling_handler_passes_route_decision_to_orchestrator() -> Non
     ), (
         "FunctionCallingHandler.execute must pass intent.route_decision through"
     )
+
+
+def test_function_calling_handler_no_longer_uses_orchestration_plan_to_strategy_dict() -> None:
+    """Phase C cleanup: FunctionCallingHandler.execute reads
+    request.intent.route_decision directly and stops calling
+    orchestration_plan.to_strategy_dict() (which was a Phase B
+    migration adapter)."""
+    import inspect
+
+    from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
+
+    src = inspect.getsource(FunctionCallingHandler)
+    assert "orchestration_plan.to_strategy_dict()" not in src, (
+        "FunctionCallingHandler must consume route_decision directly; "
+        "the OrchestrationPlan legacy adapter is being removed in Phase C"
+    )
