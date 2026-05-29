@@ -13,6 +13,7 @@ from .run_contracts import ActiveRun, RunResult, RunResultDisposition
 
 if TYPE_CHECKING:
     from .run_store import SessionRunStore
+    from ...run.snapshot import RunSnapshot
 
 
 class SessionRunLifecycleMixin:
@@ -132,6 +133,31 @@ class SessionRunLifecycleMixin:
     ) -> None:
         """Proxy to ``SessionRunStore.unregister_active_run_control``."""
         self._run_store.unregister_active_run_control(session_id, run_id)
+
+    def save_run_snapshot(
+        self,
+        session_id: str,
+        run_id: str,
+        snapshot: "RunSnapshot",
+    ) -> None:
+        """Phase E proxy: persist the snapshot for ``(session_id, run_id)``."""
+        self._run_store.save_run_snapshot(session_id, run_id, snapshot)
+
+    def get_run_snapshot(
+        self,
+        session_id: str,
+        run_id: str,
+    ) -> "RunSnapshot | None":
+        """Phase E proxy: return the most recent snapshot for ``(session_id, run_id)``."""
+        return self._run_store.get_run_snapshot(session_id, run_id)
+
+    def clear_run_snapshot(
+        self,
+        session_id: str,
+        run_id: str,
+    ) -> None:
+        """Phase E proxy: drop the snapshot. No-op if not present."""
+        self._run_store.clear_run_snapshot(session_id, run_id)
 
     def _record_classified_result(
         self,

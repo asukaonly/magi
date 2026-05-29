@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .protocol import NodeOutcome, NodeResult
 
@@ -27,6 +27,14 @@ class PlanFanoutNode:
         except Exception as exc:
             return NodeResult(outcome=NodeOutcome.FAILED, error=str(exc))
         return NodeResult(outcome=NodeOutcome.DONE, execution_result=execution_result)
+
+    def snapshot(self) -> dict[str, Any]:
+        """PlanFanoutNode is stateless — no in-flight state to capture."""
+        return {}
+
+    def restore(self, state: dict[str, Any]) -> None:
+        """No-op: stateless."""
+        return None
 
 
 __all__ = ["PlanFanoutNode"]

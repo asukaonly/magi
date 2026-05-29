@@ -109,6 +109,14 @@ class ValidateNode:
             ),
         )
 
+    def snapshot(self) -> dict[str, Any]:
+        """ValidateNode is stateless — no in-flight state to capture."""
+        return {}
+
+    def restore(self, state: dict[str, Any]) -> None:
+        """No-op: stateless."""
+        return None
+
     @staticmethod
     def _build_tool_context(request: "ExecutionRequest") -> ToolExecutionContext:
         """Build the ToolExecutionContext that VerifyTool requires.

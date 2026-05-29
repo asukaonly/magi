@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from threading import RLock
+from typing import TYPE_CHECKING
 
 from ....memory.l0.working_memory import L0WorkingMemoryStore
 from ...run_control import RunControl
@@ -10,6 +11,9 @@ from .run_store_conversion import SessionRunConversionMixin
 from .run_store_goals import SessionRunGoalMixin
 from .run_store_lifecycle import SessionRunLifecycleMixin
 from .run_store_results import SessionRunResultMixin
+
+if TYPE_CHECKING:
+    from ...run.snapshot import RunSnapshot
 
 
 class SessionRunStore(
@@ -32,6 +36,8 @@ class SessionRunStore(
         self._l0_store = l0_store or L0WorkingMemoryStore(restore_on_restart=False)
         self._lock = RLock()
         self._run_controls: dict[tuple[str, str], RunControl] = {}
+        # Phase E: per-run snapshot storage (in-memory; persistence via background task spec)
+        self._run_snapshots: dict[tuple[str, str], "RunSnapshot"] = {}
 
 
 __all__ = ["SessionRunStore"]

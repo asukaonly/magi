@@ -5,8 +5,9 @@ FAILED, the runner stops and returns a failure-surfaced result. On
 all-DONE, the runner merges per-node ExecutionResult.response_text
 with newline separators and returns the combined result.
 
-Phase E will introduce a real AgentRunKernel that handles fanout,
-child runs, snapshot/detach, and shared state passed between nodes.
+Phase E: ``run_with_snapshot`` is the canonical entry point. It
+returns both the merged ExecutionResult AND a RunSnapshot capturing
+per-node state. ``run`` is kept as a Phase D-compatible wrapper.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from .nodes.protocol import NodeOutcome
 from .registry import NodeRegistry
+from .snapshot import RunSnapshot
 from .spec import NodeSpec
 
 if TYPE_CHECKING:
@@ -23,6 +25,10 @@ if TYPE_CHECKING:
 
 class NodeSequenceRunner:
     """Execute a list of NodeSpecs in order against one request.
+
+    Phase E: ``run_with_snapshot`` is the canonical entry point. It
+    returns both the merged ExecutionResult AND a RunSnapshot capturing
+    per-node state. ``run`` is kept as a Phase D-compatible wrapper.
 
     Sequential execution semantics:
     - DONE outcomes are accumulated; per-node response_text is merged
@@ -44,42 +50,105 @@ class NodeSequenceRunner:
         node_specs: list[NodeSpec],
         request: "ExecutionRequest",
     ) -> "ExecutionResult | None":
+        """Phase D-compatible: returns just the ExecutionResult."""
+        result, _snapshot = await self.run_with_snapshot(
+            run_id="",
+            node_specs=node_specs,
+            request=request,
+            resume_from=None,
+        )
+        return result
+
+    async def run_with_snapshot(
+        self,
+        *,
+        run_id: str,
+        node_specs: list[NodeSpec],
+        request: "ExecutionRequest",
+        resume_from: RunSnapshot | None = None,
+    ) -> "tuple[ExecutionResult | None, RunSnapshot]":
+        """Phase E entry point: returns (ExecutionResult, RunSnapshot).
+
+        ``resume_from``: if supplied, the runner restores each completed
+        node's state (indices 0..cursor-1) then jumps to ``resume_from.cursor``
+        and continues. The node at ``cursor`` runs from scratch — its
+        ``restore()`` is NOT called, so retry semantics work cleanly (a failed
+        node resumes from its natural initial state, not from corrupted
+        in-flight state).
+        """
+        graph = tuple(spec.node_type for spec in node_specs)
+        node_states: dict[str, dict[str, Any]] = dict(
+            resume_from.node_states if resume_from is not None else {}
+        )
+        cursor = resume_from.cursor if resume_from is not None else 0
+
+        # Restore all completed nodes' state before resuming.
+        # Nodes before cursor already ran; restore their captured state so
+        # they reflect their final condition (useful for downstream nodes
+        # that may inspect sibling state). The cursor node runs from scratch.
+        if resume_from is not None:
+            for i in range(cursor):
+                prior_spec = node_specs[i]
+                prior_node = self._node_registry.get(prior_spec.node_type)
+                if prior_node is not None:
+                    preserved = node_states.get(prior_spec.node_type, {})
+                    prior_node.restore(preserved)
+
         if not node_specs:
-            return None
+            return None, RunSnapshot(
+                run_id=run_id,
+                graph=graph,
+                cursor=0,
+                node_states=node_states,
+            )
 
         accumulated_texts: list[str] = []
-        primary_result: ExecutionResult | None = None
+        primary_result: "ExecutionResult | None" = None
 
-        for spec in node_specs:
+        for idx in range(cursor, len(node_specs)):
+            spec = node_specs[idx]
             node = self._node_registry.get(spec.node_type)
             if node is None:
                 raise ValueError(
-                    f"NodeSequenceRunner.run: no Node registered for node_type "
-                    f"{spec.node_type!r}"
+                    f"NodeSequenceRunner.run_with_snapshot: no Node registered for "
+                    f"node_type {spec.node_type!r}"
                 )
 
             node_result = await node.execute(request)
+
+            # Capture snapshot from this node (always — even on FAILED).
+            try:
+                node_states[spec.node_type] = node.snapshot()
+            except Exception:
+                # Snapshot failures must not break the run; record empty state.
+                node_states[spec.node_type] = {}
 
             if node_result.execution_result is not None:
                 if primary_result is None:
                     primary_result = node_result.execution_result
                 if node_result.execution_result.response_text:
-                    accumulated_texts.append(
-                        node_result.execution_result.response_text
-                    )
+                    accumulated_texts.append(node_result.execution_result.response_text)
 
             if node_result.outcome == NodeOutcome.FAILED:
                 error_text = node_result.error or "Node failed"
                 accumulated_texts.append(f"[error] {error_text}")
+                # Cursor stays at idx (failed node retained for retry).
+                snapshot = RunSnapshot(
+                    run_id=run_id, graph=graph, cursor=idx, node_states=node_states,
+                )
                 return _merge_accumulated_into_result(
                     primary_result=primary_result,
                     accumulated_texts=accumulated_texts,
-                )
+                ), snapshot
 
+        # All nodes completed: cursor advances past the last index.
+        snapshot = RunSnapshot(
+            run_id=run_id, graph=graph, cursor=len(node_specs), node_states=node_states,
+        )
         return _merge_accumulated_into_result(
             primary_result=primary_result,
             accumulated_texts=accumulated_texts,
-        )
+        ), snapshot
 
 
 def _merge_accumulated_into_result(

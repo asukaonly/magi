@@ -85,6 +85,15 @@ class BackgroundTaskSpec:
     detached foreground run hands off its in-progress state to the
     background worker without losing any context.
     """
+    # === Phase E ===
+    initial_run_snapshot: dict[str, Any] | None = None
+    """Optional RunSnapshot dict for multi-node run resume.
+
+    When set, the background dispatcher prefers this over the legacy
+    ``initial_messages`` (FC-only) shape. The dict is the result of
+    ``RunSnapshot.to_dict()`` and is passed to
+    ``NodeSequenceRunner.run_with_snapshot(resume_from=RunSnapshot.from_dict(...))``.
+    """
     pending_message_id: str | None = None
     """Id of the placeholder ``background_task_pending`` chat message.
 
@@ -113,6 +122,11 @@ class BackgroundTaskSpec:
             "initial_messages": (
                 [dict(m) for m in self.initial_messages]
                 if self.initial_messages is not None
+                else None
+            ),
+            "initial_run_snapshot": (
+                dict(self.initial_run_snapshot)
+                if self.initial_run_snapshot is not None
                 else None
             ),
             "pending_message_id": self.pending_message_id,
@@ -145,6 +159,11 @@ class BackgroundTaskSpec:
             initial_messages=(
                 [dict(m) for m in data["initial_messages"]]
                 if data.get("initial_messages") is not None
+                else None
+            ),
+            initial_run_snapshot=(
+                dict(data["initial_run_snapshot"])
+                if data.get("initial_run_snapshot") is not None
                 else None
             ),
             pending_message_id=(

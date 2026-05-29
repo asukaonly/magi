@@ -30,6 +30,12 @@ class _StubNode:
         )
         return NodeResult(outcome=self._outcome, execution_result=exec_result)
 
+    def snapshot(self) -> dict:
+        return {}
+
+    def restore(self, state: dict) -> None:
+        pass
+
 
 def _build_registry(*nodes) -> NodeRegistry:
     registry = NodeRegistry()

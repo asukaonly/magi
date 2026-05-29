@@ -6,7 +6,7 @@ wrapping the ExecutionResult in NodeResult. No business logic.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .protocol import NodeOutcome, NodeResult
 
@@ -31,6 +31,14 @@ class ReplyNode:
         except Exception as exc:
             return NodeResult(outcome=NodeOutcome.FAILED, error=str(exc))
         return NodeResult(outcome=NodeOutcome.DONE, execution_result=execution_result)
+
+    def snapshot(self) -> dict[str, Any]:
+        """ReplyNode is stateless — single LLM call, no in-flight state."""
+        return {}
+
+    def restore(self, state: dict[str, Any]) -> None:
+        """No-op: stateless."""
+        return None
 
 
 __all__ = ["ReplyNode"]
