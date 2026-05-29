@@ -82,20 +82,22 @@ def test_chat_execution_coordinator_has_node_registry_attribute() -> None:
 
 
 def test_chat_execution_coordinator_execute_dispatches_via_node_registry() -> None:
-    """ChatExecutionCoordinator.execute must consult the NodeRegistry
-    using request.intent.route_decision.graph_shape; only when the
-    registry returns None should it fall back to the legacy
-    ExecutionHandlerRegistry."""
+    """Phase D: ChatExecutionCoordinator.execute dispatches user-message
+    paths through NodeSequenceRunner (which internally uses the NodeRegistry).
+    Phase D replaced the direct NodeRegistry lookup with a runner-based
+    pipeline that supports multi-node sequences (e.g., ToolLoop + Validate).
+    The execute() source must reference the sequence runner."""
     import inspect
 
     from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator.execute)
-    assert "_node_registry" in src or "node_registry" in src, (
-        "execute() must consult the node registry"
+    # Phase D: NodeSequenceRunner drives dispatch; the runner holds the registry.
+    assert "_node_sequence_runner" in src or "node_sequence_runner" in src, (
+        "execute() must dispatch via the NodeSequenceRunner (Phase D)"
     )
-    assert "graph_shape" in src, (
-        "execute() must dispatch by graph_shape"
+    assert "route_decision" in src, (
+        "execute() must consult route_decision to build the node sequence"
     )
 
 
