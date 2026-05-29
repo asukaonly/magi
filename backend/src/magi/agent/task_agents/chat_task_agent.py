@@ -106,8 +106,15 @@ class ChatTaskAgent(
         background_launch_service: Any | None = None,
         permission_gateway_provider: Callable[[], Any] | None = None,
         control_session_store_provider: Callable[[], Any] | None = None,
+        channel_registry_resolver: Callable[[], Any] | None = None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
+        # Phase G+1: resolver returning the live ChannelRegistry (or None
+        # when channels aren't configured). Defaults to a helper that reads
+        # the runtime container; tests inject a callable to bypass it.
+        self._channel_registry_resolver = (
+            channel_registry_resolver or self._resolve_channel_registry
+        )
         self.llm = llm_adapter
         self._llm_pool = llm_pool
         self.memory = memory
@@ -279,6 +286,7 @@ class ChatTaskAgent(
             intent_trace_callback=self._postprocess_service.record_intent_resolution,
             tool_advisory_provider=self._get_tool_advisory,
             tool_selection_trace_callback=self._postprocess_service.record_tool_selection,
+            channel_registry=self._channel_registry_resolver(),
         )
         self._last_batch_facts: list[FactRecord] = []
 
@@ -295,6 +303,32 @@ class ChatTaskAgent(
         via :meth:`ChatPostProcessService.deliver_background_task_completion`.
         """
         return self._postprocess_service
+
+    @staticmethod
+    def _resolve_channel_registry() -> Any | None:
+        """Pull the live ChannelRegistry out of the runtime container.
+
+        Returns ``None`` when the container isn't initialized (test paths,
+        early bootstrap, or runtimes where channels are intentionally off)
+        so coordinator construction never fails. The coordinator falls back
+        to the legacy delivery path when the registry is ``None``.
+        """
+        try:
+            from ...core.container import get_container
+
+            context = get_container().runtime_bootstrap_context()
+        except Exception:
+            return None
+        # ``runtime_bootstrap_context`` is overridden during bootstrap with a
+        # real ``RuntimeBootstrapContext``. Before that, the provider returns
+        # a bare ``object()`` placeholder that has no ``channels`` attribute.
+        channels_state = getattr(context, "channels", None)
+        if channels_state is None:
+            return None
+        module = getattr(channels_state, "module", None)
+        if module is None:
+            return None
+        return getattr(module, "_registry", None)
 
     async def _persist_turn_supersessions_from_handler(
         self,
