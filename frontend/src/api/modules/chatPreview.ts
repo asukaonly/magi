@@ -29,6 +29,12 @@ export interface PreviewPersonaOverride {
 export interface ChatPreviewRequest {
   /** A known persona seed. Omit when sending `persona_override` instead. */
   seed_slug?: string;
+  /**
+   * Seed locale folder ("zh" / "en") — selects which bundled preset the
+   * `seed_slug` resolves against (must match the locale the previews were
+   * loaded with). Ignored when `persona_override` is set.
+   */
+  locale?: string;
   history: PreviewTurn[];
   message: PreviewTurn;
   /**

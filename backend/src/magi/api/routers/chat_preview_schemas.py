@@ -28,6 +28,9 @@ class PreviewMessageRequest(BaseModel):
     # Exactly one persona source is required: a known ``seed_slug`` OR an inline
     # ``persona_override``. The handler returns 400 when neither is provided.
     seed_slug: Optional[str] = Field(default=None)
+    # Seed locale folder ("zh" / "en"); selects which bundled preset file the
+    # ``seed_slug`` resolves against. Ignored when ``persona_override`` is set.
+    locale: str = Field(default="en")
     history: list[PreviewTurn] = Field(default_factory=list, max_length=20)
     message: PreviewTurn
     llm_override: Optional[LLMSettings] = Field(

@@ -15,10 +15,10 @@ def app_with_preview():
         for chunk in ["hi", " ", "there"]:
             yield chunk
 
-    def fake_loader(seed_slug: str) -> str:
+    def fake_loader(seed_slug: str, locale: str) -> str:
         if seed_slug == "ghost":
             raise ValueError("unknown seed: ghost")
-        return f"<system prompt for {seed_slug}>"
+        return f"<system prompt for {seed_slug} ({locale})>"
 
     # The LLM deps now receive the request's optional ``llm_override``; the
     # fakes ignore it but must accept the positional arg.
@@ -112,7 +112,7 @@ def test_post_preview_threads_llm_override_to_deps() -> None:
     app = FastAPI()
     app.include_router(
         build_default_chat_preview_router(
-            persona_loader_dep=lambda: (lambda slug: f"<prompt {slug}>"),
+            persona_loader_dep=lambda: (lambda slug, locale: f"<prompt {slug}>"),
             llm_call_dep=llm_call_dep,
             core_model_dep=core_model_dep,
         ),
@@ -158,10 +158,10 @@ def _capture_prompt_app(captured: dict) -> FastAPI:
         captured["system_prompt"] = system_prompt
         yield "ok"
 
-    def fake_loader(seed_slug: str) -> str:
+    def fake_loader(seed_slug: str, locale: str) -> str:
         if not seed_slug:
             raise ValueError("unknown seed: ")
-        return f"<seed prompt for {seed_slug}>"
+        return f"<seed prompt for {seed_slug} ({locale})>"
 
     app = FastAPI()
     app.include_router(
@@ -200,6 +200,63 @@ def test_post_preview_accepts_persona_override() -> None:
     assert "a calm, curious companion" in prompt
     assert "short and warm" in prompt
     assert "seed prompt" not in prompt
+
+
+def test_resolve_persona_prompt_reads_locale_preset() -> None:
+    """The production resolver reads personalities/{locale}/{slug}.json.
+
+    Regression: the old loader searched only non-locale paths, so real seeds
+    (which live under personalities/{locale}/) raised 'unknown seed'.
+    """
+    from magi.api.routers.chat_preview_routes import _resolve_persona_prompt
+
+    prompt = _resolve_persona_prompt("echo_ai_assistant", "zh")
+    assert prompt.startswith("You are ")
+    assert "Language style:" in prompt
+
+
+def test_resolve_persona_prompt_unknown_seed_raises() -> None:
+    from magi.api.routers.chat_preview_routes import _resolve_persona_prompt
+
+    with pytest.raises(ValueError):
+        _resolve_persona_prompt("does_not_exist", "zh")
+
+
+def test_post_preview_threads_locale_to_loader() -> None:
+    """The request's ``locale`` selects which preset folder the seed resolves in."""
+    seen: dict[str, str] = {}
+
+    async def fake_llm(*, system_prompt, messages, model):
+        yield "ok"
+
+    def fake_loader(seed_slug: str, locale: str) -> str:
+        seen["seed_slug"] = seed_slug
+        seen["locale"] = locale
+        return "<prompt>"
+
+    app = FastAPI()
+    app.include_router(
+        build_default_chat_preview_router(
+            persona_loader_dep=lambda: fake_loader,
+            llm_call_dep=lambda _override=None: fake_llm,
+            core_model_dep=lambda _override=None: "core-model",
+        ),
+    )
+    client = TestClient(app)
+    with client.stream(
+        "POST",
+        "/chat/preview",
+        json={
+            "seed_slug": "sumen_listener",
+            "locale": "zh",
+            "history": [],
+            "message": {"role": "user", "content": "hi"},
+        },
+    ) as response:
+        assert response.status_code == 200
+        b"".join(response.iter_bytes())
+
+    assert seen == {"seed_slug": "sumen_listener", "locale": "zh"}
 
 
 def test_post_preview_requires_seed_or_override() -> None:

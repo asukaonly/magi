@@ -54,9 +54,9 @@ describe('PersonaPreviewChat', () => {
     expect(screen.getByRole('button', { name: /Ember/i })).toBeInTheDocument();
   });
 
-  it('streams the persona reply and forwards the llm_override', async () => {
+  it('streams the persona reply and forwards the locale + llm_override', async () => {
     const llmConfig = { providers: {}, selections: {} } as any;
-    render(<PersonaPreviewChat previews={previews} llmConfig={llmConfig} />);
+    render(<PersonaPreviewChat previews={previews} locale="zh" llmConfig={llmConfig} />);
     await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
     const input = screen.getByPlaceholderText(/composerPlaceholder/i);
     await userEvent.type(input, 'hi');
@@ -67,6 +67,7 @@ describe('PersonaPreviewChat', () => {
     expect(mockStream).toHaveBeenCalledWith(
       expect.objectContaining({
         seed_slug: 'nova',
+        locale: 'zh',
         message: { role: 'user', content: 'hi' },
         llm_override: llmConfig,
       }),

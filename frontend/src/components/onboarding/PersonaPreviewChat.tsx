@@ -27,6 +27,11 @@ export interface CustomPersonaDraft {
 export interface PersonaPreviewChatProps {
   previews: SeedPreview[];
   /**
+   * Seed locale ("zh" / "en") the previews were loaded with — forwarded to the
+   * preview endpoint so a seed_slug resolves against the right preset folder.
+   */
+  locale?: string;
+  /**
    * The in-progress (unsaved) onboarding LLM config. Passed to the preview
    * endpoint as `llm_override` and to persona generation, so both work before
    * the user has persisted their selections / started the LLM runtime.
@@ -68,7 +73,7 @@ function PreviewAvatar({ name, avatar }: { name: string; avatar?: string }): JSX
 
   if (!url || failed) {
     return (
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#e6d7c5] text-sm font-semibold text-[#7d685a] dark:bg-[#5b4a3d] dark:text-[#f4eadf]">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground">
         {initial}
       </div>
     );
@@ -85,6 +90,7 @@ function PreviewAvatar({ name, avatar }: { name: string; avatar?: string }): JSX
 
 export function PersonaPreviewChat({
   previews,
+  locale,
   llmConfig,
   onActiveSeedChange,
   initialCustomPersonas,
@@ -217,6 +223,7 @@ export function PersonaPreviewChat({
     try {
       for await (const chunk of streamChatPreview({
         seed_slug: personaOverride ? undefined : seed,
+        locale,
         persona_override: personaOverride,
         history: snapshotHistory,
         message: userTurn,
@@ -236,6 +243,7 @@ export function PersonaPreviewChat({
     busy,
     capReached,
     transcripts,
+    locale,
     llmConfig,
     appendTurn,
     updateLastAssistantContent,
@@ -284,7 +292,7 @@ export function PersonaPreviewChat({
     <div className="grid h-full grid-cols-[200px_1fr] gap-4">
       {/* Left: avatar rail — clicking selects the persona (the active one is
           confirmed by the footer "Next" button). */}
-      <div className="flex flex-col gap-2 overflow-y-auto border-r border-[#e6d7c5] pr-2 dark:border-[#5b4a3d]">
+      <div className="flex flex-col gap-2 overflow-y-auto border-r border-border/55 pr-2">
         {railItems.map((p) => (
           <button
             key={p.slug}
@@ -296,14 +304,14 @@ export function PersonaPreviewChat({
             aria-pressed={activeSeed === p.slug && mode === 'chat'}
             className={`flex items-center gap-3 rounded-lg px-3 py-2 text-left transition ${
               activeSeed === p.slug && mode === 'chat'
-                ? 'bg-[#f4eadf] dark:bg-[#5b4a3d]'
-                : 'hover:bg-[#fbf6ef] dark:hover:bg-[#3d2f25]'
+                ? 'bg-muted'
+                : 'hover:bg-muted/50'
             }`}
           >
             <PreviewAvatar name={p.name} avatar={p.avatar} />
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{p.name}</div>
-              <div className="truncate text-xs text-[#7d685a] dark:text-[#c8b7a7]">
+              <div className="truncate text-sm font-medium text-foreground">{p.name}</div>
+              <div className="truncate text-xs text-muted-foreground">
                 {p.description}
               </div>
             </div>
@@ -318,11 +326,11 @@ export function PersonaPreviewChat({
             setGenError(null);
           }}
           aria-pressed={mode === 'create'}
-          className={`flex items-center gap-3 rounded-lg border border-dashed border-[#d8c9b8] px-3 py-2 text-left text-sm text-[#7d685a] transition hover:bg-[#fbf6ef] dark:border-[#5b4a3d] dark:text-[#c8b7a7] dark:hover:bg-[#3d2f25] ${
-            mode === 'create' ? 'bg-[#f4eadf] dark:bg-[#5b4a3d]' : ''
+          className={`flex items-center gap-3 rounded-lg border border-dashed border-border px-3 py-2 text-left text-sm text-muted-foreground transition hover:bg-muted/50 ${
+            mode === 'create' ? 'bg-muted' : ''
           }`}
         >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-dashed border-[#d8c9b8] text-lg dark:border-[#5b4a3d]">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-lg">
             +
           </span>
           <span className="truncate font-medium">{t('personaPreview.createCustom')}</span>
@@ -332,9 +340,9 @@ export function PersonaPreviewChat({
       {/* Right: either the preview chat or the custom-persona composer. */}
       {mode === 'create' ? (
         <div className="flex flex-col gap-3">
-          <div className="flex-1 overflow-y-auto rounded-lg border border-[#e6d7c5] bg-white p-4 dark:border-[#5b4a3d] dark:bg-[#2a2018]">
-            <h3 className="text-sm font-medium">{t('personaPreview.createCustomTitle')}</h3>
-            <p className="mt-1 text-xs text-[#7d685a] dark:text-[#c8b7a7]">
+          <div className="flex-1 overflow-y-auto rounded-lg border border-border/55 bg-background p-4">
+            <h3 className="text-sm font-medium text-foreground">{t('personaPreview.createCustomTitle')}</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
               {t('personaPreview.createCustomHint')}
             </p>
             <textarea
@@ -344,15 +352,15 @@ export function PersonaPreviewChat({
               placeholder={t('personaPreview.customDescriptionPlaceholder')}
               disabled={generating}
               rows={3}
-              className="mt-3 w-full rounded-md border border-[#d8c9b8] bg-white px-3 py-2 text-sm dark:border-[#5b4a3d] dark:bg-[#3d2f25]"
+              className="mt-3 w-full rounded-md border border-border/55 bg-card px-3 py-2 text-sm text-foreground"
             />
 
             {generating && (
               <div
                 data-testid="persona-generation-progress"
-                className="mt-3 rounded-md border border-[#e6d7c5] bg-[#fbf6ef] p-3 dark:border-[#5b4a3d] dark:bg-[#3d2f25]"
+                className="mt-3 rounded-md border border-border/55 bg-card p-3"
               >
-                <p className="text-xs font-medium text-[#7d685a] dark:text-[#c8b7a7]">
+                <p className="text-xs font-medium text-muted-foreground">
                   {t('personaPreview.generating')}
                 </p>
                 {genStages.length > 0 && (
@@ -360,7 +368,7 @@ export function PersonaPreviewChat({
                     {genStages.map((s) => (
                       <li
                         key={s.stage_id}
-                        className="flex items-center gap-2 text-xs text-[#7d685a] dark:text-[#c8b7a7]"
+                        className="flex items-center gap-2 text-xs text-muted-foreground"
                       >
                         <span aria-hidden>
                           {s.status === 'completed' ? '✓' : s.status === 'running' ? '…' : '·'}
@@ -374,7 +382,7 @@ export function PersonaPreviewChat({
             )}
 
             {genError && (
-              <p className="mt-3 text-xs text-red-600 dark:text-red-400">
+              <p className="mt-3 text-xs text-destructive">
                 {t('personaPreview.generationFailed')}: {genError}
               </p>
             )}
@@ -388,7 +396,7 @@ export function PersonaPreviewChat({
                 setGenError(null);
               }}
               disabled={generating}
-              className="rounded-md px-4 py-2 text-sm text-[#7d685a] underline disabled:opacity-50 dark:text-[#c8b7a7]"
+              className="rounded-md px-4 py-2 text-sm text-muted-foreground underline disabled:opacity-50"
             >
               {t('personaPreview.cancelCreate')}
             </button>
@@ -397,7 +405,7 @@ export function PersonaPreviewChat({
               data-testid="persona-custom-generate"
               onClick={handleGenerate}
               disabled={!customDescription.trim() || generating}
-              className="rounded-md bg-[#35261f] px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-[#f4eadf] dark:text-[#35261f]"
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
             >
               {generating ? t('personaPreview.generating') : t('personaPreview.generate')}
             </button>
@@ -405,22 +413,25 @@ export function PersonaPreviewChat({
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          <div className="flex-1 overflow-y-auto rounded-lg border border-[#e6d7c5] bg-white p-4 dark:border-[#5b4a3d] dark:bg-[#2a2018]">
+          {/* Mirrors the real chat surface: bg-background scroll area with
+              bg-card bubbles, so the preview reads like the app you're about
+              to enter. */}
+          <div className="flex-1 overflow-y-auto rounded-lg border border-border/55 bg-background p-4">
             {activeTranscript.length === 0 && (
-              <p className="text-sm text-[#7d685a] dark:text-[#c8b7a7]">
+              <p className="text-sm text-muted-foreground">
                 {t('personaPreview.emptyHint')}
               </p>
             )}
             {activeTranscript.map((turn, idx) => (
               <div
                 key={idx}
-                className={`mb-2 ${turn.role === 'user' ? 'text-right' : 'text-left'}`}
+                className={`mb-2 flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <span
-                  className={`inline-block max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
+                  className={`inline-block max-w-[80%] whitespace-pre-wrap border border-border/55 bg-card px-4 py-2.5 text-sm text-foreground shadow-sm ${
                     turn.role === 'user'
-                      ? 'bg-[#35261f] text-white dark:bg-[#f4eadf] dark:text-[#35261f]'
-                      : 'bg-[#f4eadf] text-[#35261f] dark:bg-[#5b4a3d] dark:text-[#f4eadf]'
+                      ? 'rounded-xl rounded-tr-sm'
+                      : 'rounded-xl rounded-tl-sm'
                   }`}
                 >
                   {turn.content}
@@ -438,7 +449,7 @@ export function PersonaPreviewChat({
               onChange={(e) => setDraft(e.target.value)}
               placeholder={t('personaPreview.composerPlaceholder')}
               disabled={capReached}
-              className="flex-1 rounded-md border border-[#d8c9b8] bg-white px-3 py-2 text-sm dark:border-[#5b4a3d] dark:bg-[#3d2f25]"
+              className="flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -450,14 +461,14 @@ export function PersonaPreviewChat({
               type="button"
               onClick={send}
               disabled={!draft.trim() || busy || capReached}
-              className="rounded-md bg-[#35261f] px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-[#f4eadf] dark:text-[#35261f]"
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
             >
               {t('personaPreview.send')}
             </button>
           </div>
 
           {capReached && (
-            <p className="text-xs text-[#7d685a] dark:text-[#c8b7a7]">
+            <p className="text-xs text-muted-foreground">
               {t('personaPreview.capReached')}
             </p>
           )}

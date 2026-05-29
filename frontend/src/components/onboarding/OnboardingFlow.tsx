@@ -125,13 +125,18 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
 
   const isLastStep = current === steps.length - 1;
 
+  // Seed locale folder ("zh" / "en"). Drives both which previews we load and
+  // which preset folder the preview chat resolves a seed_slug against — they
+  // must agree, or the backend can't find the seed.
+  const seedLocale = (initialConfig.preferences?.language || 'en').startsWith('zh')
+    ? 'zh'
+    : 'en';
+
   // Load persona seed previews for the current locale once on mount and when
   // language changes. This keeps the avatar rail in sync with i18n.
   useEffect(() => {
     let cancelled = false;
-    const locale = (initialConfig.preferences?.language || 'en').startsWith('zh')
-      ? 'zh'
-      : 'en';
+    const locale = seedLocale;
     void (async () => {
       try {
         const resp = await personasApi.seedPreviews(locale);
@@ -388,6 +393,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       return (
         <PersonaPreviewChat
           previews={seedPreviews}
+          locale={seedLocale}
           llmConfig={llmValue}
           initialCustomPersonas={customPersonas}
           onActiveSeedChange={(slug) => {

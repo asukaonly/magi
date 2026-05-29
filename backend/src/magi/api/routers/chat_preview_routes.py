@@ -1,11 +1,12 @@
 """HTTP API for /chat/preview — streams persona preview responses.
 
-Two production wiring concerns are deliberately deferred until the dependency
+Three production wiring concerns are deliberately deferred until the dependency
 callables fire on first request:
-- ``persona_loader_dep`` resolves a seed_slug to a flat system prompt. The
-  production implementation reads from :class:`magi.personality.loader.PersonalityLoader`
-  and raises :class:`ValueError` when the seed is unknown so the router can
-  return HTTP 400.
+- ``persona_loader_dep`` resolves a ``(seed_slug, locale)`` pair to a flat
+  system prompt. The production implementation reads the bundled preset file at
+  ``personalities/{locale}/{seed_slug}.json`` — the same source the onboarding
+  seed-previews list comes from — and raises :class:`ValueError` when the seed
+  is unknown so the router can return HTTP 400.
 - ``llm_call_dep`` returns a callable that streams text chunks. The production
   implementation adapts the configured ``core`` scenario's
   :meth:`LLMAdapter.chat_stream` into the
@@ -18,7 +19,7 @@ Tests inject their own callables for isolation.
 
 from __future__ import annotations
 
-from threading import Lock
+import json
 from typing import TYPE_CHECKING, AsyncIterator, Callable, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -32,31 +33,13 @@ from magi.chat_preview import PreviewMessage, PreviewMode, run_preview
 
 if TYPE_CHECKING:
     from magi.config.models import LLMSettings
-    from magi.personality.loader import PersonalityLoader
 
-PersonaLoaderDep = Callable[[], Callable[[str], str]]
+# The persona loader resolves a (seed_slug, locale) pair to a flat prompt.
+PersonaLoaderDep = Callable[[], Callable[[str, str], str]]
 # Both LLM deps accept an optional unsaved override (onboarding sends its
 # not-yet-persisted config so the preview can run before the user saves).
 LLMCallDep = Callable[["Optional[LLMSettings]"], Callable[..., AsyncIterator[str]]]
 CoreModelDep = Callable[["Optional[LLMSettings]"], str]
-
-
-# Module-scoped lazily-initialized PersonalityLoader. The loader holds an
-# instance-level ``_cache`` dict; sharing a singleton lets that cache survive
-# across requests. Mirrors the resolver pattern in
-# :mod:`magi.api.routers.availability_routes`.
-_PERSONA_LOADER: "PersonalityLoader | None" = None
-_PERSONA_LOADER_LOCK = Lock()
-
-
-def _get_or_create_persona_loader() -> "PersonalityLoader":
-    from magi.personality.loader import PersonalityLoader
-
-    global _PERSONA_LOADER
-    with _PERSONA_LOADER_LOCK:
-        if _PERSONA_LOADER is None:
-            _PERSONA_LOADER = PersonalityLoader()
-        return _PERSONA_LOADER
 
 
 def build_default_chat_preview_router(
@@ -81,22 +64,16 @@ def build_default_chat_preview_router(
                 detail="either seed_slug or persona_override is required",
             )
 
-        # Resolve the persona prompt source + core model up front so we can
-        # return 400 for an unknown seed or a config (override or persisted)
-        # with no core model selected — instead of leaking a 500 mid-stream.
+        # Resolve the system prompt + core model up front so we can return 400
+        # for an unknown seed or a config (override or persisted) with no core
+        # model selected — instead of leaking a 500 mid-stream.
         try:
             if request.persona_override is not None:
-                override_prompt = _build_override_prompt(request.persona_override)
-
-                def load_prompt(_seed_slug: str) -> str:
-                    return override_prompt
-
-                seed_slug = ""
+                system_prompt = _build_override_prompt(request.persona_override)
             else:
-                load_prompt = persona_loader_dep()
-                # Validate the seed eagerly (raises ValueError → 400 if unknown).
-                load_prompt(request.seed_slug)
-                seed_slug = request.seed_slug
+                resolve_prompt = persona_loader_dep()
+                # Raises ValueError → 400 if the seed is unknown.
+                system_prompt = resolve_prompt(request.seed_slug, request.locale)
 
             core_model = core_model_dep(request.llm_override)
             llm_call = llm_call_dep(request.llm_override)
@@ -105,7 +82,7 @@ def build_default_chat_preview_router(
 
         async def streamer() -> AsyncIterator[bytes]:
             async for chunk in run_preview(
-                PreviewMode(seed_slug=seed_slug, core_model=core_model),
+                PreviewMode(seed_slug=request.seed_slug or "", core_model=core_model),
                 history=[
                     PreviewMessage(role=t.role, content=t.content)
                     for t in request.history
@@ -113,7 +90,9 @@ def build_default_chat_preview_router(
                 message=PreviewMessage(
                     role=request.message.role, content=request.message.content
                 ),
-                load_persona_prompt=load_prompt,
+                # The prompt is already resolved; run_preview just needs a
+                # zero-cost provider for it.
+                load_persona_prompt=lambda _slug: system_prompt,
                 invoke_llm=llm_call,
             ):
                 yield chunk.encode("utf-8")
@@ -128,25 +107,29 @@ def build_default_chat_preview_router(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_persona_prompt(seed_slug: str) -> str:
-    """Load a persona seed and produce a flat system prompt for preview chat.
+def _resolve_persona_prompt(seed_slug: str, locale: str) -> str:
+    """Load a bundled persona preset and produce a flat preview system prompt.
 
-    Mirrors the simple form used by
-    :mod:`magi.personality.bootstrap_service` so the preview chat speaks in the
-    persona's voice without dragging in registers, layers, or quiet hours.
+    Reads ``personalities/{locale}/{seed_slug}.json`` directly — the same file
+    the onboarding seed-previews list is built from
+    (:func:`magi.personality.persona_seed.list_seed_previews`) — so any slug the
+    UI can show is resolvable here, even before the persona registry has been
+    seeded (which only happens at the end of onboarding). Produces the simple
+    voice-only prompt (no registers/layers/quiet hours), mirroring
+    :func:`_build_override_prompt`.
     """
-    loader = _get_or_create_persona_loader()
+    from magi.personality.persona_seed import _seed_dir
+
+    seed_file = _seed_dir(locale) / f"{seed_slug}.json"
     try:
-        config = loader.load(seed_slug)
+        data = json.loads(seed_file.read_text(encoding="utf-8"))
     except Exception as exc:  # FileNotFoundError, JSON errors, etc.
         raise ValueError(f"unknown seed: {seed_slug}") from exc
 
-    identity = config.identity_core.identity_statement
-    style = config.idiolect.sentence_style
-    return (
-        f"You are {config.name}. {identity}\n\n"
-        f"Language style: {style}\n"
-    )
+    name = data.get("name", seed_slug)
+    identity = (data.get("identity_core") or {}).get("identity_statement", "")
+    style = (data.get("idiolect") or {}).get("sentence_style", "")
+    return f"You are {name}. {identity}\n\nLanguage style: {style}\n"
 
 
 def _build_override_prompt(override: PreviewPersonaOverride) -> str:
