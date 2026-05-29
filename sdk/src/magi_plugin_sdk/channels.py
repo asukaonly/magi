@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from .delivery import DeliveryContent, DeliveryReceipt
 
 
 @dataclass(slots=True)
@@ -173,7 +177,25 @@ class ChannelMessageDispatcherProtocol(Protocol):
 
 
 class Channel(ABC):
-    """A bidirectional messaging channel connected to an external platform."""
+    """A bidirectional messaging channel connected to an external platform.
+
+    Phase G additions:
+    - Capability flags (class attributes): ``supports_streaming``,
+      ``supports_revision``, ``supports_attachments``.
+    - ``deliver(target, content)`` — modern delivery returning a
+      ``DeliveryReceipt``. Defaults to wrapping ``send_message`` so
+      existing implementations keep working.
+    - ``revise(receipt, new_content)`` — edit an already-delivered
+      message. Defaults to ``NotImplementedError`` so the host knows
+      to fall back to "send correction" semantics.
+    - ``retract(receipt)`` — delete an already-delivered message.
+      Defaults to ``NotImplementedError`` for the same reason.
+    """
+
+    # === Phase G capability flags (override in subclass) ===
+    supports_streaming: bool = False
+    supports_revision: bool = False
+    supports_attachments: bool = True  # most channels support text + attachments
 
     @property
     @abstractmethod
@@ -195,6 +217,58 @@ class Channel(ABC):
     @abstractmethod
     async def send_typing_indicator(self, target: ChannelTarget) -> None:
         """Show typing or processing state on the external platform."""
+
+    async def deliver(
+        self,
+        target: "ChannelTarget",
+        content: "DeliveryContent",
+    ) -> "DeliveryReceipt":
+        """Phase G delivery. Default: wrap legacy ``send_message``.
+
+        Subclasses that want the receipt's ``external_message_id`` to
+        carry a real channel-native ID (Telegram message_id, Slack ts)
+        should override this method directly.
+        """
+        from .delivery import DeliveryReceipt
+
+        legacy_content = OutboundContent(text=content.text)
+        await self.send_message(target, legacy_content)
+        return DeliveryReceipt(
+            channel_id=target.channel_type,
+            external_message_id=None,  # legacy channels have no native id
+            delivered_at_ms=int(time.time() * 1000),
+        )
+
+    async def revise(
+        self,
+        receipt: "DeliveryReceipt",
+        new_content: "DeliveryContent",
+    ) -> "DeliveryReceipt":
+        """Phase G edit. Default: NotImplementedError.
+
+        Channels that support editing (Telegram via editMessageText,
+        Slack via chat.update) should override.
+        """
+        raise NotImplementedError(
+            f"Channel {type(self).__name__} does not support revise; "
+            f"override Channel.revise() and set supports_revision=True"
+        )
+
+    async def retract(
+        self,
+        receipt: "DeliveryReceipt",
+    ) -> None:
+        """Phase G retract. Default: NotImplementedError.
+
+        Channels that support deletion (Telegram deleteMessage, Slack
+        chat.delete) should override. Channels that can't (email)
+        should keep the default and rely on the host sending a
+        ``(message retracted)`` correction message.
+        """
+        raise NotImplementedError(
+            f"Channel {type(self).__name__} does not support retract; "
+            f"override Channel.retract() if the channel supports it"
+        )
 
     def bind_session_mapper(self, session_mapper: ChannelSessionMapperProtocol) -> None:
         """Inject the host-provided session mapper after construction."""
