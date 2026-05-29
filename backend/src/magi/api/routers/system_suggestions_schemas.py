@@ -43,3 +43,14 @@ class ListDismissalsResponse(BaseModel):
 class ClearDismissalResponse(BaseModel):
     dedupe_key: str
     cleared: bool
+
+
+class InstallableItem(BaseModel):
+    plugin_id: str
+    category: str
+    installed: bool
+    rationale: dict[str, str]
+
+
+class ListInstallableResponse(BaseModel):
+    items: list[InstallableItem]

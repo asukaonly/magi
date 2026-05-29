@@ -234,6 +234,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/system-suggestions/dismiss": {"POST"},
         "/system-suggestions/dismissals": {"GET"},
         "/system-suggestions/dismissals/{dedupe_key}": {"DELETE"},
+        "/system-suggestions/installable": {"GET"},
     },
 
 }

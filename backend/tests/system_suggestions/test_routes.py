@@ -256,6 +256,70 @@ def test_post_check_surfaces_installable_for_not_installed_candidate(
     assert proposal["plugin_ids"] == ["spotify-history"]
 
 
+@pytest.fixture
+def app_with_installable_endpoint():
+    """App for GET /system-suggestions/installable.
+
+    Two candidates — one installed, one registry-only (not installed). The
+    injected ``availability_dep`` marks the installed one available and the
+    not-installed one unavailable, so the endpoint must return ONLY the
+    available candidate with its ``installed`` flag + ``category``.
+    """
+    from types import SimpleNamespace
+
+    installed_cand = SimpleNamespace(
+        plugin_id="chrome-history",
+        descriptor=SimpleNamespace(
+            category="browser_history",
+            rationale=SimpleNamespace(zh="浏览历史", en="browsing history"),
+        ),
+        installed=True,
+    )
+    registry_cand = SimpleNamespace(
+        plugin_id="spotify-history",
+        descriptor=SimpleNamespace(
+            category="music_history",
+            rationale=SimpleNamespace(zh="音乐历史", en="music history"),
+        ),
+        installed=False,
+    )
+    candidates = [installed_cand, registry_cand]
+
+    async def fake_classify(recent_text, cands, locale):
+        return {c["category"]: 0.9 for c in cands}
+
+    app = FastAPI()
+    app.include_router(
+        build_default_system_suggestions_router(
+            candidates_dep=lambda: (lambda: list(candidates)),
+            # Only the installed candidate is available on this device.
+            availability_dep=_availability_factory({"chrome-history"}),
+            is_dismissed_dep=lambda: (lambda _k: False),
+            record_dismissal_dep=lambda: (lambda _k, _kind: None),
+            list_dismissals_dep=lambda: (lambda: []),
+            clear_dismissal_dep=lambda: (lambda _k: True),
+            classify_dep=lambda: fake_classify,
+        ),
+    )
+    return app
+
+
+def test_list_installable_returns_only_available(
+    app_with_installable_endpoint,
+) -> None:
+    client = TestClient(app_with_installable_endpoint)
+    response = client.get("/system-suggestions/installable")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    # Only the available (installed) candidate is surfaced.
+    assert len(items) == 1
+    item = items[0]
+    assert item["plugin_id"] == "chrome-history"
+    assert item["category"] == "browser_history"
+    assert item["installed"] is True
+    assert item["rationale"] == {"zh": "浏览历史", "en": "browsing history"}
+
+
 def test_list_dismissals_returns_active(app_with_dismissals) -> None:
     app, _ = app_with_dismissals
     client = TestClient(app)

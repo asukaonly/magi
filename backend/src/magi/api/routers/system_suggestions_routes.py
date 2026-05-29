@@ -54,7 +54,9 @@ from magi.api.routers.system_suggestions_schemas import (
     DismissalItem,
     DismissRequest,
     DismissResponse,
+    InstallableItem,
     ListDismissalsResponse,
+    ListInstallableResponse,
 )
 from magi.core.logger import get_logger
 from magi.system_suggestions.candidates import (
@@ -146,6 +148,31 @@ def build_default_system_suggestions_router(
     async def clear_dismissal(dedupe_key: str) -> ClearDismissalResponse:
         cleared = clear_dismissal_dep()(dedupe_key)
         return ClearDismissalResponse(dedupe_key=dedupe_key, cleared=cleared)
+
+    @router.get(
+        "/system-suggestions/installable",
+        response_model=ListInstallableResponse,
+    )
+    async def list_installable() -> ListInstallableResponse:
+        # Resolve the installed∪registry candidate union (same shape as
+        # ``/check``: the builder may be async in production, sync in tests).
+        result = candidates_dep()()
+        candidates = await result if inspect.isawaitable(result) else result
+        is_available = availability_dep()(candidates)
+        items = [
+            InstallableItem(
+                plugin_id=c.plugin_id,
+                category=c.descriptor.category,
+                installed=c.installed,
+                rationale={
+                    "zh": c.descriptor.rationale.zh,
+                    "en": c.descriptor.rationale.en,
+                },
+            )
+            for c in candidates
+            if is_available(c.plugin_id)
+        ]
+        return ListInstallableResponse(items=items)
 
     return router
 
