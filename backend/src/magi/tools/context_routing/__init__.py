@@ -6,7 +6,7 @@ from .memory_guidance import (
     apply_memory_guidance,
     evaluate_memory_need,
 )
-from .models import ContextDecision, MemoryGuidance
+from .models import MemoryGuidance
 from .research_guardrail import (
     is_complex_research_request,
     needs_fetch_for_request,
@@ -24,7 +24,6 @@ from .route_decision import (
 __all__ = [
     "BACKGROUND_HINT_VALUES",
     "COMPLEXITY_VALUES",
-    "ContextDecision",
     "EFFORT_VALUES",
     "GRAPH_SHAPE_VALUES",
     "MEMORY_RETRIEVAL_TRIGGERS",

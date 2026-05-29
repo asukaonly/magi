@@ -174,6 +174,18 @@ def test_orchestration_module_no_longer_exposes_keyword_normalization() -> None:
     )
 
 
+def test_context_decision_class_is_deleted() -> None:
+    """Task B.12: ContextDecision is deleted now that all consumers use RouteDecision."""
+    import importlib
+    models = importlib.import_module("magi.tools.context_routing.models")
+    assert not hasattr(models, "ContextDecision"), (
+        "ContextDecision must be deleted; use RouteDecision"
+    )
+
+    pkg = importlib.import_module("magi.tools.context_routing")
+    assert not hasattr(pkg, "ContextDecision")
+
+
 def test_context_decider_system_prompt_mentions_route_decision_fields() -> None:
     """Source check: the system prompt must request the RouteDecision
     schema's enum fields so the LLM outputs strict JSON that the new

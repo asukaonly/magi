@@ -25,7 +25,7 @@ from .context_decider_prompt import build_context_decider_prompt
 from .context_decider_response import ContextDeciderResponseMixin
 from .context_decider_system_prompt import CONTEXT_DECIDER_SYSTEM_PROMPT
 from .context_decider_trace import ContextDeciderTraceMixin
-from .context_routing import MEMORY_RETRIEVAL_TRIGGERS, ContextDecision, MemoryGuidance, RouteDecision
+from .context_routing import MEMORY_RETRIEVAL_TRIGGERS, MemoryGuidance, RouteDecision
 from .registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ class ContextDecider(
             context: additional context (environment info, etc.)
 
         Returns:
-            ContextDecision with selected tools
+            RouteDecision with selected tools
         """
         pooled_llm = self._resolve_llm_from_pool()
         if pooled_llm is not None and pooled_llm is not self.llm:

@@ -17,7 +17,8 @@ from .schema import (
 )
 from .registry import ToolRegistry, tool_registry
 from .tool_hint_resolver import ToolHintResolver
-from .context_decider import ContextDecider, ContextDecision
+from .context_decider import ContextDecider
+from .context_routing import RouteDecision
 from .recommender import ToolRecommender, ScenarioType
 from .planner import ExecutionPlanner, ExecutionPlan, PlanNode, TaskStatus
 from .version_manager import ToolVersionManager, ToolVersion, VersionCompatibility
@@ -70,7 +71,7 @@ __all__ = [
 
     # Context Decider (replaces old ToolSelector)
     "ContextDecider",
-    "ContextDecision",
+    "RouteDecision",
 
     # Recommendation engine
     "ToolRecommender",
