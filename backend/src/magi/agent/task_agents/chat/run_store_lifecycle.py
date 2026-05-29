@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from ....core.logger import get_logger
 from ...run_control import RunControl
-from .run_contracts import ActiveRun, PendingTurn
+from .run_contracts import AgentRun, ActiveRun, PendingTurn
 
 if TYPE_CHECKING:
     from ...run.snapshot import RunSnapshot
@@ -345,6 +345,27 @@ class SessionRunLifecycleMixin:
                 clear_pending_turns=clear_pending_turns,
             )
             return deepcopy(active_run)
+
+    def list_active_runs(self, session_id: str) -> list[AgentRun]:
+        """Phase E: return the list of active runs for ``session_id``.
+
+        Phase E scope: returns at most one run (single-active-run
+        semantics preserved). Phase G/H enables real concurrent runs
+        (multi-channel inbound); the API surface is established now so
+        callers can be written against the list form.
+        """
+        single = self.get_active_run(session_id)
+        return [single] if single is not None else []
+
+    def single_active_run(self, session_id: str) -> AgentRun | None:
+        """Convenience accessor: returns the first active run or None.
+
+        Use this from callers that have not yet been migrated to handle
+        multiple concurrent runs. New code should iterate
+        ``list_active_runs`` directly.
+        """
+        runs = self.list_active_runs(session_id)
+        return runs[0] if runs else None
 
     def save_run_snapshot(
         self,
