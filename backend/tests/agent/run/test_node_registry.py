@@ -97,3 +97,16 @@ def test_chat_execution_coordinator_execute_dispatches_via_node_registry() -> No
     assert "graph_shape" in src, (
         "execute() must dispatch by graph_shape"
     )
+
+
+def test_chat_execution_coordinator_no_longer_builds_orchestration_plan() -> None:
+    """Phase C cleanup: ChatExecutionCoordinator stops constructing
+    OrchestrationPlan in match_intent."""
+    import inspect
+
+    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+
+    src = inspect.getsource(ChatExecutionCoordinator)
+    assert "_build_orchestration_plan_from_route" not in src, (
+        "_build_orchestration_plan_from_route is no longer needed"
+    )
