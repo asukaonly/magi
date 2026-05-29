@@ -198,21 +198,63 @@ fn query_attachment_metadata(
         )
         .ok()?;
 
-    stmt.query_row(
-        rusqlite::params![user_id, session_id, attachment_id],
-        |row| {
-            let mime_type = row.get::<_, String>(0)?;
-            let original_name = row.get::<_, String>(1)?;
-            let storage_rel_path = row.get::<_, String>(2)?;
-            let absolute_path = base_dir.join(&storage_rel_path);
-            Ok(AttachmentMetadata {
-                mime_type,
-                original_name,
-                absolute_path,
-            })
-        },
-    )
-    .ok()
+    let row = stmt
+        .query_row(
+            rusqlite::params![user_id, session_id, attachment_id],
+            |row| {
+                let mime_type = row.get::<_, String>(0)?;
+                let original_name = row.get::<_, String>(1)?;
+                let storage_rel_path = row.get::<_, String>(2)?;
+                Ok((mime_type, original_name, storage_rel_path))
+            },
+        )
+        .ok()?;
+    let (mime_type, original_name, storage_rel_path) = row;
+
+    let absolute_path = resolve_safe_attachment_path(base_dir, &storage_rel_path)?;
+    Some(AttachmentMetadata {
+        mime_type,
+        original_name,
+        absolute_path,
+    })
+}
+
+/// Resolve `storage_rel_path` against `base_dir` and confirm the result is
+/// confined to `base_dir` after canonicalisation. Returns `None` if:
+///
+/// - `storage_rel_path` is absolute (which would discard `base_dir` via
+///   `Path::join`'s "absolute wins" semantics),
+/// - `storage_rel_path` resolves outside `base_dir` (`..` traversal or
+///   symlink escape),
+/// - either side fails to canonicalise (file missing, permission denied).
+///
+/// This is defence-in-depth: `persist_upload()` already constrains uploads to
+/// `{base_dir}/data/resources/chat/{images,files}/{session}/{turn}/`, but
+/// `chat_attachments.storage_rel_path` is also written by the Python backend
+/// and (transitively) by plugins. A canonicalisation check at the read site
+/// stops any future writer that forgets to validate.
+fn resolve_safe_attachment_path(
+    base_dir: &FsPath,
+    storage_rel_path: &str,
+) -> Option<PathBuf> {
+    // Reject absolute paths up front — `base_dir.join(abs)` would silently
+    // discard `base_dir` on Unix and behave inconsistently on Windows.
+    let rel = FsPath::new(storage_rel_path);
+    if rel.is_absolute() {
+        return None;
+    }
+    let joined = base_dir.join(rel);
+
+    // Canonicalise both sides so the prefix check sees the same form
+    // (resolves `..`, symlinks, and any case-folding the FS performs).
+    let canonical_base = std::fs::canonicalize(base_dir).ok()?;
+    let canonical_path = std::fs::canonicalize(&joined).ok()?;
+
+    if canonical_path.starts_with(&canonical_base) {
+        Some(canonical_path)
+    } else {
+        None
+    }
 }
 
 fn build_upload_request(
@@ -587,7 +629,13 @@ mod tests {
             query_attachment_metadata(&conn, &temp_root, "local_user", "session-1", "att-1")
                 .unwrap();
         assert_eq!(metadata.mime_type, "image/png");
-        assert_eq!(metadata.absolute_path, attachment_file);
+        // Both sides go through std::fs::canonicalize after the path-safety
+        // gate, so the expected path needs to be canonicalised too — on
+        // macOS `/var/folders/...` resolves to `/private/var/folders/...`.
+        assert_eq!(
+            metadata.absolute_path,
+            std::fs::canonicalize(&attachment_file).unwrap()
+        );
 
         conn.execute(
             "UPDATE chat_messages SET is_visible = 0 WHERE message_id = ?1",
@@ -664,5 +712,49 @@ mod tests {
             sanitize_original_name("../../hello world?.txt"),
             "hello_world_.txt"
         );
+    }
+
+    #[test]
+    fn attachment_metadata_rejects_path_traversal_in_storage_rel_path() {
+        use super::resolve_safe_attachment_path;
+
+        let temp_root = std::env::temp_dir().join(format!(
+            "magi-attachment-traversal-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let inside = temp_root.join("data").join("resources").join("inside.bin");
+        fs::create_dir_all(inside.parent().unwrap()).unwrap();
+        fs::write(&inside, b"ok").unwrap();
+
+        // A sibling file that exists OUTSIDE temp_root — canonicalisation
+        // must keep us from reading it via a `..` escape.
+        let outside_dir = std::env::temp_dir().join(format!(
+            "magi-attachment-outside-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&outside_dir).unwrap();
+        let outside = outside_dir.join("secret.bin");
+        fs::write(&outside, b"leak").unwrap();
+
+        // Sanity: a clean relative path resolves.
+        assert!(resolve_safe_attachment_path(
+            &temp_root,
+            "data/resources/inside.bin"
+        )
+        .is_some());
+
+        // Path traversal escaping base_dir → rejected.
+        let escape_rel = format!("../{}/secret.bin", outside_dir.file_name().unwrap().to_string_lossy());
+        assert!(resolve_safe_attachment_path(&temp_root, &escape_rel).is_none());
+
+        // Absolute path → rejected before canonicalisation discards base_dir.
+        let absolute_rel = outside.to_string_lossy().to_string();
+        assert!(resolve_safe_attachment_path(&temp_root, &absolute_rel).is_none());
+
+        // Non-existent path → None (canonicalize fails). Manifests as 404.
+        assert!(resolve_safe_attachment_path(&temp_root, "does/not/exist.bin").is_none());
+
+        let _ = fs::remove_dir_all(&temp_root);
+        let _ = fs::remove_dir_all(&outside_dir);
     }
 }

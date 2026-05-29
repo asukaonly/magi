@@ -14,6 +14,36 @@ use super::state::ApiState;
 const MAX_PROXY_BODY_BYTES: usize = 10 * 1024 * 1024;
 const BODY_FILE_PREFIX: &str = "magi-ipc-body-";
 
+/// RAII guard for a temp file staged for IPC body forwarding.
+///
+/// The file is deleted when this guard goes out of scope — including on
+/// panic, early return, and axum future cancellation (browser tab closed,
+/// client disconnected mid-request). The earlier hand-rolled cleanup only
+/// fired on the happy path; this closes that gap on Unix and is a no-regress
+/// on Windows (delete-while-open fails silently → file lingers until exit,
+/// same as before).
+///
+/// Deletion is ordered AFTER `ipc.request().await` returns, so Python has
+/// already read the staged body by the time the guard runs. On Unix the
+/// file's inode survives any concurrent reader regardless.
+struct StagedBodyGuard {
+    path: Option<PathBuf>,
+}
+
+impl StagedBodyGuard {
+    fn new(path: Option<PathBuf>) -> Self {
+        Self { path }
+    }
+}
+
+impl Drop for StagedBodyGuard {
+    fn drop(&mut self) {
+        if let Some(path) = self.path.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 pub async fn proxy_handler(State(state): State<ApiState>, req: Request) -> impl IntoResponse {
     ipc_proxy(&state.ipc_client, req).await
 }
@@ -56,16 +86,16 @@ async fn ipc_proxy(ipc: &crate::ipc::IpcClient, req: Request) -> Response {
             }
         };
 
-    let response = match ipc.request("api.forward", Some(params)).await {
+    // Bind the staged file to a RAII guard immediately so it gets cleaned up
+    // on every exit path — including future cancellation if the client
+    // disconnects mid-request. The guard outlives the `ipc.request` await,
+    // so Python is guaranteed to have read the file by the time we delete.
+    let _staged_guard = StagedBodyGuard::new(staged_body_path);
+
+    match ipc.request("api.forward", Some(params)).await {
         Ok(result) => build_response_from_ipc(result),
         Err(e) => (StatusCode::BAD_GATEWAY, format!("IPC error: {e}")).into_response(),
-    };
-
-    if let Some(path) = staged_body_path {
-        let _ = fs::remove_file(path);
     }
-
-    response
 }
 
 fn build_ipc_params(

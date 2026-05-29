@@ -5,12 +5,29 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 use super::protocol::{self, InboundMessage, IpcError, IpcNotify, IpcRequest};
+
+/// Default ceiling on how long a single IPC request may wait for the Python
+/// worker to respond. This is a hang-protection bound — not a snappy SLO.
+/// Legitimate long operations (non-streaming LLM calls, attachment ingest)
+/// can take a couple of minutes; we err on the side of "wait, but not
+/// forever". Override via the `MAGI_IPC_REQUEST_TIMEOUT_SECS` env var.
+const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 300;
+
+fn default_request_timeout() -> Duration {
+    let secs = std::env::var("MAGI_IPC_REQUEST_TIMEOUT_SECS")
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .unwrap_or(DEFAULT_REQUEST_TIMEOUT_SECS);
+    Duration::from_secs(secs)
+}
 
 /// Envelope returned to a request caller.
 #[derive(Debug)]
@@ -103,8 +120,23 @@ impl IpcClient {
             .map_err(|_| "IPC write channel closed".to_string())
     }
 
-    /// Send a request and wait for the response.
+    /// Send a request and wait for the response using the default timeout.
     pub async fn request(&self, method: &str, params: Option<Value>) -> Result<Value, IpcError> {
+        self.request_with_timeout(method, params, default_request_timeout())
+            .await
+    }
+
+    /// Send a request and wait for the response with an explicit timeout.
+    ///
+    /// On timeout the request slot is removed from the pending map so the
+    /// memory and oneshot are released. If the worker eventually replies, the
+    /// read loop simply finds no pending slot and drops the response.
+    pub async fn request_with_timeout(
+        &self,
+        method: &str,
+        params: Option<Value>,
+        timeout: Duration,
+    ) -> Result<Value, IpcError> {
         let id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
 
@@ -118,7 +150,17 @@ impl IpcClient {
             method: method.to_string(),
             params,
         };
-        let mut line = serde_json::to_string(&msg).unwrap();
+        let mut line = match serde_json::to_string(&msg) {
+            Ok(s) => s,
+            Err(e) => {
+                let mut map = self.pending.lock().await;
+                map.remove(&id);
+                return Err(IpcError {
+                    code: -1,
+                    message: format!("Failed to serialise IPC request: {e}"),
+                });
+            }
+        };
         line.push('\n');
 
         if self.write_tx.send(line).await.is_err() {
@@ -130,13 +172,26 @@ impl IpcClient {
             });
         }
 
-        match rx.await {
-            Ok(ResponseEnvelope::Result(v)) => Ok(v),
-            Ok(ResponseEnvelope::Error(e)) => Err(e),
-            Err(_) => Err(IpcError {
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(ResponseEnvelope::Result(v))) => Ok(v),
+            Ok(Ok(ResponseEnvelope::Error(e))) => Err(e),
+            Ok(Err(_)) => Err(IpcError {
                 code: -3,
                 message: "Request dropped (connection closed)".to_string(),
             }),
+            Err(_) => {
+                // Timed out: reclaim the pending slot. A late response will be
+                // dropped by the read loop because the slot is gone.
+                let mut map = self.pending.lock().await;
+                map.remove(&id);
+                Err(IpcError {
+                    code: -5,
+                    message: format!(
+                        "IPC request timed out after {}s",
+                        timeout.as_secs()
+                    ),
+                })
+            }
         }
     }
 
