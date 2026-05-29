@@ -24,7 +24,10 @@ from typing import TYPE_CHECKING, AsyncIterator, Callable, Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from magi.api.routers.chat_preview_schemas import PreviewMessageRequest
+from magi.api.routers.chat_preview_schemas import (
+    PreviewMessageRequest,
+    PreviewPersonaOverride,
+)
 from magi.chat_preview import PreviewMessage, PreviewMode, run_preview
 
 if TYPE_CHECKING:
@@ -71,13 +74,30 @@ def build_default_chat_preview_router(
 
     @router.post("/chat/preview")
     async def chat_preview(request: PreviewMessageRequest) -> StreamingResponse:
-        loader = persona_loader_dep()
+        # Exactly one persona source is required.
+        if request.persona_override is None and not request.seed_slug:
+            raise HTTPException(
+                status_code=400,
+                detail="either seed_slug or persona_override is required",
+            )
 
-        # Resolve the persona prompt + core model up front so we can return 400
-        # for an unknown seed or a config (override or persisted) that has no
-        # core model selected — instead of leaking a 500 mid-stream.
+        # Resolve the persona prompt source + core model up front so we can
+        # return 400 for an unknown seed or a config (override or persisted)
+        # with no core model selected — instead of leaking a 500 mid-stream.
         try:
-            loader(request.seed_slug)
+            if request.persona_override is not None:
+                override_prompt = _build_override_prompt(request.persona_override)
+
+                def load_prompt(_seed_slug: str) -> str:
+                    return override_prompt
+
+                seed_slug = ""
+            else:
+                load_prompt = persona_loader_dep()
+                # Validate the seed eagerly (raises ValueError → 400 if unknown).
+                load_prompt(request.seed_slug)
+                seed_slug = request.seed_slug
+
             core_model = core_model_dep(request.llm_override)
             llm_call = llm_call_dep(request.llm_override)
         except ValueError as exc:
@@ -85,7 +105,7 @@ def build_default_chat_preview_router(
 
         async def streamer() -> AsyncIterator[bytes]:
             async for chunk in run_preview(
-                PreviewMode(seed_slug=request.seed_slug, core_model=core_model),
+                PreviewMode(seed_slug=seed_slug, core_model=core_model),
                 history=[
                     PreviewMessage(role=t.role, content=t.content)
                     for t in request.history
@@ -93,7 +113,7 @@ def build_default_chat_preview_router(
                 message=PreviewMessage(
                     role=request.message.role, content=request.message.content
                 ),
-                load_persona_prompt=loader,
+                load_persona_prompt=load_prompt,
                 invoke_llm=llm_call,
             ):
                 yield chunk.encode("utf-8")
@@ -126,6 +146,18 @@ def _resolve_persona_prompt(seed_slug: str) -> str:
     return (
         f"You are {config.name}. {identity}\n\n"
         f"Language style: {style}\n"
+    )
+
+
+def _build_override_prompt(override: PreviewPersonaOverride) -> str:
+    """Build a flat preview system prompt from an inline persona identity.
+
+    Mirrors the format produced by :func:`_resolve_persona_prompt` so an
+    onboarding-generated (unsaved) persona previews identically to a seed.
+    """
+    return (
+        f"You are {override.name}. {override.identity_statement}\n\n"
+        f"Language style: {override.sentence_style}\n"
     )
 
 

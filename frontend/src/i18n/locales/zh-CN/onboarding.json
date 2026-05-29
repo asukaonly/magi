@@ -170,7 +170,15 @@
     "composerPlaceholder": "说点什么试试这个人格…",
     "send": "发送",
     "confirm": "选这个",
-    "capReached": "这个人格试得差不多了 — 选它或换一个。"
+    "capReached": "这个人格试得差不多了 — 选它或换一个。",
+    "createCustom": "自定义人格",
+    "createCustomTitle": "创建你自己的人格",
+    "createCustomHint": "用一句话描述你想要的人格，AI 会帮你生成。",
+    "customDescriptionPlaceholder": "比如：一个毒舌但贴心的程序员搭子…",
+    "generate": "生成",
+    "generating": "生成中…",
+    "cancelCreate": "取消",
+    "generationFailed": "生成失败"
   },
   "firstConversation": {
     "chips": {

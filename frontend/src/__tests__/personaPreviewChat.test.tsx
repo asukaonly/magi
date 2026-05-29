@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { PersonaPreviewChat } from '../components/onboarding/PersonaPreviewChat';
-import type { SeedPreview } from '../api/modules/personas';
+import { personasApi, type SeedPreview, type PersonalityConfig } from '../api/modules/personas';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -107,6 +107,109 @@ describe('PersonaPreviewChat', () => {
     await userEvent.click(screen.getByRole('button', { name: /Ember/i }));
     await waitFor(() =>
       expect(onActiveSeedChange).toHaveBeenLastCalledWith('ember'),
+    );
+  });
+
+  function makeGeneratedConfig(): PersonalityConfig {
+    return {
+      name: 'Sage',
+      avatar: '',
+      description: 'wise mentor',
+      appearance_prompt: '',
+      identity_core: {
+        identity_statement: 'a patient mentor',
+        values_loved: [],
+        values_rejected: [],
+        attention_biases: [],
+      },
+      idiolect: {
+        sentence_style: 'measured and kind',
+        vocab_available: [],
+        vocab_avoided: [],
+        structural_quirks: [],
+      },
+      registers: {},
+      quiet_hours: [],
+      signature_triggers: [],
+      persona_layers: [],
+      dynamic_state_rules: {},
+      milestone_conditions: {},
+      interim_lines: {},
+      bootstrap: null,
+    };
+  }
+
+  it('generates a custom persona and chats with it via persona_override', async () => {
+    const generated = makeGeneratedConfig();
+    const genSpy = vi
+      .spyOn(personasApi, 'generateWithProgress')
+      .mockResolvedValue({ success: true, message: 'ok', data: generated, stages: [] } as any);
+    const onCustomPersonasChange = vi.fn();
+    const llmConfig = { providers: {}, selections: {} } as any;
+
+    render(
+      <PersonaPreviewChat
+        previews={previews}
+        llmConfig={llmConfig}
+        onCustomPersonasChange={onCustomPersonasChange}
+      />,
+    );
+
+    // Open the custom composer, describe, and generate.
+    await userEvent.click(screen.getByTestId('persona-create-custom'));
+    await userEvent.type(screen.getByTestId('persona-custom-description'), 'a wise mentor');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    await waitFor(() => expect(genSpy).toHaveBeenCalled());
+    expect(genSpy.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ description: 'a wise mentor', llm_override: llmConfig }),
+    );
+
+    // The parent is told about the new draft.
+    await waitFor(() => expect(onCustomPersonasChange).toHaveBeenCalled());
+    const calls = onCustomPersonasChange.mock.calls;
+    const lastDrafts = calls[calls.length - 1][0];
+    expect(lastDrafts).toHaveLength(1);
+    expect(lastDrafts[0]).toEqual(
+      expect.objectContaining({ name: 'Sage', config: generated }),
+    );
+
+    // The new persona is auto-selected; sending a message uses persona_override.
+    const input = await screen.findByPlaceholderText(/composerPlaceholder/i);
+    await userEvent.type(input, 'hi');
+    await userEvent.click(screen.getByRole('button', { name: /^(personaPreview\.)?send$/i }));
+
+    await waitFor(() => {
+      expect(mockStream).toHaveBeenCalledWith(
+        expect.objectContaining({
+          persona_override: {
+            name: 'Sage',
+            identity_statement: 'a patient mentor',
+            sentence_style: 'measured and kind',
+          },
+          llm_override: llmConfig,
+        }),
+      );
+    });
+  });
+
+  it('shows a generation progress indicator while the persona is being built', async () => {
+    let resolveGen: (value: any) => void = () => {};
+    vi.spyOn(personasApi, 'generateWithProgress').mockImplementation(
+      () => new Promise((resolve) => { resolveGen = resolve; }),
+    );
+
+    render(<PersonaPreviewChat previews={previews} />);
+    await userEvent.click(screen.getByTestId('persona-create-custom'));
+    await userEvent.type(screen.getByTestId('persona-custom-description'), 'x');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    // While the job is in flight, a progress indicator is visible.
+    expect(await screen.findByTestId('persona-generation-progress')).toBeInTheDocument();
+
+    resolveGen({ success: true, message: 'ok', data: makeGeneratedConfig(), stages: [] });
+    await waitFor(() =>
+      expect(screen.queryByTestId('persona-generation-progress')).not.toBeInTheDocument(),
     );
   });
 

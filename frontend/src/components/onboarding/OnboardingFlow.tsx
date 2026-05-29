@@ -19,7 +19,7 @@ import WelcomeScreen from './WelcomeScreen';
 import StepIndicator from './StepIndicator';
 import CompletionScreen from './CompletionScreen';
 import LLMSetupStep from './LLMSetupStep';
-import { PersonaPreviewChat } from './PersonaPreviewChat';
+import { PersonaPreviewChat, type CustomPersonaDraft } from './PersonaPreviewChat';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 
 const STORAGE_KEY = STORAGE_KEYS.ONBOARDING_STATE;
@@ -89,6 +89,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     cloneLLMConfig(initialConfig.llm)
   );
   const [seedSlug, setSeedSlug] = useState<string | null>(null);
+  // Onboarding-generated (unsaved) personas; persisted on completion.
+  const [customPersonas, setCustomPersonas] = useState<CustomPersonaDraft[]>([]);
 
   // Persona previews (loaded once on mount for the active locale).
   const [seedPreviews, setSeedPreviews] = useState<SeedPreview[]>([]);
@@ -152,12 +154,16 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         current?: number;
         values?: SystemConfig;
         seedSlug?: string | null;
+        customPersonas?: CustomPersonaDraft[];
       };
       if (typeof parsed.current === 'number') {
         setCurrent(parsed.current);
       }
       if (parsed.seedSlug) {
         setSeedSlug(parsed.seedSlug);
+      }
+      if (Array.isArray(parsed.customPersonas)) {
+        setCustomPersonas(parsed.customPersonas);
       }
       if (parsed.values) {
         const savedLanguage = localStorage.getItem('magi_language');
@@ -185,13 +191,18 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
   }, [form]);
 
-  const saveProgress = (values: SystemConfig, nextSeedSlug: string | null = seedSlug) => {
+  const saveProgress = (
+    values: SystemConfig,
+    nextSeedSlug: string | null = seedSlug,
+    nextCustomPersonas: CustomPersonaDraft[] = customPersonas,
+  ) => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
         current,
         values,
         seedSlug: nextSeedSlug,
+        customPersonas: nextCustomPersonas,
       })
     );
   };
@@ -260,10 +271,30 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       const locale = (values.preferences?.language || 'en').startsWith('zh') ? 'zh' : 'en';
       try {
         await personasApi.seed(locale);
+
+        // Persist any onboarding-generated custom personas and remember the
+        // client-slug → assigned persona_id mapping for activation.
+        const customIdBySlug: Record<string, string> = {};
+        for (const draft of customPersonas) {
+          try {
+            const created = await personasApi.create({
+              config_json: JSON.stringify(draft.config),
+              locale,
+            });
+            const createdId = created?.data?.persona_id;
+            if (createdId) customIdBySlug[draft.slug] = createdId;
+          } catch {
+            // Best-effort: a failed custom-persona create shouldn't block
+            // onboarding completion.
+          }
+        }
+
         const listResult = await personasApi.list();
         const personas = listResult.data || [];
         let activatedPersonaId: string | undefined;
-        if (seedSlug) {
+        if (seedSlug && customIdBySlug[seedSlug]) {
+          activatedPersonaId = customIdBySlug[seedSlug];
+        } else if (seedSlug) {
           const match = personas.find((p) => p.slug === seedSlug);
           if (match) activatedPersonaId = match.persona_id;
         }
@@ -356,9 +387,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         <PersonaPreviewChat
           previews={seedPreviews}
           llmConfig={llmValue}
+          initialCustomPersonas={customPersonas}
           onActiveSeedChange={(slug) => {
             setSeedSlug(slug);
             saveProgress(form.getFieldsValue(true), slug);
+          }}
+          onCustomPersonasChange={(drafts) => {
+            setCustomPersonas(drafts);
+            saveProgress(form.getFieldsValue(true), seedSlug, drafts);
           }}
         />
       );

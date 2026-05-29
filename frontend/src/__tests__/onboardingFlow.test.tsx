@@ -338,4 +338,80 @@ describe('OnboardingFlow (linear 4-step)', () => {
       expect(personasApi.setActive).toHaveBeenCalledWith('uuid-ember'),
     );
   });
+
+  it('creates and activates a custom generated persona on completion', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.spyOn(configApi, 'completeOnboarding').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: DEFAULT_SYSTEM_CONFIG,
+    } as any);
+    const generated = {
+      name: 'Sage',
+      avatar: '',
+      description: 'wise mentor',
+      appearance_prompt: '',
+      identity_core: {
+        identity_statement: 'a patient mentor',
+        values_loved: [],
+        values_rejected: [],
+        attention_biases: [],
+      },
+      idiolect: {
+        sentence_style: 'measured and kind',
+        vocab_available: [],
+        vocab_avoided: [],
+        structural_quirks: [],
+      },
+      registers: {},
+      quiet_hours: [],
+      signature_triggers: [],
+      persona_layers: [],
+      dynamic_state_rules: {},
+      milestone_conditions: {},
+      interim_lines: {},
+      bootstrap: null,
+    };
+    vi.spyOn(personasApi, 'generateWithProgress').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: generated,
+      stages: [],
+    } as any);
+    const createSpy = vi.spyOn(personasApi, 'create').mockResolvedValue({
+      success: true,
+      data: { persona_id: 'uuid-custom', name: 'Sage', slug: 'custom-1' },
+    } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+    const providerSelect = await screen.findByLabelText(/provider/i);
+    await user.selectOptions(providerSelect, 'openai');
+    await user.type(screen.getByLabelText(/api key/i), 'sk-test');
+    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
+    await waitFor(() => expect(nextBtn).toBeEnabled());
+    await user.click(nextBtn);
+
+    // Persona step: generate a custom persona, which auto-selects it.
+    await user.click(await screen.findByTestId('persona-create-custom'));
+    await user.type(screen.getByTestId('persona-custom-description'), 'a wise mentor');
+    await user.click(screen.getByTestId('persona-custom-generate'));
+    // Back in chat mode with the custom persona selected — advance.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    const enterApp = await screen.findByRole('button', { name: 'actions.enterApp' });
+    await user.click(enterApp);
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalled());
+    const createArg = createSpy.mock.calls[0][0] as { config_json: string };
+    expect(JSON.parse(createArg.config_json).name).toBe('Sage');
+    await waitFor(() =>
+      expect(personasApi.setActive).toHaveBeenCalledWith('uuid-custom'),
+    );
+  });
 });

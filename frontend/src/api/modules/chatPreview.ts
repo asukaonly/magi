@@ -15,8 +15,20 @@ export interface PreviewTurn {
   content: string;
 }
 
+/**
+ * Inline, unsaved persona identity for previewing a freshly-generated persona
+ * (onboarding) before it exists as a seed. Mirrors the backend
+ * `PreviewPersonaOverride`.
+ */
+export interface PreviewPersonaOverride {
+  name: string;
+  identity_statement: string;
+  sentence_style: string;
+}
+
 export interface ChatPreviewRequest {
-  seed_slug: string;
+  /** A known persona seed. Omit when sending `persona_override` instead. */
+  seed_slug?: string;
   history: PreviewTurn[];
   message: PreviewTurn;
   /**
@@ -26,6 +38,12 @@ export interface ChatPreviewRequest {
    * (falling back to the persisted config when omitted).
    */
   llm_override?: LLMConfig;
+  /**
+   * Optional inline persona identity. Used to preview an onboarding-generated
+   * (unsaved) persona; exactly one of `seed_slug` / `persona_override` must be
+   * provided.
+   */
+  persona_override?: PreviewPersonaOverride;
 }
 
 export async function* streamChatPreview(

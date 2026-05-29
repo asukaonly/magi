@@ -149,3 +149,68 @@ def test_post_preview_threads_llm_override_to_deps() -> None:
     assert seen["llm_call_override"] is not None
     assert seen["core_model_override"] is not None
     assert seen["core_model_override"].selections["core"].model == "gpt-4o"
+
+
+def _capture_prompt_app(captured: dict) -> FastAPI:
+    """Build a preview app whose fake LLM records the system prompt it gets."""
+
+    async def fake_llm(*, system_prompt, messages, model):
+        captured["system_prompt"] = system_prompt
+        yield "ok"
+
+    def fake_loader(seed_slug: str) -> str:
+        if not seed_slug:
+            raise ValueError("unknown seed: ")
+        return f"<seed prompt for {seed_slug}>"
+
+    app = FastAPI()
+    app.include_router(
+        build_default_chat_preview_router(
+            persona_loader_dep=lambda: fake_loader,
+            llm_call_dep=lambda _override=None: fake_llm,
+            core_model_dep=lambda _override=None: "core-model",
+        ),
+    )
+    return app
+
+
+def test_post_preview_accepts_persona_override() -> None:
+    """An inline persona_override drives the system prompt without a seed_slug."""
+    captured: dict[str, str] = {}
+    client = TestClient(_capture_prompt_app(captured))
+    with client.stream(
+        "POST",
+        "/chat/preview",
+        json={
+            "history": [],
+            "message": {"role": "user", "content": "hi"},
+            "persona_override": {
+                "name": "Aria",
+                "identity_statement": "a calm, curious companion",
+                "sentence_style": "short and warm",
+            },
+        },
+    ) as response:
+        assert response.status_code == 200
+        b"".join(response.iter_bytes())
+
+    prompt = captured["system_prompt"]
+    # The override (not the seed loader) supplied the prompt.
+    assert "Aria" in prompt
+    assert "a calm, curious companion" in prompt
+    assert "short and warm" in prompt
+    assert "seed prompt" not in prompt
+
+
+def test_post_preview_requires_seed_or_override() -> None:
+    """A request with neither seed_slug nor persona_override is a 400."""
+    captured: dict[str, str] = {}
+    client = TestClient(_capture_prompt_app(captured))
+    response = client.post(
+        "/chat/preview",
+        json={
+            "history": [],
+            "message": {"role": "user", "content": "hi"},
+        },
+    )
+    assert response.status_code == 400

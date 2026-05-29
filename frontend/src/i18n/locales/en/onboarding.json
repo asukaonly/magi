@@ -169,7 +169,15 @@
     "composerPlaceholder": "Say something to try this persona…",
     "send": "Send",
     "confirm": "Choose",
-    "capReached": "You've tried this persona enough — choose it or try another."
+    "capReached": "You've tried this persona enough — choose it or try another.",
+    "createCustom": "Custom persona",
+    "createCustomTitle": "Create your own persona",
+    "createCustomHint": "Describe the persona you want in one sentence and AI will generate it.",
+    "customDescriptionPlaceholder": "e.g. a sharp-tongued but caring coding buddy…",
+    "generate": "Generate",
+    "generating": "Generating…",
+    "cancelCreate": "Cancel",
+    "generationFailed": "Generation failed"
   },
   "firstConversation": {
     "chips": {
