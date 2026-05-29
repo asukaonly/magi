@@ -79,7 +79,21 @@ fn fetch_notifications(conn: &Connection, after_id: i64) -> Vec<NotificationRow>
 }
 
 fn parse_payload(json_str: &str) -> serde_json::Value {
-    serde_json::from_str(json_str).unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
+    match serde_json::from_str(json_str) {
+        Ok(value) => value,
+        Err(err) => {
+            // Truncate the offending payload to keep stderr readable while
+            // preserving enough context to diagnose schema drift. Using
+            // `eprintln!` to match the existing pattern in `db.rs`; if/when
+            // the gateway adopts a proper logging facade these (and the
+            // db.rs ones) should migrate together.
+            let preview: String = json_str.chars().take(200).collect();
+            eprintln!(
+                "notification_bridge: failed to parse payload_json ({err}); preview={preview:?}"
+            );
+            serde_json::Value::Object(serde_json::Map::new())
+        }
+    }
 }
 
 /// Map notification channel to the Tauri event name that matches the frontend's
