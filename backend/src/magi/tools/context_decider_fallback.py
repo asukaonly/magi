@@ -40,8 +40,6 @@ class ContextDeciderFallbackMixin:
     max_tools: int
     tool_registry: Any
 
-    def _default_orchestration_strategy(self, tools: list[str] | None = None, user_lower: str = "") -> dict[str, Any]: ...
-
     def _rule_based_fallback(
         self,
         user_message: str,

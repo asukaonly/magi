@@ -9,11 +9,9 @@ from .context_routing import (
     MemoryGuidance,
     RouteDecision,
     apply_memory_guidance,
-    default_orchestration_strategy,
     evaluate_memory_need,
     is_complex_research_request,
     needs_fetch_for_request,
-    normalize_orchestration_strategy,
 )
 
 
@@ -39,21 +37,11 @@ class ContextDeciderGuidanceMixin:
             task_category=decision.profile,
         )
 
-    def _default_orchestration_strategy(
-        self,
-        tools: Optional[list[str]] = None,
-        user_lower: str = "",
-    ) -> dict[str, Any]:
-        return default_orchestration_strategy(tools, user_lower)
-
     def _is_complex_research_request(self, user_lower: str) -> bool:
         return is_complex_research_request(user_lower)
 
     def _needs_fetch_for_request(self, user_lower: str) -> bool:
         return needs_fetch_for_request(user_lower)
-
-    def _normalize_orchestration_strategy(self, payload: Any) -> dict[str, Any]:
-        return normalize_orchestration_strategy(payload)
 
     def evaluate_memory_need(
         self,

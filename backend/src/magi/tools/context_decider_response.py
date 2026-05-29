@@ -77,9 +77,7 @@ class ContextDeciderResponseMixin:
     max_tools: int
     tool_registry: Any
 
-    def _default_orchestration_strategy(self, tools: list[str] | None = None, user_lower: str = "") -> dict[str, Any]: ...
     def _get_available_tools(self) -> list[dict[str, Any]]: ...
-    def _normalize_orchestration_strategy(self, payload: Any) -> dict[str, Any]: ...
 
     def _parse_response(self, response: str) -> RouteDecision:
         """Parse LLM response into RouteDecision."""

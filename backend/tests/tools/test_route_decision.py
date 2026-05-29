@@ -161,6 +161,19 @@ def test_legacy_strategy_dict_for_explore() -> None:
     assert legacy["allow_parallel"] is True
 
 
+def test_orchestration_module_no_longer_exposes_keyword_normalization() -> None:
+    """Task B.11: the keyword-based orchestration_strategy normalization is
+    deleted. After this commit, only the RouteDecision adapter is used."""
+    import importlib
+    module = importlib.import_module("magi.tools.context_routing.orchestration")
+    assert not hasattr(module, "default_orchestration_strategy"), (
+        "default_orchestration_strategy must be deleted; use RouteDecision.to_legacy_strategy_dict()"
+    )
+    assert not hasattr(module, "normalize_orchestration_strategy"), (
+        "normalize_orchestration_strategy must be deleted; RouteDecision schema validates strictly"
+    )
+
+
 def test_context_decider_system_prompt_mentions_route_decision_fields() -> None:
     """Source check: the system prompt must request the RouteDecision
     schema's enum fields so the LLM outputs strict JSON that the new

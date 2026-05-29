@@ -14,15 +14,8 @@ def _build_response_mixin_subject():
         max_tools = 5
         tool_registry = None
 
-        def _default_orchestration_strategy(self, tools=None, user_lower=""):
-            return {"mode": "direct", "planner": "task_agent",
-                    "default_leaf_type": "general-purpose", "allow_parallel": False}
-
         def _get_available_tools(self):
             return []
-
-        def _normalize_orchestration_strategy(self, payload):
-            return self._default_orchestration_strategy()
 
     return _Host()
 
