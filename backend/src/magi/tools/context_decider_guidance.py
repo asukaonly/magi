@@ -7,6 +7,7 @@ from typing import Any, Optional
 from .context_routing import (
     ContextDecision,
     MemoryGuidance,
+    RouteDecision,
     apply_memory_guidance,
     default_orchestration_strategy,
     evaluate_memory_need,
@@ -26,16 +27,16 @@ class ContextDeciderGuidanceMixin:
         *,
         user_message: str,
         context: Optional[dict[str, Any]],
-        decision: ContextDecision,
+        decision: RouteDecision,
         available_tools: list[dict[str, Any]],
-    ) -> ContextDecision:
+    ) -> RouteDecision:
         return apply_memory_guidance(
             user_message=user_message,
             context=context,
             decision=decision,
             available_tools=available_tools,
             max_tools=self.max_tools,
-            task_category=decision.intent,
+            task_category=decision.profile,
         )
 
     def _default_orchestration_strategy(
