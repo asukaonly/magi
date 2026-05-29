@@ -1,9 +1,17 @@
-"""Notification relay — polls Magi notifications and delivers them to channels."""
+"""DEPRECATED. Replaced by ``DeliveryRouter`` as of Phase G+1.
+
+The polling-then-push pattern is retired in favor of the direct fanout
+path the coordinator now drives. This module is kept temporarily so any
+out-of-tree caller breaks with a clear ``DeprecationWarning`` rather
+than a silent removal. Slated for deletion in the next phase once we
+confirm no external imports remain.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import json
+import warnings
 from typing import Any
 
 from ..core.logger import get_logger
@@ -31,6 +39,12 @@ class NotificationRelay:
         trace_store: RuntimeTraceStore,
         poll_interval_s: float = 0.5,
     ) -> None:
+        warnings.warn(
+            "NotificationRelay is deprecated; DeliveryRouter is the live "
+            "delivery path as of Phase G+1.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._registry = registry
         self._session_mapper = session_mapper
         self._trace_store = trace_store
