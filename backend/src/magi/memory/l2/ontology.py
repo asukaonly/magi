@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Any
 
 ENTITY_TYPE_REGISTRY: frozenset[str] = frozenset(
@@ -340,8 +341,14 @@ FAMILY_TO_PREDICATES: dict[str, list[str]] = {
 }
 
 
+@lru_cache(maxsize=512)
 def get_predicate_synonym_group(predicate: str) -> str | None:
-    """Return the synonym group for a predicate, or ``None`` if ungrouped."""
+    """Return the synonym group for a predicate, or ``None`` if ungrouped.
+
+    Cached because reranker and validation paths call this thousands of
+    times per retrieval with a tiny set of unique inputs (the predicate
+    vocabulary is bounded).
+    """
     return _PREDICATE_SYNONYM_GROUPS.get(predicate.strip().upper())
 
 
@@ -374,6 +381,7 @@ def are_predicates_synonymous(a: str, b: str) -> bool:
     return ga is not None and ga == gb
 
 
+@lru_cache(maxsize=256)
 def normalize_entity_type(raw_type: str | None) -> str | None:
     """Normalize a raw entity type into the canonical ontology."""
 
@@ -404,12 +412,14 @@ def is_valid_entity_type(entity_type: str) -> bool:
     return normalize_entity_type(entity_type) in ENTITY_TYPE_REGISTRY
 
 
+@lru_cache(maxsize=512)
 def is_valid_predicate(predicate: str) -> bool:
     """Return whether a predicate is part of the canonical graph ontology."""
 
     return predicate.strip().upper() in PREDICATE_REGISTRY
 
 
+@lru_cache(maxsize=2048)
 def is_predicate_compatible(predicate: str, object_type: str) -> bool:
     """Return whether the predicate may point at the supplied object type."""
 

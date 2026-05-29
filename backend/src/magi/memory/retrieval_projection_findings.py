@@ -8,6 +8,7 @@ selection that discarded useful cross-layer evidence.
 
 from __future__ import annotations
 
+import heapq
 from typing import Any
 
 from .entity_display import display_name_for
@@ -107,10 +108,15 @@ def build_findings(
         if not any(is_echo_finding(c, text) for text in echo_texts if text)
     ]
 
-    candidates.sort(key=lambda x: -float(x.get("_score", 0.0)))
-
     limit = max(int(request.limit or 10), 1)
-    selected = candidates[:limit]
+
+    # heapq.nlargest is O(N log K) instead of sort's O(N log N) and skips the
+    # full materialisation of the sorted tail we then discard. Materially
+    # better only when N >> K; safe and slightly faster otherwise.
+    selected = heapq.nlargest(
+        limit, candidates, key=lambda x: float(x.get("_score", 0.0))
+    )
+
     for finding in selected:
         finding["topic"] = _derive_finding_topic(finding)
     return selected, rel_dropped + asrt_dropped

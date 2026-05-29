@@ -83,6 +83,37 @@ class L2StoreEdgeEmbeddingMixin:
 
         triple_ids = [hit.entity_id for hit in hits]
         distance_by_id = {hit.entity_id: hit.distance for hit in hits}
+
+        # SQLite caps host parameters per statement at SQLITE_MAX_VARIABLE_NUMBER
+        # (default 999 across the versions we bundle). If a caller ever
+        # accumulates more vector hits or pushes a longer filter list than
+        # that, the IN(?, ?, …) expansion below would fail at execute time
+        # with "too many SQL variables". Truncate defensively and log so the
+        # caller can investigate the upstream limit slip instead of having
+        # the whole retrieval path 500.
+        _MAX_SQL_IN_PARAMS = 900
+        if len(triple_ids) > _MAX_SQL_IN_PARAMS:
+            logger.warning(
+                "edge_embeddings: truncating %d triple_ids to %d (SQLite IN limit)",
+                len(triple_ids),
+                _MAX_SQL_IN_PARAMS,
+            )
+            triple_ids = triple_ids[:_MAX_SQL_IN_PARAMS]
+        if status_filters and len(status_filters) > _MAX_SQL_IN_PARAMS:
+            logger.warning(
+                "edge_embeddings: truncating %d status_filters to %d",
+                len(status_filters),
+                _MAX_SQL_IN_PARAMS,
+            )
+            status_filters = list(status_filters)[:_MAX_SQL_IN_PARAMS]
+        if predicates and len(predicates) > _MAX_SQL_IN_PARAMS:
+            logger.warning(
+                "edge_embeddings: truncating %d predicates to %d",
+                len(predicates),
+                _MAX_SQL_IN_PARAMS,
+            )
+            predicates = list(predicates)[:_MAX_SQL_IN_PARAMS]
+
         placeholders = ", ".join("?" for _ in triple_ids)
         args: list[Any] = list(triple_ids)
 
