@@ -1,14 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useAvailability } from '../../hooks/useAvailability';
+import { usePluginActivation } from '../../hooks/usePluginActivation';
 import {
   EMPTY_STATE_PRIORITY_PLUGINS,
   getEmptyStatePluginMeta,
 } from '../../constants/emptyStatePriorities';
-import { sensorsApi, type SensorSourceStatusItem } from '../../api/modules/sensors';
-import { pluginsApi } from '../../api/modules/plugins';
-import type { ActivationFlowSpec } from '../../api/modules/plugins';
 import { EmptyStateSensorCard } from './EmptyStateSensorCard';
 import { PluginActivationDialog } from '../plugins/PluginActivationDialog';
 
@@ -48,12 +46,6 @@ export interface EmptyStateAvailableSensorsProps {
   onActivated?: (pluginId: string) => void;
 }
 
-interface DialogState {
-  pluginId: string;
-  sourceName: string;
-  flow: ActivationFlowSpec;
-}
-
 export function EmptyStateAvailableSensors({
   excludePluginIds,
   onActivated,
@@ -72,7 +64,12 @@ export function EmptyStateAvailableSensors({
 
   const { entries, loading, refresh } = useAvailability(priorityList);
 
-  const [dialogState, setDialogState] = useState<DialogState | null>(null);
+  const { dialogState, openDialog, closeDialog, confirm } = usePluginActivation({
+    onSuccess: async (pluginId) => {
+      await refresh();
+      onActivated?.(pluginId);
+    },
+  });
 
   // Defence-in-depth: the prior filter trims the probe input, but the
   // resolved entries may still include excluded IDs if the hook's backend
@@ -96,60 +93,6 @@ export function EmptyStateAvailableSensors({
     return null;
   }
 
-  const handleConnect = async (pluginId: string) => {
-    try {
-      // Settings uses the same `getStatus` path: the activation flow spec is
-      // embedded per-source, so we fetch the full list and pick the first
-      // source belonging to this plugin.
-      const status = await sensorsApi.getStatus();
-      const match = status.sources.find(
-        (source: SensorSourceStatusItem) =>
-          source.plugin_id === pluginId && source.activation_flow,
-      );
-      if (!match || !match.activation_flow) {
-        console.error('no activation flow available for plugin', pluginId);
-        return;
-      }
-      setDialogState({
-        pluginId,
-        sourceName: match.source_name,
-        flow: match.activation_flow,
-      });
-    } catch (err) {
-      console.error('failed to fetch sensor status for activation', err);
-    }
-  };
-
-  const handleConfirm = async (values: Record<string, unknown>) => {
-    if (!dialogState) {
-      return;
-    }
-    const { pluginId, sourceName, flow } = dialogState;
-
-    if (flow.authorize_on_confirm) {
-      const authResult = await sensorsApi.requestAuthorization(
-        sourceName,
-        values as Record<string, any>,
-      );
-      if (!authResult.authorized) {
-        // Leave the dialog open so the caller (or PluginActivationDialog) can
-        // surface the failure. Re-throwing also resets the dialog's submitting
-        // state via its finally{} block.
-        throw new Error(authResult.message || 'authorization_denied');
-      }
-    }
-
-    await pluginsApi.updateSettings(pluginId, {
-      ...values,
-      [flow.enabled_key]: true,
-      [flow.configured_key]: true,
-    });
-
-    setDialogState(null);
-    await refresh();
-    onActivated?.(pluginId);
-  };
-
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-medium text-[#35261f] dark:text-[#f4eadf]">
@@ -169,7 +112,7 @@ export function EmptyStateAvailableSensors({
               valueKey={meta.valueKey}
               iconId={meta.iconId}
               onConnect={(pluginId) => {
-                void handleConnect(pluginId);
+                void openDialog(pluginId);
               }}
             />
           );
@@ -178,10 +121,10 @@ export function EmptyStateAvailableSensors({
       {dialogState && (
         <PluginActivationDialog
           open
-          onClose={() => setDialogState(null)}
+          onClose={closeDialog}
           flow={dialogState.flow}
           initialValues={{}}
-          onConfirm={handleConfirm}
+          onConfirm={confirm}
           pluginId={dialogState.pluginId}
         />
       )}

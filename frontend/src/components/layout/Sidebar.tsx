@@ -26,6 +26,7 @@ import {
 import { useChatShellStore, useConversationStore, type ChatPanelType } from '@/stores';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
 import { useSchedulesStore } from '@/stores/schedules';
+import { useSuggestionDismissals } from '@/hooks/useSuggestionDismissals';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
 import { PersonaHeader } from './PersonaHeader';
 import { MoodCalendar } from '@/components/timeline/immersive/sidebar/MoodCalendar';
@@ -302,6 +303,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
   const tasksActiveCount = useBackgroundTaskStore((state) => state.activeCount);
   const runningSchedulesCount = useSchedulesStore((state) => state.runningCount);
+  const { activeCount: suggestionDismissalCount } = useSuggestionDismissals();
 
   if (collapsed) {
     return null;
@@ -693,6 +695,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
             t('shell.settings'),
             <Settings className="h-[18px] w-[18px]" />,
             settingsActive,
+            suggestionDismissalCount,
           )}
         </div>
       </div>

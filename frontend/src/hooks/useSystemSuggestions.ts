@@ -9,6 +9,7 @@ import {
 export interface UseSystemSuggestionsArgs {
   triggerText: string;
   locale: 'zh' | 'en';
+  sessionId?: string;
 }
 
 export interface UseSystemSuggestionsResult {
@@ -21,6 +22,7 @@ export interface UseSystemSuggestionsResult {
 export function useSystemSuggestions({
   triggerText,
   locale,
+  sessionId,
 }: UseSystemSuggestionsArgs): UseSystemSuggestionsResult {
   const [proposals, setProposals] = useState<SuggestionProposal[]>([]);
   const [loading, setLoading] = useState(false);
@@ -35,7 +37,7 @@ export function useSystemSuggestions({
     cancelled.current = false;
     setLoading(true);
     setError(null);
-    checkSystemSuggestions({ text: triggerText, locale })
+    checkSystemSuggestions({ text: triggerText, locale, sessionId })
       .then((result) => {
         if (!cancelled.current) setProposals(result);
       })
@@ -48,7 +50,7 @@ export function useSystemSuggestions({
     return () => {
       cancelled.current = true;
     };
-  }, [triggerText, locale]);
+  }, [triggerText, locale, sessionId]);
 
   const dismiss = useCallback(
     async (dedupeKey: string, kind: DismissalKind) => {

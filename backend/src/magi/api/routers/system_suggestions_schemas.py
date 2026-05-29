@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -12,6 +13,7 @@ from magi.system_suggestions.contracts import DismissalKind, SuggestionProposal
 class CheckRequest(BaseModel):
     text: str = Field(min_length=1, max_length=20000)
     locale: Literal["zh", "en"] = "zh"
+    session_id: str = Field(default="default")
 
 
 class CheckResponse(BaseModel):
@@ -26,3 +28,18 @@ class DismissRequest(BaseModel):
 class DismissResponse(BaseModel):
     dedupe_key: str
     dismissed: bool
+
+
+class DismissalItem(BaseModel):
+    dedupe_key: str
+    dismissed_at: datetime
+    kind: DismissalKind
+
+
+class ListDismissalsResponse(BaseModel):
+    dismissals: list[DismissalItem]
+
+
+class ClearDismissalResponse(BaseModel):
+    dedupe_key: str
+    cleared: bool

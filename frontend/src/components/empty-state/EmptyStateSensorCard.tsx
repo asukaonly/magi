@@ -40,6 +40,7 @@ export function EmptyStateSensorCard({
       </div>
       <button
         type="button"
+        data-testid={`empty-state-connect-${pluginId}`}
         onClick={() => onConnect(pluginId)}
         disabled={disabled}
         className="self-start rounded-md bg-[#35261f] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-[#f4eadf] dark:text-[#35261f]"

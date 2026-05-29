@@ -325,6 +325,7 @@ export const ChatPage: React.FC = () => {
   const { proposals: systemSuggestions, dismiss: dismissSystemSuggestion } = useSystemSuggestions({
     triggerText,
     locale: suggestionLocale,
+    sessionId: currentSessionId ?? undefined,
   });
   const [sideCardProposal, setSideCardProposal] = useState<SuggestionProposal | null>(null);
   const topBarProposal = systemSuggestions.length > 0 ? systemSuggestions[0] : null;

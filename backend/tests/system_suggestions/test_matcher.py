@@ -1,192 +1,120 @@
-"""Tests for find_suggestions — the signal matcher."""
+"""Tests for the signal matcher: candidate_categories + build_proposals."""
 
 from __future__ import annotations
 
-from magi.system_suggestions.matcher import find_suggestions
-from magi_plugin_sdk.contracts import PluginManifest
+from magi.system_suggestions.matcher import (
+    CategoryCandidate,
+    build_proposals,
+    candidate_categories,
+)
+from magi_plugin_sdk.contracts import (
+    LocalizedText,
+    PluginManifest,
+    SuggestionDescriptor,
+    Triggers,
+)
 
 
-def test_keyword_match_in_locale_fires_a_suggestion(make_manifest_fixture) -> None:
-    manifests = [
-        make_manifest_fixture(
-            "chrome-history",
-            category="browser_history",
-            keywords={"zh": ["浏览", "网页"], "en": ["browsing", "website"]},
+def _manifest(
+    plugin_id: str, category: str, keywords_zh: list[str]
+) -> PluginManifest:
+    """Build a PluginManifest with a suggestion_descriptor (zh keywords only)."""
+    return PluginManifest(
+        id=plugin_id,
+        name=plugin_id,
+        version="0.1.0",
+        entry_module="plugin",
+        entry_class="X",
+        suggestion_descriptor=SuggestionDescriptor(
+            category=category,
+            triggers=Triggers(
+                intents=[],
+                entities=[],
+                keywords={"zh": keywords_zh},
+            ),
+            platform_support=["darwin", "win32", "linux"],
+            local_requirements=[],
+            rationale=LocalizedText(
+                zh=f"connect {plugin_id} (zh)",
+                en=f"connect {plugin_id} (en)",
+            ),
         ),
+    )
+
+
+def test_candidate_categories_groups_keyword_hits_by_category() -> None:
+    manifests = [
+        _manifest("chrome-history", "browser_history", ["浏览", "网页"]),
+        _manifest("edge-history", "browser_history", ["浏览"]),
+        _manifest("git-activity", "code_activity", ["代码"]),
     ]
-    suggestions = find_suggestions(
-        recent_text="我上周看了什么浏览",
+    cands = candidate_categories(
+        recent_text="我上周浏览了哪些网页",
         locale="zh",
         plugin_manifests=manifests,
-        is_available=lambda _: True,
-        is_dismissed=lambda _: False,
+        is_available=lambda _pid: True,
+        is_dismissed=lambda _cat: False,
     )
-    assert len(suggestions) == 1
-    assert suggestions[0].plugin_ids == ["chrome-history"]
-    assert suggestions[0].category == "browser_history"
-
-
-def test_no_keyword_match_no_suggestion(make_manifest_fixture) -> None:
-    manifests = [
-        make_manifest_fixture(
-            "chrome-history",
-            category="browser_history",
-            keywords={"zh": ["浏览"], "en": ["browsing"]},
-        ),
+    assert set(cands.keys()) == {"browser_history"}
+    assert sorted(cands["browser_history"].plugin_ids) == [
+        "chrome-history",
+        "edge-history",
     ]
-    suggestions = find_suggestions(
-        recent_text="random unrelated text",
-        locale="zh",
-        plugin_manifests=manifests,
-        is_available=lambda _: True,
-        is_dismissed=lambda _: False,
+
+
+def test_candidate_categories_filters_unavailable_and_dismissed() -> None:
+    manifests = [_manifest("chrome-history", "browser_history", ["浏览"])]
+    assert (
+        candidate_categories(
+            recent_text="浏览",
+            locale="zh",
+            plugin_manifests=manifests,
+            is_available=lambda _pid: False,
+            is_dismissed=lambda _c: False,
+        )
+        == {}
     )
-    assert suggestions == []
-
-
-def test_unavailable_plugin_filtered_out(make_manifest_fixture) -> None:
-    manifests = [
-        make_manifest_fixture(
-            "chrome-history",
-            category="browser_history",
-            keywords={"zh": ["浏览"], "en": ["browsing"]},
-        ),
-    ]
-    suggestions = find_suggestions(
-        recent_text="我看了什么浏览",
-        locale="zh",
-        plugin_manifests=manifests,
-        is_available=lambda _: False,
-        is_dismissed=lambda _: False,
+    assert (
+        candidate_categories(
+            recent_text="浏览",
+            locale="zh",
+            plugin_manifests=manifests,
+            is_available=lambda _pid: True,
+            is_dismissed=lambda _c: True,
+        )
+        == {}
     )
-    assert suggestions == []
 
 
-def test_dismissed_category_filtered_out(make_manifest_fixture) -> None:
-    manifests = [
-        make_manifest_fixture(
-            "chrome-history",
+def _cands() -> dict[str, CategoryCandidate]:
+    return {
+        "browser_history": CategoryCandidate(
             category="browser_history",
-            keywords={"zh": ["浏览"], "en": ["browsing"]},
+            plugin_ids=["chrome-history"],
+            keywords=["浏览"],
+            rationale={"zh": "z", "en": "e"},
+            keyword_hits=2,
         ),
-    ]
-    suggestions = find_suggestions(
-        recent_text="我看了什么浏览",
-        locale="zh",
-        plugin_manifests=manifests,
-        is_available=lambda _: True,
-        is_dismissed=lambda key: key == "browser_history",
-    )
-    assert suggestions == []
-
-
-def test_sibling_plugins_bundle_into_one_suggestion(make_manifest_fixture) -> None:
-    manifests = [
-        make_manifest_fixture(
-            "chrome-history",
-            category="browser_history",
-            keywords={"zh": ["浏览"], "en": ["browsing"]},
-        ),
-        make_manifest_fixture(
-            "safari-history",
-            category="browser_history",
-            keywords={"zh": ["浏览"], "en": ["browsing"]},
-        ),
-    ]
-    suggestions = find_suggestions(
-        recent_text="我看了什么浏览",
-        locale="zh",
-        plugin_manifests=manifests,
-        is_available=lambda _: True,
-        is_dismissed=lambda _: False,
-    )
-    assert len(suggestions) == 1
-    assert set(suggestions[0].plugin_ids) == {"chrome-history", "safari-history"}
-    assert suggestions[0].category == "browser_history"
-
-
-def test_different_categories_emit_separate_suggestions(make_manifest_fixture) -> None:
-    manifests = [
-        make_manifest_fixture(
-            "chrome-history",
-            category="browser_history",
-            keywords={"zh": ["浏览"], "en": ["browsing"]},
-        ),
-        make_manifest_fixture(
-            "git-activity",
+        "code_activity": CategoryCandidate(
             category="code_activity",
-            keywords={"zh": ["代码"], "en": ["code"]},
+            plugin_ids=["git-activity"],
+            keywords=["代码"],
+            rationale={"zh": "z", "en": "e"},
+            keyword_hits=1,
         ),
-    ]
-    suggestions = find_suggestions(
-        recent_text="我看了什么浏览以及我的代码",
-        locale="zh",
-        plugin_manifests=manifests,
-        is_available=lambda _: True,
-        is_dismissed=lambda _: False,
+    }
+
+
+def test_build_proposals_uses_llm_confidences_and_drops_zero() -> None:
+    props = build_proposals(
+        _cands(), confidences={"browser_history": 0.9, "code_activity": 0.0}
     )
-    assert len(suggestions) == 2
-    categories = {s.category for s in suggestions}
-    assert categories == {"browser_history", "code_activity"}
+    assert [p.category for p in props] == ["browser_history"]
+    assert props[0].confidence == 0.9
+    assert props[0].plugin_ids == ["chrome-history"]
 
 
-def test_plugin_without_descriptor_skipped() -> None:
-    manifests = [
-        PluginManifest(
-            id="legacy", name="Legacy", version="0.1.0",
-            entry_module="plugin", entry_class="X",
-        ),
-    ]
-    suggestions = find_suggestions(
-        recent_text="anything",
-        locale="zh",
-        plugin_manifests=manifests,
-        is_available=lambda _: True,
-        is_dismissed=lambda _: False,
-    )
-    assert suggestions == []
-
-
-def test_locale_filtering_only_matches_requested_locale(make_manifest_fixture) -> None:
-    manifests = [
-        make_manifest_fixture(
-            "chrome-history",
-            category="browser_history",
-            keywords={"zh": ["浏览"], "en": ["browsing"]},
-        ),
-    ]
-    suggestions = find_suggestions(
-        recent_text="hey did you check my browsing",
-        locale="zh",
-        plugin_manifests=manifests,
-        is_available=lambda _: True,
-        is_dismissed=lambda _: False,
-    )
-    assert suggestions == []
-    suggestions = find_suggestions(
-        recent_text="hey did you check my browsing",
-        locale="en",
-        plugin_manifests=manifests,
-        is_available=lambda _: True,
-        is_dismissed=lambda _: False,
-    )
-    assert len(suggestions) == 1
-
-
-def test_unsupported_platform_filters_plugin(make_manifest_fixture) -> None:
-    manifests = [
-        make_manifest_fixture(
-            "chrome-history",
-            category="browser_history",
-            keywords={"zh": ["浏览"], "en": ["browsing"]},
-            platforms=["linux"],
-        ),
-    ]
-    suggestions = find_suggestions(
-        recent_text="浏览",
-        locale="zh",
-        plugin_manifests=manifests,
-        is_available=lambda _: False,
-        is_dismissed=lambda _: False,
-    )
-    assert suggestions == []
+def test_build_proposals_degrades_to_keyword_when_confidences_none() -> None:
+    props = build_proposals(_cands(), confidences=None)
+    assert {p.category for p in props} == {"browser_history", "code_activity"}
+    assert props[0].category == "browser_history"  # more hits -> higher keyword confidence

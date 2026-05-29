@@ -56,9 +56,29 @@ describe('systemSuggestions client', () => {
     expect(mockedPost).toHaveBeenCalledWith('/system-suggestions/check', {
       text: '我看了什么浏览',
       locale: 'zh',
+      session_id: 'default',
     });
     expect(result).toHaveLength(1);
     expect(result[0].plugin_ids).toEqual(['chrome-history']);
+  });
+
+  it('checkSystemSuggestions threads sessionId into session_id', async () => {
+    mockedPost.mockResolvedValue({
+      success: true,
+      data: { suggestions: [] },
+    } as any);
+
+    await checkSystemSuggestions({
+      text: 'hi',
+      locale: 'en',
+      sessionId: 'sess-123',
+    });
+
+    expect(mockedPost).toHaveBeenCalledWith('/system-suggestions/check', {
+      text: 'hi',
+      locale: 'en',
+      session_id: 'sess-123',
+    });
   });
 
   it('dismissSystemSuggestion posts dedupe_key + kind', async () => {
