@@ -97,13 +97,13 @@ Hard rules:
 Use these as routing patterns, not literal keyword rules.
 
 User: "what's the weather in tokyo"
-JSON: {"intent": "realtime_query", "tools": ["weather"], "thinking_depth": "none", "reasoning": "Real-time weather query. Use the dedicated weather tool.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+JSON: {"intent": "realtime_query", "profile": "chat", "graph_shape": "reply", "complexity": "simple", "tools": ["weather"], "thinking_depth": "none", "reasoning": "Real-time weather query. Use the dedicated weather tool.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
 User: "fix the race condition in backend/src/magi/agent/foo.py"
-JSON: {"intent": "code_execution", "tools": ["agent"], "thinking_depth": "medium", "reasoning": "Targeted code fix with debugging risk. Prefer a Coding worker over raw file CRUD.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "Coding", "allow_parallel": false}}
+JSON: {"intent": "code_execution", "profile": "coding", "graph_shape": "tool_loop", "complexity": "medium", "tools": ["agent"], "may_write": true, "thinking_depth": "medium", "reasoning": "Targeted code fix with debugging risk. Prefer a Coding worker over raw file CRUD.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "Coding", "allow_parallel": false}}
 
 User: "analyze this large repo and design a migration plan"
-JSON: {"intent": "planning", "tools": ["agent"], "thinking_depth": "high", "reasoning": "Large repo analysis should be decomposed into bounded workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "CodeExplore", "allow_parallel": true}}
+JSON: {"intent": "planning", "profile": "explore", "graph_shape": "plan_fanout", "complexity": "large", "tools": ["agent"], "thinking_depth": "high", "reasoning": "Large repo analysis should be decomposed into bounded workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "CodeExplore", "allow_parallel": true}}
 
 User: "find the 10 most important Hangzhou news stories from the last 7 days and give me links"
 JSON: {"intent": "planning", "tools": ["agent"], "thinking_depth": "medium", "reasoning": "This asks for a collection with time bounds and source links, so worker decomposition is appropriate.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": true}}

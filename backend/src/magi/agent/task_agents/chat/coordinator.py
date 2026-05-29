@@ -237,7 +237,7 @@ class ChatExecutionCoordinator:
         decision = await self._context_decider.decide(context.latest_user_message, decision_context)
         force_direct_external = self._should_force_direct_external_plan(
             user_message=context.latest_user_message,
-            strategy=decision.to_legacy_strategy_dict(),  # adapter — Task B.11 drops this
+            strategy=decision.to_legacy_strategy_dict(),  # adapter — Phase C will drop this once handlers read RouteDecision directly
         )
         orchestration_plan = self._build_orchestration_plan_from_route(
             user_message=context.latest_user_message,
@@ -417,8 +417,8 @@ class ChatExecutionCoordinator:
     ) -> OrchestrationPlan:
         """Translate RouteDecision into the existing OrchestrationPlan dataclass.
 
-        The OrchestrationPlan dataclass remains in use through Task B.11 — it
-        feeds OrchestrationLaunchHandler. Task B.11 deletes the legacy adapter
+        The OrchestrationPlan dataclass remains in use through Phase B — it
+        feeds OrchestrationLaunchHandler. Phase C deletes the legacy adapter
         path once the handler reads RouteDecision directly.
         """
         mode = "decompose" if decision.graph_shape == "plan_fanout" else "direct"

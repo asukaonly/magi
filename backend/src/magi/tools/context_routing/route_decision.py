@@ -24,7 +24,7 @@ Design notes
 
 * The ``to_legacy_strategy_dict()`` adapter exists ONLY for the Phase B
   migration window — once every consumer has migrated to read
-  ``RouteDecision`` directly, this method is deleted (Task 11).
+  ``RouteDecision`` directly, this method is deleted in Phase C.
 """
 from __future__ import annotations
 

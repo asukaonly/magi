@@ -6,7 +6,7 @@ by ``RouteDecision`` strict validation and the
 
 This module is intentionally near-empty during the Phase B migration
 window so that any remaining import attempts fail loudly. The file is
-fully deleted in a follow-up cleanup once we are confident no internal
+fully deleted in Phase C once we are confident no internal
 or external code path still references it.
 """
 from __future__ import annotations
