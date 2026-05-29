@@ -15,13 +15,7 @@ def test_build_context_uses_session_run_cancel_token_not_null() -> None:
     from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
 
     src = inspect.getsource(ChatTaskAgent.build_context)
-    assert "SessionRunCancelToken" in src, (
-        "build_context must construct SessionRunCancelToken for turn_control.cancel_token"
-    )
-    # The placeholder pattern (assigning null_cancel_token() to turn_control.cancel_token)
-    # must NOT be present anymore. The null bundle is still constructed via
-    # null_run_control(), but its cancel_token slot is then overwritten.
-    # We check for the explicit overwrite line:
-    assert "turn_control.cancel_token =" in src or "cancel_token=" in src, (
-        "build_context must explicitly set the cancel_token on turn_control"
+    assert "turn_control.cancel_token = SessionRunCancelToken(" in src, (
+        "build_context must overwrite turn_control.cancel_token with a "
+        "SessionRunCancelToken instance, not leave it as null_cancel_token()"
     )
