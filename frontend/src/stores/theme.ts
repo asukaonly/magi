@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { syncWindowCaptionColor } from '@/runtime/desktop';
 
 export const THEME_MODE_OPTIONS = [
   'light',
@@ -72,11 +73,15 @@ const syncDesktopCaptionColor = (): void => {
   if (typeof window === 'undefined') {
     return;
   }
-  void import('@/runtime/desktop')
-    .then(({ syncWindowCaptionColor }) => syncWindowCaptionColor())
-    .catch(() => {
-      // desktop runtime unavailable (web build)
-    });
+  // runtime/desktop is already statically imported from main.tsx, so the
+  // previous dynamic import bought nothing but a Vite/Rolldown warning
+  // about ineffective dynamic import. `syncWindowCaptionColor` itself
+  // no-ops cleanly when not running under Tauri.
+  try {
+    void syncWindowCaptionColor();
+  } catch {
+    // desktop runtime unavailable (web build) — swallow silently
+  }
 };
 
 const applyTheme = (mode: ThemeMode, resolvedTheme = resolveTheme(mode)): void => {

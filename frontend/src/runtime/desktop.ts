@@ -1,3 +1,6 @@
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+
 export const DESKTOP_OPEN_SETTINGS_EVENT = 'desktop-presence://open-settings';
 export const DESKTOP_QUIT_REQUESTED_EVENT = 'desktop-presence://quit-requested';
 
@@ -20,7 +23,6 @@ async function invokeDesktopCommand<T = void>(command: string, payload?: Record<
     return undefined;
   }
 
-  const { invoke } = await import('@tauri-apps/api/core');
   if (payload) {
     return invoke<T>(command, payload);
   }
@@ -32,7 +34,6 @@ export async function registerDesktopShellHandlers(handlers: DesktopShellHandler
     return async () => {};
   }
 
-  const { listen } = await import('@tauri-apps/api/event');
   const unlistenCallbacks = await Promise.all([
     listen(DESKTOP_OPEN_SETTINGS_EVENT, () => {
       handlers.onOpenSettings();

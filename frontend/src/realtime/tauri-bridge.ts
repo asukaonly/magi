@@ -5,6 +5,8 @@
  * and forwards them to registered listeners.
  */
 
+import { listen } from '@tauri-apps/api/event';
+
 import type { RealtimeMessage } from './provider';
 import { normalizeRealtimeStreamEvent } from './stream-events';
 
@@ -66,16 +68,14 @@ export class TauriBridgeClient {
   async connect(): Promise<void> {
     if (this.connected) return;
 
-    let listenFn: typeof import('@tauri-apps/api/event').listen;
-    try {
-      const mod = await import('@tauri-apps/api/event');
-      listenFn = mod.listen;
-    } catch {
-      return;
-    }
-
+    // Previously dynamic-imported to fail gracefully outside Tauri, but
+    // @tauri-apps/api/event is now statically pulled into the eager bundle
+    // anyway (via api/window etc.), so the dynamic form only produced a
+    // Vite/Rolldown ineffective-dynamic-import warning without any chunk
+    // savings. Static import is fine — listen() itself only does work
+    // when the Tauri runtime is present.
     for (const eventName of BRIDGE_EVENTS) {
-      const unlistenFn = await listenFn<BridgePayload>(eventName, (event) => {
+      const unlistenFn = await listen<BridgePayload>(eventName, (event) => {
         const payload = event.payload;
         const data = payload.data;
         const dispatchedName = denormalizeBridgeEventName(eventName);
