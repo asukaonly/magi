@@ -319,28 +319,26 @@ export const configureApiClient = (options: {
 
 // Generic API helpers.
 //
-// Note on `T = any` defaults: the response type parameter still defaults to
-// `any` (not `unknown`) because hundreds of call sites rely on positional
-// access of the unwrapped result without a type assertion. Migrating those
-// to `unknown` is a separate, codebase-wide refactor — track it as a
-// dedicated task. Request bodies are typed `unknown` because the blast
-// radius there is much smaller (callers already pass typed objects).
+// The response type parameter defaults to `unknown` (not `any`) so callers
+// that omit the type get a value they MUST narrow before use. This is the
+// Lv1 boundary-tightening pass — every call site that previously relied on
+// `any`'s structural permissiveness now has to declare what it expects.
 export const api = {
-  get: <T = any>(url: string, paramsOrConfig?: Record<string, unknown> | ApiRequestConfig) => {
+  get: <T = unknown>(url: string, paramsOrConfig?: Record<string, unknown> | ApiRequestConfig) => {
     const config = normalizeGetConfig(paramsOrConfig);
     return apiClient.get<ApiResponse<T>>(url, config).then(unwrapApiResponse);
   },
 
-  post: <T = any>(url: string, data?: unknown, config?: ApiRequestConfig) =>
+  post: <T = unknown>(url: string, data?: unknown, config?: ApiRequestConfig) =>
     apiClient.post<ApiResponse<T>>(url, data, config).then(unwrapApiResponse),
 
-  put: <T = any>(url: string, data?: unknown, config?: ApiRequestConfig) =>
+  put: <T = unknown>(url: string, data?: unknown, config?: ApiRequestConfig) =>
     apiClient.put<ApiResponse<T>>(url, data, config).then(unwrapApiResponse),
 
-  delete: <T = any>(url: string, config?: ApiRequestConfig) =>
+  delete: <T = unknown>(url: string, config?: ApiRequestConfig) =>
     apiClient.delete<ApiResponse<T>>(url, config).then(unwrapApiResponse),
 
-  patch: <T = any>(url: string, data?: unknown, config?: ApiRequestConfig) =>
+  patch: <T = unknown>(url: string, data?: unknown, config?: ApiRequestConfig) =>
     apiClient.patch<ApiResponse<T>>(url, data, config).then(unwrapApiResponse),
 };
 
