@@ -34,6 +34,17 @@ interface DismissResponse {
 }
 
 /**
+ * An active dismissal record, as returned by
+ * `GET /system-suggestions/dismissals`. Only currently-active dismissals are
+ * listed; expired transient/explicit cooldowns are omitted by the backend.
+ */
+export interface DismissalItem {
+  dedupe_key: string;
+  dismissed_at: string;
+  kind: DismissalKind;
+}
+
+/**
  * Ask the backend which (if any) system suggestions are appropriate for the
  * given user text. The backend deduplicates against the dismissal repository,
  * so the returned list already excludes anything the user has snoozed.
@@ -64,4 +75,24 @@ export async function dismissSystemSuggestion(args: {
     args,
   );
   return unwrapGatewayPayload(response);
+}
+
+/**
+ * List the user's currently-active suggestion dismissals. Powers the Settings
+ * "dismissed suggestions" section and the sidebar badge count.
+ */
+export async function listDismissals(): Promise<DismissalItem[]> {
+  const response = await api.get<{ dismissals: DismissalItem[] }>(
+    '/system-suggestions/dismissals',
+  );
+  return unwrapGatewayPayload(response).dismissals;
+}
+
+/**
+ * Clear a single dismissal so its suggestion can surface again.
+ */
+export async function clearDismissal(dedupeKey: string): Promise<void> {
+  await api.delete(
+    `/system-suggestions/dismissals/${encodeURIComponent(dedupeKey)}`,
+  );
 }
