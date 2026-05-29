@@ -17,6 +17,7 @@ Magi backend is installed):
 Both resolve to the same classes at runtime.
 """
 from .base import Plugin
+from .delivery import DeliveryContent, DeliveryReceipt
 from .channels import (
     Channel,
     ChannelConfig,
@@ -99,6 +100,9 @@ __version__ = "0.1.0"
 __all__ = [
     # Core base class
     "Plugin",
+    # Delivery types (Phase G)
+    "DeliveryContent",
+    "DeliveryReceipt",
     # Channels
     "Channel",
     "ChannelConfig",
