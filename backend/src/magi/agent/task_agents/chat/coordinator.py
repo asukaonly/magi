@@ -140,6 +140,7 @@ class ChatExecutionCoordinator:
         tool_selection_trace_callback: ToolSelectionTraceCallback | None = None,
         session_run_store: Any | None = None,
         channel_registry: Any | None = None,
+        user_prefs_provider: Callable[[str], Awaitable[dict]] | None = None,
     ) -> None:
         self._context_decider = context_decider
         self._fact_classifier = fact_classifier
@@ -147,6 +148,12 @@ class ChatExecutionCoordinator:
         self._intent_trace_callback = intent_trace_callback
         self._tool_advisory_provider = tool_advisory_provider
         self._tool_selection_trace_callback = tool_selection_trace_callback
+        # Phase G+1 / Task 9: optional async lookup that returns the user's
+        # stored delivery preferences (e.g. ``{"delivery_channels": [...]}``).
+        # When None, ``execute()`` falls back to default chat_sse-only fanout.
+        # Errors raised by the provider are swallowed so delivery never breaks
+        # because a user-pref lookup fails.
+        self._user_prefs_provider = user_prefs_provider
         # Phase E: optional store for per-turn snapshot persistence.
         # When supplied, execute() calls run_with_snapshot and persists the
         # returned RunSnapshot so background-detached multi-node runs can
@@ -481,8 +488,14 @@ class ChatExecutionCoordinator:
             # delivery channels (when wired). Receipts are persisted on
             # the snapshot's node_states for later retract.
             if runner_result is not None and self._delivery_router is not None:
-                user_prefs = getattr(request.context, "user_prefs", {}) or {}
                 user_id = getattr(request.context, "user_id", "") or ""
+                # Phase G+1 / Task 9: pull stored prefs from the injected
+                # provider; let any context-supplied prefs override (so
+                # request-time overrides win on conflict).
+                user_prefs = await self._resolve_user_prefs(user_id)
+                ctx_prefs = getattr(request.context, "user_prefs", None)
+                if isinstance(ctx_prefs, dict):
+                    user_prefs = {**user_prefs, **ctx_prefs}
                 targets = resolve_delivery_targets(
                     user_id=user_id, session_id=session_id or "", user_prefs=user_prefs,
                 )
@@ -504,6 +517,28 @@ class ChatExecutionCoordinator:
                 return runner_result
         handler = self._handler_registry.get(request.mode)
         return await handler.execute(request)
+
+    async def _resolve_user_prefs(self, user_id: str) -> dict:
+        """Pull stored delivery prefs from the injected provider.
+
+        Phase G+1 / Task 9: the provider is the seam between this coordinator
+        and the real user-preference store (not wired here). Behaviour:
+
+        - No provider configured → return ``{}``.
+        - Blank ``user_id`` → return ``{}`` without invoking the provider
+          (nothing meaningful to look up).
+        - Provider raises → swallow + return ``{}`` (delivery must never
+          break because a user-pref lookup fails).
+        - Provider returns ``None`` → treat as ``{}``.
+        """
+        if self._user_prefs_provider is None or not user_id:
+            return {}
+        try:
+            extra = await self._user_prefs_provider(user_id)
+        except Exception as exc:
+            logger.debug("user_prefs_provider raised, defaulting to empty prefs: %s", exc)
+            return {}
+        return dict(extra or {})
 
     async def dispatch_stream_chunk(
         self,

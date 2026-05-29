@@ -1416,3 +1416,452 @@ async def test_dispatch_stream_chunk_noop_when_session_id_empty():
         is_final=False, seq=0,
     )
     assert len(rec.chunks) == 0
+
+
+# ---------------------------------------------------------------------------
+# Phase G+1 / Task 9: user_prefs_provider injection for final-delivery fanout
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_user_prefs_returns_empty_when_no_provider():
+    """No provider wired → returns empty dict, no error."""
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+    prefs = await coordinator._resolve_user_prefs("u-1")
+    assert prefs == {}
+
+
+@pytest.mark.asyncio
+async def test_resolve_user_prefs_returns_empty_when_user_id_blank():
+    """Blank user_id → skip provider call, return empty."""
+    calls = []
+
+    async def provider(user_id):
+        calls.append(user_id)
+        return {"delivery_channels": ["chat_sse", "telegram"]}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        user_prefs_provider=provider,
+    )
+    prefs = await coordinator._resolve_user_prefs("")
+    assert prefs == {}
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_user_prefs_returns_provider_result():
+    """Provider returns dict → returned as-is."""
+    async def provider(user_id):
+        assert user_id == "u-7"
+        return {"delivery_channels": ["chat_sse", "telegram"]}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        user_prefs_provider=provider,
+    )
+    prefs = await coordinator._resolve_user_prefs("u-7")
+    assert prefs == {"delivery_channels": ["chat_sse", "telegram"]}
+
+
+@pytest.mark.asyncio
+async def test_resolve_user_prefs_swallows_provider_errors():
+    """Provider raises → returns empty dict (delivery must not crash)."""
+    async def bad_provider(user_id):
+        raise RuntimeError("user-pref store down")
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        user_prefs_provider=bad_provider,
+    )
+    prefs = await coordinator._resolve_user_prefs("u-7")
+    assert prefs == {}
+
+
+@pytest.mark.asyncio
+async def test_execute_uses_user_prefs_provider_for_fanout_targets():
+    """When a provider is wired, execute() fans out to ALL channels the user
+    opted into via prefs (not just chat_sse)."""
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.common.contracts import (
+        ExecutionRequest, ExecutionResult, ExecutionMode,
+    )
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi.tools.context_routing import RouteDecision
+
+    class _Rec(Channel):
+        def __init__(self, ctype):
+            self._t = ctype
+            self.delivered = []
+        @property
+        def channel_type(self):
+            return self._t
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.delivered.append((target, content))
+            return DeliveryReceipt(
+                channel_id=self._t,
+                external_message_id=f"{self._t}_1",
+                delivered_at_ms=1000,
+            )
+        async def retract(self, receipt): pass
+
+    sse = _Rec("chat_sse:s-9")
+    telegram = _Rec("telegram")
+
+    class _Registry:
+        def __init__(self, m): self._m = m
+        def get(self, k): return self._m.get(k)
+
+    registry = _Registry({"chat_sse:s-9": sse, "telegram": telegram})
+
+    async def provider(user_id):
+        assert user_id == "u-9"
+        return {"delivery_channels": ["chat_sse", "telegram"]}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=registry,
+        user_prefs_provider=provider,
+    )
+
+    # Mock the runner so execute() short-circuits with a fixed result.
+    canned_result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM, response_text="hello world",
+    )
+
+    class _FakeRunner:
+        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
+            return canned_result, RunSnapshot(
+                run_id=run_id,
+                graph=tuple(spec.node_type for spec in node_specs),
+                cursor=len(node_specs),
+                node_states={},
+            )
+
+    coordinator._node_sequence_runner = _FakeRunner()
+
+    # Build a real-shaped request with route_decision so execute() takes the
+    # node-sequence path.
+    route = RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    )
+    fact = FactRecord(
+        agent_id="chat:u-9",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-9", "session_id": "s-9", "content": "hi"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-9",
+        agent_type="chat",
+        runtime_key="chat:u-9",
+        user_id="u-9",
+        session_id="s-9",
+        history_key="u-9::s-9",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="hi",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-9"),
+        session_run_id="run-9",
+    )
+    from magi.agent.task_agents.chat.contracts import IntentDecision
+    intent = IntentDecision(
+        intent="chat",
+        difficulty="normal",
+        execution_mode=ExecutionMode.DIRECT_LLM,
+        route_decision=route,
+        reasoning="",
+    )
+    from magi.agent.task_agents.common.contracts import ToolSelection
+    request = ExecutionRequest(
+        mode=ExecutionMode.DIRECT_LLM,
+        context=context,
+        intent=intent,
+        tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
+    )
+
+    result = await coordinator.execute(request)
+    assert result is canned_result
+
+    # Both channels received the delivery.
+    assert len(sse.delivered) == 1
+    assert len(telegram.delivered) == 1
+    assert sse.delivered[0][1].text == "hello world"
+    assert telegram.delivered[0][1].text == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_execute_swallows_user_prefs_provider_errors_and_uses_default_target():
+    """If the provider raises, execute() defaults to empty prefs and still
+    fans out to chat_sse only (no crash)."""
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.common.contracts import (
+        ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
+    )
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi.tools.context_routing import RouteDecision
+    from magi.agent.task_agents.chat.contracts import IntentDecision
+
+    class _Rec(Channel):
+        def __init__(self, ctype):
+            self._t = ctype
+            self.delivered = []
+        @property
+        def channel_type(self):
+            return self._t
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.delivered.append((target, content))
+            return DeliveryReceipt(
+                channel_id=self._t,
+                external_message_id=f"{self._t}_1",
+                delivered_at_ms=1000,
+            )
+        async def retract(self, receipt): pass
+
+    sse = _Rec("chat_sse:s-bad")
+
+    class _Registry:
+        def __init__(self, m): self._m = m
+        def get(self, k): return self._m.get(k)
+
+    registry = _Registry({"chat_sse:s-bad": sse})
+
+    async def bad_provider(user_id):
+        raise RuntimeError("store down")
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=registry,
+        user_prefs_provider=bad_provider,
+    )
+
+    canned_result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM, response_text="fallback ok",
+    )
+
+    class _FakeRunner:
+        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
+            return canned_result, RunSnapshot(
+                run_id=run_id,
+                graph=tuple(spec.node_type for spec in node_specs),
+                cursor=len(node_specs),
+                node_states={},
+            )
+
+    coordinator._node_sequence_runner = _FakeRunner()
+
+    route = RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    )
+    fact = FactRecord(
+        agent_id="chat:u-bad",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-bad", "session_id": "s-bad", "content": "hi"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-bad",
+        agent_type="chat",
+        runtime_key="chat:u-bad",
+        user_id="u-bad",
+        session_id="s-bad",
+        history_key="u-bad::s-bad",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="hi",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-bad"),
+        session_run_id="run-bad",
+    )
+    intent = IntentDecision(
+        intent="chat",
+        difficulty="normal",
+        execution_mode=ExecutionMode.DIRECT_LLM,
+        route_decision=route,
+        reasoning="",
+    )
+    request = ExecutionRequest(
+        mode=ExecutionMode.DIRECT_LLM,
+        context=context,
+        intent=intent,
+        tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
+    )
+
+    result = await coordinator.execute(request)
+    assert result is canned_result
+
+    # Default fallback: chat_sse only.
+    assert len(sse.delivered) == 1
+    assert sse.delivered[0][1].text == "fallback ok"
+
+
+@pytest.mark.asyncio
+async def test_execute_context_user_prefs_wins_over_provider():
+    """When both provider and context.user_prefs supply prefs, context wins
+    (request-time override semantics).
+
+    ChatRuntimeContext is a slots dataclass without a user_prefs attribute,
+    so this exercises the merge with a duck-typed context substitute to keep
+    the override path under test.
+    """
+    from types import SimpleNamespace
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.common.contracts import (
+        ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
+    )
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi.tools.context_routing import RouteDecision
+    from magi.agent.task_agents.chat.contracts import IntentDecision
+
+    class _Rec(Channel):
+        def __init__(self, ctype):
+            self._t = ctype
+            self.delivered = []
+        @property
+        def channel_type(self):
+            return self._t
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.delivered.append((target, content))
+            return DeliveryReceipt(
+                channel_id=self._t,
+                external_message_id=f"{self._t}_1",
+                delivered_at_ms=1000,
+            )
+        async def retract(self, receipt): pass
+
+    sse = _Rec("chat_sse:s-ctx")
+    telegram = _Rec("telegram")
+    slack = _Rec("slack")
+
+    class _Registry:
+        def __init__(self, m): self._m = m
+        def get(self, k): return self._m.get(k)
+
+    registry = _Registry({
+        "chat_sse:s-ctx": sse, "telegram": telegram, "slack": slack,
+    })
+
+    async def provider(user_id):
+        return {"delivery_channels": ["telegram"]}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=registry,
+        user_prefs_provider=provider,
+    )
+
+    canned_result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM, response_text="override",
+    )
+
+    class _FakeRunner:
+        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
+            return canned_result, RunSnapshot(
+                run_id=run_id,
+                graph=tuple(spec.node_type for spec in node_specs),
+                cursor=len(node_specs),
+                node_states={},
+            )
+
+    coordinator._node_sequence_runner = _FakeRunner()
+
+    route = RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    )
+    # Duck-typed context with the user_prefs attribute so the override branch
+    # in execute() actually fires. Only the attrs execute() reads are needed.
+    context = SimpleNamespace(
+        user_id="u-ctx",
+        session_id="s-ctx",
+        session_run_id="run-ctx",
+        user_prefs={"delivery_channels": ["chat_sse", "slack"]},
+    )
+    intent = IntentDecision(
+        intent="chat",
+        difficulty="normal",
+        execution_mode=ExecutionMode.DIRECT_LLM,
+        route_decision=route,
+        reasoning="",
+    )
+    request = ExecutionRequest(
+        mode=ExecutionMode.DIRECT_LLM,
+        context=context,
+        intent=intent,
+        tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
+    )
+
+    await coordinator.execute(request)
+
+    # Context's chat_sse + slack should have been used, not provider's telegram.
+    assert len(sse.delivered) == 1
+    assert len(slack.delivered) == 1
+    assert len(telegram.delivered) == 0
