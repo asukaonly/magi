@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { SystemSuggestionSideCard } from '../components/chat/SystemSuggestionSideCard';
+import { sensorsApi } from '../api/modules/sensors';
 import type { SuggestionProposal } from '../api/modules/systemSuggestions';
 
 vi.mock('react-i18next', () => ({
@@ -107,5 +108,39 @@ describe('SystemSuggestionSideCard', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: /systemSuggestion.dismiss|close|关闭|×/i }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('opens the activation dialog when connect is clicked (no longer a no-op)', async () => {
+    mockUseAvailability.mockReturnValue({
+      entries: [{ plugin_id: 'chrome-history', available: true, reason: 'available', detail: null, checked_at: 'now' }],
+      byId: {}, loading: false, error: null, refresh: vi.fn(),
+    });
+    vi.spyOn(sensorsApi, 'getStatus').mockResolvedValue({
+      sources: [
+        {
+          plugin_id: 'chrome-history',
+          source_name: 'chrome',
+          activation_flow: {
+            enabled_key: 'enabled',
+            configured_key: 'configured',
+            authorize_on_confirm: false,
+            fields: [],
+          },
+        },
+      ],
+    } as any);
+
+    render(
+      <SystemSuggestionSideCard
+        proposal={singleProposal}
+        onClose={() => {}}
+        onDecline={() => {}}
+        onActivated={() => {}}
+      />,
+    );
+
+    await userEvent.click(await screen.findByTestId('empty-state-connect-chrome-history'));
+    await waitFor(() => expect(sensorsApi.getStatus).toHaveBeenCalled());
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 });

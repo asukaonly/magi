@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAvailability } from '../../hooks/useAvailability';
+import { usePluginActivation } from '../../hooks/usePluginActivation';
 import { EmptyStateSensorCard } from '../empty-state/EmptyStateSensorCard';
+import { PluginActivationDialog } from '../plugins/PluginActivationDialog';
 import { getEmptyStatePluginMeta } from '../../constants/emptyStatePriorities';
 import type { SuggestionProposal } from '../../api/modules/systemSuggestions';
 
@@ -18,30 +21,40 @@ export function SystemSuggestionSideCard({
   onActivated,
 }: SystemSuggestionSideCardProps): JSX.Element {
   const { t, i18n } = useTranslation('onboarding');
-  const { entries } = useAvailability(proposal.plugin_ids);
+  const { entries, refresh } = useAvailability(proposal.plugin_ids);
   const locale = i18n.language === 'zh-CN' || i18n.language === 'zh' ? 'zh' : 'en';
   const rationale = proposal.rationale[locale] ?? proposal.rationale.en;
-  const installable = entries.filter((e) => e.available);
+
+  const [activated, setActivated] = useState<Set<string>>(new Set());
+  const installable = entries.filter((e) => e.available && !activated.has(e.plugin_id));
+
+  const { dialogState, openDialog, closeDialog, confirm } = usePluginActivation({
+    onSuccess: async (pluginId) => {
+      await refresh();
+      onActivated(pluginId);
+      setActivated((prev) => new Set(prev).add(pluginId));
+    },
+  });
 
   return (
     <aside
-      className="fixed right-4 top-20 z-40 w-80 rounded-lg border border-[#e6d7c5] bg-white p-4 shadow-xl dark:border-[#5b4a3d] dark:bg-[#2a2018]"
+      className="fixed right-4 top-20 z-40 w-80 rounded-lg border border-border/55 bg-card p-4 shadow-xl"
       role="complementary"
     >
       <div className="flex items-start justify-between gap-2">
-        <h3 className="text-sm font-medium text-[#35261f] dark:text-[#f4eadf]">
+        <h3 className="text-sm font-medium text-foreground">
           {t('systemSuggestion.fallbackHeading')}
         </h3>
         <button
           type="button"
           onClick={onClose}
           aria-label={t('systemSuggestion.dismiss')}
-          className="text-[#7d685a] hover:text-[#35261f] dark:text-[#c8b7a7] dark:hover:text-[#f4eadf]"
+          className="text-muted-foreground hover:text-foreground"
         >
           ×
         </button>
       </div>
-      <p className="mt-2 text-xs text-[#7d685a] dark:text-[#c8b7a7]">{rationale}</p>
+      <p className="mt-2 text-xs text-muted-foreground">{rationale}</p>
 
       <div className="mt-3 space-y-2">
         {installable.map((entry) => {
@@ -57,7 +70,7 @@ export function SystemSuggestionSideCard({
                 titleKey={titleKey}
                 valueKey={valueKey}
                 iconId={meta?.iconId}
-                onConnect={(pluginId) => onActivated(pluginId)}
+                onConnect={(pluginId) => { void openDialog(pluginId); }}
               />
             </div>
           );
@@ -68,11 +81,22 @@ export function SystemSuggestionSideCard({
         <button
           type="button"
           onClick={() => onDecline(proposal.dedupe_key)}
-          className="rounded-md border border-[#d8c9b8] px-3 py-1.5 text-xs text-[#35261f] dark:border-[#7d685a] dark:text-[#f4eadf]"
+          className="rounded-md border border-border/55 px-3 py-1.5 text-xs text-foreground"
         >
           {t('systemSuggestion.decline')}
         </button>
       </div>
+
+      {dialogState && (
+        <PluginActivationDialog
+          open
+          onClose={closeDialog}
+          flow={dialogState.flow}
+          initialValues={{}}
+          onConfirm={confirm}
+          pluginId={dialogState.pluginId}
+        />
+      )}
     </aside>
   );
 }
