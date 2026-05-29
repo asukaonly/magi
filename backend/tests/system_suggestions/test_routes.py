@@ -45,10 +45,53 @@ def app_with_suggestions(make_manifest_fixture):
             is_available_dep=lambda: is_available,
             is_dismissed_dep=lambda: is_dismissed,
             record_dismissal_dep=lambda: record_dismissal,
+            list_dismissals_dep=lambda: (lambda: []),
+            clear_dismissal_dep=lambda: (lambda _k: True),
             classify_dep=lambda: fake_classify,
         ),
     )
     return app, dismissals
+
+
+@pytest.fixture
+def app_with_dismissals():
+    """App fixture with canned dismissal listing + a clear recorder."""
+    from datetime import datetime, timezone
+
+    from magi.api.routers.system_suggestions_schemas import DismissalItem
+
+    canned = [
+        DismissalItem(
+            dedupe_key="browser_history",
+            dismissed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            kind="explicit",
+        ),
+    ]
+    cleared_keys: list[str] = []
+
+    def list_dismissals():
+        return list(canned)
+
+    def clear_dismissal(dedupe_key: str) -> bool:
+        cleared_keys.append(dedupe_key)
+        return dedupe_key == "browser_history"
+
+    async def fake_classify(recent_text, candidates, locale):
+        return {c["category"]: 0.9 for c in candidates}
+
+    app = FastAPI()
+    app.include_router(
+        build_default_system_suggestions_router(
+            list_manifests_dep=lambda: (lambda: []),
+            is_available_dep=lambda: (lambda _p: True),
+            is_dismissed_dep=lambda: (lambda _k: False),
+            record_dismissal_dep=lambda: (lambda _k, _kind: None),
+            list_dismissals_dep=lambda: list_dismissals,
+            clear_dismissal_dep=lambda: clear_dismissal,
+            classify_dep=lambda: fake_classify,
+        ),
+    )
+    return app, cleared_keys
 
 
 def test_post_check_returns_suggestion_for_matching_text(app_with_suggestions) -> None:
@@ -128,3 +171,25 @@ def test_post_check_filters_dismissed_after_dismiss(app_with_suggestions) -> Non
         json={"text": "我看了什么浏览", "locale": "zh", "session_id": "s-dismiss"},
     )
     assert response.json() == {"suggestions": []}
+
+
+def test_list_dismissals_returns_active(app_with_dismissals) -> None:
+    app, _ = app_with_dismissals
+    client = TestClient(app)
+    response = client.get("/system-suggestions/dismissals")
+    assert response.status_code == 200
+    data = response.json()
+    keys = [item["dedupe_key"] for item in data["dismissals"]]
+    assert "browser_history" in keys
+    item = data["dismissals"][0]
+    assert item["kind"] == "explicit"
+    assert item["dismissed_at"].startswith("2026-01-01")
+
+
+def test_clear_dismissal_removes_one(app_with_dismissals) -> None:
+    app, cleared_keys = app_with_dismissals
+    client = TestClient(app)
+    response = client.delete("/system-suggestions/dismissals/browser_history")
+    assert response.status_code == 200
+    assert response.json() == {"dedupe_key": "browser_history", "cleared": True}
+    assert cleared_keys == ["browser_history"]

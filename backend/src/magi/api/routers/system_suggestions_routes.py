@@ -40,8 +40,11 @@ from fastapi import APIRouter
 from magi.api.routers.system_suggestions_schemas import (
     CheckRequest,
     CheckResponse,
+    ClearDismissalResponse,
+    DismissalItem,
     DismissRequest,
     DismissResponse,
+    ListDismissalsResponse,
 )
 from magi.system_suggestions.engine import ClassifyFn, run_suggestion_check
 from magi.system_suggestions.throttle import SuggestionThrottle
@@ -51,6 +54,8 @@ ListManifestsDep = Callable[[], Callable[[], list[PluginManifest]]]
 IsAvailableDep = Callable[[], Callable[[str], bool]]
 IsDismissedDep = Callable[[], Callable[[str], bool]]
 RecordDismissalDep = Callable[[], Callable[[str, str], None]]
+ListDismissalsDep = Callable[[], Callable[[], list["DismissalItem"]]]
+ClearDismissalDep = Callable[[], Callable[[str], bool]]
 ClassifyDep = Callable[[], ClassifyFn]
 
 # Process-wide throttle: avoids re-running the LLM classifier on every /check.
@@ -64,6 +69,8 @@ def build_default_system_suggestions_router(
     is_available_dep: IsAvailableDep,
     is_dismissed_dep: IsDismissedDep,
     record_dismissal_dep: RecordDismissalDep,
+    list_dismissals_dep: ListDismissalsDep,
+    clear_dismissal_dep: ClearDismissalDep,
     classify_dep: ClassifyDep,
 ) -> APIRouter:
     """Construct the router given dependency callables.
@@ -93,6 +100,20 @@ def build_default_system_suggestions_router(
         record = record_dismissal_dep()
         record(request.dedupe_key, request.kind.value)
         return DismissResponse(dedupe_key=request.dedupe_key, dismissed=True)
+
+    @router.get(
+        "/system-suggestions/dismissals", response_model=ListDismissalsResponse
+    )
+    async def list_dismissals() -> ListDismissalsResponse:
+        return ListDismissalsResponse(dismissals=list_dismissals_dep()())
+
+    @router.delete(
+        "/system-suggestions/dismissals/{dedupe_key}",
+        response_model=ClearDismissalResponse,
+    )
+    async def clear_dismissal(dedupe_key: str) -> ClearDismissalResponse:
+        cleared = clear_dismissal_dep()(dedupe_key)
+        return ClearDismissalResponse(dedupe_key=dedupe_key, cleared=cleared)
 
     return router
 
@@ -219,6 +240,42 @@ def _default_record_dismissal() -> Callable[[str, str], None]:
     return _record
 
 
+def _default_list_dismissals():
+    from magi.api.routers.system_suggestions_schemas import DismissalItem
+    from magi.system_suggestions.dismissals import is_dismissal_active
+
+    def _list():
+        records = _load_dismissals_from_config()
+        return [
+            DismissalItem(dedupe_key=k, dismissed_at=r.dismissed_at, kind=r.kind)
+            for k, r in records.items()
+            if is_dismissal_active(r)
+        ]
+
+    return _list
+
+
+def _default_clear_dismissal():
+    from magi.config import get_loader, save_config
+
+    def _clear(dedupe_key: str) -> bool:
+        loader = get_loader()
+        if loader is not None:
+            loader.load()
+        prefs = (loader.get_raw_value("preferences", default={}) if loader else {}) or {}
+        if not isinstance(prefs, dict):
+            prefs = {}
+        dismissals = prefs.get("suggestion_dismissals")
+        if not isinstance(dismissals, dict) or dedupe_key not in dismissals:
+            return False
+        del dismissals[dedupe_key]
+        prefs["suggestion_dismissals"] = dismissals
+        save_config({"preferences": prefs})
+        return True
+
+    return _clear
+
+
 def _default_classify() -> ClassifyFn:
     """Return the production async classifier (core-model batch classify)."""
     from magi.system_suggestions.llm_classifier import classify_with_core_model
@@ -233,6 +290,8 @@ def _build_production_system_suggestions_router() -> APIRouter:
         is_available_dep=_default_is_available,
         is_dismissed_dep=_default_is_dismissed,
         record_dismissal_dep=_default_record_dismissal,
+        list_dismissals_dep=_default_list_dismissals,
+        clear_dismissal_dep=_default_clear_dismissal,
         classify_dep=_default_classify,
     )
 

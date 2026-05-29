@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -27,3 +28,18 @@ class DismissRequest(BaseModel):
 class DismissResponse(BaseModel):
     dedupe_key: str
     dismissed: bool
+
+
+class DismissalItem(BaseModel):
+    dedupe_key: str
+    dismissed_at: datetime
+    kind: DismissalKind
+
+
+class ListDismissalsResponse(BaseModel):
+    dismissals: list[DismissalItem]
+
+
+class ClearDismissalResponse(BaseModel):
+    dedupe_key: str
+    cleared: bool
