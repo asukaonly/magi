@@ -7,6 +7,7 @@ from typing import Any, Optional, TypeAlias
 
 from ....agent.runtime.contracts import FactRecord
 from ....config.models import ThinkingDepth
+from ....tools.context_routing import RouteDecision
 from ...orchestration import WorkerResult
 
 
@@ -328,6 +329,7 @@ class BaseIntentDecision:
     execution_mode: ExecutionMode
     reasoning: str = ""
     orchestration_plan: Optional[OrchestrationPlan] = None
+    route_decision: RouteDecision | None = None
 
 
 @dataclass(slots=True)

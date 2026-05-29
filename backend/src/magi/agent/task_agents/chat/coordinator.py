@@ -299,6 +299,7 @@ class ChatExecutionCoordinator:
                 execution_mode=execution_mode,
             ),
             persona_routing_hint=persona_routing_hint,
+            route_decision=decision,
         )
         if self._intent_trace_callback is not None:
             callback_result = self._intent_trace_callback(context, intent_decision)

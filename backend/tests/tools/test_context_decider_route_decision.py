@@ -112,6 +112,19 @@ def test_parse_response_preserves_persona_fields() -> None:
     assert result.active_trigger_ids == ("work_mode", "deep_focus")
 
 
+def test_orchestration_launch_handler_reads_route_decision_from_intent() -> None:
+    """OrchestrationLaunchHandler.execute must read RouteDecision off
+    request.intent.route_decision and pass to start_orchestration so the
+    typed schema flows end-to-end."""
+    import inspect
+    from magi.agent.task_agents.common.handlers import OrchestrationLaunchHandler
+
+    src = inspect.getsource(OrchestrationLaunchHandler.execute)
+    assert "route_decision" in src, (
+        "OrchestrationLaunchHandler.execute must read intent.route_decision"
+    )
+
+
 def test_chat_coordinator_match_intent_signature_returns_intent_decision_from_route() -> None:
     """ChatCoordinator.match_intent must continue to return an IntentDecision
     even after the underlying ContextDecider returns RouteDecision. The
