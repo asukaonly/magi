@@ -17,7 +17,7 @@ from ....personality.persona_routing_brief import build_persona_routing_brief
 from ....personality.turn_planner import PersonaRoutingHint
 from ....tools.context_decider import ContextDecider
 from ....tools.context_decider_context import ContextDeciderContext
-from ....tools.context_routing import should_decompose_external_request
+from ....tools.context_routing import RouteDecision, should_decompose_external_request
 from ....tools.recommender import ToolRecommender
 from ....tools.schema import ToolExecutionContext
 from ....tools.tool_advisory_reranker import ToolAdvisoryReranker
@@ -237,11 +237,11 @@ class ChatExecutionCoordinator:
         decision = await self._context_decider.decide(context.latest_user_message, decision_context)
         force_direct_external = self._should_force_direct_external_plan(
             user_message=context.latest_user_message,
-            strategy=decision.orchestration_strategy,
+            strategy=decision.to_legacy_strategy_dict(),  # adapter — Task B.11 drops this
         )
-        orchestration_plan = self._normalize_orchestration_plan(
+        orchestration_plan = self._build_orchestration_plan_from_route(
             user_message=context.latest_user_message,
-            strategy=decision.orchestration_strategy,
+            decision=decision,
         )
         effective_attachments = resolve_effective_turn_attachments(context)
         has_image_attachments = any(
@@ -274,7 +274,7 @@ class ChatExecutionCoordinator:
         )
         persona_routing_hint = _build_persona_routing_hint(decision)
         intent_decision = IntentDecision(
-            intent=decision.intent,
+            intent=decision.profile,  # RouteDecision uses profile as the intent label
             difficulty=(
                 "hard"
                 if decision.thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW)
@@ -406,6 +406,54 @@ class ChatExecutionCoordinator:
                     "目录结构",
                 ]
             )
+        return plan
+
+    def _build_orchestration_plan_from_route(
+        self,
+        *,
+        user_message: str,
+        decision: RouteDecision,
+    ) -> OrchestrationPlan:
+        """Translate RouteDecision into the existing OrchestrationPlan dataclass.
+
+        The OrchestrationPlan dataclass remains in use through Task B.11 — it
+        feeds OrchestrationLaunchHandler. Task B.11 deletes the legacy adapter
+        path once the handler reads RouteDecision directly.
+        """
+        mode = "decompose" if decision.graph_shape == "plan_fanout" else "direct"
+        if decision.profile == "coding" or decision.may_write:
+            default_leaf_type = "Coding"
+        elif decision.profile == "explore":
+            default_leaf_type = "CodeExplore"
+        else:
+            default_leaf_type = "general-purpose"
+        plan = OrchestrationPlan(
+            mode=mode,
+            planner="task_agent",
+            default_leaf_type=default_leaf_type,
+            allow_parallel=mode == "decompose",
+            route_to_explore_task_agent=False,
+        )
+        # Preserve the existing keyword-based explore routing detection
+        # since Phase B does not refactor the explore handoff yet.
+        if plan.mode == "decompose" and plan.default_leaf_type == "CodeExplore":
+            lowered = user_message.lower()
+            plan.route_to_explore_task_agent = any(
+                keyword in lowered
+                for keyword in [
+                    "architecture", "codebase", "repo", "repository", "source",
+                    "代码", "代码库", "仓库", "源码",
+                ]
+            )
+        if self._should_force_direct_external_plan(
+            user_message=user_message,
+            strategy=decision.to_legacy_strategy_dict(),
+        ):
+            plan.mode = "direct"
+            plan.planner = "task_agent"
+            plan.default_leaf_type = "general-purpose"
+            plan.allow_parallel = False
+            plan.route_to_explore_task_agent = False
         return plan
 
     @staticmethod
