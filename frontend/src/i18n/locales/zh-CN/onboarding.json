@@ -191,6 +191,7 @@
   "emptyState": {
     "heading": "让 magi 看看你的活动",
     "connect": "连接",
+    "installAndConnect": "安装并连接",
     "plugins": {
       "chromeHistory": {
         "title": "Chrome 历史",

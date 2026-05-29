@@ -9,6 +9,25 @@ from fastapi.testclient import TestClient
 from magi.api.routers.system_suggestions_routes import (
     build_default_system_suggestions_router,
 )
+from magi.system_suggestions.candidates import build_suggestion_candidates
+
+
+def _availability_factory(available_ids: set[str]):
+    """Build an availability_dep whose adapter is True for ``available_ids``.
+
+    Mirrors the production shape: ``() -> (candidates) -> (plugin_id) -> bool``.
+    """
+
+    def _dep():
+        def _factory(candidates):
+            def _is_available(plugin_id: str) -> bool:
+                return plugin_id in available_ids
+
+            return _is_available
+
+        return _factory
+
+    return _dep
 
 
 @pytest.fixture
@@ -18,15 +37,9 @@ def app_with_suggestions(make_manifest_fixture):
         category="browser_history",
         keywords={"zh": ["浏览"], "en": ["browsing"]},
     )
-    manifests = {"chrome-history": chrome}
+    candidates = build_suggestion_candidates([chrome], [])
 
     dismissals: dict = {}
-
-    def list_manifests():
-        return list(manifests.values())
-
-    def is_available(plugin_id: str) -> bool:
-        return plugin_id in manifests
 
     def is_dismissed(dedupe_key: str) -> bool:
         return dedupe_key in dismissals
@@ -41,8 +54,8 @@ def app_with_suggestions(make_manifest_fixture):
     app = FastAPI()
     app.include_router(
         build_default_system_suggestions_router(
-            list_manifests_dep=lambda: list_manifests,
-            is_available_dep=lambda: is_available,
+            candidates_dep=lambda: (lambda: list(candidates)),
+            availability_dep=_availability_factory({"chrome-history"}),
             is_dismissed_dep=lambda: is_dismissed,
             record_dismissal_dep=lambda: record_dismissal,
             list_dismissals_dep=lambda: (lambda: []),
@@ -82,8 +95,8 @@ def app_with_dismissals():
     app = FastAPI()
     app.include_router(
         build_default_system_suggestions_router(
-            list_manifests_dep=lambda: (lambda: []),
-            is_available_dep=lambda: (lambda _p: True),
+            candidates_dep=lambda: (lambda: []),
+            availability_dep=lambda: (lambda _candidates: (lambda _p: True)),
             is_dismissed_dep=lambda: (lambda _k: False),
             record_dismissal_dep=lambda: (lambda _k, _kind: None),
             list_dismissals_dep=lambda: list_dismissals,
@@ -171,6 +184,140 @@ def test_post_check_filters_dismissed_after_dismiss(app_with_suggestions) -> Non
         json={"text": "我看了什么浏览", "locale": "zh", "session_id": "s-dismiss"},
     )
     assert response.json() == {"suggestions": []}
+
+
+@pytest.fixture
+def app_with_installable():
+    """App whose only candidate is a not-installed (registry) plugin.
+
+    The candidate carries ``installed=False`` so the engine must (a) surface it
+    via the registry/descriptor availability path and (b) record it in
+    ``installable_plugin_ids`` on the returned proposal.
+    """
+    from magi_plugin_sdk.contracts import (
+        LocalizedText,
+        PluginRegistryEntry,
+        SuggestionDescriptor,
+        Triggers,
+    )
+
+    entry = PluginRegistryEntry(
+        plugin_id="spotify-history",
+        name="spotify-history",
+        version="0.1.0",
+        suggestion_descriptor=SuggestionDescriptor(
+            category="music_history",
+            triggers=Triggers(
+                intents=[], entities=[], keywords={"zh": ["音乐"], "en": ["music"]}
+            ),
+            platform_support=["darwin", "win32", "linux"],
+            local_requirements=[],
+            rationale=LocalizedText(zh="连接 Spotify", en="connect Spotify"),
+        ),
+    )
+    # installed=[], registry=[entry] -> single candidate with installed=False.
+    candidates = build_suggestion_candidates([], [entry])
+
+    async def fake_classify(recent_text, cands, locale):
+        return {c["category"]: 0.9 for c in cands}
+
+    app = FastAPI()
+    app.include_router(
+        build_default_system_suggestions_router(
+            candidates_dep=lambda: (lambda: list(candidates)),
+            # Registry-only candidate is available on this device.
+            availability_dep=_availability_factory({"spotify-history"}),
+            is_dismissed_dep=lambda: (lambda _k: False),
+            record_dismissal_dep=lambda: (lambda _k, _kind: None),
+            list_dismissals_dep=lambda: (lambda: []),
+            clear_dismissal_dep=lambda: (lambda _k: True),
+            classify_dep=lambda: fake_classify,
+        ),
+    )
+    return app
+
+
+def test_post_check_surfaces_installable_for_not_installed_candidate(
+    app_with_installable,
+) -> None:
+    client = TestClient(app_with_installable)
+    response = client.post(
+        "/system-suggestions/check",
+        json={"text": "我想听音乐", "locale": "zh", "session_id": "s-installable"},
+    )
+    assert response.status_code == 200
+    suggestions = response.json()["suggestions"]
+    assert len(suggestions) == 1
+    proposal = suggestions[0]
+    assert proposal["category"] == "music_history"
+    assert proposal["confidence"] == 0.9
+    # The not-installed candidate must surface in installable_plugin_ids.
+    assert proposal["installable_plugin_ids"] == ["spotify-history"]
+    assert proposal["plugin_ids"] == ["spotify-history"]
+
+
+@pytest.fixture
+def app_with_installable_endpoint():
+    """App for GET /system-suggestions/installable.
+
+    Two candidates — one installed, one registry-only (not installed). The
+    injected ``availability_dep`` marks the installed one available and the
+    not-installed one unavailable, so the endpoint must return ONLY the
+    available candidate with its ``installed`` flag + ``category``.
+    """
+    from types import SimpleNamespace
+
+    installed_cand = SimpleNamespace(
+        plugin_id="chrome-history",
+        descriptor=SimpleNamespace(
+            category="browser_history",
+            rationale=SimpleNamespace(zh="浏览历史", en="browsing history"),
+        ),
+        installed=True,
+    )
+    registry_cand = SimpleNamespace(
+        plugin_id="spotify-history",
+        descriptor=SimpleNamespace(
+            category="music_history",
+            rationale=SimpleNamespace(zh="音乐历史", en="music history"),
+        ),
+        installed=False,
+    )
+    candidates = [installed_cand, registry_cand]
+
+    async def fake_classify(recent_text, cands, locale):
+        return {c["category"]: 0.9 for c in cands}
+
+    app = FastAPI()
+    app.include_router(
+        build_default_system_suggestions_router(
+            candidates_dep=lambda: (lambda: list(candidates)),
+            # Only the installed candidate is available on this device.
+            availability_dep=_availability_factory({"chrome-history"}),
+            is_dismissed_dep=lambda: (lambda _k: False),
+            record_dismissal_dep=lambda: (lambda _k, _kind: None),
+            list_dismissals_dep=lambda: (lambda: []),
+            clear_dismissal_dep=lambda: (lambda _k: True),
+            classify_dep=lambda: fake_classify,
+        ),
+    )
+    return app
+
+
+def test_list_installable_returns_only_available(
+    app_with_installable_endpoint,
+) -> None:
+    client = TestClient(app_with_installable_endpoint)
+    response = client.get("/system-suggestions/installable")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    # Only the available (installed) candidate is surfaced.
+    assert len(items) == 1
+    item = items[0]
+    assert item["plugin_id"] == "chrome-history"
+    assert item["category"] == "browser_history"
+    assert item["installed"] is True
+    assert item["rationale"] == {"zh": "浏览历史", "en": "browsing history"}
 
 
 def test_list_dismissals_returns_active(app_with_dismissals) -> None:

@@ -13,9 +13,18 @@ export interface UsePluginActivationOptions {
   onSuccess?: (pluginId: string) => void;
 }
 
+export interface OpenDialogOptions {
+  /**
+   * When true, download the plugin from the registry (and wait for the install
+   * job to finish) BEFORE opening the activation dialog. Used for plugins that
+   * are not yet installed locally. Defaults to off.
+   */
+  install?: boolean;
+}
+
 export interface UsePluginActivationResult {
   dialogState: ActivationDialogState | null;
-  openDialog: (pluginId: string) => Promise<void>;
+  openDialog: (pluginId: string, opts?: OpenDialogOptions) => Promise<void>;
   closeDialog: () => void;
   confirm: (values: Record<string, unknown>) => Promise<void>;
 }
@@ -33,7 +42,15 @@ export function usePluginActivation(
   const { onSuccess } = options;
   const [dialogState, setDialogState] = useState<ActivationDialogState | null>(null);
 
-  const openDialog = useCallback(async (pluginId: string) => {
+  const openDialog = useCallback(async (pluginId: string, opts?: OpenDialogOptions) => {
+    if (opts?.install) {
+      try {
+        await pluginsApi.installFromRegistryWithProgress(pluginId);
+      } catch (err) {
+        console.error('failed to install plugin from registry', err);
+        return;
+      }
+    }
     try {
       const status = await sensorsApi.getStatus();
       const match = status.sources.find(

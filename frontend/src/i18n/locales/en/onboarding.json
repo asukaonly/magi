@@ -190,6 +190,7 @@
   "emptyState": {
     "heading": "Let me see your activity",
     "connect": "Connect",
+    "installAndConnect": "Install & connect",
     "plugins": {
       "chromeHistory": {
         "title": "Chrome history",

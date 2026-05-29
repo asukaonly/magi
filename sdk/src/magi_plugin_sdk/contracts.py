@@ -380,6 +380,10 @@ class PluginRegistryEntry(BaseModel):
     min_sdk_version: str = ""
     homepage: str = ""
     repository: str = ""
+    suggestion_descriptor: SuggestionDescriptor | None = None
+    """Optional declaration of how/when this plugin should be auto-suggested,
+    mirroring :attr:`PluginManifest.suggestion_descriptor` so the registry can
+    drive install-first suggestions without a local manifest."""
 
 
 class PluginRegistryIndex(BaseModel):

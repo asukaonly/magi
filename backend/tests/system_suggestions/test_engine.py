@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi.system_suggestions.candidates import build_suggestion_candidates
 from magi.system_suggestions.engine import run_suggestion_check
 from magi.system_suggestions.throttle import SuggestionThrottle
 from magi_plugin_sdk.contracts import (
@@ -33,8 +34,11 @@ def _manifest(plugin_id: str, category: str, keywords_zh: list[str]) -> PluginMa
     )
 
 
-def _browser_manifests() -> list[PluginManifest]:
-    return [_manifest("chrome-history", "browser_history", ["浏览"])]
+def _browser_candidates() -> list:
+    """Installed browser-history candidate (installed=True)."""
+    return build_suggestion_candidates(
+        [_manifest("chrome-history", "browser_history", ["浏览"])], []
+    )
 
 
 async def _run(text, *, classify, throttle, session="s1"):
@@ -42,7 +46,7 @@ async def _run(text, *, classify, throttle, session="s1"):
         recent_text=text,
         locale="zh",
         session_id=session,
-        plugin_manifests=_browser_manifests(),
+        candidates=_browser_candidates(),
         is_available=lambda _pid: True,
         is_dismissed=lambda _c: False,
         classify=classify,

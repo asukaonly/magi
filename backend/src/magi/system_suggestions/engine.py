@@ -23,16 +23,21 @@ async def run_suggestion_check(
     recent_text: str,
     locale: str,
     session_id: str,
-    plugin_manifests: Iterable,
+    candidates: Iterable,
     is_available: Callable[[str], bool],
     is_dismissed: Callable[[str], bool],
     classify: ClassifyFn,
     throttle: SuggestionThrottle,
 ) -> list[SuggestionProposal]:
+    # ``candidates`` is the union of installed manifests (installed=True) and
+    # registry-discovered, not-yet-installed entries (installed=False), built by
+    # the route via ``build_suggestion_candidates``. ``is_available`` resolves
+    # per-candidate (installed -> resolver.is_available; not-installed ->
+    # resolver.evaluate_descriptor).
     cands = candidate_categories(
         recent_text=recent_text,
         locale=locale,
-        plugin_manifests=plugin_manifests,
+        candidates=candidates,
         is_available=is_available,
         is_dismissed=is_dismissed,
     )

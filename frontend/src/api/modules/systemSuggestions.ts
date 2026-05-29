@@ -20,6 +20,7 @@ export interface SuggestionProposal {
   dedupe_key: string;
   category: string;
   plugin_ids: string[];
+  installable_plugin_ids: string[];
   confidence: number;
   rationale: { zh: string; en: string };
 }
@@ -95,4 +96,27 @@ export async function clearDismissal(dedupeKey: string): Promise<void> {
   await api.delete(
     `/system-suggestions/dismissals/${encodeURIComponent(dedupeKey)}`,
   );
+}
+
+/**
+ * A plugin the backend believes the user could install + activate to fill a
+ * data gap, as returned by `GET /system-suggestions/installable`. `installed`
+ * reflects whether the package is already present locally.
+ */
+export interface InstallableItem {
+  plugin_id: string;
+  category: string;
+  installed: boolean;
+  rationale: { zh: string; en: string };
+}
+
+/**
+ * List the plugins the backend can install from the registry to fill data
+ * gaps. Powers the registry-discovery empty state / install-first flow.
+ */
+export async function listInstallable(): Promise<InstallableItem[]> {
+  const r = await api.get<{ items: InstallableItem[] }>(
+    '/system-suggestions/installable',
+  );
+  return unwrapGatewayPayload(r).items;
 }

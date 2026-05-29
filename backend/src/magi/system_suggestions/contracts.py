@@ -33,6 +33,8 @@ class SuggestionProposal(BaseModel):
     dedupe_key: str
     category: str
     plugin_ids: list[str] = Field(min_length=1)
+    installable_plugin_ids: list[str] = Field(default_factory=list)
+    """Subset of plugin_ids that are not yet installed (registry-discovered)."""
     confidence: float = Field(ge=0.0, le=1.0)
     rationale: dict[str, str]
     """Locale → user-facing rationale text. At least 'zh' and 'en' expected."""

@@ -227,3 +227,95 @@ def test_resolver_list_available(make_manifest, tmp_path: Path) -> None:
     )
     available = resolver.list_available(plugin_ids=["good", "bad"])
     assert available == ["good"]
+
+
+# --- evaluate_descriptor: evaluate an arbitrary (not-installed) descriptor -----
+
+
+def _descriptor(
+    *,
+    requirements: list | None = None,
+    platforms: list[str] | None = None,
+) -> SuggestionDescriptor:
+    return SuggestionDescriptor(
+        category="test_category",
+        triggers=Triggers(intents=["x"]),
+        platform_support=platforms or ["darwin", "win32", "linux"],
+        local_requirements=requirements or [],
+        rationale=LocalizedText(zh="测试", en="test"),
+    )
+
+
+def test_evaluate_descriptor_file_exists_present(tmp_path: Path) -> None:
+    target = tmp_path / "History"
+    target.write_text("x")
+    desc = _descriptor(
+        requirements=[
+            LocalRequirementFileExists(
+                check_kind="file_exists",
+                paths_per_platform={
+                    "darwin": str(target),
+                    "win32": str(target),
+                    "linux": str(target),
+                },
+            )
+        ],
+    )
+    resolver = AvailabilityResolver(manifest_provider=_provider_from({}))
+    result = resolver.evaluate_descriptor(desc)
+    assert isinstance(result, AvailabilityResult)
+    assert result.available is True
+    assert result.reason == AvailabilityReason.AVAILABLE
+
+
+def test_evaluate_descriptor_file_missing(tmp_path: Path) -> None:
+    desc = _descriptor(
+        requirements=[
+            LocalRequirementFileExists(
+                check_kind="file_exists",
+                paths_per_platform={
+                    "darwin": str(tmp_path / "nope"),
+                    "win32": str(tmp_path / "nope"),
+                    "linux": str(tmp_path / "nope"),
+                },
+            )
+        ],
+    )
+    resolver = AvailabilityResolver(manifest_provider=_provider_from({}))
+    result = resolver.evaluate_descriptor(desc)
+    assert result.available is False
+    assert result.reason == AvailabilityReason.MISSING_FILE
+
+
+def test_evaluate_descriptor_wrong_platform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "magi.availability.checks._current_platform_key", lambda: "darwin"
+    )
+    desc = _descriptor(platforms=["a-platform-that-isnt-current"])
+    resolver = AvailabilityResolver(manifest_provider=_provider_from({}))
+    result = resolver.evaluate_descriptor(desc)
+    assert result.available is False
+    assert result.reason == AvailabilityReason.UNSUPPORTED_PLATFORM
+
+
+def test_evaluate_descriptor_passes_plugin_id_through(tmp_path: Path) -> None:
+    target = tmp_path / "x"
+    target.write_text("")
+    desc = _descriptor(
+        requirements=[
+            LocalRequirementFileExists(
+                check_kind="file_exists",
+                paths_per_platform={
+                    "darwin": str(target),
+                    "win32": str(target),
+                    "linux": str(target),
+                },
+            )
+        ],
+    )
+    resolver = AvailabilityResolver(manifest_provider=_provider_from({}))
+    result = resolver.evaluate_descriptor(desc, plugin_id="registry-only-plugin")
+    assert result.available is True
+    assert result.plugin_id == "registry-only-plugin"

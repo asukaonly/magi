@@ -12,6 +12,7 @@ const sampleProposal: SuggestionProposal = {
   dedupe_key: 'browser_history',
   category: 'browser_history',
   plugin_ids: ['chrome-history'],
+  installable_plugin_ids: [],
   confidence: 0.9,
   rationale: { zh: '想让 magi 看你的浏览历史？', en: 'Want magi to see your browsing?' },
 };
