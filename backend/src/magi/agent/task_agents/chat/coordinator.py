@@ -37,6 +37,9 @@ from .contracts import (
     TraceDisplayMode,
     TurnUXPlan,
 )
+from ....channels.delivery_router import DeliveryRouter
+from ....channels.delivery_prefs import resolve_delivery_targets
+from magi_plugin_sdk.delivery import DeliveryContent
 from ...run.builder import GraphBuilder
 from ...run.nodes.plan_fanout import PlanFanoutNode
 from ...run.nodes.reply import ReplyNode
@@ -135,6 +138,7 @@ class ChatExecutionCoordinator:
         tool_advisory_provider: ToolAdvisoryProvider | None = None,
         tool_selection_trace_callback: ToolSelectionTraceCallback | None = None,
         session_run_store: Any | None = None,
+        channel_registry: Any | None = None,
     ) -> None:
         self._context_decider = context_decider
         self._fact_classifier = fact_classifier
@@ -147,6 +151,15 @@ class ChatExecutionCoordinator:
         # returned RunSnapshot so background-detached multi-node runs can
         # resume from the in-progress node. None for legacy / test callers.
         self._session_run_store = session_run_store
+        # Phase G: DeliveryRouter for fanning out replies to user's
+        # configured channels. Optional — if channel_registry is None,
+        # delivery falls back to the legacy NotificationRelay path
+        # (chat SSE only). This makes Phase G a strict additive change.
+        self._delivery_router = (
+            DeliveryRouter(channel_registry=channel_registry)
+            if channel_registry is not None
+            else None
+        )
         tool_registry = getattr(context_decider, "tool_registry", None)
         self._tool_hint_resolver = (
             ToolHintResolver(tool_registry)
@@ -434,6 +447,29 @@ class ChatExecutionCoordinator:
             if session_id and session_run_id and self._session_run_store is not None:
                 self._session_run_store.save_run_snapshot(session_id, session_run_id, snapshot)
 
+            # Phase G: fan out the runner result to user's configured
+            # delivery channels (when wired). Receipts are persisted on
+            # the snapshot's node_states for later retract.
+            if runner_result is not None and self._delivery_router is not None:
+                user_prefs = getattr(request.context, "user_prefs", {}) or {}
+                user_id = getattr(request.context, "user_id", "") or ""
+                targets = resolve_delivery_targets(
+                    user_id=user_id, session_id=session_id or "", user_prefs=user_prefs,
+                )
+                if targets:
+                    content = DeliveryContent(text=runner_result.response_text or "")
+                    receipts = await self._delivery_router.fanout_deliver(
+                        content=content, targets=targets,
+                    )
+                    # Persist receipts on the snapshot so
+                    # SessionRunCoordinator.request_retract can find + replay them.
+                    if receipts and session_id and session_run_id and self._session_run_store is not None:
+                        receipt_payloads = [r.to_dict() for r in receipts]
+                        self._session_run_store.save_run_snapshot(
+                            session_id, session_run_id,
+                            _attach_receipts(snapshot, receipt_payloads),
+                        )
+
             if runner_result is not None:
                 return runner_result
         handler = self._handler_registry.get(request.mode)
@@ -690,3 +726,21 @@ class ChatExecutionCoordinator:
         # Ultimate safety net: English orchestration_launch line. Keeps the
         # UI contract that interim_text is always a non-empty string.
         return self._INTERIM_FALLBACK_LINES["en"]["orchestration_launch"][0]
+
+
+def _attach_receipts(snapshot, receipt_payloads):
+    """Phase G: attach delivery receipts to the last completed node's state.
+
+    Stores the receipt list under ``node_states[last_node_type]["delivery_receipts"]``
+    so ``SessionRunCoordinator.request_retract`` can reconstruct them from the
+    snapshot and call ``DeliveryRouter.fanout_retract``.
+    """
+    import dataclasses
+    if not snapshot.graph or snapshot.cursor == 0:
+        return snapshot
+    last_node_type = snapshot.graph[min(snapshot.cursor, len(snapshot.graph)) - 1]
+    updated_node_states = dict(snapshot.node_states)
+    last_state = dict(updated_node_states.get(last_node_type, {}))
+    last_state["delivery_receipts"] = receipt_payloads
+    updated_node_states[last_node_type] = last_state
+    return dataclasses.replace(snapshot, node_states=updated_node_states)
