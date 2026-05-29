@@ -46,6 +46,7 @@ class GraphBuilder:
         if (
             route_decision.profile == "coding"
             and route_decision.graph_shape in _CODING_PRIMARY_NODES_THAT_MAY_TOUCH_FILES
+            and route_decision.may_write
         ):
             sequence.append(NodeSpec(node_type="validate"))
         return sequence

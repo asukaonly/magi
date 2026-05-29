@@ -109,3 +109,16 @@ def test_graph_builder_does_not_append_validate_for_non_coding_profile() -> None
     sequence = builder.build_node_sequence(decision)
     assert len(sequence) == 1
     assert sequence[0].node_type == "tool_loop"
+
+
+def test_graph_builder_does_not_append_validate_when_may_write_false() -> None:
+    """profile=coding + tool_loop + may_write=False (e.g., code Q&A
+    that uses read-only tools) should NOT append ValidateNode."""
+    builder = GraphBuilder()
+    decision = RouteDecision(
+        profile="coding", graph_shape="tool_loop", complexity="medium",
+        may_write=False,
+    )
+    sequence = builder.build_node_sequence(decision)
+    assert len(sequence) == 1
+    assert sequence[0].node_type == "tool_loop"

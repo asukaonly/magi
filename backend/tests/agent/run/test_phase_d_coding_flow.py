@@ -75,11 +75,14 @@ async def test_coding_profile_runs_tool_loop_then_validate_end_to_end() -> None:
             )
 
     class _StubToolRegistry:
-        async def execute_tool(self, *, tool_name, params, context):
+        async def execute(self, tool_name, parameters, context):
             return ToolResult(
                 success=True,
-                tool_name=tool_name,
-                data={"summary": "Verified foo.py — parses cleanly"},
+                data={
+                    "mode": "changed",
+                    "results": [{"path": "foo.py", "status": "pass"}],
+                    "summary": {"pass": 1, "fail": 0, "skipped": 0, "timeout": 0},
+                },
             )
 
     registry = NodeRegistry()
@@ -102,7 +105,7 @@ async def test_coding_profile_runs_tool_loop_then_validate_end_to_end() -> None:
 
     assert result is not None
     assert "Applied 2 edits" in result.response_text
-    assert "Verified foo.py" in result.response_text
+    assert "verified" in result.response_text.lower()
 
 
 @pytest.mark.asyncio
@@ -131,12 +134,14 @@ async def test_coding_profile_validation_failure_surfaces_both_outputs() -> None
             )
 
     class _ValidateFailRegistry:
-        async def execute_tool(self, *, tool_name, params, context):
+        async def execute(self, tool_name, parameters, context):
             return ToolResult(
-                success=False,
-                tool_name=tool_name,
-                data={"errors": ["bar.py: unexpected indent line 12"]},
-                error="Verification failed: bar.py: unexpected indent line 12",
+                success=True,
+                data={
+                    "mode": "changed",
+                    "results": [{"path": "bar.py", "status": "fail"}],
+                    "summary": {"pass": 0, "fail": 1, "skipped": 0, "timeout": 0},
+                },
             )
 
     registry = NodeRegistry()
@@ -159,7 +164,7 @@ async def test_coding_profile_validation_failure_surfaces_both_outputs() -> None
     # Primary success surfaced
     assert "Applied 1 edit" in result.response_text
     # Validation error surfaced
-    assert "unexpected indent" in result.response_text.lower()
+    assert "bar.py" in result.response_text
     assert "[error]" in result.response_text
 
 
@@ -180,8 +185,8 @@ async def test_non_coding_profile_runs_single_node_no_validate() -> None:
     validate_calls = []
 
     class _AssertNotCalledValidate:
-        async def execute_tool(self, **kwargs):
-            validate_calls.append(kwargs)
+        async def execute(self, tool_name, parameters, context):
+            validate_calls.append((tool_name, parameters))
             raise AssertionError("ValidateNode must not be invoked for chat profile")
 
     class _StubDirect:
