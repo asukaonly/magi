@@ -38,8 +38,13 @@ class RunResult:
 
 
 @dataclass(slots=True)
-class ActiveRun:
-    """The active execution state for one chat session."""
+class AgentRun:
+    """The active execution state for one chat session.
+
+    Phase E adds graph + node_states + consumed_events + trigger + deliveries.
+    Phase E keeps the legacy name ``ActiveRun`` as an alias so callers
+    that imported the old name continue working without churn.
+    """
 
     session_id: str
     run_id: str
@@ -56,3 +61,13 @@ class ActiveRun:
     stale_results: list[RunResult] = field(default_factory=list)
     created_at: float = field(default_factory=time)
     updated_at: float = field(default_factory=time)
+    # === Phase E ===
+    graph: tuple[str, ...] = ()
+    node_states: dict[str, dict[str, Any]] = field(default_factory=dict)
+    consumed_events: tuple[str, ...] = ()
+    trigger: str | None = None
+    deliveries: tuple[str, ...] = ()
+
+
+# Backward-compat alias — many call sites still import ActiveRun.
+ActiveRun = AgentRun
