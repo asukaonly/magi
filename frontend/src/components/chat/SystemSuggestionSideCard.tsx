@@ -63,6 +63,11 @@ export function SystemSuggestionSideCard({
           // plain plugin_id as title and connect copy as value.
           const titleKey = meta?.titleKey ?? 'emptyState.connect';
           const valueKey = meta?.valueKey ?? 'emptyState.connect';
+          // Plugins listed in installable_plugin_ids are not yet installed
+          // locally — take the install-first branch (download from registry,
+          // then open the activation dialog). Already-installed plugins
+          // activate directly.
+          const needsInstall = proposal.installable_plugin_ids.includes(entry.plugin_id);
           return (
             <div data-testid="system-suggestion-side-card-row" key={entry.plugin_id}>
               <EmptyStateSensorCard
@@ -70,7 +75,7 @@ export function SystemSuggestionSideCard({
                 titleKey={titleKey}
                 valueKey={valueKey}
                 iconId={meta?.iconId}
-                onConnect={(pluginId) => { void openDialog(pluginId); }}
+                onConnect={(pluginId) => { void openDialog(pluginId, { install: needsInstall }); }}
               />
             </div>
           );

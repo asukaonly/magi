@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { SystemSuggestionSideCard } from '../components/chat/SystemSuggestionSideCard';
 import { sensorsApi } from '../api/modules/sensors';
+import { pluginsApi } from '../api/modules/plugins';
 import type { SuggestionProposal } from '../api/modules/systemSuggestions';
 
 vi.mock('react-i18next', () => ({
@@ -35,6 +36,7 @@ const multiProposal: SuggestionProposal = {
 describe('SystemSuggestionSideCard', () => {
   beforeEach(() => {
     mockUseAvailability.mockReset();
+    vi.restoreAllMocks();
   });
 
   it('renders rationale text and a row for the single installable plugin', () => {
@@ -144,5 +146,52 @@ describe('SystemSuggestionSideCard', () => {
     await userEvent.click(await screen.findByTestId('empty-state-connect-chrome-history'));
     await waitFor(() => expect(sensorsApi.getStatus).toHaveBeenCalled());
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('installs a not-yet-installed plugin before activating', async () => {
+    mockUseAvailability.mockReturnValue({
+      entries: [{ plugin_id: 'chrome-history', available: true, reason: 'available', detail: null, checked_at: 'now' }],
+      byId: {}, loading: false, error: null, refresh: vi.fn(),
+    });
+    vi.spyOn(sensorsApi, 'getStatus').mockResolvedValue({ sources: [] } as any);
+    const installSpy = vi
+      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
+      .mockResolvedValue({} as any);
+
+    render(
+      <SystemSuggestionSideCard
+        proposal={{ ...singleProposal, installable_plugin_ids: ['chrome-history'] }}
+        onClose={() => {}}
+        onDecline={() => {}}
+        onActivated={() => {}}
+      />,
+    );
+
+    await userEvent.click(await screen.findByTestId('empty-state-connect-chrome-history'));
+    await waitFor(() => expect(installSpy).toHaveBeenCalledWith('chrome-history'));
+  });
+
+  it('does not install an already-installed plugin', async () => {
+    mockUseAvailability.mockReturnValue({
+      entries: [{ plugin_id: 'chrome-history', available: true, reason: 'available', detail: null, checked_at: 'now' }],
+      byId: {}, loading: false, error: null, refresh: vi.fn(),
+    });
+    vi.spyOn(sensorsApi, 'getStatus').mockResolvedValue({ sources: [] } as any);
+    const installSpy = vi
+      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
+      .mockResolvedValue({} as any);
+
+    render(
+      <SystemSuggestionSideCard
+        proposal={{ ...singleProposal, installable_plugin_ids: [] }}
+        onClose={() => {}}
+        onDecline={() => {}}
+        onActivated={() => {}}
+      />,
+    );
+
+    await userEvent.click(await screen.findByTestId('empty-state-connect-chrome-history'));
+    await waitFor(() => expect(sensorsApi.getStatus).toHaveBeenCalled());
+    expect(installSpy).not.toHaveBeenCalled();
   });
 });
