@@ -47,6 +47,20 @@ class DeliveryReceipt:
 
 
 @dataclass(frozen=True, slots=True)
+class DeliveryChunk:
+    """One streaming fragment of a delivery.
+
+    ``seq`` is monotonic per (target, run); ``is_final=True`` marks the
+    last chunk for this delivery. ``text`` may be empty on the final
+    chunk if the channel only needs the boundary signal.
+    """
+
+    text: str
+    is_final: bool
+    seq: int
+
+
+@dataclass(frozen=True, slots=True)
 class DeliveryContent:
     """Phase G payload: text + attachments + formatting hint.
 
@@ -76,4 +90,4 @@ class DeliveryContent:
         )
 
 
-__all__ = ["DeliveryReceipt", "DeliveryContent"]
+__all__ = ["DeliveryReceipt", "DeliveryContent", "DeliveryChunk"]
