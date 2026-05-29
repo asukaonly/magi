@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Awaitable, Callable, Iterable
 
 from magi.core.logger import get_logger
+from magi.system_suggestions.candidates import build_suggestion_candidates
 from magi.system_suggestions.contracts import SuggestionProposal
 from magi.system_suggestions.matcher import (
     CategoryCandidate,
@@ -29,10 +30,14 @@ async def run_suggestion_check(
     classify: ClassifyFn,
     throttle: SuggestionThrottle,
 ) -> list[SuggestionProposal]:
+    # A-T4: matcher now consumes SuggestionCandidate-shaped objects. Until A-T6
+    # reworks this signature + the route, wrap the installed manifests into
+    # candidates here (registry discovery is not yet plumbed through the engine).
+    candidates = build_suggestion_candidates(plugin_manifests, [])
     cands = candidate_categories(
         recent_text=recent_text,
         locale=locale,
-        plugin_manifests=plugin_manifests,
+        candidates=candidates,
         is_available=is_available,
         is_dismissed=is_dismissed,
     )

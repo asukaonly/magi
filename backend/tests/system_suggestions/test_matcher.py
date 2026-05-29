@@ -2,73 +2,71 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from magi.system_suggestions.matcher import (
     CategoryCandidate,
     build_proposals,
     candidate_categories,
 )
-from magi_plugin_sdk.contracts import (
-    LocalizedText,
-    PluginManifest,
-    SuggestionDescriptor,
-    Triggers,
-)
 
 
-def _manifest(
-    plugin_id: str, category: str, keywords_zh: list[str]
-) -> PluginManifest:
-    """Build a PluginManifest with a suggestion_descriptor (zh keywords only)."""
-    return PluginManifest(
-        id=plugin_id,
-        name=plugin_id,
-        version="0.1.0",
-        entry_module="plugin",
-        entry_class="X",
-        suggestion_descriptor=SuggestionDescriptor(
-            category=category,
-            triggers=Triggers(
-                intents=[],
-                entities=[],
-                keywords={"zh": keywords_zh},
-            ),
-            platform_support=["darwin", "win32", "linux"],
-            local_requirements=[],
-            rationale=LocalizedText(
-                zh=f"connect {plugin_id} (zh)",
-                en=f"connect {plugin_id} (en)",
-            ),
-        ),
+def _cand(
+    pid: str, category: str, kw: list[str], installed: bool
+) -> SimpleNamespace:
+    """Build a SuggestionCandidate-shaped object (zh keywords only)."""
+    desc = SimpleNamespace(
+        category=category,
+        triggers=SimpleNamespace(keywords={"zh": kw, "en": []}),
+        rationale=SimpleNamespace(zh="z", en="e"),
     )
+    return SimpleNamespace(plugin_id=pid, descriptor=desc, installed=installed)
 
 
 def test_candidate_categories_groups_keyword_hits_by_category() -> None:
-    manifests = [
-        _manifest("chrome-history", "browser_history", ["浏览", "网页"]),
-        _manifest("edge-history", "browser_history", ["浏览"]),
-        _manifest("git-activity", "code_activity", ["代码"]),
+    cands = [
+        _cand("chrome-history", "browser_history", ["浏览", "网页"], True),
+        _cand("edge-history", "browser_history", ["浏览"], True),
+        _cand("git-activity", "code_activity", ["代码"], True),
     ]
-    cands = candidate_categories(
+    grouped = candidate_categories(
         recent_text="我上周浏览了哪些网页",
         locale="zh",
-        plugin_manifests=manifests,
+        candidates=cands,
         is_available=lambda _pid: True,
         is_dismissed=lambda _cat: False,
     )
-    assert set(cands.keys()) == {"browser_history"}
-    assert sorted(cands["browser_history"].plugin_ids) == [
+    assert set(grouped.keys()) == {"browser_history"}
+    assert sorted(grouped["browser_history"].plugin_ids) == [
         "chrome-history",
         "edge-history",
     ]
 
 
+def test_candidate_categories_tracks_installable() -> None:
+    cands = [
+        _cand("chrome-history", "browser_history", ["浏览"], True),
+        _cand("edge-history", "browser_history", ["浏览"], False),
+    ]
+    grouped = candidate_categories(
+        recent_text="浏览",
+        locale="zh",
+        candidates=cands,
+        is_available=lambda _pid: True,
+        is_dismissed=lambda _c: False,
+    )
+    cat = grouped["browser_history"]
+    assert sorted(cat.plugin_ids) == ["chrome-history", "edge-history"]
+    assert cat.installable_plugin_ids == ["edge-history"]
+
+
 def test_candidate_categories_filters_unavailable_and_dismissed() -> None:
-    manifests = [_manifest("chrome-history", "browser_history", ["浏览"])]
+    cands = [_cand("chrome-history", "browser_history", ["浏览"], True)]
     assert (
         candidate_categories(
             recent_text="浏览",
             locale="zh",
-            plugin_manifests=manifests,
+            candidates=cands,
             is_available=lambda _pid: False,
             is_dismissed=lambda _c: False,
         )
@@ -78,7 +76,7 @@ def test_candidate_categories_filters_unavailable_and_dismissed() -> None:
         candidate_categories(
             recent_text="浏览",
             locale="zh",
-            plugin_manifests=manifests,
+            candidates=cands,
             is_available=lambda _pid: True,
             is_dismissed=lambda _c: True,
         )
@@ -118,3 +116,18 @@ def test_build_proposals_degrades_to_keyword_when_confidences_none() -> None:
     props = build_proposals(_cands(), confidences=None)
     assert {p.category for p in props} == {"browser_history", "code_activity"}
     assert props[0].category == "browser_history"  # more hits -> higher keyword confidence
+
+
+def test_build_proposals_carries_installable() -> None:
+    cands = {
+        "browser_history": CategoryCandidate(
+            category="browser_history",
+            plugin_ids=["chrome-history", "edge-history"],
+            installable_plugin_ids=["edge-history"],
+            keywords=["浏览"],
+            rationale={"zh": "z", "en": "e"},
+            keyword_hits=1,
+        )
+    }
+    props = build_proposals(cands, confidences=None)
+    assert props[0].installable_plugin_ids == ["edge-history"]

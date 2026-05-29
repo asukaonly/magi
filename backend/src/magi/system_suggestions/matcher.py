@@ -1,10 +1,13 @@
-"""Signal matcher — given recent text + plugin manifests, surface suggestions.
+"""Signal matcher — given recent text + suggestion candidates, surface suggestions.
 
 The matcher is split into two reusable pure functions:
 
 * :func:`candidate_categories` — a cheap keyword *gate* that groups
-  installed + available + undismissed plugins (whose locale keywords appear in
-  the recent text) by category. This is cheap enough to run on every message.
+  available + undismissed suggestion candidates (whose locale keywords appear in
+  the recent text) by category. Candidates may be installed plugins *or*
+  registry-discovered (not-yet-installed) plugins; the latter are tracked
+  separately in ``installable_plugin_ids``. This is cheap enough to run on every
+  message.
 * :func:`build_proposals` — a proposal builder that ranks candidate categories
   into :class:`SuggestionProposal` objects, using LLM confidences when available
   and degrading to keyword-hit scoring when not.
@@ -20,7 +23,6 @@ from dataclasses import dataclass, field
 from typing import Callable, Iterable
 
 from magi.system_suggestions.contracts import SuggestionProposal
-from magi_plugin_sdk.contracts import PluginManifest
 
 
 @dataclass
@@ -30,10 +32,14 @@ class CategoryCandidate:
     Sibling plugins (e.g. chrome-history / edge-history both under
     ``browser_history``) collapse into a single candidate so the suggestion UI
     can bundle them.
+
+    ``installable_plugin_ids`` is the subset of ``plugin_ids`` that are not yet
+    installed (registry-discovered), so the UI can offer an install-first flow.
     """
 
     category: str
     plugin_ids: list[str] = field(default_factory=list)
+    installable_plugin_ids: list[str] = field(default_factory=list)
     keywords: list[str] = field(default_factory=list)
     rationale: dict[str, str] = field(default_factory=dict)
     keyword_hits: int = 0
@@ -43,32 +49,35 @@ def candidate_categories(
     *,
     recent_text: str,
     locale: str,
-    plugin_manifests: Iterable[PluginManifest],
+    candidates: Iterable,
     is_available: Callable[[str], bool],
     is_dismissed: Callable[[str], bool],
 ) -> dict[str, CategoryCandidate]:
     """Cheap keyword gate.
 
-    Group installed + available + undismissed plugins whose locale keywords
+    Group available + undismissed suggestion candidates whose locale keywords
     appear in ``recent_text``, keyed by category.
 
     Args:
         recent_text: User message + agent response concatenated.
         locale: 'zh' or 'en' — picks which keyword list to match against.
-        plugin_manifests: All installed plugin manifests (those without a
-            ``suggestion_descriptor`` are skipped).
+        candidates: Iterable of suggestion candidates, each exposing
+            ``.plugin_id``, ``.descriptor`` (a ``SuggestionDescriptor``), and
+            ``.installed`` (bool).
         is_available: Returns True if the plugin can run on this device.
         is_dismissed: Returns True if a category (dedupe_key) is currently
             suppressed.
 
     Returns:
         Mapping of category -> :class:`CategoryCandidate` for every category
-        with at least one matching, available, undismissed plugin.
+        with at least one matching, available, undismissed candidate. Candidates
+        with ``installed is False`` are also recorded in
+        ``installable_plugin_ids``.
     """
     text_lower = recent_text.lower()
     out: dict[str, CategoryCandidate] = {}
-    for manifest in plugin_manifests:
-        descriptor = manifest.suggestion_descriptor
+    for c in candidates:
+        descriptor = c.descriptor
         if descriptor is None:
             continue
         keywords = descriptor.triggers.keywords.get(locale, [])
@@ -78,7 +87,7 @@ def candidate_categories(
         category = descriptor.category
         if is_dismissed(category):
             continue
-        if not is_available(manifest.plugin_id):
+        if not is_available(c.plugin_id):
             continue
         cand = out.get(category)
         if cand is None:
@@ -90,7 +99,9 @@ def candidate_categories(
                 },
             )
             out[category] = cand
-        cand.plugin_ids.append(manifest.plugin_id)
+        cand.plugin_ids.append(c.plugin_id)
+        if not c.installed:
+            cand.installable_plugin_ids.append(c.plugin_id)
         for kw in keywords:
             if kw not in cand.keywords:
                 cand.keywords.append(kw)
@@ -132,6 +143,7 @@ def build_proposals(
                 dedupe_key=category,
                 category=category,
                 plugin_ids=cand.plugin_ids,
+                installable_plugin_ids=cand.installable_plugin_ids,
                 confidence=min(1.0, max(0.0, float(conf))),
                 rationale=cand.rationale,
             )
