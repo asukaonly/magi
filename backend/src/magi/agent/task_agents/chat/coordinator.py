@@ -134,6 +134,7 @@ class ChatExecutionCoordinator:
         intent_trace_callback: IntentTraceCallback | None = None,
         tool_advisory_provider: ToolAdvisoryProvider | None = None,
         tool_selection_trace_callback: ToolSelectionTraceCallback | None = None,
+        session_run_store: Any | None = None,
     ) -> None:
         self._context_decider = context_decider
         self._fact_classifier = fact_classifier
@@ -141,6 +142,11 @@ class ChatExecutionCoordinator:
         self._intent_trace_callback = intent_trace_callback
         self._tool_advisory_provider = tool_advisory_provider
         self._tool_selection_trace_callback = tool_selection_trace_callback
+        # Phase E: optional store for per-turn snapshot persistence.
+        # When supplied, execute() calls run_with_snapshot and persists the
+        # returned RunSnapshot so background-detached multi-node runs can
+        # resume from the in-progress node. None for legacy / test callers.
+        self._session_run_store = session_run_store
         tool_registry = getattr(context_decider, "tool_registry", None)
         self._tool_hint_resolver = (
             ToolHintResolver(tool_registry)
@@ -389,17 +395,36 @@ class ChatExecutionCoordinator:
         return await handler.build_request(request)
 
     async def execute(self, request: ExecutionRequest):
-        # Phase D: build node sequence from RouteDecision (profile-aware:
+        # Phase D/E: build node sequence from RouteDecision (profile-aware:
         # coding profile auto-appends ValidateNode). Run via the
         # NodeSequenceRunner which handles single-node AND multi-node
         # graphs uniformly. Non-route paths fall through to the legacy
         # ExecutionHandlerRegistry.
+        # Phase E: use run_with_snapshot so per-node state is persisted for
+        # background-detached runs that need to resume from an in-progress node.
         route_decision = getattr(request.intent, "route_decision", None)
         if route_decision is not None:
             node_specs = self._graph_builder.build_node_sequence(route_decision)
-            runner_result = await self._node_sequence_runner.run(
-                node_specs=node_specs, request=request,
+            session_id = getattr(getattr(request, "context", None), "session_id", "") or ""
+            session_run_id = getattr(getattr(request, "context", None), "session_run_id", "") or ""
+
+            # Look for a resume snapshot — populated when a background
+            # dispatcher rehydrates a detached run.
+            resume_from = None
+            if session_id and session_run_id and self._session_run_store is not None:
+                resume_from = self._session_run_store.get_run_snapshot(session_id, session_run_id)
+
+            runner_result, snapshot = await self._node_sequence_runner.run_with_snapshot(
+                run_id=session_run_id or "",
+                node_specs=node_specs,
+                request=request,
+                resume_from=resume_from,
             )
+
+            # Persist the new snapshot so subsequent detach paths can read it.
+            if session_id and session_run_id and self._session_run_store is not None:
+                self._session_run_store.save_run_snapshot(session_id, session_run_id, snapshot)
+
             if runner_result is not None:
                 return runner_result
         handler = self._handler_registry.get(request.mode)

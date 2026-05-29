@@ -225,3 +225,17 @@ async def test_non_coding_profile_runs_single_node_no_validate() -> None:
     assert result is not None
     assert result.response_text == "hi there"
     assert validate_calls == []
+
+
+def test_coordinator_execute_uses_run_with_snapshot_when_session_run_id_available() -> None:
+    """Phase E: ChatExecutionCoordinator.execute calls
+    NodeSequenceRunner.run_with_snapshot when the request context
+    carries a session_run_id, and saves the returned snapshot to the
+    SessionRunStore."""
+    import inspect
+    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+
+    src = inspect.getsource(ChatExecutionCoordinator.execute)
+    assert "run_with_snapshot" in src, (
+        "execute() must use run_with_snapshot to persist per-turn state"
+    )
