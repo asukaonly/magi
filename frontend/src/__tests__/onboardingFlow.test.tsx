@@ -273,12 +273,11 @@ describe('OnboardingFlow (linear 4-step)', () => {
     await waitFor(() => expect(nextBtn).toBeEnabled());
     await user.click(nextBtn);
 
-    // Step 2: Persona preview — pick Ember and confirm
+    // Step 2: Persona preview — pick Ember (the active rail item is the
+    // selection) and advance with the standard footer Next button.
     await screen.findByRole('button', { name: /Ember/i });
     await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(
-      screen.getByRole('button', { name: /^(personaPreview\.)?confirm$/i }),
-    );
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
 
     // Step 3: Completion — click Enter App
     const enterApp = await screen.findByRole('button', { name: 'actions.enterApp' });
@@ -331,9 +330,7 @@ describe('OnboardingFlow (linear 4-step)', () => {
 
     await screen.findByRole('button', { name: /Ember/i });
     await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(
-      screen.getByRole('button', { name: /^(personaPreview\.)?confirm$/i }),
-    );
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
     const enterApp = await screen.findByRole('button', { name: 'actions.enterApp' });
     await user.click(enterApp);
 

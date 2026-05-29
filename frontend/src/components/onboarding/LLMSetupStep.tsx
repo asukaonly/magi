@@ -54,6 +54,17 @@ function isValidConfig(value: LLMConfig): boolean {
  * Looks up by the provider's `provider_type` (the template id used as the key
  * in RECOMMENDED_MODELS), falling back to the instance id.
  */
+/**
+ * True when any configured provider is a custom (OpenAI-compatible) provider.
+ * Custom providers require the user to pick concrete models per scenario, so we
+ * auto-expand the advanced model config when one is present.
+ */
+function hasCustomProvider(value: LLMConfig): boolean {
+  return Object.values(value.providers ?? {}).some(
+    (p) => p?.provider_type === 'custom',
+  );
+}
+
 function showsEmbeddingFallback(value: LLMConfig): boolean {
   const coreProviderId = value.selections?.core?.provider_id;
   if (!coreProviderId) return false;
@@ -71,6 +82,14 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
   useEffect(() => {
     onValid?.(isValidConfig(value));
   }, [value, onValid]);
+
+  // Auto-expand the advanced model config once a custom provider appears —
+  // custom providers can't be auto-defaulted from the catalog, so the user
+  // must pick models per scenario. The user can still collapse it afterward.
+  const customPresent = hasCustomProvider(value);
+  useEffect(() => {
+    if (customPresent) setShowAdvanced(true);
+  }, [customPresent]);
 
   const showEmbeddingRow = showsEmbeddingFallback(value);
 

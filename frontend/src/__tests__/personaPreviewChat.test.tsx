@@ -48,24 +48,15 @@ describe('PersonaPreviewChat', () => {
     mockStream.mockImplementation(() => makeAsyncIter(['hello', ' ', 'world']));
   });
 
-  it('renders avatar for every seed preview', () => {
-    render(
-      <PersonaPreviewChat
-        previews={previews}
-        onConfirm={() => {}}
-      />,
-    );
+  it('renders a rail entry for every seed preview', () => {
+    render(<PersonaPreviewChat previews={previews} />);
     expect(screen.getByRole('button', { name: /Nova/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Ember/i })).toBeInTheDocument();
   });
 
-  it('streams the persona reply when user sends a message', async () => {
-    render(
-      <PersonaPreviewChat
-        previews={previews}
-        onConfirm={() => {}}
-      />,
-    );
+  it('streams the persona reply and forwards the llm_override', async () => {
+    const llmConfig = { providers: {}, selections: {} } as any;
+    render(<PersonaPreviewChat previews={previews} llmConfig={llmConfig} />);
     await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
     const input = screen.getByPlaceholderText(/composerPlaceholder/i);
     await userEvent.type(input, 'hi');
@@ -77,17 +68,13 @@ describe('PersonaPreviewChat', () => {
       expect.objectContaining({
         seed_slug: 'nova',
         message: { role: 'user', content: 'hi' },
+        llm_override: llmConfig,
       }),
     );
   });
 
   it('preserves each persona transcript when switching back and forth', async () => {
-    render(
-      <PersonaPreviewChat
-        previews={previews}
-        onConfirm={() => {}}
-      />,
-    );
+    render(<PersonaPreviewChat previews={previews} />);
     // Send a message to Nova
     await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
     await userEvent.type(
@@ -104,28 +91,27 @@ describe('PersonaPreviewChat', () => {
     expect(screen.getByText('nova-msg')).toBeInTheDocument();
   });
 
-  it('confirms with the active persona slug', async () => {
-    const onConfirm = vi.fn();
+  it('reports the active persona slug via onActiveSeedChange', async () => {
+    const onActiveSeedChange = vi.fn();
     render(
       <PersonaPreviewChat
         previews={previews}
-        onConfirm={onConfirm}
+        onActiveSeedChange={onActiveSeedChange}
       />,
     );
-    await userEvent.click(screen.getByRole('button', { name: /Ember/i }));
-    await userEvent.click(
-      screen.getByRole('button', { name: /^(personaPreview\.)?confirm$/i }),
+    // Fires with the default (first) selection on mount.
+    await waitFor(() =>
+      expect(onActiveSeedChange).toHaveBeenCalledWith('nova'),
     );
-    expect(onConfirm).toHaveBeenCalledWith('ember');
+    // Fires again when the user picks a different persona.
+    await userEvent.click(screen.getByRole('button', { name: /Ember/i }));
+    await waitFor(() =>
+      expect(onActiveSeedChange).toHaveBeenLastCalledWith('ember'),
+    );
   });
 
   it('disables input once the 5-turn cap is hit for the active persona', async () => {
-    render(
-      <PersonaPreviewChat
-        previews={previews}
-        onConfirm={() => {}}
-      />,
-    );
+    render(<PersonaPreviewChat previews={previews} />);
     await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
     for (let i = 0; i < 5; i++) {
       await userEvent.type(

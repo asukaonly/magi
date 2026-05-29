@@ -331,11 +331,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     setCurrent((prev) => Math.max(0, prev - 1));
   };
 
-  // Step 2 (persona preview) advances itself via onConfirm; the global Next
-  // button is hidden on that step to avoid a redundant control. Step 3 shows
-  // the completion screen and uses CompletionScreen's own Enter App CTA, so
-  // the footer is hidden there too.
-  const hideFooter = current === 2 || isLastStep;
+  // The persona preview step uses the standard Previous/Next footer (the
+  // active persona in the rail is the selection; Next confirms it). Step 3
+  // shows the completion screen and uses CompletionScreen's own Enter App CTA,
+  // so the footer is hidden there.
+  const hideFooter = isLastStep;
 
   const renderStepContent = () => {
     if (current === 1) {
@@ -355,10 +355,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       return (
         <PersonaPreviewChat
           previews={seedPreviews}
-          onConfirm={(slug) => {
+          llmConfig={llmValue}
+          onActiveSeedChange={(slug) => {
             setSeedSlug(slug);
             saveProgress(form.getFieldsValue(true), slug);
-            setCurrent(3);
           }}
         />
       );

@@ -7,7 +7,7 @@
   "steps": {
     "welcome": "欢迎",
     "llmSetup": "配置模型",
-    "personaPreview": "选择 Magi",
+    "personaPreview": "选择人格",
     "complete": "完成"
   },
   "actions": {
@@ -158,7 +158,7 @@
   },
   "llmSetup": {
     "embeddingFallbackHint": "这个提供商没有 embedding 模型，请在下方单独配置一个。",
-    "showAdvanced": "分别配置每个 scenario 的模型",
+    "showAdvanced": "分别配置每个场景的模型",
     "hideAdvanced": "隐藏高级模型设置"
   },
   "personaPreview": {

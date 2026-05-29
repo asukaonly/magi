@@ -7,7 +7,7 @@
   "steps": {
     "welcome": "Welcome",
     "llmSetup": "LLM Setup",
-    "personaPreview": "Choose Magi",
+    "personaPreview": "Choose a persona",
     "complete": "Done"
   },
   "actions": {

@@ -19,7 +19,7 @@ Tests inject their own callables for isolation.
 from __future__ import annotations
 
 from threading import Lock
-from typing import TYPE_CHECKING, AsyncIterator, Callable
+from typing import TYPE_CHECKING, AsyncIterator, Callable, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -28,11 +28,14 @@ from magi.api.routers.chat_preview_schemas import PreviewMessageRequest
 from magi.chat_preview import PreviewMessage, PreviewMode, run_preview
 
 if TYPE_CHECKING:
+    from magi.config.models import LLMSettings
     from magi.personality.loader import PersonalityLoader
 
 PersonaLoaderDep = Callable[[], Callable[[str], str]]
-LLMCallDep = Callable[[], Callable[..., AsyncIterator[str]]]
-CoreModelDep = Callable[[], str]
+# Both LLM deps accept an optional unsaved override (onboarding sends its
+# not-yet-persisted config so the preview can run before the user saves).
+LLMCallDep = Callable[["Optional[LLMSettings]"], Callable[..., AsyncIterator[str]]]
+CoreModelDep = Callable[["Optional[LLMSettings]"], str]
 
 
 # Module-scoped lazily-initialized PersonalityLoader. The loader holds an
@@ -69,12 +72,14 @@ def build_default_chat_preview_router(
     @router.post("/chat/preview")
     async def chat_preview(request: PreviewMessageRequest) -> StreamingResponse:
         loader = persona_loader_dep()
-        llm_call = llm_call_dep()
-        core_model = core_model_dep()
 
-        # Resolve the persona prompt up front so we can return 400 if unknown.
+        # Resolve the persona prompt + core model up front so we can return 400
+        # for an unknown seed or a config (override or persisted) that has no
+        # core model selected — instead of leaking a 500 mid-stream.
         try:
             loader(request.seed_slug)
+            core_model = core_model_dep(request.llm_override)
+            llm_call = llm_call_dep(request.llm_override)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -128,7 +133,9 @@ def _default_persona_loader_dep() -> Callable[[str], str]:
     return _resolve_persona_prompt
 
 
-def _default_llm_call_dep() -> Callable[..., AsyncIterator[str]]:
+def _default_llm_call_dep(
+    llm_override: "LLMSettings | None" = None,
+) -> Callable[..., AsyncIterator[str]]:
     """Return an async callable that streams text chunks from the core adapter.
 
     The shape required by :func:`magi.chat_preview.run_preview` is
@@ -136,17 +143,22 @@ def _default_llm_call_dep() -> Callable[..., AsyncIterator[str]]:
     underlying primitive is :meth:`LLMAdapter.chat_stream`; we prepend the
     system prompt as a ``{"role": "system", ...}`` message.
 
-    We resolve the adapter lazily *inside* the returned callable so transient
-    runtime-init issues surface at request time as 500s (with a meaningful
-    traceback), not at module import.
+    The core adapter is resolved *eagerly* from the override (or persisted
+    config when ``llm_override`` is ``None``) via
+    :func:`magi.llm.draft.resolve_adapter_for_scenario`, mirroring how the
+    provider test-connection and persona generation paths build a throwaway
+    adapter from unsaved settings. Resolving eagerly lets a missing
+    selection/provider surface as a 400 (the caller wraps this in
+    ``try/except ValueError``) rather than a 500 mid-stream.
     """
+    from magi.config.models import LLMScenario
+    from magi.llm.draft import resolve_adapter_for_scenario
+
+    adapter = resolve_adapter_for_scenario(
+        LLMScenario.CORE, llm_settings=llm_override
+    )
 
     async def invoke(*, system_prompt: str, messages: list[dict], model: str):
-        from magi.llm.provider import get_scenario_llm_pool
-        from magi.config.models import LLMScenario
-
-        pool = get_scenario_llm_pool()
-        adapter = pool.get(LLMScenario.CORE)
         wire_messages: list[dict] = []
         if system_prompt:
             wire_messages.append({"role": "system", "content": system_prompt})
@@ -157,13 +169,17 @@ def _default_llm_call_dep() -> Callable[..., AsyncIterator[str]]:
     return invoke
 
 
-def _default_core_model_dep() -> str:
-    """Return the ``core`` scenario's currently-selected model id."""
+def _default_core_model_dep(llm_override: "LLMSettings | None" = None) -> str:
+    """Return the ``core`` scenario's currently-selected model id.
+
+    Reads from the unsaved ``llm_override`` when present (onboarding), else the
+    persisted config.
+    """
     from magi.config import get_config
     from magi.config.models import LLMScenario
 
-    config = get_config()
-    selection = config.llm.selections.get(LLMScenario.CORE.value)
+    settings = llm_override or get_config().llm
+    selection = settings.selections.get(LLMScenario.CORE.value)
     if selection is None or not str(getattr(selection, "model", "") or "").strip():
         raise ValueError("core LLM scenario has no model selected")
     return str(selection.model).strip()

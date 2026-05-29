@@ -1,21 +1,57 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { streamChatPreview, type PreviewTurn } from '../../api/modules/chatPreview';
-import type { SeedPreview } from '../../api/modules/personas';
+import { personasApi, type SeedPreview } from '../../api/modules/personas';
+import type { LLMConfig } from '../../api/modules/config';
 import { PersonaPreviewStarterChips } from './PersonaPreviewStarterChips';
 
 const MAX_USER_TURNS_PER_PERSONA = 5;
 
 export interface PersonaPreviewChatProps {
   previews: SeedPreview[];
-  onConfirm: (seedSlug: string) => void;
+  /**
+   * The in-progress (unsaved) onboarding LLM config. Passed to the preview
+   * endpoint as `llm_override` so the backend can resolve a throwaway core
+   * adapter before the user has persisted their selections.
+   */
+  llmConfig?: LLMConfig;
+  /**
+   * Fires whenever the active persona changes (including the initial default).
+   * The active persona in the rail *is* the selection — the parent's footer
+   * "Next" button confirms it and advances.
+   */
+  onActiveSeedChange?: (seedSlug: string | null) => void;
 }
 
 type TranscriptMap = Record<string, PreviewTurn[]>;
 
+/** Avatar with graceful fallback to the persona's initial when the image fails. */
+function PreviewAvatar({ name, avatar }: { name: string; avatar?: string }): JSX.Element {
+  const [failed, setFailed] = useState(false);
+  const url = avatar ? personasApi.getAvatarUrl(avatar) : '';
+  const initial = name.trim().charAt(0).toUpperCase() || '?';
+
+  if (!url || failed) {
+    return (
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#e6d7c5] text-sm font-semibold text-[#7d685a] dark:bg-[#5b4a3d] dark:text-[#f4eadf]">
+        {initial}
+      </div>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt=""
+      onError={() => setFailed(true)}
+      className="h-10 w-10 shrink-0 rounded-full object-cover"
+    />
+  );
+}
+
 export function PersonaPreviewChat({
   previews,
-  onConfirm,
+  llmConfig,
+  onActiveSeedChange,
 }: PersonaPreviewChatProps): JSX.Element {
   const { t } = useTranslation('onboarding');
   const sortedPreviews = useMemo(
@@ -28,6 +64,22 @@ export function PersonaPreviewChat({
   const [transcripts, setTranscripts] = useState<TranscriptMap>({});
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // If previews arrive after first render (async load), adopt the first one as
+  // the default selection.
+  useEffect(() => {
+    if (activeSeed === null && sortedPreviews.length > 0) {
+      setActiveSeed(sortedPreviews[0].seed_slug);
+    }
+  }, [activeSeed, sortedPreviews]);
+
+  // Notify the parent of the current selection without depending on the
+  // (unstable) callback identity — fire only when the active seed changes.
+  const onActiveSeedChangeRef = useRef(onActiveSeedChange);
+  onActiveSeedChangeRef.current = onActiveSeedChange;
+  useEffect(() => {
+    onActiveSeedChangeRef.current?.(activeSeed);
+  }, [activeSeed]);
 
   const activeTranscript = activeSeed ? transcripts[activeSeed] ?? [] : [];
   const userTurnCount = activeTranscript.filter((m) => m.role === 'user').length;
@@ -73,6 +125,7 @@ export function PersonaPreviewChat({
         seed_slug: seed,
         history: snapshotHistory,
         message: userTurn,
+        llm_override: llmConfig,
       })) {
         updateLastAssistantContent(seed, chunk);
       }
@@ -81,7 +134,16 @@ export function PersonaPreviewChat({
     } finally {
       setBusy(false);
     }
-  }, [activeSeed, draft, busy, capReached, transcripts, appendTurn, updateLastAssistantContent]);
+  }, [
+    activeSeed,
+    draft,
+    busy,
+    capReached,
+    transcripts,
+    llmConfig,
+    appendTurn,
+    updateLastAssistantContent,
+  ]);
 
   const handleChipPick = useCallback((prompt: string) => {
     setDraft(prompt);
@@ -89,7 +151,8 @@ export function PersonaPreviewChat({
 
   return (
     <div className="grid h-full grid-cols-[200px_1fr] gap-4">
-      {/* Left: avatar rail */}
+      {/* Left: avatar rail — clicking selects the persona (the active one is
+          confirmed by the footer "Next" button). */}
       <div className="flex flex-col gap-2 overflow-y-auto border-r border-[#e6d7c5] pr-2 dark:border-[#5b4a3d]">
         {sortedPreviews.map((p) => (
           <button
@@ -103,7 +166,7 @@ export function PersonaPreviewChat({
                 : 'hover:bg-[#fbf6ef] dark:hover:bg-[#3d2f25]'
             }`}
           >
-            <img src={p.avatar} alt="" className="h-10 w-10 rounded-full" />
+            <PreviewAvatar name={p.name} avatar={p.avatar} />
             <div className="min-w-0">
               <div className="truncate text-sm font-medium">{p.name}</div>
               <div className="truncate text-xs text-[#7d685a] dark:text-[#c8b7a7]">
@@ -172,17 +235,6 @@ export function PersonaPreviewChat({
             {t('personaPreview.capReached')}
           </p>
         )}
-
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => activeSeed && onConfirm(activeSeed)}
-            disabled={!activeSeed}
-            className="rounded-full bg-[#35261f] px-6 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-[#f4eadf] dark:text-[#35261f]"
-          >
-            {t('personaPreview.confirm')}
-          </button>
-        </div>
       </div>
     </div>
   );

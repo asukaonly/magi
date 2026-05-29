@@ -20,14 +20,16 @@ def app_with_preview():
             raise ValueError("unknown seed: ghost")
         return f"<system prompt for {seed_slug}>"
 
-    def fake_core_model() -> str:
+    # The LLM deps now receive the request's optional ``llm_override``; the
+    # fakes ignore it but must accept the positional arg.
+    def fake_core_model(llm_override=None) -> str:
         return "test-core-model"
 
     app = FastAPI()
     app.include_router(
         build_default_chat_preview_router(
             persona_loader_dep=lambda: fake_loader,
-            llm_call_dep=lambda: fake_llm,
+            llm_call_dep=lambda _override=None: fake_llm,
             core_model_dep=fake_core_model,
         ),
     )
@@ -90,3 +92,60 @@ def test_post_preview_caps_history_length(app_with_preview) -> None:
         },
     )
     assert response.status_code == 422
+
+
+def test_post_preview_threads_llm_override_to_deps() -> None:
+    """An unsaved ``llm_override`` from onboarding reaches both LLM deps."""
+    seen: dict[str, object] = {}
+
+    async def fake_llm(*, system_prompt, messages, model):
+        yield "ok"
+
+    def llm_call_dep(override=None):
+        seen["llm_call_override"] = override
+        return fake_llm
+
+    def core_model_dep(override=None) -> str:
+        seen["core_model_override"] = override
+        return "override-core-model"
+
+    app = FastAPI()
+    app.include_router(
+        build_default_chat_preview_router(
+            persona_loader_dep=lambda: (lambda slug: f"<prompt {slug}>"),
+            llm_call_dep=llm_call_dep,
+            core_model_dep=core_model_dep,
+        ),
+    )
+
+    override = {
+        "providers": {
+            "openai": {
+                "enabled": True,
+                "provider_type": "openai",
+                "api_key": "sk-test",
+            }
+        },
+        "selections": {
+            "core": {"provider_id": "openai", "model": "gpt-4o"},
+            "context_decider": {"provider_id": "openai", "model": "gpt-4o-mini"},
+        },
+    }
+    client = TestClient(app)
+    with client.stream(
+        "POST",
+        "/chat/preview",
+        json={
+            "seed_slug": "nova",
+            "history": [],
+            "message": {"role": "user", "content": "hi"},
+            "llm_override": override,
+        },
+    ) as response:
+        assert response.status_code == 200
+        b"".join(response.iter_bytes())
+
+    # Both deps received the parsed LLMSettings override (not None).
+    assert seen["llm_call_override"] is not None
+    assert seen["core_model_override"] is not None
+    assert seen["core_model_override"].selections["core"].model == "gpt-4o"

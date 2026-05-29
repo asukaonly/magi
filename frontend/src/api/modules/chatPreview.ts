@@ -8,6 +8,7 @@
  */
 
 import { resolveApiBaseUrl } from '../client';
+import type { LLMConfig } from './config';
 
 export interface PreviewTurn {
   role: 'user' | 'assistant';
@@ -18,6 +19,13 @@ export interface ChatPreviewRequest {
   seed_slug: string;
   history: PreviewTurn[];
   message: PreviewTurn;
+  /**
+   * Optional unsaved LLM configuration. During onboarding the user has not yet
+   * persisted their provider/model selections, so we pass the in-progress
+   * config here and the backend resolves a throwaway core adapter from it
+   * (falling back to the persisted config when omitted).
+   */
+  llm_override?: LLMConfig;
 }
 
 export async function* streamChatPreview(
