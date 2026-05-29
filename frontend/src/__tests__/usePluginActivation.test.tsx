@@ -51,4 +51,28 @@ describe('usePluginActivation', () => {
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('chrome-history'));
     expect(result.current.dialogState).toBeNull();
   });
+
+  it('installs from registry first when openDialog is called with install: true', async () => {
+    const installSpy = vi
+      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
+      .mockResolvedValue({} as any);
+    const { result } = renderHook(() => usePluginActivation());
+    await act(async () => {
+      await result.current.openDialog('chrome-history', { install: true });
+    });
+    expect(installSpy).toHaveBeenCalledWith('chrome-history');
+    expect(result.current.dialogState?.pluginId).toBe('chrome-history');
+  });
+
+  it('does not install when openDialog is called without install', async () => {
+    const installSpy = vi
+      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
+      .mockResolvedValue({} as any);
+    const { result } = renderHook(() => usePluginActivation());
+    await act(async () => {
+      await result.current.openDialog('chrome-history');
+    });
+    expect(installSpy).not.toHaveBeenCalled();
+    expect(result.current.dialogState?.pluginId).toBe('chrome-history');
+  });
 });

@@ -18,6 +18,7 @@ const singleProposal: SuggestionProposal = {
   dedupe_key: 'browser_history',
   category: 'browser_history',
   plugin_ids: ['chrome-history'],
+  installable_plugin_ids: [],
   confidence: 0.9,
   rationale: { zh: '连接 Chrome 历史', en: 'Connect Chrome history' },
 };
@@ -26,6 +27,7 @@ const multiProposal: SuggestionProposal = {
   dedupe_key: 'browser_history',
   category: 'browser_history',
   plugin_ids: ['chrome-history', 'safari-history', 'arc-history'],
+  installable_plugin_ids: [],
   confidence: 0.85,
   rationale: { zh: '连接浏览器历史', en: 'Connect browser history' },
 };
