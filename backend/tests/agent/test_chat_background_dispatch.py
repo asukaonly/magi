@@ -123,7 +123,6 @@ def _make_request(*, user_message: str = "summarise the PRs", tools: list[str] |
         difficulty="normal",
         execution_mode=ExecutionMode.FUNCTION_CALLING,
         reasoning="",
-        orchestration_plan=OrchestrationPlan(),
     )
     return FunctionCallingRequest(
         mode=ExecutionMode.FUNCTION_CALLING,

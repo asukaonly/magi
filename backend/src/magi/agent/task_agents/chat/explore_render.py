@@ -29,8 +29,8 @@ async def start_explore_task_agent(
     deps: Any,
     request: ExecutionRequest,
 ) -> Optional[ExecutionResult]:
-    orchestration_plan = request.intent.orchestration_plan
-    if orchestration_plan is None or not orchestration_plan.route_to_explore_task_agent:
+    route_decision = getattr(request.intent, "route_decision", None)
+    if route_decision is None or getattr(route_decision, "profile", None) != "explore":
         return None
     latest_fact = request.context.latest_fact
     history = deps.prompt_service.filter_history_for_aggregation(request.context.history)

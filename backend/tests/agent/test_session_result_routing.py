@@ -21,6 +21,7 @@ from magi.agent.task_agents.common import (
     UserMessagePayload,
     WorkerUpdatePayload,
 )
+from magi.tools.context_routing import RouteDecision
 from magi.agent.task_agents.explore.contracts import ExploreRuntimeContext
 from magi.agent.task_agents.explore.postprocess_service import ExplorePostProcessService
 from magi.agent.task_orchestrator import TaskOrchestrator
@@ -647,7 +648,11 @@ async def test_start_explore_task_agent_routes_upstream_to_chat_session() -> Non
             intent="repo_analysis",
             difficulty="normal",
             execution_mode=ExecutionMode.ORCHESTRATION_LAUNCH,
-            orchestration_plan=OrchestrationPlan(route_to_explore_task_agent=True),
+            route_decision=RouteDecision(
+                profile="explore",
+                graph_shape="plan_fanout",
+                complexity="medium",
+            ),
         ),
         tool_selection=ToolSelection(),
     )

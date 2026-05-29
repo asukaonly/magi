@@ -80,7 +80,6 @@ def _intent_with(*, register: str | None, task_hint: dict | None = None) -> Inte
         difficulty="normal",
         execution_mode=ExecutionMode.FUNCTION_CALLING,
         reasoning="test",
-        orchestration_plan=OrchestrationPlan(),
         memory_route="none",
         task_hint=task_hint or {
             "target_locality": "ambiguous_external_reference",
@@ -207,7 +206,6 @@ async def test_memory_guidance_not_suppressed_by_emotional_register() -> None:
         difficulty="normal",
         execution_mode=ExecutionMode.FUNCTION_CALLING,
         reasoning="memory recall",
-        orchestration_plan=OrchestrationPlan(),
         memory_route="explicit_query",  # required for memory guidance to fire
         persona_routing_hint=PersonaRoutingHint(register="emotional"),
     )

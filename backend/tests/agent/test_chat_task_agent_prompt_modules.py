@@ -122,7 +122,6 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             difficulty="normal",
             execution_mode=ExecutionMode.FUNCTION_CALLING,
             tools=["weather"],
-            orchestration_plan=OrchestrationPlan(),
         )
         tool_result = ToolSelection(tools=["weather"], reasoning="weather lookup")
 
@@ -167,7 +166,6 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             difficulty="normal",
             execution_mode=ExecutionMode.DIRECT_LLM,
             tools=[],
-            orchestration_plan=OrchestrationPlan(),
         )
         tool_result = ToolSelection(tools=[], reasoning="direct reply")
 

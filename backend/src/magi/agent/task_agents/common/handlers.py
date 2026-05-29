@@ -110,9 +110,8 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
         )
 
     async def execute(self, request: OrchestrationLaunchRequest) -> ExecutionResult:
-        orchestration_plan = request.intent.orchestration_plan
         route_decision = getattr(request.intent, "route_decision", None)
-        if orchestration_plan is None and route_decision is None:
+        if route_decision is None:
             return ExecutionResult(
                 mode=request.mode,
                 response_text="Failed to generate orchestration strategy for this request.",
@@ -138,9 +137,6 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
         _ctx_control = request.context.control if hasattr(request.context, "control") else None
         control = _ctx_control if _ctx_control is not None else null_run_control()
         control.cancel_token = cancel_token
-        # Extract the RouteDecision carried on the intent.  It will be threaded
-        # into start_orchestration in Task B.8 once that signature is extended.
-        route_decision = getattr(request.intent, "route_decision", None)
         strategy_dict = (
             route_decision.to_legacy_strategy_dict()
             if route_decision is not None
