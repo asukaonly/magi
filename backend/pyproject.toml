@@ -23,11 +23,17 @@ classifiers = [
 
 dependencies = [
     # Core framework
-    "fastapi>=0.109.0",
+    "fastapi>=0.130.0",
+    # Pinned explicitly because fastapi declares no upper bound and pip
+    # does not eagerly upgrade transitives; PYSEC-2026-161 is fixed in 1.0.1.
+    "starlette>=1.0.1",
     "uvicorn[standard]>=0.27.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
-    "python-multipart>=0.0.6",
+    "python-multipart>=0.0.27",
+    # Pinned transitively for CVE-2026-45409 (idna domain length DoS);
+    # required >=3.15 for the fix.
+    "idna>=3.15",
 
     # Identifiers
     "python-ulid>=2.2.0",
@@ -61,7 +67,7 @@ dependencies = [
 
     # WebSocket
     "python-socketio>=5.11.0",
-    "aiohttp>=3.9.0",
+    "aiohttp>=3.13.4",
 
     # Authentication
     "pyjwt>=2.8.0",
@@ -90,7 +96,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.0",
+    "pytest>=9.0.3",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
     "black>=24.1.0",
