@@ -60,3 +60,53 @@ def test_run_snapshot_empty_node_states_is_valid() -> None:
     snapshot = RunSnapshot(run_id="r1", graph=("reply",), cursor=0, node_states={})
     assert snapshot.cursor == 0
     assert snapshot.node_states == {}
+
+
+def test_session_run_store_save_and_load_snapshot_round_trip() -> None:
+    """SessionRunStore stores RunSnapshot in-memory keyed by (session_id, run_id)."""
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.chat.run_store import SessionRunStore
+
+    store = SessionRunStore()
+    snapshot = RunSnapshot(
+        run_id="r1",
+        graph=("tool_loop", "validate"),
+        cursor=1,
+        node_states={"tool_loop": {"iterations": 2}},
+    )
+    store.save_run_snapshot("session_a", "r1", snapshot)
+    loaded = store.get_run_snapshot("session_a", "r1")
+    assert loaded is not None
+    assert loaded == snapshot
+
+
+def test_session_run_store_get_snapshot_returns_none_when_missing() -> None:
+    from magi.agent.task_agents.chat.run_store import SessionRunStore
+
+    store = SessionRunStore()
+    assert store.get_run_snapshot("nonexistent", "nonexistent") is None
+
+
+def test_session_run_store_save_snapshot_overwrites_prior_for_same_run_id() -> None:
+    """Saving a new snapshot for the same (session, run) replaces."""
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.chat.run_store import SessionRunStore
+
+    store = SessionRunStore()
+    first = RunSnapshot(run_id="r1", graph=("reply",), cursor=0, node_states={})
+    second = RunSnapshot(run_id="r1", graph=("reply",), cursor=1, node_states={"reply": {}})
+    store.save_run_snapshot("session_a", "r1", first)
+    store.save_run_snapshot("session_a", "r1", second)
+    assert store.get_run_snapshot("session_a", "r1") == second
+
+
+def test_session_run_store_clear_snapshot_removes_entry() -> None:
+    """After a run completes, the snapshot can be cleared."""
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.chat.run_store import SessionRunStore
+
+    store = SessionRunStore()
+    snapshot = RunSnapshot(run_id="r1", graph=("reply",), cursor=1, node_states={})
+    store.save_run_snapshot("session_a", "r1", snapshot)
+    store.clear_run_snapshot("session_a", "r1")
+    assert store.get_run_snapshot("session_a", "r1") is None
