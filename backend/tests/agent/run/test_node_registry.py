@@ -14,6 +14,12 @@ class _StubNode:
     async def execute(self, request):
         return NodeResult(outcome=NodeOutcome.DONE)
 
+    def snapshot(self) -> dict:
+        return {}
+
+    def restore(self, state: dict) -> None:
+        pass
+
 
 def test_node_registry_starts_empty() -> None:
     registry = NodeRegistry()

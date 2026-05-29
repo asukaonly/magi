@@ -57,6 +57,12 @@ def test_run_node_protocol_runtime_checkable() -> None:
         async def execute(self, request) -> NodeResult:
             return NodeResult(outcome=NodeOutcome.DONE)
 
+        def snapshot(self) -> dict:
+            return {}
+
+        def restore(self, state: dict) -> None:
+            pass
+
     instance = _ConformingNode()
     assert isinstance(instance, RunNode)
 
@@ -68,3 +74,74 @@ def test_run_node_protocol_rejects_non_conformer() -> None:
         node_type: str = "reply"
 
     assert not isinstance(_MissingExecute(), RunNode)
+
+
+def test_run_node_protocol_has_optional_snapshot_method() -> None:
+    """Phase E: RunNode protocol declares snapshot() returning a dict
+    and restore(state) accepting a dict. Default implementations on
+    Phase C/D adapters return/accept empty dicts (no real state)."""
+    from magi.agent.run.nodes.protocol import RunNode
+
+    # Protocol attribute presence; checked via runtime_checkable.
+    class _ConformingWithSnapshot:
+        node_type: str = "reply"
+
+        async def execute(self, request):
+            return None
+
+        def snapshot(self) -> dict:
+            return {}
+
+        def restore(self, state: dict) -> None:
+            pass
+
+    assert isinstance(_ConformingWithSnapshot(), RunNode)
+
+
+def test_reply_node_snapshot_returns_empty_dict() -> None:
+    """Phase E: ReplyNode is stateless — snapshot returns empty dict."""
+    from magi.agent.run.nodes.reply import ReplyNode
+
+    class _StubHandler:
+        async def execute(self, request):
+            return None
+
+    node = ReplyNode(direct_llm_handler=_StubHandler())
+    assert node.snapshot() == {}
+
+
+def test_reply_node_restore_accepts_dict_noop() -> None:
+    """Restoring an empty dict is a no-op."""
+    from magi.agent.run.nodes.reply import ReplyNode
+
+    class _StubHandler:
+        async def execute(self, request):
+            return None
+
+    node = ReplyNode(direct_llm_handler=_StubHandler())
+    # Must not raise.
+    node.restore({})
+    node.restore({"unknown": "ignored"})
+
+
+def test_plan_fanout_node_snapshot_returns_empty_dict() -> None:
+    from magi.agent.run.nodes.plan_fanout import PlanFanoutNode
+
+    class _StubHandler:
+        async def execute(self, request):
+            return None
+
+    node = PlanFanoutNode(orchestration_launch_handler=_StubHandler())
+    assert node.snapshot() == {}
+
+
+def test_validate_node_snapshot_returns_empty_dict() -> None:
+    """ValidateNode has no persistent state between invocations."""
+    from magi.agent.run.nodes.validate import ValidateNode
+
+    class _StubRegistry:
+        async def execute(self, tool_name, parameters, context):
+            return None
+
+    node = ValidateNode(tool_registry=_StubRegistry())
+    assert node.snapshot() == {}

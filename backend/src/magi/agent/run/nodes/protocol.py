@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from ...task_agents.common.contracts import ExecutionRequest, ExecutionResult
@@ -67,7 +67,7 @@ class NodeResult:
 
 @runtime_checkable
 class RunNode(Protocol):
-    """Phase C adapter protocol.
+    """Phase C adapter protocol; Phase E adds snapshot/restore.
 
     Conformers expose:
       - ``node_type``: class-level discriminator string matching the
@@ -75,12 +75,25 @@ class RunNode(Protocol):
         ``"tool_loop"``, ``"plan_fanout"``).
       - ``execute(request)``: async, takes the existing ExecutionRequest
         shape and returns a NodeResult.
+      - ``snapshot()``: return a JSON-compatible dict of this node's state
+        for resume after detach. Phase C/D adapters return ``{}`` (stateless).
+        ``ToolLoopNode`` overrides to delegate to OrchestratorSnapshot.
+      - ``restore(state)``: accept the dict produced by ``snapshot()`` and
+        restore the node's internal state. No-op for stateless nodes.
     """
 
     node_type: str
 
     async def execute(self, request: "ExecutionRequest") -> NodeResult:
         """Run this node against the request, returning a NodeResult."""
+        ...
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return JSON-compatible state for resume. Empty dict for stateless nodes."""
+        ...
+
+    def restore(self, state: dict[str, Any]) -> None:
+        """Restore from a snapshot dict. No-op for stateless nodes."""
         ...
 
 
