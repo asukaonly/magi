@@ -1,194 +1,106 @@
-import { useState } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { LLMSetupStep } from '@/components/onboarding/LLMSetupStep';
-import { RECOMMENDED_MODELS } from '@/constants/llm';
-import type { LLMConfig, LLMProviderRegistry } from '@/api/modules/config';
+import type { LLMConfig } from '@/api/modules/config';
 
 // Mock i18n so the test isn't bound to translation copy churn.
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-// Mock LLMProviderConfigurationSection to a simple controlled select so the
-// test does not depend on the full internal UI. We use the actual prop names
-// the real component expects: `activeProviderId`, `onActiveProviderChange`,
-// `onSetProvider`.
-vi.mock('@/components/config-forms/LLMProviderConfigurationSection', () => ({
-  LLMProviderConfigurationSection: ({
-    value,
-    activeProviderId,
-    onActiveProviderChange,
-    onProviderChange,
-    onSetProvider,
-    registry,
-  }: any) => {
-    const providerIds = registry.providers.map((p: any) => p.id);
-    return (
-      <div>
-        <label htmlFor="provider-select">provider</label>
-        <select
-          id="provider-select"
-          value={activeProviderId ?? ''}
-          onChange={(e) => {
-            const pid = e.target.value;
-            if (!pid) return;
-            // Mimic what the real component does when the user adds a
-            // provider via the dialog: it calls onSetProvider with a fresh
-            // provider config, then onActiveProviderChange.
-            onSetProvider?.(pid, {
-              enabled: true,
-              provider_type: pid,
-              display_name: pid,
-              api_key: '',
-              base_url: '',
-              services: {
-                chat: { enabled: true, api_key: '', base_url: '' },
-                embedding: { enabled: false, api_key: '', base_url: '' },
-                image_generation: { enabled: false, api_key: '', base_url: '' },
-                tts: { enabled: false, api_key: '', base_url: '' },
-              },
-              api_format: 'openai',
-              custom_models: [],
-              custom_default_model: '',
-              model_metadata_overrides: {},
-            });
-            onActiveProviderChange?.(pid);
-          }}
-        >
-          <option value="">--</option>
-          {providerIds.map((pid: string) => (
-            <option key={pid} value={pid}>
-              {pid}
-            </option>
-          ))}
-        </select>
-        <label htmlFor="api-key-input">api key</label>
-        <input
-          id="api-key-input"
-          value={value.providers?.[activeProviderId ?? '']?.api_key ?? ''}
-          onChange={(e) => {
-            const pid = activeProviderId;
-            if (!pid) return;
-            onProviderChange?.(pid, (draft: any) => {
-              draft.api_key = e.target.value;
-              draft.enabled = e.target.value.length > 0;
-            });
-          }}
-        />
-      </div>
-    );
+// LLMSetupStep is a thin wrapper over LLMForm (the same component Settings
+// uses). Mock LLMForm and capture the `view` prop so we can assert the
+// advanced toggle wiring without standing up the full provider catalog.
+const llmFormSpy = vi.fn();
+vi.mock('@/components/config-forms/LLMForm', () => ({
+  default: (props: Record<string, unknown>) => {
+    llmFormSpy(props);
+    return <div data-testid="llm-form" data-view={String(props.view)} />;
   },
 }));
 
-const buildRegistry = (): LLMProviderRegistry => ({
-  providers: [
-    {
-      id: 'anthropic',
-      provider_type: 'anthropic',
-      source: 'builtin',
-      display_name: 'Anthropic',
-    },
-    {
-      id: 'openai',
-      provider_type: 'openai',
-      source: 'builtin',
-      display_name: 'OpenAI',
-    },
-  ],
-  custom_provider: {
-    enabled: true,
-    display_name: 'Custom',
-  },
-});
+function emptyValue(): LLMConfig {
+  return { providers: {}, selections: {} as any, model_runtime_overrides: {} };
+}
 
-const buildEmptyValue = (): LLMConfig => ({
-  providers: {},
-  selections: {} as any,
-  model_runtime_overrides: {},
-});
+function readyValue(): LLMConfig {
+  return {
+    providers: {
+      openai: {
+        enabled: true,
+        provider_type: 'openai',
+        api_key: 'sk-test',
+        services: { chat: { enabled: true, api_key: 'sk-test', base_url: '' } },
+      } as any,
+    },
+    selections: {
+      core: { provider_id: 'openai', model: 'gpt-4o' },
+      context_decider: { provider_id: 'openai', model: 'gpt-4o-mini' },
+    } as any,
+    model_runtime_overrides: {},
+  };
+}
 
-const buildNoopProps = () => ({
-  registry: buildRegistry(),
-  onChange: vi.fn(),
-  onValid: vi.fn(),
-});
+function anthropicCoreNoEmbedding(): LLMConfig {
+  return {
+    providers: {
+      anthropic: {
+        enabled: true,
+        provider_type: 'anthropic',
+        api_key: 'sk-ant',
+        services: { chat: { enabled: true, api_key: 'sk-ant', base_url: '' } },
+      } as any,
+    },
+    selections: {
+      core: { provider_id: 'anthropic', model: 'claude-sonnet-4-5' },
+      context_decider: { provider_id: 'anthropic', model: 'claude-haiku-4-5' },
+    } as any,
+    model_runtime_overrides: {},
+  };
+}
 
 describe('LLMSetupStep', () => {
-  it('renders without showing the advanced model section by default', () => {
-    const props = buildNoopProps();
-    render(<LLMSetupStep {...props} value={buildEmptyValue()} />);
-    expect(screen.queryByTestId('llm-setup-advanced-models')).not.toBeInTheDocument();
+  beforeEach(() => llmFormSpy.mockClear());
+
+  it('renders LLMForm with view="providers" by default (advanced collapsed)', () => {
+    render(<LLMSetupStep value={emptyValue()} onChange={() => {}} />);
+    expect(screen.getByTestId('llm-form')).toHaveAttribute('data-view', 'providers');
   });
 
-  it('auto-populates models when user picks a known provider with full set (OpenAI)', async () => {
-    const onChange = vi.fn();
-    const ControlledHost = () => {
-      const [value, setValue] = useState<LLMConfig>(buildEmptyValue());
-      return (
-        <LLMSetupStep
-          registry={buildRegistry()}
-          value={value}
-          onChange={(next: LLMConfig) => {
-            onChange(next);
-            setValue(next);
-          }}
-        />
-      );
-    };
-    render(<ControlledHost />);
-    await userEvent.selectOptions(screen.getByLabelText(/provider/i), 'openai');
-    await waitFor(() => {
-      const calls = onChange.mock.calls.map((c) => c[0]);
-      const lastWithSelections = calls.reverse().find((v) => v.selections?.core?.model);
-      expect(lastWithSelections?.selections?.core?.model).toBe(RECOMMENDED_MODELS.openai.core);
-      expect(lastWithSelections?.selections?.context_decider?.model).toBe(
-        RECOMMENDED_MODELS.openai.context_decider,
-      );
-      expect(lastWithSelections?.selections?.embedding?.model).toBe(
-        RECOMMENDED_MODELS.openai.embedding,
-      );
-    });
-    expect(screen.queryByTestId('llm-setup-advanced-models')).not.toBeInTheDocument();
+  it('advanced toggle flips LLMForm view to "all" and back', async () => {
+    render(<LLMSetupStep value={emptyValue()} onChange={() => {}} />);
+    const toggle = screen.getByTestId('llm-setup-advanced-toggle');
+    await userEvent.click(toggle);
+    expect(screen.getByTestId('llm-form')).toHaveAttribute('data-view', 'all');
+    await userEvent.click(toggle);
+    expect(screen.getByTestId('llm-form')).toHaveAttribute('data-view', 'providers');
   });
 
-  it('surfaces embedding-fallback row when chosen provider has null embedding (Anthropic)', async () => {
-    const ControlledHost = () => {
-      const [value, setValue] = useState<LLMConfig>(buildEmptyValue());
-      return (
-        <LLMSetupStep
-          registry={buildRegistry()}
-          value={value}
-          onChange={(next: LLMConfig) => setValue(next)}
-        />
-      );
-    };
-    render(<ControlledHost />);
-    await userEvent.selectOptions(screen.getByLabelText(/provider/i), 'anthropic');
-    await waitFor(() => {
-      expect(screen.getByTestId('llm-setup-embedding-row')).toBeInTheDocument();
-    });
-  });
-
-  it('reports valid=true when provider+api_key+core selection are present', async () => {
+  it('reports valid=false for an empty config', () => {
     const onValid = vi.fn();
-    const ControlledHost = () => {
-      const [value, setValue] = useState<LLMConfig>(buildEmptyValue());
-      return (
-        <LLMSetupStep
-          registry={buildRegistry()}
-          value={value}
-          onChange={(next: LLMConfig) => setValue(next)}
-          onValid={onValid}
-        />
-      );
+    render(<LLMSetupStep value={emptyValue()} onChange={() => {}} onValid={onValid} />);
+    expect(onValid).toHaveBeenLastCalledWith(false);
+  });
+
+  it('reports valid=true when an enabled provider with key + core + context_decider exist', () => {
+    const onValid = vi.fn();
+    render(<LLMSetupStep value={readyValue()} onChange={() => {}} onValid={onValid} />);
+    expect(onValid).toHaveBeenLastCalledWith(true);
+  });
+
+  it('shows the embedding-fallback row when the core provider has null embedding (Anthropic)', () => {
+    render(<LLMSetupStep value={anthropicCoreNoEmbedding()} onChange={() => {}} />);
+    expect(screen.getByTestId('llm-setup-embedding-row')).toBeInTheDocument();
+  });
+
+  it('hides the embedding-fallback row once an embedding selection exists', () => {
+    const value = anthropicCoreNoEmbedding();
+    (value.selections as any).embedding = {
+      provider_id: 'openai',
+      model: 'text-embedding-3-small',
     };
-    render(<ControlledHost />);
-    await userEvent.selectOptions(screen.getByLabelText(/provider/i), 'openai');
-    await userEvent.type(screen.getByLabelText(/api key/i), 'sk-test');
-    await waitFor(() => {
-      expect(onValid).toHaveBeenLastCalledWith(true);
-    });
+    render(<LLMSetupStep value={value} onChange={() => {}} />);
+    expect(screen.queryByTestId('llm-setup-embedding-row')).not.toBeInTheDocument();
   });
 });

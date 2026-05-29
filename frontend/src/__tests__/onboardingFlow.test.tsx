@@ -47,64 +47,79 @@ vi.mock('@/api/modules/chatPreview', () => ({
   ),
 }));
 
-// Mock the inner LLMProviderConfigurationSection so we have a simple
-// provider-picker + api-key input that exercises LLMSetupStep's plumbing.
-vi.mock('@/components/config-forms/LLMProviderConfigurationSection', () => ({
-  LLMProviderConfigurationSection: ({
-    value,
-    activeProviderId,
-    onActiveProviderChange,
-    onProviderChange,
-    onSetProvider,
-    registry,
-  }: any) => {
-    const providerIds = registry?.providers?.map((p: any) => p.id) ?? [];
+// LLMSetupStep now delegates to LLMForm (the same component Settings uses).
+// LLMForm self-loads the provider catalog + renders its own provider/model
+// UI, which is exercised by its own tests. For the onboarding orchestration
+// test we mock LLMForm to a simple provider-picker + api-key input that drives
+// the controlled `value`/`onChange` to a valid state.
+vi.mock('@/components/config-forms/LLMForm', () => ({
+  default: ({ value, onChange }: any) => {
+    const coreProviderId = value?.selections?.core?.provider_id ?? '';
     return (
       <div>
         <label htmlFor="provider-select">provider</label>
         <select
           id="provider-select"
-          value={activeProviderId ?? ''}
+          value={coreProviderId}
           onChange={(e) => {
             const pid = e.target.value;
             if (!pid) return;
-            onSetProvider?.(pid, {
-              enabled: true,
-              provider_type: pid,
-              display_name: pid,
-              api_key: '',
-              base_url: '',
-              services: {
-                chat: { enabled: true, api_key: '', base_url: '' },
-                embedding: { enabled: false, api_key: '', base_url: '' },
-                image_generation: { enabled: false, api_key: '', base_url: '' },
-                tts: { enabled: false, api_key: '', base_url: '' },
+            onChange?.({
+              ...value,
+              providers: {
+                ...(value?.providers ?? {}),
+                [pid]: {
+                  enabled: true,
+                  provider_type: pid,
+                  display_name: pid,
+                  api_key: '',
+                  base_url: '',
+                  services: {
+                    chat: { enabled: true, api_key: '', base_url: '' },
+                    embedding: { enabled: false, api_key: '', base_url: '' },
+                    image_generation: { enabled: false, api_key: '', base_url: '' },
+                    tts: { enabled: false, api_key: '', base_url: '' },
+                  },
+                  api_format: 'openai',
+                  custom_models: [],
+                  custom_default_model: '',
+                  model_metadata_overrides: {},
+                },
               },
-              api_format: 'openai',
-              custom_models: [],
-              custom_default_model: '',
-              model_metadata_overrides: {},
+              selections: {
+                ...(value?.selections ?? {}),
+                core: { provider_id: pid, model: `${pid}-core` },
+                context_decider: { provider_id: pid, model: `${pid}-fast` },
+              },
             });
-            onActiveProviderChange?.(pid);
           }}
         >
           <option value="">--</option>
-          {providerIds.map((pid: string) => (
-            <option key={pid} value={pid}>
-              {pid}
-            </option>
-          ))}
+          <option value="openai">openai</option>
+          <option value="anthropic">anthropic</option>
         </select>
         <label htmlFor="api-key-input">api key</label>
         <input
           id="api-key-input"
-          value={value.providers?.[activeProviderId ?? '']?.api_key ?? ''}
+          value={value?.providers?.[coreProviderId]?.api_key ?? ''}
           onChange={(e) => {
-            const pid = activeProviderId;
+            const pid = coreProviderId;
             if (!pid) return;
-            onProviderChange?.(pid, (draft: any) => {
-              draft.api_key = e.target.value;
-              draft.enabled = e.target.value.length > 0;
+            const prov = value.providers[pid];
+            onChange?.({
+              ...value,
+              providers: {
+                ...value.providers,
+                [pid]: {
+                  ...prov,
+                  api_key: e.target.value,
+                  enabled: e.target.value.length > 0,
+                  services: {
+                    ...prov.services,
+                    chat: { ...prov.services.chat, api_key: e.target.value },
+                  },
+                },
+              },
             });
           }}
         />

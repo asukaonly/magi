@@ -308,7 +308,22 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     () => validateCustomProviderServices(draftProvider || undefined, draftProviderId),
     [draftProvider, draftProviderId]
   );
-  const saveDraftDisabled = draftValidationIssues.length > 0;
+  // Builtin / template providers are cloud services that need an API key, so
+  // an enabled chat service must carry one before save. Custom providers are
+  // left to their existing model-based validation only — they may point at a
+  // local / keyless endpoint, and the meta default (required:true) would
+  // otherwise over-block those legitimate setups.
+  const draftApiKeyMissing = useMemo(() => {
+    if (!draftProvider) return false;
+    if (draftProvider.provider_type === 'custom') return false;
+    const chat = draftProvider.services?.chat;
+    if (!chat?.enabled) return false;
+    const apiKeyRequired = activeProviderMeta?.fields?.api_key?.required !== false;
+    if (!apiKeyRequired) return false;
+    const key = (chat.api_key || draftProvider.api_key || '').trim();
+    return key.length === 0;
+  }, [draftProvider, activeProviderMeta]);
+  const saveDraftDisabled = draftValidationIssues.length > 0 || draftApiKeyMissing;
 
   const formatValidationIssue = (issue: LLMValidationIssue): string => {
     const serviceLabel = t(`llm.providerConfiguration.serviceLabels.${issue.serviceName}`);
@@ -509,6 +524,11 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
         }
         return next;
       });
+      return;
+    }
+    if (draftApiKeyMissing) {
+      // Surface the chat service so the empty API-key field is visible.
+      setExpandedServices((current) => ({ ...current, chat: true }));
       return;
     }
     const providerId = editorMode === 'edit' && editingProviderId
@@ -1065,7 +1085,14 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
             ) : null}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
+            {draftApiKeyMissing ? (
+              <p className="mr-auto text-xs text-destructive">
+                {t('llm.validation.apiKeyRequired', {
+                  provider: draftProvider?.display_name || draftProviderId,
+                })}
+              </p>
+            ) : null}
             <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
               {t('common.cancel')}
             </Button>

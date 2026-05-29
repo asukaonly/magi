@@ -62,7 +62,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         <motion.button
           type="button"
           onClick={onContinue}
-          className="mt-12 inline-flex items-center justify-center rounded-full bg-[#35261f] px-10 py-3 text-lg font-medium text-white shadow-md transition hover:brightness-110 dark:bg-[#f4eadf] dark:text-[#35261f]"
+          className="mt-12 inline-flex items-center justify-center rounded-full bg-[#a0623a] px-10 py-3 text-lg font-medium text-white shadow-[0_18px_36px_-20px_rgba(160,98,58,0.7)] transition hover:brightness-105 dark:bg-[#efb084] dark:text-[#2a1f1a]"
           whileHover={shouldReduceMotion ? undefined : { scale: 1.02 }}
           whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
           transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}

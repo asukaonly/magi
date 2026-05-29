@@ -9,16 +9,11 @@ import { STORAGE_KEYS } from '@/constants/app';
 import { configApi } from '../../api/modules/config';
 import type {
   LLMConfig,
-  LLMProviderConfig,
-  LLMProviderRegistry,
   SystemConfig,
 } from '../../api/modules/config';
 import { personasApi } from '../../api/modules/personas';
 import type { SeedPreview } from '../../api/modules/personas';
-import {
-  buildRegistryFromCatalog,
-  cloneLLMConfig,
-} from '../config-forms/llm-form-state';
+import { cloneLLMConfig } from '../config-forms/llm-form-state';
 import GuidedConfigFrame from '../config-forms/GuidedConfigFrame';
 import WelcomeScreen from './WelcomeScreen';
 import StepIndicator from './StepIndicator';
@@ -95,11 +90,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   );
   const [seedSlug, setSeedSlug] = useState<string | null>(null);
 
-  // Registry + custom-provider defaults (loaded once on mount).
-  const [registry, setRegistry] = useState<LLMProviderRegistry | null>(null);
-  const [customProviderDefaults, setCustomProviderDefaults] =
-    useState<LLMProviderConfig | null>(null);
-
   // Persona previews (loaded once on mount for the active locale).
   const [seedPreviews, setSeedPreviews] = useState<SeedPreview[]>([]);
 
@@ -130,33 +120,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   );
 
   const isLastStep = current === steps.length - 1;
-
-  // Load the provider catalog + custom-provider template once on mount.
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const [catalog, template] = await Promise.all([
-          configApi.resolveLLMProviderCatalog({ providers: llmValue.providers || {} }),
-          configApi.getLLMCustomProviderTemplate(),
-        ]);
-        if (cancelled) return;
-        if (catalog && template) {
-          setRegistry(buildRegistryFromCatalog(catalog, template));
-          setCustomProviderDefaults(template.defaults ?? null);
-        }
-      } catch {
-        // Surface only at use time; LLMSetupStep falls back gracefully when
-        // registry is empty.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // Intentionally only run on mount — re-resolving on every llmValue change
-    // is handled inside LLMSetupStep via its child components.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Load persona seed previews for the current locale once on mount and when
   // language changes. This keeps the avatar rail in sync with i18n.
@@ -376,20 +339,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
 
   const renderStepContent = () => {
     if (current === 1) {
-      if (!registry) {
-        return (
-          <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-            {t('llm.loading')}
-          </div>
-        );
-      }
+      // LLMSetupStep delegates to LLMForm, which self-loads the provider
+      // catalog and shows its own loading state — no registry plumbing needed
+      // from OnboardingFlow.
       return (
         <LLMSetupStep
-          registry={registry}
           value={llmValue}
           onChange={handleLlmChange}
           onValid={setLlmValid}
-          customProviderDefaults={customProviderDefaults}
         />
       );
     }
