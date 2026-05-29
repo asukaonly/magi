@@ -12,6 +12,7 @@ from magi.system_suggestions.contracts import DismissalKind, SuggestionProposal
 class CheckRequest(BaseModel):
     text: str = Field(min_length=1, max_length=20000)
     locale: Literal["zh", "en"] = "zh"
+    session_id: str = Field(default="default")
 
 
 class CheckResponse(BaseModel):
