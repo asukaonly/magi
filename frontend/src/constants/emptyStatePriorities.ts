@@ -29,7 +29,7 @@ const META: Record<string, EmptyStatePluginMeta> = {
     valueKey: 'emptyState.plugins.chromeHistory.value',
     iconId: 'chrome',
   },
-  'system-calendar': {
+  'calendar': {
     titleKey: 'emptyState.plugins.calendar.title',
     valueKey: 'emptyState.plugins.calendar.value',
     iconId: 'calendar',
@@ -48,7 +48,7 @@ const META: Record<string, EmptyStatePluginMeta> = {
 
 export const EMPTY_STATE_PRIORITY_PLUGINS = [
   'chrome-history',
-  'system-calendar',
+  'calendar',
   'git-activity',
   'photo-library',
 ] as const;

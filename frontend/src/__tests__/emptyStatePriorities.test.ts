@@ -7,9 +7,15 @@ import {
 
 describe('EMPTY_STATE_PRIORITY_PLUGINS', () => {
   it('lists the 4 Plan 3 priority plugin ids in display order', () => {
+    // These IDs must match the actual `id` field in each plugin.toml in
+    // the magi-plugins registry repo. Mismatches mean the plugin is
+    // silently never offered in the empty state. The calendar plugin in
+    // particular uses id "calendar" (not "system-calendar"); the
+    // git-activity plugin lives in plugins/git_activity/ but its id is
+    // "git-activity".
     expect(EMPTY_STATE_PRIORITY_PLUGINS).toEqual([
       'chrome-history',
-      'system-calendar',
+      'calendar',
       'git-activity',
       'photo-library',
     ]);
