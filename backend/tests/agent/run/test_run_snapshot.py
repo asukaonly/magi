@@ -110,3 +110,49 @@ def test_session_run_store_clear_snapshot_removes_entry() -> None:
     store.save_run_snapshot("session_a", "r1", snapshot)
     store.clear_run_snapshot("session_a", "r1")
     assert store.get_run_snapshot("session_a", "r1") is None
+
+
+def test_background_task_spec_carries_initial_run_snapshot() -> None:
+    """Phase E: BackgroundTaskSpec gains initial_run_snapshot for resume.
+    The legacy initial_messages field is preserved for one release."""
+    from magi.agent.background.contracts import BackgroundTaskSpec
+
+    # Field exists (default None).
+    field_names = {f.name for f in BackgroundTaskSpec.__dataclass_fields__.values()}
+    assert "initial_run_snapshot" in field_names
+    assert "initial_messages" in field_names  # legacy still present
+
+
+def test_background_task_spec_round_trips_initial_run_snapshot_through_to_dict() -> None:
+    """to_dict / from_dict preserve the new field."""
+    from magi.agent.background.contracts import BackgroundTaskSpec
+
+    # Build a minimal spec with the new field populated.
+    snapshot_payload = {
+        "run_id": "r1",
+        "graph": ["tool_loop", "validate"],
+        "cursor": 1,
+        "node_states": {"tool_loop": {"iterations": 2}},
+    }
+    spec = _minimal_background_task_spec(initial_run_snapshot=snapshot_payload)
+    payload = spec.to_dict()
+    assert payload["initial_run_snapshot"] == snapshot_payload
+
+    restored = BackgroundTaskSpec.from_dict(payload)
+    assert restored.initial_run_snapshot == snapshot_payload
+
+
+def _minimal_background_task_spec(*, initial_run_snapshot=None):
+    """Test-local fixture: BackgroundTaskSpec with minimum required fields.
+    Returns a spec ready for to_dict round-trip."""
+    from magi.agent.background.contracts import BackgroundTaskSpec
+
+    return BackgroundTaskSpec(
+        user_id="user_e1",
+        session_id="session_e1",
+        origin_turn_id="turn_e1",
+        title="Resume test",
+        goal="resume me",
+        initial_messages=None,
+        initial_run_snapshot=initial_run_snapshot,
+    )
