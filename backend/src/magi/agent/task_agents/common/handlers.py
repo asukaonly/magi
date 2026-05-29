@@ -137,6 +137,9 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
         _ctx_control = request.context.control if hasattr(request.context, "control") else None
         control = _ctx_control if _ctx_control is not None else null_run_control()
         control.cancel_token = cancel_token
+        # Extract the RouteDecision carried on the intent.  It will be threaded
+        # into start_orchestration in Task B.8 once that signature is extended.
+        route_decision = getattr(request.intent, "route_decision", None)
         raw_result = await self._deps.task_orchestrator.start_orchestration(
             user_id=request.context.user_id,
             session_id=request.context.session_id,
@@ -154,6 +157,7 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             # already overlaid the cancel token onto control.cancel_token above).
             cancel_token=cancel_token,
             control=control,
+            route_decision=route_decision,
         )
         return ExecutionResult(
             mode=request.mode,

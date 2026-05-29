@@ -211,6 +211,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             )
             control = _ctx_control if _ctx_control is not None else null_run_control()
             control.cancel_token = cancel_token
+            route_decision = getattr(request.intent, "route_decision", None)
             execution_outcome = (
                 await self._deps.function_calling_orchestrator.execute_with_tools(
                     turn=UserTurnInput(
@@ -240,6 +241,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                         else None
                     ),
                     control=control,
+                    route_decision=route_decision,
                 )
             )
 

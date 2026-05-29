@@ -14,29 +14,8 @@ from magi.tools.builtin.glob_tool import GlobTool
 from magi.tools.builtin.grep_tool import GrepTool
 from magi.tools.builtin.web_fetch_tool import WebFetchTool
 from magi.tools.builtin.web_search_tool import WebSearchTool
+from magi.tools.context_routing import RouteDecision
 from magi.tools.registry import ToolRegistry
-
-
-class _FakeContextDecision:
-    def __init__(
-        self,
-        *,
-        intent: str,
-        tools: list[str],
-        deep_thinking: bool,
-        reasoning: str,
-        orchestration_strategy: dict,
-        memory_route: str = "none",
-        llm_trace: dict | None = None,
-    ):
-        self.intent = intent
-        self.tools = tools
-        self.deep_thinking = deep_thinking
-        self.thinking_depth = ThinkingDepth.HIGH if deep_thinking else ThinkingDepth.NONE
-        self.reasoning = reasoning
-        self.orchestration_strategy = orchestration_strategy
-        self.memory_route = memory_route
-        self.llm_trace = llm_trace or {}
 
 
 class _FakeToolRegistry:
@@ -64,7 +43,7 @@ def _build_real_tool_registry_with_web() -> ToolRegistry:
 
 
 class _FakeContextDecider:
-    def __init__(self, decision: _FakeContextDecision, tool_registry=None) -> None:
+    def __init__(self, decision: RouteDecision, tool_registry=None) -> None:
         self._decision = decision
         self.last_decision_context = None
         self.tool_registry = tool_registry or _FakeToolRegistry()
@@ -126,17 +105,12 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
     trace_recorder = _IntentTraceRecorder()
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="code_architecture",
+            RouteDecision(
+                profile="explore",
+                graph_shape="plan_fanout",
+                complexity="medium",
                 tools=["agent"],
-                deep_thinking=False,
                 reasoning="decompose",
-                orchestration_strategy={
-                    "mode": "decompose",
-                    "planner": "task_agent",
-                    "default_leaf_type": "CodeExplore",
-                    "allow_parallel": True,
-                },
             )
         ),
         fact_classifier=ChatFactClassifier(),
@@ -176,7 +150,7 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
         {
             "user_id": "u-chat",
             "session_id": "s-chat",
-            "intent": "code_architecture",
+            "intent": "explore",
             "execution_mode": "orchestration_launch",
             "tools": ["agent"],
             "reasoning": "decompose",
@@ -187,17 +161,13 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
 @pytest.mark.asyncio
 async def test_coordinator_keeps_bounded_external_plan_in_direct_web_tools() -> None:
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="planning",
+        RouteDecision(
+            profile="research",
+            graph_shape="plan_fanout",
+            complexity="medium",
             tools=["agent"],
-            deep_thinking=True,
+            thinking_depth=ThinkingDepth.HIGH,
             reasoning="router tried decomposition",
-            orchestration_strategy={
-                "mode": "decompose",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": True,
-            },
         ),
         tool_registry=_FakeToolRegistry(
             ["agent", "web-search", "web-fetch", "find-relevant-tools"]
@@ -245,17 +215,13 @@ async def test_coordinator_keeps_bounded_external_plan_in_direct_web_tools() -> 
 @pytest.mark.asyncio
 async def test_coordinator_allows_explicit_external_research_decomposition() -> None:
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="research",
+        RouteDecision(
+            profile="research",
+            graph_shape="plan_fanout",
+            complexity="medium",
             tools=["agent"],
-            deep_thinking=True,
+            thinking_depth=ThinkingDepth.HIGH,
             reasoning="source-heavy research",
-            orchestration_strategy={
-                "mode": "decompose",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": True,
-            },
         ),
         tool_registry=_FakeToolRegistry(["agent", "web-search", "find-relevant-tools"]),
     )
@@ -301,17 +267,12 @@ async def test_coordinator_allows_explicit_external_research_decomposition() -> 
 async def test_coordinator_carries_intent_llm_trace_metrics() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="chat",
+            RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="simple",
                 tools=[],
-                deep_thinking=False,
                 reasoning="direct response",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
                 llm_trace={
                     "provider": "openai",
                     "model": "gpt-4.1-mini",
@@ -366,17 +327,12 @@ async def test_coordinator_carries_intent_llm_trace_metrics() -> None:
 @pytest.mark.asyncio
 async def test_coordinator_marks_tool_and_orchestration_turns_as_prominent_trace() -> None:
     tool_decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="chat_with_tools",
+        RouteDecision(
+            profile="chat",
+            graph_shape="tool_loop",
+            complexity="simple",
             tools=["memory_query"],
-            deep_thinking=False,
             reasoning="tool use",
-            orchestration_strategy={
-                "mode": "tool_calling",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     tool_coordinator = ChatExecutionCoordinator(
@@ -414,17 +370,12 @@ async def test_coordinator_marks_tool_and_orchestration_turns_as_prominent_trace
     assert tool_decision.ux_plan.trace_display_mode.value == "prominent"
 
     orchestration_decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="code_architecture",
+        RouteDecision(
+            profile="explore",
+            graph_shape="plan_fanout",
+            complexity="medium",
             tools=["agent"],
-            deep_thinking=False,
             reasoning="decompose",
-            orchestration_strategy={
-                "mode": "decompose",
-                "planner": "task_agent",
-                "default_leaf_type": "CodeExplore",
-                "allow_parallel": True,
-            },
         )
     )
     orchestration_coordinator = ChatExecutionCoordinator(
@@ -444,17 +395,12 @@ async def test_coordinator_match_tools_reorders_runtime_tools_with_task_hint() -
     registry = _build_real_tool_registry()
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="code_execution",
+            RouteDecision(
+                profile="coding",
+                graph_shape="tool_loop",
+                complexity="simple",
                 tools=["file_read", "grep", "glob"],
-                deep_thinking=False,
                 reasoning="inspect code",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
             ),
             tool_registry=registry,
         ),
@@ -504,17 +450,12 @@ async def test_coordinator_match_tools_applies_l4_advisory_rerank() -> None:
     registry = _build_real_tool_registry()
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="code_execution",
+            RouteDecision(
+                profile="coding",
+                graph_shape="tool_loop",
+                complexity="simple",
                 tools=["file_read", "grep", "glob"],
-                deep_thinking=False,
                 reasoning="inspect code",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
             ),
             tool_registry=registry,
         ),
@@ -563,17 +504,12 @@ async def test_coordinator_marks_ambiguous_external_reference_scope() -> None:
     registry = _build_real_tool_registry_with_web()
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="code_execution",
+            RouteDecision(
+                profile="research",
+                graph_shape="tool_loop",
+                complexity="simple",
                 tools=["web-search", "file_read"],
-                deep_thinking=False,
                 reasoning="compare external implementation",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
             ),
             tool_registry=registry,
         ),
@@ -618,17 +554,12 @@ async def test_coordinator_marks_ambiguous_external_reference_scope() -> None:
 @pytest.mark.asyncio
 async def test_coordinator_excludes_latest_user_message_from_recent_messages_context() -> None:
     fake_decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="chat",
+        RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
             tools=[],
-            deep_thinking=False,
             reasoning="direct response",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     coordinator = ChatExecutionCoordinator(
@@ -669,17 +600,12 @@ async def test_coordinator_excludes_latest_user_message_from_recent_messages_con
 @pytest.mark.asyncio
 async def test_coordinator_builds_typed_routing_environment_context() -> None:
     fake_decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="chat",
+        RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
             tools=[],
-            deep_thinking=False,
             reasoning="direct response",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     coordinator = ChatExecutionCoordinator(
@@ -731,17 +657,13 @@ async def test_coordinator_builds_typed_routing_environment_context() -> None:
 async def test_coordinator_routes_decompose_without_agent_tool_to_orchestration_launch() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="code_analysis",
+            RouteDecision(
+                profile="coding",
+                graph_shape="plan_fanout",
+                complexity="large",
                 tools=["grep", "file_read", "glob"],
-                deep_thinking=True,
+                thinking_depth=ThinkingDepth.HIGH,
                 reasoning="multi-step analysis should decompose",
-                orchestration_strategy={
-                    "mode": "decompose",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": True,
-                },
             )
         ),
         fact_classifier=ChatFactClassifier(),
@@ -783,17 +705,13 @@ async def test_coordinator_routes_decompose_without_agent_tool_to_orchestration_
 async def test_coordinator_routes_complex_news_to_generic_orchestration_without_explore() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="planning",
+            RouteDecision(
+                profile="research",
+                graph_shape="plan_fanout",
+                complexity="large",
                 tools=["web-search", "web-fetch"],
-                deep_thinking=True,
+                thinking_depth=ThinkingDepth.HIGH,
                 reasoning="complex research",
-                orchestration_strategy={
-                    "mode": "decompose",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": True,
-                },
             )
         ),
         fact_classifier=ChatFactClassifier(),
@@ -838,17 +756,12 @@ async def test_coordinator_routes_complex_news_to_generic_orchestration_without_
 @pytest.mark.asyncio
 async def test_coordinator_passes_recent_tool_errors_to_context_decider() -> None:
     fake_decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="chat",
+        RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
             tools=[],
-            deep_thinking=False,
             reasoning="follow-up",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     coordinator = ChatExecutionCoordinator(
@@ -900,17 +813,12 @@ async def test_coordinator_passes_recent_tool_errors_to_context_decider() -> Non
 async def test_coordinator_marks_tool_query_as_prominent_trace_ui() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="weather_query",
+            RouteDecision(
+                profile="chat",
+                graph_shape="tool_loop",
+                complexity="simple",
                 tools=["weather"],
-                deep_thinking=False,
                 reasoning="tool required",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
             )
         ),
         fact_classifier=ChatFactClassifier(),
@@ -952,17 +860,12 @@ async def test_coordinator_marks_tool_query_as_prominent_trace_ui() -> None:
 async def test_coordinator_marks_acknowledgement_as_reaction_only_ui() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="small_ack",
+            RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="simple",
                 tools=[],
-                deep_thinking=False,
                 reasoning="acknowledgement",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
             )
         ),
         fact_classifier=ChatFactClassifier(),
@@ -1003,17 +906,12 @@ async def test_coordinator_marks_acknowledgement_as_reaction_only_ui() -> None:
 async def test_coordinator_forces_direct_llm_for_image_attachments() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="screenshot_analysis",
+            RouteDecision(
+                profile="chat",
+                graph_shape="tool_loop",
+                complexity="simple",
                 tools=["file_read"],
-                deep_thinking=False,
                 reasoning="tool required",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
             )
         ),
         fact_classifier=ChatFactClassifier(),
@@ -1078,17 +976,12 @@ async def test_coordinator_injects_tool_advisory_into_decision_context() -> None
         return fake_advisories
 
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="realtime_query",
+        RouteDecision(
+            profile="chat",
+            graph_shape="tool_loop",
+            complexity="simple",
             tools=["web_search"],
-            deep_thinking=False,
             reasoning="search",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     coordinator = ChatExecutionCoordinator(
@@ -1144,17 +1037,12 @@ async def test_coordinator_injects_tool_advisory_into_decision_context() -> None
 async def test_coordinator_works_without_advisory_provider() -> None:
     """Coordinator should work fine when tool_advisory_provider is None."""
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="chat",
+        RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
             tools=[],
-            deep_thinking=False,
             reasoning="greeting",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     coordinator = ChatExecutionCoordinator(
@@ -1197,17 +1085,12 @@ async def test_coordinator_works_without_advisory_provider() -> None:
 async def test_coordinator_injects_fallback_tools_when_tools_active() -> None:
     """web-search and find-relevant-tools should be appended when tool-calling is active."""
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="code_execution",
+        RouteDecision(
+            profile="coding",
+            graph_shape="tool_loop",
+            complexity="simple",
             tools=["bash"],
-            deep_thinking=False,
             reasoning="run command",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     decider.tool_registry = _FakeToolRegistry(
@@ -1252,17 +1135,12 @@ async def test_coordinator_injects_fallback_tools_when_tools_active() -> None:
 @pytest.mark.asyncio
 async def test_coordinator_reranks_shortlist_and_skips_open_breaker_fallbacks() -> None:
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="code_execution",
+        RouteDecision(
+            profile="coding",
+            graph_shape="tool_loop",
+            complexity="simple",
             tools=["bash", "web-search"],
-            deep_thinking=False,
             reasoning="run command",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     decider.tool_registry = _FakeToolRegistry(["bash", "web-search", "find-relevant-tools"])
@@ -1343,17 +1221,12 @@ async def test_coordinator_reranks_shortlist_and_skips_open_breaker_fallbacks() 
 async def test_coordinator_does_not_inject_fallback_tools_for_chat() -> None:
     """Pure chat (no tools) should stay tool-free — no fallback injection."""
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="chat",
+        RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
             tools=[],
-            deep_thinking=False,
             reasoning="greeting",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     decider.tool_registry = _FakeToolRegistry(["bash", "web-search"])

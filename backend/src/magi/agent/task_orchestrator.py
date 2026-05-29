@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable, Optional
 from .cancel import CancelToken, null_cancel_token
 from .run_control import RunControl, null_run_control
 from ..core.logger import get_logger
+from ..tools.context_routing import RouteDecision
 from ..llm.cancellable_client import CancellationRaised, RetractRaised
 from ..agent.runtime.contracts import FactRecord
 from ..events.events import Event, EventTypes
@@ -271,6 +272,7 @@ class TaskOrchestrator(
         persona_id: str | None = None,
         cancel_token: CancelToken | None = None,
         control: RunControl | None = None,
+        route_decision: RouteDecision | None = None,
     ) -> OrchestrationExecutionResult:
         # Resolve the RunControl bundle.  If the caller supplies both
         # cancel_token (legacy path) and control (new path), control wins
@@ -280,6 +282,11 @@ class TaskOrchestrator(
             if cancel_token is not None:
                 control.cancel_token = cancel_token
         resolved_cancel_token = control.cancel_token
+
+        # Prefer the typed RouteDecision over the legacy dict during the
+        # Phase B migration window.
+        if route_decision is not None:
+            orchestration_strategy = route_decision.to_legacy_strategy_dict()
 
         def _cancelled_result() -> OrchestrationExecutionResult:
             return OrchestrationExecutionResult(

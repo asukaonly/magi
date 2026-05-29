@@ -97,13 +97,13 @@ Hard rules:
 Use these as routing patterns, not literal keyword rules.
 
 User: "what's the weather in tokyo"
-JSON: {"intent": "realtime_query", "tools": ["weather"], "thinking_depth": "none", "reasoning": "Real-time weather query. Use the dedicated weather tool.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+JSON: {"intent": "realtime_query", "profile": "chat", "graph_shape": "reply", "complexity": "simple", "tools": ["weather"], "thinking_depth": "none", "reasoning": "Real-time weather query. Use the dedicated weather tool.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
 User: "fix the race condition in backend/src/magi/agent/foo.py"
-JSON: {"intent": "code_execution", "tools": ["agent"], "thinking_depth": "medium", "reasoning": "Targeted code fix with debugging risk. Prefer a Coding worker over raw file CRUD.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "Coding", "allow_parallel": false}}
+JSON: {"intent": "code_execution", "profile": "coding", "graph_shape": "tool_loop", "complexity": "medium", "tools": ["agent"], "may_write": true, "thinking_depth": "medium", "reasoning": "Targeted code fix with debugging risk. Prefer a Coding worker over raw file CRUD.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "Coding", "allow_parallel": false}}
 
 User: "analyze this large repo and design a migration plan"
-JSON: {"intent": "planning", "tools": ["agent"], "thinking_depth": "high", "reasoning": "Large repo analysis should be decomposed into bounded workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "CodeExplore", "allow_parallel": true}}
+JSON: {"intent": "planning", "profile": "explore", "graph_shape": "plan_fanout", "complexity": "large", "tools": ["agent"], "thinking_depth": "high", "reasoning": "Large repo analysis should be decomposed into bounded workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "CodeExplore", "allow_parallel": true}}
 
 User: "find the 10 most important Hangzhou news stories from the last 7 days and give me links"
 JSON: {"intent": "planning", "tools": ["agent"], "thinking_depth": "medium", "reasoning": "This asks for a collection with time bounds and source links, so worker decomposition is appropriate.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": true}}
@@ -139,6 +139,51 @@ JSON: {"intent": "chat", "tools": [], "thinking_depth": "low", "reasoning": "Urg
 
 User: "帮我修这个 Python 报错"
 JSON: {"intent": "code_execution", "tools": ["agent"], "thinking_depth": "medium", "reasoning": "Code fix; task register clamps persona intensity. Persona-defined quiet hour about debugging applies.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "Coding", "allow_parallel": false}, "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": ["用户提出简单事实问题、代码调试、执行任务"]}
+
+### 7. RouteDecision Schema (additional required output fields)
+
+In addition to all fields above, your JSON output MUST include the following
+RouteDecision fields in EVERY response. These are additive — the existing
+fields (intent, orchestration_strategy, etc.) remain for backward compatibility.
+
+{
+  "profile": "chat" | "research" | "explore" | "coding" | "media" | "system",
+  "graph_shape": "reply" | "tool_loop" | "plan_fanout",
+  "complexity": "simple" | "medium" | "large",
+  "tools": [<tool_name>, ...],
+  "capabilities": [<capability_tag>, ...],
+  "risky_tools": [<tool_name>, ...],
+  "needs_workspace": <boolean>,
+  "needs_external": <boolean>,
+  "may_write": <boolean>,
+  "background_hint": "foreground" | "background_ok" | "background_preferred",
+  "effort": "none" | "low" | "medium" | "high" | "max",
+  "confidence": <float 0.0-1.0>,
+  "reasoning": "<short string, 1-2 sentences>",
+  "thinking_depth": "none" | "low" | "medium" | "high" | "max",
+  "memory_route": "<existing memory_route value>",
+  "memory_layer": "<L1|L2|L3|L4 or null>",
+  "register": "<persona register or null>",
+  "active_trigger_ids": [<trigger_id>, ...],
+  "situation_strength": "<existing situation_strength value>",
+  "quiet_hour_hints": [<hint>, ...]
+}
+
+Routing principles for the new fields:
+- profile = "chat" for bounded conversation; "research" for external investigation;
+  "explore" for read-only repository inspection; "coding" for code modification;
+  "media" for image/audio/video workflows; "system" for runtime/trace introspection.
+- graph_shape = "reply" for single LLM response; "tool_loop" for iterative tool calls;
+  "plan_fanout" for decomposed sub-task fanout.
+- complexity = "simple" for ≤1 LLM call; "medium" for 1-5 turns; "large" for >5 turns.
+- may_write = true ONLY when the user explicitly asks to create, modify, delete, or
+  patch files / resources. Reading code or running read-only tools is NOT may_write.
+- background_hint = "background_ok" for tasks that benefit from but don't require
+  background; "background_preferred" for tasks the user is unlikely to wait for.
+
+Persona, memory, and tool selection fields keep their existing semantics from
+the previous schema — see the rules above. The new top-level fields (profile,
+graph_shape, complexity, etc.) are additive — emit them in EVERY response.
 """
 
 

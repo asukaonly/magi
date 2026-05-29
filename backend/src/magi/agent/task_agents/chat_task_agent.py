@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ...agent.orchestration import get_orchestration_store
+from ...agent.cancel import SessionRunCancelToken
 from ...agent.run_control import null_run_control
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...agent.trace import now_wall_ms
@@ -499,11 +500,20 @@ class ChatTaskAgent(
         # Build a fresh RunControl bundle for this turn. The signals
         # (retract, suspend, detach, steer) are functional — fired via
         # the SessionRunCoordinator's request_* methods or future
-        # detach/steer entry points. The cancel_token slot is still a
-        # no-op; a future task will swap in SessionRunCancelToken so
-        # the legacy session-level cancel pathway also flows through
-        # the bundle.
+        # detach/steer entry points.
         turn_control = null_run_control()
+        # Wire the real SessionRunCancelToken into the bundle so external
+        # cancel calls (SessionRunCoordinator.request_cancel / UI cancel
+        # button) flow through context.control.cancel_token to all three
+        # execution paths (Direct / FC / Orchestration). Without this,
+        # the bundle's cancel_token is a null_cancel_token() no-op.
+        if run_decision.active_run is not None:
+            turn_control.cancel_token = SessionRunCancelToken(
+                coordinator=self._session_run_coordinator,
+                session_id=session_id,
+                run_id=run_decision.active_run.run_id,
+                revision=int(run_decision.active_run.revision or 0),
+            )
         # Register the bundle with the session store so external callers
         # (SessionRunCoordinator.request_retract, future cancel/detach
         # entry points) can fire its signals at the live in-flight run.
