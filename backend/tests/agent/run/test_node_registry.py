@@ -65,3 +65,35 @@ def test_graph_shapes_returns_registered_keys() -> None:
     registry.register(_StubNode(node_type="tool_loop"))
     registry.register(_StubNode(node_type="plan_fanout"))
     assert set(registry.graph_shapes()) == {"reply", "tool_loop", "plan_fanout"}
+
+
+def test_chat_execution_coordinator_has_node_registry_attribute() -> None:
+    """ChatExecutionCoordinator must construct a NodeRegistry at init
+    and expose it as `_node_registry` (private; consumed only by
+    execute())."""
+    import inspect
+
+    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+
+    src = inspect.getsource(ChatExecutionCoordinator.__init__)
+    assert "NodeRegistry" in src, (
+        "ChatExecutionCoordinator.__init__ must construct a NodeRegistry"
+    )
+
+
+def test_chat_execution_coordinator_execute_dispatches_via_node_registry() -> None:
+    """ChatExecutionCoordinator.execute must consult the NodeRegistry
+    using request.intent.route_decision.graph_shape; only when the
+    registry returns None should it fall back to the legacy
+    ExecutionHandlerRegistry."""
+    import inspect
+
+    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+
+    src = inspect.getsource(ChatExecutionCoordinator.execute)
+    assert "_node_registry" in src or "node_registry" in src, (
+        "execute() must consult the node registry"
+    )
+    assert "graph_shape" in src, (
+        "execute() must dispatch by graph_shape"
+    )

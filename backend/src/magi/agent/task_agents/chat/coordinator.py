@@ -38,6 +38,10 @@ from .contracts import (
     TraceDisplayMode,
     TurnUXPlan,
 )
+from ...run.nodes.plan_fanout import PlanFanoutNode
+from ...run.nodes.reply import ReplyNode
+from ...run.nodes.tool_loop import ToolLoopNode
+from ...run.registry import NodeRegistry
 from .attachment_context import resolve_effective_turn_attachments
 from .fact_classifier import ChatFactClassifier
 
@@ -147,6 +151,22 @@ class ChatExecutionCoordinator:
             else None
         )
         self._tool_advisory_reranker = ToolAdvisoryReranker()
+        # Phase C: parallel NodeRegistry for user-message paths keyed
+        # by RouteDecision.graph_shape. The legacy handler_registry
+        # remains responsible for non-route paths (ORCHESTRATION_UPDATE,
+        # EXPLORE_TASK_RENDER, FACT_ONLY).
+        self._node_registry = NodeRegistry()
+        _direct_llm = handler_registry._handlers.get(ExecutionMode.DIRECT_LLM)
+        _function_calling = handler_registry._handlers.get(ExecutionMode.FUNCTION_CALLING)
+        _orchestration_launch = handler_registry._handlers.get(ExecutionMode.ORCHESTRATION_LAUNCH)
+        if _direct_llm is not None:
+            self._node_registry.register(ReplyNode(direct_llm_handler=_direct_llm))
+        if _function_calling is not None:
+            self._node_registry.register(ToolLoopNode(function_calling_handler=_function_calling))
+        if _orchestration_launch is not None:
+            self._node_registry.register(
+                PlanFanoutNode(orchestration_launch_handler=_orchestration_launch)
+            )
 
     async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
         planner_fact_kind = (
@@ -363,6 +383,19 @@ class ChatExecutionCoordinator:
         return await handler.build_request(request)
 
     async def execute(self, request: ExecutionRequest):
+        # Phase C: dispatch user-message paths via the NodeRegistry when a
+        # graph_shape is present on the route decision. Non-route paths
+        # (worker updates, explore renders, fact-only) fall through to the
+        # legacy ExecutionHandlerRegistry.
+        route_decision = getattr(request.intent, "route_decision", None)
+        if route_decision is not None:
+            node = self._node_registry.get(route_decision.graph_shape)
+            if node is not None:
+                node_result = await node.execute(request)
+                if node_result.execution_result is not None:
+                    return node_result.execution_result
+                # FAILED outcome with no execution_result: fall back to the
+                # legacy handler so the existing error path runs.
         handler = self._handler_registry.get(request.mode)
         return await handler.execute(request)
 
