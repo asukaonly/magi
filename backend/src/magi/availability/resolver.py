@@ -15,6 +15,7 @@ from magi_plugin_sdk.contracts import (
     LocalRequirementExecutableInPath,
     LocalRequirementFileExists,
     PluginManifest,
+    SuggestionDescriptor,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,28 @@ class AvailabilityResolver:
     def list_available(self, *, plugin_ids: list[str]) -> list[str]:
         return [pid for pid in plugin_ids if self.is_available(pid).available]
 
+    def evaluate_descriptor(
+        self,
+        descriptor: SuggestionDescriptor,
+        *,
+        plugin_id: str = "",
+        now: datetime | None = None,
+    ) -> AvailabilityResult:
+        """Evaluate a descriptor's platform_support + local_requirements directly.
+
+        Independent of install state — the descriptor may come from a registry
+        entry for a plugin that is NOT installed on this device. Performs no
+        manifest lookup and is NOT cached (callers that want caching go through
+        :meth:`is_available`, which delegates here).
+
+        The platform check and the AND-combined local requirements are the same
+        core the installed-plugin path runs. ``plugin_id`` is echoed back on the
+        result purely for labelling (registry-only descriptors may pass "").
+        """
+        return self._evaluate_descriptor(
+            descriptor, plugin_id=plugin_id, now=now or datetime.now(timezone.utc)
+        )
+
     def invalidate(self, plugin_id: str | None = None) -> None:
         with self._lock:
             if plugin_id is None:
@@ -90,7 +113,18 @@ class AvailabilityResolver:
                 checked_at=now,
             )
 
-        descriptor = manifest.suggestion_descriptor
+        return self._evaluate_descriptor(
+            manifest.suggestion_descriptor, plugin_id=plugin_id, now=now
+        )
+
+    def _evaluate_descriptor(
+        self, descriptor: SuggestionDescriptor, *, plugin_id: str, now: datetime
+    ) -> AvailabilityResult:
+        """Core descriptor evaluation: platform check + AND-combined requirements.
+
+        Shared by the installed-plugin path (:meth:`_probe`) and the
+        registry/not-installed path (:meth:`evaluate_descriptor`).
+        """
         current_platform = _current_platform_key()
         if current_platform not in descriptor.platform_support:
             return AvailabilityResult(
