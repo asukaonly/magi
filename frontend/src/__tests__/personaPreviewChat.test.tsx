@@ -213,6 +213,26 @@ describe('PersonaPreviewChat', () => {
     );
   });
 
+  it('reports generating state via onGeneratingChange', async () => {
+    let resolveGen: (value: any) => void = () => {};
+    vi.spyOn(personasApi, 'generateWithProgress').mockImplementation(
+      () => new Promise((resolve) => { resolveGen = resolve; }),
+    );
+    const onGeneratingChange = vi.fn();
+
+    render(
+      <PersonaPreviewChat previews={previews} onGeneratingChange={onGeneratingChange} />,
+    );
+    await userEvent.click(screen.getByTestId('persona-create-custom'));
+    await userEvent.type(screen.getByTestId('persona-custom-description'), 'x');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    await waitFor(() => expect(onGeneratingChange).toHaveBeenLastCalledWith(true));
+
+    resolveGen({ success: true, message: 'ok', data: makeGeneratedConfig(), stages: [] });
+    await waitFor(() => expect(onGeneratingChange).toHaveBeenLastCalledWith(false));
+  });
+
   it('disables input once the 5-turn cap is hit for the active persona', async () => {
     render(<PersonaPreviewChat previews={previews} />);
     await userEvent.click(screen.getByRole('button', { name: /Nova/i }));

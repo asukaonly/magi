@@ -42,6 +42,11 @@ export interface PersonaPreviewChatProps {
   initialCustomPersonas?: CustomPersonaDraft[];
   /** Fires whenever the set of custom drafts changes, so the parent can persist them. */
   onCustomPersonasChange?: (drafts: CustomPersonaDraft[]) => void;
+  /**
+   * Fires when persona generation starts (true) / finishes (false), so the
+   * parent can disable step navigation while a generation is in flight.
+   */
+  onGeneratingChange?: (generating: boolean) => void;
 }
 
 type TranscriptMap = Record<string, PreviewTurn[]>;
@@ -84,6 +89,7 @@ export function PersonaPreviewChat({
   onActiveSeedChange,
   initialCustomPersonas,
   onCustomPersonasChange,
+  onGeneratingChange,
 }: PersonaPreviewChatProps): JSX.Element {
   const { t, i18n } = useTranslation('onboarding');
   const sortedPreviews = useMemo(
@@ -152,6 +158,12 @@ export function PersonaPreviewChat({
   useEffect(() => {
     onCustomPersonasChangeRef.current?.(customDrafts);
   }, [customDrafts]);
+
+  const onGeneratingChangeRef = useRef(onGeneratingChange);
+  onGeneratingChangeRef.current = onGeneratingChange;
+  useEffect(() => {
+    onGeneratingChangeRef.current?.(generating);
+  }, [generating]);
 
   const activeItem = railItems.find((i) => i.slug === activeSeed);
   const activeTranscript = activeSeed ? transcripts[activeSeed] ?? [] : [];

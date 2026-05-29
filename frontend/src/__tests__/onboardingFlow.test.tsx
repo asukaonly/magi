@@ -414,4 +414,59 @@ describe('OnboardingFlow (linear 4-step)', () => {
       expect(personasApi.setActive).toHaveBeenCalledWith('uuid-custom'),
     );
   });
+
+  it('disables the footer Next button while a custom persona is generating', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    let resolveGen: (value: any) => void = () => {};
+    vi.spyOn(personasApi, 'generateWithProgress').mockImplementation(
+      () => new Promise((resolve) => { resolveGen = resolve; }),
+    );
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+    const providerSelect = await screen.findByLabelText(/provider/i);
+    await user.selectOptions(providerSelect, 'openai');
+    await user.type(screen.getByLabelText(/api key/i), 'sk-test');
+    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
+    await waitFor(() => expect(nextBtn).toBeEnabled());
+    await user.click(nextBtn);
+
+    // Start a generation on the persona step.
+    await user.click(await screen.findByTestId('persona-create-custom'));
+    await user.type(screen.getByTestId('persona-custom-description'), 'a wise mentor');
+    await user.click(screen.getByTestId('persona-custom-generate'));
+
+    // Footer Next is disabled while the generation is in flight...
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'actions.next' })).toBeDisabled(),
+    );
+
+    // ...and re-enabled once it resolves.
+    resolveGen({
+      success: true,
+      message: 'ok',
+      data: {
+        name: 'Sage',
+        avatar: '',
+        description: 'wise',
+        appearance_prompt: '',
+        identity_core: { identity_statement: 'patient', values_loved: [], values_rejected: [], attention_biases: [] },
+        idiolect: { sentence_style: 'calm', vocab_available: [], vocab_avoided: [], structural_quirks: [] },
+        registers: {},
+        quiet_hours: [],
+        signature_triggers: [],
+        persona_layers: [],
+        dynamic_state_rules: {},
+        milestone_conditions: {},
+        interim_lines: {},
+        bootstrap: null,
+      },
+      stages: [],
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled(),
+    );
+  });
 });

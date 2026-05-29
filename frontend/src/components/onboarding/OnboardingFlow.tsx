@@ -91,6 +91,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [seedSlug, setSeedSlug] = useState<string | null>(null);
   // Onboarding-generated (unsaved) personas; persisted on completion.
   const [customPersonas, setCustomPersonas] = useState<CustomPersonaDraft[]>([]);
+  // True while a custom persona is being generated on the persona step.
+  const [personaGenerating, setPersonaGenerating] = useState(false);
 
   // Persona previews (loaded once on mount for the active locale).
   const [seedPreviews, setSeedPreviews] = useState<SeedPreview[]>([]);
@@ -396,6 +398,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
             setCustomPersonas(drafts);
             saveProgress(form.getFieldsValue(true), seedSlug, drafts);
           }}
+          onGeneratingChange={setPersonaGenerating}
         />
       );
     }
@@ -448,12 +451,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           sidebar={<StepIndicator steps={steps} current={current} />}
           footer={hideFooter ? null : (
             <div className="flex items-center justify-between gap-3">
-              <Button variant="outline" onClick={handlePrev}>
+              <Button
+                variant="outline"
+                onClick={handlePrev}
+                disabled={current === 2 && personaGenerating}
+              >
                 {t('actions.previous')}
               </Button>
               <Button
                 onClick={handleNext}
-                disabled={saving || (current === 1 && !llmValid)}
+                disabled={
+                  saving ||
+                  (current === 1 && !llmValid) ||
+                  (current === 2 && personaGenerating)
+                }
               >
                 {saving
                   ? (finishingRuntime ? t('actions.startingRuntime') : t('actions.saving'))
