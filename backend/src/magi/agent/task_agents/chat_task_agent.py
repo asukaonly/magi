@@ -279,6 +279,7 @@ class ChatTaskAgent(
             ExploreRenderHandler(handler_deps),
         ):
             self._handler_registry.register(handler)
+        _channel_registry = self._channel_registry_resolver()
         self._coordinator = ChatExecutionCoordinator(
             context_decider=self.context_decider,
             fact_classifier=self._fact_classifier,
@@ -286,7 +287,7 @@ class ChatTaskAgent(
             intent_trace_callback=self._postprocess_service.record_intent_resolution,
             tool_advisory_provider=self._get_tool_advisory,
             tool_selection_trace_callback=self._postprocess_service.record_tool_selection,
-            channel_registry=self._channel_registry_resolver(),
+            channel_registry=_channel_registry,
             user_prefs_provider=self._read_delivery_prefs,
         )
         # Phase G+1: back-fill the coordinator on the shared handler
@@ -295,6 +296,17 @@ class ChatTaskAgent(
         # fanout. Handlers already constructed above retain ``self._deps``
         # by reference, so mutating the dataclass here updates them in place.
         handler_deps.coordinator = self._coordinator
+        # Phase G+1: when the channel registry is wired and chat_sse is
+        # registered, ChatSseChannel.deliver_chunk is the canonical writer
+        # of agent_response_chunk rows -- silence the legacy notifier path
+        # so the session-keyed chat UI poller does not render every chunk
+        # twice.
+        if _channel_registry is not None and self._chat_sse_channel_registered(
+            _channel_registry
+        ):
+            self._postprocess_service._runtime_notifier.set_delivery_router_active(
+                True
+            )
         self._last_batch_facts: list[FactRecord] = []
 
         # Keep these aliases so existing read paths and tests see the same underlying stores.
@@ -310,6 +322,20 @@ class ChatTaskAgent(
         via :meth:`ChatPostProcessService.deliver_background_task_completion`.
         """
         return self._postprocess_service
+
+    @staticmethod
+    def _chat_sse_channel_registered(registry: Any) -> bool:
+        """Return True when ``chat_sse`` is registered on the channel registry.
+
+        Used to decide whether the legacy ``ChatRuntimeNotifier`` stream
+        write must be silenced. ``ChannelRegistry.get`` returns the channel
+        or ``None``; any unexpected registry shape is treated as "not
+        registered" so the legacy path keeps working as a fallback.
+        """
+        try:
+            return registry.get("chat_sse") is not None
+        except Exception:
+            return False
 
     @staticmethod
     def _resolve_channel_registry() -> Any | None:

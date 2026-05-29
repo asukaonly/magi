@@ -22,6 +22,23 @@ class ChatRuntimeNotifier:
     ) -> None:
         self._runtime_trace_store = runtime_trace_store
         self._chat_read_service_factory = chat_read_service_factory
+        # Phase G+1: when True, emit_stream_event short-circuits so the
+        # canonical ChatSseChannel.deliver_chunk path (driven by
+        # ChatExecutionCoordinator.dispatch_stream_chunk) is the sole writer
+        # of agent_response_chunk rows. Flipped on by ChatTaskAgent during
+        # construction when the channel registry exposes chat_sse.
+        self._delivery_router_active = False
+
+    def set_delivery_router_active(self, active: bool) -> None:
+        """Phase G+1: when True, emit_stream_event becomes a no-op.
+
+        The canonical streaming path becomes ChatSseChannel.deliver_chunk
+        (driven by ChatExecutionCoordinator.dispatch_stream_chunk). Without
+        this flag, every text_delta would write twice to runtime_trace_store
+        -- once via this legacy path, once via the new channel -- and the
+        session-keyed chat UI poller would render every chunk twice.
+        """
+        self._delivery_router_active = bool(active)
 
     async def emit_agent_response(
         self,
@@ -262,6 +279,13 @@ class ChatRuntimeNotifier:
         turn_id: str | None,
         persona_id: str | None = None,
     ) -> None:
+        # Phase G+1: when the coordinator's DeliveryRouter is wired and
+        # chat_sse is registered, ChatSseChannel.deliver_chunk writes the
+        # canonical row to runtime_trace_store. Skip the legacy write here
+        # to avoid duplicate rows that the chat UI's session-keyed poller
+        # would render twice.
+        if self._delivery_router_active:
+            return
         normalized_turn_id = str(turn_id or "").strip()
         if self._runtime_trace_store is None or not normalized_turn_id:
             return
