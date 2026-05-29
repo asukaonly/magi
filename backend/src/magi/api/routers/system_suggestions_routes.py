@@ -12,12 +12,21 @@ Two endpoints:
 
 Production wiring (see :func:`_build_production_system_suggestions_router`):
 
-- ``list_manifests_dep`` reads from the live plugin manager via
-  :func:`magi.api.routers.plugins_common._try_plugin_manager`. Mirrors
-  ``_default_all_plugin_ids`` in :mod:`availability_routes`.
-- ``is_available_dep`` wraps Plan 1's resolver singleton via
-  ``_get_or_create_resolver`` (re-exported from :mod:`availability_routes`)
-  and returns a ``(plugin_id) -> bool`` adapter.
+- ``candidates_dep`` builds the UNION of installed plugin manifests
+  (``installed=True``) and registry-discovered entries that are not installed
+  (``installed=False``) into :class:`SuggestionCandidate` objects. Installed
+  manifests come from the live plugin manager via
+  :func:`magi.api.routers.plugins_common._try_plugin_manager`; registry entries
+  come from the shared :class:`PluginRegistryClient` (its async ``fetch_index``
+  is awaited). On ANY registry failure the builder degrades to installed-only
+  (registry = ``[]``) and logs a warning. The inner callable may be sync (tests)
+  or async (production); the ``/check`` handler awaits it if it is a coroutine.
+- ``availability_dep`` is a factory that, given the candidate list, returns a
+  ``(plugin_id) -> bool`` adapter. Production closes over Plan 1's resolver
+  singleton (via ``_get_or_create_resolver``) and resolves availability
+  per-candidate: installed candidates go through ``resolver.is_available`` while
+  not-installed candidates go through ``resolver.evaluate_descriptor`` so the
+  registry descriptor is probed directly without a local manifest.
 - ``is_dismissed_dep`` reads ``preferences.suggestion_dismissals`` from the
   live config and applies :func:`is_dismissal_active`.
 - ``record_dismissal_dep`` follows the safe GET → mutate → PUT pattern:
@@ -32,8 +41,9 @@ Tests inject their own callables for isolation.
 
 from __future__ import annotations
 
+import inspect
 from threading import Lock
-from typing import Callable
+from typing import Awaitable, Callable, Union
 
 from fastapi import APIRouter
 
@@ -46,12 +56,27 @@ from magi.api.routers.system_suggestions_schemas import (
     DismissResponse,
     ListDismissalsResponse,
 )
+from magi.core.logger import get_logger
+from magi.system_suggestions.candidates import (
+    SuggestionCandidate,
+    build_suggestion_candidates,
+)
 from magi.system_suggestions.engine import ClassifyFn, run_suggestion_check
 from magi.system_suggestions.throttle import SuggestionThrottle
-from magi_plugin_sdk.contracts import PluginManifest
 
-ListManifestsDep = Callable[[], Callable[[], list[PluginManifest]]]
-IsAvailableDep = Callable[[], Callable[[str], bool]]
+logger = get_logger(__name__)
+
+# A candidates builder returns the installed∪registry union; production awaits
+# the registry, so the inner callable may return a list directly OR a coroutine.
+CandidatesResult = Union[
+    list[SuggestionCandidate], Awaitable[list[SuggestionCandidate]]
+]
+CandidatesDep = Callable[[], Callable[[], CandidatesResult]]
+# Given the resolved candidate list, return a (plugin_id) -> bool adapter so the
+# engine can resolve availability per-candidate (installed vs registry-only).
+AvailabilityDep = Callable[
+    [], Callable[[list[SuggestionCandidate]], Callable[[str], bool]]
+]
 IsDismissedDep = Callable[[], Callable[[str], bool]]
 RecordDismissalDep = Callable[[], Callable[[str, str], None]]
 ListDismissalsDep = Callable[[], Callable[[], list["DismissalItem"]]]
@@ -65,8 +90,8 @@ _THROTTLE = SuggestionThrottle(reclassify_after=3)
 
 def build_default_system_suggestions_router(
     *,
-    list_manifests_dep: ListManifestsDep,
-    is_available_dep: IsAvailableDep,
+    candidates_dep: CandidatesDep,
+    availability_dep: AvailabilityDep,
     is_dismissed_dep: IsDismissedDep,
     record_dismissal_dep: RecordDismissalDep,
     list_dismissals_dep: ListDismissalsDep,
@@ -83,12 +108,19 @@ def build_default_system_suggestions_router(
 
     @router.post("/system-suggestions/check", response_model=CheckResponse)
     async def check(request: CheckRequest) -> CheckResponse:
+        # Resolve the installed∪registry candidate union. The builder may be
+        # async (production awaits the registry) or sync (tests/degrade path).
+        result = candidates_dep()()
+        candidates = await result if inspect.isawaitable(result) else result
+        # Per-candidate availability: installed vs registry-only resolve through
+        # different resolver entry points (see ``_default_availability``).
+        is_available = availability_dep()(candidates)
         proposals = await run_suggestion_check(
             recent_text=request.text,
             locale=request.locale,
             session_id=request.session_id,
-            plugin_manifests=list_manifests_dep()(),
-            is_available=is_available_dep(),
+            candidates=candidates,
+            is_available=is_available,
             is_dismissed=is_dismissed_dep(),
             classify=classify_dep(),
             throttle=_THROTTLE,
@@ -123,17 +155,38 @@ def build_default_system_suggestions_router(
 # ---------------------------------------------------------------------------
 
 
-def _default_list_manifests() -> Callable[[], list[PluginManifest]]:
-    """Return a callable that reads all installed plugin manifests."""
-    from magi.api.routers.plugins_common import _try_plugin_manager
+def _default_candidates() -> Callable[[], CandidatesResult]:
+    """Return an async builder of the installed∪registry candidate union.
 
-    def _list() -> list[PluginManifest]:
+    Installed manifests come from the live plugin manager; registry entries
+    (with a ``suggestion_descriptor``) come from the shared registry client's
+    async ``fetch_index``. On ANY registry failure we degrade to installed-only
+    and log a warning, so the route never fails just because the registry is
+    unreachable.
+    """
+    from magi.api.routers.plugins_common import _get_registry_client, _try_plugin_manager
+
+    async def _build() -> list[SuggestionCandidate]:
         manager = _try_plugin_manager()
-        if manager is None:
-            return []
-        return [pkg.manifest for pkg in manager.list_packages()]
+        installed = (
+            [pkg.manifest for pkg in manager.list_packages()] if manager else []
+        )
 
-    return _list
+        registry_entries: list = []
+        try:
+            index = await _get_registry_client().fetch_index()
+            registry_entries = list(index.plugins)
+        except Exception as exc:  # degrade to installed-only
+            logger.warning(
+                "registry fetch failed for suggestion candidates; "
+                "degrading to installed-only",
+                error=str(exc),
+            )
+            registry_entries = []
+
+        return build_suggestion_candidates(installed, registry_entries)
+
+    return _build
 
 
 # Module-scoped lock so we don't double-create the resolver if two requests
@@ -141,17 +194,45 @@ def _default_list_manifests() -> Callable[[], list[PluginManifest]]:
 _AVAILABILITY_ADAPTER_LOCK = Lock()
 
 
-def _default_is_available() -> Callable[[str], bool]:
-    """Return a ``(plugin_id) -> bool`` adapter over Plan 1's resolver."""
+def _default_availability() -> Callable[
+    [list[SuggestionCandidate]], Callable[[str], bool]
+]:
+    """Return a factory that builds a per-candidate availability adapter.
+
+    Given the resolved candidate list, returns a ``(plugin_id) -> bool`` that
+    resolves availability per-candidate against Plan 1's resolver singleton:
+
+    * installed candidates -> ``resolver.is_available(plugin_id)`` (manifest
+      lookup + TTL cache).
+    * not-installed (registry-only) candidates ->
+      ``resolver.evaluate_descriptor(descriptor)`` so the registry descriptor's
+      platform + local requirements are probed directly without a local
+      manifest.
+    """
     from magi.api.routers.availability_routes import _get_or_create_resolver
 
     with _AVAILABILITY_ADAPTER_LOCK:
         resolver = _get_or_create_resolver()
 
-    def _is_available(plugin_id: str) -> bool:
-        return resolver.is_available(plugin_id).available
+    def _factory(
+        candidates: list[SuggestionCandidate],
+    ) -> Callable[[str], bool]:
+        by_id = {c.plugin_id: c for c in candidates}
 
-    return _is_available
+        def _is_available(plugin_id: str) -> bool:
+            cand = by_id.get(plugin_id)
+            if cand is None:
+                # Unknown to the candidate set: fall back to the installed path.
+                return resolver.is_available(plugin_id).available
+            if cand.installed:
+                return resolver.is_available(plugin_id).available
+            return resolver.evaluate_descriptor(
+                cand.descriptor, plugin_id=plugin_id
+            ).available
+
+        return _is_available
+
+    return _factory
 
 
 def _load_dismissals_from_config() -> dict[str, "DismissalRecord"]:
@@ -286,8 +367,8 @@ def _default_classify() -> ClassifyFn:
 def _build_production_system_suggestions_router() -> APIRouter:
     """Construct the router wired to live plugin manager + config + resolver."""
     return build_default_system_suggestions_router(
-        list_manifests_dep=_default_list_manifests,
-        is_available_dep=_default_is_available,
+        candidates_dep=_default_candidates,
+        availability_dep=_default_availability,
         is_dismissed_dep=_default_is_dismissed,
         record_dismissal_dep=_default_record_dismissal,
         list_dismissals_dep=_default_list_dismissals,

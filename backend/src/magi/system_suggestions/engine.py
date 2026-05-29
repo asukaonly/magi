@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Awaitable, Callable, Iterable
 
 from magi.core.logger import get_logger
-from magi.system_suggestions.candidates import build_suggestion_candidates
 from magi.system_suggestions.contracts import SuggestionProposal
 from magi.system_suggestions.matcher import (
     CategoryCandidate,
@@ -24,16 +23,17 @@ async def run_suggestion_check(
     recent_text: str,
     locale: str,
     session_id: str,
-    plugin_manifests: Iterable,
+    candidates: Iterable,
     is_available: Callable[[str], bool],
     is_dismissed: Callable[[str], bool],
     classify: ClassifyFn,
     throttle: SuggestionThrottle,
 ) -> list[SuggestionProposal]:
-    # A-T4: matcher now consumes SuggestionCandidate-shaped objects. Until A-T6
-    # reworks this signature + the route, wrap the installed manifests into
-    # candidates here (registry discovery is not yet plumbed through the engine).
-    candidates = build_suggestion_candidates(plugin_manifests, [])
+    # ``candidates`` is the union of installed manifests (installed=True) and
+    # registry-discovered, not-yet-installed entries (installed=False), built by
+    # the route via ``build_suggestion_candidates``. ``is_available`` resolves
+    # per-candidate (installed -> resolver.is_available; not-installed ->
+    # resolver.evaluate_descriptor).
     cands = candidate_categories(
         recent_text=recent_text,
         locale=locale,
