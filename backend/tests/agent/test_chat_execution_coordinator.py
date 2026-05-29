@@ -1264,3 +1264,67 @@ async def test_coordinator_does_not_inject_fallback_tools_for_chat() -> None:
     decision = await coordinator.match_intent(context)
     assert decision.tools == []
     assert decision.execution_mode == ExecutionMode.DIRECT_LLM
+
+
+@pytest.mark.asyncio
+async def test_coordinator_reply_shape_drops_tools_to_avoid_request_handler_mismatch() -> None:
+    """Regression for the dispatch-axis split introduced in Phase C.
+
+    If the router emits graph_shape='reply' but also non-empty tools, the
+    coordinator must NOT build a FunctionCallingRequest — the GraphBuilder
+    will pick ReplyNode (which delegates to DirectLLMHandler, requiring a
+    DirectLLMRequest with .messages). The two axes (request shape +
+    node selection) must agree on a single mode.
+
+    Failure mode before the fix: '[error] FunctionCallingRequest object has
+    no attribute messages' bubbled up through NodeSequenceRunner.
+    """
+    decider = _FakeContextDecider(
+        RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
+            tools=["web-search"],  # router opined a tool but chose reply shape
+            reasoning="reply with optional tool",
+        )
+    )
+    decider.tool_registry = _FakeToolRegistry(["web-search", "find-relevant-tools"])
+
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "hi"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="hi",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    # graph_shape='reply' must map to DIRECT_LLM (so build_request returns
+    # DirectLLMRequest), and tools must be dropped (so they can't sneak the
+    # mode to FUNCTION_CALLING).
+    assert decision.execution_mode == ExecutionMode.DIRECT_LLM
+    assert decision.tools == []
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "reply"

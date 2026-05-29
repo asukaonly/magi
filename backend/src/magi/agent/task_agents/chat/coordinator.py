@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import os
 import platform
@@ -309,15 +310,44 @@ class ChatExecutionCoordinator:
                 task_context=context.latest_user_message,
                 tool_names=selected_tools,
             )
-        execution_mode = (
-            ExecutionMode.DIRECT_LLM
-            if has_image_attachments
-            else (
-                ExecutionMode.ORCHESTRATION_LAUNCH
-                if decision.graph_shape == "plan_fanout" and not force_direct_external
-                else ExecutionMode.FUNCTION_CALLING if selected_tools else ExecutionMode.DIRECT_LLM
-            )
-        )
+
+        # === Single source of truth for the per-turn dispatch ===
+        # Both axes (request shape via execution_mode AND node selection via
+        # GraphBuilder→graph_shape) must agree, otherwise we land in cases
+        # like graph_shape='reply' + FunctionCallingRequest → ReplyNode →
+        # DirectLLMHandler.execute() → AttributeError on .messages.
+        #
+        # Algorithm: compute an effective_graph_shape that folds in the two
+        # overrides (image attachments → reply; force_direct_external on
+        # plan_fanout → tool_loop or reply), derive execution_mode 1:1 from
+        # that, then rewrite ``decision`` so downstream consumers (GraphBuilder,
+        # IntentDecision.route_decision) see the same coerced value.
+        if has_image_attachments:
+            effective_graph_shape: str = "reply"
+        elif decision.graph_shape == "plan_fanout" and force_direct_external:
+            effective_graph_shape = "tool_loop" if selected_tools else "reply"
+        elif decision.graph_shape == "tool_loop" and not selected_tools:
+            # Empty tools + tool_loop has nothing to loop over; downgrade.
+            effective_graph_shape = "reply"
+        else:
+            effective_graph_shape = decision.graph_shape
+
+        if effective_graph_shape == "reply":
+            # Tools are meaningless without a tool loop — the model can't
+            # invoke them in a single-shot reply. Drop them so they don't
+            # accidentally pull execution_mode back to FUNCTION_CALLING via
+            # any future code path.
+            selected_tools = []
+
+        if effective_graph_shape != decision.graph_shape:
+            decision = dataclasses.replace(decision, graph_shape=effective_graph_shape)
+
+        if effective_graph_shape == "plan_fanout":
+            execution_mode = ExecutionMode.ORCHESTRATION_LAUNCH
+        elif effective_graph_shape == "tool_loop":
+            execution_mode = ExecutionMode.FUNCTION_CALLING
+        else:  # "reply"
+            execution_mode = ExecutionMode.DIRECT_LLM
         persona_routing_hint = _build_persona_routing_hint(decision)
         intent_decision = IntentDecision(
             intent=decision.profile,  # RouteDecision uses profile as the intent label
