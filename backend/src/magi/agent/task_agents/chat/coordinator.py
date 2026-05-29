@@ -505,6 +505,32 @@ class ChatExecutionCoordinator:
         handler = self._handler_registry.get(request.mode)
         return await handler.execute(request)
 
+    async def dispatch_stream_chunk(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        text: str,
+        is_final: bool,
+        seq: int,
+    ) -> None:
+        """Stream one chunk to every configured channel for this user/session.
+
+        No-op when no delivery router is wired (legacy / test paths) or
+        session_id is empty. Errors per channel are isolated inside
+        DeliveryRouter.fanout_chunk.
+        """
+        if self._delivery_router is None or not session_id:
+            return
+        from magi_plugin_sdk.delivery import DeliveryChunk
+        targets = resolve_delivery_targets(
+            user_id=user_id, session_id=session_id, user_prefs={},
+        )
+        await self._delivery_router.fanout_chunk(
+            chunk=DeliveryChunk(text=text, is_final=is_final, seq=seq),
+            targets=targets,
+        )
+
     @staticmethod
     def _should_force_direct_external_plan(
         *,

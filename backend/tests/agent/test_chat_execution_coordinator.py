@@ -1328,3 +1328,91 @@ async def test_coordinator_reply_shape_drops_tools_to_avoid_request_handler_mism
     assert decision.tools == []
     assert decision.route_decision is not None
     assert decision.route_decision.graph_shape == "reply"
+
+
+# ---------------------------------------------------------------------------
+# Phase G+1 / Task 7: ChatExecutionCoordinator.dispatch_stream_chunk
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_stream_chunk_routes_to_chat_sse_channel_when_registry_wired():
+    class _RecordingChunkChannel:
+        channel_type = "chat_sse"
+        def __init__(self): self.chunks = []
+        async def deliver_chunk(self, target, chunk):
+            self.chunks.append((target, chunk))
+    class _Registry:
+        def __init__(self, ch): self._ch = ch
+        def get(self, k): return self._ch if k == "chat_sse" else None
+    rec = _RecordingChunkChannel()
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=_Registry(rec),
+    )
+    await coordinator.dispatch_stream_chunk(
+        session_id="s1", user_id="u1", text="hello",
+        is_final=False, seq=0,
+    )
+    assert len(rec.chunks) == 1
+    target, chunk = rec.chunks[0]
+    assert target.channel_type == "chat_sse:s1"  # composite target
+    assert chunk.text == "hello"
+    assert chunk.is_final is False
+    assert chunk.seq == 0
+
+
+@pytest.mark.asyncio
+async def test_dispatch_stream_chunk_noop_when_no_router():
+    """When channel_registry is None, dispatch_stream_chunk must not crash
+    and must do nothing."""
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        # no channel_registry → _delivery_router is None
+    )
+    # Should be a no-op — would raise AttributeError if accessed
+    await coordinator.dispatch_stream_chunk(
+        session_id="s1", user_id="u1", text="hi",
+        is_final=False, seq=0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_stream_chunk_noop_when_session_id_empty():
+    """Empty session_id → no-op (can't route without it)."""
+    class _RecordingChunkChannel:
+        channel_type = "chat_sse"
+        def __init__(self): self.chunks = []
+        async def deliver_chunk(self, target, chunk):
+            self.chunks.append((target, chunk))
+    class _Registry:
+        def __init__(self, ch): self._ch = ch
+        def get(self, k): return self._ch if k == "chat_sse" else None
+    rec = _RecordingChunkChannel()
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=_Registry(rec),
+    )
+    await coordinator.dispatch_stream_chunk(
+        session_id="", user_id="u1", text="hello",
+        is_final=False, seq=0,
+    )
+    assert len(rec.chunks) == 0
