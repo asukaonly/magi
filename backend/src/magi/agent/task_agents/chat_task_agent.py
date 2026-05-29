@@ -288,6 +288,12 @@ class ChatTaskAgent(
             tool_selection_trace_callback=self._postprocess_service.record_tool_selection,
             channel_registry=self._channel_registry_resolver(),
         )
+        # Phase G+1: back-fill the coordinator on the shared handler
+        # dependencies so DirectLLMHandler.execute() can route text_delta
+        # chunks via coordinator.dispatch_stream_chunk for multi-channel
+        # fanout. Handlers already constructed above retain ``self._deps``
+        # by reference, so mutating the dataclass here updates them in place.
+        handler_deps.coordinator = self._coordinator
         self._last_batch_facts: list[FactRecord] = []
 
         # Keep these aliases so existing read paths and tests see the same underlying stores.

@@ -66,6 +66,11 @@ class ChatHandlerDependencies:
     persist_turn_supersessions: Callable[[list[Any], int], Awaitable[None]] | None = (
         None
     )
+    # Phase G+1: Optional reference to the ChatExecutionCoordinator so the
+    # streaming-path handler can route ``text_delta`` chunks through
+    # ``coordinator.dispatch_stream_chunk`` (multi-channel fanout). Optional
+    # so legacy tests can build dependencies without wiring a coordinator.
+    coordinator: Any | None = None
 
 
 def build_common_handler_dependencies(

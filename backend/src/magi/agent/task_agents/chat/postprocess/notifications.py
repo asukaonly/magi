@@ -250,6 +250,9 @@ class ChatRuntimeNotifier:
             )
         )
 
+    # NOTE: legacy path — handlers route text_delta events through
+    # coordinator.dispatch_stream_chunk after Phase G+1. This method is kept
+    # for callers that still hand-roll runtime_trace_store notifications.
     async def emit_stream_event(
         self,
         *,
