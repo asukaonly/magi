@@ -152,3 +152,45 @@ async def test_resume_into_a_run_that_failed_partway_can_retry_failed_node() -> 
     assert validate_second.executed is True
     assert "ok on retry" in result_retry.response_text
     assert snapshot_complete.cursor == 2
+
+
+@pytest.mark.asyncio
+async def test_completed_snapshot_does_not_cause_no_output_on_next_run() -> None:
+    """Regression: after a run completes (cursor >= len(graph)), passing
+    that snapshot as resume_from would cause the runner's for-loop to be
+    empty and return '(no output)'. The coordinator-level fix discards
+    completed snapshots; this test verifies runner behavior on an
+    already-complete snapshot to document the failure mode."""
+    primary = _StubNode("tool_loop", response_text="first run")
+    registry_1 = NodeRegistry()
+    registry_1.register(primary)
+    runner_1 = NodeSequenceRunner(node_registry=registry_1)
+
+    _result, completed_snapshot = await runner_1.run_with_snapshot(
+        run_id="r_complete",
+        node_specs=[NodeSpec(node_type="tool_loop")],
+        request=object(),
+    )
+    assert completed_snapshot.cursor == 1  # one node, completed
+
+    # Document the runner's behavior on an already-complete snapshot:
+    # it returns a "(no output)" result. The coordinator must guard
+    # against this by clearing or discarding completed snapshots.
+    primary_2 = _StubNode("tool_loop", response_text="should run again")
+    registry_2 = NodeRegistry()
+    registry_2.register(primary_2)
+    runner_2 = NodeSequenceRunner(node_registry=registry_2)
+
+    result, _snap = await runner_2.run_with_snapshot(
+        run_id="r_complete",
+        node_specs=[NodeSpec(node_type="tool_loop")],
+        request=object(),
+        resume_from=completed_snapshot,
+    )
+
+    # Confirms the documented behavior: passing a completed snapshot
+    # skips all nodes and returns the no-output sentinel.
+    assert result is not None
+    assert result.response_text == "(no output)"
+    # primary_2 did not execute — it was beyond the resume cursor.
+    assert primary_2.executed is False

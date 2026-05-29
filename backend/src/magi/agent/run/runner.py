@@ -70,10 +70,11 @@ class NodeSequenceRunner:
         """Phase E entry point: returns (ExecutionResult, RunSnapshot).
 
         ``resume_from``: if supplied, the runner restores each completed
-        node's state then jumps to ``resume_from.cursor`` and continues.
-        The first node at ``cursor`` runs from scratch (its ``restore``
-        is called with whatever ``node_states`` may already contain for
-        it — typically the partial state captured at detach).
+        node's state (indices 0..cursor-1) then jumps to ``resume_from.cursor``
+        and continues. The node at ``cursor`` runs from scratch — its
+        ``restore()`` is NOT called, so retry semantics work cleanly (a failed
+        node resumes from its natural initial state, not from corrupted
+        in-flight state).
         """
         graph = tuple(spec.node_type for spec in node_specs)
         node_states: dict[str, dict[str, Any]] = dict(

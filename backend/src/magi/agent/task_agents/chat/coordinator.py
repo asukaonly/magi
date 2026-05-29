@@ -412,7 +412,16 @@ class ChatExecutionCoordinator:
             # dispatcher rehydrates a detached run.
             resume_from = None
             if session_id and session_run_id and self._session_run_store is not None:
-                resume_from = self._session_run_store.get_run_snapshot(session_id, session_run_id)
+                stored_snapshot = self._session_run_store.get_run_snapshot(session_id, session_run_id)
+                # Only resume from a partial snapshot. A completed snapshot
+                # (cursor >= len(node_specs)) means the prior run finished;
+                # using it would cause the runner's for-loop to be empty and
+                # return "(no output)". Clear it so the next turn runs fresh.
+                if stored_snapshot is not None and stored_snapshot.cursor < len(node_specs):
+                    resume_from = stored_snapshot
+                elif stored_snapshot is not None:
+                    # Completed snapshot from a prior turn — discard.
+                    self._session_run_store.clear_run_snapshot(session_id, session_run_id)
 
             runner_result, snapshot = await self._node_sequence_runner.run_with_snapshot(
                 run_id=session_run_id or "",
