@@ -25,7 +25,7 @@ from ..core.logger import get_logger
 
 if TYPE_CHECKING:
     from magi_plugin_sdk.channels import Channel, ChannelTarget
-    from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
+    from magi_plugin_sdk.delivery import DeliveryChunk, DeliveryContent, DeliveryReceipt
 
 logger = get_logger(__name__)
 
@@ -39,6 +39,8 @@ class ChannelRegistryProtocol(Protocol):
 class DeliveryRouter:
     """Fan out a single ``DeliveryContent`` to ≥1 ``ChannelTarget``s.
 
+    Surface: ``fanout_deliver``, ``fanout_chunk``, ``fanout_retract``.
+
     Errors per channel are isolated — a failure in one channel does not
     abort delivery to others. Failed channels do NOT contribute a
     receipt to the return value; downstream callers should treat an
@@ -49,6 +51,24 @@ class DeliveryRouter:
 
     def __init__(self, *, channel_registry: ChannelRegistryProtocol) -> None:
         self._channel_registry = channel_registry
+
+    def _resolve(self, target_channel_type: str) -> "Channel | None":
+        """Resolve a target's channel_type to a registered Channel.
+
+        First tries an exact registry lookup (so callers that register
+        under composite keys like "chat_sse:s1" keep working). If that
+        misses and the key looks composite ("<scheme>:<id>"), falls back
+        to a scheme-only lookup. This matches production where channels
+        register under their scheme ("chat_sse", "telegram") but targets
+        carry composite identifiers.
+        """
+        channel = self._channel_registry.get(target_channel_type)
+        if channel is not None:
+            return channel
+        scheme, sep, _ = target_channel_type.partition(":")
+        if sep and scheme:
+            return self._channel_registry.get(scheme)
+        return None
 
     async def fanout_deliver(
         self,
@@ -70,7 +90,7 @@ class DeliveryRouter:
             return []
 
         async def _deliver_one(target: "ChannelTarget"):
-            channel = self._channel_registry.get(target.channel_type)
+            channel = self._resolve(target.channel_type)
             if channel is None:
                 logger.warning(
                     "DeliveryRouter: no channel registered for channel_type=%r",
@@ -89,6 +109,39 @@ class DeliveryRouter:
         results = await asyncio.gather(*(_deliver_one(t) for t in targets))
         return [r for r in results if r is not None]
 
+    async def fanout_chunk(
+        self,
+        *,
+        chunk: "DeliveryChunk",
+        targets: list["ChannelTarget"],
+    ) -> None:
+        """Stream one chunk to each target's channel in parallel.
+
+        Errors per channel are isolated and logged — fanout never aborts.
+        No receipts are returned (chunks don't carry identity; the final
+        ``deliver()`` call is what produces the receipt the host stores).
+        """
+        if not targets:
+            return
+
+        async def _chunk_one(target: "ChannelTarget"):
+            channel = self._resolve(target.channel_type)
+            if channel is None:
+                logger.warning(
+                    "DeliveryRouter: no channel registered for chunk | channel_type=%r",
+                    target.channel_type,
+                )
+                return
+            try:
+                await channel.deliver_chunk(target, chunk)
+            except Exception as exc:
+                logger.warning(
+                    "DeliveryRouter: channel.deliver_chunk failed | channel_type=%r error=%s",
+                    target.channel_type, exc,
+                )
+
+        await asyncio.gather(*(_chunk_one(t) for t in targets))
+
     async def fanout_retract(
         self,
         *,
@@ -105,7 +158,7 @@ class DeliveryRouter:
             return
 
         async def _retract_one(receipt: "DeliveryReceipt"):
-            channel = self._channel_registry.get(receipt.channel_id)
+            channel = self._resolve(receipt.channel_id)
             if channel is None:
                 logger.warning(
                     "DeliveryRouter: no channel for retract | channel_id=%r",
