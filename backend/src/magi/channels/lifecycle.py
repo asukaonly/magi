@@ -1,8 +1,16 @@
-"""Lifecycle module for external messaging channels."""
+"""Lifecycle module for external messaging channels.
+
+Phase G+1: the legacy ``NotificationRelay`` polling path is retired —
+delivery now flows through ``DeliveryRouter`` on the write path. This
+module always registers ``ChatSseChannel`` under the ``"chat_sse"`` key
+so the chat UI keeps receiving streaming/final notifications even when
+no plugin channels are loaded.
+
+The ``_relay`` / ``_relay_task`` fields are kept as ``None`` for
+backward-compat with any external diagnostics that probe them.
+"""
 
 from __future__ import annotations
-
-import asyncio
 
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.lifecycle import LifecycleModule
@@ -12,7 +20,7 @@ logger = get_logger(__name__)
 
 
 class ChannelsModule(LifecycleModule):
-    """Initialize channel plugins and the notification relay."""
+    """Initialize channel plugins and the in-process chat SSE channel."""
 
     def __init__(self, context: RuntimeBootstrapContext) -> None:
         super().__init__(
@@ -26,7 +34,9 @@ class ChannelsModule(LifecycleModule):
             ),
         )
         self._context = context
-        self._relay_task: asyncio.Task[None] | None = None
+        # Retired in Phase G+1 — kept as None so external diagnostics that
+        # probe ``module._relay`` / ``module._relay_task`` don't AttributeError.
+        self._relay_task = None
         self._registry = None
         self._relay = None
         self._session_mapper = None
@@ -46,9 +56,9 @@ class ChannelsModule(LifecycleModule):
         self._context.channels.module = None
 
     async def _start_channels(self) -> None:
-        from .dispatcher import ChannelMessageDispatcher
         from .attachments import ChannelAttachmentStore
-        from .notification_relay import NotificationRelay
+        from .chat_sse_channel import ChatSseChannel
+        from .dispatcher import ChannelMessageDispatcher
         from .registry import ChannelRegistry
         from .session_mapper import ChannelSessionMapper
 
@@ -64,10 +74,11 @@ class ChannelsModule(LifecycleModule):
             if channel is not None:
                 channel_instances.append(channel)
 
-        if not channel_instances:
-            logger.info("No channel plugins enabled, skipping channel bootstrap")
-            return
-
+        # Phase G+1: chat_sse must register even in solo deployments
+        # (no plugin channels) — the chat UI depends on the runtime_trace
+        # rows that ``ChatSseChannel.deliver`` writes. So we proceed
+        # unconditionally and only set up the plugin-binding facades when
+        # there are plugin channels that need them.
         channels_db_path = str(runtime_paths.data_dir / "channels" / "channels.db")
         from pathlib import Path
         Path(channels_db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -87,33 +98,28 @@ class ChannelsModule(LifecycleModule):
             except ValueError:
                 logger.warning("Duplicate channel type skipped", channel_type=channel.channel_type)
 
+        # Always register the in-process chat SSE channel. It writes
+        # directly to runtime_trace_store, which the chat UI polls — so the
+        # NotificationRelay polling fan-out is no longer required for chat.
+        chat_sse_channel = ChatSseChannel(trace_store=trace_store)
+        try:
+            registry.register(chat_sse_channel)
+        except ValueError:
+            logger.warning("chat_sse channel already registered, skipping duplicate")
+
         await registry.start_all()
 
-        relay = NotificationRelay(
-            registry=registry,
-            session_mapper=session_mapper,
-            trace_store=trace_store,
-        )
-        self._relay_task = asyncio.create_task(relay.run())
-
         self._registry = registry
-        self._relay = relay
         self._session_mapper = session_mapper
-        logger.info("Channels module started", channel_count=len(channel_instances))
+        logger.info(
+            "Channels module started",
+            plugin_channel_count=len(channel_instances),
+            chat_sse_registered=True,
+        )
 
     async def _stop_channels(self) -> None:
-        if self._relay is not None:
-            self._relay.stop()
-        if self._relay_task is not None:
-            self._relay_task.cancel()
-            try:
-                await self._relay_task
-            except asyncio.CancelledError:
-                pass
-            self._relay_task = None
         if self._registry is not None:
             await self._registry.stop_all()
         self._registry = None
-        self._relay = None
         self._session_mapper = None
         logger.info("Channels module stopped")
