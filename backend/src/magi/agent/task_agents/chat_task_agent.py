@@ -106,8 +106,15 @@ class ChatTaskAgent(
         background_launch_service: Any | None = None,
         permission_gateway_provider: Callable[[], Any] | None = None,
         control_session_store_provider: Callable[[], Any] | None = None,
+        channel_registry_resolver: Callable[[], Any] | None = None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
+        # Phase G+1: resolver returning the live ChannelRegistry (or None
+        # when channels aren't configured). Defaults to a helper that reads
+        # the runtime container; tests inject a callable to bypass it.
+        self._channel_registry_resolver = (
+            channel_registry_resolver or self._resolve_channel_registry
+        )
         self.llm = llm_adapter
         self._llm_pool = llm_pool
         self.memory = memory
@@ -272,6 +279,7 @@ class ChatTaskAgent(
             ExploreRenderHandler(handler_deps),
         ):
             self._handler_registry.register(handler)
+        _channel_registry = self._channel_registry_resolver()
         self._coordinator = ChatExecutionCoordinator(
             context_decider=self.context_decider,
             fact_classifier=self._fact_classifier,
@@ -279,7 +287,26 @@ class ChatTaskAgent(
             intent_trace_callback=self._postprocess_service.record_intent_resolution,
             tool_advisory_provider=self._get_tool_advisory,
             tool_selection_trace_callback=self._postprocess_service.record_tool_selection,
+            channel_registry=_channel_registry,
+            user_prefs_provider=self._read_delivery_prefs,
         )
+        # Phase G+1: back-fill the coordinator on the shared handler
+        # dependencies so DirectLLMHandler.execute() can route text_delta
+        # chunks via coordinator.dispatch_stream_chunk for multi-channel
+        # fanout. Handlers already constructed above retain ``self._deps``
+        # by reference, so mutating the dataclass here updates them in place.
+        handler_deps.coordinator = self._coordinator
+        # Phase G+1: when the channel registry is wired and chat_sse is
+        # registered, ChatSseChannel.deliver_chunk is the canonical writer
+        # of agent_response_chunk rows -- silence the legacy notifier path
+        # so the session-keyed chat UI poller does not render every chunk
+        # twice.
+        if _channel_registry is not None and self._chat_sse_channel_registered(
+            _channel_registry
+        ):
+            self._postprocess_service._runtime_notifier.set_delivery_router_active(
+                True
+            )
         self._last_batch_facts: list[FactRecord] = []
 
         # Keep these aliases so existing read paths and tests see the same underlying stores.
@@ -295,6 +322,64 @@ class ChatTaskAgent(
         via :meth:`ChatPostProcessService.deliver_background_task_completion`.
         """
         return self._postprocess_service
+
+    @staticmethod
+    def _chat_sse_channel_registered(registry: Any) -> bool:
+        """Return True when ``chat_sse`` is registered on the channel registry.
+
+        Used to decide whether the legacy ``ChatRuntimeNotifier`` stream
+        write must be silenced. ``ChannelRegistry.get`` returns the channel
+        or ``None``; any unexpected registry shape is treated as "not
+        registered" so the legacy path keeps working as a fallback.
+        """
+        try:
+            return registry.get("chat_sse") is not None
+        except Exception:
+            return False
+
+    @staticmethod
+    def _resolve_channel_registry() -> Any | None:
+        """Pull the live ChannelRegistry out of the runtime container.
+
+        Returns ``None`` when the container isn't initialized (test paths,
+        early bootstrap, or runtimes where channels are intentionally off)
+        so coordinator construction never fails. The coordinator falls back
+        to the legacy delivery path when the registry is ``None``.
+        """
+        try:
+            from ...core.container import get_container
+
+            context = get_container().runtime_bootstrap_context()
+        except Exception:
+            return None
+        # ``runtime_bootstrap_context`` is overridden during bootstrap with a
+        # real ``RuntimeBootstrapContext``. Before that, the provider returns
+        # a bare ``object()`` placeholder that has no ``channels`` attribute.
+        channels_state = getattr(context, "channels", None)
+        if channels_state is None:
+            return None
+        module = getattr(channels_state, "module", None)
+        if module is None:
+            return None
+        return getattr(module, "_registry", None)
+
+    @staticmethod
+    async def _read_delivery_prefs(user_id: str) -> dict[str, Any]:
+        """Pull this user's delivery-channel preferences from the config store.
+
+        Returns the shape ``resolve_delivery_targets`` expects:
+        ``{"delivery_channels": [<channel_id>, ...]}`` when the user has a
+        non-empty list configured, or ``{}`` otherwise so fanout defaults
+        safely to chat_sse-only delivery.
+
+        TODO(per-user): ``get_user_preference`` is process-wide today (single-
+        user model). When the per-user preferences store lands, key the lookup
+        by ``user_id`` instead of ignoring it.
+        """
+        channels = get_user_preference("delivery_channels", None)
+        if isinstance(channels, list) and channels:
+            return {"delivery_channels": list(channels)}
+        return {}
 
     async def _persist_turn_supersessions_from_handler(
         self,

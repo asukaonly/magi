@@ -138,20 +138,57 @@ class DirectLLMHandler(BaseExecutionHandler):
         if streaming_enabled:
             chunks: list[str] = []
             abort_reason: str | None = None
+            # Phase G+1: route each text_delta through
+            # coordinator.dispatch_stream_chunk so configured channels
+            # (chat SSE, telegram, etc.) receive the stream in parallel.
+            # ``seq`` is monotonic across delta + final boundary chunks.
+            coordinator = getattr(self._deps, "coordinator", None)
+            seq = 0
             try:
-                async for event in self._deps.prompt_service.call_llm_stream(
-                    system_prompt=request.system_prompt,
-                    messages=request.messages,
-                    thinking_depth=request.thinking_depth,
-                    event_context=event_context,
-                    control=control,
-                ):
-                    if event.kind == "text_delta" and event.text:
-                        chunks.append(event.text)
-            except CancellationRaised as exc:
-                abort_reason = f"cancel:{exc.reason or 'unknown'}"
-            except RetractRaised as exc:
-                abort_reason = f"retract:{(exc.payload.reason if exc.payload else None) or 'unknown'}"
+                try:
+                    async for event in self._deps.prompt_service.call_llm_stream(
+                        system_prompt=request.system_prompt,
+                        messages=request.messages,
+                        thinking_depth=request.thinking_depth,
+                        event_context=event_context,
+                        control=control,
+                    ):
+                        if event.kind == "text_delta" and event.text:
+                            chunks.append(event.text)
+                            if coordinator is not None:
+                                try:
+                                    await coordinator.dispatch_stream_chunk(
+                                        session_id=request.context.session_id,
+                                        user_id=request.context.user_id,
+                                        text=event.text,
+                                        is_final=False,
+                                        seq=seq,
+                                    )
+                                except Exception:
+                                    # Streaming dispatch errors must never
+                                    # interrupt the LLM loop — they're
+                                    # purely an additive delivery path.
+                                    pass
+                                seq += 1
+                except CancellationRaised as exc:
+                    abort_reason = f"cancel:{exc.reason or 'unknown'}"
+                except RetractRaised as exc:
+                    abort_reason = f"retract:{(exc.payload.reason if exc.payload else None) or 'unknown'}"
+            finally:
+                # Always emit one final boundary chunk so channels can
+                # close/flush — including when the stream was cancelled
+                # or retracted mid-way.
+                if coordinator is not None:
+                    try:
+                        await coordinator.dispatch_stream_chunk(
+                            session_id=request.context.session_id,
+                            user_id=request.context.user_id,
+                            text="",
+                            is_final=True,
+                            seq=seq,
+                        )
+                    except Exception:
+                        pass
             response_text = "".join(chunks)
             llm_trace_out = dict(llm_trace)
             if abort_reason:

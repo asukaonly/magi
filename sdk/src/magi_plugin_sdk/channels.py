@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from .delivery import DeliveryContent, DeliveryReceipt
+    from .delivery import DeliveryChunk, DeliveryContent, DeliveryReceipt
 
 
 @dataclass(slots=True)
@@ -237,6 +237,22 @@ class Channel(ABC):
             channel_id=target.channel_type,
             external_message_id=None,  # legacy channels have no native id
             delivered_at_ms=int(time.time() * 1000),
+        )
+
+    async def deliver_chunk(
+        self,
+        target: "ChannelTarget",
+        chunk: "DeliveryChunk",
+    ) -> None:
+        """Stream one fragment of a delivery.
+
+        Channels that opt into streaming via ``supports_streaming = True``
+        must override. Non-streaming channels see only the assembled content
+        via ``deliver()``; this default raises so silent drops cannot happen.
+        """
+        raise NotImplementedError(
+            f"Channel {type(self).__name__!s} did not implement deliver_chunk; "
+            "either set supports_streaming = False or override deliver_chunk."
         )
 
     async def revise(
