@@ -137,8 +137,15 @@ class OpenAIAdapter(LLMAdapter):
         )
 
         async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            # Some OpenAI-compatible providers emit chunks with an empty
+            # ``choices`` list — e.g. a final usage-only chunk (when
+            # stream_options.include_usage is set) or a keep-alive. Skip them
+            # instead of indexing ``[0]`` (which would IndexError).
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if delta and delta.content:
+                yield delta.content
 
     async def chat(
         self,
@@ -200,8 +207,15 @@ class OpenAIAdapter(LLMAdapter):
         )
 
         async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            # Some OpenAI-compatible providers emit chunks with an empty
+            # ``choices`` list — e.g. a final usage-only chunk (when
+            # stream_options.include_usage is set) or a keep-alive. Skip them
+            # instead of indexing ``[0]`` (which would IndexError).
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if delta and delta.content:
+                yield delta.content
 
     @property
     def model_name(self) -> str:
