@@ -6,12 +6,17 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from typing import TYPE_CHECKING
+
 from ....config.models import ThinkingDepth
 from ....llm.cancellable_client import CancellationRaised, RetractRaised
 from ....llm.streaming_events import LLMStreamEvent, emit_stream_event
 from ...cancel import CancelToken, null_cancel_token
 from ...run_control import RunControl
 from .types import ToolCallResult
+
+if TYPE_CHECKING:
+    from ....tools.context_routing import RouteDecision
 
 
 MAX_RUNTIME_STATUS_CHARS = 2_000
@@ -83,6 +88,7 @@ class FunctionCallingStepExecutor:
         llm_timeout_seconds: float | None = None,
         cancel_token: CancelToken | None = None,
         control: RunControl | None = None,
+        route_decision: "RouteDecision | None" = None,
     ) -> FunctionCallingStepOutcome:
         """Run one bounded loop iteration and return control to the caller."""
         token = cancel_token if cancel_token is not None else null_cancel_token()
@@ -233,6 +239,7 @@ class FunctionCallingStepExecutor:
                         orchestration_strategy=orchestration_strategy,
                         cancel_token=token,
                         recent_messages=state.messages,
+                        route_decision=route_decision,
                     )
                 tool_results.append(result)
                 if result.error_code == "CANCELLED" or await token.is_cancelled():

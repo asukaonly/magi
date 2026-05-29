@@ -304,3 +304,13 @@ def test_function_calling_handler_passes_context_control_to_orchestrator() -> No
         "to execute_with_tools; otherwise SessionRunCoordinator.request_retract "
         "cannot reach the FC orchestrator"
     )
+
+
+def test_function_calling_orchestrator_execute_with_tools_accepts_route_decision() -> None:
+    import inspect
+    from magi.agent.execution.function_calling import FunctionCallingOrchestrator
+
+    sig = inspect.signature(FunctionCallingOrchestrator.execute_with_tools)
+    assert "route_decision" in sig.parameters, (
+        "FunctionCallingOrchestrator.execute_with_tools must accept route_decision"
+    )

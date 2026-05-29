@@ -46,6 +46,7 @@ from .types import ExecutionOutcome
 
 if TYPE_CHECKING:
     from ....tools.registry import ToolRegistry
+    from ....tools.context_routing import RouteDecision
 
 logger = logging.getLogger(__name__)
 
@@ -346,6 +347,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         steer_inbox: SteerInbox | None = None,
         detach_signal: DetachSignal | None = None,
         control: RunControl | None = None,
+        route_decision: "RouteDecision | None" = None,
     ) -> ExecutionOutcome:
         """Execute with continuous tool calling.
 
@@ -386,6 +388,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 disable_thinking=disable_thinking,
                 final_response_json_mode=final_response_json_mode,
                 control=effective,
+                route_decision=route_decision,
             )
 
     async def _execute_with_tools_impl(
@@ -414,6 +417,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         disable_thinking: bool,
         final_response_json_mode: bool,
         control: RunControl,
+        route_decision: "RouteDecision | None" = None,
     ) -> ExecutionOutcome:
         state = self.build_step_state(
             turn=turn,
@@ -466,6 +470,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 llm_timeout_seconds=llm_timeout_seconds,
                 cancel_token=control.cancel_token,
                 control=control,
+                route_decision=route_decision,
             )
             if step_outcome.status == "aborted":
                 # CancellationRaised/RetractRaised was caught by step_executor.
