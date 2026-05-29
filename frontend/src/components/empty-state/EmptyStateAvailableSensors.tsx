@@ -116,6 +116,11 @@ export function EmptyStateAvailableSensors({
               titleKey={meta.titleKey}
               valueKey={meta.valueKey}
               iconId={meta.iconId}
+              connectLabelKey={
+                item.installed
+                  ? 'emptyState.connect'
+                  : 'emptyState.installAndConnect'
+              }
               onConnect={(pluginId) => {
                 // Install-first for registry-only items: download from the
                 // registry before opening the activation flow.

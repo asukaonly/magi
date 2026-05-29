@@ -7,6 +7,12 @@ export interface EmptyStateSensorCardProps {
   iconId?: string;
   onConnect: (pluginId: string) => void;
   disabled?: boolean;
+  /**
+   * i18n key for the connect button label. Defaults to `emptyState.connect`.
+   * Consumers pass `emptyState.installAndConnect` for plugins that aren't yet
+   * installed locally (registry install-first flow).
+   */
+  connectLabelKey?: string;
 }
 
 export function EmptyStateSensorCard({
@@ -16,6 +22,7 @@ export function EmptyStateSensorCard({
   iconId,
   onConnect,
   disabled,
+  connectLabelKey,
 }: EmptyStateSensorCardProps): JSX.Element {
   const { t } = useTranslation('onboarding');
   return (
@@ -45,7 +52,7 @@ export function EmptyStateSensorCard({
         disabled={disabled}
         className="self-start rounded-md bg-[#35261f] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-[#f4eadf] dark:text-[#35261f]"
       >
-        {t('emptyState.connect')}
+        {t(connectLabelKey ?? 'emptyState.connect')}
       </button>
     </div>
   );

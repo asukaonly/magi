@@ -41,6 +41,36 @@ describe('EmptyStateSensorCard', () => {
     expect(onConnect).toHaveBeenCalledWith('chrome-history');
   });
 
+  it('defaults the connect button label to emptyState.connect', () => {
+    render(
+      <EmptyStateSensorCard
+        pluginId="chrome-history"
+        titleKey="t"
+        valueKey="v"
+        onConnect={() => {}}
+      />,
+    );
+    expect(
+      screen.getByTestId('empty-state-connect-chrome-history'),
+    ).toHaveTextContent('emptyState.connect');
+  });
+
+  it('renders the connectLabelKey label when provided', () => {
+    render(
+      <EmptyStateSensorCard
+        pluginId="chrome-history"
+        titleKey="t"
+        valueKey="v"
+        onConnect={() => {}}
+        connectLabelKey="emptyState.installAndConnect"
+      />,
+    );
+    // The mocked `t` echoes the key, so the button text is the key itself.
+    expect(
+      screen.getByTestId('empty-state-connect-chrome-history'),
+    ).toHaveTextContent('emptyState.installAndConnect');
+  });
+
   it('renders disabled state when disabled prop is true', () => {
     render(
       <EmptyStateSensorCard

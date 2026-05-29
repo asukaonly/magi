@@ -75,6 +75,7 @@ export function SystemSuggestionSideCard({
                 titleKey={titleKey}
                 valueKey={valueKey}
                 iconId={meta?.iconId}
+                connectLabelKey={needsInstall ? 'emptyState.installAndConnect' : 'emptyState.connect'}
                 onConnect={(pluginId) => { void openDialog(pluginId, { install: needsInstall }); }}
               />
             </div>
