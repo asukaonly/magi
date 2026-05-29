@@ -41,11 +41,13 @@ interface DismissResponse {
 export async function checkSystemSuggestions(args: {
   text: string;
   locale: 'zh' | 'en';
+  sessionId?: string;
 }): Promise<SuggestionProposal[]> {
-  const response = await api.post<CheckResponse>(
-    '/system-suggestions/check',
-    args,
-  );
+  const response = await api.post<CheckResponse>('/system-suggestions/check', {
+    text: args.text,
+    locale: args.locale,
+    session_id: args.sessionId ?? 'default',
+  });
   return unwrapGatewayPayload(response).suggestions;
 }
 

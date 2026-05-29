@@ -9,13 +9,9 @@ The matcher is split into two reusable pure functions:
   into :class:`SuggestionProposal` objects, using LLM confidences when available
   and degrading to keyword-hit scoring when not.
 
-A later task wires an LLM classifier + throttle around these via an
-``engine.py``.
-
-NOTE: :func:`find_suggestions` is a thin backward-compat wrapper kept only so
-the existing ``system_suggestions_routes.py`` (and its tests) stay importable
-and green. Task B6 rewrites that route around the two functions above and
-should delete this wrapper.
+An LLM classifier + throttle are wired around these two functions via
+``engine.py`` (:func:`magi.system_suggestions.engine.run_suggestion_check`),
+which the ``/system-suggestions/check`` route calls directly.
 """
 
 from __future__ import annotations
@@ -142,28 +138,3 @@ def build_proposals(
         )
     proposals.sort(key=lambda p: p.confidence, reverse=True)
     return proposals
-
-
-def find_suggestions(
-    *,
-    recent_text: str,
-    locale: str,
-    plugin_manifests: Iterable[PluginManifest],
-    is_available: Callable[[str], bool],
-    is_dismissed: Callable[[str], bool],
-) -> list[SuggestionProposal]:
-    """DEPRECATED keyword-only matcher kept for backward compatibility.
-
-    Thin wrapper over :func:`candidate_categories` + :func:`build_proposals`
-    (keyword-degrade path). Retained only so the legacy
-    ``system_suggestions_routes.py`` stays importable; Task B6 rewrites the
-    route around the two functions above and should delete this wrapper.
-    """
-    candidates = candidate_categories(
-        recent_text=recent_text,
-        locale=locale,
-        plugin_manifests=plugin_manifests,
-        is_available=is_available,
-        is_dismissed=is_dismissed,
-    )
-    return build_proposals(candidates, confidences=None)

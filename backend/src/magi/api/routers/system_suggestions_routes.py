@@ -43,13 +43,19 @@ from magi.api.routers.system_suggestions_schemas import (
     DismissRequest,
     DismissResponse,
 )
-from magi.system_suggestions.matcher import find_suggestions
+from magi.system_suggestions.engine import ClassifyFn, run_suggestion_check
+from magi.system_suggestions.throttle import SuggestionThrottle
 from magi_plugin_sdk.contracts import PluginManifest
 
 ListManifestsDep = Callable[[], Callable[[], list[PluginManifest]]]
 IsAvailableDep = Callable[[], Callable[[str], bool]]
 IsDismissedDep = Callable[[], Callable[[str], bool]]
 RecordDismissalDep = Callable[[], Callable[[str, str], None]]
+ClassifyDep = Callable[[], ClassifyFn]
+
+# Process-wide throttle: avoids re-running the LLM classifier on every /check.
+# State is keyed by session_id; resets on worker restart.
+_THROTTLE = SuggestionThrottle(reclassify_after=3)
 
 
 def build_default_system_suggestions_router(
@@ -58,6 +64,7 @@ def build_default_system_suggestions_router(
     is_available_dep: IsAvailableDep,
     is_dismissed_dep: IsDismissedDep,
     record_dismissal_dep: RecordDismissalDep,
+    classify_dep: ClassifyDep,
 ) -> APIRouter:
     """Construct the router given dependency callables.
 
@@ -69,15 +76,15 @@ def build_default_system_suggestions_router(
 
     @router.post("/system-suggestions/check", response_model=CheckResponse)
     async def check(request: CheckRequest) -> CheckResponse:
-        list_manifests = list_manifests_dep()
-        is_available = is_available_dep()
-        is_dismissed = is_dismissed_dep()
-        proposals = find_suggestions(
+        proposals = await run_suggestion_check(
             recent_text=request.text,
             locale=request.locale,
-            plugin_manifests=list_manifests(),
-            is_available=is_available,
-            is_dismissed=is_dismissed,
+            session_id=request.session_id,
+            plugin_manifests=list_manifests_dep()(),
+            is_available=is_available_dep(),
+            is_dismissed=is_dismissed_dep(),
+            classify=classify_dep(),
+            throttle=_THROTTLE,
         )
         return CheckResponse(suggestions=proposals)
 
@@ -212,6 +219,13 @@ def _default_record_dismissal() -> Callable[[str, str], None]:
     return _record
 
 
+def _default_classify() -> ClassifyFn:
+    """Return the production async classifier (core-model batch classify)."""
+    from magi.system_suggestions.llm_classifier import classify_with_core_model
+
+    return classify_with_core_model
+
+
 def _build_production_system_suggestions_router() -> APIRouter:
     """Construct the router wired to live plugin manager + config + resolver."""
     return build_default_system_suggestions_router(
@@ -219,6 +233,7 @@ def _build_production_system_suggestions_router() -> APIRouter:
         is_available_dep=_default_is_available,
         is_dismissed_dep=_default_is_dismissed,
         record_dismissal_dep=_default_record_dismissal,
+        classify_dep=_default_classify,
     )
 
 

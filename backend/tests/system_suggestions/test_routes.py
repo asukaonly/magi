@@ -34,6 +34,10 @@ def app_with_suggestions(make_manifest_fixture):
     def record_dismissal(dedupe_key: str, kind: str) -> None:
         dismissals[dedupe_key] = kind
 
+    async def fake_classify(recent_text, candidates, locale):
+        # High confidence for every gated candidate so build_proposals keeps it.
+        return {c["category"]: 0.9 for c in candidates}
+
     app = FastAPI()
     app.include_router(
         build_default_system_suggestions_router(
@@ -41,6 +45,7 @@ def app_with_suggestions(make_manifest_fixture):
             is_available_dep=lambda: is_available,
             is_dismissed_dep=lambda: is_dismissed,
             record_dismissal_dep=lambda: record_dismissal,
+            classify_dep=lambda: fake_classify,
         ),
     )
     return app, dismissals
@@ -51,12 +56,14 @@ def test_post_check_returns_suggestion_for_matching_text(app_with_suggestions) -
     client = TestClient(app)
     response = client.post(
         "/system-suggestions/check",
-        json={"text": "我看了什么浏览", "locale": "zh"},
+        json={"text": "我看了什么浏览", "locale": "zh", "session_id": "s-match"},
     )
     assert response.status_code == 200
     data = response.json()
     assert len(data["suggestions"]) == 1
     assert data["suggestions"][0]["category"] == "browser_history"
+    # Confidence now comes from the (fake) LLM classifier, not keyword hits.
+    assert data["suggestions"][0]["confidence"] == 0.9
 
 
 def test_post_check_returns_empty_for_no_match(app_with_suggestions) -> None:
@@ -64,7 +71,7 @@ def test_post_check_returns_empty_for_no_match(app_with_suggestions) -> None:
     client = TestClient(app)
     response = client.post(
         "/system-suggestions/check",
-        json={"text": "random unrelated", "locale": "zh"},
+        json={"text": "random unrelated", "locale": "zh", "session_id": "s-nomatch"},
     )
     assert response.status_code == 200
     assert response.json() == {"suggestions": []}
@@ -107,15 +114,17 @@ def test_post_check_filters_dismissed_after_dismiss(app_with_suggestions) -> Non
     client = TestClient(app)
     response = client.post(
         "/system-suggestions/check",
-        json={"text": "我看了什么浏览", "locale": "zh"},
+        json={"text": "我看了什么浏览", "locale": "zh", "session_id": "s-dismiss"},
     )
     assert len(response.json()["suggestions"]) == 1
     client.post(
         "/system-suggestions/dismiss",
         json={"dedupe_key": "browser_history", "kind": "explicit"},
     )
+    # After dismissal the keyword gate yields no candidates, so the engine
+    # short-circuits before the throttle cache is consulted.
     response = client.post(
         "/system-suggestions/check",
-        json={"text": "我看了什么浏览", "locale": "zh"},
+        json={"text": "我看了什么浏览", "locale": "zh", "session_id": "s-dismiss"},
     )
     assert response.json() == {"suggestions": []}
