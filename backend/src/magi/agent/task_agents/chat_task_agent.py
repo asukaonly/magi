@@ -287,6 +287,7 @@ class ChatTaskAgent(
             tool_advisory_provider=self._get_tool_advisory,
             tool_selection_trace_callback=self._postprocess_service.record_tool_selection,
             channel_registry=self._channel_registry_resolver(),
+            user_prefs_provider=self._read_delivery_prefs,
         )
         # Phase G+1: back-fill the coordinator on the shared handler
         # dependencies so DirectLLMHandler.execute() can route text_delta
@@ -335,6 +336,24 @@ class ChatTaskAgent(
         if module is None:
             return None
         return getattr(module, "_registry", None)
+
+    @staticmethod
+    async def _read_delivery_prefs(user_id: str) -> dict[str, Any]:
+        """Pull this user's delivery-channel preferences from the config store.
+
+        Returns the shape ``resolve_delivery_targets`` expects:
+        ``{"delivery_channels": [<channel_id>, ...]}`` when the user has a
+        non-empty list configured, or ``{}`` otherwise so fanout defaults
+        safely to chat_sse-only delivery.
+
+        TODO(per-user): ``get_user_preference`` is process-wide today (single-
+        user model). When the per-user preferences store lands, key the lookup
+        by ``user_id`` instead of ignoring it.
+        """
+        channels = get_user_preference("delivery_channels", None)
+        if isinstance(channels, list) and channels:
+            return {"delivery_channels": list(channels)}
+        return {}
 
     async def _persist_turn_supersessions_from_handler(
         self,
