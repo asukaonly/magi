@@ -19,6 +19,7 @@ from magi.agent.orchestration import (
 from magi.agent.task_agents.chat.history_service import ChatHistoryService
 from magi.agent.task_agents.chat import ExecutionMode, ExecutionRequest, IntentDecision, OrchestrationPlan, ToolSelection
 from magi.agent.task_agents.chat import planning_service as planning_service_module
+from magi.tools.context_routing import RouteDecision
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
 from magi.agent.task_agents.explore_task_agent import EXPLORE_TASK_COMPLETED
 from magi.agent.runtime.contracts import FactRecord
@@ -665,11 +666,10 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
             intent="repo_analysis",
             difficulty="normal",
             execution_mode=ExecutionMode.ORCHESTRATION_LAUNCH,
-            orchestration_plan=OrchestrationPlan(
-                mode="decompose",
-                planner="task_agent",
-                default_leaf_type="general-purpose",
-                allow_parallel=True,
+            route_decision=RouteDecision(
+                profile="research",
+                graph_shape="plan_fanout",
+                complexity="large",
             ),
         ),
         tool_selection=ToolSelection(),
@@ -959,12 +959,10 @@ async def test_chat_task_agent_routes_large_explore_to_explore_task_agent(monkey
             intent="repo_analysis",
             difficulty="normal",
             execution_mode=ExecutionMode.ORCHESTRATION_LAUNCH,
-            orchestration_plan=OrchestrationPlan(
-                mode="decompose",
-                planner="task_agent",
-                default_leaf_type="CodeExplore",
-                allow_parallel=True,
-                route_to_explore_task_agent=True,
+            route_decision=RouteDecision(
+                profile="explore",
+                graph_shape="plan_fanout",
+                complexity="large",
             ),
         ),
         tool_selection=ToolSelection(),

@@ -27,7 +27,6 @@ from ..common import (
     ExecutionHandlerRegistry,
     ExecutionRequest,
     IncomingFactKind,
-    OrchestrationPlan,
     ToolSelection,
 )
 from .contracts import (
@@ -38,6 +37,10 @@ from .contracts import (
     TraceDisplayMode,
     TurnUXPlan,
 )
+from ...run.nodes.plan_fanout import PlanFanoutNode
+from ...run.nodes.reply import ReplyNode
+from ...run.nodes.tool_loop import ToolLoopNode
+from ...run.registry import NodeRegistry
 from .attachment_context import resolve_effective_turn_attachments
 from .fact_classifier import ChatFactClassifier
 
@@ -147,6 +150,22 @@ class ChatExecutionCoordinator:
             else None
         )
         self._tool_advisory_reranker = ToolAdvisoryReranker()
+        # Phase C: parallel NodeRegistry for user-message paths keyed
+        # by RouteDecision.graph_shape. The legacy handler_registry
+        # remains responsible for non-route paths (ORCHESTRATION_UPDATE,
+        # EXPLORE_TASK_RENDER, FACT_ONLY).
+        self._node_registry = NodeRegistry()
+        _direct_llm = handler_registry._handlers.get(ExecutionMode.DIRECT_LLM)
+        _function_calling = handler_registry._handlers.get(ExecutionMode.FUNCTION_CALLING)
+        _orchestration_launch = handler_registry._handlers.get(ExecutionMode.ORCHESTRATION_LAUNCH)
+        if _direct_llm is not None:
+            self._node_registry.register(ReplyNode(direct_llm_handler=_direct_llm))
+        if _function_calling is not None:
+            self._node_registry.register(ToolLoopNode(function_calling_handler=_function_calling))
+        if _orchestration_launch is not None:
+            self._node_registry.register(
+                PlanFanoutNode(orchestration_launch_handler=_orchestration_launch)
+            )
 
     async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
         planner_fact_kind = (
@@ -165,7 +184,7 @@ class ChatExecutionCoordinator:
                     user_message=context.latest_user_message,
                     execution_mode=ExecutionMode.ORCHESTRATION_UPDATE,
                     tools=[],
-                    orchestration_plan=None,
+                    route_decision=None,
                 ),
             )
         if planner_fact_kind == IncomingFactKind.EXPLORE_TASK_COMPLETED:
@@ -178,7 +197,7 @@ class ChatExecutionCoordinator:
                     user_message=context.latest_user_message,
                     execution_mode=ExecutionMode.EXPLORE_TASK_RENDER,
                     tools=[],
-                    orchestration_plan=None,
+                    route_decision=None,
                 ),
             )
         if planner_fact_kind == IncomingFactKind.OTHER_FACT:
@@ -191,7 +210,7 @@ class ChatExecutionCoordinator:
                     user_message=context.latest_user_message,
                     execution_mode=ExecutionMode.FACT_ONLY,
                     tools=[],
-                    orchestration_plan=None,
+                    route_decision=None,
                 ),
             )
 
@@ -237,11 +256,7 @@ class ChatExecutionCoordinator:
         decision = await self._context_decider.decide(context.latest_user_message, decision_context)
         force_direct_external = self._should_force_direct_external_plan(
             user_message=context.latest_user_message,
-            strategy=decision.to_legacy_strategy_dict(),  # adapter — Phase C will drop this once handlers read RouteDecision directly
-        )
-        orchestration_plan = self._build_orchestration_plan_from_route(
-            user_message=context.latest_user_message,
-            decision=decision,
+            strategy=decision.to_legacy_strategy_dict(),
         )
         effective_attachments = resolve_effective_turn_attachments(context)
         has_image_attachments = any(
@@ -268,7 +283,7 @@ class ChatExecutionCoordinator:
             if has_image_attachments
             else (
                 ExecutionMode.ORCHESTRATION_LAUNCH
-                if orchestration_plan.mode == "decompose"
+                if decision.graph_shape == "plan_fanout" and not force_direct_external
                 else ExecutionMode.FUNCTION_CALLING if selected_tools else ExecutionMode.DIRECT_LLM
             )
         )
@@ -285,13 +300,12 @@ class ChatExecutionCoordinator:
                 user_message=context.latest_user_message,
                 execution_mode=execution_mode,
                 tools=selected_tools,
-                orchestration_plan=orchestration_plan,
+                route_decision=decision,
             ),
             tools=selected_tools,
             llm_trace=dict(getattr(decision, "llm_trace", {}) or {}),
             thinking_depth=decision.thinking_depth,
             reasoning=str(decision.reasoning),
-            orchestration_plan=orchestration_plan,
             memory_route=str(getattr(decision, "memory_route", "none") or "none"),
             task_hint=self._resolve_runtime_task_hint(
                 user_message=context.latest_user_message,
@@ -363,99 +377,21 @@ class ChatExecutionCoordinator:
         return await handler.build_request(request)
 
     async def execute(self, request: ExecutionRequest):
+        # Phase C: dispatch user-message paths via the NodeRegistry when a
+        # graph_shape is present on the route decision. Non-route paths
+        # (worker updates, explore renders, fact-only) fall through to the
+        # legacy ExecutionHandlerRegistry.
+        route_decision = getattr(request.intent, "route_decision", None)
+        if route_decision is not None:
+            node = self._node_registry.get(route_decision.graph_shape)
+            if node is not None:
+                node_result = await node.execute(request)
+                if node_result.execution_result is not None:
+                    return node_result.execution_result
+                # FAILED outcome with no execution_result: fall back to the
+                # legacy handler so the existing error path runs.
         handler = self._handler_registry.get(request.mode)
         return await handler.execute(request)
-
-    def _normalize_orchestration_plan(
-        self,
-        *,
-        user_message: str,
-        strategy: dict[str, Any],
-    ) -> OrchestrationPlan:
-        plan = OrchestrationPlan(
-            mode=str(strategy.get("mode", "direct") or "direct"),
-            planner=str(strategy.get("planner", "task_agent") or "task_agent"),
-            default_leaf_type=str(
-                strategy.get("default_leaf_type", "CodeExplore") or "CodeExplore"
-            ),
-            allow_parallel=bool(strategy.get("allow_parallel", True)),
-            route_to_explore_task_agent=False,
-        )
-        if self._should_force_direct_external_plan(
-            user_message=user_message,
-            strategy=strategy,
-        ):
-            plan.mode = "direct"
-            plan.planner = "task_agent"
-            plan.default_leaf_type = "general-purpose"
-            plan.allow_parallel = False
-            plan.route_to_explore_task_agent = False
-            return plan
-        if plan.mode == "decompose" and plan.default_leaf_type == "CodeExplore":
-            lowered = user_message.lower()
-            plan.route_to_explore_task_agent = any(
-                keyword in lowered
-                for keyword in [
-                    "architecture",
-                    "codebase",
-                    "repo",
-                    "跨模块",
-                    "跨子系统",
-                    "代码架构",
-                    "项目架构",
-                    "代码库",
-                    "目录结构",
-                ]
-            )
-        return plan
-
-    def _build_orchestration_plan_from_route(
-        self,
-        *,
-        user_message: str,
-        decision: RouteDecision,
-    ) -> OrchestrationPlan:
-        """Translate RouteDecision into the existing OrchestrationPlan dataclass.
-
-        The OrchestrationPlan dataclass remains in use through Phase B — it
-        feeds OrchestrationLaunchHandler. Phase C deletes the legacy adapter
-        path once the handler reads RouteDecision directly.
-        """
-        mode = "decompose" if decision.graph_shape == "plan_fanout" else "direct"
-        if decision.profile == "coding" or decision.may_write:
-            default_leaf_type = "Coding"
-        elif decision.profile == "explore":
-            default_leaf_type = "CodeExplore"
-        else:
-            default_leaf_type = "general-purpose"
-        plan = OrchestrationPlan(
-            mode=mode,
-            planner="task_agent",
-            default_leaf_type=default_leaf_type,
-            allow_parallel=mode == "decompose",
-            route_to_explore_task_agent=False,
-        )
-        # Preserve the existing keyword-based explore routing detection
-        # since Phase B does not refactor the explore handoff yet.
-        if plan.mode == "decompose" and plan.default_leaf_type == "CodeExplore":
-            lowered = user_message.lower()
-            plan.route_to_explore_task_agent = any(
-                keyword in lowered
-                for keyword in [
-                    "architecture", "codebase", "repo", "repository", "source",
-                    "代码", "代码库", "仓库", "源码",
-                ]
-            )
-        if self._should_force_direct_external_plan(
-            user_message=user_message,
-            strategy=decision.to_legacy_strategy_dict(),
-        ):
-            plan.mode = "direct"
-            plan.planner = "task_agent"
-            plan.default_leaf_type = "general-purpose"
-            plan.allow_parallel = False
-            plan.route_to_explore_task_agent = False
-        return plan
 
     @staticmethod
     def _should_force_direct_external_plan(
@@ -598,7 +534,7 @@ class ChatExecutionCoordinator:
         user_message: str,
         execution_mode: ExecutionMode,
         tools: list[str],
-        orchestration_plan: OrchestrationPlan | None,
+        route_decision: RouteDecision | None = None,
     ) -> TurnUXPlan:
         normalized_message = str(user_message or "").strip().lower()
         if execution_mode == ExecutionMode.FACT_ONLY:
@@ -629,7 +565,9 @@ class ChatExecutionCoordinator:
             )
         if execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH:
             is_explore = bool(
-                orchestration_plan is not None and orchestration_plan.route_to_explore_task_agent
+                route_decision is not None
+                and route_decision.profile == "explore"
+                and route_decision.graph_shape == "plan_fanout"
             )
             interim_text = self._resolve_interim_text(
                 mode_key="explore_task" if is_explore else "orchestration_launch",

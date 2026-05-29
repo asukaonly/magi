@@ -107,7 +107,6 @@ def _make_request(context: ChatRuntimeContext) -> FunctionCallingRequest:
             difficulty="normal",
             execution_mode=ExecutionMode.FUNCTION_CALLING,
             reasoning="tool use",
-            orchestration_plan=OrchestrationPlan(),
         ),
         tool_selection=ToolSelection(tools=["memory_query"], reasoning="tool use"),
         prompt_context=SimpleNamespace(runtime_system=SimpleNamespace(cwd="/tmp/magi")),

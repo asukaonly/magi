@@ -328,7 +328,6 @@ class BaseIntentDecision:
     intent: str
     execution_mode: ExecutionMode
     reasoning: str = ""
-    orchestration_plan: Optional[OrchestrationPlan] = None
     route_decision: RouteDecision | None = None
 
 

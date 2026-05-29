@@ -236,8 +236,8 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                     execution_agent_id=request.context.runtime_key,
                     execution_workspace=execution_workspace,
                     orchestration_strategy=(
-                        request.intent.orchestration_plan.to_strategy_dict()
-                        if request.intent.orchestration_plan is not None
+                        request.intent.route_decision.to_legacy_strategy_dict()
+                        if request.intent.route_decision is not None
                         else None
                     ),
                     control=control,
@@ -372,8 +372,8 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                     execution_agent_id=request.context.runtime_key,
                     execution_workspace=execution_workspace,
                     orchestration_strategy=(
-                        request.intent.orchestration_plan.to_strategy_dict()
-                        if request.intent.orchestration_plan is not None
+                        request.intent.route_decision.to_legacy_strategy_dict()
+                        if request.intent.route_decision is not None
                         else None
                     ),
                     cancel_token=cancel_token,
@@ -541,8 +541,8 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                 execution_agent_id=request.context.runtime_key,
                 execution_workspace=execution_workspace,
                 orchestration_strategy=(
-                    request.intent.orchestration_plan.to_strategy_dict()
-                    if request.intent.orchestration_plan is not None
+                    request.intent.route_decision.to_legacy_strategy_dict()
+                    if request.intent.route_decision is not None
                     else None
                 ),
                 llm_timeout_seconds=None,

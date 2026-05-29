@@ -84,3 +84,17 @@ async def test_plan_callback_aborts_on_retract() -> None:
     )
 
     assert result.retracted is True
+
+
+def test_orchestration_launch_handler_no_longer_uses_orchestration_plan_to_strategy_dict() -> None:
+    """Phase C cleanup: OrchestrationLaunchHandler.execute reads
+    request.intent.route_decision directly to derive
+    orchestration_strategy, dropping the OrchestrationPlan adapter."""
+    import inspect
+
+    from magi.agent.task_agents.common.handlers import OrchestrationLaunchHandler
+
+    src = inspect.getsource(OrchestrationLaunchHandler)
+    assert "orchestration_plan.to_strategy_dict()" not in src, (
+        "OrchestrationLaunchHandler must consume route_decision directly"
+    )

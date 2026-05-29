@@ -134,7 +134,6 @@ async def test_guidance_attached_when_memory_route_explicit_query():
                 difficulty="normal",
                 execution_mode=ExecutionMode.FUNCTION_CALLING,
                 reasoning="recall",
-                orchestration_plan=OrchestrationPlan(),
                 memory_route="explicit_query",
             ),
             tool_selection=ToolSelection(
@@ -172,7 +171,6 @@ async def test_guidance_attached_when_memory_query_selected_but_route_is_none():
                 difficulty="normal",
                 execution_mode=ExecutionMode.FUNCTION_CALLING,
                 reasoning="tool use",
-                orchestration_plan=OrchestrationPlan(),
                 memory_route="none",
             ),
             tool_selection=ToolSelection(
@@ -211,7 +209,6 @@ async def test_guidance_not_attached_when_memory_query_not_selected():
                 difficulty="normal",
                 execution_mode=ExecutionMode.FUNCTION_CALLING,
                 reasoning="search",
-                orchestration_plan=OrchestrationPlan(),
                 memory_route="explicit_query",
             ),
             tool_selection=ToolSelection(

@@ -144,8 +144,9 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
     decision = await coordinator.match_intent(context)
 
     assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
-    assert decision.orchestration_plan is not None
-    assert decision.orchestration_plan.route_to_explore_task_agent is True
+    assert decision.route_decision is not None
+    assert decision.route_decision.profile == "explore"
+    assert decision.route_decision.graph_shape == "plan_fanout"
     assert trace_recorder.calls == [
         {
             "user_id": "u-chat",
@@ -206,8 +207,8 @@ async def test_coordinator_keeps_bounded_external_plan_in_direct_web_tools() -> 
     decision = await coordinator.match_intent(context)
 
     assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
-    assert decision.orchestration_plan is not None
-    assert decision.orchestration_plan.mode == "direct"
+    assert decision.route_decision is not None
+    # force_direct_external overrides the plan_fanout graph_shape → FUNCTION_CALLING
     assert "agent" not in decision.tools
     assert "web-search" in decision.tools
 
@@ -258,8 +259,8 @@ async def test_coordinator_allows_explicit_external_research_decomposition() -> 
     decision = await coordinator.match_intent(context)
 
     assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
-    assert decision.orchestration_plan is not None
-    assert decision.orchestration_plan.mode == "decompose"
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "plan_fanout"
     assert "agent" in decision.tools
 
 
@@ -748,9 +749,9 @@ async def test_coordinator_routes_complex_news_to_generic_orchestration_without_
     decision = await coordinator.match_intent(context)
 
     assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
-    assert decision.orchestration_plan is not None
-    assert decision.orchestration_plan.default_leaf_type == "general-purpose"
-    assert decision.orchestration_plan.route_to_explore_task_agent is False
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "plan_fanout"
+    assert decision.route_decision.profile != "explore"
 
 
 @pytest.mark.asyncio
