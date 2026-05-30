@@ -56,15 +56,7 @@ describe('SystemSuggestionSideCard', () => {
     expect(screen.getAllByTestId('system-suggestion-side-card-row')).toHaveLength(1);
   });
 
-  it('renders multi-sibling layout with one row per installable plugin (unavailable hidden)', () => {
-    mockUseAvailability.mockReturnValue({
-      entries: [
-        { plugin_id: 'chrome-history', available: true, reason: 'available', detail: null, checked_at: 'now' },
-        { plugin_id: 'safari-history', available: true, reason: 'available', detail: null, checked_at: 'now' },
-        { plugin_id: 'arc-history', available: false, reason: 'app_not_installed', detail: null, checked_at: 'now' },
-      ],
-      byId: {}, loading: false, error: null, refresh: vi.fn(),
-    });
+  it('renders one row per plugin in the proposal (backend already availability-filtered)', () => {
     render(
       <SystemSuggestionSideCard
         proposal={multiProposal}
@@ -73,7 +65,9 @@ describe('SystemSuggestionSideCard', () => {
         onActivated={() => {}}
       />,
     );
-    expect(screen.getAllByTestId('system-suggestion-side-card-row')).toHaveLength(2);
+    expect(screen.getAllByTestId('system-suggestion-side-card-row')).toHaveLength(
+      multiProposal.plugin_ids.length,
+    );
   });
 
   it('invokes onDecline when "先不用" is clicked', async () => {
