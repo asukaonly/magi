@@ -129,4 +129,36 @@ describe('PluginActivationDialog', () => {
     await user.click(screen.getByRole('button', { name: /cancel|关闭|取消/i }));
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  it('seeds field defaults so a dependent field is visible on open', () => {
+    // A select defaulting to "lookback_days" + a number field shown only when
+    // the scope equals "lookback_days". Without default-seeding, values starts
+    // empty and the dependent field stays hidden.
+    const scopeField: ExtensionFieldSpec = {
+      key: 'scope', type: 'select', label: 'First Sync Scope', description: '',
+      default: 'lookback_days', required: false, section: 'activation', surface: 'timeline', order: 1,
+      options: [
+        { label: 'Full', value: 'full' },
+        { label: 'Recent days', value: 'lookback_days' },
+      ],
+    };
+    const daysField: ExtensionFieldSpec = {
+      key: 'days', type: 'number', label: 'Recent Days', description: '',
+      default: 7, required: false, options: [], section: 'activation', surface: 'timeline', order: 2,
+      depends_on_key: 'scope', depends_on_values: ['lookback_days'],
+    };
+    const condFlow: ActivationFlowSpec = {
+      ...fakeFlow, fields: [scopeField, daysField],
+    };
+    render(
+      <PluginActivationDialog
+        open={true}
+        onClose={() => {}}
+        flow={condFlow}
+        initialValues={{}}
+        onConfirm={async () => {}}
+      />,
+    );
+    expect(screen.getByText(/Recent Days/)).toBeInTheDocument();
+  });
 });

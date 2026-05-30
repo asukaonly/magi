@@ -191,6 +191,7 @@
     "heading": "Let me see your activity",
     "connect": "Connect",
     "installAndConnect": "Install & connect",
+    "installing": "Installing…",
     "plugins": {
       "chromeHistory": {
         "title": "Chrome history",

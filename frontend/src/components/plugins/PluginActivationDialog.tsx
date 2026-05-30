@@ -75,6 +75,27 @@ export interface PluginActivationDialogProps {
   pluginId?: string;
 }
 
+/**
+ * Seed the form state from each field's `default`, then overlay any caller
+ * `initialValues`. Without this the values map starts empty, so a field whose
+ * visibility depends on another field's value (e.g. the "recent days" input,
+ * shown only when the scope select equals "lookback_days") never appears —
+ * even though the select *displays* its default option, the underlying value
+ * the dependency check reads is still undefined.
+ */
+const seedValues = (
+  flow: ActivationFlowSpec,
+  initialValues: Record<string, unknown>,
+): Record<string, unknown> => {
+  const seed: Record<string, unknown> = {};
+  for (const field of flow.fields) {
+    if (field.default !== undefined && field.default !== null) {
+      seed[field.key] = field.default;
+    }
+  }
+  return { ...seed, ...initialValues };
+};
+
 export const PluginActivationDialog: React.FC<PluginActivationDialogProps> = ({
   open,
   onClose,
@@ -83,17 +104,19 @@ export const PluginActivationDialog: React.FC<PluginActivationDialogProps> = ({
   onConfirm,
   pluginId,
 }) => {
-  const [values, setValues] = useState<Record<string, unknown>>(initialValues);
+  const [values, setValues] = useState<Record<string, unknown>>(() =>
+    seedValues(flow, initialValues),
+  );
   const [submitting, setSubmitting] = useState(false);
 
   // Re-seed local state every time the dialog (re)opens so a stale draft from
   // a previous activation does not leak across opens.
   useEffect(() => {
     if (open) {
-      setValues(initialValues);
+      setValues(seedValues(flow, initialValues));
       setSubmitting(false);
     }
-  }, [open, initialValues]);
+  }, [open, flow, initialValues]);
 
   const allRequiredSatisfied = useMemo(
     () => flow.fields.every((field) => isFieldSatisfied(field, values[field.key])),

@@ -68,7 +68,7 @@ export function EmptyStateAvailableSensors({
 
   const { items, loading, refresh } = useInstallableSensors();
 
-  const { dialogState, openDialog, closeDialog, confirm } = usePluginActivation({
+  const { dialogState, installingPluginId, openDialog, closeDialog, confirm } = usePluginActivation({
     onSuccess: async (pluginId) => {
       await refresh();
       onActivated?.(pluginId);
@@ -100,7 +100,7 @@ export function EmptyStateAvailableSensors({
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-medium text-[#35261f] dark:text-[#f4eadf]">
+      <h3 className="text-sm font-medium text-foreground">
         {t('emptyState.heading')}
       </h3>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -109,6 +109,7 @@ export function EmptyStateAvailableSensors({
           if (!meta) {
             return null;
           }
+          const isInstalling = installingPluginId === item.plugin_id;
           return (
             <EmptyStateSensorCard
               key={item.plugin_id}
@@ -116,10 +117,13 @@ export function EmptyStateAvailableSensors({
               titleKey={meta.titleKey}
               valueKey={meta.valueKey}
               iconId={meta.iconId}
+              disabled={isInstalling}
               connectLabelKey={
-                item.installed
-                  ? 'emptyState.connect'
-                  : 'emptyState.installAndConnect'
+                isInstalling
+                  ? 'emptyState.installing'
+                  : item.installed
+                    ? 'emptyState.connect'
+                    : 'emptyState.installAndConnect'
               }
               onConnect={(pluginId) => {
                 // Install-first for registry-only items: download from the
