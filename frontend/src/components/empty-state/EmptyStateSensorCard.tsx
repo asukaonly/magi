@@ -19,7 +19,9 @@ export function EmptyStateSensorCard({
   pluginId,
   titleKey,
   valueKey,
-  iconId,
+  // `iconId` is intentionally accepted-but-unused: plugins don't ship real
+  // icons yet, so the placeholder slot was removed. Kept on the props so
+  // callers (and forward-compat) don't break.
   onConnect,
   disabled,
   connectLabelKey,
