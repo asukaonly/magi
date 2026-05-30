@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAvailability } from '../../hooks/useAvailability';
 import { usePluginActivation } from '../../hooks/usePluginActivation';
 import { EmptyStateSensorCard } from '../empty-state/EmptyStateSensorCard';
 import { PluginActivationDialog } from '../plugins/PluginActivationDialog';
@@ -21,16 +20,18 @@ export function SystemSuggestionSideCard({
   onActivated,
 }: SystemSuggestionSideCardProps): JSX.Element {
   const { t, i18n } = useTranslation('onboarding');
-  const { entries, refresh } = useAvailability(proposal.plugin_ids);
   const locale = i18n.language === 'zh-CN' || i18n.language === 'zh' ? 'zh' : 'en';
   const rationale = proposal.rationale[locale] ?? proposal.rationale.en;
 
+  // The backend already filtered the proposal's plugins by availability, so we
+  // render a row for each plugin directly (no client-side availability re-probe
+  // — that probe only resolves *installed* plugins and would wrongly hide
+  // not-yet-installed suggestions). `activated` hides a row after success.
   const [activated, setActivated] = useState<Set<string>>(new Set());
-  const installable = entries.filter((e) => e.available && !activated.has(e.plugin_id));
+  const visiblePluginIds = proposal.plugin_ids.filter((pid) => !activated.has(pid));
 
   const { dialogState, openDialog, closeDialog, confirm } = usePluginActivation({
-    onSuccess: async (pluginId) => {
-      await refresh();
+    onSuccess: (pluginId) => {
       onActivated(pluginId);
       setActivated((prev) => new Set(prev).add(pluginId));
     },
@@ -57,26 +58,20 @@ export function SystemSuggestionSideCard({
       <p className="mt-2 text-xs text-muted-foreground">{rationale}</p>
 
       <div className="mt-3 space-y-2">
-        {installable.map((entry) => {
-          const meta = getEmptyStatePluginMeta(entry.plugin_id);
-          // Safe fallback when plugin isn't in Plan 3's priority list — use
-          // plain plugin_id as title and connect copy as value.
+        {visiblePluginIds.map((pluginId) => {
+          const meta = getEmptyStatePluginMeta(pluginId);
           const titleKey = meta?.titleKey ?? 'emptyState.connect';
           const valueKey = meta?.valueKey ?? 'emptyState.connect';
-          // Plugins listed in installable_plugin_ids are not yet installed
-          // locally — take the install-first branch (download from registry,
-          // then open the activation dialog). Already-installed plugins
-          // activate directly.
-          const needsInstall = proposal.installable_plugin_ids.includes(entry.plugin_id);
+          const needsInstall = proposal.installable_plugin_ids.includes(pluginId);
           return (
-            <div data-testid="system-suggestion-side-card-row" key={entry.plugin_id}>
+            <div data-testid="system-suggestion-side-card-row" key={pluginId}>
               <EmptyStateSensorCard
-                pluginId={entry.plugin_id}
+                pluginId={pluginId}
                 titleKey={titleKey}
                 valueKey={valueKey}
                 iconId={meta?.iconId}
                 connectLabelKey={needsInstall ? 'emptyState.installAndConnect' : 'emptyState.connect'}
-                onConnect={(pluginId) => { void openDialog(pluginId, { install: needsInstall }); }}
+                onConnect={(pid) => { void openDialog(pid, { install: needsInstall }); }}
               />
             </div>
           );
