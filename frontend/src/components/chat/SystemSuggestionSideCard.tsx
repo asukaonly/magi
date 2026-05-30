@@ -30,7 +30,7 @@ export function SystemSuggestionSideCard({
   const [activated, setActivated] = useState<Set<string>>(new Set());
   const visiblePluginIds = proposal.plugin_ids.filter((pid) => !activated.has(pid));
 
-  const { dialogState, openDialog, closeDialog, confirm } = usePluginActivation({
+  const { dialogState, installingPluginId, openDialog, closeDialog, confirm } = usePluginActivation({
     onSuccess: (pluginId) => {
       onActivated(pluginId);
       setActivated((prev) => new Set(prev).add(pluginId));
@@ -63,14 +63,21 @@ export function SystemSuggestionSideCard({
           const titleKey = meta?.titleKey ?? 'emptyState.connect';
           const valueKey = meta?.valueKey ?? 'emptyState.connect';
           const needsInstall = proposal.installable_plugin_ids.includes(pluginId);
+          const isInstalling = installingPluginId === pluginId;
           return (
             <div data-testid="system-suggestion-side-card-row" key={pluginId}>
               <EmptyStateSensorCard
                 pluginId={pluginId}
                 titleKey={titleKey}
                 valueKey={valueKey}
-                iconId={meta?.iconId}
-                connectLabelKey={needsInstall ? 'emptyState.installAndConnect' : 'emptyState.connect'}
+                disabled={isInstalling}
+                connectLabelKey={
+                  isInstalling
+                    ? 'emptyState.installing'
+                    : needsInstall
+                      ? 'emptyState.installAndConnect'
+                      : 'emptyState.connect'
+                }
                 onConnect={(pid) => { void openDialog(pid, { install: needsInstall }); }}
               />
             </div>

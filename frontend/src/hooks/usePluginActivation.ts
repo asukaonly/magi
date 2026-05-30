@@ -24,6 +24,8 @@ export interface OpenDialogOptions {
 
 export interface UsePluginActivationResult {
   dialogState: ActivationDialogState | null;
+  /** Plugin id currently being downloaded from the registry (install-first), or null. */
+  installingPluginId: string | null;
   openDialog: (pluginId: string, opts?: OpenDialogOptions) => Promise<void>;
   closeDialog: () => void;
   confirm: (values: Record<string, unknown>) => Promise<void>;
@@ -41,14 +43,18 @@ export function usePluginActivation(
 ): UsePluginActivationResult {
   const { onSuccess } = options;
   const [dialogState, setDialogState] = useState<ActivationDialogState | null>(null);
+  const [installingPluginId, setInstallingPluginId] = useState<string | null>(null);
 
   const openDialog = useCallback(async (pluginId: string, opts?: OpenDialogOptions) => {
     if (opts?.install) {
+      setInstallingPluginId(pluginId);
       try {
         await pluginsApi.installFromRegistryWithProgress(pluginId);
       } catch (err) {
         console.error('failed to install plugin from registry', err);
         return;
+      } finally {
+        setInstallingPluginId(null);
       }
     }
     try {
@@ -97,5 +103,5 @@ export function usePluginActivation(
     [dialogState, onSuccess],
   );
 
-  return { dialogState, openDialog, closeDialog, confirm };
+  return { dialogState, installingPluginId, openDialog, closeDialog, confirm };
 }

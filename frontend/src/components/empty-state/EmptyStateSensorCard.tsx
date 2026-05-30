@@ -26,31 +26,20 @@ export function EmptyStateSensorCard({
 }: EmptyStateSensorCardProps): JSX.Element {
   const { t } = useTranslation('onboarding');
   return (
-    <div className="flex flex-col items-start gap-2 rounded-lg border border-[#e6d7c5] bg-white p-4 dark:border-[#5b4a3d] dark:bg-[#2a2018]">
-      {iconId && (
-        <span
-          aria-hidden
-          className="inline-flex h-8 w-8 items-center justify-center rounded bg-[#f4eadf] text-[#35261f] dark:bg-[#5b4a3d] dark:text-[#f4eadf]"
-        >
-          {/* Plain string id rendered as a single-letter fallback. Real icon
-              mapping (lucide-react / asset module) can be wired in a
-              follow-up task; for Plan 3 this keeps the component
-              loader-free and tests asset-free. */}
-          {iconId.slice(0, 1).toUpperCase()}
-        </span>
-      )}
+    <div className="flex flex-col items-start gap-2 rounded-lg border border-border/55 bg-card p-4">
+      {/* Plugins don't ship real icons yet; the single-letter placeholder read
+          as visual noise, so the icon slot is intentionally not rendered.
+          `iconId` is kept on the props for callers/forward-compat. */}
       <div className="flex flex-col gap-1">
-        <h3 className="text-sm font-medium text-[#35261f] dark:text-[#f4eadf]">
-          {t(titleKey)}
-        </h3>
-        <p className="text-xs text-[#7d685a] dark:text-[#c8b7a7]">{t(valueKey)}</p>
+        <h3 className="text-sm font-medium text-foreground">{t(titleKey)}</h3>
+        <p className="text-xs text-muted-foreground">{t(valueKey)}</p>
       </div>
       <button
         type="button"
         data-testid={`empty-state-connect-${pluginId}`}
         onClick={() => onConnect(pluginId)}
         disabled={disabled}
-        className="self-start rounded-md bg-[#35261f] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-[#f4eadf] dark:text-[#35261f]"
+        className="self-start rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
       >
         {t(connectLabelKey ?? 'emptyState.connect')}
       </button>
