@@ -62,6 +62,7 @@ from magi.core.logger import get_logger
 from magi.system_suggestions.candidates import (
     SuggestionCandidate,
     build_suggestion_candidates,
+    partition_for_candidates,
 )
 from magi.system_suggestions.engine import ClassifyFn, run_suggestion_check
 from magi.system_suggestions.throttle import SuggestionThrottle
@@ -182,6 +183,36 @@ def build_default_system_suggestions_router(
 # ---------------------------------------------------------------------------
 
 
+async def _active_sensor_plugin_ids() -> set[str]:
+    """Plugin ids whose sensor source is already in use (enabled AND configured).
+
+    Reuses the sensor-source status the frontend reads, so "in use" matches what
+    the user sees in Settings. Degrades to an empty set on any error (we'd rather
+    occasionally re-suggest an active plugin than crash the suggestion path).
+    """
+    try:
+        from magi.api.routers.sensors import get_sensor_source_status
+
+        status = await get_sensor_source_status()
+        sources = (status or {}).get("sources", []) if isinstance(status, dict) else []
+        active: set[str] = set()
+        for s in sources:
+            pid = s.get("plugin_id")
+            if not pid or not s.get("enabled"):
+                continue
+            # "configured": the activation flow's configured_key is truthy in
+            # current_settings, OR the source doesn't require activation.
+            # get_sensor_source_status exposes `activation_required` = True only
+            # when an activation flow exists AND it's not yet enabled+configured.
+            # So: in-use == enabled AND not activation_required.
+            if not s.get("activation_required", False):
+                active.add(str(pid))
+        return active
+    except Exception as exc:  # noqa: BLE001 - degrade, never crash /check
+        logger.warning("system_suggestions active-source lookup failed", error=str(exc))
+        return set()
+
+
 def _default_candidates() -> Callable[[], CandidatesResult]:
     """Return an async builder of the installed∪registry candidate union.
 
@@ -190,14 +221,17 @@ def _default_candidates() -> Callable[[], CandidatesResult]:
     async ``fetch_index``. On ANY registry failure we degrade to installed-only
     and log a warning, so the route never fails just because the registry is
     unreachable.
+
+    Plugins whose sensor source is already in use (enabled+configured, per
+    :func:`_active_sensor_plugin_ids`) are dropped via
+    :func:`partition_for_candidates` so we never suggest connecting/installing a
+    data source the user already has on.
     """
     from magi.api.routers.plugins_common import _get_registry_client, _try_plugin_manager
 
     async def _build() -> list[SuggestionCandidate]:
         manager = _try_plugin_manager()
-        installed = (
-            [pkg.manifest for pkg in manager.list_packages()] if manager else []
-        )
+        packages = list(manager.list_packages()) if manager else []
 
         registry_entries: list = []
         try:
@@ -211,7 +245,11 @@ def _default_candidates() -> Callable[[], CandidatesResult]:
             )
             registry_entries = []
 
-        return build_suggestion_candidates(installed, registry_entries)
+        active_plugin_ids = await _active_sensor_plugin_ids()
+        installed_manifests, not_installed_registry = partition_for_candidates(
+            packages, registry_entries, active_plugin_ids
+        )
+        return build_suggestion_candidates(installed_manifests, not_installed_registry)
 
     return _build
 

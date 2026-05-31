@@ -340,3 +340,61 @@ def test_clear_dismissal_removes_one(app_with_dismissals) -> None:
     assert response.status_code == 200
     assert response.json() == {"dedupe_key": "browser_history", "cleared": True}
     assert cleared_keys == ["browser_history"]
+
+
+# ---------------------------------------------------------------------------
+# _active_sensor_plugin_ids: maps get_sensor_source_status() -> in-use ids.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_active_sensor_plugin_ids_parses_status(monkeypatch) -> None:
+    """enabled + not activation_required -> included (in use);
+    enabled + activation_required -> excluded (not yet configured);
+    disabled -> excluded.
+    """
+    import magi.api.routers.sensors as sensors_mod
+    from magi.api.routers.system_suggestions_routes import _active_sensor_plugin_ids
+
+    async def _fake_status():
+        return {
+            "sources": [
+                # enabled + configured (no/cleared activation) -> in use
+                {"plugin_id": "chrome-history", "enabled": True,
+                 "activation_required": False},
+                # enabled but activation still required -> not yet configured
+                {"plugin_id": "screen-time", "enabled": True,
+                 "activation_required": True},
+                # disabled -> not in use
+                {"plugin_id": "git-activity", "enabled": False,
+                 "activation_required": False},
+                # malformed / missing plugin_id -> skipped
+                {"enabled": True, "activation_required": False},
+            ]
+        }
+
+    monkeypatch.setattr(sensors_mod, "get_sensor_source_status", _fake_status)
+
+    active = await _active_sensor_plugin_ids()
+    assert active == {"chrome-history"}
+
+
+@pytest.mark.asyncio
+async def test_active_sensor_plugin_ids_handles_list_and_errors(monkeypatch) -> None:
+    """get_sensor_source_status may return ``[]`` (no plugin manager) or raise;
+    both degrade to an empty set rather than crashing the suggestion path.
+    """
+    import magi.api.routers.sensors as sensors_mod
+    from magi.api.routers.system_suggestions_routes import _active_sensor_plugin_ids
+
+    async def _list_status():
+        return []
+
+    monkeypatch.setattr(sensors_mod, "get_sensor_source_status", _list_status)
+    assert await _active_sensor_plugin_ids() == set()
+
+    async def _boom():
+        raise RuntimeError("status unavailable")
+
+    monkeypatch.setattr(sensors_mod, "get_sensor_source_status", _boom)
+    assert await _active_sensor_plugin_ids() == set()
