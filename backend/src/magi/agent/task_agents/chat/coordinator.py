@@ -23,6 +23,7 @@ from ....tools.recommender import ToolRecommender
 from ....tools.schema import ToolExecutionContext
 from ....tools.tool_advisory_reranker import ToolAdvisoryReranker
 from ....tools.tool_hint_resolver import ToolHintResolver
+from magi.bootstrap.tool_capabilities import build_tool_capabilities
 from ..common import (
     ExecutionMode,
     ExecutionHandlerRegistry,
@@ -648,6 +649,7 @@ class ChatExecutionCoordinator:
                 workspace=str(getattr(context.latest_payload, "workspace_path", "") or "."),
                 permissions=["authenticated", "dangerous_tools"],
                 env_vars={"session_id": context.session_id, "user_id": context.user_id},
+                capabilities=build_tool_capabilities(),
             )
             return self._tool_recommender.recommend_tools(
                 intent=context.latest_user_message,

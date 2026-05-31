@@ -94,6 +94,12 @@ from .tools import (
     ToolResult,
     ToolSchema,
 )
+from .capabilities import (
+    BackgroundPort,
+    DelegationEventPort,
+    ToolCapabilities,
+    TracePort,
+)
 
 __version__ = "0.1.0"
 
@@ -162,6 +168,11 @@ __all__ = [
     "ToolParameter",
     "ToolResult",
     "ToolSchema",
+    # Capabilities
+    "BackgroundPort",
+    "DelegationEventPort",
+    "ToolCapabilities",
+    "TracePort",
     # i18n
     "PluginI18n",
     "DEFAULT_LANGUAGE",

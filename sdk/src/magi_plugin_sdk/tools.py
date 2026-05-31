@@ -145,6 +145,14 @@ class ToolExecutionContext(BaseModel):
         default=None, description="Cooperative cancellation token"
     )
     trace_context: Any = Field(default=None, description="Runtime trace context")
+    # Any (not Optional[ToolCapabilities]) on purpose: the bundle carries
+    # Protocol-typed/adapter objects pydantic cannot build a schema for —
+    # typing it as the dataclass raises PydanticSchemaGenerationError even
+    # with arbitrary_types_allowed. Mirrors cancellation/trace_context above.
+    capabilities: Any = Field(
+        default=None,
+        description="Host-injected capability ports (magi_plugin_sdk.capabilities.ToolCapabilities)",
+    )
 
 
 class ToolResult(BaseModel):

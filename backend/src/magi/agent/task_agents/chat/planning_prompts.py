@@ -8,6 +8,7 @@ from typing import Any, Optional
 from ....i18n import llm_language_label
 from ....tools.schema import ToolExecutionContext
 from ....tools.tool_hint_resolver import ToolHintResolver
+from magi.bootstrap.tool_capabilities import build_tool_capabilities
 from ...orchestration import PlannedSubtask
 from .planning_heuristics import (
     build_research_seed_subtasks,
@@ -532,6 +533,7 @@ class ChatPlanningPromptMixin:
                 "run_revision": str(run_revision),
             },
             permissions=["authenticated"],
+            capabilities=build_tool_capabilities(),
         )
 
     def _resolve_parent_task_agent_id(self, user_id: str, session_id: str) -> str:

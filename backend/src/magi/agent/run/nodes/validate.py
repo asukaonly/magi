@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..nodes.protocol import NodeOutcome, NodeResult
 from ....tools.schema import ToolExecutionContext
+from magi.bootstrap.tool_capabilities import build_tool_capabilities
 
 if TYPE_CHECKING:
     from ...task_agents.common.contracts import ExecutionRequest
@@ -136,6 +137,7 @@ class ValidateNode:
             workspace=workspace_path,
             env_vars={"session_id": str(session_id)},
             permissions=["authenticated", "dangerous_tools"],
+            capabilities=build_tool_capabilities(),
         )
 
 

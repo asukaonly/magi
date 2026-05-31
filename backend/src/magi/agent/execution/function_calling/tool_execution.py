@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ...cancel import CancelToken, null_cancel_token
 from .types import ToolCall, ToolCallResult
+from magi.bootstrap.tool_capabilities import build_tool_capabilities
 
 if TYPE_CHECKING:
     from ....tools.context_routing import RouteDecision
@@ -302,6 +303,7 @@ class FunctionCallingToolExecutionMixin:
                 },
                 permissions=permissions,
                 cancellation=token,
+                capabilities=build_tool_capabilities(),
             )
 
             if tool_name == "agent":

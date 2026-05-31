@@ -11,6 +11,7 @@ from ..chat.workspace import get_default_chat_workspace_path
 from ..core.logger import get_logger
 from ..tools.schema import ToolExecutionContext
 from ..utils.packaged_paths import get_repo_root
+from magi.bootstrap.tool_capabilities import build_tool_capabilities
 
 logger = get_logger(__name__)
 
@@ -52,6 +53,7 @@ class TaskOrchestrationWorkspaceMixin:
                 "run_revision": str(run_revision),
             },
             permissions=["authenticated"],
+            capabilities=build_tool_capabilities(),
         )
 
     def _resolve_parent_task_agent_id(self, user_id: str, session_id: str) -> str:
