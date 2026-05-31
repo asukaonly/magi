@@ -15,6 +15,11 @@ class PluginSettings(BaseModel):
     settings: Dict[str, Any] = Field(default_factory=dict)
     source: Optional[str] = Field(default=None)
     manifest_path: Optional[str] = Field(default=None)
+    official: Optional[bool] = Field(
+        default=None,
+        description="Registry-authoritative official flag for non-builtin "
+        "plugins; None means unknown (treated as non-official).",
+    )
 
 
 class PluginsSettings(BaseModel):

@@ -690,6 +690,9 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
             updates[f"plugins.packages.{plugin_id}.trusted"] = trusted
             updates[f"plugins.packages.{plugin_id}.source"] = manifest.source
             updates[f"plugins.packages.{plugin_id}.manifest_path"] = manifest.manifest_path
+            updates[f"plugins.packages.{plugin_id}.official"] = (
+                bool(manifest.official) if manifest.source == "builtin" else False
+            )
             updates[f"plugins.packages.{plugin_id}.settings"] = {}
         if updates:
             save_config(updates)

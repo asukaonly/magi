@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from ... import i18n as core_i18n
+from ...config import get_config
 from ...plugins.contracts import (
     ExtensionFieldSpec,
     PluginContribution,
@@ -28,6 +29,20 @@ from .plugins_schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _authoritative_official(manifest, *, packages) -> bool:
+    """Resolve a plugin's official status from the authoritative source.
+
+    builtin plugins are bundled in the app binary, so their manifest is
+    trusted. For every other source the local manifest is attacker-authored
+    and MUST NOT be trusted — official comes from the registry value
+    persisted into config at install time (None/missing → not official).
+    """
+    if getattr(manifest, "source", None) == "builtin":
+        return bool(getattr(manifest, "official", False))
+    entry = packages.get(getattr(manifest, "plugin_id", None))
+    return bool(getattr(entry, "official", None)) if entry is not None else False
 
 
 def normalize_plugin_id(plugin_id: str) -> str:
@@ -112,7 +127,7 @@ def _serialize_manifest(manifest: PluginManifest) -> PluginManifestResponse:
         version=manifest.version,
         description=translated_description or manifest.description,
         author=manifest.author,
-        official=manifest.official,
+        official=_authoritative_official(manifest, packages=get_config().plugins.packages),
         contribution_types=[item.value for item in manifest.contribution_types],
         source=manifest.source,
         plugin_dir=manifest.plugin_dir,
@@ -390,6 +405,7 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
     package_config: dict[str, Any] = {"enabled": True}
     if is_library:
         package_config["trusted"] = True
+    package_config["official"] = bool(entry.official)   # registry is authoritative
     save_config({f"plugins.packages.{entry.plugin_id}": package_config})
     logger.info(
         "Saved lightweight plugin install config",
@@ -562,7 +578,7 @@ def _serialize_package_lightweight(state: PluginPackageState) -> PluginPackageRe
             version=m.version,
             description=m.description,
             author=m.author,
-            official=m.official,
+            official=_authoritative_official(m, packages=get_config().plugins.packages),
             contribution_types=[ct.value for ct in m.contribution_types],
             source=m.source,
             plugin_dir=m.plugin_dir,
