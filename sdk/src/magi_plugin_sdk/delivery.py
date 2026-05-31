@@ -24,17 +24,27 @@ class DeliveryReceipt:
     (Telegram ``message_id``, Slack ``ts``, etc.). ``None`` for
     fire-and-forget channels (webhooks, push notifications) where no
     handle is available for later operations.
+
+    ``magi_session_id`` carries the magi-side session this delivery was
+    targeted at. Required for retract-by-session lookups in channels
+    (like ``chat_sse``) where ``channel_id`` is just the scheme and
+    multiple sessions' receipts would otherwise collide. Defaults to
+    ``""`` for channels that don't need session-scoped retract (external
+    channels like Telegram identify the message via
+    ``external_message_id`` alone).
     """
 
     channel_id: str
     external_message_id: str | None
     delivered_at_ms: int
+    magi_session_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "channel_id": self.channel_id,
             "external_message_id": self.external_message_id,
             "delivered_at_ms": int(self.delivered_at_ms),
+            "magi_session_id": self.magi_session_id,
         }
 
     @classmethod
@@ -43,6 +53,7 @@ class DeliveryReceipt:
             channel_id=str(payload["channel_id"]),
             external_message_id=payload.get("external_message_id"),
             delivered_at_ms=int(payload.get("delivered_at_ms") or 0),
+            magi_session_id=str(payload.get("magi_session_id") or ""),
         )
 
 
