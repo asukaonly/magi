@@ -141,3 +141,15 @@ async def test_channels_module_starts_with_plugin_channels_plus_chat_sse(tmp_pat
         assert isinstance(module._registry.get("chat_sse"), ChatSseChannel)
     finally:
         await module._stop_channels()
+
+
+@pytest.mark.asyncio
+async def test_channels_module_exposes_delivery_receipts_store(tmp_path):
+    ctx = _build_ctx(plugins=[], tmp_path=tmp_path)
+    module = ChannelsModule(ctx)
+    try:
+        await module._start_channels()
+        from magi.channels.receipts_store import DeliveryReceiptsStore
+        assert isinstance(module._receipts_store, DeliveryReceiptsStore)
+    finally:
+        await module._stop_channels()

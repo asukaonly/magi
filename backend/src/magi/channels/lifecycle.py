@@ -40,6 +40,7 @@ class ChannelsModule(LifecycleModule):
         self._registry = None
         self._relay = None
         self._session_mapper = None
+        self._receipts_store = None
 
     async def init(self) -> None:
         self._context.channels.module = self
@@ -85,6 +86,10 @@ class ChannelsModule(LifecycleModule):
 
         session_mapper = ChannelSessionMapper(db_path=channels_db_path, chat_store=chat_store)
         await session_mapper.initialize()
+
+        from .receipts_store import DeliveryReceiptsStore
+        self._receipts_store = DeliveryReceiptsStore(db_path=channels_db_path)
+        await self._receipts_store.initialize()
         message_dispatcher = ChannelMessageDispatcher()
         attachment_store = ChannelAttachmentStore(runtime_paths=runtime_paths)
 
