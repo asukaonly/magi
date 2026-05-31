@@ -186,6 +186,7 @@ class ChatTaskAgent(
                 l0_store=(unified_memory.l0 if unified_memory is not None else None),
             ),
             interruption_classifier=self._interruption_classifier,
+            receipts_store=self._receipts_store_resolver(),
         )
         self._planning_service = ChatPlanningService(
             agent_id=self.agent_id,
