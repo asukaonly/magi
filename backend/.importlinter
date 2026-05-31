@@ -161,3 +161,88 @@ ignore_imports =
     magi.tools.registry -> magi.skills.schema
     magi.tools.registry_lookup -> magi.skills.schema
     magi.tools.registry_skills -> magi.skills.schema
+
+[importlinter:contract:plugin-isolation]
+name = Plugin implementations depend on SDK only, never host layers
+type = forbidden
+# Direct-only on purpose: the first hop from any plugin module to a host
+# module is always a direct edge, so the boundary is still fully enforced.
+# Without this, transitive chains through bootstrap/ (the composition root,
+# which imports every layer) would flood the contract with false positives
+# — the same reason the layers contract exempts bootstrap.
+allow_indirect_imports = true
+# NOTE: magi.plugins is intentionally excluded — it is the host-side L4
+# plugin registration/management layer (manager, installation, registry_client),
+# governed by the layers contract, NOT plugin-implementation code.
+source_modules =
+    magi.tools.builtin
+    magi.tools.code_agent
+    magi.skills
+forbidden_modules =
+    magi.agent
+    magi.chat
+    magi.api
+    magi.transport
+    magi.channels
+    magi.timeline
+    magi.context
+    magi.memory
+    magi.personality
+    magi.llm
+    magi.events
+ignore_imports =
+    # == KNOWN DEBT BASELINE (frozen 2026-05-31; ratchet down, never up) ==
+    # Plugin->host edges that exist today. Do NOT add entries; only delete
+    # them as the underlying import is removed during later migration phases.
+    # Some edges also violate the layers contract and appear in BOTH baselines;
+    # when an import is removed, delete it from BOTH ignore_imports lists.
+    magi.skills.lifecycle -> magi.agent.control.permission.provider
+    magi.skills.runner -> magi.chat.workspace
+    magi.skills.runner -> magi.llm.base
+    magi.skills.subagent -> magi.agent.execution.function_calling
+    magi.skills.subagent -> magi.agent.turn_input
+    magi.skills.subagent -> magi.chat.workspace
+    magi.skills.subagent -> magi.llm.base
+    magi.skills.subagent -> magi.llm.provider_bridge
+    magi.tools.builtin._bash_grading -> magi.agent.control.permission.classifier_models
+    magi.tools.builtin._bash_grading -> magi.agent.control.permission.contracts
+    magi.tools.builtin._edit_journal -> magi.agent.workspace_cache
+    magi.tools.builtin._read_constraint -> magi.agent.workspace_cache
+    magi.tools.builtin.agent_tool -> magi.agent.workers
+    magi.tools.builtin.ask_user_question_tool -> magi.agent.background.provider
+    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.chat_state_persister
+    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common
+    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common.events
+    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.provider
+    magi.tools.builtin.detach_to_background_tool -> magi.agent.run_control
+    magi.tools.builtin.file_diff_tool -> magi.agent.workspace_cache
+    magi.tools.builtin.file_rollback_tool -> magi.agent.workspace_cache
+    magi.tools.builtin.file_rollback_tool -> magi.agent.workspace_cache.atomic_io
+    magi.tools.builtin.find_relevant_tools_tool -> magi.memory.provider
+    magi.tools.builtin.image_generation_tool -> magi.chat.attachment_ingestion
+    magi.tools.builtin.image_generation_tool -> magi.llm.image_generation
+    magi.tools.builtin.image_generation_tool -> magi.llm.usage_tracing
+    magi.tools.builtin.memory_query_tool -> magi.memory.hybrid_retrieval
+    magi.tools.builtin.memory_query_tool -> magi.memory.hybrid_retrieval.models
+    magi.tools.builtin.memory_query_tool -> magi.memory.l2.entities.catalog.lookup
+    magi.tools.builtin.memory_query_tool -> magi.memory.provider
+    magi.tools.builtin.memory_query_tool -> magi.memory.retrieval_projection
+    magi.tools.builtin.plan_mode_tool -> magi.agent.control.chat_state_persister
+    magi.tools.builtin.plan_mode_tool -> magi.agent.control.common.events
+    magi.tools.builtin.plan_mode_tool -> magi.agent.control.provider
+    magi.tools.builtin.prepare_chat_attachments_tool -> magi.chat.attachment_ingestion
+    magi.tools.builtin.read_chat_attachment_tool -> magi.chat
+    magi.tools.builtin.todo_write_tool -> magi.agent.control.chat_state_persister
+    magi.tools.builtin.todo_write_tool -> magi.agent.control.common.events
+    magi.tools.builtin.todo_write_tool -> magi.agent.control.provider
+    magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store
+    magi.tools.builtin.trace_query_tool -> magi.api.services
+    magi.tools.builtin.verify_tool -> magi.agent.workspace_cache
+    magi.tools.builtin.verify_tool -> magi.agent.workspace_cache.atomic_io
+    magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache
+    magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache.atomic_io
+    magi.tools.code_agent.context_bundle -> magi.agent.workspace_cache.atomic_io
+    magi.tools.code_agent.probe -> magi.agent.workspace_cache.atomic_io
+    magi.tools.code_agent.service -> magi.agent.workspace_cache.atomic_io
+    magi.tools.code_agent.service -> magi.transport.code_agent_events
+    magi.tools.code_agent.settings_writer -> magi.agent.workspace_cache.atomic_io
