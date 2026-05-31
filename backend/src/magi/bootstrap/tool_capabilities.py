@@ -26,11 +26,48 @@ class _HostTracePort:
         )
 
 
+class _HostDelegationEventPort:
+    async def broadcast_event(self, *, user_id, session_id, delegation_id, event):
+        from magi.transport.code_agent_events import broadcast_delegation_event
+        await broadcast_delegation_event(
+            user_id=user_id,
+            session_id=session_id,
+            delegation_id=delegation_id,
+            event=event,
+        )
+
+    async def broadcast_state(self, *, user_id, session_id, delegation_id, state, summary=None):
+        from magi.transport.code_agent_events import broadcast_delegation_state
+        await broadcast_delegation_state(
+            user_id=user_id,
+            session_id=session_id,
+            delegation_id=delegation_id,
+            state=state,
+            summary=summary or {},
+        )
+
+
+class _HostBackgroundPort:
+    async def suspend_waiting_user(self, task_id: str, *, reason: str = "awaiting_user_answer") -> bool:
+        from magi.agent.background.provider import resolve_background_task_manager
+        return await resolve_background_task_manager().suspend_waiting_user(
+            task_id, reason=reason
+        )
+
+    async def resume_from_wait(self, task_id: str) -> bool:
+        from magi.agent.background.provider import resolve_background_task_manager
+        return await resolve_background_task_manager().resume_from_wait(task_id)
+
+
 def build_tool_capabilities() -> ToolCapabilities:
     """Return the process-wide tool-capabilities bundle (built once)."""
     global _capabilities
     if _capabilities is None:
-        _capabilities = ToolCapabilities(trace=_HostTracePort())
+        _capabilities = ToolCapabilities(
+            trace=_HostTracePort(),
+            delegation_events=_HostDelegationEventPort(),
+            background=_HostBackgroundPort(),
+        )
     return _capabilities
 
 

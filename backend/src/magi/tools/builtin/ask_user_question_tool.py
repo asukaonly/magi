@@ -285,12 +285,15 @@ class AskUserQuestionTool(Tool):
         )
         if bg_task_id is not None:
             try:
-                from ...agent.background.provider import resolve_background_task_manager
-
-                manager = resolve_background_task_manager()
-                await manager.suspend_waiting_user(
-                    bg_task_id, reason="awaiting_user_answer"
+                manager = (
+                    context.capabilities.background
+                    if context.capabilities is not None
+                    else None
                 )
+                if manager is not None:
+                    await manager.suspend_waiting_user(
+                        bg_task_id, reason="awaiting_user_answer"
+                    )
             except Exception:  # pragma: no cover - defensive
                 logger.debug(
                     "ask_user_question.manager_suspend_failed",
@@ -361,12 +364,13 @@ class AskUserQuestionTool(Tool):
                         logger.debug("ask_user_question.persist_cancelled_failed", exc_info=True)
                 if bg_task_id is not None:
                     try:
-                        from ...agent.background.provider import (
-                            resolve_background_task_manager,
+                        manager = (
+                            context.capabilities.background
+                            if context.capabilities is not None
+                            else None
                         )
-
-                        manager = resolve_background_task_manager()
-                        await manager.resume_from_wait(bg_task_id)
+                        if manager is not None:
+                            await manager.resume_from_wait(bg_task_id)
                     except Exception:  # pragma: no cover - defensive
                         logger.debug(
                             "ask_user_question.manager_resume_failed",
@@ -404,12 +408,13 @@ class AskUserQuestionTool(Tool):
                     logger.debug("ask_user_question.persist_timeout_failed", exc_info=True)
             if bg_task_id is not None:
                 try:
-                    from ...agent.background.provider import (
-                        resolve_background_task_manager,
+                    manager = (
+                        context.capabilities.background
+                        if context.capabilities is not None
+                        else None
                     )
-
-                    manager = resolve_background_task_manager()
-                    await manager.resume_from_wait(bg_task_id)
+                    if manager is not None:
+                        await manager.resume_from_wait(bg_task_id)
                 except Exception:  # pragma: no cover - defensive
                     logger.debug(
                         "ask_user_question.manager_resume_failed",
@@ -436,10 +441,13 @@ class AskUserQuestionTool(Tool):
                 logger.debug("ask_user_question.persist_response_failed", exc_info=True)
         if bg_task_id is not None:
             try:
-                from ...agent.background.provider import resolve_background_task_manager
-
-                manager = resolve_background_task_manager()
-                await manager.resume_from_wait(bg_task_id)
+                manager = (
+                    context.capabilities.background
+                    if context.capabilities is not None
+                    else None
+                )
+                if manager is not None:
+                    await manager.resume_from_wait(bg_task_id)
             except Exception:  # pragma: no cover - defensive
                 logger.debug(
                     "ask_user_question.manager_resume_failed",

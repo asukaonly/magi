@@ -1,0 +1,35 @@
+"""TDD tests for Phase 2 cluster C (DelegationEventPort) and D (BackgroundPort).
+
+Asserts that build_tool_capabilities() wires delegation_events and background
+ports (not None) and that they expose the correct method names.
+"""
+
+
+def test_delegation_events_port_wired():
+    from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
+
+    reset_tool_capabilities()
+    caps = build_tool_capabilities()
+    assert caps.delegation_events is not None, "delegation_events port must be wired"
+    assert hasattr(caps.delegation_events, "broadcast_event"), (
+        "delegation_events must expose broadcast_event"
+    )
+    assert hasattr(caps.delegation_events, "broadcast_state"), (
+        "delegation_events must expose broadcast_state"
+    )
+    reset_tool_capabilities()
+
+
+def test_background_port_wired():
+    from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
+
+    reset_tool_capabilities()
+    caps = build_tool_capabilities()
+    assert caps.background is not None, "background port must be wired"
+    assert hasattr(caps.background, "suspend_waiting_user"), (
+        "background must expose suspend_waiting_user"
+    )
+    assert hasattr(caps.background, "resume_from_wait"), (
+        "background must expose resume_from_wait"
+    )
+    reset_tool_capabilities()

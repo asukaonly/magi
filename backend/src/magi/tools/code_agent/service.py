@@ -72,6 +72,7 @@ class CodeAgentService:
         dry_run: bool = False,
         on_event: Optional[OnEvent] = None,
         user_id: Optional[str] = None,
+        delegation_events=None,
     ) -> DelegateResult:
         start = time.monotonic()
         delegation_dir = self._delegation_dir(req)
@@ -80,14 +81,13 @@ class CodeAgentService:
         atomic_write_text(delegation_dir / "request.json", json.dumps(req.model_dump()))
 
         broadcaster_user_id = (user_id or "").strip()
-        broadcast_enabled = bool(broadcaster_user_id)
+        broadcast_enabled = bool(broadcaster_user_id) and delegation_events is not None
 
         async def _broadcast_event_safely(ev: RunEvent) -> None:
             if not broadcast_enabled:
                 return
             try:
-                from ...transport.code_agent_events import broadcast_delegation_event
-                await broadcast_delegation_event(
+                await delegation_events.broadcast_event(
                     user_id=broadcaster_user_id,
                     session_id=req.session_id,
                     delegation_id=req.delegation_id,
@@ -100,8 +100,7 @@ class CodeAgentService:
             if not broadcast_enabled:
                 return
             try:
-                from ...transport.code_agent_events import broadcast_delegation_state
-                await broadcast_delegation_state(
+                await delegation_events.broadcast_state(
                     user_id=broadcaster_user_id,
                     session_id=req.session_id,
                     delegation_id=req.delegation_id,

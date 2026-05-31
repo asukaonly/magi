@@ -232,7 +232,10 @@ class DelegateToExternalCoderTool(Tool):
         service = CodeAgentService(binary_paths=binary_paths, cleanup_worktree=False)
         user_id = str((context.env_vars or {}).get("user_id") or "").strip() or None
         result = await service.delegate(
-            req, dry_run=bool(parameters.get("dry_run")), user_id=user_id,
+            req,
+            dry_run=bool(parameters.get("dry_run")),
+            user_id=user_id,
+            delegation_events=context.capabilities.delegation_events if context.capabilities else None,
         )
         return ToolResult(
             success=result.success,

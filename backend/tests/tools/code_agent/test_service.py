@@ -197,51 +197,46 @@ async def test_service_cleans_worktree_after_run(
     assert not wt.exists()
 
 
+class _FakeDelegationEventPort:
+    """Fake DelegationEventPort that records calls for assertions."""
+
+    def __init__(self):
+        self.calls: list[tuple[str, str]] = []
+
+    async def broadcast_event(self, *, user_id, session_id, delegation_id, event):
+        self.calls.append((delegation_id, "event"))
+
+    async def broadcast_state(self, *, user_id, session_id, delegation_id, state, summary=None):
+        self.calls.append((delegation_id, state))
+
+
 @pytest.mark.asyncio
 async def test_service_broadcasts_state_when_user_id_present(
-    isolated_magi_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    isolated_magi_home: Path, tmp_path: Path,
 ) -> None:
     """When user_id is supplied, the service must broadcast started + finished."""
     repo = _make_repo(tmp_path / "repo")
 
-    broadcast_calls: list[tuple[str, str]] = []
-
-    async def _record_state(*, user_id, session_id, delegation_id, state, summary=None):
-        broadcast_calls.append((delegation_id, state))
-
-    async def _record_event(*, user_id, session_id, delegation_id, event):
-        broadcast_calls.append((delegation_id, "event"))
-
-    from magi.transport import code_agent_events as events_module
-    monkeypatch.setattr(events_module, "broadcast_delegation_state", _record_state)
-    monkeypatch.setattr(events_module, "broadcast_delegation_event", _record_event)
-
+    port = _FakeDelegationEventPort()
     service = CodeAgentService(
         adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
         binary_paths={"claude_code": "/unused", "codex": "/unused"},
     )
     req = _request(repo)
-    await service.delegate(req, user_id="local_user")
+    await service.delegate(req, user_id="local_user", delegation_events=port)
 
-    states = [c[1] for c in broadcast_calls if c[1] != "event"]
+    states = [c[1] for c in port.calls if c[1] != "event"]
     assert states[0] == "started"
     assert states[-1] == "finished"
 
 
 @pytest.mark.asyncio
 async def test_service_broadcasts_failed_on_unknown_adapter(
-    isolated_magi_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    isolated_magi_home: Path, tmp_path: Path,
 ) -> None:
     repo = _make_repo(tmp_path / "repo")
-    states: list[str] = []
 
-    async def _record_state(*, user_id, session_id, delegation_id, state, summary=None):
-        states.append(state)
-
-    from magi.transport import code_agent_events as events_module
-    monkeypatch.setattr(events_module, "broadcast_delegation_state", _record_state)
-    monkeypatch.setattr(events_module, "broadcast_delegation_event", lambda **kw: None)
-
+    port = _FakeDelegationEventPort()
     service = CodeAgentService(
         adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
         binary_paths={"claude_code": "/unused", "codex": "/unused"},
@@ -251,31 +246,25 @@ async def test_service_broadcasts_failed_on_unknown_adapter(
         prompt="x", files_hint=[], workspace_root=str(repo),
         constraints=DelegateConstraints(), timeout_s=30, model=None,
     )
-    await service.delegate(req, user_id="local_user")
+    await service.delegate(req, user_id="local_user", delegation_events=port)
+    states = [c[1] for c in port.calls if c[1] != "event"]
     assert "started" in states
     assert "failed" in states
 
 
 @pytest.mark.asyncio
 async def test_service_does_not_broadcast_when_user_id_missing(
-    isolated_magi_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    isolated_magi_home: Path, tmp_path: Path,
 ) -> None:
     repo = _make_repo(tmp_path / "repo")
-    state_calls: list[str] = []
 
-    async def _record_state(*, user_id, session_id, delegation_id, state, summary=None):
-        state_calls.append(state)
-
-    from magi.transport import code_agent_events as events_module
-    monkeypatch.setattr(events_module, "broadcast_delegation_state", _record_state)
-    monkeypatch.setattr(events_module, "broadcast_delegation_event", lambda **kw: None)
-
+    port = _FakeDelegationEventPort()
     service = CodeAgentService(
         adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
         binary_paths={"claude_code": "/unused", "codex": "/unused"},
     )
-    await service.delegate(_request(repo))  # no user_id
-    assert state_calls == []
+    await service.delegate(_request(repo), delegation_events=port)  # no user_id
+    assert port.calls == []
 
 
 @pytest.mark.asyncio

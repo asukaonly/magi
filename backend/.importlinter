@@ -127,7 +127,6 @@ ignore_imports =
     magi.tools.builtin._edit_journal -> magi.agent.workspace_cache
     magi.tools.builtin._read_constraint -> magi.agent.workspace_cache
     magi.tools.builtin.agent_tool -> magi.agent.workers
-    magi.tools.builtin.ask_user_question_tool -> magi.agent.background.provider
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common.events
@@ -147,7 +146,6 @@ ignore_imports =
     magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store
     magi.tools.builtin.verify_tool -> magi.agent.workspace_cache
     magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache
-    magi.tools.code_agent.service -> magi.transport.code_agent_events
     magi.tools.context_decider_prompt -> magi.agent.message_utils
     magi.tools.registry -> magi.skills.schema
     magi.tools.registry_lookup -> magi.skills.schema
@@ -199,7 +197,6 @@ ignore_imports =
     magi.tools.builtin._edit_journal -> magi.agent.workspace_cache
     magi.tools.builtin._read_constraint -> magi.agent.workspace_cache
     magi.tools.builtin.agent_tool -> magi.agent.workers
-    magi.tools.builtin.ask_user_question_tool -> magi.agent.background.provider
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common.events
@@ -227,4 +224,3 @@ ignore_imports =
     magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store
     magi.tools.builtin.verify_tool -> magi.agent.workspace_cache
     magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache
-    magi.tools.code_agent.service -> magi.transport.code_agent_events
