@@ -23,52 +23,12 @@ __all__ = [
 ]
 
 
-class RiskLevel(str, Enum):
-    """Risk tier assigned to ``(tool, args)`` by the classifier.
-
-    Ordering matters: comparisons use the integer ``order`` attribute
-    to avoid string-compare surprises (``"destructive" < "high"`` would
-    be wrong lexicographically).
-    """
-
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    DESTRUCTIVE = "destructive"
-    KILL_LISTED = "kill_listed"
-
-    @property
-    def order(self) -> int:
-        return _RISK_ORDER[self]
-
-    def __ge__(self, other: object) -> bool:  # type: ignore[override]
-        if isinstance(other, RiskLevel):
-            return self.order >= other.order
-        return NotImplemented
-
-    def __gt__(self, other: object) -> bool:  # type: ignore[override]
-        if isinstance(other, RiskLevel):
-            return self.order > other.order
-        return NotImplemented
-
-    def __le__(self, other: object) -> bool:  # type: ignore[override]
-        if isinstance(other, RiskLevel):
-            return self.order <= other.order
-        return NotImplemented
-
-    def __lt__(self, other: object) -> bool:  # type: ignore[override]
-        if isinstance(other, RiskLevel):
-            return self.order < other.order
-        return NotImplemented
-
-
-_RISK_ORDER: dict[RiskLevel, int] = {
-    RiskLevel.LOW: 0,
-    RiskLevel.MEDIUM: 1,
-    RiskLevel.HIGH: 2,
-    RiskLevel.DESTRUCTIVE: 3,
-    RiskLevel.KILL_LISTED: 4,
-}
+# RiskLevel is promoted to the SDK layer so plugin tools can depend on it
+# without importing host internals. This re-export preserves identity:
+#   from magi.agent.control.permission.contracts import RiskLevel
+#   from magi_plugin_sdk.permissions import RiskLevel
+# both resolve to the SAME object.
+from magi_plugin_sdk.permissions import RiskLevel  # noqa: F401 (re-export)
 
 
 class PermissionScope(str, Enum):

@@ -283,11 +283,8 @@ def classify_for_permission(arguments: dict[str, Any]) -> "ClassificationResult"
     Imports the permission contracts lazily so this module stays usable in
     contexts that don't pull the agent.control package.
     """
-    from ...agent.control.permission.classifier_models import (
-        ClassificationResult,
-        RiskSignal,
-    )
-    from ...agent.control.permission.contracts import RiskLevel as PermissionRiskLevel
+    from magi_plugin_sdk.permissions import ClassificationResult, RiskSignal
+    from magi_plugin_sdk.permissions import RiskLevel as PermissionRiskLevel
 
     command = ""
     for key in ("command", "cmd", "script", "input"):

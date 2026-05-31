@@ -2,24 +2,59 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from magi_plugin_sdk.capabilities import ToolCapabilities
+
+
+def _make_fake_mq(fake_service=None):
+    """Build a fake MemoryQueryPort backed by an optional fake_service."""
+    if fake_service is None:
+        fake_service = MagicMock(name="retrieval_service")
+
+    async def _query(req):
+        return await fake_service.query(req)
+
+    mq = MagicMock(name="memory_query_port")
+    mq.build_query.side_effect = lambda **kwargs: _real_build_query(**kwargs)
+    mq.query = AsyncMock(side_effect=_query)
+    mq.get_canonical_names = AsyncMock(return_value={})
+    mq.project_historical_recall.side_effect = _real_project
+    mq.make_conversation_turn.side_effect = _real_make_turn
+    # Expose service for assertions
+    mq._fake_service = fake_service
+    return mq
+
+
+def _real_build_query(**kwargs):
+    from magi.memory.hybrid_retrieval import build_query
+    return build_query(**kwargs)
+
+
+def _real_project(**kwargs):
+    from magi.memory.retrieval_projection import project_historical_recall
+    return project_historical_recall(**kwargs)
+
+
+def _real_make_turn(**kwargs):
+    from magi.memory.hybrid_retrieval.models import ConversationTurn
+    return ConversationTurn(**kwargs)
+
+
+def _make_context(fake_mq=None, **kwargs):
+    from magi.tools.schema import ToolExecutionContext
+    caps = ToolCapabilities(memory_query=fake_mq)
+    return ToolExecutionContext(agent_id="test", capabilities=caps, **kwargs)
+
 
 class TestMemoryQueryTool:
     """Tests for MemoryQueryTool."""
 
-    def test_tool_initializes_without_runtime_memory_binding(self, monkeypatch):
-        """Should allow schema initialization before unified memory is bound."""
-        import magi.tools.builtin.memory_query_tool as memory_query_module
+    def test_tool_initializes_schema(self):
+        """Should allow schema initialization."""
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-
-        def _raise_uninitialized() -> None:
-            raise RuntimeError("hybrid_retrieval_service binding is not initialized")
-
-        monkeypatch.setattr(memory_query_module, "get_hybrid_retrieval_service", _raise_uninitialized)
 
         tool = MemoryQueryTool()
 
         assert tool.get_schema().name == "memory_query"
-        assert tool._service is None
 
     def test_tool_schema_definition(self):
         """Should have proper schema definition."""
@@ -105,44 +140,13 @@ class TestMemoryQueryTool:
             assert "media_listening" not in description
             assert "coding_activity" not in description
 
-    def test_tool_uses_runtime_hybrid_retrieval_binding(self, monkeypatch):
-        """Should resolve the shared runtime retrieval service."""
-        import magi.tools.builtin.memory_query_tool as memory_query_module
-        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-
-        fake_service = MagicMock(name="retrieval_service")
-        monkeypatch.setattr(memory_query_module, "get_hybrid_retrieval_service", lambda: fake_service)
-
-        tool = MemoryQueryTool()
-
-        assert tool._get_service() is fake_service
-
-    def test_tool_get_service_raises_when_runtime_binding_is_missing(self, monkeypatch):
-        """Should fail fast when the runtime retrieval service is not available."""
-        import magi.tools.builtin.memory_query_tool as memory_query_module
-        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-
-        monkeypatch.setattr(
-            memory_query_module,
-            "get_hybrid_retrieval_service",
-            lambda: (_ for _ in ()).throw(RuntimeError("hybrid_retrieval_service binding is not initialized")),
-        )
-
-        tool = MemoryQueryTool()
-
-        with pytest.raises(RuntimeError, match="hybrid_retrieval_service"):
-            tool._get_service()
-
     @pytest.mark.asyncio
-    async def test_tool_execution(self, monkeypatch):
+    async def test_tool_execution(self):
         """Should execute query and return projected recall plus debug payloads."""
-        import magi.tools.builtin.memory_query_tool as memory_query_module
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
         from magi.tools.schema import ToolExecutionContext
 
         fake_service = MagicMock(name="retrieval_service")
-        monkeypatch.setattr(memory_query_module, "get_hybrid_retrieval_service", lambda: fake_service)
-        tool = MemoryQueryTool()
         fake_service.query = AsyncMock(
             return_value=MagicMock(
                 l0_workbench=[{"summary": "Current goal"}],
@@ -164,7 +168,9 @@ class TestMemoryQueryTool:
                 trace={"query_mode": "detail", "primary_count": 1},
             )
         )
-        context = ToolExecutionContext(agent_id="test", task_id="test-task")
+        fake_mq = _make_fake_mq(fake_service)
+        tool = MemoryQueryTool()
+        context = _make_context(fake_mq=fake_mq, task_id="test-task")
 
         result = await tool.execute({"query": "test query", "query_mode": "exact_fact"}, context)
 
@@ -172,19 +178,15 @@ class TestMemoryQueryTool:
         assert result.data["historical_recall"]["summary"] == "你讨厌潮湿天气。"
         assert result.data["historical_recall"]["findings"][0]["statement"] == "user:local_user DISLIKES weather_state:humid"
         assert result.data["debug"]["retrieval_trace"]["query_mode"] == "detail"
-        request = fake_service.query.await_args.args[0]
+        request = fake_mq.query.await_args.args[0]
         assert request.query_mode == "exact_fact"
 
     @pytest.mark.asyncio
-    async def test_tool_execution_uses_context_user_and_session(self, monkeypatch):
+    async def test_tool_execution_uses_context_user_and_session(self):
         """Should inherit runtime user but not implicitly bind the chat session."""
-        import magi.tools.builtin.memory_query_tool as memory_query_module
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-        from magi.tools.schema import ToolExecutionContext
 
         fake_service = MagicMock(name="retrieval_service")
-        monkeypatch.setattr(memory_query_module, "get_hybrid_retrieval_service", lambda: fake_service)
-        tool = MemoryQueryTool()
         fake_service.query = AsyncMock(
             return_value=MagicMock(
                 l0_workbench=[],
@@ -197,31 +199,26 @@ class TestMemoryQueryTool:
                 trace={"query_mode": "detail"},
             )
         )
-        context = ToolExecutionContext(
-            agent_id="test",
-            env_vars={
-                "user_id": "local_user",
-                "session_id": "session-123",
-            },
+        fake_mq = _make_fake_mq(fake_service)
+        tool = MemoryQueryTool()
+        context = _make_context(
+            fake_mq=fake_mq,
+            env_vars={"user_id": "local_user", "session_id": "session-123"},
         )
 
         result = await tool.execute({"query": "我喜欢什么天气", "query_mode": "exact_fact"}, context)
 
         assert result.success is True
-        request = fake_service.query.await_args.args[0]
+        request = fake_mq.query.await_args.args[0]
         assert request.user_id == "local_user"
         assert request.session_id is None
 
     @pytest.mark.asyncio
-    async def test_tool_execution_passes_explicit_session_when_provided(self, monkeypatch):
+    async def test_tool_execution_passes_explicit_session_when_provided(self):
         """Should preserve an explicitly requested session-local lookup."""
-        import magi.tools.builtin.memory_query_tool as memory_query_module
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-        from magi.tools.schema import ToolExecutionContext
 
         fake_service = MagicMock(name="retrieval_service")
-        monkeypatch.setattr(memory_query_module, "get_hybrid_retrieval_service", lambda: fake_service)
-        tool = MemoryQueryTool()
         fake_service.query = AsyncMock(
             return_value=MagicMock(
                 l0_workbench=[],
@@ -234,7 +231,12 @@ class TestMemoryQueryTool:
                 trace={"query_mode": "detail"},
             )
         )
-        context = ToolExecutionContext(agent_id="test", env_vars={"user_id": "local_user", "session_id": "session-ignored"})
+        fake_mq = _make_fake_mq(fake_service)
+        tool = MemoryQueryTool()
+        context = _make_context(
+            fake_mq=fake_mq,
+            env_vars={"user_id": "local_user", "session_id": "session-ignored"},
+        )
 
         result = await tool.execute(
             {"query": "这一轮我刚刚说了什么", "query_mode": "episode_recall", "session_id": "session-explicit"},
@@ -242,7 +244,7 @@ class TestMemoryQueryTool:
         )
 
         assert result.success is True
-        request = fake_service.query.await_args.args[0]
+        request = fake_mq.query.await_args.args[0]
         assert request.session_id == "session-explicit"
 
     @pytest.mark.asyncio
@@ -263,3 +265,17 @@ class TestMemoryQueryTool:
         assert "query" in properties
         assert "time_range" in properties
         assert "query_mode" in properties
+
+    @pytest.mark.asyncio
+    async def test_tool_returns_error_when_memory_query_port_unavailable(self):
+        """Should return an error result when memory_query capability is not wired."""
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+        from magi.tools.schema import ToolExecutionContext
+
+        tool = MemoryQueryTool()
+        # context with no capabilities
+        context = ToolExecutionContext(agent_id="test")
+
+        result = await tool.execute({"query": "test"}, context)
+        assert result.success is False
+        assert "memory_query" in result.error

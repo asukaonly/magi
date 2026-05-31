@@ -4,7 +4,45 @@ plumbs it through to the RetrievalQuery."""
 from __future__ import annotations
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
+from magi_plugin_sdk.capabilities import ToolCapabilities
+
+
+def _make_fake_mq(fake_payload=None):
+    """Build a minimal fake MemoryQueryPort."""
+    if fake_payload is None:
+        fake_payload = AsyncMock(
+            l0_workbench=[], l1_events=[], l1_evidence_bundles=[],
+            l1_timeline_summary=[], l2_entity_cards=[], l2_relationships=[],
+            l2_assertions=[], l3_reflections=[], l4_procedures=[], trace={},
+        )
+
+    def _build_query(**kwargs):
+        from magi.memory.hybrid_retrieval import build_query
+        return build_query(**kwargs)
+
+    def _make_turn(**kwargs):
+        from magi.memory.hybrid_retrieval.models import ConversationTurn
+        return ConversationTurn(**kwargs)
+
+    def _project(**kwargs):
+        from magi.memory.retrieval_projection import project_historical_recall
+        return project_historical_recall(**kwargs)
+
+    mq = MagicMock(name="memory_query_port")
+    mq.build_query.side_effect = _build_query
+    mq.query = AsyncMock(return_value=fake_payload)
+    mq.get_canonical_names = AsyncMock(return_value={})
+    mq.project_historical_recall.side_effect = _project
+    mq.make_conversation_turn.side_effect = _make_turn
+    return mq
+
+
+def _make_context(fake_mq, **kwargs):
+    from magi.tools.schema import ToolExecutionContext
+    caps = ToolCapabilities(memory_query=fake_mq)
+    return ToolExecutionContext(agent_id="agent-1", capabilities=caps, **kwargs)
 
 
 def test_memory_query_schema_includes_conversation_context_parameter():
@@ -24,35 +62,28 @@ async def test_memory_query_passes_conversation_context_to_retrieval_query():
     """When the tool executor receives conversation_context in parameters,
     it must propagate to the RetrievalQuery passed to the service."""
     from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-    from magi.tools.schema import ToolExecutionContext
 
     tool = MemoryQueryTool()
-    fake_service = AsyncMock()
-    fake_service.query = AsyncMock(return_value=AsyncMock(
-        l0_workbench=[], l1_events=[], l1_evidence_bundles=[],
-        l1_timeline_summary=[], l2_entity_cards=[], l2_relationships=[],
-        l2_assertions=[], l3_reflections=[], l4_procedures=[], trace={},
-    ))
+    fake_mq = _make_fake_mq()
 
-    with patch.object(tool, "_get_service", return_value=fake_service):
-        await tool.execute(
-            parameters={
-                "query": "当时我说什么",
-                "query_mode": "exact_fact",
-                "conversation_context": [
-                    {"role": "user", "content": "hi", "timestamp": 1.0},
-                    {"role": "assistant", "content": "hello", "timestamp": 2.0},
-                ],
-            },
-            context=ToolExecutionContext(
-                agent_id="agent-1",
-                workspace="/tmp",
-                env_vars={"user_id": "u1", "session_id": ""},
-                permissions=[],
-            ),
-        )
+    await tool.execute(
+        parameters={
+            "query": "当时我说什么",
+            "query_mode": "exact_fact",
+            "conversation_context": [
+                {"role": "user", "content": "hi", "timestamp": 1.0},
+                {"role": "assistant", "content": "hello", "timestamp": 2.0},
+            ],
+        },
+        context=_make_context(
+            fake_mq,
+            workspace="/tmp",
+            env_vars={"user_id": "u1", "session_id": ""},
+            permissions=[],
+        ),
+    )
 
-    call = fake_service.query.await_args
+    call = fake_mq.query.await_args
     request = call.args[0] if call.args else call.kwargs["request"]
     assert request.conversation_context is not None
     assert len(request.conversation_context) == 2
@@ -301,29 +332,27 @@ def test_memory_query_schema_query_mode_is_optional():
 async def test_memory_query_executes_without_query_mode():
     """Tool must not crash when parameters dict omits query_mode."""
     from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-    from magi.tools.schema import ToolExecutionContext
 
     tool = MemoryQueryTool()
-    fake_service = AsyncMock()
-    fake_service.query = AsyncMock(return_value=AsyncMock(
-        l0_workbench=[], l1_events=[], l1_evidence_bundles=[],
-        l1_timeline_summary=[], l2_entity_cards=[], l2_relationships=[],
-        l2_assertions=[], l3_reflections=[], l4_procedures=[], trace={},
-    ))
-
-    with patch.object(tool, "_get_service", return_value=fake_service):
-        result = await tool.execute(
-            parameters={"query": "who is asuka"},  # NO query_mode
-            context=ToolExecutionContext(
-                agent_id="agent-1",
-                workspace="/tmp",
-                env_vars={"user_id": "u1", "session_id": ""},
-                permissions=[],
-            ),
+    fake_mq2 = _make_fake_mq(
+        fake_payload=AsyncMock(
+            l0_workbench=[], l1_events=[], l1_evidence_bundles=[],
+            l1_timeline_summary=[], l2_entity_cards=[], l2_relationships=[],
+            l2_assertions=[], l3_reflections=[], l4_procedures=[], trace={},
         )
+    )
+    result = await tool.execute(
+        parameters={"query": "who is asuka"},  # NO query_mode
+        context=_make_context(
+            fake_mq2,
+            workspace="/tmp",
+            env_vars={"user_id": "u1", "session_id": ""},
+            permissions=[],
+        ),
+    )
 
     assert result.success is True
-    call = fake_service.query.await_args
+    call = fake_mq2.query.await_args
     request = call.args[0] if call.args else call.kwargs["request"]
     assert request.query_mode is None
 
@@ -335,17 +364,15 @@ async def test_memory_query_resolves_canonical_names_before_projection():
     into project_historical_recall.
 
     We verify by:
-    1. Mocking get_canonical_names to return a fixed canonical-name map
-    2. Mocking the service to return a payload with l2_relationships referencing
+    1. Mocking get_canonical_names on the port to return a fixed canonical-name map
+    2. Mocking the port to return a payload with l2_relationships referencing
        a specific entity_id
     3. Asserting the resulting envelope's findings use the canonical name
        (not the raw id)"""
     from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-    from magi.tools.schema import ToolExecutionContext
+    from magi.memory.hybrid_retrieval.models import RetrievalPayload
 
     tool = MemoryQueryTool()
-    fake_service = AsyncMock()
-    from magi.memory.hybrid_retrieval.models import RetrievalPayload
     fake_payload = RetrievalPayload(
         l2_relationships=[
             {
@@ -357,23 +384,26 @@ async def test_memory_query_resolves_canonical_names_before_projection():
             }
         ],
     )
-    fake_service.query = AsyncMock(return_value=fake_payload)
-    fake_service.memory_db_path = "/tmp/fake_memory.db"
+
+    fake_mq = _make_fake_mq()
+    fake_mq.query = AsyncMock(return_value=fake_payload)
+    # Expose memory_db_path so the executor opts into Phase 5 mode
+    fake_mq.memory_db_path = "/tmp/fake_memory.db"
 
     async def fake_lookup(db_path, entity_ids):
         return {"user:local_user": "asuka", "74f953b57f75": "字节跳动"}
 
-    with patch.object(tool, "_get_service", return_value=fake_service), \
-         patch("magi.tools.builtin.memory_query_tool.get_canonical_names",
-               side_effect=fake_lookup):
-        result = await tool.execute(
-            parameters={"query": "who am I interested in"},
-            context=ToolExecutionContext(
-                agent_id="agent-1", workspace="/tmp",
-                env_vars={"user_id": "u1", "session_id": ""},
-                permissions=[],
-            ),
-        )
+    fake_mq.get_canonical_names = AsyncMock(side_effect=fake_lookup)
+
+    result = await tool.execute(
+        parameters={"query": "who am I interested in"},
+        context=_make_context(
+            fake_mq,
+            workspace="/tmp",
+            env_vars={"user_id": "u1", "session_id": ""},
+            permissions=[],
+        ),
+    )
 
     assert result.success is True
     envelope = result.data["historical_recall"]

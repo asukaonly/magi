@@ -59,6 +59,43 @@ class _HostBackgroundPort:
         return await resolve_background_task_manager().resume_from_wait(task_id)
 
 
+class _HostMemoryQueryPort:
+    """Adapter that routes MemoryQueryPort calls to the host memory layer.
+
+    All imports are lazy (inside methods) so this adapter never causes
+    a top-level import of host memory internals from bootstrap.
+    """
+
+    _service = None
+
+    def build_query(self, **kwargs):
+        from magi.memory.hybrid_retrieval import build_query
+        return build_query(**kwargs)
+
+    async def query(self, request):
+        from magi.memory.provider import get_hybrid_retrieval_service
+        if self._service is None:
+            self._service = get_hybrid_retrieval_service()
+        return await self._service.query(request)
+
+    async def get_canonical_names(self, db_path, entity_ids):
+        from magi.memory.l2.entities.catalog.lookup import get_canonical_names
+        return await get_canonical_names(db_path, entity_ids)
+
+    def project_historical_recall(self, *, payload, request, plugin_manager=None, canonical_names=None):
+        from magi.memory.retrieval_projection import project_historical_recall
+        return project_historical_recall(
+            payload=payload,
+            request=request,
+            plugin_manager=plugin_manager,
+            canonical_names=canonical_names,
+        )
+
+    def make_conversation_turn(self, **kwargs):
+        from magi.memory.hybrid_retrieval.models import ConversationTurn
+        return ConversationTurn(**kwargs)
+
+
 def build_tool_capabilities() -> ToolCapabilities:
     """Return the process-wide tool-capabilities bundle (built once)."""
     global _capabilities
@@ -67,6 +104,7 @@ def build_tool_capabilities() -> ToolCapabilities:
             trace=_HostTracePort(),
             delegation_events=_HostDelegationEventPort(),
             background=_HostBackgroundPort(),
+            memory_query=_HostMemoryQueryPort(),
         )
     return _capabilities
 

@@ -24,6 +24,27 @@ class BackgroundPort(Protocol):
     async def resume_from_wait(self, task_id: str) -> bool: ...
 
 
+class MemoryQueryPort(Protocol):
+    """Port for hybrid memory retrieval operations.
+
+    The host adapter wraps the memory layer; plugins and tools call through
+    this port so they never import host internals directly.
+    """
+
+    def build_query(self, **kwargs: Any) -> Any: ...
+    async def query(self, request: Any) -> Any: ...
+    async def get_canonical_names(self, db_path: str, entity_ids: Any) -> dict: ...
+    def project_historical_recall(
+        self,
+        *,
+        payload: Any,
+        request: Any,
+        plugin_manager: Any = None,
+        canonical_names: Any = None,
+    ) -> Any: ...
+    def make_conversation_turn(self, **kwargs: Any) -> Any: ...
+
+
 @dataclass(slots=True)
 class ToolCapabilities:
     """Bundle of host capability ports injected into tool execution.
@@ -37,11 +58,11 @@ class ToolCapabilities:
     background: Optional[BackgroundPort] = None
     session_cache: Optional[Any] = None
     chat: Optional[Any] = None
-    memory_query: Optional[Any] = None
+    memory_query: Optional[MemoryQueryPort] = None
     image_gen: Optional[Any] = None
     control: Optional[Any] = None
     interaction: Optional[Any] = None
     subagent: Optional[Any] = None
 
 
-__all__ = ["ToolCapabilities", "TracePort", "DelegationEventPort", "BackgroundPort"]
+__all__ = ["ToolCapabilities", "TracePort", "DelegationEventPort", "BackgroundPort", "MemoryQueryPort"]

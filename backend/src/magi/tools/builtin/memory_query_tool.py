@@ -5,12 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, Optional
 
-from ...memory.hybrid_retrieval import build_query
-from ...memory.hybrid_retrieval.models import ConversationTurn
-from ...memory.l2.entities.catalog.lookup import get_canonical_names
-from ...memory.provider import get_hybrid_retrieval_service
 from ...plugins.provider import resolve_plugin_manager
-from ...memory.retrieval_projection import project_historical_recall
 from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
 
 
@@ -79,7 +74,6 @@ class MemoryQueryTool(Tool):
         ``summary_categories`` description reflects the live catalog.
         """
         self._schema_built_with_plugin_manager = False
-        self._service: Optional[Any] = None
         self.schema = self._build_schema(plugin_manager=None)
 
     def _build_schema(self, *, plugin_manager: Optional[Any]) -> ToolSchema:
@@ -217,11 +211,6 @@ class MemoryQueryTool(Tool):
         self._maybe_refresh_schema()
         return super().get_info()
 
-    def _get_service(self):
-        """Return an initialized retrieval service when runtime memory is available."""
-        self._service = get_hybrid_retrieval_service()
-        return self._service
-
     async def execute(
         self,
         parameters: Dict[str, Any],
@@ -229,18 +218,25 @@ class MemoryQueryTool(Tool):
     ) -> ToolResult:
         """Execute a hybrid retrieval query."""
         try:
+            mq = context.capabilities.memory_query if context.capabilities else None
+            if mq is None:
+                return ToolResult(
+                    success=False,
+                    error="memory_query capability port is not available",
+                    error_code="CAPABILITY_UNAVAILABLE",
+                )
             user_id = parameters.get("user_id") or context.env_vars.get("user_id")
             # Persistent memory recall should not inherit the current chat session
             # unless a caller explicitly opts into session-local lookup.
             session_id = parameters.get("session_id")
             current_user_text = context.env_vars.get("current_user_text") or None
-            # Parse incoming conversation_context (list of dicts → list[ConversationTurn]).
+            # Parse incoming conversation_context (list of dicts → ConversationTurn instances).
             # Auto-injected by the runtime for indexical reference resolution; tolerant
             # of malformed entries (skip items missing required keys).
             raw_context = parameters.get("conversation_context") or []
-            conversation_context: Optional[list[ConversationTurn]] = None
+            conversation_context = None
             if raw_context:
-                turns: list[ConversationTurn] = []
+                turns = []
                 for item in raw_context:
                     if not isinstance(item, dict):
                         continue
@@ -248,7 +244,7 @@ class MemoryQueryTool(Tool):
                         continue
                     try:
                         turns.append(
-                            ConversationTurn(
+                            mq.make_conversation_turn(
                                 role=item["role"],
                                 content=item["content"],
                                 timestamp=float(item["timestamp"]),
@@ -258,7 +254,7 @@ class MemoryQueryTool(Tool):
                         continue
                 if turns:
                     conversation_context = turns
-            request = build_query(
+            request = mq.build_query(
                 query=parameters["query"],
                 user_id=user_id,
                 session_id=session_id,
@@ -275,8 +271,7 @@ class MemoryQueryTool(Tool):
                 exclude_user_text=current_user_text,
                 conversation_context=conversation_context,
             )
-            service = self._get_service()
-            payload = await service.query(request)
+            payload = await mq.query(request)
             payload_dict = asdict(payload) if hasattr(payload, "__dataclass_fields__") else {
                 "l0_workbench": getattr(payload, "l0_workbench", []),
                 "l1_events": getattr(payload, "l1_events", []),
@@ -330,24 +325,24 @@ class MemoryQueryTool(Tool):
             # ``canonical_names is None`` as legacy mode (no entity-leak
             # filtering) and a populated/empty dict as Phase 5 mode (drop
             # findings whose entity_ids resolve to no canonical name). To
-            # preserve legacy behaviour when the service does not expose a
+            # preserve legacy behaviour when the port does not expose a
             # memory_db_path (e.g. test doubles or fresh deploys), we only
             # opt into Phase 5 mode when a real string path is available.
             # The isinstance guard rejects MagicMock-style auto-attributes.
-            db_path_attr = getattr(service, "memory_db_path", None) or getattr(
-                service, "_memory_db_path", None
+            db_path_attr = getattr(mq, "memory_db_path", None) or getattr(
+                mq, "_memory_db_path", None
             )
             db_path = db_path_attr if isinstance(db_path_attr, str) else None
             canonical_names: dict[str, str] | None = None
             if db_path:
                 canonical_names = (
-                    await get_canonical_names(db_path, entity_ids)
+                    await mq.get_canonical_names(db_path, entity_ids)
                     if entity_ids
                     else {}
                 )
 
             historical_recall = asdict(
-                project_historical_recall(
+                mq.project_historical_recall(
                     payload=payload_dict,
                     request=request,
                     plugin_manager=plugin_manager,
@@ -373,8 +368,4 @@ class MemoryQueryTool(Tool):
 
     def is_ready(self) -> bool:
         """Check if tool is ready to use."""
-        try:
-            self._get_service()
-        except RuntimeError:
-            return False
         return True

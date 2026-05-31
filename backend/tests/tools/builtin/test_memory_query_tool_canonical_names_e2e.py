@@ -2,10 +2,10 @@
 
 Verifies the real flow:
   memory_query_tool.execute()
-   -> service.query() (mocked)
+   -> mq.query() (mocked via port)
    -> executor collects entity_ids from ALL payload surfaces
-   -> get_canonical_names() against real seeded entity_catalog
-   -> project_historical_recall() with the resolved dict
+   -> mq.get_canonical_names() against real seeded entity_catalog
+   -> mq.project_historical_recall() with the resolved dict
    -> envelope rendered without raw entity_ids
 
 This was missing from Phase 5 -- all Phase 5 tests pass canonical_names
@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import aiosqlite
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
+from magi_plugin_sdk.capabilities import ToolCapabilities
 
 
 async def _seed_entity_catalog(db_path: str, rows: list[tuple[str, str]]) -> None:
@@ -35,6 +37,41 @@ async def _seed_entity_catalog(db_path: str, rows: list[tuple[str, str]]) -> Non
         await db.commit()
 
 
+def _make_fake_mq_with_real_db(fake_payload, db_path: str):
+    """Build a fake MemoryQueryPort that routes get_canonical_names to the real DB."""
+
+    def _build_query(**kwargs):
+        from magi.memory.hybrid_retrieval import build_query
+        return build_query(**kwargs)
+
+    def _make_turn(**kwargs):
+        from magi.memory.hybrid_retrieval.models import ConversationTurn
+        return ConversationTurn(**kwargs)
+
+    def _project(**kwargs):
+        from magi.memory.retrieval_projection import project_historical_recall
+        return project_historical_recall(**kwargs)
+
+    async def _get_canonical_names(dp, entity_ids):
+        from magi.memory.l2.entities.catalog.lookup import get_canonical_names
+        return await get_canonical_names(dp, entity_ids)
+
+    mq = MagicMock(name="memory_query_port")
+    mq.build_query.side_effect = _build_query
+    mq.query = AsyncMock(return_value=fake_payload)
+    mq.get_canonical_names = AsyncMock(side_effect=_get_canonical_names)
+    mq.project_historical_recall.side_effect = _project
+    mq.make_conversation_turn.side_effect = _make_turn
+    mq.memory_db_path = db_path
+    return mq
+
+
+def _make_context(fake_mq, workspace, **kwargs):
+    from magi.tools.schema import ToolExecutionContext
+    caps = ToolCapabilities(memory_query=fake_mq)
+    return ToolExecutionContext(agent_id="agent-1", capabilities=caps, workspace=str(workspace), **kwargs)
+
+
 @pytest.mark.asyncio
 async def test_e2e_entity_card_entity_id_resolved_via_real_catalog(tmp_path):
     """C1 north star: when payload has l2_entity_cards referencing
@@ -43,7 +80,6 @@ async def test_e2e_entity_card_entity_id_resolved_via_real_catalog(tmp_path):
     entity_refs must render with the canonical name (not the raw hash)."""
     from magi.memory.hybrid_retrieval.models import RetrievalPayload
     from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-    from magi.tools.schema import ToolExecutionContext
 
     # Seed a real (file-backed) entity_catalog DB
     db_path = str(tmp_path / "memory.sqlite")
@@ -66,20 +102,17 @@ async def test_e2e_entity_card_entity_id_resolved_via_real_catalog(tmp_path):
             {"entity_id": "user:local_user", "entity_type": "person"},
         ],
     )
-    fake_service = AsyncMock()
-    fake_service.query = AsyncMock(return_value=fake_payload)
-    # The executor reads .memory_db_path from the service
-    fake_service.memory_db_path = db_path
+    fake_mq = _make_fake_mq_with_real_db(fake_payload, db_path)
 
-    with patch.object(tool, "_get_service", return_value=fake_service):
-        result = await tool.execute(
-            parameters={"query": "who am I interested in"},
-            context=ToolExecutionContext(
-                agent_id="agent-1", workspace=str(tmp_path),
-                env_vars={"user_id": "u1", "session_id": ""},
-                permissions=[],
-            ),
-        )
+    result = await tool.execute(
+        parameters={"query": "who am I interested in"},
+        context=_make_context(
+            fake_mq,
+            workspace=tmp_path,
+            env_vars={"user_id": "u1", "session_id": ""},
+            permissions=[],
+        ),
+    )
 
     assert result.success is True
     envelope = result.data["historical_recall"]
@@ -122,7 +155,6 @@ async def test_e2e_unresolved_entity_card_is_dropped_not_leaked(tmp_path):
     ref must be dropped -- never rendered with the raw hash."""
     from magi.memory.hybrid_retrieval.models import RetrievalPayload
     from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-    from magi.tools.schema import ToolExecutionContext
 
     db_path = str(tmp_path / "memory.sqlite")
     # Catalog is empty / missing the referenced entity
@@ -135,19 +167,17 @@ async def test_e2e_unresolved_entity_card_is_dropped_not_leaked(tmp_path):
             # unresolvable hash
         ],
     )
-    fake_service = AsyncMock()
-    fake_service.query = AsyncMock(return_value=fake_payload)
-    fake_service.memory_db_path = db_path
+    fake_mq = _make_fake_mq_with_real_db(fake_payload, db_path)
 
-    with patch.object(tool, "_get_service", return_value=fake_service):
-        result = await tool.execute(
-            parameters={"query": "test"},
-            context=ToolExecutionContext(
-                agent_id="agent-1", workspace=str(tmp_path),
-                env_vars={"user_id": "u1", "session_id": ""},
-                permissions=[],
-            ),
-        )
+    result = await tool.execute(
+        parameters={"query": "test"},
+        context=_make_context(
+            fake_mq,
+            workspace=tmp_path,
+            env_vars={"user_id": "u1", "session_id": ""},
+            permissions=[],
+        ),
+    )
 
     assert result.success is True
     envelope = result.data["historical_recall"]

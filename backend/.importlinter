@@ -122,8 +122,6 @@ ignore_imports =
     magi.tools -> magi.skills.loader
     magi.tools -> magi.skills.runner
     magi.tools -> magi.skills.schema
-    magi.tools.builtin._bash_grading -> magi.agent.control.permission.classifier_models
-    magi.tools.builtin._bash_grading -> magi.agent.control.permission.contracts
     magi.tools.builtin.agent_tool -> magi.agent.workers
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common
@@ -186,8 +184,6 @@ ignore_imports =
     magi.skills.subagent -> magi.chat.workspace
     magi.skills.subagent -> magi.llm.base
     magi.skills.subagent -> magi.llm.provider_bridge
-    magi.tools.builtin._bash_grading -> magi.agent.control.permission.classifier_models
-    magi.tools.builtin._bash_grading -> magi.agent.control.permission.contracts
     magi.tools.builtin.agent_tool -> magi.agent.workers
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common
@@ -198,11 +194,6 @@ ignore_imports =
     magi.tools.builtin.image_generation_tool -> magi.chat.attachment_ingestion
     magi.tools.builtin.image_generation_tool -> magi.llm.image_generation
     magi.tools.builtin.image_generation_tool -> magi.llm.usage_tracing
-    magi.tools.builtin.memory_query_tool -> magi.memory.hybrid_retrieval
-    magi.tools.builtin.memory_query_tool -> magi.memory.hybrid_retrieval.models
-    magi.tools.builtin.memory_query_tool -> magi.memory.l2.entities.catalog.lookup
-    magi.tools.builtin.memory_query_tool -> magi.memory.provider
-    magi.tools.builtin.memory_query_tool -> magi.memory.retrieval_projection
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.common.events
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.provider

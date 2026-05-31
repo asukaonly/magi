@@ -1,25 +1,16 @@
-"""Risk classifier result models."""
+"""Risk classifier result models.
+
+RiskSignal, ClassificationResult, and RiskLevel are promoted to the SDK layer
+so plugin tools can depend on them without importing host internals.
+These re-exports preserve identity with the SDK types.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from magi_plugin_sdk.permissions import (  # noqa: F401 (re-export)
+    ClassificationResult,
+    RiskLevel,
+    RiskSignal,
+)
 
-from .contracts import RiskLevel
-
-
-@dataclass(slots=True, frozen=True)
-class RiskSignal:
-    """Named signal contributing to the risk tier."""
-
-    key: str
-    description: str
-
-
-@dataclass(slots=True)
-class ClassificationResult:
-    level: RiskLevel
-    signals: list[RiskSignal]
-    preview: str | None = None
-
-
-__all__ = ["ClassificationResult", "RiskSignal"]
+__all__ = ["ClassificationResult", "RiskLevel", "RiskSignal"]
