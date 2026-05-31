@@ -107,6 +107,7 @@ class ChatTaskAgent(
         permission_gateway_provider: Callable[[], Any] | None = None,
         control_session_store_provider: Callable[[], Any] | None = None,
         channel_registry_resolver: Callable[[], Any] | None = None,
+        receipts_store_resolver: Callable[[], Any] | None = None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
         # Phase G+1: resolver returning the live ChannelRegistry (or None
@@ -114,6 +115,13 @@ class ChatTaskAgent(
         # the runtime container; tests inject a callable to bypass it.
         self._channel_registry_resolver = (
             channel_registry_resolver or self._resolve_channel_registry
+        )
+        # Phase G+3: resolver returning the live DeliveryReceiptsStore (or
+        # None pre-bootstrap / in tests). The coordinator persists per-turn
+        # receipts here so SessionRunCoordinator.request_retract can replay
+        # them without walking the run snapshot.
+        self._receipts_store_resolver = (
+            receipts_store_resolver or self._resolve_receipts_store
         )
         self.llm = llm_adapter
         self._llm_pool = llm_pool
@@ -280,6 +288,7 @@ class ChatTaskAgent(
         ):
             self._handler_registry.register(handler)
         _channel_registry = self._channel_registry_resolver()
+        _receipts_store = self._receipts_store_resolver()
         self._coordinator = ChatExecutionCoordinator(
             context_decider=self.context_decider,
             fact_classifier=self._fact_classifier,
@@ -289,6 +298,7 @@ class ChatTaskAgent(
             tool_selection_trace_callback=self._postprocess_service.record_tool_selection,
             channel_registry=_channel_registry,
             user_prefs_provider=self._read_delivery_prefs,
+            receipts_store=_receipts_store,
         )
         # Phase G+1: back-fill the coordinator on the shared handler
         # dependencies so DirectLLMHandler.execute() can route text_delta
@@ -362,6 +372,30 @@ class ChatTaskAgent(
         if module is None:
             return None
         return getattr(module, "_registry", None)
+
+    @staticmethod
+    def _resolve_receipts_store() -> Any | None:
+        """Pull the live DeliveryReceiptsStore out of the runtime container.
+
+        Mirrors :meth:`_resolve_channel_registry`. Returns ``None`` pre-
+        bootstrap, in tests where the container provider returns a bare
+        ``object()`` placeholder, or when the channels module hasn't been
+        wired with a store. The coordinator simply skips per-turn receipt
+        persistence in that case.
+        """
+        try:
+            from ...core.container import get_container
+
+            context = get_container().runtime_bootstrap_context()
+        except Exception:
+            return None
+        channels_state = getattr(context, "channels", None)
+        if channels_state is None:
+            return None
+        module = getattr(channels_state, "module", None)
+        if module is None:
+            return None
+        return getattr(module, "_receipts_store", None)
 
     @staticmethod
     async def _read_delivery_prefs(user_id: str) -> dict[str, Any]:
