@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from ...agent.workspace_cache.atomic_io import atomic_write_text
+from magi_plugin_sdk.fs import atomic_write_text
 from ...agent.workspace_cache import resolve_session_cache
 from .workspace import remove_worktree
 

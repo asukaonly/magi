@@ -136,7 +136,6 @@ ignore_imports =
     magi.tools.builtin.detach_to_background_tool -> magi.agent.run_control
     magi.tools.builtin.file_diff_tool -> magi.agent.workspace_cache
     magi.tools.builtin.file_rollback_tool -> magi.agent.workspace_cache
-    magi.tools.builtin.file_rollback_tool -> magi.agent.workspace_cache.atomic_io
     magi.tools.builtin.image_generation_tool -> magi.chat.attachment_ingestion
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.common.events
@@ -149,14 +148,8 @@ ignore_imports =
     magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store
     magi.tools.builtin.trace_query_tool -> magi.api.services
     magi.tools.builtin.verify_tool -> magi.agent.workspace_cache
-    magi.tools.builtin.verify_tool -> magi.agent.workspace_cache.atomic_io
     magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache
-    magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache.atomic_io
-    magi.tools.code_agent.context_bundle -> magi.agent.workspace_cache.atomic_io
-    magi.tools.code_agent.probe -> magi.agent.workspace_cache.atomic_io
-    magi.tools.code_agent.service -> magi.agent.workspace_cache.atomic_io
     magi.tools.code_agent.service -> magi.transport.code_agent_events
-    magi.tools.code_agent.settings_writer -> magi.agent.workspace_cache.atomic_io
     magi.tools.context_decider_prompt -> magi.agent.message_utils
     magi.tools.registry -> magi.skills.schema
     magi.tools.registry_lookup -> magi.skills.schema
@@ -217,7 +210,6 @@ ignore_imports =
     magi.tools.builtin.detach_to_background_tool -> magi.agent.run_control
     magi.tools.builtin.file_diff_tool -> magi.agent.workspace_cache
     magi.tools.builtin.file_rollback_tool -> magi.agent.workspace_cache
-    magi.tools.builtin.file_rollback_tool -> magi.agent.workspace_cache.atomic_io
     magi.tools.builtin.find_relevant_tools_tool -> magi.memory.provider
     magi.tools.builtin.image_generation_tool -> magi.chat.attachment_ingestion
     magi.tools.builtin.image_generation_tool -> magi.llm.image_generation
@@ -238,11 +230,5 @@ ignore_imports =
     magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store
     magi.tools.builtin.trace_query_tool -> magi.api.services
     magi.tools.builtin.verify_tool -> magi.agent.workspace_cache
-    magi.tools.builtin.verify_tool -> magi.agent.workspace_cache.atomic_io
     magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache
-    magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache.atomic_io
-    magi.tools.code_agent.context_bundle -> magi.agent.workspace_cache.atomic_io
-    magi.tools.code_agent.probe -> magi.agent.workspace_cache.atomic_io
-    magi.tools.code_agent.service -> magi.agent.workspace_cache.atomic_io
     magi.tools.code_agent.service -> magi.transport.code_agent_events
-    magi.tools.code_agent.settings_writer -> magi.agent.workspace_cache.atomic_io

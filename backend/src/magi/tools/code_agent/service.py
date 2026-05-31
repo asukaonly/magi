@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, ClassVar, Optional
 
-from ...agent.workspace_cache.atomic_io import append_jsonl, atomic_write_text
+from magi_plugin_sdk.fs import append_jsonl, atomic_write_text
 from .adapters.base import AdapterRunOutcome, CancelToken, CodeAgentAdapter, OnEvent
 from .adapters.claude_code import ClaudeCodeAdapter
 from .adapters.codex import CodexAdapter
