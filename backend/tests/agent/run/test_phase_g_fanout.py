@@ -53,18 +53,33 @@ class _StubRegistry:
 
 @pytest.mark.asyncio
 async def test_fanout_to_three_channels_then_retract_all() -> None:
-    sse = _RecordingChannel("chat_sse:s1")
-    telegram = _RecordingChannel("telegram:42")
-    slack = _RecordingChannel("slack:U7")
+    sse = _RecordingChannel("chat_sse")
+    telegram = _RecordingChannel("telegram")
+    slack = _RecordingChannel("slack")
 
     router = DeliveryRouter(channel_registry=_StubRegistry({
-        "chat_sse:s1": sse, "telegram:42": telegram, "slack:U7": slack,
+        "chat_sse": sse, "telegram": telegram, "slack": slack,
     }))
 
     targets = [
-        ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1"),
-        ChannelTarget(channel_type="telegram:42", external_chat_id="u1"),
-        ChannelTarget(channel_type="slack:U7", external_chat_id="u1"),
+        ChannelTarget(
+            channel_type="chat_sse",
+            external_chat_id="",
+            magi_session_id="s1",
+            magi_user_id="u1",
+        ),
+        ChannelTarget(
+            channel_type="telegram",
+            external_chat_id="",
+            magi_session_id="s1",
+            magi_user_id="u1",
+        ),
+        ChannelTarget(
+            channel_type="slack",
+            external_chat_id="",
+            magi_session_id="s1",
+            magi_user_id="u1",
+        ),
     ]
     content = DeliveryContent(text="hello three places at once")
 
@@ -86,23 +101,33 @@ async def test_fanout_to_three_channels_then_retract_all() -> None:
 @pytest.mark.asyncio
 async def test_fanout_mixed_capability_channels() -> None:
     """Email can't retract — must not abort the fanout."""
-    sse = _RecordingChannel("chat_sse:s1")
+    sse = _RecordingChannel("chat_sse")
 
     class _NoRetractEmail(_RecordingChannel):
         async def retract(self, receipt):
             raise NotImplementedError("can't unsend email")
 
-    email = _NoRetractEmail("email:u@x")
+    email = _NoRetractEmail("email")
 
     router = DeliveryRouter(channel_registry=_StubRegistry({
-        "chat_sse:s1": sse, "email:u@x": email,
+        "chat_sse": sse, "email": email,
     }))
 
     receipts = await router.fanout_deliver(
         content=DeliveryContent(text="hi"),
         targets=[
-            ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1"),
-            ChannelTarget(channel_type="email:u@x", external_chat_id="u1"),
+            ChannelTarget(
+                channel_type="chat_sse",
+                external_chat_id="",
+                magi_session_id="s1",
+                magi_user_id="u1",
+            ),
+            ChannelTarget(
+                channel_type="email",
+                external_chat_id="u@x",
+                magi_session_id="s1",
+                magi_user_id="u1",
+            ),
         ],
     )
     assert len(receipts) == 2

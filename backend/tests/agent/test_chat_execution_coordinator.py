@@ -1364,7 +1364,8 @@ async def test_dispatch_stream_chunk_routes_to_chat_sse_channel_when_registry_wi
     )
     assert len(rec.chunks) == 1
     target, chunk = rec.chunks[0]
-    assert target.channel_type == "chat_sse:s1"  # composite target
+    assert target.channel_type == "chat_sse"  # scheme-only
+    assert target.magi_session_id == "s1"  # per-run context rides on dedicated field
     assert chunk.text == "hello"
     assert chunk.is_final is False
     assert chunk.seq == 0
@@ -1538,14 +1539,14 @@ async def test_execute_uses_user_prefs_provider_for_fanout_targets():
             )
         async def retract(self, receipt): pass
 
-    sse = _Rec("chat_sse:s-9")
+    sse = _Rec("chat_sse")
     telegram = _Rec("telegram")
 
     class _Registry:
         def __init__(self, m): self._m = m
         def get(self, k): return self._m.get(k)
 
-    registry = _Registry({"chat_sse:s-9": sse, "telegram": telegram})
+    registry = _Registry({"chat_sse": sse, "telegram": telegram})
 
     async def provider(user_id):
         assert user_id == "u-9"
@@ -1667,13 +1668,13 @@ async def test_execute_swallows_user_prefs_provider_errors_and_uses_default_targ
             )
         async def retract(self, receipt): pass
 
-    sse = _Rec("chat_sse:s-bad")
+    sse = _Rec("chat_sse")
 
     class _Registry:
         def __init__(self, m): self._m = m
         def get(self, k): return self._m.get(k)
 
-    registry = _Registry({"chat_sse:s-bad": sse})
+    registry = _Registry({"chat_sse": sse})
 
     async def bad_provider(user_id):
         raise RuntimeError("store down")
@@ -1793,7 +1794,7 @@ async def test_execute_context_user_prefs_wins_over_provider():
             )
         async def retract(self, receipt): pass
 
-    sse = _Rec("chat_sse:s-ctx")
+    sse = _Rec("chat_sse")
     telegram = _Rec("telegram")
     slack = _Rec("slack")
 
@@ -1802,7 +1803,7 @@ async def test_execute_context_user_prefs_wins_over_provider():
         def get(self, k): return self._m.get(k)
 
     registry = _Registry({
-        "chat_sse:s-ctx": sse, "telegram": telegram, "slack": slack,
+        "chat_sse": sse, "telegram": telegram, "slack": slack,
     })
 
     async def provider(user_id):

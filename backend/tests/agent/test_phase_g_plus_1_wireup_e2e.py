@@ -100,14 +100,15 @@ class _RecordingSseChannel(Channel):
         self, target: ChannelTarget, chunk: DeliveryChunk
     ) -> None:
         self.chunks.append((target, chunk))
-        # Mirror ChatSseChannel: one trace record per chunk.
+        # Mirror ChatSseChannel: one trace record per chunk. Phase G+2 reads
+        # the session id from the dedicated magi_session_id field.
         self.trace_records.append(
             {
                 "kind": "agent_response_chunk",
                 "text": chunk.text,
                 "is_final": chunk.is_final,
                 "seq": chunk.seq,
-                "session_id": target.channel_type,
+                "session_id": target.magi_session_id,
             }
         )
 
@@ -120,13 +121,14 @@ class _RecordingSseChannel(Channel):
             {
                 "kind": "agent_response",
                 "text": content.text,
-                "session_id": target.channel_type,
+                "session_id": target.magi_session_id,
             }
         )
         return DeliveryReceipt(
             channel_id=target.channel_type,
             external_message_id=None,
             delivered_at_ms=0,
+            magi_session_id=target.magi_session_id,
         )
 
 
@@ -289,8 +291,10 @@ async def test_dispatch_stream_chunk_reaches_both_channels() -> None:
     assert [c.text for _, c in sse.chunks] == ["he", "llo", " world", ""]
     assert [c.seq for _, c in sse.chunks] == [0, 1, 2, 3]
     assert [c.is_final for _, c in sse.chunks] == [False, False, False, True]
-    # All targets reached the SSE channel under the composite key.
-    assert all(t.channel_type == "chat_sse:s1" for t, _ in sse.chunks)
+    # All targets reached the SSE channel under the scheme key with the
+    # per-run session id riding on the dedicated magi_session_id field.
+    assert all(t.channel_type == "chat_sse" for t, _ in sse.chunks)
+    assert all(t.magi_session_id == "s1" for t, _ in sse.chunks)
     # The trace-store stub (what the chat UI polls) saw all 4.
     assert len(sse.trace_records) == 4
     assert sse.trace_records[-1]["is_final"] is True
@@ -436,16 +440,22 @@ async def test_execute_fanout_calls_deliver_on_both_channels() -> None:
     assert len(sse.delivers) == 1
     sse_target, sse_content = sse.delivers[0]
     assert sse_content.text == "hello world"
-    # Composite key — same one resolve_delivery_targets constructs.
-    assert sse_target.channel_type == "chat_sse:s1"
-    assert sse_target.external_chat_id == "u1"
+    # Phase G+2: scheme-only channel_type; per-run context on dedicated field.
+    assert sse_target.channel_type == "chat_sse"
+    assert sse_target.magi_session_id == "s1"
+    assert sse_target.magi_user_id == "u1"
 
     # --- telegram: one deliver call with the assembled text ---
     assert len(tg.delivers) == 1
     tg_target, tg_content = tg.delivers[0]
     assert tg_content.text == "hello world"
     assert tg_target.channel_type == "telegram"
-    assert tg_target.external_chat_id == "u1"
+    # Phase G+2: resolve_delivery_targets leaves external_chat_id empty for
+    # non-SSE channels; the channel itself looks up its external id at deliver
+    # time using magi_session_id / magi_user_id.
+    assert tg_target.external_chat_id == ""
+    assert tg_target.magi_session_id == "s1"
+    assert tg_target.magi_user_id == "u1"
 
 
 # ---------------------------------------------------------------------------
