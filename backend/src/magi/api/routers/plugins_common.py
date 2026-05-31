@@ -286,10 +286,59 @@ def _serialize_settings_ui_block(
     return out
 
 
+def _localize_activation_field(
+    field: dict[str, Any], i18n: PluginI18n, plugin_id_normalized: str
+) -> dict[str, Any]:
+    """Add plugin-scoped ``*_translated`` mirrors to an activation-flow field dict.
+
+    Mirrors the plugin-scoped lookups in :func:`_serialize_field` (which operates
+    on :class:`ExtensionFieldSpec` instances) but works on the plain dicts that
+    ``ActivationFlowSpec.model_dump()`` produces, so the activation dialog can
+    render localized labels / descriptions / option labels.
+    """
+    out = dict(field)
+    key = field.get("key")
+    if not isinstance(key, str) or not key:
+        return out
+    field_key_short = key.split(".")[-1]
+    out["label_translated"] = translate_with_fallback(
+        i18n,
+        f"{plugin_id_normalized}.fields.{field_key_short}.label",
+        field.get("label"),
+    )
+    out["description_translated"] = translate_with_fallback(
+        i18n,
+        f"{plugin_id_normalized}.fields.{field_key_short}.description",
+        field.get("description"),
+    )
+    options = field.get("options")
+    if isinstance(options, list):
+        out["options"] = [
+            {
+                **opt,
+                "label_translated": translate_with_fallback(
+                    i18n,
+                    f"{plugin_id_normalized}.options.{field_key_short}.{opt.get('value')}",
+                    opt.get("label"),
+                ),
+            }
+            if isinstance(opt, dict)
+            else opt
+            for opt in options
+        ]
+    return out
+
+
 def _serialize_activation_flow(
     flow: dict[str, Any], i18n: PluginI18n, plugin_id: str | None = None
 ) -> dict[str, Any]:
-    """Augment an activation_flow dict with translated mirrors."""
+    """Augment an activation_flow dict with translated mirrors.
+
+    Adds flow-level ``title`` / ``description`` / ``confirm_label`` /
+    ``cancel_label`` mirrors, and localizes each embedded field with the same
+    plugin-scoped ``*_translated`` mirrors that :func:`_serialize_field`
+    produces for top-level fields.
+    """
     out = dict(flow)
     if plugin_id:
         plugin_id_normalized = normalize_plugin_id(plugin_id)
@@ -299,6 +348,14 @@ def _serialize_activation_flow(
                 f"{plugin_id_normalized}.activation.{key}",
                 str(flow.get(key) or ""),
             )
+        fields = flow.get("fields")
+        if isinstance(fields, list):
+            out["fields"] = [
+                _localize_activation_field(field, i18n, plugin_id_normalized)
+                if isinstance(field, dict)
+                else field
+                for field in fields
+            ]
     return out
 
 
