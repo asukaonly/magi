@@ -163,8 +163,8 @@ class ChatExecutionCoordinator:
         self._session_run_store = session_run_store
         # Phase G: DeliveryRouter for fanning out replies to user's
         # configured channels. Optional — if channel_registry is None,
-        # delivery falls back to the legacy NotificationRelay path
-        # (chat SSE only). This makes Phase G a strict additive change.
+        # delivery falls back to chat SSE only (no fanout).
+        # This makes Phase G a strict additive change.
         self._delivery_router = (
             DeliveryRouter(channel_registry=channel_registry)
             if channel_registry is not None
