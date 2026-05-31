@@ -124,16 +124,12 @@ ignore_imports =
     magi.tools -> magi.skills.schema
     magi.tools.builtin._bash_grading -> magi.agent.control.permission.classifier_models
     magi.tools.builtin._bash_grading -> magi.agent.control.permission.contracts
-    magi.tools.builtin._edit_journal -> magi.agent.workspace_cache
-    magi.tools.builtin._read_constraint -> magi.agent.workspace_cache
     magi.tools.builtin.agent_tool -> magi.agent.workers
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common.events
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.provider
     magi.tools.builtin.detach_to_background_tool -> magi.agent.run_control
-    magi.tools.builtin.file_diff_tool -> magi.agent.workspace_cache
-    magi.tools.builtin.file_rollback_tool -> magi.agent.workspace_cache
     magi.tools.builtin.image_generation_tool -> magi.chat.attachment_ingestion
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.common.events
@@ -144,8 +140,6 @@ ignore_imports =
     magi.tools.builtin.todo_write_tool -> magi.agent.control.common.events
     magi.tools.builtin.todo_write_tool -> magi.agent.control.provider
     magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store
-    magi.tools.builtin.verify_tool -> magi.agent.workspace_cache
-    magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache
     magi.tools.context_decider_prompt -> magi.agent.message_utils
     magi.tools.registry -> magi.skills.schema
     magi.tools.registry_lookup -> magi.skills.schema
@@ -194,16 +188,12 @@ ignore_imports =
     magi.skills.subagent -> magi.llm.provider_bridge
     magi.tools.builtin._bash_grading -> magi.agent.control.permission.classifier_models
     magi.tools.builtin._bash_grading -> magi.agent.control.permission.contracts
-    magi.tools.builtin._edit_journal -> magi.agent.workspace_cache
-    magi.tools.builtin._read_constraint -> magi.agent.workspace_cache
     magi.tools.builtin.agent_tool -> magi.agent.workers
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common.events
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.provider
     magi.tools.builtin.detach_to_background_tool -> magi.agent.run_control
-    magi.tools.builtin.file_diff_tool -> magi.agent.workspace_cache
-    magi.tools.builtin.file_rollback_tool -> magi.agent.workspace_cache
     magi.tools.builtin.find_relevant_tools_tool -> magi.memory.provider
     magi.tools.builtin.image_generation_tool -> magi.chat.attachment_ingestion
     magi.tools.builtin.image_generation_tool -> magi.llm.image_generation
@@ -222,5 +212,3 @@ ignore_imports =
     magi.tools.builtin.todo_write_tool -> magi.agent.control.common.events
     magi.tools.builtin.todo_write_tool -> magi.agent.control.provider
     magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store
-    magi.tools.builtin.verify_tool -> magi.agent.workspace_cache
-    magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache

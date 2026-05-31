@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 from magi_plugin_sdk.fs import atomic_write_text
-from ...agent.workspace_cache import resolve_session_cache
+from magi_plugin_sdk.workspace_cache import resolve_session_cache
 from .workspace import remove_worktree
 
 
