@@ -13,11 +13,26 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class ChannelTarget:
-    """Identify an external conversation endpoint."""
+    """Identify a destination for a delivery.
+
+    ``channel_type`` is the registry SCHEME only (e.g. "chat_sse",
+    "telegram"). DeliveryRouter looks up channels by exactly this string.
+
+    ``external_chat_id`` / ``external_thread_id`` carry the external
+    platform's identifiers (Telegram chat_id, Slack channel/thread, etc.)
+    when the channel maps to an external system. Empty when the channel
+    is magi-native (e.g. chat_sse).
+
+    ``magi_session_id`` / ``magi_user_id`` carry magi-side context so
+    magi-native channels can route, and external channels can perform
+    their own session->external-id lookups (via session_mapper, etc.).
+    """
 
     channel_type: str
     external_chat_id: str
     external_thread_id: str | None = None
+    magi_session_id: str = ""
+    magi_user_id: str = ""
 
 
 @dataclass(slots=True)

@@ -60,36 +60,51 @@ class _ChannelRegistryStub:
 
 @pytest.mark.asyncio
 async def test_fanout_deliver_to_single_channel_returns_one_receipt() -> None:
-    sse = _RecordingChannel("chat_sse:s1")
-    router = DeliveryRouter(channel_registry=_ChannelRegistryStub({"chat_sse:s1": sse}))
+    sse = _RecordingChannel("chat_sse")
+    router = DeliveryRouter(channel_registry=_ChannelRegistryStub({"chat_sse": sse}))
     content = DeliveryContent(text="hello")
-    # channel_type used as the registry key; external_chat_id is the user/session id
-    target = ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1")
+    # channel_type is the scheme; per-run context rides on magi_session_id/magi_user_id.
+    target = ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id="s1",
+        magi_user_id="u1",
+    )
 
     receipts = await router.fanout_deliver(content=content, targets=[target])
 
     assert len(receipts) == 1
-    assert receipts[0].channel_id == "chat_sse:s1"
+    assert receipts[0].channel_id == "chat_sse"
     assert sse.delivered == [(target, content)]
 
 
 @pytest.mark.asyncio
 async def test_fanout_deliver_to_two_channels_returns_two_receipts() -> None:
-    sse = _RecordingChannel("chat_sse:s1")
-    telegram = _RecordingChannel("telegram:U2")
+    sse = _RecordingChannel("chat_sse")
+    telegram = _RecordingChannel("telegram")
     router = DeliveryRouter(channel_registry=_ChannelRegistryStub({
-        "chat_sse:s1": sse, "telegram:U2": telegram,
+        "chat_sse": sse, "telegram": telegram,
     }))
     content = DeliveryContent(text="hello")
     targets = [
-        ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1"),
-        ChannelTarget(channel_type="telegram:U2", external_chat_id="u2"),
+        ChannelTarget(
+            channel_type="chat_sse",
+            external_chat_id="",
+            magi_session_id="s1",
+            magi_user_id="u1",
+        ),
+        ChannelTarget(
+            channel_type="telegram",
+            external_chat_id="U2",
+            magi_session_id="s1",
+            magi_user_id="u2",
+        ),
     ]
 
     receipts = await router.fanout_deliver(content=content, targets=targets)
 
     assert len(receipts) == 2
-    assert {r.channel_id for r in receipts} == {"chat_sse:s1", "telegram:U2"}
+    assert {r.channel_id for r in receipts} == {"chat_sse", "telegram"}
     assert len(sse.delivered) == 1
     assert len(telegram.delivered) == 1
 
@@ -98,38 +113,58 @@ async def test_fanout_deliver_to_two_channels_returns_two_receipts() -> None:
 async def test_fanout_deliver_skips_unknown_channel_and_continues() -> None:
     """An unknown channel_type is logged but does not abort the fanout —
     other channels still receive the content."""
-    sse = _RecordingChannel("chat_sse:s1")
-    router = DeliveryRouter(channel_registry=_ChannelRegistryStub({"chat_sse:s1": sse}))
+    sse = _RecordingChannel("chat_sse")
+    router = DeliveryRouter(channel_registry=_ChannelRegistryStub({"chat_sse": sse}))
     content = DeliveryContent(text="hello")
     targets = [
-        ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1"),
-        ChannelTarget(channel_type="nonexistent:x", external_chat_id="u2"),
+        ChannelTarget(
+            channel_type="chat_sse",
+            external_chat_id="",
+            magi_session_id="s1",
+            magi_user_id="u1",
+        ),
+        ChannelTarget(
+            channel_type="nonexistent",
+            external_chat_id="x",
+            magi_session_id="s1",
+            magi_user_id="u2",
+        ),
     ]
 
     receipts = await router.fanout_deliver(content=content, targets=targets)
 
     # Only the known channel produces a receipt.
     assert len(receipts) == 1
-    assert receipts[0].channel_id == "chat_sse:s1"
+    assert receipts[0].channel_id == "chat_sse"
 
 
 @pytest.mark.asyncio
 async def test_fanout_deliver_continues_when_one_channel_raises() -> None:
     """A channel that raises during deliver does not abort the fanout;
     its receipt is omitted but other channels still get delivered."""
-    sse = _RecordingChannel("chat_sse:s1")
+    sse = _RecordingChannel("chat_sse")
 
     class _BrokenChannel(_RecordingChannel):
         async def deliver(self, target, content):
             raise RuntimeError("channel broken")
 
-    broken = _BrokenChannel("broken:x")
+    broken = _BrokenChannel("broken")
     router = DeliveryRouter(channel_registry=_ChannelRegistryStub({
-        "chat_sse:s1": sse, "broken:x": broken,
+        "chat_sse": sse, "broken": broken,
     }))
     targets = [
-        ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1"),
-        ChannelTarget(channel_type="broken:x", external_chat_id="u2"),
+        ChannelTarget(
+            channel_type="chat_sse",
+            external_chat_id="",
+            magi_session_id="s1",
+            magi_user_id="u1",
+        ),
+        ChannelTarget(
+            channel_type="broken",
+            external_chat_id="x",
+            magi_session_id="s1",
+            magi_user_id="u2",
+        ),
     ]
 
     receipts = await router.fanout_deliver(
@@ -138,19 +173,19 @@ async def test_fanout_deliver_continues_when_one_channel_raises() -> None:
 
     # Only the working channel produces a receipt.
     assert len(receipts) == 1
-    assert receipts[0].channel_id == "chat_sse:s1"
+    assert receipts[0].channel_id == "chat_sse"
 
 
 @pytest.mark.asyncio
 async def test_fanout_retract_calls_each_channel_with_its_own_receipt() -> None:
-    sse = _RecordingChannel("chat_sse:s1")
-    telegram = _RecordingChannel("telegram:U2")
+    sse = _RecordingChannel("chat_sse")
+    telegram = _RecordingChannel("telegram")
     router = DeliveryRouter(channel_registry=_ChannelRegistryStub({
-        "chat_sse:s1": sse, "telegram:U2": telegram,
+        "chat_sse": sse, "telegram": telegram,
     }))
     receipts = [
-        DeliveryReceipt(channel_id="chat_sse:s1", external_message_id="m1", delivered_at_ms=1),
-        DeliveryReceipt(channel_id="telegram:U2", external_message_id="m2", delivered_at_ms=2),
+        DeliveryReceipt(channel_id="chat_sse", external_message_id="m1", delivered_at_ms=1),
+        DeliveryReceipt(channel_id="telegram", external_message_id="m2", delivered_at_ms=2),
     ]
     await router.fanout_retract(receipts=receipts)
     assert sse.retracted == [receipts[0]]
@@ -166,9 +201,9 @@ async def test_fanout_retract_swallows_not_implemented_silently() -> None:
         async def retract(self, receipt):
             raise NotImplementedError("can't unsend email")
 
-    email = _NoRetractChannel("email:user@x")
-    router = DeliveryRouter(channel_registry=_ChannelRegistryStub({"email:user@x": email}))
-    receipt = DeliveryReceipt(channel_id="email:user@x", external_message_id="m1", delivered_at_ms=1)
+    email = _NoRetractChannel("email")
+    router = DeliveryRouter(channel_registry=_ChannelRegistryStub({"email": email}))
+    receipt = DeliveryReceipt(channel_id="email", external_message_id="m1", delivered_at_ms=1)
 
     # Must not raise.
     await router.fanout_retract(receipts=[receipt])

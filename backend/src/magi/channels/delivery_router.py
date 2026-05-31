@@ -6,14 +6,13 @@ collects ``DeliveryReceipt``s for later ``revise`` / ``retract`` ops.
 Replaces the 1:1 ``NotificationRelay`` polling pattern. NotificationRelay
 remains as a backward-compat thin wrapper that delegates here.
 
-Note on channel_id vs channel_type:
-    The SDK's ``ChannelTarget`` uses ``channel_type`` (e.g. "telegram") as
-    its primary identifier. Phase G extends this by supporting composite
-    channel identifiers (e.g. "chat_sse:session_id", "telegram:U42") that
-    encode both the channel type and the target within a single string.
-    ``DeliveryRouter`` looks up channels from the registry using
-    ``target.channel_type``, which may be a composite key when the caller
-    registers channels under composite ids.
+Channel lookup (Phase G+2):
+    ``DeliveryRouter`` resolves a target to a channel via a plain
+    ``registry.get(target.channel_type)`` lookup. ``channel_type`` is
+    the scheme only ("chat_sse", "telegram"), never a composite key.
+    Per-run context (``magi_session_id``, ``magi_user_id``) rides on
+    dedicated ``ChannelTarget`` fields and is consumed by the channel
+    implementation, not by the router.
 """
 
 from __future__ import annotations
@@ -53,22 +52,12 @@ class DeliveryRouter:
         self._channel_registry = channel_registry
 
     def _resolve(self, target_channel_type: str) -> "Channel | None":
-        """Resolve a target's channel_type to a registered Channel.
-
-        First tries an exact registry lookup (so callers that register
-        under composite keys like "chat_sse:s1" keep working). If that
-        misses and the key looks composite ("<scheme>:<id>"), falls back
-        to a scheme-only lookup. This matches production where channels
-        register under their scheme ("chat_sse", "telegram") but targets
-        carry composite identifiers.
+        """Direct registry lookup. ``channel_type`` is the SCHEME — composite
+        keys are not interpreted. (Phase G+2: every target carries per-run
+        context in ``magi_session_id``/``magi_user_id`` fields instead of
+        encoding it inside ``channel_type``.)
         """
-        channel = self._channel_registry.get(target_channel_type)
-        if channel is not None:
-            return channel
-        scheme, sep, _ = target_channel_type.partition(":")
-        if sep and scheme:
-            return self._channel_registry.get(scheme)
-        return None
+        return self._channel_registry.get(target_channel_type)
 
     async def fanout_deliver(
         self,
@@ -82,9 +71,8 @@ class DeliveryRouter:
         accepted delivery). Failed / unknown channels are logged but
         not raised.
 
-        Uses ``target.channel_type`` as the registry lookup key. When
-        channels are registered under composite ids (e.g. "chat_sse:s1"),
-        the caller should set ``channel_type`` to that composite id.
+        Uses ``target.channel_type`` (the scheme, e.g. "chat_sse") as
+        the registry lookup key.
         """
         if not targets:
             return []

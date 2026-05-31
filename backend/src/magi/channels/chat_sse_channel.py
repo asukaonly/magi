@@ -45,9 +45,10 @@ async def _default_emit(session_id: str, payload: dict[str, Any]) -> str:
 class ChatSseChannel(Channel):
     """Host-internal Channel for chat SSE delivery.
 
-    Uses ``channel_type`` as a composite identifier in the form
-    ``"chat_sse:<session_id>"``. The session_id is extracted from this
-    composite when routing to the correct SSE stream.
+    ``channel_type`` is now just the scheme (``"chat_sse"``); the
+    magi-side session is read from ``target.magi_session_id`` and the
+    magi-side user from ``target.magi_user_id``. The session_id routes
+    to the correct SSE stream.
 
     When ``trace_store`` is provided, ``deliver``/``deliver_chunk`` write
     ``RuntimeNotificationRecord`` rows to it on the ``agent_response`` /
@@ -98,7 +99,7 @@ class ChatSseChannel(Channel):
 
     async def send_message(self, target: ChannelTarget, content: OutboundContent) -> None:
         """Legacy path — used by existing NotificationRelay flow."""
-        session_id = self._extract_session_id(target.channel_type)
+        session_id = target.magi_session_id
         await self._emit(session_id, {"text": content.text})
 
     async def send_typing_indicator(self, target: ChannelTarget) -> None:
@@ -118,10 +119,10 @@ class ChatSseChannel(Channel):
         Otherwise falls back to the legacy ``emit_to_chat`` path which
         returns a synthetic id.
         """
-        session_id = self._extract_session_id(target.channel_type)
+        session_id = target.magi_session_id
         if self._trace_store is not None:
             payload: dict[str, Any] = {
-                "user_id": target.external_chat_id,
+                "user_id": target.magi_user_id,
                 "session_id": session_id,
                 "content": content.text,
                 "is_final": True,
@@ -133,7 +134,7 @@ class ChatSseChannel(Channel):
                 RuntimeNotificationRecord(
                     notification_id=0,
                     channel="agent_response",
-                    user_id=str(target.external_chat_id or ""),
+                    user_id=str(target.magi_user_id or ""),
                     session_id=session_id,
                     payload_json=json.dumps(payload, ensure_ascii=False),
                     created_at_ms=int(time.time() * 1000),
@@ -143,6 +144,7 @@ class ChatSseChannel(Channel):
                 channel_id=target.channel_type,
                 external_message_id=None,
                 delivered_at_ms=int(time.time() * 1000),
+                magi_session_id=session_id,
             )
 
         # Legacy fallback
@@ -157,6 +159,7 @@ class ChatSseChannel(Channel):
             channel_id=target.channel_type,
             external_message_id=external_id,
             delivered_at_ms=int(time.time() * 1000),
+            magi_session_id=session_id,
         )
 
     async def deliver_chunk(
@@ -176,10 +179,10 @@ class ChatSseChannel(Channel):
         synthesized ``_emit(session_id, {"text", "is_final"})`` call so
         legacy wiring continues to receive chunks.
         """
-        session_id = self._extract_session_id(target.channel_type)
+        session_id = target.magi_session_id
         if self._trace_store is not None:
             payload: dict[str, Any] = {
-                "user_id": target.external_chat_id,
+                "user_id": target.magi_user_id,
                 "session_id": session_id,
                 # turn_id unknown at this layer; the chat orchestration
                 # layer correlates via session_id + the in-flight turn.
@@ -193,7 +196,7 @@ class ChatSseChannel(Channel):
                 RuntimeNotificationRecord(
                     notification_id=0,
                     channel="agent_response_chunk",
-                    user_id=str(target.external_chat_id or ""),
+                    user_id=str(target.magi_user_id or ""),
                     session_id=session_id,
                     payload_json=json.dumps(payload, ensure_ascii=False),
                     created_at_ms=int(time.time() * 1000),
@@ -213,13 +216,6 @@ class ChatSseChannel(Channel):
     # revise/retract intentionally not overridden — defaults raise NotImplementedError
     # because the chat UI today doesn't model message edits / deletes. Phase F+
     # ConversationLog event-sourcing will make these meaningful.
-
-    @staticmethod
-    def _extract_session_id(channel_type: str) -> str:
-        """``chat_sse:<session_id>`` → ``<session_id>``."""
-        if channel_type.startswith("chat_sse:"):
-            return channel_type[len("chat_sse:"):]
-        return channel_type
 
 
 __all__ = ["ChatSseChannel", "EmitToChat"]

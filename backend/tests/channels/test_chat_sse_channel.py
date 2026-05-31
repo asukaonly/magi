@@ -56,16 +56,22 @@ async def test_chat_sse_channel_deliver_writes_to_emitter_and_returns_receipt() 
         return f"chat_msg_{len(emitted)}"
 
     ch = ChatSseChannel(emit_to_chat=_emit)
-    # channel_type is the composite "chat_sse:s1" — session_id is extracted from it
-    target = ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1")
+    # channel_type is now just the scheme; session_id comes from magi_session_id
+    target = ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id="s1",
+        magi_user_id="u1",
+    )
     content = DeliveryContent(text="hi from agent")
 
     receipt = await ch.deliver(target, content)
 
     assert len(emitted) == 1
-    assert emitted[0][0] == "s1"  # session_id extracted from channel_type
+    assert emitted[0][0] == "s1"  # session_id from magi_session_id
     assert "hi from agent" in str(emitted[0][1])
-    assert receipt.channel_id == "chat_sse:s1"
+    assert receipt.channel_id == "chat_sse"
+    assert receipt.magi_session_id == "s1"
     assert receipt.external_message_id == "chat_msg_1"
 
 
@@ -80,7 +86,12 @@ async def test_chat_sse_channel_send_message_legacy_path_still_works() -> None:
 
     ch = ChatSseChannel(emit_to_chat=_emit)
     from magi_plugin_sdk.channels import OutboundContent
-    target = ChannelTarget(channel_type="chat_sse:s2", external_chat_id="u2")
+    target = ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id="s2",
+        magi_user_id="u2",
+    )
     result = await ch.send_message(target, OutboundContent(text="legacy text"))
     assert result is None
     assert len(emitted) == 1
@@ -99,7 +110,12 @@ async def test_deliver_chunk_appends_agent_response_chunk_record(
     """deliver_chunk writes an agent_response_chunk RuntimeNotificationRecord
     whose payload mirrors ChatRuntimeNotifier.emit_stream_event."""
     ch = ChatSseChannel(trace_store=stub_trace_store)
-    target = ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1")
+    target = ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id="s1",
+        magi_user_id="u1",
+    )
     chunk = DeliveryChunk(text="hello", is_final=False, seq=0)
 
     await ch.deliver_chunk(target, chunk)
@@ -124,7 +140,12 @@ async def test_deliver_chunk_final_marks_payload_is_final(
     """A final chunk emits a single record with payload.is_final=True (the
     finish boundary is conveyed via is_final, not a separate 'finish' kind)."""
     ch = ChatSseChannel(trace_store=stub_trace_store)
-    target = ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1")
+    target = ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id="s1",
+        magi_user_id="u1",
+    )
     chunk = DeliveryChunk(text="", is_final=True, seq=5)
 
     await ch.deliver_chunk(target, chunk)
@@ -145,13 +166,19 @@ async def test_deliver_writes_agent_response_record_and_returns_receipt(
     """deliver() writes an agent_response RuntimeNotificationRecord with
     content/is_final, and returns a DeliveryReceipt with external_message_id=None."""
     ch = ChatSseChannel(trace_store=stub_trace_store)
-    target = ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1")
+    target = ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id="s1",
+        magi_user_id="u1",
+    )
     content = DeliveryContent(text="full reply")
 
     receipt = await ch.deliver(target, content)
 
     assert isinstance(receipt, DeliveryReceipt)
-    assert receipt.channel_id == "chat_sse:s1"
+    assert receipt.channel_id == "chat_sse"
+    assert receipt.magi_session_id == "s1"
     assert receipt.external_message_id is None
     assert len(stub_trace_store.records) == 1
     rec = stub_trace_store.records[0]
@@ -175,12 +202,18 @@ async def test_deliver_falls_back_to_emit_when_no_trace_store() -> None:
         return "synthetic_id"
 
     ch = ChatSseChannel(emit_to_chat=emit)
-    target = ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1")
+    target = ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id="s1",
+        magi_user_id="u1",
+    )
     receipt = await ch.deliver(target, DeliveryContent(text="hi"))
 
     assert len(captured) == 1
     assert captured[0][0] == "s1"
-    assert receipt.channel_id == "chat_sse:s1"
+    assert receipt.channel_id == "chat_sse"
+    assert receipt.magi_session_id == "s1"
     assert receipt.external_message_id == "synthetic_id"
 
 
@@ -195,7 +228,12 @@ async def test_deliver_chunk_falls_back_to_emit_when_no_trace_store() -> None:
         return "synthetic_id"
 
     ch = ChatSseChannel(emit_to_chat=emit)
-    target = ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1")
+    target = ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id="s1",
+        magi_user_id="u1",
+    )
     await ch.deliver_chunk(target, DeliveryChunk(text="hi", is_final=False, seq=0))
 
     assert len(captured) == 1
@@ -211,6 +249,29 @@ async def test_deliver_chunk_raises_when_neither_trace_store_nor_emit() -> None:
     silently dropping. The SDK default deliver_chunk raises NotImplementedError;
     by leaving _emit at the default, we accept the legacy synthetic path."""
     ch = ChatSseChannel()  # no trace_store, no emit_to_chat → falls back to _default_emit
-    target = ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1")
+    target = ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id="s1",
+        magi_user_id="u1",
+    )
     # Should not raise; _default_emit logs and returns a synthetic id.
     await ch.deliver_chunk(target, DeliveryChunk(text="x", is_final=False, seq=0))
+
+
+@pytest.mark.asyncio
+async def test_deliver_returns_receipt_with_scheme_channel_id_and_magi_session_id():
+    """Pin the new receipt shape: channel_id is the scheme only, and the
+    magi_session_id field carries the session for retract-by-session lookups."""
+    store = _StubTraceStore()
+    ch = ChatSseChannel(trace_store=store)
+    target = ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id="s-123",
+        magi_user_id="u-7",
+    )
+    receipt = await ch.deliver(target, DeliveryContent(text="hi"))
+    assert receipt.channel_id == "chat_sse"  # scheme only
+    assert receipt.magi_session_id == "s-123"  # new field carries the session
+    assert receipt.external_message_id is None
