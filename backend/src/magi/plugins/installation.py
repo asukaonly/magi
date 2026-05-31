@@ -32,7 +32,12 @@ ALLOW_UNLOCKED_DEPS_ENV = "MAGI_ALLOW_UNLOCKED_PLUGIN_DEPS"
 
 
 def _developer_mode_allows_unlocked() -> bool:
-    return os.environ.get(ALLOW_UNLOCKED_DEPS_ENV, "").strip() in {"1", "true", "TRUE"}
+    return os.environ.get(ALLOW_UNLOCKED_DEPS_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _report_install_progress(
@@ -194,7 +199,7 @@ def _build_loose_dependency_install_command(
         "--disable-pip-version-check",
         *dependencies,
     ]
-    if quiet:
+    if quiet and dependencies:
         cmd.insert(-len(dependencies), "--quiet")
     return cmd
 

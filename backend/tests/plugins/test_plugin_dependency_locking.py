@@ -3,8 +3,11 @@ from pathlib import Path
 import pytest
 
 from magi.plugins.installation import (
+    ALLOW_UNLOCKED_DEPS_ENV,
     UnlockedDependencyError,
     _build_dependency_install_command,
+    _build_loose_dependency_install_command,
+    _developer_mode_allows_unlocked,
     _resolve_lock_or_policy,
 )
 
@@ -68,3 +71,28 @@ def test_require_hashes_rejects_tampered_lock(tmp_path: Path) -> None:
     assert proc.returncode != 0
     assert "hash" in (proc.stdout + proc.stderr).lower()
     assert not deps_dir.exists() or not any(deps_dir.iterdir())
+
+
+def test_loose_command_has_no_require_hashes(tmp_path: Path) -> None:
+    deps_dir = tmp_path / ".deps"
+    cmd = _build_loose_dependency_install_command(["segno>=1.6.1"], deps_dir, quiet=True)
+    assert "--require-hashes" not in cmd
+    assert "segno>=1.6.1" in cmd
+    assert "--target" in cmd
+    assert str(deps_dir) in cmd
+
+
+def test_loose_command_empty_deps_does_not_misplace_quiet(tmp_path: Path) -> None:
+    cmd = _build_loose_dependency_install_command([], tmp_path / ".deps", quiet=True)
+    # --quiet must never land ahead of the python executable
+    assert cmd[1:4] == ["-m", "pip", "install"] or cmd[0] != "--quiet"
+    assert cmd[0] != "--quiet"
+
+
+def test_developer_mode_honors_common_truthy_values(monkeypatch) -> None:
+    for val in ["1", "true", "True", "TRUE", "yes", "on"]:
+        monkeypatch.setenv(ALLOW_UNLOCKED_DEPS_ENV, val)
+        assert _developer_mode_allows_unlocked() is True
+    for val in ["", "0", "false", "no", "off", "nope"]:
+        monkeypatch.setenv(ALLOW_UNLOCKED_DEPS_ENV, val)
+        assert _developer_mode_allows_unlocked() is False
