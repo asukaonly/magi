@@ -142,6 +142,7 @@ class ChatExecutionCoordinator:
         session_run_store: Any | None = None,
         channel_registry: Any | None = None,
         user_prefs_provider: Callable[[str], Awaitable[dict]] | None = None,
+        receipts_store: Any | None = None,
     ) -> None:
         self._context_decider = context_decider
         self._fact_classifier = fact_classifier
@@ -169,6 +170,12 @@ class ChatExecutionCoordinator:
             if channel_registry is not None
             else None
         )
+        # Phase G+3: receipts live independent of the run snapshot.
+        # When supplied, ``execute()`` writes per-turn DeliveryReceipts here
+        # so SessionRunCoordinator.request_retract can recover them without
+        # walking stale snapshot.node_states. None for legacy callers; the
+        # fanout path simply skips persistence in that case.
+        self._receipts_store = receipts_store
         tool_registry = getattr(context_decider, "tool_registry", None)
         self._tool_hint_resolver = (
             ToolHintResolver(tool_registry)
@@ -486,8 +493,10 @@ class ChatExecutionCoordinator:
                 self._session_run_store.save_run_snapshot(session_id, session_run_id, snapshot)
 
             # Phase G: fan out the runner result to user's configured
-            # delivery channels (when wired). Receipts are persisted on
-            # the snapshot's node_states for later retract.
+            # delivery channels (when wired). Phase G+3: receipts now go
+            # into a dedicated DeliveryReceiptsStore — no more snapshot
+            # stuffing — so clearing a stale snapshot can't drop retract
+            # capability.
             if runner_result is not None and self._delivery_router is not None:
                 user_id = getattr(request.context, "user_id", "") or ""
                 # Phase G+1 / Task 9: pull stored prefs from the injected
@@ -505,14 +514,19 @@ class ChatExecutionCoordinator:
                     receipts = await self._delivery_router.fanout_deliver(
                         content=content, targets=targets,
                     )
-                    # Persist receipts on the snapshot so
-                    # SessionRunCoordinator.request_retract can find + replay them.
-                    if receipts and session_id and session_run_id and self._session_run_store is not None:
-                        receipt_payloads = [r.to_dict() for r in receipts]
-                        self._session_run_store.save_run_snapshot(
-                            session_id, session_run_id,
-                            _attach_receipts(snapshot, receipt_payloads),
-                        )
+                    if receipts and self._receipts_store is not None and session_id and session_run_id:
+                        try:
+                            await self._receipts_store.save_receipts(
+                                session_id=session_id,
+                                run_id=session_run_id,
+                                revision=int(getattr(request.context, "revision", 0) or 0),
+                                receipts=receipts,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "DeliveryReceiptsStore.save_receipts failed",
+                                exc_info=True,
+                            )
 
             if runner_result is not None:
                 return runner_result
@@ -833,19 +847,3 @@ class ChatExecutionCoordinator:
         return self._INTERIM_FALLBACK_LINES["en"]["orchestration_launch"][0]
 
 
-def _attach_receipts(snapshot, receipt_payloads):
-    """Phase G: attach delivery receipts to the last completed node's state.
-
-    Stores the receipt list under ``node_states[last_node_type]["delivery_receipts"]``
-    so ``SessionRunCoordinator.request_retract`` can reconstruct them from the
-    snapshot and call ``DeliveryRouter.fanout_retract``.
-    """
-    import dataclasses
-    if not snapshot.graph or snapshot.cursor == 0:
-        return snapshot
-    last_node_type = snapshot.graph[min(snapshot.cursor, len(snapshot.graph)) - 1]
-    updated_node_states = dict(snapshot.node_states)
-    last_state = dict(updated_node_states.get(last_node_type, {}))
-    last_state["delivery_receipts"] = receipt_payloads
-    updated_node_states[last_node_type] = last_state
-    return dataclasses.replace(snapshot, node_states=updated_node_states)

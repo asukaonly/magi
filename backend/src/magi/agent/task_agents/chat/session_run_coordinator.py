@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from ....agent.run_control import DetachSignal, RetractRequested
 from ....agent.runtime.contracts import FactRecord
+from ....core.logger import get_logger
 from ..common import IncomingFactKind, TaskFactPayload, UserMessagePayload
 from .fact_classifier import ClassifiedFact
 from .interruption_classifier import (
@@ -17,27 +18,9 @@ from .session_run_lifecycle import SessionRunLifecycleMixin
 from .session_turn_queue import SessionRunTurnQueueMixin
 from .run_store import SessionRunStore
 
+logger = get_logger(__name__)
+
 _CHECKPOINT_EVENT_TYPES = {"CHAT_TOOL_LOOP_STEP"}
-
-
-def _collect_receipts_from_snapshot(snapshot) -> list:
-    """Phase G: walk snapshot.node_states for 'delivery_receipts' entries
-    and rebuild ``DeliveryReceipt`` objects from their dict payloads.
-
-    Silently skips malformed payloads so a corrupt receipt can't block
-    retract signalling for the rest of the bundle.
-    """
-    from magi_plugin_sdk.delivery import DeliveryReceipt
-    receipts: list = []
-    for state in snapshot.node_states.values():
-        if not isinstance(state, dict):
-            continue
-        for payload in state.get("delivery_receipts") or []:
-            try:
-                receipts.append(DeliveryReceipt.from_dict(payload))
-            except Exception:
-                continue
-    return receipts
 
 
 class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
@@ -49,13 +32,19 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         run_store: SessionRunStore | None = None,
         interruption_classifier: InterruptionClassifier | None = None,
         delivery_router: object | None = None,
+        receipts_store: object | None = None,
     ) -> None:
         self._run_store = run_store or SessionRunStore()
         self._interruption_classifier = interruption_classifier or InterruptionClassifier()
         self._detach_signals: dict[str, DetachSignal] = {}
         # Phase G: optional DeliveryRouter — when supplied, request_retract
-        # also retracts any delivery receipts stored on the run's snapshot.
+        # also retracts any delivered messages via the channels.
         self._delivery_router = delivery_router
+        # Phase G+3: optional DeliveryReceiptsStore — the authoritative
+        # source of per-turn DeliveryReceipts. ``request_retract`` reads
+        # from this store (when wired) so it no longer depends on the
+        # run snapshot carrying the receipt list.
+        self._receipts_store = receipts_store
 
     def request_retract(
         self,
@@ -85,18 +74,42 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             return False
         control.retract_signal.request(payload)
 
-        # Phase G: also retract delivered messages via DeliveryRouter.
-        if self._delivery_router is not None:
-            snapshot = self._run_store.get_run_snapshot(session_id, active_run.run_id)
-            if snapshot is not None:
-                receipts = _collect_receipts_from_snapshot(snapshot)
-                if receipts:
-                    import asyncio
-                    # Schedule but don't block — retract on bundles is
-                    # already async via the cooperative signal.
-                    asyncio.create_task(
-                        self._delivery_router.fanout_retract(receipts=receipts)
+        # Phase G+3: also retract delivered messages via DeliveryRouter,
+        # reading the receipts from the dedicated DeliveryReceiptsStore
+        # rather than walking snapshot.node_states.
+        if (
+            self._delivery_router is not None
+            and self._receipts_store is not None
+            and session_id
+            and active_run.run_id
+        ):
+            import asyncio
+
+            async def _retract_via_store() -> None:
+                try:
+                    receipts = await self._receipts_store.list_receipts(
+                        session_id=session_id,
+                        run_id=active_run.run_id,
                     )
+                except Exception:
+                    logger.warning(
+                        "DeliveryReceiptsStore.list_receipts failed",
+                        exc_info=True,
+                    )
+                    return
+                if not receipts:
+                    return
+                try:
+                    await self._delivery_router.fanout_retract(receipts=receipts)
+                except Exception:
+                    logger.warning(
+                        "DeliveryRouter.fanout_retract failed",
+                        exc_info=True,
+                    )
+
+            # Schedule but don't block — retract on bundles is already async
+            # via the cooperative signal.
+            asyncio.create_task(_retract_via_store())
 
         return True
 
