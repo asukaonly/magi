@@ -367,5 +367,18 @@ class MemoryQueryTool(Tool):
             )
 
     def is_ready(self) -> bool:
-        """Check if tool is ready to use."""
+        """Check if tool is ready to use.
+
+        Intentional behaviour change (Phase 2 cluster-G migration):
+        Previously this method returned False when the memory service was
+        unavailable, causing the tool to be hidden from the LLM entirely.
+        It now always returns True so the tool is always advertised.
+
+        Rationale: the port indirection introduced by the MemoryQueryPort
+        adapter means we cannot cheaply probe the underlying service at
+        list-time without triggering a full service initialisation.  Instead,
+        unavailability is reported as an execute-time error ToolResult
+        (CAPABILITY_UNAVAILABLE / EXECUTION_ERROR) rather than hiding the
+        tool.  This is a deliberate degraded-gracefully trade-off.
+        """
         return True

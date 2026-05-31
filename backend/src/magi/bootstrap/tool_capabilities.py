@@ -72,11 +72,27 @@ class _HostMemoryQueryPort:
         from magi.memory.hybrid_retrieval import build_query
         return build_query(**kwargs)
 
-    async def query(self, request):
-        from magi.memory.provider import get_hybrid_retrieval_service
+    def _get_service(self):
+        """Return (and lazily initialise) the shared HybridRetrievalService."""
         if self._service is None:
+            from magi.memory.provider import get_hybrid_retrieval_service
             self._service = get_hybrid_retrieval_service()
-        return await self._service.query(request)
+        return self._service
+
+    @property
+    def memory_db_path(self):
+        """Delegate to HybridRetrievalService.memory_db_path.
+
+        This is the path that memory_query_tool reads when resolving canonical
+        entity names (Phase 5 canonical-names resolution).  The old code
+        reached this path via HybridRetrievalService directly; after the Phase 2
+        cluster-G port indirection the tool must obtain it through the adapter,
+        not from the service object it no longer holds a reference to.
+        """
+        return self._get_service().memory_db_path
+
+    async def query(self, request):
+        return await self._get_service().query(request)
 
     async def get_canonical_names(self, db_path, entity_ids):
         from magi.memory.l2.entities.catalog.lookup import get_canonical_names

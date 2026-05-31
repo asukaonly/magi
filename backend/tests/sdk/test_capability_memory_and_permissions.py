@@ -189,3 +189,30 @@ def test_risk_level_ordering():
     assert RiskLevel.MEDIUM < RiskLevel.HIGH
     assert RiskLevel.HIGH < RiskLevel.DESTRUCTIVE
     assert RiskLevel.DESTRUCTIVE >= RiskLevel.HIGH
+
+
+# ---------------------------------------------------------------------------
+# Regression: _HostMemoryQueryPort must expose memory_db_path (Fix 1)
+# ---------------------------------------------------------------------------
+
+def test_host_memory_query_port_exposes_db_path():
+    """Production adapter must delegate memory_db_path to its service.
+
+    Regression guard for the Phase 2 cluster-G regression: the adapter had no
+    memory_db_path attribute so the tool silently skipped canonical-names
+    resolution in production (db_path was always None).
+    """
+    from magi.bootstrap.tool_capabilities import _HostMemoryQueryPort
+
+    port = _HostMemoryQueryPort()
+
+    class _FakeService:
+        memory_db_path = "/tmp/mem.db"
+
+        async def query(self, request):  # pragma: no cover
+            return None
+
+    # Inject directly into the cache attribute the adapter uses so no real
+    # memory initialisation is triggered.
+    port._service = _FakeService()
+    assert port.memory_db_path == "/tmp/mem.db"
