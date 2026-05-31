@@ -27,8 +27,8 @@ def test_coordinator_execute_calls_fanout_deliver_on_completion() -> None:
 
 
 def test_session_run_coordinator_request_retract_calls_fanout_retract() -> None:
-    """When retract is fired, the coordinator must read stored
-    delivery_receipts off the latest snapshot and call
+    """When retract is fired, the coordinator must read receipts from the
+    DeliveryReceiptsStore (Phase G+3 — no longer the snapshot) and call
     DeliveryRouter.fanout_retract."""
     import inspect
     from magi.agent.task_agents.chat.session_run_coordinator import (
