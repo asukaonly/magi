@@ -109,10 +109,19 @@ def _get_plugin_i18n(plugin_id: str, plugin_dir: str) -> PluginI18n:
     return legacy.PluginI18n(plugin_id, Path(plugin_dir))
 
 
-def _serialize_manifest(manifest: PluginManifest) -> PluginManifestResponse:
+def _serialize_manifest(
+    manifest: PluginManifest, *, packages=None
+) -> PluginManifestResponse:
     legacy = legacy_plugins_module()
     i18n = legacy._get_plugin_i18n(manifest.plugin_id, manifest.plugin_dir)
     plugin_id_normalized = normalize_plugin_id(manifest.plugin_id)
+
+    # ``packages`` is the once-read ``config.plugins.packages`` mapping. List
+    # endpoints pass it down so serializing M plugins does ONE config read
+    # (glob + stat syscalls) instead of M. Single-plugin callers pass None and
+    # we read it here, preserving correctness.
+    if packages is None:
+        packages = get_config().plugins.packages
 
     translated_name = translate_with_fallback(
         i18n, f"{plugin_id_normalized}.name", manifest.name
@@ -127,7 +136,7 @@ def _serialize_manifest(manifest: PluginManifest) -> PluginManifestResponse:
         version=manifest.version,
         description=translated_description or manifest.description,
         author=manifest.author,
-        official=_authoritative_official(manifest, packages=get_config().plugins.packages),
+        official=_authoritative_official(manifest, packages=packages),
         contribution_types=[item.value for item in manifest.contribution_types],
         source=manifest.source,
         plugin_dir=manifest.plugin_dir,
@@ -533,6 +542,18 @@ async def install_with_closure(
                 plugin_dir,
                 progress_reporter=progress_reporter,
             )
+            # install_plugin_from_directory -> scan -> _persist_new_packages
+            # conservatively writes official=False for any non-builtin plugin
+            # (the local manifest is attacker-authored and untrusted). The
+            # registry entry is the authoritative source for official, so
+            # overwrite it explicitly *after* the install+scan completes. A
+            # later scan won't clobber this: _persist_new_packages skips any
+            # plugin_id already present in config.plugins.packages.
+            from ...config import save_config
+
+            save_config(
+                {f"plugins.packages.{entry.plugin_id}.official": bool(entry.official)}
+            )
         else:
             state = await _to_thread(_lightweight_install, plugin_dir, entry)
         if is_target:
@@ -552,12 +573,14 @@ async def _to_thread(func, /, *args, **kwargs):
     return await asyncio.to_thread(func, *args, **kwargs)
 
 
-def _serialize_package(state: PluginPackageState) -> PluginPackageResponse:
+def _serialize_package(
+    state: PluginPackageState, *, packages=None
+) -> PluginPackageResponse:
     legacy = legacy_plugins_module()
     i18n = legacy._get_plugin_i18n(state.manifest.plugin_id, state.manifest.plugin_dir)
 
     return PluginPackageResponse(
-        manifest=legacy._serialize_manifest(state.manifest),
+        manifest=legacy._serialize_manifest(state.manifest, packages=packages),
         enabled=state.enabled,
         trusted=state.trusted,
         loaded=state.loaded,
@@ -568,9 +591,13 @@ def _serialize_package(state: PluginPackageState) -> PluginPackageResponse:
     )
 
 
-def _serialize_package_lightweight(state: PluginPackageState) -> PluginPackageResponse:
+def _serialize_package_lightweight(
+    state: PluginPackageState, *, packages=None
+) -> PluginPackageResponse:
     """Serialize a PluginPackageState without loading plugin-local i18n."""
     m = state.manifest
+    if packages is None:
+        packages = get_config().plugins.packages
     return PluginPackageResponse(
         manifest=PluginManifestResponse(
             plugin_id=m.plugin_id,
@@ -578,7 +605,7 @@ def _serialize_package_lightweight(state: PluginPackageState) -> PluginPackageRe
             version=m.version,
             description=m.description,
             author=m.author,
-            official=_authoritative_official(m, packages=get_config().plugins.packages),
+            official=_authoritative_official(m, packages=packages),
             contribution_types=[ct.value for ct in m.contribution_types],
             source=m.source,
             plugin_dir=m.plugin_dir,
