@@ -131,20 +131,18 @@ class _RecordingSseChannel(Channel):
 
 
 class _RecordingTelegramChannel(Channel):
-    """Telegram-like channel that buffers chunks per (channel, chat) and
-    assembles the full text on the final boundary.
+    """Telegram-like channel: non-streaming. Only receives assembled
+    content via deliver() from the coordinator's final fanout path.
 
-    Mirrors Task 10's behavior so this test doesn't depend on the
-    plugin repo. It supports both the chunk path (assembles on its own)
-    and the deliver() path (records the assembled content the host sends).
+    DeliveryRouter.fanout_chunk skips channels with supports_streaming=False
+    (the SDK default), so this stub never sees streaming chunks — matching
+    the production Telegram plugin's intent (Telegram has no native
+    streaming UX; double-delivery would result if it processed chunks).
     """
 
-    supports_streaming = True
+    # supports_streaming inherits the SDK default of False — DO NOT opt in.
 
     def __init__(self) -> None:
-        self._buffers: dict[tuple[str, str], list[str]] = {}
-        # Assembled text from buffered chunks, captured at is_final=True.
-        self.assembled_sends: list[tuple[ChannelTarget, str]] = []
         # Final deliver() calls from the coordinator's fanout path.
         self.delivers: list[tuple[ChannelTarget, DeliveryContent]] = []
 
@@ -166,16 +164,9 @@ class _RecordingTelegramChannel(Channel):
     async def send_typing_indicator(self, target: ChannelTarget) -> None:
         return None
 
-    async def deliver_chunk(
-        self, target: ChannelTarget, chunk: DeliveryChunk
-    ) -> None:
-        key = (target.channel_type, target.external_chat_id)
-        if chunk.text:
-            self._buffers.setdefault(key, []).append(chunk.text)
-        if chunk.is_final:
-            parts = self._buffers.pop(key, [])
-            if parts:
-                self.assembled_sends.append((target, "".join(parts)))
+    # deliver_chunk intentionally NOT overridden — SDK default raises
+    # NotImplementedError, but DeliveryRouter's supports_streaming gate
+    # prevents that from being called.
 
     async def deliver(
         self, target: ChannelTarget, content: DeliveryContent
@@ -305,12 +296,11 @@ async def test_dispatch_stream_chunk_reaches_both_channels() -> None:
     assert sse.trace_records[-1]["is_final"] is True
 
     # --- telegram assertions ---
-    # Telegram doesn't expose its raw chunk list, but its assembler does:
-    assert len(tg.assembled_sends) == 1
-    target, assembled = tg.assembled_sends[0]
-    assert assembled == "hello world"
-    assert target.channel_type == "telegram"
-    assert target.external_chat_id == "u1"
+    # Telegram has supports_streaming=False, so DeliveryRouter.fanout_chunk
+    # SKIPS it during streaming. The chat_sse stream is unaffected; Telegram
+    # will only see the assembled message later via fanout_deliver (covered
+    # in test C below).
+    assert tg.delivers == []
 
 
 @pytest.mark.asyncio
@@ -341,8 +331,8 @@ async def test_dispatch_stream_chunk_uses_default_when_no_prefs() -> None:
 
     # Default = chat_sse only.
     assert len(sse.chunks) == 2
-    # Telegram untouched.
-    assert tg.assembled_sends == []
+    # Telegram untouched (and also not in the prefs).
+    assert tg.delivers == []
 
 
 # ---------------------------------------------------------------------------
@@ -526,14 +516,13 @@ async def test_streaming_chunks_then_final_fanout_reaches_both_channels() -> Non
     )
     await coordinator.execute(request)
 
-    # --- assertions: both channels saw streaming AND deliver ---
-    # chat_sse: 4 chunks + 1 deliver
+    # --- assertions: streaming-capable channel saw chunks; both got deliver ---
+    # chat_sse (supports_streaming=True): 4 chunks + 1 final deliver
     assert len(sse.chunks) == 4
     assert len(sse.delivers) == 1
     assert sse.delivers[0][1].text == "hello world"
 
-    # telegram: 1 assembled (from chunks) + 1 deliver
-    assert len(tg.assembled_sends) == 1
-    assert tg.assembled_sends[0][1] == "hello world"
+    # telegram (supports_streaming=False): NO chunks, only the assembled
+    # deliver from the final fanout — no double-send.
     assert len(tg.delivers) == 1
     assert tg.delivers[0][1].text == "hello world"

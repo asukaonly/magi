@@ -1339,6 +1339,8 @@ async def test_coordinator_reply_shape_drops_tools_to_avoid_request_handler_mism
 async def test_dispatch_stream_chunk_routes_to_chat_sse_channel_when_registry_wired():
     class _RecordingChunkChannel:
         channel_type = "chat_sse"
+        # Opt into streaming so DeliveryRouter.fanout_chunk doesn't skip us.
+        supports_streaming = True
         def __init__(self): self.chunks = []
         async def deliver_chunk(self, target, chunk):
             self.chunks.append((target, chunk))

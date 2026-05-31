@@ -107,6 +107,11 @@ async def test_no_scheme_no_fallback_returns_none():
 # === fanout_chunk tests ===
 
 class _RecordingChunkChannel(_RecordingChannel):
+    """Test channel that opts into streaming so DeliveryRouter.fanout_chunk
+    will actually invoke deliver_chunk on it."""
+
+    supports_streaming = True
+
     def __init__(self, channel_type):
         super().__init__(channel_type)
         self.chunks = []
@@ -150,3 +155,39 @@ async def test_fanout_chunk_isolates_per_channel_errors():
         ],
     )
     assert sse.chunks  # the working channel still got the chunk
+
+
+@pytest.mark.asyncio
+async def test_fanout_chunk_skips_non_streaming_channels_silently():
+    """Channels with supports_streaming=False (the SDK default) must be
+    silently skipped during chunk fanout — they only see assembled content
+    via deliver() in fanout_deliver. Otherwise a channel that didn't
+    override deliver_chunk would raise NotImplementedError on every chunk,
+    AND any channel that did over-override would double-deliver once
+    fanout_deliver fires."""
+
+    class _NonStreamingChannel(_RecordingChannel):
+        # supports_streaming inherits the SDK default of False — do NOT override
+
+        async def deliver_chunk(self, target, chunk):
+            # If the gate fails to skip, this would silently record (or raise);
+            # either way the assertion below would fail.
+            raise AssertionError(
+                "deliver_chunk must not be called on a non-streaming channel"
+            )
+
+    tg = _NonStreamingChannel("telegram")
+    sse = _RecordingChunkChannel("chat_sse")  # supports_streaming = True
+
+    router = DeliveryRouter(channel_registry=_StubRegistry({
+        "chat_sse": sse, "telegram": tg,
+    }))
+    await router.fanout_chunk(
+        chunk=DeliveryChunk(text="hi", is_final=False, seq=0),
+        targets=[
+            ChannelTarget(channel_type="chat_sse:s1", external_chat_id="u1"),
+            ChannelTarget(channel_type="telegram:42", external_chat_id="u1"),
+        ],
+    )
+    assert sse.chunks  # streaming channel got it
+    # tg never received the chunk; the AssertionError above would have raised

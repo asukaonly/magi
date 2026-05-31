@@ -132,6 +132,13 @@ class DeliveryRouter:
                     target.channel_type,
                 )
                 return
+            # Skip channels that don't opt into streaming — they only see
+            # the assembled content via ``deliver()`` in fanout_deliver, so
+            # forwarding chunks would either silently drop or (if a channel
+            # over-implemented deliver_chunk) cause double-delivery once
+            # fanout_deliver also fires.
+            if not getattr(channel, "supports_streaming", False):
+                return
             try:
                 await channel.deliver_chunk(target, chunk)
             except Exception as exc:
