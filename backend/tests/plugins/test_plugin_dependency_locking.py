@@ -45,3 +45,26 @@ def test_deps_without_lock_rejected_by_default(tmp_path: Path) -> None:
 def test_deps_without_lock_allowed_in_developer_mode(tmp_path: Path) -> None:
     result = _resolve_lock_or_policy(["segno>=1.6.1"], tmp_path, allow_unlocked=True)
     assert result == ["segno>=1.6.1"]
+
+
+import subprocess as _subprocess
+
+
+def test_require_hashes_rejects_tampered_lock(tmp_path: Path) -> None:
+    """A lockfile whose hash does not match the real artifact must fail install.
+
+    This is the core supply-chain property: a poisoned/mismatched artifact is
+    refused by pip before it lands in .deps/.
+    """
+    deps_dir = tmp_path / ".deps"
+    lock = tmp_path / "requirements.lock"
+    # Real package name + version, deliberately WRONG hash.
+    lock.write_text(
+        "segno==1.6.1 "
+        "--hash=sha256:0000000000000000000000000000000000000000000000000000000000000000\n"
+    )
+    cmd = _build_dependency_install_command(lock, deps_dir, quiet=True)
+    proc = _subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    assert proc.returncode != 0
+    assert "hash" in (proc.stdout + proc.stderr).lower()
+    assert not deps_dir.exists() or not any(deps_dir.iterdir())
