@@ -116,7 +116,6 @@ ignore_imports =
     magi.skills.runner -> magi.chat.workspace
     magi.skills.service_access -> magi.tools.registry
     magi.skills.subagent -> magi.agent.execution.function_calling
-    magi.skills.subagent -> magi.agent.turn_input
     magi.skills.subagent -> magi.chat.workspace
     magi.skills.subagent -> magi.tools.registry
     magi.tools -> magi.skills.indexer
@@ -193,7 +192,6 @@ ignore_imports =
     magi.skills.runner -> magi.chat.workspace
     magi.skills.runner -> magi.llm.base
     magi.skills.subagent -> magi.agent.execution.function_calling
-    magi.skills.subagent -> magi.agent.turn_input
     magi.skills.subagent -> magi.chat.workspace
     magi.skills.subagent -> magi.llm.base
     magi.skills.subagent -> magi.llm.provider_bridge
