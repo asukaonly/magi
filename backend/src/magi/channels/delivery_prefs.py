@@ -8,11 +8,13 @@ external channel preferences (Telegram, Weixin, future Slack/email)
 get those appended.
 
 Note on ChannelTarget field usage:
-    The SDK's ``ChannelTarget`` uses ``channel_type`` + ``external_chat_id``.
-    Phase G uses ``channel_type`` as a composite key (e.g. "chat_sse:s1",
-    "telegram:U42") so ``DeliveryRouter`` can look up the correct channel
-    instance. ``external_chat_id`` carries the user_id for external
-    channels or the session_id for chat_sse.
+    The SDK's ``ChannelTarget`` uses ``channel_type`` as the registry
+    SCHEME only (e.g. ``"chat_sse"``, ``"telegram"``). The resulting
+    targets carry magi-side context via ``magi_session_id`` /
+    ``magi_user_id`` so each Channel can perform its own translation
+    to external identifiers at deliver time (e.g. Telegram looks up
+    its chat_id via session_mapper). ``external_chat_id`` is left
+    empty by this layer — channels populate it themselves.
 
 Future Phase G+1 will plumb user_prefs from the real user-preference
 store (currently sourced via ``get_user_preference``).
@@ -33,11 +35,13 @@ def resolve_delivery_targets(
 ) -> list[ChannelTarget]:
     """Return the list of channels to deliver this run's reply to.
 
-    ``user_prefs.delivery_channels``: list[str] of channel IDs.
-    Special values:
-      - ``"chat_sse"`` (no session suffix): expanded to ``"chat_sse:<session_id>"``
-      - any concrete ``"<scheme>:<id>"``: passed through verbatim as channel_type
-      - empty / missing list: defaults to chat_sse-only
+    ``user_prefs.delivery_channels``: list[str] of channel SCHEMES
+    (e.g. ``["chat_sse", "telegram"]``). The resulting ChannelTargets
+    carry magi-side context (session_id, user_id) so each Channel can
+    perform its own translation to external identifiers (e.g. Telegram
+    looks up its chat_id via session_mapper at deliver time).
+
+    Default (no prefs): chat_sse-only for the current session.
     """
     requested = user_prefs.get("delivery_channels") if isinstance(user_prefs, dict) else None
     if not requested or not isinstance(requested, list):
@@ -50,7 +54,12 @@ def resolve_delivery_targets(
         if channel_id == "chat_sse":
             targets.append(_chat_sse_target(session_id, user_id))
         else:
-            targets.append(ChannelTarget(channel_type=channel_id, external_chat_id=user_id))
+            targets.append(ChannelTarget(
+                channel_type=channel_id,
+                external_chat_id="",
+                magi_session_id=session_id,
+                magi_user_id=user_id,
+            ))
     if not targets:
         # All entries were invalid / filtered — fall back to default.
         return [_chat_sse_target(session_id, user_id)]
@@ -58,7 +67,12 @@ def resolve_delivery_targets(
 
 
 def _chat_sse_target(session_id: str, user_id: str) -> ChannelTarget:
-    return ChannelTarget(channel_type=f"chat_sse:{session_id}", external_chat_id=user_id)
+    return ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id=session_id,
+        magi_user_id=user_id,
+    )
 
 
 __all__ = ["resolve_delivery_targets"]

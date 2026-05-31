@@ -5,37 +5,58 @@ from magi.channels.delivery_prefs import resolve_delivery_targets
 from magi_plugin_sdk.channels import ChannelTarget
 
 
-def test_resolve_returns_chat_sse_only_by_default() -> None:
-    """When user has no preference set, default is chat_sse for the
-    current session only."""
-    targets = resolve_delivery_targets(
-        user_id="u1", session_id="s1", user_prefs={},
-    )
+def test_default_returns_chat_sse_target_with_magi_session_id():
+    targets = resolve_delivery_targets(user_id="u1", session_id="s1", user_prefs={})
     assert len(targets) == 1
-    assert targets[0].channel_type == "chat_sse:s1"
+    t = targets[0]
+    assert t.channel_type == "chat_sse"
+    assert t.magi_session_id == "s1"
+    assert t.magi_user_id == "u1"
+    assert t.external_chat_id == ""
 
 
-def test_resolve_includes_external_channels_when_user_preferred() -> None:
-    """A user with telegram pref configured gets BOTH chat_sse + telegram."""
+def test_chat_sse_pref_returns_scheme_only_target():
     targets = resolve_delivery_targets(
         user_id="u1", session_id="s1",
-        user_prefs={
-            "delivery_channels": ["chat_sse", "telegram:U42"],
-        },
-    )
-    assert len(targets) == 2
-    channel_ids = {t.channel_type for t in targets}
-    assert "chat_sse:s1" in channel_ids
-    assert "telegram:U42" in channel_ids
-
-
-def test_resolve_chat_sse_is_replaced_with_session_specific_id() -> None:
-    """User prefs say 'chat_sse' (generic); resolver expands to 'chat_sse:<session>'."""
-    targets = resolve_delivery_targets(
-        user_id="u1", session_id="my_session",
         user_prefs={"delivery_channels": ["chat_sse"]},
     )
-    assert targets[0].channel_type == "chat_sse:my_session"
+    assert len(targets) == 1
+    assert targets[0].channel_type == "chat_sse"
+    assert ":" not in targets[0].channel_type
+    assert targets[0].magi_session_id == "s1"
+
+
+def test_multi_channel_prefs_all_scheme_only():
+    targets = resolve_delivery_targets(
+        user_id="u1", session_id="s1",
+        user_prefs={"delivery_channels": ["chat_sse", "telegram"]},
+    )
+    types = [t.channel_type for t in targets]
+    assert types == ["chat_sse", "telegram"]
+    for t in targets:
+        assert ":" not in t.channel_type
+        assert t.magi_session_id == "s1"
+        assert t.magi_user_id == "u1"
+        # No external_chat_id from this layer — channel resolves its own.
+        assert t.external_chat_id == ""
+
+
+def test_invalid_pref_entries_filtered():
+    targets = resolve_delivery_targets(
+        user_id="u1", session_id="s1",
+        user_prefs={"delivery_channels": ["", "  ", None, 42, "chat_sse"]},
+    )
+    assert len(targets) == 1
+    assert targets[0].channel_type == "chat_sse"
+
+
+def test_all_invalid_falls_back_to_default():
+    targets = resolve_delivery_targets(
+        user_id="u1", session_id="s1",
+        user_prefs={"delivery_channels": ["", "  "]},
+    )
+    assert len(targets) == 1
+    assert targets[0].channel_type == "chat_sse"
 
 
 def test_resolve_handles_empty_prefs_list_falls_back_to_default() -> None:
@@ -45,13 +66,5 @@ def test_resolve_handles_empty_prefs_list_falls_back_to_default() -> None:
         user_prefs={"delivery_channels": []},
     )
     assert len(targets) == 1
-    assert targets[0].channel_type == "chat_sse:s1"
-
-
-def test_resolve_filters_unknown_channel_ids() -> None:
-    """Unknown / malformed channel IDs are silently dropped to keep delivery robust."""
-    targets = resolve_delivery_targets(
-        user_id="u1", session_id="s1",
-        user_prefs={"delivery_channels": ["chat_sse", ""]},
-    )
-    assert len(targets) == 1
+    assert targets[0].channel_type == "chat_sse"
+    assert targets[0].magi_session_id == "s1"
