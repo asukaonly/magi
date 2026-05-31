@@ -20,6 +20,31 @@ class TestTraceQueryTool:
         assert "include_arguments" in param_names
 
     @pytest.mark.asyncio
+    async def test_tool_errors_when_trace_capability_unavailable(self):
+        from magi.tools.builtin.trace_query_tool import TraceQueryTool
+        from magi.tools.schema import ToolExecutionContext
+        from magi_plugin_sdk.capabilities import ToolCapabilities
+
+        tool = TraceQueryTool()
+        env = {"user_id": "local_user", "session_id": "session-1"}
+
+        # capabilities entirely absent
+        result = await tool.execute(
+            {"query": "x"},
+            ToolExecutionContext(agent_id="chat", env_vars=env, capabilities=None),
+        )
+        assert result.success is False
+        assert result.error_code == "CAPABILITY_UNAVAILABLE"
+
+        # bundle present but no trace port wired
+        result = await tool.execute(
+            {"query": "x"},
+            ToolExecutionContext(agent_id="chat", env_vars=env, capabilities=ToolCapabilities()),
+        )
+        assert result.success is False
+        assert result.error_code == "CAPABILITY_UNAVAILABLE"
+
+    @pytest.mark.asyncio
     async def test_tool_returns_recent_previous_turn_trace(self):
         from magi.tools.builtin.trace_query_tool import TraceQueryTool
         from magi.tools.schema import ToolExecutionContext
