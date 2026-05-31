@@ -70,6 +70,10 @@ jobs:
       - name: Run backend type gate
         run: ./scripts/run-backend-type-gate.sh
 
+      - name: Check import layer contracts
+        working-directory: backend
+        run: lint-imports
+
       - name: Check gateway API contract
         run: python scripts/check-api-contract.py
 

@@ -1,0 +1,163 @@
+[importlinter]
+root_package = magi
+
+# ---------------------------------------------------------------------------
+# Layered architecture contract — enforces docs/layered-agent-architecture.md
+# (L1 lowest -> L14 highest). Upper layers may import lower; lower must NOT
+# import upper. Authoritative package->layer mapping lives in that doc.
+#
+# Adoption model: BASELINE + RATCHET.
+#   * The ignore_imports list below is a frozen snapshot of pre-existing
+#     cross-layer imports as of 2026-05-31 (115 edges). CI is GREEN today.
+#   * Do NOT add new entries. Any *new* lower->upper import fails CI.
+#   * The list should only ever SHRINK. Delete an entry once the underlying
+#     import is removed; never grow it.
+# ---------------------------------------------------------------------------
+[importlinter:contract:layers]
+name = Magi L1-L14 layered architecture
+type = layers
+containers =
+    magi
+layers =
+    transport | ipc
+    api | chat | channels
+    timeline
+    agent
+    context
+    awareness
+    personality
+    tools | skills
+    memory
+    llm
+    plugins
+    events
+    config
+    scheduler | runtime_trace
+    core
+ignore_imports =
+    # == Composition root (NOT debt; structural & permanent) ==================
+    # core.container is the DI container: wiring every layer is its purpose.
+    magi.core.container -> magi.**
+    # Any import of bootstrap/ is composition-root wiring; bootstrap/ is the
+    # outer assembly boundary, intentionally outside the numbered layer stack.
+    magi.** -> magi.bootstrap.**
+    #
+    # == KNOWN DEBT BASELINE (frozen 2026-05-31; ratchet down, never up) ======
+    # Buckets: tools/skills->agent (33), agent->chat/channels/transport (24),
+    # L13 api/chat/channels siblings (15), L7 tools<->skills siblings (9),
+    # runtime_trace->events (7), awareness->timeline (4), other (~23).
+    magi.agent.control.chat_state_persister -> magi.chat
+    magi.agent.control.chat_state_persister -> magi.chat.provider
+    magi.agent.control.chat_state_persister -> magi.transport.chat_events
+    magi.agent.execution.function_calling.guardrails -> magi.chat.workspace
+    magi.agent.lifecycle -> magi.chat
+    magi.agent.lifecycle -> magi.transport.chat_events
+    magi.agent.message_utils -> magi.chat
+    magi.agent.task_agents.chat.attachment_context -> magi.chat
+    magi.agent.task_agents.chat.coordinator -> magi.channels.delivery_prefs
+    magi.agent.task_agents.chat.coordinator -> magi.channels.delivery_router
+    magi.agent.task_agents.chat.history_service -> magi.chat
+    magi.agent.task_agents.chat.history_service -> magi.chat.read_service
+    magi.agent.task_agents.chat.postprocess.background -> magi.chat
+    magi.agent.task_agents.chat.postprocess.components -> magi.chat
+    magi.agent.task_agents.chat.postprocess.outcomes -> magi.chat
+    magi.agent.task_agents.chat.postprocess.session -> magi.chat
+    magi.agent.task_agents.chat.postprocess_service -> magi.api.services.chat_trace.read_service
+    magi.agent.task_agents.chat.postprocess_service -> magi.chat
+    magi.agent.task_agents.chat.reply_context -> magi.chat
+    magi.agent.task_agents.chat.session_control -> magi.chat
+    magi.agent.task_agents.chat.transcript_summarizer -> magi.chat
+    magi.agent.task_agents.chat_task_agent -> magi.api.services.chat_trace.read_service
+    magi.agent.task_agents.chat_task_agent -> magi.chat
+    magi.agent.task_agents.factory -> magi.chat
+    magi.agent.task_agents.factory -> magi.timeline.handler
+    magi.agent.task_orchestration_workspace -> magi.chat.workspace
+    magi.agent.workers.worker_prompting -> magi.chat.workspace
+    magi.api.routers.commands -> magi.chat
+    magi.api.routers.commands -> magi.chat.provider
+    magi.api.routers.commands -> magi.commands
+    magi.api.routers.memory.dependencies -> magi.chat
+    magi.api.routers.messages -> magi.chat
+    magi.api.routers.messages -> magi.chat.provider
+    magi.api.routers.messages_common -> magi.chat
+    magi.api.routers.messages_mutations -> magi.transport.chat_events
+    magi.api.services.message_dispatch_service -> magi.chat.attachment_ingestion
+    magi.api.services.message_dispatch_service -> magi.chat.provider
+    magi.api.services.message_dispatch_service -> magi.chat.read_service
+    magi.api.services.message_dispatch_service -> magi.transport.chat_events
+    magi.api.services.personality_bootstrap_messages -> magi.chat.contracts
+    magi.api.services.personality_bootstrap_messages -> magi.chat.provider
+    magi.api.services.personality_bootstrap_messages -> magi.transport.chat_events
+    magi.awareness.lifecycle -> magi.timeline.adapter
+    magi.awareness.sensor_projection -> magi.timeline.contracts
+    magi.awareness.subscribers.kg_subscriber -> magi.timeline.insight_pipeline
+    magi.awareness.subscribers.timeline_subscriber -> magi.timeline.contracts
+    magi.channels.attachments -> magi.chat.attachment_storage
+    magi.channels.dispatcher -> magi.api.services.message_dispatch_service
+    magi.channels.session_mapper -> magi.chat
+    magi.chat.read_service -> magi.api.services.chat_trace.read_service
+    magi.context.assembler -> magi.chat.workspace
+    magi.core.runtime_operational_gc -> magi.config.models
+    magi.llm.cancellable_client -> magi.agent.run_control
+    magi.memory.event_translation -> magi.awareness.sensor_memory_projection
+    magi.memory.portrait.factory -> magi.api.routers.memory.dependencies
+    magi.memory.portrait.factory -> magi.personality.persona_repository
+    magi.plugins.installation -> magi.awareness.scheduler_contrib
+    magi.plugins.manager -> magi.awareness.scheduler_contrib
+    magi.plugins.manager -> magi.tools.registry
+    magi.runtime_trace.lifecycle -> magi.events.tracing
+    magi.runtime_trace.span_publisher -> magi.events.domain_payloads
+    magi.runtime_trace.span_publisher -> magi.events.events
+    magi.runtime_trace.subscribers.runtime_trace_subscriber -> magi.events.domain_payloads
+    magi.runtime_trace.subscribers.runtime_trace_subscriber -> magi.events.events
+    magi.runtime_trace.subscribers.runtime_trace_subscriber -> magi.events.payload_helpers
+    magi.runtime_trace.writer -> magi.events.domain_payloads
+    magi.skills.lifecycle -> magi.agent.control.permission.provider
+    magi.skills.runner -> magi.chat.workspace
+    magi.skills.service_access -> magi.tools.registry
+    magi.skills.subagent -> magi.agent.execution.function_calling
+    magi.skills.subagent -> magi.agent.turn_input
+    magi.skills.subagent -> magi.chat.workspace
+    magi.skills.subagent -> magi.tools.registry
+    magi.tools -> magi.skills.indexer
+    magi.tools -> magi.skills.loader
+    magi.tools -> magi.skills.runner
+    magi.tools -> magi.skills.schema
+    magi.tools.builtin._bash_grading -> magi.agent.control.permission.classifier_models
+    magi.tools.builtin._bash_grading -> magi.agent.control.permission.contracts
+    magi.tools.builtin._edit_journal -> magi.agent.workspace_cache
+    magi.tools.builtin._read_constraint -> magi.agent.workspace_cache
+    magi.tools.builtin.agent_tool -> magi.agent.workers
+    magi.tools.builtin.ask_user_question_tool -> magi.agent.background.provider
+    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.chat_state_persister
+    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common
+    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common.events
+    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.provider
+    magi.tools.builtin.detach_to_background_tool -> magi.agent.run_control
+    magi.tools.builtin.file_diff_tool -> magi.agent.workspace_cache
+    magi.tools.builtin.file_rollback_tool -> magi.agent.workspace_cache
+    magi.tools.builtin.file_rollback_tool -> magi.agent.workspace_cache.atomic_io
+    magi.tools.builtin.image_generation_tool -> magi.chat.attachment_ingestion
+    magi.tools.builtin.plan_mode_tool -> magi.agent.control.chat_state_persister
+    magi.tools.builtin.plan_mode_tool -> magi.agent.control.common.events
+    magi.tools.builtin.plan_mode_tool -> magi.agent.control.provider
+    magi.tools.builtin.prepare_chat_attachments_tool -> magi.chat.attachment_ingestion
+    magi.tools.builtin.read_chat_attachment_tool -> magi.chat
+    magi.tools.builtin.todo_write_tool -> magi.agent.control.chat_state_persister
+    magi.tools.builtin.todo_write_tool -> magi.agent.control.common.events
+    magi.tools.builtin.todo_write_tool -> magi.agent.control.provider
+    magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store
+    magi.tools.builtin.trace_query_tool -> magi.api.services
+    magi.tools.builtin.verify_tool -> magi.agent.workspace_cache
+    magi.tools.builtin.verify_tool -> magi.agent.workspace_cache.atomic_io
+    magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache
+    magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache.atomic_io
+    magi.tools.code_agent.context_bundle -> magi.agent.workspace_cache.atomic_io
+    magi.tools.code_agent.probe -> magi.agent.workspace_cache.atomic_io
+    magi.tools.code_agent.service -> magi.agent.workspace_cache.atomic_io
+    magi.tools.code_agent.service -> magi.transport.code_agent_events
+    magi.tools.code_agent.settings_writer -> magi.agent.workspace_cache.atomic_io
+    magi.tools.context_decider_prompt -> magi.agent.message_utils
+    magi.tools.registry -> magi.skills.schema
+    magi.tools.registry_lookup -> magi.skills.schema
+    magi.tools.registry_skills -> magi.skills.schema
