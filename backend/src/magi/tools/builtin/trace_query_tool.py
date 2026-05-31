@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from ...api.services import get_chat_trace_read_service
 from ..schema import ParameterType, Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema
 
 
@@ -80,7 +79,9 @@ class TraceQueryTool(Tool):
         if not user_id or not session_id:
             return ToolResult(success=False, error="trace_query requires user_id and session_id", error_code="MISSING_CONTEXT")
 
-        trace_service = get_chat_trace_read_service()
+        if context.capabilities is None or context.capabilities.trace is None:
+            return ToolResult(success=False, error="trace capability unavailable", error_code="CAPABILITY_UNAVAILABLE")
+        trace_service = context.capabilities.trace
         requested_turn_id = str(parameters.get("turn_id") or "").strip() or None
         current_turn_id = str(context.env_vars.get("turn_id") or "").strip() or None
         scope = str(parameters.get("scope") or self.SCOPE_PREVIOUS).strip() or self.SCOPE_PREVIOUS

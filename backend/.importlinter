@@ -145,7 +145,6 @@ ignore_imports =
     magi.tools.builtin.todo_write_tool -> magi.agent.control.common.events
     magi.tools.builtin.todo_write_tool -> magi.agent.control.provider
     magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store
-    magi.tools.builtin.trace_query_tool -> magi.api.services
     magi.tools.builtin.verify_tool -> magi.agent.workspace_cache
     magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache
     magi.tools.code_agent.service -> magi.transport.code_agent_events
@@ -226,7 +225,6 @@ ignore_imports =
     magi.tools.builtin.todo_write_tool -> magi.agent.control.common.events
     magi.tools.builtin.todo_write_tool -> magi.agent.control.provider
     magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store
-    magi.tools.builtin.trace_query_tool -> magi.api.services
     magi.tools.builtin.verify_tool -> magi.agent.workspace_cache
     magi.tools.code_agent.apply_diff -> magi.agent.workspace_cache
     magi.tools.code_agent.service -> magi.transport.code_agent_events
