@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 InstallProgressReporter = Callable[[str, str, float | None], None]
 PLUGIN_DEPENDENCY_PYTHON_ENV = "MAGI_PLUGIN_PYTHON"
 BACKEND_PYTHON_ENV = "MAGI_BACKEND_PYTHON"
+ALLOW_UNLOCKED_DEPS_ENV = "MAGI_ALLOW_UNLOCKED_PLUGIN_DEPS"
+
+
+def _developer_mode_allows_unlocked() -> bool:
+    return os.environ.get(ALLOW_UNLOCKED_DEPS_ENV, "").strip() in {"1", "true", "TRUE"}
 
 
 def _report_install_progress(
@@ -148,11 +153,36 @@ def _resolve_dependency_python_executable() -> str:
 
 
 def _build_dependency_install_command(
+    lock_path: Path,
+    deps_dir: Path,
+    *,
+    quiet: bool,
+) -> list[str]:
+    cmd = [
+        _resolve_dependency_python_executable(),
+        "-m",
+        "pip",
+        "install",
+        "--target",
+        str(deps_dir),
+        "--no-user",
+        "--disable-pip-version-check",
+        "--require-hashes",
+        "-r",
+        str(lock_path),
+    ]
+    if quiet:
+        cmd.insert(cmd.index("--require-hashes"), "--quiet")
+    return cmd
+
+
+def _build_loose_dependency_install_command(
     dependencies: list[str],
     deps_dir: Path,
     *,
     quiet: bool,
 ) -> list[str]:
+    """Unverified, range-based install. Developer-mode fallback only."""
     cmd = [
         _resolve_dependency_python_executable(),
         "-m",
@@ -167,6 +197,41 @@ def _build_dependency_install_command(
     if quiet:
         cmd.insert(-len(dependencies), "--quiet")
     return cmd
+
+
+class UnlockedDependencyError(RuntimeError):
+    """Raised when a plugin declares dependencies but ships no requirements.lock."""
+
+
+def _resolve_lock_or_policy(
+    dependencies: list[str],
+    plugin_dir: Path,
+    *,
+    allow_unlocked: bool,
+) -> Path | list[str] | None:
+    """Decide how to install a plugin's dependencies.
+
+    Returns:
+      - None       when the plugin declares no dependencies.
+      - Path       to requirements.lock when present (hash-enforced install).
+      - list[str]  the raw dependency list when no lock exists AND developer
+                   mode permits an unverified loose install.
+
+    Raises UnlockedDependencyError when deps are declared, no lock exists, and
+    developer mode is off (the default, secure path).
+    """
+    if not dependencies:
+        return None
+    lock_path = plugin_dir / "requirements.lock"
+    if lock_path.exists():
+        return lock_path
+    if allow_unlocked:
+        return dependencies
+    raise UnlockedDependencyError(
+        "This plugin declares dependencies but ships no integrity-locked "
+        "requirements.lock. Refusing to install unverified dependencies. "
+        "Set MAGI_ALLOW_UNLOCKED_PLUGIN_DEPS=1 to override (developer mode)."
+    )
 
 
 def replace_plugin_directory(
@@ -531,24 +596,18 @@ class PluginInstallationMixin:
         *,
         progress_reporter: InstallProgressReporter | None = None,
     ) -> None:
-        """Install plugin dependencies into a local .deps/ directory."""
-        installable_dependencies, skipped_dependencies = _filter_installable_dependencies(
-            dependencies
+        """Install plugin dependencies into a local .deps/ directory.
+
+        Hash-enforced from requirements.lock by default; falls back to a loose,
+        unverified install only in developer mode (see _resolve_lock_or_policy).
+        """
+        allow_unlocked = _developer_mode_allows_unlocked()
+        resolved = _resolve_lock_or_policy(
+            dependencies, plugin_dir, allow_unlocked=allow_unlocked
         )
-        if skipped_dependencies:
+        if resolved is None:
             logger.info(
-                "Skipping plugin dependencies for current environment",
-                extra={"deps": skipped_dependencies, "target": str(plugin_dir)},
-            )
-            _report_install_progress(
-                progress_reporter,
-                "dependencies",
-                f"Skipping dependencies for current environment: {', '.join(skipped_dependencies)}",
-                56.0,
-            )
-        if not installable_dependencies:
-            logger.info(
-                "No plugin dependencies need installation for current environment",
+                "No plugin dependencies need installation",
                 extra={"target": str(plugin_dir)},
             )
             _report_install_progress(
@@ -561,29 +620,41 @@ class PluginInstallationMixin:
 
         deps_dir = plugin_dir / ".deps"
         deps_dir.mkdir(exist_ok=True)
-        try:
+
+        if isinstance(resolved, Path):
             cmd = _build_dependency_install_command(
-                installable_dependencies,
-                deps_dir,
-                quiet=progress_reporter is None,
+                resolved, deps_dir, quiet=progress_reporter is None
             )
-        except RuntimeError as exc:
-            _report_install_progress(progress_reporter, "dependencies", str(exc), 56.0)
-            raise
-        logger.info(
-            "Installing plugin dependencies",
-            extra={
-                "deps": installable_dependencies,
-                "target": str(deps_dir),
-                "python": cmd[0],
-            },
-        )
-        _report_install_progress(
-            progress_reporter,
-            "dependencies",
-            f"Installing plugin dependencies: {', '.join(installable_dependencies)}",
-            56.0,
-        )
+            install_label = f"Installing locked plugin dependencies from {resolved.name}"
+        else:
+            logger.warning(
+                "Installing UNVERIFIED plugin dependencies (developer mode; no "
+                "requirements.lock). This bypasses supply-chain integrity checks.",
+                extra={"deps": resolved, "target": str(deps_dir)},
+            )
+            installable, skipped = _filter_installable_dependencies(resolved)
+            if skipped:
+                logger.info(
+                    "Skipping plugin dependencies for current environment",
+                    extra={"deps": skipped, "target": str(deps_dir)},
+                )
+            if not installable:
+                _report_install_progress(
+                    progress_reporter,
+                    "dependencies",
+                    "No plugin dependencies need installation",
+                    82.0,
+                )
+                return
+            cmd = _build_loose_dependency_install_command(
+                installable, deps_dir, quiet=progress_reporter is None
+            )
+            install_label = (
+                f"Installing UNVERIFIED plugin dependencies: {', '.join(installable)}"
+            )
+
+        logger.info(install_label, extra={"target": str(deps_dir), "python": cmd[0]})
+        _report_install_progress(progress_reporter, "dependencies", install_label, 56.0)
         try:
             if progress_reporter is None:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -592,33 +663,24 @@ class PluginInstallationMixin:
         except subprocess.TimeoutExpired as exc:
             logger.exception(
                 "Plugin dependency installation timed out",
-                extra={"deps": installable_dependencies, "target": str(deps_dir)},
+                extra={"target": str(deps_dir)},
             )
             raise RuntimeError(
-                f"Timed out installing plugin dependencies after {exc.timeout} seconds: "
-                f"{', '.join(installable_dependencies)}"
+                f"Timed out installing plugin dependencies after {exc.timeout} seconds"
             ) from exc
         if result.returncode != 0:
             stderr = result.stderr.strip()
             logger.error(
                 "Plugin dependency installation failed",
                 extra={
-                    "deps": installable_dependencies,
                     "target": str(deps_dir),
                     "returncode": result.returncode,
                     "stderr": stderr,
                 },
             )
-            raise RuntimeError(f"Failed to install plugin dependencies: {stderr}")
-        logger.info(
-            "Installed plugin dependencies",
-            extra={"deps": installable_dependencies, "target": str(deps_dir)},
-        )
+            raise RuntimeError(f"Plugin dependency installation failed: {stderr}")
         _report_install_progress(
-            progress_reporter,
-            "dependencies",
-            "Installed plugin dependencies",
-            82.0,
+            progress_reporter, "dependencies", "Installed plugin dependencies", 82.0
         )
 
 

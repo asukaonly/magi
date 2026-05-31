@@ -534,7 +534,9 @@ def test_dependency_install_command_uses_configured_python_when_frozen(
         "/Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend",
     )
 
-    cmd = _build_dependency_install_command(["example-package"], tmp_path / ".deps", quiet=False)
+    lock = tmp_path / "requirements.lock"
+    lock.write_text("example-package==1.0.0 --hash=sha256:abc\n", encoding="utf-8")
+    cmd = _build_dependency_install_command(lock, tmp_path / ".deps", quiet=False)
 
     assert cmd[:4] == [current_python, "-m", "pip", "install"]
 
@@ -553,8 +555,10 @@ def test_dependency_install_command_rejects_frozen_sidecar_without_python(
     )
     monkeypatch.setattr(installation_module.shutil, "which", lambda _name: None)
 
+    lock = tmp_path / "requirements.lock"
+    lock.write_text("example-package==1.0.0 --hash=sha256:abc\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match=PLUGIN_DEPENDENCY_PYTHON_ENV):
-        _build_dependency_install_command(["example-package"], tmp_path / ".deps", quiet=False)
+        _build_dependency_install_command(lock, tmp_path / ".deps", quiet=False)
 
 
 def test_replace_plugin_directory_rolls_back_when_promotion_fails(
