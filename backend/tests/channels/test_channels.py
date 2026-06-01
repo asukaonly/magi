@@ -87,8 +87,8 @@ class TestChannelRegistry:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def mapper_db(tmp_path: Path) -> str:
-    return str(tmp_path / "channels.db")
+def mapper_db(runtime_paths_with_schema) -> str:
+    return str(runtime_paths_with_schema.channels_db_path)
 
 
 @pytest.fixture
