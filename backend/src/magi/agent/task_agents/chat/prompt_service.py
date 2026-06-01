@@ -5,7 +5,7 @@ import json
 import re
 from typing import Any, AsyncIterator
 
-from ....agent.run_control import RunControl
+from magi.control.run_control import RunControl
 from ....config.models import LLMScenario, ThinkingDepth
 from ....llm.streaming_events import LLMStreamEvent
 from ...orchestration import WorkerResult

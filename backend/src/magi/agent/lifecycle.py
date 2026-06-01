@@ -10,8 +10,8 @@ from ..bootstrap.background_tasks import (
 )
 from ..chat import get_chat_read_service
 from ..core.logger import get_logger
-from ..agent.control.provider import resolve_control_session_store
-from ..agent.control.permission.provider import get_permission_gateway
+from ..control.provider import resolve_control_session_store
+from ..control.permission.provider import get_permission_gateway
 from ..tools import tool_registry
 from ..transport.chat_events import broadcast_background_task_state_changed
 from ..utils.runtime import get_runtime_paths

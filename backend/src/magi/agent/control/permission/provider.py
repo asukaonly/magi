@@ -1,21 +1,13 @@
-"""Container-backed provider for the control-plane permission gateway."""
+"""Backward-compatibility shim -> :mod:`magi.control.permission.provider`.
+
+Aliases this old module path to the canonical module *object* so that
+attribute lookups, monkeypatching, and identity all match exactly.
+The plugin-scope actuator tools / skills still import via this path; they relocate to the control layer in Phase 4."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import sys
 
-from ....core.container import get_container
+import magi.control.permission.provider as _canonical
 
-if TYPE_CHECKING:
-    from .gateway import PermissionGateway
-
-
-def get_permission_gateway() -> "PermissionGateway":
-    """Return the active permission gateway binding."""
-    provider = get_container().permission_gateway
-    instance = provider()
-    if instance is None:
-        raise RuntimeError("permission_gateway binding is not initialized")
-    if type(instance).__name__ == "object" and not provider.overridden:
-        raise RuntimeError("permission_gateway binding is not initialized")
-    return instance
+sys.modules[__name__] = _canonical

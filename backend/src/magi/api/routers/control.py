@@ -36,23 +36,23 @@ from fastapi import APIRouter, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
 from ... import i18n as core_i18n
-from ...agent.control.permission.contracts import (
+from ...control.permission.contracts import (
     PermissionOutcome,
     PermissionScope,
 )
-from ...agent.control.settings import (
+from ...control.settings import (
     PermissionMode,
     SessionControlOverride,
     resolve_effective_settings,
 )
-from ...agent.control.provider import (
+from ...control.provider import (
     resolve_control_interaction_broker,
     resolve_control_session_store,
     resolve_control_settings_manager,
     resolve_pending_permission_registry,
     resolve_permission_rule_store,
 )
-from ...agent.control.session_store import TodoItem
+from ...control.session_store import TodoItem
 from ...runtime_trace.provider import resolve_runtime_trace_store
 
 control_router = APIRouter()

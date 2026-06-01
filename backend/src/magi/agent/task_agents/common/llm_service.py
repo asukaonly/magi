@@ -6,7 +6,7 @@ import uuid
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
-from ....agent.run_control import RunControl
+from magi.control.run_control import RunControl
 from ....config import get_config
 from ....config.models import LLMScenario, ThinkingDepth
 from ....config.constants import DEFAULT_MAX_TOKENS

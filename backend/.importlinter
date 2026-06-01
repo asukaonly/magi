@@ -30,6 +30,7 @@ layers =
     memory
     llm
     plugins
+    control
     events
     config
     scheduler | runtime_trace
@@ -101,7 +102,6 @@ ignore_imports =
     magi.chat.read_service -> magi.api.services.chat_trace.read_service
     magi.context.assembler -> magi.chat.workspace
     magi.core.runtime_operational_gc -> magi.config.models
-    magi.llm.cancellable_client -> magi.agent.run_control
     magi.memory.event_translation -> magi.awareness.sensor_memory_projection
     magi.memory.portrait.factory -> magi.api.routers.memory.dependencies
     magi.memory.portrait.factory -> magi.personality.persona_repository

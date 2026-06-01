@@ -1,7 +1,7 @@
 """Session-scoped execution coordination for chat task-agent turns."""
 from __future__ import annotations
 
-from ....agent.run_control import DetachSignal, RetractRequested
+from magi.control.run_control import DetachSignal, RetractRequested
 from ....agent.runtime.contracts import FactRecord
 from ....core.logger import get_logger
 from ..common import IncomingFactKind, TaskFactPayload, UserMessagePayload

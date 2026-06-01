@@ -11,7 +11,7 @@ from ....agent.background.dispatcher import (
     BackgroundDecisionSource,
 )
 from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
-from ....agent.run_control import (
+from magi.control.run_control import (
     DetachSignal,
     OrchestratorSnapshot,
     SteerInbox,

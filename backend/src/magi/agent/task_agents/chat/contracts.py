@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Any
 
 from ....agent.runtime.contracts import FactRecord
-from ....agent.run_control import RunControl, null_run_control
+from magi.control.run_control import RunControl, null_run_control
 from ....personality.turn_planner import PersonaRoutingHint
 from ..common import BaseIntentDecision, BaseRuntimeContext, GenericFactPayload, IncomingFactKind, TaskFactPayload
 from .run_contracts import ActiveRun, PendingTurn

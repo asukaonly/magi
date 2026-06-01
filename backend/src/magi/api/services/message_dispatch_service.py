@@ -63,7 +63,7 @@ def get_chat_read_service():
 def resolve_control_session_store():
     """Resolve the control session store lazily to avoid API startup cycles."""
 
-    from ...agent.control.provider import resolve_control_session_store as _resolve_control_session_store
+    from ...control.provider import resolve_control_session_store as _resolve_control_session_store
 
     return _resolve_control_session_store()
 
@@ -71,7 +71,7 @@ def resolve_control_session_store():
 def resolve_control_interaction_broker():
     """Resolve the control interaction broker lazily to avoid API startup cycles."""
 
-    from ...agent.control.provider import resolve_control_interaction_broker as _resolve_control_interaction_broker
+    from ...control.provider import resolve_control_interaction_broker as _resolve_control_interaction_broker
 
     return _resolve_control_interaction_broker()
 

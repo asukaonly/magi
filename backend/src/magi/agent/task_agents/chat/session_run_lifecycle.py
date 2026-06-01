@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from ....agent.runtime.contracts import FactRecord
-from ....agent.run_control import RunControl
+from magi.control.run_control import RunControl
 from ..common import UserMessagePayload
 from .fact_classifier import ClassifiedFact
 from .run_contracts import ActiveRun, RunResult, RunResultDisposition

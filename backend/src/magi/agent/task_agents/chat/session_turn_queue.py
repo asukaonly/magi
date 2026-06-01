@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ....agent.run_control import DetachRequested, DetachSignal
+from magi.control.run_control import DetachRequested, DetachSignal
 from .interruption_classifier import InterruptionDisposition
 from .run_contracts import ActiveRun, PendingTurn
 from .session_run_decisions import CheckpointDecision, TurnSupersession

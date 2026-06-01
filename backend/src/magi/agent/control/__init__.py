@@ -1,18 +1,18 @@
-"""Agent control plane.
+"""Backward-compatibility shim package.
 
-This package hosts the cross-cutting agent interaction primitives that
-sit between the LLM-driven tool loop and the user:
+The control plane moved to :mod:`magi.control` as part of the
+Control-Plane Extraction (ADR-0001, Phase 3). This package re-exports the
+SAME objects from the new location; its submodules alias the canonical
+modules so attribute lookups, monkeypatching, and identity all match.
+Plugin-scope actuator tools (``tools/builtin``) and ``skills`` still
+import via these shims; they relocate to the control layer in Phase 4.
 
-* ``common``      — shared async primitives (``InteractionBroker``)
-* ``permission``  — tool permission gateway, risk classifier, kill-list,
-                    persistent rules
-* ``settings``    — global + per-session control-plane settings
-
-The eventual ``plan/``, ``todo/`` and ``ask/`` subpackages will land in
-later phases; this initial drop ships only the permission spine plus the
-shared broker they will reuse.
+Note: this package ``__init__`` is a re-export (not a ``sys.modules``
+alias) on purpose. Aliasing a *package* corrupts relative-import
+resolution for its submodules, so only leaf submodules are aliased.
 """
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from magi.control import *  # noqa: F401,F403
+from magi.control import __all__  # noqa: F401

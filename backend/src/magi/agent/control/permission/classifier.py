@@ -1,52 +1,13 @@
-"""Risk classifier for ``(tool, args)``."""
+"""Backward-compatibility shim -> :mod:`magi.control.permission.classifier`.
+
+Aliases this old module path to the canonical module *object* so that
+attribute lookups, monkeypatching, and identity all match exactly.
+The plugin-scope actuator tools / skills still import via this path; they relocate to the control layer in Phase 4."""
 
 from __future__ import annotations
 
-from typing import Any
+import sys
 
-from .classifier_models import ClassificationResult, RiskSignal
-from .classifier_rules import EXTERNAL_SEND_SUBSTRINGS, RULES, classify_external_send
-from .contracts import RiskLevel
+import magi.control.permission.classifier as _canonical
 
-__all__ = ["RiskClassifier", "RiskSignal", "ClassificationResult"]
-
-
-class RiskClassifier:
-    """Assign a :class:`RiskLevel` to a tool invocation."""
-
-    def __init__(
-        self,
-        *,
-        default_dangerous_level: RiskLevel = RiskLevel.HIGH,
-        default_level: RiskLevel = RiskLevel.LOW,
-    ) -> None:
-        self._default_dangerous_level = default_dangerous_level
-        self._default_level = default_level
-
-    def classify(
-        self,
-        *,
-        tool_name: str,
-        arguments: dict[str, Any],
-        tool_is_dangerous: bool = False,
-    ) -> ClassificationResult:
-        rule = RULES.get(tool_name)
-        if rule is not None:
-            return rule(dict(arguments))
-        lowered = tool_name.lower()
-        if any(marker in lowered for marker in EXTERNAL_SEND_SUBSTRINGS):
-            return classify_external_send(dict(arguments))
-        if tool_is_dangerous:
-            return ClassificationResult(
-                level=self._default_dangerous_level,
-                signals=[
-                    RiskSignal(
-                        key="tool_flagged_dangerous",
-                        description="tool schema flagged as dangerous",
-                    )
-                ],
-                preview=None,
-            )
-        return ClassificationResult(
-            level=self._default_level, signals=[], preview=None
-        )
+sys.modules[__name__] = _canonical

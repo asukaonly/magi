@@ -28,7 +28,7 @@ from magi_plugin_sdk.tools import (
     ToolResult,
 )
 
-from ..agent.control.permission.contracts import ToolOrigin
+from ..control.permission.contracts import ToolOrigin
 from ..chat.contracts import ChatMessageRecord
 from ..chat.provider import get_chat_store
 from ..tools.registry import ToolRegistry
