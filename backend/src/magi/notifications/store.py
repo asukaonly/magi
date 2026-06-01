@@ -223,6 +223,25 @@ class NotificationStore:
             finally:
                 conn.close()
 
+    def mark_dismissed_all(self, user_id: str, dismiss_kind: str) -> int:
+        """Dismiss every still-visible (unread/read) notification for the user.
+
+        Returns the number of rows dismissed. Actioned/already-dismissed rows
+        are left untouched (they're not in the feed anyway).
+        """
+        with self._lock:
+            conn = self._connect()
+            try:
+                cur = conn.execute(
+                    "UPDATE user_notifications SET status='dismissed', dismissed_at_ms=?, dismiss_kind=? "
+                    "WHERE user_id=? AND status IN ('unread','read')",
+                    (_now_ms(), dismiss_kind, user_id),
+                )
+                conn.commit()
+                return int(cur.rowcount or 0)
+            finally:
+                conn.close()
+
     def mark_actioned(self, notification_id: int) -> None:
         with self._lock:
             conn = self._connect()

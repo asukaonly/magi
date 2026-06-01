@@ -12,6 +12,18 @@ def _row(**kw):
     base.update(kw)
     return NotificationRow(**base)
 
+def test_dismiss_all_dismisses_visible_only(tmp_path):
+    s = _store(tmp_path)
+    s.insert(_row(dedupe_key="a"))
+    b = s.insert(_row(dedupe_key="b")); s.mark_read([b])
+    c = s.insert(_row(dedupe_key="c")); s.mark_actioned(c)   # already out of feed
+    dismissed = s.mark_dismissed_all("default_user", "explicit")
+    assert dismissed == 2                                     # a (unread) + b (read)
+    assert s.list_for_user("default_user") == []
+    latest_a = s.find_latest_by_dedup("default_user", "suggestion", "a")
+    assert latest_a.status == "dismissed" and latest_a.dismiss_kind == "explicit"
+
+
 def test_insert_and_list_newest_first(tmp_path):
     s = _store(tmp_path)
     a = s.insert(_row(dedupe_key="a", created_at_ms=1000))

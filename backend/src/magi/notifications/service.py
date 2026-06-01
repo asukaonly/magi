@@ -87,6 +87,9 @@ class NotificationService:
     def dismiss(self, notification_id: int, kind: str = "explicit") -> None:
         self._store.mark_dismissed(notification_id, kind)
 
+    def dismiss_all(self, user_id: str, kind: str = "explicit") -> int:
+        return self._store.mark_dismissed_all(user_id, kind)
+
     def action(self, notification_id: int) -> None:
         self._store.mark_actioned(notification_id)
 

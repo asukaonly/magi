@@ -41,3 +41,14 @@ def test_dismiss_and_action(tmp_path):
         dedupe_key="code_activity", title="t", body="b", created_at_ms=2000))
     assert client.post(f"/notifications/{nid2}/action", json={}).status_code == 200
     assert nid2 not in [i.id for i in store.list_for_user("default_user")]
+
+
+def test_dismiss_all_clears_feed(tmp_path):
+    client, store = _client(tmp_path)
+    store.insert(NotificationRow(user_id="default_user", kind="suggestion",
+        dedupe_key="code_activity", title="t", body="b", created_at_ms=2000))
+    assert len(store.list_for_user("default_user")) == 2
+    r = client.post("/notifications/dismiss-all", json={})
+    assert r.status_code == 200
+    assert r.json()["dismissed"] == 2
+    assert store.list_for_user("default_user") == []
