@@ -131,10 +131,34 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
     ) -> bool:
         """Phase F Task 11: cross-run retract of a single message.
 
+        Phase H Task 7: thin wrapper around the internal
+        :meth:`_do_message_retract` so the same logic is reachable from
+        ``dispatch_event(user_retract)``. Both entry points funnel into
+        one implementation; we keep this public name for legacy callers
+        (``ChatTaskAgent`` and tests) that pre-date the typed dispatcher.
+
+        See :meth:`_do_message_retract` for the full pipeline contract.
+        """
+        return await self._do_message_retract(
+            session_id=session_id,
+            message_id=message_id,
+            actor=actor,
+            payload=payload,
+        )
+
+    async def _do_message_retract(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        actor: str = "system",
+        payload: RetractRequested | None = None,
+    ) -> bool:
+        """Internal: actual cross-run retract work for a single message.
+
         Distinct from :meth:`request_retract` (which cancels the active
-        run): this entry point marks ONE message redacted in the
-        ConversationLog and then propagates the retract to every dependent
-        active run.
+        run): this marks ONE message redacted in the ConversationLog and
+        then propagates the retract to every dependent active run.
 
         Pipeline:
         1. Append a ``message_redacted`` event to the log — the log's
@@ -151,6 +175,10 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         otherwise (no log wired, append failed, find_dependents failed,
         or no dependents to signal). Failures in the log calls are
         swallowed so a transient log outage cannot crash the caller.
+
+        Called by:
+        - ``request_message_retract`` (legacy public entry point)
+        - ``dispatch_event(IncomingEvent(event_type="user_retract"))``
         """
         if self._conversation_log is None:
             return False
@@ -229,7 +257,12 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                     "user_retract event missing payload.message_id; skipping"
                 )
                 return False
-            return await self.request_message_retract(
+            # Phase H Task 7: dispatch_event funnels into the same
+            # private ``_do_message_retract`` that the public wrapper
+            # ``request_message_retract`` calls. Calling the private
+            # path avoids any future recursion concern if the public
+            # wrapper grows additional pre/post-processing.
+            return await self._do_message_retract(
                 session_id=session_id, message_id=message_id,
             )
 

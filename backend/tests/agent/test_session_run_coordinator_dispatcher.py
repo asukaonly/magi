@@ -68,15 +68,18 @@ async def test_dispatch_user_steer_returns_false_when_no_active_run():
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_retract_invokes_request_message_retract():
+async def test_dispatch_user_retract_invokes_do_message_retract():
+    """Phase H Task 7: dispatch_event(user_retract) calls the shared
+    private ``_do_message_retract`` (not the public wrapper) so the same
+    logic is reachable from both entry points without recursion risk."""
     coord = _build_coordinator()
     captured = []
 
-    async def _stub_retract(*, session_id, message_id, **kw):
+    async def _stub_do_retract(*, session_id, message_id, **kw):
         captured.append((session_id, message_id))
         return True
 
-    coord.request_message_retract = _stub_retract
+    coord._do_message_retract = _stub_do_retract
     event = IncomingEvent(
         event_id="e1", event_type="user_retract",
         target_run_id="r1", arrived_at_ms=100,
@@ -128,3 +131,34 @@ async def test_dispatch_external_inbound_returns_false_when_no_active_run():
     )
     handled = await coord.dispatch_event(session_id="s1", event=event)
     assert handled is False
+
+
+@pytest.mark.asyncio
+async def test_request_message_retract_goes_through_internal_do_retract():
+    """Phase H Task 7: ``request_message_retract`` is now a wrapper that
+    funnels into the same private ``_do_message_retract`` used by
+    ``dispatch_event(user_retract)``. Both paths share one implementation."""
+    coord = _build_coordinator()
+    captured = []
+
+    async def _stub_do_retract(*, session_id, message_id, actor=None, payload=None):
+        captured.append((session_id, message_id))
+        return True
+
+    coord._do_message_retract = _stub_do_retract
+
+    # Both paths funnel into _do_message_retract:
+    handled1 = await coord.request_message_retract(
+        session_id="s1", message_id="m1",
+    )
+    handled2 = await coord.dispatch_event(
+        session_id="s1",
+        event=IncomingEvent(
+            event_id="e1", event_type="user_retract",
+            target_run_id="r1", arrived_at_ms=100,
+            payload={"message_id": "m2"},
+        ),
+    )
+    assert handled1 is True
+    assert handled2 is True
+    assert captured == [("s1", "m1"), ("s1", "m2")]
