@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from typing import Awaitable, Callable
 
 import pytest
@@ -72,8 +71,10 @@ def _status_reaches(
 
 
 @pytest.mark.asyncio
-async def test_enqueued_task_runs_to_succeeded(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_enqueued_task_runs_to_succeeded(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult(
@@ -112,8 +113,10 @@ async def test_enqueued_task_runs_to_succeeded(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_concurrency_cap_is_respected(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_concurrency_cap_is_respected(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
     gate = asyncio.Event()
     active_ids: list[str] = []
     peak = {"value": 0}
@@ -152,8 +155,10 @@ async def test_concurrency_cap_is_respected(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cancel_running_task_transitions_to_cancelled(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_cancel_running_task_transitions_to_cancelled(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
     running = asyncio.Event()
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
@@ -185,8 +190,10 @@ async def test_cancel_running_task_transitions_to_cancelled(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_cancel_unknown_task_returns_false(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_cancel_unknown_task_returns_false(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult()
@@ -200,10 +207,12 @@ async def test_cancel_unknown_task_returns_false(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cancel_pending_task_skips_dispatch(tmp_path: Path) -> None:
+async def test_cancel_pending_task_skips_dispatch(runtime_paths_with_schema) -> None:
     """Cancelling a queued-but-not-dispatched task must flip it to cancelled
     without ever invoking ``run_fn``."""
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
     first_running = asyncio.Event()
     release_first = asyncio.Event()
     run_calls: list[str] = []
@@ -241,8 +250,10 @@ async def test_cancel_pending_task_skips_dispatch(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_fn_exception_marks_task_failed(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_run_fn_exception_marks_task_failed(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         raise RuntimeError("boom")
@@ -262,8 +273,10 @@ async def test_run_fn_exception_marks_task_failed(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_fn_timeout_marks_task_failed(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_run_fn_timeout_marks_task_failed(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         raise asyncio.TimeoutError
@@ -286,8 +299,10 @@ async def test_run_fn_timeout_marks_task_failed(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_retry_after_failure_reruns_with_incremented_attempt(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_retry_after_failure_reruns_with_incremented_attempt(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
     attempt_counter = {"value": 0}
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
@@ -316,8 +331,10 @@ async def test_retry_after_failure_reruns_with_incremented_attempt(tmp_path: Pat
 
 
 @pytest.mark.asyncio
-async def test_retry_running_task_is_rejected(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_retry_running_task_is_rejected(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
     running = asyncio.Event()
     release = asyncio.Event()
 
@@ -347,9 +364,11 @@ async def test_retry_running_task_is_rejected(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_start_marks_stale_running_as_failed_and_rehydrates_pending(
-    tmp_path: Path,
+    runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     # Simulate a previous process that was mid-run.
     stale = BackgroundTask.new(_make_spec(origin_turn_id="stale"))
@@ -380,8 +399,10 @@ async def test_start_marks_stale_running_as_failed_and_rehydrates_pending(
 
 
 @pytest.mark.asyncio
-async def test_start_is_idempotent(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_start_is_idempotent(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult()
@@ -396,8 +417,10 @@ async def test_start_is_idempotent(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_enqueue_before_start_raises(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_enqueue_before_start_raises(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult()
@@ -408,8 +431,10 @@ async def test_enqueue_before_start_raises(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_stop_cancels_in_flight_tasks(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_stop_cancels_in_flight_tasks(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
     running = asyncio.Event()
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
@@ -438,9 +463,11 @@ async def test_stop_cancels_in_flight_tasks(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_listener_is_invoked_on_succeeded_terminal_state(
-    tmp_path: Path,
+    runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult(summary="ok", result_payload={})
@@ -465,8 +492,10 @@ async def test_listener_is_invoked_on_succeeded_terminal_state(
 
 
 @pytest.mark.asyncio
-async def test_listener_is_invoked_on_failure_terminal_state(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_listener_is_invoked_on_failure_terminal_state(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         raise RuntimeError("boom")
@@ -492,9 +521,11 @@ async def test_listener_is_invoked_on_failure_terminal_state(tmp_path: Path) -> 
 
 @pytest.mark.asyncio
 async def test_listener_exception_does_not_break_other_listeners(
-    tmp_path: Path,
+    runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult(summary="ok", result_payload={})
@@ -521,9 +552,11 @@ async def test_listener_exception_does_not_break_other_listeners(
 
 @pytest.mark.asyncio
 async def test_remove_listener_stops_subsequent_invocations(
-    tmp_path: Path,
+    runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult(summary="ok", result_payload={})
@@ -559,8 +592,10 @@ async def test_remove_listener_stops_subsequent_invocations(
 
 
 @pytest.mark.asyncio
-async def test_suspend_and_resume_waiting_user(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_suspend_and_resume_waiting_user(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
     running = asyncio.Event()
     proceed = asyncio.Event()
 
@@ -615,8 +650,10 @@ async def test_suspend_and_resume_waiting_user(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_resume_from_wait_unknown_or_non_suspended(tmp_path: Path) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def test_resume_from_wait_unknown_or_non_suspended(runtime_paths_with_schema) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult()

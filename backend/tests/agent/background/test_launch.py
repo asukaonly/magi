@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -80,8 +79,10 @@ def _make_request(*,
 
 
 @pytest.fixture
-async def manager(tmp_path: Path) -> BackgroundTaskManager:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+async def manager(runtime_paths_with_schema) -> BackgroundTaskManager:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     async def _noop_run(task: Any, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult(summary="", result_payload={})
