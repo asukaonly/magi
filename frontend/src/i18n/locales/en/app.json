@@ -2110,6 +2110,31 @@
         "tool": "Tool",
         "action": "Action",
         "channel": "Channel"
+      },
+      "consent": {
+        "title": { "install": "Install \"{{name}}\"?", "update": "Update \"{{name}}\"?", "sideload": "Install \"{{name}}\" from file?" },
+        "lede": "This plugin declares it will access:",
+        "ledeEmpty": "This plugin declares no special system permissions or data access.",
+        "updateNewLede": "This update adds the following access:",
+        "groupSystem": "System permissions",
+        "groupData": "Data & network access",
+        "optionalTag": "optional",
+        "confirm": { "install": "Install", "update": "Update" },
+        "cancel": "Cancel",
+        "thirdParty": "Third-party plugin"
+      },
+      "capability": {
+        "screen_recording": { "label": "Screen recording", "desc": "Capture images of your screen" },
+        "accessibility": { "label": "Accessibility", "desc": "Read the active window and UI" },
+        "calendar": { "label": "Calendar", "desc": "Read your calendar and reminders" },
+        "photos": { "label": "Photos", "desc": "Access your photo library" },
+        "contacts": { "label": "Contacts", "desc": "Read your contacts" },
+        "system_media": { "label": "System media", "desc": "Read media playback info" },
+        "filesystem_read": { "label": "Read files", "desc": "Read files on your computer" },
+        "filesystem_write": { "label": "Write files", "desc": "Write files on your computer" },
+        "network": { "label": "Network", "desc": "Connect to the internet" },
+        "subprocess": { "label": "Run programs", "desc": "Run other programs on your computer" },
+        "unknown": { "label": "Other access", "desc": "An access type this version of Magi doesn't recognize" }
       }
     },
     "pluginInstallProgress": {
