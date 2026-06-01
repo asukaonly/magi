@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 from enum import Enum
 
 from .constants import DEFAULT_MAX_TOKENS, MIN_MAX_TOKENS
+from .plugin_models import PluginSettings, PluginsSettings
 
 
 class LLMProvider(str, Enum):
@@ -767,67 +768,6 @@ class ToolsSettings(BaseModel):
     web_search: WebSearchToolSettings = Field(default_factory=WebSearchToolSettings)
     web_fetch: WebFetchToolSettings = Field(default_factory=WebFetchToolSettings)
     skills: List[str] = Field(default_factory=list)
-
-
-# =============================================================================
-# Other Settings
-# =============================================================================
-
-
-class PluginSettings(BaseModel):
-    """Per-plugin persisted runtime state."""
-
-    enabled: bool = Field(default=False)
-    trusted: bool = Field(default=False)
-    settings: Dict[str, Any] = Field(default_factory=dict)
-    source: Optional[str] = Field(default=None)
-    manifest_path: Optional[str] = Field(default=None)
-
-
-class PluginsSettings(BaseModel):
-    """Unified plugin runtime configuration."""
-
-    scan_paths: List[str] = Field(default_factory=lambda: ["plugins", "~/.magi/plugins"])
-    registry_url: Optional[str] = Field(default=None)
-    packages: Dict[str, PluginSettings] = Field(
-        default_factory=lambda: {
-            "core-tools": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-            "photo-library": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-            "chrome-history": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-            "calendar": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-            "git-activity": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-            "screen-time": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-            "terminal-history": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-        }
-    )
 
 
 # =============================================================================
