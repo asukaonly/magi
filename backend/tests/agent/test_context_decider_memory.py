@@ -116,8 +116,8 @@ class TestContextDeciderMemoryGuidance:
             _ = kwargs
             return SimpleNamespace(
                 content=(
-                    '{"intent":"code_execution","tools":[],"deep_thinking":false,"reasoning":"workflow reuse",'
-                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                    '{"profile":"coding","graph_shape":"tool_loop","complexity":"simple",'
+                    '"tools":[],"deep_thinking":false,"reasoning":"workflow reuse"}'
                 ),
                 metadata={},
             )

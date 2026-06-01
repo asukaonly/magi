@@ -42,8 +42,11 @@ MEMORY_RETRIEVAL_TRIGGERS_BY_CATEGORY: dict[str, list[str]] = {
 }
 
 _ENTITY_RECALL_SUPPRESS_CATEGORIES: frozenset[str] = frozenset({
+    # Legacy intent values (kept for backwards-compat callers passing intent)
     "code_execution", "file_operation", "planning",
     "code_review", "debugging",
+    # Phase B RouteDecision profile values
+    "coding", "system",
 })
 
 _WORKFLOW_REUSE_MARKERS: tuple[str, ...] = (
