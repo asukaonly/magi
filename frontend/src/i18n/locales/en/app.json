@@ -13,6 +13,12 @@
   "common": {
     "loading": "Loading..."
   },
+  "notifications": {
+    "bellAria": "Notifications",
+    "title": "Notifications",
+    "empty": "No notifications",
+    "markAllRead": "Mark all read"
+  },
   "nav": {
     "dashboard": "Dashboard",
     "chat": "Chat",
