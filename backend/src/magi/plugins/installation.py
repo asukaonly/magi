@@ -401,6 +401,18 @@ class PluginInstallationMixin:
         _report_install_progress(progress_reporter, "completed", "Plugin package installed", 100.0)
         return state
 
+    def inspect_plugin_archive(self, archive_path: Path) -> PluginManifest:
+        """Extract + read plugin.toml from an archive WITHOUT installing or
+        persisting anything. Used to surface declared capabilities for the
+        pre-install consent step (sideload)."""
+        with tempfile.TemporaryDirectory(prefix="magi-plugin-inspect-") as tmp:
+            tmp_path = Path(tmp)
+            self._extract_archive(archive_path, tmp_path)
+            manifest_file = self._find_manifest_in_tree(tmp_path)
+            if manifest_file is None:
+                raise ValueError("Archive does not contain a plugin.toml")
+            return self._load_manifest(manifest_file, source="external")
+
     def install_plugin_from_directory(
         self,
         source_dir: Path,
