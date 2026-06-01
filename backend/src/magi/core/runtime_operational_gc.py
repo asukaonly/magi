@@ -131,6 +131,14 @@ class RuntimeOperationalGC:
                     (notifications_cutoff_ms,),
                 )
 
+            un_cutoff_ms = self._cutoff_ms(settings.user_notifications_retention_days)
+            if await self._table_exists(db, "user_notifications"):
+                counts["user_notifications_deleted"] = await self._delete_rows(
+                    db,
+                    "DELETE FROM user_notifications WHERE status != 'unread' AND created_at_ms < ?",
+                    (un_cutoff_ms,),
+                )
+
             if await self._table_exists(db, "plugin_ingress_events"):
                 counts["runtime_trace_plugin_ingress_deleted"] = await self._delete_rows(
                     db,
