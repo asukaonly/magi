@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNotifications } from '@/hooks/useNotifications';
 import { usePluginActivation } from '@/hooks/usePluginActivation';
@@ -11,9 +11,17 @@ export function NotificationCenter(): JSX.Element {
   const { t } = useTranslation('app');
   const { items, markRead, markAllRead, act } = useNotifications();
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  // Notification id whose connect flow is currently in-flight. Records the
+  // server-side action only after the activation actually succeeds (onSuccess),
+  // not merely when the dialog opens — so cancelling does not fire act().
+  const pendingActionId = useRef<number | null>(null);
 
   const { dialogState, installingPluginId, openDialog, closeDialog, confirm } = usePluginActivation({
-    onSuccess: (pluginId) => { void pluginId; },
+    onSuccess: () => {
+      const id = pendingActionId.current;
+      pendingActionId.current = null;
+      if (id != null) void act(id);
+    },
   });
 
   const toggle = (n: NotificationItem) => {
@@ -71,7 +79,7 @@ export function NotificationCenter(): JSX.Element {
                           disabled={isInstalling}
                           connectLabelKey={isInstalling ? 'emptyState.installing'
                             : needsInstall ? 'emptyState.installAndConnect' : 'emptyState.connect'}
-                          onConnect={(p) => { void openDialog(p, { install: needsInstall }).then(() => { void act(n.id); }); }}
+                          onConnect={(p) => { pendingActionId.current = n.id; void openDialog(p, { install: needsInstall }); }}
                         />
                       );
                     })}
