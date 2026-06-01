@@ -128,12 +128,9 @@ ignore_imports =
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common.events
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.provider
     magi.tools.builtin.detach_to_background_tool -> magi.agent.run_control
-    magi.tools.builtin.image_generation_tool -> magi.chat.attachment_ingestion
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.common.events
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.provider
-    magi.tools.builtin.prepare_chat_attachments_tool -> magi.chat.attachment_ingestion
-    magi.tools.builtin.read_chat_attachment_tool -> magi.chat
     magi.tools.builtin.todo_write_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.todo_write_tool -> magi.agent.control.common.events
     magi.tools.builtin.todo_write_tool -> magi.agent.control.provider
@@ -191,14 +188,9 @@ ignore_imports =
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.provider
     magi.tools.builtin.detach_to_background_tool -> magi.agent.run_control
     magi.tools.builtin.find_relevant_tools_tool -> magi.memory.provider
-    magi.tools.builtin.image_generation_tool -> magi.chat.attachment_ingestion
-    magi.tools.builtin.image_generation_tool -> magi.llm.image_generation
-    magi.tools.builtin.image_generation_tool -> magi.llm.usage_tracing
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.common.events
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.provider
-    magi.tools.builtin.prepare_chat_attachments_tool -> magi.chat.attachment_ingestion
-    magi.tools.builtin.read_chat_attachment_tool -> magi.chat
     magi.tools.builtin.todo_write_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.todo_write_tool -> magi.agent.control.common.events
     magi.tools.builtin.todo_write_tool -> magi.agent.control.provider

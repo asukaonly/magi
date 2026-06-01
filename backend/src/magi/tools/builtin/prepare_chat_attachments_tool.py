@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...chat.attachment_ingestion import LocalChatAttachmentIngestionService
 from ..schema import (
     ParameterType,
     Tool,
@@ -19,7 +18,6 @@ class PrepareChatAttachmentsTool(Tool):
     """Import local files into managed chat attachments for the active turn."""
 
     def __init__(self) -> None:
-        self._ingestion_service = LocalChatAttachmentIngestionService()
         super().__init__()
 
     def _init_schema(self) -> None:
@@ -60,6 +58,14 @@ class PrepareChatAttachmentsTool(Tool):
                 error_code=ToolErrorCode.MISSING_VALUE.value,
             )
 
+        chat_port = context.capabilities.chat if context.capabilities else None
+        if chat_port is None:
+            return ToolResult(
+                success=False,
+                error="Chat capability is not available.",
+                error_code=ToolErrorCode.EXECUTION_ERROR.value,
+            )
+
         attachments: list[dict[str, object]] = []
         try:
             for item in file_paths:
@@ -67,7 +73,7 @@ class PrepareChatAttachmentsTool(Tool):
                 if not file_path:
                     raise ValueError("Attachment source file not found.")
                 attachments.append(
-                    self._ingestion_service.ingest_local_file(
+                    chat_port.ingest_local_file(
                         session_id=session_id,
                         turn_id=turn_id,
                         file_path=file_path,

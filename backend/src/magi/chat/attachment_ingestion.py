@@ -5,13 +5,14 @@ from __future__ import annotations
 import mimetypes
 from pathlib import Path
 
+from magi_plugin_sdk.image_generation import MAX_IMAGE_ATTACHMENT_BYTES  # promoted to SDK; re-exported here for host use
+
 from ..core.logger import get_logger
 from ..i18n import t
 from ..utils.runtime import RuntimePaths, get_runtime_paths
 from .attachment_storage import LocalChatAttachmentStorage, StoredChatAttachment
 from .pdf_attachment_parser import PDF_PARSER_BACKEND, PDF_PARSER_BACKEND_VERSION, LocalPdfAttachmentParser
 from .text_attachment_parser import LocalTextAttachmentParser
-
 
 logger = get_logger(__name__)
 
@@ -87,7 +88,6 @@ SUPPORTED_TEXT_EXTENSIONS = {
     ".yaml",
     ".yml",
 }
-MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024
 MAX_FILE_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 

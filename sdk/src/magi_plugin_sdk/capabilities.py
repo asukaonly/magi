@@ -47,6 +47,63 @@ class MemoryQueryPort(Protocol):
     def make_conversation_turn(self, **kwargs: Any) -> Any: ...
 
 
+class ChatPort(Protocol):
+    """Port for chat attachment read/ingestion operations.
+
+    Wraps ChatReadService.get_attachment_payload and
+    LocalChatAttachmentIngestionService.prepare_runtime_attachment /
+    ingest_local_file. Tools call through this port so they never import
+    host chat internals directly.
+    """
+
+    def get_attachment_payload(
+        self,
+        user_id: str,
+        session_id: str,
+        attachment_id: str,
+    ) -> Optional[dict[str, Any]]: ...
+
+    def prepare_runtime_attachment(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        attachment: dict[str, Any],
+    ) -> dict[str, Any]: ...
+
+    def ingest_local_file(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        file_path: str,
+        original_name: Optional[str] = None,
+        mime_type: Optional[str] = None,
+    ) -> dict[str, Any]: ...
+
+
+class ImageGenPort(Protocol):
+    """Port for image generation adapter creation and usage span publication.
+
+    Wraps create_image_generation_adapter and publish_llm_usage_span.
+    Tools call through this port so they never import host llm internals
+    directly.
+    """
+
+    def create_adapter(
+        self,
+        *,
+        provider_id: str,
+        provider_settings: Any,
+        model: str,
+        registry: Any,
+        timeout: int,
+        proxy_url: Optional[str] = None,
+    ) -> Any: ...
+
+    async def publish_usage_span(self, **kwargs: Any) -> None: ...
+
+
 @dataclass(slots=True)
 class ToolCapabilities:
     """Bundle of host capability ports injected into tool execution.
@@ -59,12 +116,20 @@ class ToolCapabilities:
     delegation_events: Optional[DelegationEventPort] = None
     background: Optional[BackgroundPort] = None
     session_cache: Optional[Any] = None
-    chat: Optional[Any] = None
+    chat: Optional[ChatPort] = None
     memory_query: Optional[MemoryQueryPort] = None
-    image_gen: Optional[Any] = None
+    image_gen: Optional[ImageGenPort] = None
     control: Optional[Any] = None
     interaction: Optional[Any] = None
     subagent: Optional[Any] = None
 
 
-__all__ = ["ToolCapabilities", "TracePort", "DelegationEventPort", "BackgroundPort", "MemoryQueryPort"]
+__all__ = [
+    "ToolCapabilities",
+    "TracePort",
+    "DelegationEventPort",
+    "BackgroundPort",
+    "MemoryQueryPort",
+    "ChatPort",
+    "ImageGenPort",
+]

@@ -112,6 +112,57 @@ class _HostMemoryQueryPort:
         return ConversationTurn(**kwargs)
 
 
+class _HostChatPort:
+    """Adapter routing ChatPort calls to host chat layer (lazy imports)."""
+
+    _ingestion_service = None
+
+    def _get_ingestion(self):
+        if self._ingestion_service is None:
+            from magi.chat.attachment_ingestion import LocalChatAttachmentIngestionService
+            self._ingestion_service = LocalChatAttachmentIngestionService()
+        return self._ingestion_service
+
+    def get_attachment_payload(self, user_id, session_id, attachment_id):
+        from magi.chat.read_service import get_chat_read_service
+        return get_chat_read_service().get_attachment_payload(user_id, session_id, attachment_id)
+
+    def prepare_runtime_attachment(self, *, session_id, turn_id, attachment):
+        return self._get_ingestion().prepare_runtime_attachment(
+            session_id=session_id,
+            turn_id=turn_id,
+            attachment=attachment,
+        )
+
+    def ingest_local_file(self, *, session_id, turn_id, file_path, original_name=None, mime_type=None):
+        return self._get_ingestion().ingest_local_file(
+            session_id=session_id,
+            turn_id=turn_id,
+            file_path=file_path,
+            original_name=original_name,
+            mime_type=mime_type,
+        )
+
+
+class _HostImageGenPort:
+    """Adapter routing ImageGenPort calls to host llm layer (lazy imports)."""
+
+    def create_adapter(self, *, provider_id, provider_settings, model, registry, timeout, proxy_url=None):
+        from magi.llm.image_generation.factory import create_image_generation_adapter
+        return create_image_generation_adapter(
+            provider_id=provider_id,
+            provider_settings=provider_settings,
+            model=model,
+            registry=registry,
+            timeout=timeout,
+            proxy_url=proxy_url,
+        )
+
+    async def publish_usage_span(self, **kwargs):
+        from magi.llm.usage_tracing import publish_llm_usage_span
+        await publish_llm_usage_span(**kwargs)
+
+
 def build_tool_capabilities() -> ToolCapabilities:
     """Return the process-wide tool-capabilities bundle (built once)."""
     global _capabilities
@@ -121,6 +172,8 @@ def build_tool_capabilities() -> ToolCapabilities:
             delegation_events=_HostDelegationEventPort(),
             background=_HostBackgroundPort(),
             memory_query=_HostMemoryQueryPort(),
+            chat=_HostChatPort(),
+            image_gen=_HostImageGenPort(),
         )
     return _capabilities
 

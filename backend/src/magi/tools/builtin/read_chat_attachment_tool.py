@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from ...chat import LocalChatAttachmentIngestionService, get_chat_read_service
 from ...runtime_defaults import DEFAULT_USER_ID
 from ...utils.runtime import get_runtime_paths
 from ..schema import (
@@ -24,14 +23,7 @@ MAX_ATTACHMENT_READ_LIMIT = 120_000
 class ReadChatAttachmentTool(Tool):
     """Read a previously attached managed chat file for the active session."""
 
-    def __init__(
-        self,
-        *,
-        read_service_factory: Callable[[], Any] | None = None,
-        ingestion_service: LocalChatAttachmentIngestionService | None = None,
-    ) -> None:
-        self._read_service_factory = read_service_factory or get_chat_read_service
-        self._ingestion_service = ingestion_service or LocalChatAttachmentIngestionService()
+    def __init__(self) -> None:
         super().__init__()
 
     def _init_schema(self) -> None:
@@ -131,9 +123,16 @@ class ReadChatAttachmentTool(Tool):
                 error_code=ToolErrorCode.INVALID_PARAMETERS.value,
             )
 
+        chat_port = context.capabilities.chat if context.capabilities else None
+        if chat_port is None:
+            return ToolResult(
+                success=False,
+                error="Chat capability is not available.",
+                error_code=ToolErrorCode.EXECUTION_ERROR.value,
+            )
+
         try:
-            read_service = self._read_service_factory()
-            attachment = read_service.get_attachment_payload(user_id, session_id, attachment_id)
+            attachment = chat_port.get_attachment_payload(user_id, session_id, attachment_id)
         except ValueError as exc:
             return ToolResult(success=False, error=str(exc), error_code=ToolErrorCode.INVALID_PARAMETERS.value)
         except RuntimeError as exc:
@@ -172,6 +171,7 @@ class ReadChatAttachmentTool(Tool):
             session_id=session_id,
             turn_id=source_turn_id,
             attachment=attachment,
+            chat_port=chat_port,
         )
         if text is None:
             parse_error = str(prepared_payload.get("parse_error") or "").strip() if isinstance(prepared_payload, dict) else ""
@@ -211,6 +211,7 @@ class ReadChatAttachmentTool(Tool):
         session_id: str,
         turn_id: str,
         attachment: dict[str, Any],
+        chat_port,
     ) -> tuple[str | None, dict[str, Any]]:
         derived_path = _derived_text_path(session_id, turn_id, str(attachment.get("attachment_id") or ""))
         if derived_path.is_file():
@@ -219,7 +220,7 @@ class ReadChatAttachmentTool(Tool):
             except OSError:
                 pass
 
-        prepared = self._ingestion_service.prepare_runtime_attachment(
+        prepared = chat_port.prepare_runtime_attachment(
             session_id=session_id,
             turn_id=turn_id,
             attachment=attachment,
