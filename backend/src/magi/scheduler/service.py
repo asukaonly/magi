@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import time
 from pathlib import Path
-from typing import Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 from zoneinfo import ZoneInfo
 
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -15,6 +16,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import create_engine, event
 
 from ..core.container import get_container
+from ..core.logger import get_logger
 from .contracts import (
     ScheduleDefinition,
     ScheduledExecutionContext,
@@ -25,7 +27,25 @@ from .contracts import (
 )
 from .repository import ScheduleRepository
 
+logger = get_logger("magi.scheduler.service")
+
 ScheduleHandler = Callable[[ScheduledExecutionContext], Awaitable[ScheduledExecutionResult]]
+
+
+@dataclasses.dataclass(slots=True)
+class _ExecutionPrep:
+    """Shared output of the prep phase between sync + async execute paths.
+
+    Either ``early_result`` is set (short-circuit; caller returns it as-is)
+    OR the remaining fields are populated for the handler phase.
+    """
+
+    early_result: ScheduledExecutionResult | None = None
+    schedule: ScheduleDefinition | None = None
+    state: Any = None
+    execution_id: str = ""
+    effective_manual: bool = False
+    started_at: float = 0.0
 
 
 async def dispatch_scheduled_job(schedule_id: str) -> None:
@@ -80,6 +100,10 @@ class SchedulerService:
         self._repository = repository or ScheduleRepository(self._db_path)
         self._handlers: dict[ScheduledTargetType, ScheduleHandler] = {}
         self._schedule_lock = asyncio.Lock()
+        # Strong references to background-execution tasks spawned by
+        # execute_schedule_async — without this, asyncio may GC pending
+        # tasks before their handlers finish. Removed via done_callback.
+        self._background_tasks: set[asyncio.Task] = set()
         self._jobstore_engine = create_engine(
             f"sqlite:///{self._db_path}",
             connect_args={"timeout": 30, "check_same_thread": False},
@@ -233,44 +257,191 @@ class SchedulerService:
         if target_type is not None and target_key is not None:
             await self._repository.clear_target_schedule_binding(target_type, target_key)
 
-    async def execute_schedule(self, schedule_id: str, *, manual: bool = False) -> ScheduledExecutionResult:
+    async def execute_schedule(
+        self,
+        schedule_id: str,
+        *,
+        manual: bool = False,
+        override_payload: dict[str, Any] | None = None,
+    ) -> ScheduledExecutionResult:
+        """Run a schedule once and block until it completes.
+
+        ``override_payload``, when provided, is merged on top of the stored
+        ``schedule.target_payload`` for this execution only — the DB row is
+        not mutated, so the next scheduled tick sees the original payload.
+        Use this to give a handler one-shot parameters from a manual
+        trigger (e.g. ``{"days": 7}`` to backfill instead of the default 1).
+
+        Handlers opt in by reading ``context.schedule.target_payload``;
+        handlers that don't read it keep their current behavior.
+
+        For manual triggers from HTTP endpoints (where the request
+        shouldn't hang for minutes), prefer ``execute_schedule_async``.
+        """
+        prep = await self._prepare_execution(
+            schedule_id, manual=manual, override_payload=override_payload,
+        )
+        if prep.early_result is not None:
+            return prep.early_result
+        return await self._run_handler_phase(
+            schedule=prep.schedule,
+            state=prep.state,
+            execution_id=prep.execution_id,
+            manual=prep.effective_manual,
+            started_at=prep.started_at,
+        )
+
+    async def execute_schedule_async(
+        self,
+        schedule_id: str,
+        *,
+        manual: bool = True,
+        override_payload: dict[str, Any] | None = None,
+    ) -> ScheduledExecutionResult:
+        """Fire-and-forget variant of execute_schedule.
+
+        Runs the synchronous setup (lookup, lock, execution record) inline
+        so the caller learns about ``schedule_not_found`` / ``target_busy``
+        immediately, then spawns the handler in a background task and
+        returns ``{success=True, message='queued'}`` with the execution_id.
+
+        Used by the manual-trigger HTTP endpoint to avoid the request
+        hanging for the entire handler duration (e.g. multi-day diary
+        backfills that take several minutes).
+        """
+        prep = await self._prepare_execution(
+            schedule_id, manual=manual, override_payload=override_payload,
+        )
+        if prep.early_result is not None:
+            return prep.early_result
+
+        async def _runner() -> None:
+            try:
+                await self._run_handler_phase(
+                    schedule=prep.schedule,
+                    state=prep.state,
+                    execution_id=prep.execution_id,
+                    manual=prep.effective_manual,
+                    started_at=prep.started_at,
+                )
+            except Exception as exc:  # pragma: no cover — already recorded
+                # _run_handler_phase records failure to the execution row
+                # before re-raising; the re-raise is for the original sync
+                # caller. In the async path the exception is logged and
+                # swallowed so the asyncio loop doesn't print "Task exception
+                # was never retrieved" tracebacks.
+                logger.warning(
+                    "background schedule execution raised", schedule_id=schedule_id, error=str(exc),
+                )
+
+        task = asyncio.create_task(
+            _runner(),
+            name=f"schedule-run-{schedule_id}-{prep.execution_id}",
+        )
+        # Hold a reference so asyncio doesn't GC the task mid-flight
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+        return ScheduledExecutionResult(
+            success=True,
+            message="queued",
+            stats={
+                "execution_id": prep.execution_id,
+                "status": "running",
+            },
+        )
+
+    async def _prepare_execution(
+        self,
+        schedule_id: str,
+        *,
+        manual: bool,
+        override_payload: dict[str, Any] | None,
+    ) -> "_ExecutionPrep":
+        """Synchronous setup shared by sync + async execution paths.
+
+        Returns a prep object carrying either an ``early_result`` (the run
+        should short-circuit and return it — schedule missing, target
+        busy, or sensor_sync already enqueued) OR the values needed to
+        proceed with the handler phase.
+        """
         schedule = await self._repository.get_schedule(schedule_id)
         if schedule is None:
-            return ScheduledExecutionResult(success=False, message="schedule_not_found")
+            return _ExecutionPrep(early_result=ScheduledExecutionResult(
+                success=False, message="schedule_not_found",
+            ))
+        if override_payload:
+            schedule = dataclasses.replace(
+                schedule,
+                target_payload={**schedule.target_payload, **override_payload},
+            )
         if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
             outstanding = await self._repository.get_outstanding_sensor_sync_job(
-                schedule.target_type,
-                schedule.target_key,
+                schedule.target_type, schedule.target_key,
             )
             if outstanding is not None:
-                return ScheduledExecutionResult(success=False, message="target_busy")
+                return _ExecutionPrep(early_result=ScheduledExecutionResult(
+                    success=False, message="target_busy",
+                ))
         started_at = time.time()
-        acquired = await self._repository.acquire_target_lock(schedule.target_type, schedule.target_key)
+        acquired = await self._repository.acquire_target_lock(
+            schedule.target_type, schedule.target_key,
+        )
         if not acquired:
-            return ScheduledExecutionResult(success=False, message="target_busy")
+            return _ExecutionPrep(early_result=ScheduledExecutionResult(
+                success=False, message="target_busy",
+            ))
+        effective_manual = manual or bool(schedule.metadata.get("manual", False))
         execution_id = await self._repository.create_execution_record(
             schedule_id=schedule.schedule_id,
             target_type=schedule.target_type,
             target_key=schedule.target_key,
-            manual=manual or bool(schedule.metadata.get("manual", False)),
+            manual=effective_manual,
             started_at=started_at,
         )
+        # SENSOR_SYNC has its own enqueue-and-return path — finish it here
+        # so the (sync) caller still gets the "sensor_sync_enqueued" reply.
         if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
             job_id = await self._repository.enqueue_sensor_sync_job(
                 schedule=schedule,
                 execution_id=execution_id,
-                manual=manual or bool(schedule.metadata.get("manual", False)),
+                manual=effective_manual,
             )
             if job_id is None:
-                return ScheduledExecutionResult(success=False, message="target_busy")
+                return _ExecutionPrep(early_result=ScheduledExecutionResult(
+                    success=False, message="target_busy",
+                ))
             if schedule.trigger.trigger_type == TriggerType.ONCE:
                 await self._repository.delete_schedule(schedule.schedule_id)
-            return ScheduledExecutionResult(
-                success=True,
-                message="sensor_sync_enqueued",
-                stats={"job_id": job_id},
-            )
-        state = await self._repository.get_target_state(schedule.target_type, schedule.target_key)
+            return _ExecutionPrep(early_result=ScheduledExecutionResult(
+                success=True, message="sensor_sync_enqueued",
+                stats={"job_id": job_id, "execution_id": execution_id},
+            ))
+        state = await self._repository.get_target_state(
+            schedule.target_type, schedule.target_key,
+        )
+        return _ExecutionPrep(
+            schedule=schedule,
+            state=state,
+            execution_id=execution_id,
+            effective_manual=effective_manual,
+            started_at=started_at,
+        )
+
+    async def _run_handler_phase(
+        self,
+        *,
+        schedule,
+        state,
+        execution_id: str,
+        manual: bool,
+        started_at: float,
+    ) -> ScheduledExecutionResult:
+        """Call the handler and record success/failure on the execution row.
+
+        Re-raises the original exception so callers running synchronously
+        can propagate it (e.g. ``trigger_now`` test asserts on the raise).
+        """
         handler = self._handlers.get(schedule.target_type)
         try:
             if handler is None:
@@ -281,7 +452,7 @@ class SchedulerService:
                     target_state=state,
                     runtime_dir=self._runtime_dir,
                     triggered_at=started_at,
-                    manual=manual or bool(schedule.metadata.get("manual", False)),
+                    manual=manual,
                 )
             )
             next_run_at = self._resolve_next_run_time(schedule.job_id or schedule.schedule_id)

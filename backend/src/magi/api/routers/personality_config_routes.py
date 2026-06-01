@@ -280,13 +280,8 @@ async def create_personality(config: PersonalityConfigModel):
 async def update_personality(name: str, config: PersonalityConfigModel):
     legacy = legacy_personality_config_module()
     target_name = legacy.sanitize_filename(config.name)
-    actual_name = name
+    actual_name = target_name if name != target_name else name
     try:
-        if name == legacy.DEFAULT_PERSONALITY and target_name not in {legacy.DEFAULT_PERSONALITY, "AI_Assistant"}:
-            actual_name = target_name
-        elif name != target_name:
-            actual_name = target_name
-
         await legacy.save_personality_to_registry(actual_name, config)
 
         current = legacy.get_current_personality_name()
@@ -424,7 +419,7 @@ async def list_personalities():
         repo = legacy.PersonaRepository(str(legacy.get_runtime_paths().persona_registry_db_path))
         await repo.init()
         summaries = await repo.list_all()
-        personalities: List[str] = [s.slug for s in summaries if s.slug != legacy.DEFAULT_PERSONALITY]
+        personalities: List[str] = [s.slug for s in summaries]
 
         return PersonalityResponse(
             success=True,
@@ -448,15 +443,6 @@ async def list_personalities():
 async def delete_personality(name: str):
     legacy = legacy_personality_config_module()
     try:
-        if name == legacy.DEFAULT_PERSONALITY:
-            raise HTTPException(
-                status_code=400,
-                detail=core_i18n.t(
-                    "personality.config.delete.default_forbidden",
-                    fallback="Cannot delete default personality",
-                ),
-            )
-
         repo = legacy.PersonaRepository(str(legacy.get_runtime_paths().persona_registry_db_path))
         await repo.init()
         try:

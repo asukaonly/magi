@@ -12,7 +12,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from ..contracts import (
     AdapterName,
@@ -54,14 +54,32 @@ class CodexAdapter:
             binary_path=binary_path,
             last_message_path=last_message_path,
         )
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(cwd),
-            env=self._build_env(binary_path),
-        )
+        # ManagedSubprocess registers PID; see claude_code.py for full rationale.
+        try:
+            from magi_plugin_sdk.subprocess import ManagedSubprocess
+        except ImportError:
+            ManagedSubprocess = None  # type: ignore[assignment]
+        managed: Any = None
+        if ManagedSubprocess is not None:
+            managed = await ManagedSubprocess.spawn(
+                argv,
+                label=f"code_agent.codex.{req.delegation_id}",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd),
+                env=self._build_env(binary_path),
+            )
+            process = managed.proc
+        else:
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd),
+                env=self._build_env(binary_path),
+            )
         try:
             assert process.stdin is not None
             process.stdin.write(self._compose_stdin(req).encode("utf-8"))
@@ -108,9 +126,9 @@ class CodexAdapter:
                 asyncio.gather(_drain_stdout(), _drain_stderr()),
                 timeout=req.timeout_s,
             )
-            exit_code = await process.wait()
+            exit_code = await (managed.wait() if managed is not None else process.wait())
         except asyncio.TimeoutError:
-            await self._terminate(process)
+            await self._terminate(process, managed=managed)
             self._persist(stdout_path, stdout_buf)
             self._persist(stderr_path, stderr_buf)
             return AdapterRunOutcome(
@@ -121,7 +139,7 @@ class CodexAdapter:
             )
 
         if cancel_token.cancelled:
-            await self._terminate(process)
+            await self._terminate(process, managed=managed)
 
         self._persist(stdout_path, stdout_buf)
         self._persist(stderr_path, stderr_buf)
@@ -214,7 +232,17 @@ class CodexAdapter:
         return text or None
 
     @staticmethod
-    async def _terminate(process: asyncio.subprocess.Process) -> None:
+    async def _terminate(
+        process: asyncio.subprocess.Process,
+        *,
+        managed: Any = None,
+    ) -> None:
+        if managed is not None:
+            try:
+                await managed.shutdown(sigterm_grace_seconds=5.0, sigkill_grace_seconds=2.0)
+            except Exception:
+                pass
+            return
         if process.returncode is not None:
             return
         try:

@@ -7,20 +7,52 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from .. import i18n as core_i18n
+from ..core.logger import get_logger
 from .cluster_builder import TimelineClusterBuilder
 from .context_bundle_builder import TimelineContextBundleBuilder
 from .query_interpreter import TimelineQueryInterpretation, TimelineQueryInterpreter
 from .state_band_builder import TimelineStateBandBuilder, derive_state_from_tone
+from .viewport_themes import ThemeCardBuilder
+
+logger = get_logger("magi.timeline.viewport_builder")
+
+# Upper bound on raw L1 events pulled per viewport window. Previously
+# hardcoded at 500, which silently truncated power-user days (screen-time
+# sensor at 1 event / 30s = 2880/day). 5000 covers the realistic worst
+# case for a single day and is still cheap to pull from sqlite + send to
+# the frontend. When we hit the cap we log a warning so it's visible in
+# ops — the viewport itself doesn't surface this to the UI yet.
+EVENT_QUERY_LIMIT = 5000
 
 
 class TimelineViewportBuilder:
     """Assemble scale-aware viewport payloads from memory layers."""
 
-    def __init__(self, *, l1_store: Any, l2_store: Any | None = None, l3_store: Any | None = None, l4_store: Any | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        l1_store: Any,
+        l2_store: Any | None = None,
+        l3_store: Any | None = None,
+        l4_store: Any | None = None,
+        entity_catalog: Any | None = None,
+        location_resolver: Any | None = None,
+    ) -> None:
         self._l1 = l1_store
         self._l2 = l2_store
         self._l3 = l3_store
         self._l4 = l4_store
+        # Optional entity catalog (L2EntityCatalog). When wired, themes are
+        # derived from real entity canonical_names aggregated across the
+        # window's episodes — concrete nouns the user actually touched,
+        # rather than the L3 reflection insight_keys / cluster labels that
+        # tend to leak internal machinery ("Day反思") or full summary
+        # sentences into the chip slot.
+        self._entity_catalog = entity_catalog
+        # Optional LocationResolver. When wired, viewport responses include
+        # ``place_hints`` (top labels for the period) which the Hero renders
+        # as the "◦ 在 X" line. Without it we just omit the field.
+        self._location_resolver = location_resolver
         self._state_band_builder = TimelineStateBandBuilder()
         self._cluster_builder = TimelineClusterBuilder()
         self._query_interpreter = TimelineQueryInterpreter()
@@ -30,6 +62,11 @@ class TimelineViewportBuilder:
             l3_store=l3_store,
             l4_store=l4_store,
         )
+        # Theme card assembly is split out to viewport_themes.py — see
+        # that module for the priority order (entities → reflections →
+        # cluster labels). Stateless across calls; constructed once with
+        # the catalog reference.
+        self._theme_card_builder = ThemeCardBuilder(entity_catalog=entity_catalog)
 
     async def build_viewport(
         self,
@@ -79,11 +116,22 @@ class TimelineViewportBuilder:
         if clusters:
             self._localize_cluster_labels(clusters, locale=locale)
             self._enrich_cluster_states(clusters, summaries, start=interpreted_query.start, end=interpreted_query.end)
+            # Episode-based clusters come out of cluster_builder with
+            # ``source_types: []`` because the L2 episode row doesn't track
+            # source breakdown. Without enrichment, the day-bucket UI groups
+            # every episode under the "memory" fallback and the Chrome /
+            # 屏幕 visual separation collapses. Fill the field by counting
+            # the L1 events that fall inside each episode's window.
+            self._enrich_cluster_source_types(clusters, events)
         raw_events = [self._to_raw_event(event, locale=locale) for event in events] if scale == "hour" else []
         source_mix = self._build_source_mix(events=events, clusters=clusters, locale=locale)
-        theme_cards = self._build_theme_cards(reflections=reflections, clusters=clusters, locale=locale)
-        overview = self._build_overview(
+        theme_cards = await self._theme_card_builder.build(
+            reflections=reflections, clusters=clusters, locale=locale,
+        )
+        overview = await self._build_overview(
             scale=scale,
+            period_start=interpreted_query.start,
+            period_end=interpreted_query.end,
             events=events,
             clusters=clusters,
             reflections=reflections,
@@ -97,6 +145,9 @@ class TimelineViewportBuilder:
             state_markers=state_markers,
             state_transitions=state_transitions,
             locale=locale,
+        )
+        place_hints = await self._resolve_place_hints(
+            start=interpreted_query.start, end=interpreted_query.end,
         )
 
         return {
@@ -121,6 +172,7 @@ class TimelineViewportBuilder:
             "state_transitions": state_transitions,
             "source_mix": source_mix,
             "theme_cards": theme_cards,
+            "place_hints": place_hints,
             "clusters": clusters,
             "episodes": episodes if scale in ("day", "week") else [],
             "reflections": reflections if scale == "month" else [],
@@ -158,10 +210,124 @@ class TimelineViewportBuilder:
                             cluster["state_snapshot"] = derive_state_from_tone(tone)
                     break
 
+    def _enrich_cluster_source_types(
+        self,
+        clusters: list[dict[str, Any]],
+        events: list[dict[str, Any]],
+    ) -> None:
+        """For episode-based clusters with empty source_types, derive them
+        from the L1 events that fall in the episode's time window.
+
+        Episode rows in L2 don't track source breakdown, so cluster_builder
+        ships them with ``source_types: []``. The day-bucket UI groups by
+        source_types[0] and falls back to "memory" — which collapses every
+        episode (Chrome, screen, etc.) into a single "记忆" group. This
+        helper restores the breakdown by counting L1 event sources per
+        episode window and ordering by frequency (most-common first).
+
+        Transient clusters already carry source_types from cluster_builder
+        and are skipped.
+        """
+        for cluster in clusters:
+            block_id = str(cluster.get("block_id") or "")
+            if not block_id.startswith("episode:"):
+                continue
+            ts = float(cluster.get("time_start") or 0.0)
+            te = float(cluster.get("time_end") or 0.0)
+            if te <= ts:
+                continue
+            counts: Counter[str] = Counter()
+            attachments: list[str] = []
+            mood: str | None = None
+            for ev in events:
+                ev_ts = float(ev.get("timestamp") or 0.0)
+                if not (ts <= ev_ts <= te):
+                    continue
+                source = str(ev.get("source") or "").strip()
+                if source:
+                    counts[source] += 1
+                # Manual-entry events carry attachment refs + mood that
+                # the frontend wants to display inline with the slice.
+                if source == "manual_entry":
+                    metadata = ev.get("metadata") or ev.get("metadata_json") or {}
+                    if isinstance(metadata, dict):
+                        manual_meta = metadata.get("manual_entry") or {}
+                        if isinstance(manual_meta, dict):
+                            for ref in manual_meta.get("attachments") or []:
+                                if isinstance(ref, str) and ref:
+                                    attachments.append(ref)
+                            if not mood and isinstance(manual_meta.get("mood"), str):
+                                mood = manual_meta["mood"]
+
+            if not counts:
+                continue
+
+            # Surface manual_entry as the primary source when present —
+            # the frontend's day-bucket UI uses source_types[0] to pick
+            # which group banner to render, and "你的记录" always wins
+            # priority over Chrome / screen for the same cluster.
+            ordered = [s for s, _ in counts.most_common()]
+            if "manual_entry" in ordered and ordered[0] != "manual_entry":
+                ordered.remove("manual_entry")
+                ordered.insert(0, "manual_entry")
+            cluster["source_types"] = ordered
+
+            if attachments:
+                # Dedupe by ref while preserving order
+                seen: set[str] = set()
+                deduped: list[str] = []
+                for ref in attachments:
+                    if ref not in seen:
+                        seen.add(ref)
+                        deduped.append(ref)
+                cluster["media_refs"] = deduped
+            if mood:
+                cluster["mood"] = mood
+
     async def _load_events(self, *, start: float, end: float) -> list[dict[str, Any]]:
         if self._l1 is None:
             return []
-        return await self._l1.query_events(start_time=start, end_time=end, limit=500)
+        events = await self._l1.query_events(
+            start_time=start, end_time=end, limit=EVENT_QUERY_LIMIT,
+        )
+        # Surface truncation. When the result is exactly at the cap we
+        # can't tell whether there's just barely enough or thousands more
+        # past the limit; log loudly so it shows up in ops. A future
+        # iteration could fold this into the viewport response (e.g.
+        # `summary.events_truncated: true`) so the UI can flag it.
+        if len(events) >= EVENT_QUERY_LIMIT:
+            logger.warning(
+                "Timeline viewport hit event-query limit; clusters and "
+                "themes may be incomplete",
+                limit=EVENT_QUERY_LIMIT,
+                window_start=start,
+                window_end=end,
+                window_hours=round((end - start) / 3600, 1),
+            )
+        return events
+
+    async def _resolve_place_hints(
+        self, *, start: float, end: float,
+    ) -> list[str]:
+        """Ask LocationResolver for top labels covering the window.
+
+        Returns an empty list when no resolver is wired (testing / partial
+        bootstrap) or when no source produced a usable answer. Callers
+        consume index 0 as the primary chip; the full list is available
+        for secondary chip rendering.
+        """
+        if self._location_resolver is None:
+            return []
+        try:
+            resolved = await self._location_resolver.resolve_dominant(
+                time_start=start, time_end=end,
+            )
+        except Exception:  # pragma: no cover — defensive
+            return []
+        labels = [label for label in (resolved.labels or []) if label]
+        if not labels and resolved.primary_label:
+            labels = [resolved.primary_label]
+        return labels
 
     async def _load_summaries(self) -> list[dict[str, Any]]:
         if self._l3 is None:
@@ -179,11 +345,18 @@ class TimelineViewportBuilder:
         return await self._l2.list_tom_snapshots(entity_id="user:self", limit=50)
 
     async def _load_episodes(self, *, start: float, end: float) -> list[dict[str, Any]]:
-        """Load durable L2 episodes that overlap the viewport window."""
+        """Load durable L2 episodes that overlap the viewport window.
+
+        Includes ``candidate`` status so freshly-formed episodes show up
+        before the promotion pipeline has run — without this, week-scale
+        viewports fall back to transient single-event clustering and report
+        "0s" duration chips for every day. Mirrors the orchestrator's
+        ``statuses=["active", "candidate"]`` filter.
+        """
         if self._l2 is None or not hasattr(self._l2, "list_episodes"):
             return []
         return await self._l2.list_episodes(
-            statuses=["active", "user_pinned"],
+            statuses=["active", "candidate", "user_pinned"],
             time_start=start,
             time_end=end,
             limit=200,
@@ -214,10 +387,12 @@ class TimelineViewportBuilder:
         transitions.sort(key=lambda t: t["changed_at"])
         return transitions
 
-    def _build_overview(
+    async def _build_overview(
         self,
         *,
         scale: str,
+        period_start: float,
+        period_end: float,
         events: list[dict[str, Any]],
         clusters: list[dict[str, Any]],
         reflections: list[dict[str, Any]],
@@ -284,12 +459,41 @@ class TimelineViewportBuilder:
             confidence += 0.2
         if state_markers:
             confidence += 0.1
+        essence_prose = await self._lookup_essence_prose(scale=scale, period_start=period_start)
         return {
             "title": title_by_scale.get(scale, title_by_scale["month"]),
             "summary": summary,
             "key_takeaways": takeaways[:3],
             "confidence": min(0.95, confidence),
+            "essence_prose": essence_prose,
         }
+
+    async def _lookup_essence_prose(self, *, scale: str, period_start: float) -> str:
+        """Look up the L3 diary essence for this period, if Plan 2 has produced one.
+
+        Returns the prose string or empty string when no matching summary exists.
+        """
+        from datetime import datetime
+
+        if self._l3 is None:
+            return ""
+
+        # period_start is a local-day boundary timestamp set by the frontend using
+        # local-time arithmetic. To recover the matching calendar date, use local
+        # time (no tz arg) so it agrees with what the user sees in the UI.
+        period_date = datetime.fromtimestamp(period_start).date().isoformat()
+        insight_key = f"diary-{scale}-{period_date}"
+
+        try:
+            summary = await self._l3._find_summary_by_insight_key(insight_key)
+        except Exception:
+            return ""
+
+        if not summary:
+            return ""
+        if summary.get("narrative_style") != "diary_2p":
+            return ""
+        return str(summary.get("essence_prose") or "")
 
     def _build_state_summary(
         self,
@@ -473,98 +677,6 @@ class TimelineViewportBuilder:
         fallback = source.replace("_", " ") if TimelineViewportBuilder._is_zh_locale(locale) else source.replace("_", " ").title()
         return TimelineViewportBuilder._timeline_t(f"sources.{source}", locale, fallback=fallback)
 
-    def _build_theme_cards(
-        self,
-        *,
-        reflections: list[dict[str, Any]],
-        clusters: list[dict[str, Any]],
-        locale: str,
-    ) -> list[dict[str, Any]]:
-        cards: list[dict[str, Any]] = []
-        seen: set[tuple[str, str]] = set()
-        for reflection in reflections:
-            title = str(reflection.get("title") or self._timeline_t("theme.reflection_window", locale, fallback="Reflection window"))
-            summary = str(reflection.get("summary") or "")
-            key = (title, summary)
-            if key in seen:
-                continue
-            seen.add(key)
-            event_ids = [str(event_id) for event_id in reflection.get("source_event_ids") or [] if str(event_id).strip()]
-            time_start = float(reflection.get("time_start") or 0.0)
-            time_end = float(reflection.get("time_end") or time_start)
-            cards.append(
-                {
-                    "theme_id": f"reflection:{reflection.get('reflection_id')}",
-                    "title": title,
-                    "summary": summary,
-                    "source_types": self._source_types_for_event_ids(event_ids, clusters),
-                    "event_count": len(event_ids),
-                    "anchor": {
-                        "anchor_type": "event" if event_ids else "reflection",
-                        "anchor_id": event_ids[0] if event_ids else "",
-                        "representative_event_ids": event_ids[:5],
-                        "time_start": time_start,
-                        "time_end": time_end,
-                    },
-                }
-            )
-            if len(cards) >= 6:
-                return cards
-
-        for cluster in sorted(clusters, key=lambda item: int(item.get("event_count") or 0), reverse=True):
-            if len(cards) >= 6:
-                break
-            title = str(cluster.get("label") or self._timeline_t("theme.activity", locale, fallback="Activity"))
-            summary = str(cluster.get("summary") or "")
-            key = (title, summary)
-            if key in seen:
-                continue
-            seen.add(key)
-            cards.append(
-                {
-                    "theme_id": str(cluster.get("block_id") or f"cluster:{len(cards)}"),
-                    "title": title,
-                    "summary": summary,
-                    "source_types": [str(source) for source in cluster.get("source_types") or [] if str(source).strip()],
-                    "event_count": int(cluster.get("event_count") or 0),
-                    "anchor": self._cluster_anchor(cluster),
-                }
-            )
-        return cards
-
-    def _source_types_for_event_ids(self, event_ids: list[str], clusters: list[dict[str, Any]]) -> list[str]:
-        event_id_set = set(event_ids)
-        source_types: list[str] = []
-        if not event_id_set:
-            return source_types
-        for cluster in clusters:
-            representative_ids = {str(event_id) for event_id in cluster.get("representative_event_ids") or []}
-            if not (representative_ids & event_id_set):
-                continue
-            source_types.extend(str(source) for source in cluster.get("source_types") or [] if str(source).strip())
-        return list(dict.fromkeys(source_types))
-
-    @staticmethod
-    def _cluster_anchor(cluster: dict[str, Any]) -> dict[str, Any]:
-        episode_id = str(cluster.get("episode_id") or "")
-        representative_ids = [str(event_id) for event_id in cluster.get("representative_event_ids") or [] if str(event_id).strip()]
-        if episode_id:
-            anchor_type = "episode"
-            anchor_id = f"episode:{episode_id}"
-        elif representative_ids:
-            anchor_type = "event"
-            anchor_id = representative_ids[0]
-        else:
-            anchor_type = "cluster"
-            anchor_id = ""
-        return {
-            "anchor_type": anchor_type,
-            "anchor_id": anchor_id,
-            "representative_event_ids": representative_ids[:5],
-            "episode_id": episode_id or None,
-            "time_start": float(cluster.get("time_start") or 0.0),
-            "time_end": float(cluster.get("time_end") or cluster.get("time_start") or 0.0),
-        }
 
     def _build_source_mix(
         self,

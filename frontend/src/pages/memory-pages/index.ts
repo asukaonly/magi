@@ -1,6 +1,8 @@
-export { MemoryOverviewPage } from './MemoryOverviewPage';
-export { MemoryWorkbenchPage } from './MemoryWorkbenchPage';
 export { MemoryEventsPage } from './MemoryEventsPage';
 export { MemoryKnowledgePage } from './MemoryKnowledgePage';
-export { MemoryReflectionPage } from './MemoryReflectionPage';
 export { MemorySkillsPage } from './MemorySkillsPage';
+export { MemoryStoryPage } from './MemoryStoryPage';
+export { MemoryEpisodesPage } from './MemoryEpisodesPage';
+export { MemoryPortraitPage } from './MemoryPortraitPage';
+export { MemoryRecallPage } from './MemoryRecallPage';
+export { MemoryGovernancePage } from './MemoryGovernancePage';

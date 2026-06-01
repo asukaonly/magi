@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Any, Optional, cast
 
-from .grounding import build_grounding_plan
+from .grounding import L2GroundingPlan, build_grounding_plan
 from .l2_fusion import fuse_l2_candidates, project_candidates
 from .l2_knowledge_retriever import retrieve_knowledge
 from .l2_subdomain_retrievers import (
@@ -114,17 +114,7 @@ class L2QueryExecutionMixin:
         }
 
         results["trace"] = {
-            "grounding_plan": {
-                "query_kind": plan.query_kind,
-                "subject_scope": plan.subject_scope,
-                "answer_kind": plan.answer_kind,
-                "predicate_family": plan.predicate_family,
-                "confidence": plan.confidence,
-                "temporal_mode": plan.temporal_context.mode,
-                "subject_count": len(plan.subject_candidates),
-                "object_count": len(plan.object_candidates),
-                "predicate_count": len(plan.predicate_candidates),
-            },
+            "grounding_plan": _build_grounding_plan_trace(plan),
             "channel_counts": {
                 "knowledge_edges": len(knowledge_edges),
                 "assertions": len(assertions),
@@ -147,6 +137,32 @@ class L2QueryExecutionMixin:
 
 async def _empty_list() -> list:
     return []
+
+
+def _build_grounding_plan_trace(plan: L2GroundingPlan) -> dict[str, Any]:
+    """Build the grounding-plan slice of the L2 retrieval trace dict.
+
+    Kept as a small helper so the dict shape is easy to unit-test without
+    spinning up a full retriever. The output must remain stable: external
+    log consumers grep these keys.
+    """
+    return {
+        "query_kind": plan.query_kind,
+        "subject_scope": plan.subject_scope,
+        "answer_kind": plan.answer_kind,
+        "predicate_family": plan.predicate_family,
+        "confidence": plan.confidence,
+        "temporal_mode": plan.temporal_context.mode,
+        "subject_count": len(plan.subject_candidates),
+        "object_count": len(plan.object_candidates),
+        "predicate_count": len(plan.predicate_candidates),
+        "allowed_evidence_classes": (
+            sorted(plan.allowed_evidence_classes)
+            if plan.allowed_evidence_classes
+            else None
+        ),
+        "evidence_focus_source": plan.evidence_focus_source,
+    }
 
 
 __all__ = ["L2QueryExecutionMixin"]

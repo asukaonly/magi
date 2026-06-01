@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from .answerability import has_temporal_anchor
+from .evidence_routing import (
+    classes_from_focus,
+    infer_allowed_evidence_classes,
+    infer_evidence_focus_heuristic,
+)
 from .intent_decider import enrich_l2_conditions
 from .models import L1Conditions, L2Conditions, LayerQueryPlan, RetrievalPayload, RetrievalQuery
 from .service_policy import plan_signature
@@ -69,6 +74,21 @@ class HybridRetrievalPlanAugmentationMixin:
                 include_assertions=True,
             )
             enrich_l2_conditions(l2_conditions, request.query)
+            if l2_conditions.allowed_evidence_classes is None:
+                focused = classes_from_focus(
+                    infer_evidence_focus_heuristic(request.query)
+                )
+                if focused is not None:
+                    l2_conditions.allowed_evidence_classes = focused
+                    l2_conditions.evidence_focus_source = "rule_heuristic"
+                else:
+                    inferred = infer_allowed_evidence_classes(
+                        predicate_family=l2_conditions.predicate_family,
+                        subject_scope=l2_conditions.subject_hint,
+                    )
+                    if inferred is not None:
+                        l2_conditions.allowed_evidence_classes = inferred
+                        l2_conditions.evidence_focus_source = "family_fallback"
             l2_plan = LayerQueryPlan(
                 layer="L2",
                 conditions=l2_conditions,

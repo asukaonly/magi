@@ -14,6 +14,8 @@ class ContributionType(str, Enum):
     TOOL = "tool"
     SENSOR = "sensor"
     CHANNEL = "channel"
+    SKILL = "skill"
+    HOOK = "hook"
 
 
 class ExtensionFieldOption(BaseModel):
@@ -55,7 +57,18 @@ class ActivationFlowSpec(BaseModel):
 
 
 class SettingsUIBlockSpec(BaseModel):
-    """Host-rendered custom settings block declared by a plugin."""
+    """Host-rendered custom settings block declared by a plugin.
+
+    Blocks are read-only or selection widgets whose underlying data comes from a
+    ``PluginSettingsResourceSpec``. The ``presentation`` hint tells the host
+    which widget to render. New presentations may be added over time as the
+    plugin platform matures.
+
+    ``value_key`` is only meaningful for blocks that bind a selection back to a
+    settings field (e.g. ``calendar_list``). Read-only presentations like
+    ``permission_status`` ignore it; plugins should still pass a stable value
+    such as ``"_readonly"`` to keep the schema stable.
+    """
 
     block_id: str
     type: Literal["resource_picker"] = "resource_picker"
@@ -63,7 +76,7 @@ class SettingsUIBlockSpec(BaseModel):
     description: str = ""
     resource_name: str
     value_key: str
-    presentation: Literal["calendar_list", "list"] = "list"
+    presentation: Literal["calendar_list", "list", "permission_status"] = "list"
     depends_on_key: Optional[str] = None
     depends_on_values: list[str] = Field(default_factory=list)
 
@@ -181,7 +194,14 @@ class ExtractionProfileSpec(BaseModel):
 
 
 class PluginManifest(BaseModel):
-    """Parsed manifest for a plugin package."""
+    """Parsed manifest for a plugin package.
+
+    Plugins declare per-plugin default settings under ``[plugin.default_settings]``
+    in their ``plugin.toml``. When the host first creates
+    ``~/.magi/config/plugins/{plugin_id}.yaml`` it writes this manifest-provided
+    dict verbatim. This is the sole source of seed defaults — adding a new
+    plugin requires zero magi backend changes.
+    """
 
     plugin_id: str = Field(alias="id")
     name: str
@@ -191,8 +211,19 @@ class PluginManifest(BaseModel):
     entry_module: str = "plugin"
     entry_class: str = "Plugin"
     official: bool = False
+    kind: Literal["plugin", "library"] = "plugin"
+    """Package kind. ``library`` means the package only ships Python modules
+    consumed by other plugins via ``depends_on`` — it is not loaded as a
+    :class:`Plugin` instance, never appears in user-facing market/installed
+    lists, and is auto-installed and refcounted by the plugin manager."""
     contribution_types: list[ContributionType] = Field(default_factory=list)
     dependencies: list[str] = Field(default_factory=list)
+    """PIP package dependencies installed under the plugin's ``.deps/`` dir."""
+    depends_on: list[str] = Field(default_factory=list)
+    """Other plugins (typically libraries) this plugin imports from. Each
+    entry is a ``plugin_id``. The manager auto-installs missing entries
+    during install, refcount-protects them on uninstall, and injects their
+    install-root parent onto ``sys.path`` before loading this plugin."""
     min_sdk_version: str = ""
     platforms: list[str] = Field(default_factory=list)
     homepage: str = ""
@@ -200,6 +231,14 @@ class PluginManifest(BaseModel):
     plugin_dir: str = ""
     manifest_path: str = ""
     source: Literal["builtin", "external"] = "external"
+    default_settings: dict[str, Any] = Field(default_factory=dict)
+    """Optional nested dict of default settings written to
+    ``~/.magi/config/plugins/{id}.yaml`` if missing.
+
+    Typically shaped as ``{"sensors": {<sensor_key>: {...}}}`` but plugins may
+    place other keys here too. Read from the ``[plugin.default_settings]`` table
+    in ``plugin.toml``.
+    """
 
     model_config = {"populate_by_name": True}
 
@@ -246,7 +285,12 @@ class PluginRegistryEntry(BaseModel):
     description_i18n: dict[str, str] = Field(default_factory=dict)
     author: str = ""
     official: bool = False
+    kind: Literal["plugin", "library"] = "plugin"
+    """Mirrors :attr:`PluginManifest.kind`; libraries are hidden from
+    user-facing market listings and installed via dep closure only."""
     contribution_types: list[str] = Field(default_factory=list)
+    depends_on: list[str] = Field(default_factory=list)
+    """Other registry entries this plugin imports from (plugin_ids)."""
     platforms: list[str] = Field(default_factory=list)
     min_sdk_version: str = ""
     homepage: str = ""

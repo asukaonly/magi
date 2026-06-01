@@ -90,9 +90,9 @@ class BehaviorEvolutionProfileMixin:
 
         async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT OR REPLACE intO behavior_profiles
+                """INSERT OR REPLACE INTO behavior_profiles
                    (task_category, profile_json, updated_at, persona_id)
-                   valueS (?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?)""",
                 (task_category, json.dumps(data), time.time(), self.persona_id)
             )
             await db.commit()

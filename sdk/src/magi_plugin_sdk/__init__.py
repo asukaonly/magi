@@ -77,6 +77,11 @@ from .sensors import (
     SensorSyncContext,
     SensorSyncResult,
 )
+from .subprocess import (
+    DEFAULT_REGISTRY_PATH,
+    ManagedSubprocess,
+    RegistryEntry,
+)
 from .tools import (
     MultiProviderTool,
     ParameterType,
@@ -162,6 +167,10 @@ __all__ = [
     # logging
     "configure_basic_logging",
     "get_logger",
+    # Subprocess management (crash-resistant child process lifecycle)
+    "ManagedSubprocess",
+    "RegistryEntry",
+    "DEFAULT_REGISTRY_PATH",
     # Version
     "__version__",
 ]

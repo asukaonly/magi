@@ -395,17 +395,47 @@ class PluginInstallationMixin:
 
         _report_install_progress(progress_reporter, "scan", "Refreshing plugin registry", 88.0)
         self.scan(persist_discovery=True)
-        _report_install_progress(progress_reporter, "activate", "Enabling plugin package", 94.0)
-        state = self.enable_plugin(plugin_id)
-        logger.info("Installed and enabled plugin", extra={"plugin_id": plugin_id})
+        # Library packages get enabled+trusted by _persist_new_packages and
+        # are never loaded as Plugin instances, so skip the enable step
+        # (which rejects libraries by design).
+        if manifest.kind == "library":
+            state = self._require_package(plugin_id)
+            logger.info("Installed library package", extra={"plugin_id": plugin_id})
+        else:
+            _report_install_progress(progress_reporter, "activate", "Enabling plugin package", 94.0)
+            state = self.enable_plugin(plugin_id)
+            logger.info("Installed and enabled plugin", extra={"plugin_id": plugin_id})
         _report_install_progress(progress_reporter, "completed", "Plugin package installed", 100.0)
         return state
 
-    def uninstall_plugin(self, plugin_id: str) -> None:
-        """Uninstall a user-installed plugin and remove its files."""
+    def uninstall_plugin(self, plugin_id: str) -> list[str]:
+        """Uninstall a user-installed plugin and remove its files.
+
+        Returns the list of additional plugin_ids that were also removed
+        as part of dep-closure garbage collection (i.e. library packages
+        whose only consumer was the plugin being uninstalled). The list is
+        empty for the common case.
+
+        A library package can only be uninstalled directly when no other
+        installed plugin still declares it in ``depends_on`` — otherwise
+        the call is rejected.
+        """
         state = self._require_package(plugin_id)
         if state.manifest.source == "builtin":
             raise ValueError(f"Cannot uninstall builtin plugin: {plugin_id}")
+
+        # Refcount guard for direct library removal: the only way a library
+        # is allowed to disappear is if no consumer is left. Plugin-driven
+        # uninstall handles its own deps via dep-closure GC below.
+        if state.manifest.kind == "library":
+            consumers = [
+                cid for cid in self.iter_consumers(plugin_id) if cid != plugin_id
+            ]
+            if consumers:
+                raise ValueError(
+                    f"Cannot uninstall library {plugin_id}: still required by "
+                    f"{', '.join(consumers)}"
+                )
 
         self.unload_plugin(plugin_id)
 
@@ -415,7 +445,34 @@ class PluginInstallationMixin:
 
         save_config({f"plugins.packages.{plugin_id}": None})
         self._package_states.pop(plugin_id, None)
+
+        # Dep-closure GC: walk the just-removed plugin's depends_on and
+        # uninstall any library that no longer has consumers. We do this
+        # only for plugin-kind removals — libraries don't transitively
+        # depend on other libraries in the current model.
+        gc_removed: list[str] = []
+        if state.manifest.kind != "library":
+            for dep_id in state.manifest.depends_on:
+                dep_state = self._package_states.get(dep_id)
+                if dep_state is None or dep_state.manifest.kind != "library":
+                    continue
+                if self.iter_consumers(dep_id):
+                    continue
+                # Recurse via the same path so logging / config cleanup
+                # stays consistent.
+                try:
+                    self.uninstall_plugin(dep_id)
+                    gc_removed.append(dep_id)
+                except Exception:
+                    logger.warning(
+                        "plugin.dep_gc_failed plugin_id=%s dep_id=%s",
+                        plugin_id,
+                        dep_id,
+                        exc_info=True,
+                    )
+
         request_sensor_schedule_refresh()
+        return gc_removed
 
     def check_installed_version(self, plugin_id: str) -> str | None:
         """Return the installed version of a plugin, or None if not installed."""
@@ -443,7 +500,14 @@ class PluginInstallationMixin:
                 for info in zf.infolist():
                     if info.filename.startswith("/") or ".." in info.filename.split("/"):
                         raise ValueError(f"Unsafe path in archive: {info.filename}")
-                zf.extractall(dest)
+                    extracted_str = zf.extract(info, dest)
+                    if not info.is_dir():
+                        # zipfile.extract drops Unix permissions even when the
+                        # archive was created on Unix. Recover the mode from
+                        # external_attr's upper 16 bits (per PKZIP spec).
+                        mode = (info.external_attr >> 16) & 0o777
+                        if mode:
+                            Path(extracted_str).chmod(mode)
         else:
             raise ValueError(f"Unsupported archive format: {archive_path.name}")
 

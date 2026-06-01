@@ -233,6 +233,8 @@ class L2CognitionStore(
                         time_span_hours=round(time_span_hours, 2),
                         stability_kind=stability_kind,
                         recommended_snapshot_field=snapshot_field,
+                        natural_summary=str(assertion.get("natural_summary") or "").strip(),
+                        expires_at=(float(assertion["expires_at"]) if assertion.get("expires_at") is not None else None),
                     )
                 )
             await db.commit()

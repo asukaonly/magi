@@ -86,6 +86,7 @@ class _FallbackHostProtocol(Protocol):
         session_run_revision: int = 0,
         user_message: str | None = None,
         iteration: int | None = None,
+        recent_messages: list[dict[str, Any]] | None = None,
     ) -> ToolCallResult: ...
 
     def _append_message(self, messages: list[dict[str, Any]], message: dict[str, Any]) -> None: ...
@@ -203,6 +204,7 @@ class FunctionCallingFallbackMixin:
                     orchestration_strategy=orchestration_strategy,
                     user_message=None,
                     iteration=state.iteration,
+                    recent_messages=state.messages,
                 )
                 if not result.success:
                     state.tool_failures.append(

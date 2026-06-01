@@ -24,6 +24,7 @@ _SUBSCRIBED_EVENT_TYPES = (
     EventTypes.TASK_STARTED,
     EventTypes.TASK_COMPLETED,
     EventTypes.TASK_FAILED,
+    EventTypes.SKILL_INVOCATION_COMPLETED,
 )
 
 

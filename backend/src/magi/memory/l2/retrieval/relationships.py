@@ -35,6 +35,7 @@ class L2StoreRelationshipQueryMixin:
         limit: int = 100,
         offset: int = 0,
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
+        evidence_classes: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Query the knowledge graph."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -65,6 +66,11 @@ class L2StoreRelationshipQueryMixin:
             if tc_sql:
                 query += f" AND {tc_sql}"
                 args.extend(tc_params)
+        if evidence_classes:
+            ec_ph = ", ".join("?" for _ in evidence_classes)
+            # NULL passes through: pre-backfill rows must not be silently excluded.
+            query += f" AND (evidence_class IN ({ec_ph}) OR evidence_class IS NULL)"
+            args.extend(str(c).strip() for c in evidence_classes)
         query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
         args.append(int(limit))
         args.append(int(offset))
@@ -118,6 +124,7 @@ class L2StoreRelationshipQueryMixin:
         object_types: Optional[List[str]] = None,
         limit_per_entity: int = 100,
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
+        evidence_classes: Optional[List[str]] = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Batch-fetch relationships for multiple entities in one query."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -163,6 +170,11 @@ class L2StoreRelationshipQueryMixin:
             if tc_sql:
                 query += f" AND {tc_sql}"
                 args.extend(tc_params)
+        if evidence_classes:
+            ec_ph = ", ".join("?" for _ in evidence_classes)
+            # NULL passes through: pre-backfill rows must not be silently excluded.
+            query += f" AND (evidence_class IN ({ec_ph}) OR evidence_class IS NULL)"
+            args.extend(str(c).strip() for c in evidence_classes)
         query += " ORDER BY updated_at DESC"
 
         async with sqlite_connection_async(host.db_path) as db:

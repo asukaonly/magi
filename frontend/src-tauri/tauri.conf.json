@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Magi",
-  "version": "0.1.8",
+  "version": "0.1.13",
   "identifier": "com.magi.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -57,6 +57,11 @@
           "x": 480,
           "y": 170
         }
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "installer-hooks.nsh"
       }
     }
   },

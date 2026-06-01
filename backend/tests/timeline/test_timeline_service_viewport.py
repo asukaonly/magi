@@ -321,3 +321,188 @@ async def test_timeline_service_uses_idempotency_key_as_source_item_fallback() -
     viewport = await service.get_viewport(scale="hour", start=0.0, end=200.0, focus="self")
 
     assert viewport["raw_events"][0]["source_item_id"] == "calendar_event:42"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Theme card construction
+# ─────────────────────────────────────────────────────────────────────
+
+
+class _FakeEntityCatalog:
+    """Resolves entity_id → canonical_name from an in-memory dict."""
+
+    def __init__(self, names: dict[str, str]) -> None:
+        self._names = names
+        self.calls: list[list[str]] = []
+
+    async def list_entities(
+        self, *, entity_ids: list[str], limit: int = 100,
+    ) -> list[dict]:
+        self.calls.append(list(entity_ids))
+        return [
+            {"entity_id": eid, "canonical_name": self._names[eid], "entity_type": "concept"}
+            for eid in entity_ids
+            if eid in self._names
+        ][:limit]
+
+
+def _episode_cluster(*, block_id: str, entity_ids: list[str], event_count: int = 5) -> dict:
+    """Build a minimal cluster dict matching what TimelineClusterBuilder emits."""
+    return {
+        "block_id": block_id,
+        "time_start": 100.0,
+        "time_end": 200.0,
+        "label": "screen_time",
+        "summary": "",
+        "dominant_mode": "screen_time",
+        "source_types": ["chrome_history"],
+        "event_count": event_count,
+        "representative_event_ids": [],
+        # Episode clusters carry entity_ids here (see _episode_to_cluster).
+        "keywords": entity_ids,
+        "media_refs": [],
+        "state_snapshot": {},
+        "episode_id": block_id.removeprefix("episode:"),
+    }
+
+
+async def test_theme_cards_prefer_entity_canonical_names_over_reflections() -> None:
+    """When entities are available, themes should be entity canonical_names —
+    not the L3 reflection insight_keys that tend to leak ("Day反思").
+
+    Each entity must appear in ≥2 clusters to pass the recurring-mention
+    threshold (single-mention names are usually incidental, not "what you
+    cared about").
+    """
+    from magi.timeline.viewport_builder import TimelineViewportBuilder
+
+    catalog = _FakeEntityCatalog({
+        "ent:anthropic": "Anthropic",
+        "ent:sleep_agency": "sleep agency",
+        "ent:cursor": "Cursor",
+    })
+    builder = TimelineViewportBuilder(l1_store=None, entity_catalog=catalog)
+    clusters = [
+        _episode_cluster(block_id="episode:a", entity_ids=["ent:anthropic", "ent:sleep_agency"], event_count=10),
+        _episode_cluster(block_id="episode:b", entity_ids=["ent:anthropic", "ent:cursor"], event_count=5),
+        _episode_cluster(block_id="episode:c", entity_ids=["ent:anthropic", "ent:sleep_agency", "ent:cursor"], event_count=3),
+    ]
+    reflections = [
+        {"reflection_id": "r1", "title": "Day反思", "summary": "...", "source_event_ids": []},
+    ]
+
+    cards = await builder._theme_card_builder.build(reflections=reflections, clusters=clusters, locale="zh")
+
+    titles = [c["title"] for c in cards]
+    # Entity names appear, sorted by aggregated frequency (anthropic has highest weight)
+    assert titles[0] == "Anthropic"
+    assert "sleep agency" in titles
+    assert "Cursor" in titles
+    # Internal insight_key is filtered out
+    assert "Day反思" not in titles
+
+
+async def test_theme_cards_drop_single_mention_entities() -> None:
+    """Entities mentioned in just one cluster don't qualify as 'themes'."""
+    from magi.timeline.viewport_builder import TimelineViewportBuilder
+
+    catalog = _FakeEntityCatalog({
+        "ent:one_off": "One-off Mention",
+        "ent:recurring": "Recurring Project",
+    })
+    builder = TimelineViewportBuilder(l1_store=None, entity_catalog=catalog)
+    clusters = [
+        _episode_cluster(block_id="episode:a", entity_ids=["ent:one_off", "ent:recurring"]),
+        _episode_cluster(block_id="episode:b", entity_ids=["ent:recurring"]),
+    ]
+    cards = await builder._theme_card_builder.build(reflections=[], clusters=clusters, locale="en")
+    titles = [c["title"] for c in cards]
+    assert "Recurring Project" in titles
+    assert "One-off Mention" not in titles
+
+
+async def test_theme_cards_blacklist_sensor_bucket_names() -> None:
+    """Sensor-created bucket entities like "Chrome 历史" / "应用使用情况"
+    must not surface as themes even if they pass the count threshold."""
+    from magi.timeline.viewport_builder import TimelineViewportBuilder
+
+    catalog = _FakeEntityCatalog({
+        "ent:chrome_bucket": "Chrome 历史",
+        "ent:app_usage": "应用使用情况",
+        "ent:project": "Magi",
+    })
+    builder = TimelineViewportBuilder(l1_store=None, entity_catalog=catalog)
+    clusters = [
+        _episode_cluster(
+            block_id="episode:a",
+            entity_ids=["ent:chrome_bucket", "ent:app_usage", "ent:project"],
+        ),
+        _episode_cluster(
+            block_id="episode:b",
+            entity_ids=["ent:chrome_bucket", "ent:app_usage", "ent:project"],
+        ),
+    ]
+    cards = await builder._theme_card_builder.build(reflections=[], clusters=clusters, locale="zh")
+    titles = [c["title"] for c in cards]
+    assert "Chrome 历史" not in titles
+    assert "应用使用情况" not in titles
+    assert "Magi" in titles
+
+
+async def test_theme_cards_filter_rejects_long_titles_and_internal_keys() -> None:
+    """Sentence-shaped strings and *反思 suffixes are dropped from fallbacks."""
+    from magi.timeline.viewport_builder import TimelineViewportBuilder
+
+    builder = TimelineViewportBuilder(l1_store=None)  # no entity catalog
+    reflections = [
+        {"reflection_id": "r1", "title": "Day反思", "summary": "", "source_event_ids": []},
+        {
+            "reflection_id": "r2",
+            "title": "这一小时的记忆主要围绕浏览记录展开。浏览活动主要集中在 zhihu",
+            "summary": "", "source_event_ids": [],
+        },
+        {"reflection_id": "r3", "title": "Magi", "summary": "", "source_event_ids": []},
+        # Duplicate of r3 — should be deduped
+        {"reflection_id": "r4", "title": "magi", "summary": "", "source_event_ids": []},
+    ]
+
+    cards = await builder._theme_card_builder.build(reflections=reflections, clusters=[], locale="zh")
+
+    titles = [c["title"] for c in cards]
+    assert titles == ["Magi"]
+
+
+async def test_theme_cards_fall_back_to_reflections_when_no_entity_catalog() -> None:
+    """Backward compat: no catalog wired → existing reflection fallback still works."""
+    from magi.timeline.viewport_builder import TimelineViewportBuilder
+
+    builder = TimelineViewportBuilder(l1_store=None)  # no catalog
+    reflections = [
+        {"reflection_id": "r1", "title": "morning planning", "summary": "x", "source_event_ids": ["evt-1"]},
+    ]
+    cards = await builder._theme_card_builder.build(reflections=reflections, clusters=[], locale="en")
+    assert len(cards) == 1
+    assert cards[0]["title"] == "morning planning"
+
+
+async def test_theme_cards_entity_themes_skip_transient_clusters() -> None:
+    """Only episode:* clusters carry entity_ids in keywords; transient cluster:* ones
+    carry plain text tags and must be skipped during entity aggregation."""
+    from magi.timeline.viewport_builder import TimelineViewportBuilder
+
+    catalog = _FakeEntityCatalog({"ent:magi": "Magi"})
+    builder = TimelineViewportBuilder(l1_store=None, entity_catalog=catalog)
+    clusters = [
+        # Two episode clusters with the same entity so it passes the
+        # min-episode-count threshold.
+        _episode_cluster(block_id="episode:e1", entity_ids=["ent:magi"], event_count=3),
+        _episode_cluster(block_id="episode:e2", entity_ids=["ent:magi"], event_count=2),
+        # Transient cluster — its "keywords" are tag strings, not entity_ids.
+        {**_episode_cluster(block_id="cluster:0", entity_ids=["coding", "thinking"]), "episode_id": ""},
+    ]
+    cards = await builder._theme_card_builder.build(reflections=[], clusters=clusters, locale="en")
+    titles = [c["title"] for c in cards]
+    assert "Magi" in titles
+    # Tag strings ("coding", "thinking") must NOT show up — they didn't go to the catalog.
+    assert "coding" not in titles
+    assert "thinking" not in titles

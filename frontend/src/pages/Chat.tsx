@@ -4,7 +4,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'framer-motion';
-import { ChatWorkspaceStatusBar } from '@/components/chat/ChatWorkspaceStatusBar';
 import { useChatComposerController } from '@/hooks/useChatComposerController';
 import type { PendingAskAnswerPayload } from '@/hooks/useChatSendMessage';
 import { useChatMessageOverlays } from '@/hooks/useChatMessageOverlays';
@@ -12,7 +11,6 @@ import { useChatMessageMutations } from '@/hooks/useChatMessageMutations';
 import { useChatRealtimeEffects } from '@/hooks/useChatRealtimeEffects';
 import { useChatSessionLifecycle } from '@/hooks/useChatSessionLifecycle';
 import { useChatTraceDrawer } from '@/hooks/useChatTraceDrawer';
-import { useChatWorkspaceActions } from '@/hooks/useChatWorkspaceActions';
 import { useChatExecutionControls } from '@/hooks/useChatExecutionControls';
 import { useConversationStore } from '@/stores';
 import { ChatComposerPane } from '@/components/chat/ChatComposerPane';
@@ -30,7 +28,6 @@ import { DEFAULT_USER_ID } from '@/constants';
 import { toast } from 'sonner';
 import type { ChatTimelineMessage } from '@/domain/chat/state';
 
-const DEFAULT_CHAT_WORKSPACE_DISPLAY = '~/.magi/chat-workspace';
 const toPlainText = (content: string): string => String(content || '')
   .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[\w-]*\n?/g, '').replace(/```/g, ''))
   .replace(/`([^`]+)`/g, '$1')
@@ -51,11 +48,6 @@ interface HistoryImagePreview {
   name: string;
   url: string;
 }
-const getWorkspaceDisplayPath = (workspacePath: string | null | undefined): string => {
-  const normalizedPath = String(workspacePath || '').trim();
-  return normalizedPath || DEFAULT_CHAT_WORKSPACE_DISPLAY;
-};
-
 type PendingAskComposerState = {
   requestId: string;
   sessionId: string;
@@ -138,7 +130,6 @@ export const ChatPage: React.FC = () => {
   const messages = useConversationStore((state) =>
     state.currentSessionId ? (state.messagesBySession[state.currentSessionId] || []) : []
   );
-  const upsertSession = useConversationStore((state) => state.upsertSession);
   const appendPendingTurn = useConversationStore((state) => state.appendPendingTurn);
   const upsertMessage = useConversationStore((state) => state.upsertMessage);
   const applyMessageLabel = useConversationStore((state) => state.applyMessageLabel);
@@ -258,18 +249,6 @@ export const ChatPage: React.FC = () => {
     });
   }, [upsertMessage]);
 
-  const {
-    recentWorkspaces,
-    updatingWorkspace,
-    persistSessionWorkspace,
-    handlePickWorkspace,
-    handleSelectRecentWorkspace,
-  } = useChatWorkspaceActions({
-    currentSessionId,
-    currentWorkspacePath: currentSession?.workspace_path,
-    upsertSession,
-    translate: t,
-  });
 
   const {
     labelPopoverState,
@@ -616,9 +595,6 @@ export const ChatPage: React.FC = () => {
     translate: t,
   });
 
-  const workspaceDisplayPath = getWorkspaceDisplayPath(currentSession?.workspace_path);
-  const hasSessionWorkspaceOverride = Boolean(String(currentSession?.workspace_path || '').trim());
-
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -627,24 +603,6 @@ export const ChatPage: React.FC = () => {
       transition={{ duration: 0.15 }}
       className="relative flex h-full min-h-0 flex-col px-3 pb-3 pt-2"
     >
-      <ChatWorkspaceStatusBar
-        visible={Boolean(currentSessionId)}
-        workspaceDisplayPath={workspaceDisplayPath}
-        currentWorkspacePath={currentSession?.workspace_path ?? null}
-        recentWorkspaces={recentWorkspaces}
-        hasSessionWorkspaceOverride={hasSessionWorkspaceOverride}
-        updatingWorkspace={updatingWorkspace}
-        onChangeWorkspace={() => {
-          void handlePickWorkspace();
-        }}
-        onSelectWorkspace={(workspacePath) => {
-          void handleSelectRecentWorkspace(workspacePath);
-        }}
-        onClearWorkspace={() => {
-          void persistSessionWorkspace(null);
-        }}
-      />
-
       <ChatTimelinePane
         messages={messages}
         assistantName={aiName}

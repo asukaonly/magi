@@ -183,12 +183,41 @@ class SkillRunner:
         Execute skill directly in current agent context
 
         This mode is for skills that provide instructions but don't
-        require a separate agent execution context.
+        require a separate agent execution context. The returned
+        ``content`` becomes the tool-call result the model observes, so
+        the SKILL.md body is injected as instructions the model then
+        follows on subsequent iterations of the function-calling loop.
+
+        Per the Claude Code Skills spec, the skill's declared
+        ``allowed-tools`` is a *pre-approval* list — tool calls matching
+        any entry skip the normal permission prompt; tools outside the
+        list remain callable and go through the usual permission flow.
+        We push the parsed rules onto a task-scoped contextvar so the
+        permission gateway can short-circuit on a match. No explicit
+        pop: the contextvar dies with the asyncio task that runs the
+        turn.
         """
         _ = context
+        allowed = skill.frontmatter.allowed_tools
+        if allowed:
+            from .active_restrictions import push_skill_rules
+
+            push_skill_rules(allowed)
+
+        prologue = ""
+        if allowed:
+            tool_list = ", ".join(allowed)
+            prologue = (
+                f"[skill={skill.name}] The following tool patterns are "
+                f"pre-approved for this skill — calls matching them run "
+                f"without asking for permission: {tool_list}. Other tools "
+                f"remain available but will go through the normal "
+                f"permission flow.\n\n"
+            )
+
         return SkillResult(
             success=True,
-            content=prompt,
+            content=prologue + prompt,
             metadata={
                 "mode": "direct",
                 "skill_name": skill.name,
@@ -204,10 +233,23 @@ class SkillRunner:
     ) -> SkillResult:
         """
         Execute skill using a dedicated SkillSubagent.
+
+        Like the direct path, this pushes the skill's ``allowed-tools``
+        rules onto the active pre-approval stack so subagent-originated
+        tool calls matching the rules can skip the permission gateway
+        prompt. Calls that don't match still pass through the gateway
+        normally — pre-approval grants permission, it does not
+        restrict.
         """
         if not self.llm:
             logger.warning("LLM adapter not available, falling back to direct mode")
             return await self._execute_direct(skill, prompt, context)
+
+        allowed = skill.frontmatter.allowed_tools
+        if allowed:
+            from .active_restrictions import push_skill_rules
+
+            push_skill_rules(allowed)
 
         subagent = create_skill_subagent(
             skill=skill,

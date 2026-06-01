@@ -51,7 +51,7 @@ class MemoryStoreModule(LifecycleModule):
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
         plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
 
-        await self._context.core.db_initializer.insert_default_data(persona_name=self._context.core.current_personality)
+        await self._context.core.db_initializer.insert_default_data()
 
         scenario_llm_pool = require_initialized(self._context.llm.scenario_llm_pool, "scenario llm pool")
         message_bus = self._context.message_bus.message_bus

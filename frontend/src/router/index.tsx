@@ -14,11 +14,20 @@ const ChatPage = React.lazy(() =>
 const TimelinePage = React.lazy(() =>
   import('../pages/Timeline').then((m) => ({ default: m.TimelinePage }))
 );
-const MemoryOverviewPage = React.lazy(() =>
-  import('../pages/memory-pages').then((m) => ({ default: m.MemoryOverviewPage }))
+const MemoryStoryPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryStoryPage }))
 );
-const MemoryWorkbenchPage = React.lazy(() =>
-  import('../pages/memory-pages').then((m) => ({ default: m.MemoryWorkbenchPage }))
+const MemoryEpisodesPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryEpisodesPage }))
+);
+const MemoryPortraitPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryPortraitPage }))
+);
+const MemoryRecallPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryRecallPage }))
+);
+const MemoryGovernancePage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryGovernancePage }))
 );
 const MemoryEventsPage = React.lazy(() =>
   import('../pages/memory-pages').then((m) => ({ default: m.MemoryEventsPage }))
@@ -26,17 +35,20 @@ const MemoryEventsPage = React.lazy(() =>
 const MemoryKnowledgePage = React.lazy(() =>
   import('../pages/memory-pages').then((m) => ({ default: m.MemoryKnowledgePage }))
 );
-const MemoryReflectionPage = React.lazy(() =>
-  import('../pages/memory-pages').then((m) => ({ default: m.MemoryReflectionPage }))
-);
 const MemorySkillsPage = React.lazy(() =>
   import('../pages/memory-pages').then((m) => ({ default: m.MemorySkillsPage }))
 );
 const PersonalityPage = React.lazy(() =>
   import('../pages/Personality').then((m) => ({ default: m.PersonalityPage }))
 );
-const TasksPage = React.lazy(() =>
-  import('../pages/Tasks').then((m) => ({ default: m.TasksPage }))
+const BackgroundTasksPage = React.lazy(() =>
+  import('../pages/tasks-pages').then((m) => ({ default: m.BackgroundTasksPage }))
+);
+const ScheduleConfigPage = React.lazy(() =>
+  import('../pages/tasks-pages').then((m) => ({ default: m.ScheduleConfigPage }))
+);
+const ScheduleActivityPage = React.lazy(() =>
+  import('../pages/tasks-pages').then((m) => ({ default: m.ScheduleActivityPage }))
 );
 const OnboardingPage = React.lazy(() =>
   import('../pages/Onboarding').then((m) => ({ default: m.default }))
@@ -146,32 +158,52 @@ const router = createBrowserRouter([
       },
       {
         path: 'events',
-        element: (
-          <React.Suspense fallback={<LoadingFallback />}>
-            <MemoryOverviewPage />
-          </React.Suspense>
-        ),
+        element: <Navigate to="/memory/stories" replace />,
       },
       {
         path: 'memory',
         children: [
+          { index: true, element: <Navigate to="/memory/stories" replace /> },
+          { path: 'overview', element: <Navigate to="/memory/stories" replace /> },
+          { path: 'workbench', element: <Navigate to="/memory/recall" replace /> },
+          { path: 'reflection', element: <Navigate to="/memory/stories" replace /> },
           {
-            index: true,
-            element: <Navigate to="/memory/overview" replace />,
-          },
-          {
-            path: 'overview',
+            path: 'stories',
             element: (
               <React.Suspense fallback={<LoadingFallback />}>
-                <MemoryOverviewPage />
+                <MemoryStoryPage />
               </React.Suspense>
             ),
           },
           {
-            path: 'workbench',
+            path: 'episodes',
             element: (
               <React.Suspense fallback={<LoadingFallback />}>
-                <MemoryWorkbenchPage />
+                <MemoryEpisodesPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'portrait',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryPortraitPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'recall',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryRecallPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'governance',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryGovernancePage />
               </React.Suspense>
             ),
           },
@@ -188,14 +220,6 @@ const router = createBrowserRouter([
             element: (
               <React.Suspense fallback={<LoadingFallback />}>
                 <MemoryKnowledgePage />
-              </React.Suspense>
-            ),
-          },
-          {
-            path: 'reflection',
-            element: (
-              <React.Suspense fallback={<LoadingFallback />}>
-                <MemoryReflectionPage />
               </React.Suspense>
             ),
           },
@@ -219,11 +243,38 @@ const router = createBrowserRouter([
       },
       {
         path: 'tasks',
-        element: (
-          <React.Suspense fallback={<LoadingFallback />}>
-            <TasksPage />
-          </React.Suspense>
-        ),
+        children: [
+          { index: true, element: <Navigate to="/tasks/background" replace /> },
+          {
+            path: 'background',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <BackgroundTasksPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'schedules',
+            children: [
+              {
+                index: true,
+                element: (
+                  <React.Suspense fallback={<LoadingFallback />}>
+                    <ScheduleConfigPage />
+                  </React.Suspense>
+                ),
+              },
+              {
+                path: 'activity',
+                element: (
+                  <React.Suspense fallback={<LoadingFallback />}>
+                    <ScheduleActivityPage />
+                  </React.Suspense>
+                ),
+              },
+            ],
+          },
+        ],
       },
     ],
   },

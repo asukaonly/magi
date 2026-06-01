@@ -96,7 +96,6 @@ logger = get_logger(__name__)
 personality_config_router = APIRouter()
 
 BOOTSTRAP_RUNTIME_WAIT_SCHEDULE_SECONDS = (0.2, 0.45, 0.9, 1.5)
-DEFAULT_PERSONALITY = "default"
 
 FIELD_LABELS: Dict[str, str] = {
     "name": "Name",
@@ -128,7 +127,6 @@ __all__ = [
     "BootstrapConfigModel",
     "BootstrapDialogueService",
     "BootstrapInitRequest",
-    "DEFAULT_PERSONALITY",
     "FIELD_LABELS",
     "GrowthMemoryEngine",
     "HTTPException",

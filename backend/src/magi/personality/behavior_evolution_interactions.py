@@ -61,11 +61,11 @@ class BehaviorEvolutionInteractionMixin:
 
         async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT OR REPLACE intO task_interactions
+                """INSERT OR REPLACE INTO task_interactions
                    (task_id, task_category, timestamp, clarification_count,
                     confirmation_count, correction_count, satisfaction,
                     task_complexity, task_duration, accepted, data_json, persona_id)
-                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task_id,
                     task_category,
@@ -80,6 +80,16 @@ class BehaviorEvolutionInteractionMixin:
                     json.dumps(record_data),
                     self.persona_id,
                 )
+            )
+            # The persisted behavior_profiles row is a memoised inference from
+            # task_interactions + category_statistics. A new outcome makes that
+            # cache stale; drop it so the next get_behavior_profile re-runs
+            # _infer_profile_from_stats. Without this delete the feedback loop
+            # silently closes on the first turn and freezes the inferred
+            # profile forever — exactly the dead-loop the P2 review flagged.
+            await db.execute(
+                "DELETE FROM behavior_profiles WHERE task_category = ? AND persona_id = ?",
+                (task_category, self.persona_id),
             )
             await db.commit()
 

@@ -1,14 +1,4 @@
-"""
-Internal note.
-
-Internal note.
-Internal note.
-
-evolution rules:
-Internal note.
-Internal note.
-Internal note.
-"""
+"""Growth memory engine: milestones, relationships, and personality evolution events."""
 import json
 import time
 import logging
@@ -28,23 +18,11 @@ from .growth_relationships import GrowthRelationshipMixin
 logger = logging.getLogger(__name__)
 
 
-# Internal note.
 
 class GrowthMemoryEngine(GrowthRelationshipMixin):
-    """
-    Internal note.
-
-    Internal note.
-    """
+    """Persona-scoped milestone log, relationship profiles, and evolution tracking."""
 
     def __init__(self, db_path: str = "~/.magi/data/memory/growth_memory.db", *, persona_id: str = ""):
-        """
-        Internal note.
-
-        Args:
-            db_path: databasefilepath
-            persona_id: Stable persona identity for scoping data.
-        """
         self.db_path = db_path
         self.persona_id = persona_id
         self._relationship_cache: Dict[str, RelationshipProfile] = {}
@@ -52,15 +30,14 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
 
     @property
     def _expanded_db_path(self) -> str:
-        """get expanded database path (process ~)"""
+        """Return ``db_path`` with ``~`` expanded to the user's home directory."""
         from pathlib import Path
         return str(Path(self.db_path).expanduser())
 
     async def init(self):
-        """initializedatabase"""
+        """Create the database's parent directory; schema is applied lazily by stores."""
         Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    # Internal note.
 
     async def record_milestone(
         self,
@@ -69,18 +46,7 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
         description: str,
         metadata: Dict[str, Any] = None
     ) -> Milestone:
-        """
-        recordgrowthmilestone
-
-        Args:
-            milestone_type: milestonetype
-            title: Title
-            description: Description
-            metadata: additional metadata
-
-        Returns:
-            Internal note.
-        """
+        """Persist a growth milestone (relationship/personality/special) and invalidate cache."""
         milestone_id = f"milestone_{int(time.time() * 1000)}_{hash(title) % 10000:04d}"
 
         milestone = Milestone(
@@ -94,8 +60,8 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
 
         async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT intO milestones (id, Type, title, description, timestamp, metadata, persona_id)
-                   valueS (?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO milestones (id, Type, title, description, timestamp, metadata, persona_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     milestone_id,
                     milestone_type.value,
@@ -108,7 +74,6 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
             )
             await db.commit()
 
-        # Internal note.
         self._milestone_cache = None
 
         # Update statistics
@@ -123,17 +88,7 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
         milestone_type: MilestoneType = None,
         limit: int = 100
     ) -> List[Milestone]:
-        """
-        getmilestonelist
-
-        Args:
-            Internal note.
-            limit: maximumquantity
-
-        Returns:
-            milestonelist
-        """
-        # Internal note.
+        """Return recent milestones, optionally filtered by ``milestone_type``."""
         if self._milestone_cache is not None and milestone_type is None:
             return self._milestone_cache[:limit]
 
@@ -142,14 +97,14 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
                 cursor = await db.execute(
                     """SELECT id, Type, title, description, timestamp, metadata
                        FROM milestones WHERE type = ? AND persona_id = ?
-                       order BY timestamp DESC LIMIT ?""",
+                       ORDER BY timestamp DESC LIMIT ?""",
                     (milestone_type.value, self.persona_id, limit)
                 )
             else:
                 cursor = await db.execute(
                     """SELECT id, Type, title, description, timestamp, metadata
                        FROM milestones WHERE persona_id = ?
-                       order BY timestamp DESC LIMIT ?""",
+                       ORDER BY timestamp DESC LIMIT ?""",
                     (self.persona_id, limit)
                 )
 
@@ -181,34 +136,18 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
         confidence: float,
         reason: str
     ) -> bool:
-        """
-        Internal note.
-
-        Internal note.
-
-        Args:
-            Internal note.
-            Internal note.
-            new_value: New value
-            Internal note.
-            Internal note.
-
-        Returns:
-            Internal note.
-        """
-        # Internal note.
+        """Record a personality-aspect change if confidence is high and the value actually changed."""
         if confidence < 0.8:
             return False
 
-        # Internal note.
         if previous_value == new_value:
             return False
 
         async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT intO personality_evolution
+                """INSERT INTO personality_evolution
                    (timestamp, aspect, previous_value, new_value, confidence, reason)
-                   valueS (?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?)""",
                 (time.time(), aspect, str(previous_value), str(new_value), confidence, reason)
             )
             await db.commit()
@@ -231,7 +170,7 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
     # ===== statisticsinfo =====
 
     async def get_growth_summary(self) -> Dict[str, Any]:
-        """getgrowthsummary"""
+        """Return aggregate growth statistics (milestone count, interactions, relationships)."""
         stats = await self._get_all_stats()
 
         milestones = await self.get_milestones(limit=1000)
@@ -251,7 +190,7 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
         }
 
     async def _get_all_stats(self) -> Dict[str, Any]:
-        """getallstatistics"""
+        """Return all rows from ``growth_statistics`` as a dict, JSON-decoded where possible."""
         async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute("SELECT key, value FROM growth_statistics")
             rows = await cursor.fetchall()
@@ -288,8 +227,8 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
                 current = value
 
             await db.execute(
-                """INSERT OR REPLACE intO growth_statistics (key, value, updated_at)
-                   valueS (?, ?, ?)""",
+                """INSERT OR REPLACE INTO growth_statistics (key, value, updated_at)
+                   VALUES (?, ?, ?)""",
                 (key, json.dumps(current), time.time())
             )
             await db.commit()

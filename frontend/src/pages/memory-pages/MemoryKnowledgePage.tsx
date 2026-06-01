@@ -77,7 +77,7 @@ export const MemoryKnowledgePage = () => {
 
   return (
     <MemoryPageFrame
-      title={t('memory.nav.knowledge')}
+      title={t('memory.nav.dev.knowledge')}
       description={t('memory.pages.knowledge.subtitle')}
       actions={
         <>

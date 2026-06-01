@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from ..memory import UnifiedMemoryStore
     from ..memory.integration import MemoryIntegrationModule
     from ..memory.hybrid_retrieval import HybridRetrievalService
+    from ..media.source_registry import MediaSourceRegistry
     from ..plugins import PluginManager, SensorRegistry
     from ..personality.self_memory import SelfMemory
     from ..awareness.scheduler_contrib import SensorSchedulerContrib
@@ -54,7 +55,11 @@ class CoreBootstrapState:
     config: AppConfig | None = None
     runtime_paths: RuntimePaths | None = None
     db_initializer: DatabaseInitializer | None = None
-    current_personality: str = "default"
+    # Empty string until PersonalityModule.init() resolves the active persona
+    # from the registry. ConfigModule may set a preliminary preferred name from
+    # config.agent.personality.name; an empty value means "no preference,
+    # use the first builtin from the registry."
+    current_personality: str = ""
 
 
 @dataclass
@@ -105,6 +110,7 @@ class MemoryBootstrapState:
     memory_integration: MemoryIntegrationModule | None = None
     hybrid_retrieval_service: HybridRetrievalService | None = None
     ingestion_subscriber: Any = None
+    media_source_registry: "MediaSourceRegistry | None" = None
 
 
 @dataclass
@@ -114,6 +120,19 @@ class SkillsBootstrapState:
     skill_indexer: Any = None
     skill_loader: Any = None
     skill_runner: Any = None
+
+
+@dataclass
+class HooksBootstrapState:
+    """Programmable hooks subsystem state slice.
+
+    Lives next to skills/permission so the agent runtime can resolve a
+    single ``HookGateway`` instance regardless of which subsystem triggered
+    the dispatch.
+    """
+
+    registry: Any = None
+    gateway: Any = None
 
 
 @dataclass
@@ -194,6 +213,7 @@ class RuntimeBootstrapContext:
     llm: LLMBootstrapState = field(default_factory=LLMBootstrapState)
     memory: MemoryBootstrapState = field(default_factory=MemoryBootstrapState)
     skills: SkillsBootstrapState = field(default_factory=SkillsBootstrapState)
+    hooks: HooksBootstrapState = field(default_factory=HooksBootstrapState)
     personality: PersonalityBootstrapState = field(default_factory=PersonalityBootstrapState)
     context: ContextBootstrapState = field(default_factory=ContextBootstrapState)
     agent_runtime: AgentRuntimeBootstrapState = field(default_factory=AgentRuntimeBootstrapState)

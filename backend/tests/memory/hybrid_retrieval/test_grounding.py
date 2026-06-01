@@ -2,6 +2,7 @@
 
 import pytest
 
+from magi.memory.evidence import EvidenceClass
 from magi.memory.hybrid_retrieval.grounding import (
     GroundedEntityCandidate,
     GroundedPredicateCandidate,
@@ -147,3 +148,15 @@ class TestBuildGroundingPlan:
             user_id="u1",
         )
         assert any(c.field == "platform" for c in plan.object_constraints)
+
+
+def test_grounding_propagates_allowed_evidence_classes():
+    conditions = L2Conditions(
+        subject_hint="self",
+        predicate_family="preference",
+        allowed_evidence_classes={EvidenceClass.USER_SELF_REPORT.label},
+    )
+    plan = build_grounding_plan(
+        conditions, resolved_entities=[], user_id="local_user", time_range=None
+    )
+    assert plan.allowed_evidence_classes == {EvidenceClass.USER_SELF_REPORT.label}

@@ -2,7 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { DynamicConfigField } from '@/components/config-forms/DynamicConfigField';
-import type { ExtensionFieldSpec } from '@/api/modules/plugins';
+import type { ExtensionFieldOption, ExtensionFieldSpec } from '@/api/modules/plugins';
 
 type TFunction = (key: string) => string;
 
@@ -12,97 +12,50 @@ const getOptionalTranslation = (t: TFunction, key: string): string | undefined =
 };
 
 /**
- * Helper function to get plugin-specific translation with fallback
+ * Section title resolution (Phase 4):
+ *   1. ``field.section_translated`` (API, per-plugin override from plugin i18n)
+ *      — handled at the caller via ``getSectionTitleForFields``.
+ *   2. shared host i18n at ``settings.pluginSections.{section}``
+ *   3. the raw section key with underscores replaced
  */
-const getPluginTranslation = (
-  t: TFunction,
-  pluginId: string,
-  key: string,
-  fallback: string
-): string => {
-  const translationKey = `settings.plugins.${pluginId}.${key}`;
-  const translated = t(translationKey);
-  // If translation doesn't exist, i18next returns the key itself
-  return translated === translationKey ? fallback : translated;
-};
+const getSharedSectionTitle = (section: string, t: TFunction): string =>
+  getOptionalTranslation(t, `settings.pluginSections.${section}`) ?? section.replace(/_/g, ' ');
 
-const buildFieldKeyCandidates = (fieldKey: string): string[] => {
-  const candidates = [fieldKey];
-  const segments = fieldKey.split('.');
-  const leafKey = segments[segments.length - 1];
-  if (leafKey && !candidates.includes(leafKey)) {
-    candidates.push(leafKey);
+const getSectionTitleForFields = (
+  section: string,
+  fields: ExtensionFieldSpec[],
+  t: TFunction
+): string => {
+  const apiOverride = fields.find((field) => field.section_translated)?.section_translated;
+  if (apiOverride) {
+    return apiOverride;
   }
-  return candidates;
+  return getSharedSectionTitle(section, t);
 };
 
 /**
- * Helper function to get translated section title with fallback
+ * Option label resolution (Phase 4):
+ *   1. ``option.label_translated`` (API, plugin i18n)
+ *   2. raw ``option.label`` (English fallback from the manifest)
  */
-const getSectionTitle = (
-  section: string,
-  t: TFunction,
-  pluginId: string | undefined
-): string => {
-  if (pluginId) {
-    const pluginTitle = getOptionalTranslation(t, `settings.plugins.${pluginId}.sections.${section}`);
-    if (pluginTitle) {
-      return pluginTitle;
-    }
-  }
-  return getOptionalTranslation(t, `settings.pluginSections.${section}`) ?? section.replace(/_/g, ' ');
-};
-
-const getSectionNote = (
-  section: string,
-  t: TFunction,
-  pluginId: string | undefined
-): string | undefined => {
-  if (!pluginId) {
-    return undefined;
-  }
-  return getOptionalTranslation(t, `settings.plugins.${pluginId}.section_notes.${section}`);
-};
+const getOptionLabel = (option: ExtensionFieldOption): string =>
+  option.label_translated || option.label;
 
 /**
- * Helper function to get translated option label with fallback
+ * Field text resolution (Phase 4):
+ *   1. ``field.{property}_translated`` (API, plugin i18n)
+ *   2. raw ``fallback`` (English value from the manifest)
  */
-const getOptionLabel = (
-  optionValue: string,
-  fieldKey: string,
-  t: TFunction,
-  pluginId: string | undefined,
-  originalLabel: string
-): string => {
-  if (!pluginId) {
-    return originalLabel;
-  }
-  for (const candidate of buildFieldKeyCandidates(fieldKey)) {
-    const translationPath = `options.${candidate}.${optionValue}`;
-    const translated = getPluginTranslation(t, pluginId, translationPath, translationPath);
-    if (translated !== translationPath) {
-      return translated;
-    }
-  }
-  return originalLabel;
-};
-
 const getTranslatedFieldValue = (
-  t: TFunction,
-  pluginId: string | undefined,
-  fieldKey: string,
+  field: ExtensionFieldSpec,
   property: 'label' | 'description' | 'placeholder',
   fallback: string
 ): string => {
-  if (!pluginId || !fallback) {
-    return fallback;
+  if (property === 'label' && field.label_translated) {
+    return field.label_translated;
   }
-  for (const candidate of buildFieldKeyCandidates(fieldKey)) {
-    const translationPath = `fields.${candidate}.${property}`;
-    const translated = getPluginTranslation(t, pluginId, translationPath, translationPath);
-    if (translated !== translationPath) {
-      return translated;
-    }
+  if (property === 'description' && field.description_translated) {
+    return field.description_translated;
   }
   return fallback;
 };
@@ -138,12 +91,14 @@ const isFieldVisible = (field: ExtensionFieldSpec, values: Record<string, any>) 
   return field.depends_on_values.includes(String(values[field.depends_on_key] ?? ''));
 };
 
+const getSectionNoteForFields = (fields: ExtensionFieldSpec[]): string | undefined =>
+  fields.find((field) => field.section_note_translated)?.section_note_translated || undefined;
+
 export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
   fields,
   values,
   onChange,
   disabled = false,
-  pluginId,
 }) => {
   const { t } = useTranslation('app');
 
@@ -159,42 +114,43 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
 
   return (
     <div className="space-y-5">
-      {Object.entries(grouped).map(([section, sectionFields]) => (
-        <div key={section} className="space-y-3">
-          <div>
-            <h4 className="text-sm font-medium capitalize text-foreground">
-              {getSectionTitle(section, t, pluginId)}
-            </h4>
-            {getSectionNote(section, t, pluginId) ? (
-              <p className="mt-1 max-w-3xl text-xs leading-6 text-muted-foreground">
-                {getSectionNote(section, t, pluginId)}
-              </p>
-            ) : null}
+      {Object.entries(grouped).map(([section, sectionFields]) => {
+        const note = getSectionNoteForFields(sectionFields);
+        return (
+          <div key={section} className="space-y-3">
+            <div>
+              <h4 className="text-sm font-medium capitalize text-foreground">
+                {getSectionTitleForFields(section, sectionFields, t)}
+              </h4>
+              {note ? (
+                <p className="mt-1 max-w-3xl text-xs leading-6 text-muted-foreground">{note}</p>
+              ) : null}
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {sectionFields.map((field) => (
+                <DynamicConfigField
+                  key={field.key}
+                  spec={{
+                    ...field,
+                    label: getTranslatedFieldValue(field, 'label', field.label),
+                    description: getTranslatedFieldValue(field, 'description', field.description),
+                    placeholder: field.placeholder
+                      ? getTranslatedFieldValue(field, 'placeholder', field.placeholder)
+                      : field.placeholder,
+                  }}
+                  value={values[field.key] ?? field.default ?? (field.type === 'tags' || (field.type === 'path' && Array.isArray(field.default)) ? [] : '')}
+                  onChange={(value) => onChange(field.key, value)}
+                  disabled={disabled}
+                  selectOptions={field.options.map((option) => ({
+                    label: getOptionLabel(option),
+                    value: option.value,
+                  }))}
+                />
+              ))}
+            </div>
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            {sectionFields.map((field) => (
-              <DynamicConfigField
-                key={field.key}
-                spec={{
-                  ...field,
-                  label: getTranslatedFieldValue(t, pluginId, field.key, 'label', field.label),
-                  description: getTranslatedFieldValue(t, pluginId, field.key, 'description', field.description),
-                  placeholder: field.placeholder
-                    ? getTranslatedFieldValue(t, pluginId, field.key, 'placeholder', field.placeholder)
-                    : field.placeholder,
-                }}
-                value={values[field.key] ?? field.default ?? (field.type === 'tags' || (field.type === 'path' && Array.isArray(field.default)) ? [] : '')}
-                onChange={(value) => onChange(field.key, value)}
-                disabled={disabled}
-                selectOptions={field.options.map((option) => ({
-                  label: getOptionLabel(option.value, field.key, t, pluginId, option.label),
-                  value: option.value,
-                }))}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };

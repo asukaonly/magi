@@ -31,6 +31,8 @@ export const formatTraceKind = (kind: string, t: TFunction<'app'>): string => {
     intent_resolution: 'chat.trace.kindIntent',
     llm: 'chat.trace.kindLlm',
     llm_call: 'chat.trace.kindLlm',
+    skill: 'chat.trace.kindSkill',
+    skill_call: 'chat.trace.kindSkill',
     response: 'chat.trace.kindResponse',
     rhythm: 'chat.trace.kindRhythm',
     dispatch: 'chat.trace.kindDispatch',

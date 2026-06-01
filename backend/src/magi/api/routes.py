@@ -32,6 +32,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l2/conflict-rules": {"GET"},
         "/l2/conflict-rules/{predicate}": {"PUT"},
         "/l2/microbatch-flush": {"POST"},
+        "/l2/episodes/reconsolidate": {"POST"},
         "/l3/summaries": {"GET"},
         "/statistics": {"GET"},
         "/embeddings/status": {"GET"},
@@ -41,6 +42,15 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/search": {"POST"},
         "/procedures": {"GET"},
         "/tom/{entity_id}": {"GET"},
+        "/portrait": {"GET"},
+        "/portrait/self": {"GET"},
+        "/stories": {"GET"},
+        "/stories/{summary_id}/review": {"PATCH"},
+        "/stories/{summary_id}/evidence": {"GET"},
+        "/manual-entries": {"GET", "POST"},
+        "/manual-entries/{entry_id}": {"PATCH", "DELETE"},
+        "/manual-entries/{entry_id}/weather": {"DELETE"},
+        "/manual-entries/assets": {"POST"},
     },
 
     "messages": {
@@ -77,9 +87,22 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
     "skills": {
         "/api/skills/": {"GET"},
     },
+    "hooks": {
+        "/api/hooks": {"GET"},
+        "/api/hooks/": {"GET"},
+    },
     "timeline": {
         "/viewport": {"GET"},
         "/context/{anchor_id}": {"GET"},
+        "/standout": {"GET"},
+        "/mood-calendar": {"GET"},
+        # The route is declared with `:path` so the asset_ref can contain
+        # both ":" and "/" (e.g. ``manual-entry-asset://<sha>.jpg``,
+        # ``photo-library://...``). The gateway's allowlist matches
+        # FastAPI's `route.path` string verbatim, so the converter
+        # suffix has to be included here too — otherwise the route
+        # silently doesn't get mounted on the public router.
+        "/asset/{asset_ref:path}": {"GET"},
     },
     "sensors": {
         "/status": {"GET"},
@@ -230,6 +253,7 @@ def register_api_routes(app: FastAPI) -> None:
         personality_presets_router,
         personas_router,
         skills_router,
+        hooks_router,
         sensors_router,
         timeline_router,
         plugins_router,
@@ -287,6 +311,10 @@ def register_api_routes(app: FastAPI) -> None:
     app.include_router(
         _build_public_router(skills_router, _PUBLIC_ROUTE_METHODS["skills"]),
         tags=["Skills"],
+    )
+    app.include_router(
+        _build_public_router(hooks_router, _PUBLIC_ROUTE_METHODS["hooks"]),
+        tags=["Hooks"],
     )
     app.include_router(
         _build_public_router(sensors_router, _PUBLIC_ROUTE_METHODS["sensors"]),

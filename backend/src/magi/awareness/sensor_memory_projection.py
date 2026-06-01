@@ -99,7 +99,17 @@ def build_sensor_memory_event(
         if bp.get("max_wait_seconds") is not None:
             metadata_json["l2_batch_max_wait_seconds"] = int(bp["max_wait_seconds"])
 
-    metadata_json["timeline"] = dict(timeline_event_dict)
+    # De-duplicate: build_sensor_projection sets content=summary by design,
+    # so the L1 `content` column already holds the full summary text. Every
+    # consumer that reads metadata.timeline.summary in this codebase falls
+    # back to event.get("content") when the key is missing — see e.g.
+    # timeline/viewport_builder.py:760, timeline/service.py, l1/storage/rows.py.
+    # Dropping the duplicate cuts L1 metadata_json size ~40-50% for chatty
+    # sensors (the worst offender being screenshot_timeline's OCR text).
+    timeline_for_metadata = dict(timeline_event_dict)
+    if timeline_for_metadata.get("summary") == summary:
+        timeline_for_metadata.pop("summary", None)
+    metadata_json["timeline"] = timeline_for_metadata
     if timeline_event_dict.get("raw_payload_ref"):
         metadata_json["raw_payload_ref"] = timeline_event_dict["raw_payload_ref"]
     if timeline_event_dict.get("processing_status"):

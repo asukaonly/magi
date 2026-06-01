@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brain, CheckCircle2, ChevronRight, CircleDashed, GitBranch, Hammer, Layers3, MessageSquare, Search, Workflow, XCircle } from 'lucide-react';
+import { Brain, CheckCircle2, ChevronRight, CircleDashed, GitBranch, Hammer, Layers3, MessageSquare, Search, Sparkles, Workflow, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { NormalizedExecutionTraceNode } from '@/domain/chat/state';
@@ -33,6 +33,7 @@ const kindIcon = (kind: string) => {
   if (kind === 'worker') return <Layers3 className="h-4 w-4" />;
   if (kind === 'tool' || kind === 'tool_call') return <Hammer className="h-4 w-4" />;
   if (kind === 'llm' || kind === 'llm_call') return <Brain className="h-4 w-4" />;
+  if (kind === 'skill' || kind === 'skill_call') return <Sparkles className="h-4 w-4" />;
   if (kind === 'intent' || kind === 'intent_resolution') return <Search className="h-4 w-4" />;
   if (kind === 'response') return <MessageSquare className="h-4 w-4" />;
   return <Workflow className="h-4 w-4" />;
@@ -46,6 +47,9 @@ const nodeSubtitle = (node: NormalizedExecutionTraceNode): string => {
   }
   if (node.kind === 'llm' || node.kind === 'llm_call') {
     return String(meta.model || '');
+  }
+  if (node.kind === 'skill' || node.kind === 'skill_call') {
+    return String(meta.skill_name || '');
   }
   return '';
 };

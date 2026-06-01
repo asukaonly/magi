@@ -20,8 +20,19 @@ def project_historical_recall(
     payload: RetrievalPayload | dict[str, Any],
     request: RetrievalQuery | dict[str, Any],
     plugin_manager: Any | None = None,
+    canonical_names: dict[str, str] | None = None,
 ) -> HistoricalRecallPayload:
-    """Project a raw retrieval payload into an answer-facing recall contract."""
+    """Project a raw retrieval payload into an answer-facing recall contract.
+
+    When ``canonical_names`` is supplied, findings whose subject/object
+    ``entity_id`` has no entry in the map are DROPPED rather than rendered
+    with the raw id. The drop count is recorded in ``payload.trace`` as
+    ``dropped_unresolved_entity_count`` (only when greater than zero).
+
+    When ``canonical_names`` is ``None`` (the default), behavior is
+    identical to the legacy projection — callers that pre-resolve names
+    via the ``subject``/``object`` fields keep working unchanged.
+    """
     normalized_payload = _coerce_payload(payload)
     normalized_request = _coerce_request(request)
     plugin_recall_artifacts = _build_plugin_recall_artifacts(
@@ -31,10 +42,15 @@ def project_historical_recall(
         plugin_manager=plugin_manager,
     )
 
-    findings = _build_findings(normalized_payload, normalized_request)
+    findings, dropped_unresolved = _build_findings(
+        normalized_payload, normalized_request, canonical_names
+    )
+    if dropped_unresolved > 0:
+        normalized_payload.trace["dropped_unresolved_entity_count"] = dropped_unresolved
     entity_refs = _build_entity_refs(
         normalized_payload,
         plugin_entity_refs=plugin_recall_artifacts.get("entity_refs", []),
+        canonical_names=canonical_names,
     )
     asset_refs = _build_asset_refs(
         normalized_payload,
@@ -101,6 +117,10 @@ def _coerce_request(request: RetrievalQuery | dict[str, Any]) -> RetrievalQuery:
         return request
     if not isinstance(request, dict):
         return RetrievalQuery(query="", user_id=None, session_id=None, time_range={})
+    # Round 5 #8: propagate ALL RetrievalQuery fields. The dict path is used
+    # by tests + plugin code; silently dropping fields like exclude_user_text
+    # (echo filter) or conversation_context (indexical anchor) degrades
+    # behavior in ways callers wouldn't expect.
     return RetrievalQuery(
         query=str(request.get("query") or ""),
         user_id=request.get("user_id"),
@@ -109,7 +129,10 @@ def _coerce_request(request: RetrievalQuery | dict[str, Any]) -> RetrievalQuery:
         query_mode=request.get("query_mode"),
         source_filters=list(request.get("source_filters") or []),
         domain_filters=list(request.get("domain_filters") or []),
+        summary_categories=list(request.get("summary_categories") or []),
         limit=int(request.get("limit") or 10),
+        exclude_user_text=request.get("exclude_user_text"),
+        conversation_context=request.get("conversation_context"),
     )
 
 

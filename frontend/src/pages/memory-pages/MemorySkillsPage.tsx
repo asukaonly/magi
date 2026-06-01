@@ -49,7 +49,7 @@ export const MemorySkillsPage = () => {
 
   return (
     <MemoryPageFrame
-      title={t('memory.nav.skills')}
+      title={t('memory.nav.dev.skills')}
       description={t('memory.pages.skills.subtitle')}
       actions={
         <Button

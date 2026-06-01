@@ -58,7 +58,7 @@ export const ChatRoleAvatar = ({
     </div>
   ) : (
     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
-      {assistantAvatar || initial}
+      {initial}
     </div>
   );
 

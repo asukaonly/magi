@@ -22,8 +22,9 @@ class ConfigurationModule(LifecycleModule):
 
     async def init(self) -> None:
         self._context.core.config = get_config()
-        # Set a preliminary personality name from config.  PersonalityModule
-        # will override this with the registry-resolved active persona later.
+        # Set a preliminary personality name from config. PersonalityModule will
+        # override this with the registry-resolved active persona later. Empty
+        # means "no preference"; the persona module then picks the first builtin.
         self._context.core.current_personality = (
-            self._context.core.config.agent.personality.name or "default"
+            self._context.core.config.agent.personality.name or ""
         )

@@ -12,6 +12,7 @@ import {
   Loader2,
   MessageSquare,
   Search,
+  Sparkles,
   Workflow,
   XCircle,
 } from 'lucide-react';
@@ -139,6 +140,7 @@ const kindIcon = (kind: string) => {
   if (kind === 'planning') return <Workflow className="h-4 w-4" />;
   if (kind === 'tool' || kind === 'tool_call') return <Hammer className="h-4 w-4" />;
   if (kind === 'llm' || kind === 'llm_call') return <Brain className="h-4 w-4" />;
+  if (kind === 'skill' || kind === 'skill_call') return <Sparkles className="h-4 w-4" />;
   if (kind === 'intent' || kind === 'intent_resolution') return <Search className="h-4 w-4" />;
   if (kind === 'response' || kind === 'rhythm') return <MessageSquare className="h-4 w-4" />;
   return <Workflow className="h-4 w-4" />;
@@ -158,6 +160,9 @@ const nodeSubtitle = (node: NormalizedExecutionTraceNode): string => {
   }
   if (node.kind === 'llm' || node.kind === 'llm_call') {
     return String(meta.model || '').trim();
+  }
+  if (node.kind === 'skill' || node.kind === 'skill_call') {
+    return String(meta.skill_name || '').trim();
   }
   return String(node.resultPreview || '').trim();
 };
@@ -242,6 +247,8 @@ const NodeDetails = ({ node }: { node: NormalizedExecutionTraceNode }) => {
   const hasModelInfo = hasValue(meta.model) || hasValue(meta.provider);
   const hasTokenInfo = Boolean(meta.input_tokens || meta.output_tokens || meta.reasoning_tokens);
   const hasRouteReason = hasValue(meta.route_reason);
+  const isSkillNode = node.kind === 'skill' || node.kind === 'skill_call';
+  const skillAllowedTools = isSkillNode ? asStringArray(meta.allowed_tools) : [];
 
   return (
     <div className="border-b border-border/35 border-t border-border/40 bg-muted/20 px-5 py-5">
@@ -262,6 +269,15 @@ const NodeDetails = ({ node }: { node: NormalizedExecutionTraceNode }) => {
         {hasValue(meta.execution_mode) && <DetailField label={t('chat.trace.executionMode')} value={String(meta.execution_mode)} />}
         {hasValue(taskHint.task_intent) && <DetailField label={t('chat.trace.taskIntent')} value={String(taskHint.task_intent)} />}
         {hasValue(taskHint.domain) && <DetailField label={t('chat.trace.taskDomain')} value={String(taskHint.domain)} />}
+        {isSkillNode && hasValue(meta.skill_name) && (
+          <DetailField label={t('chat.trace.skillName')} value={String(meta.skill_name)} />
+        )}
+        {isSkillNode && meta.fork_mode !== undefined && (
+          <DetailField
+            label={t('chat.trace.skillForkMode')}
+            value={meta.fork_mode ? t('chat.trace.skillForkOn') : t('chat.trace.skillForkOff')}
+          />
+        )}
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -269,12 +285,13 @@ const NodeDetails = ({ node }: { node: NormalizedExecutionTraceNode }) => {
         <PreviewBlock label={t('chat.trace.output')}>{output}</PreviewBlock>
       </div>
 
-      {(hasRouteReason || routerTools.length || selectedTools.length || node.error) && (
+      {(hasRouteReason || routerTools.length || selectedTools.length || skillAllowedTools.length || node.error) && (
         <div className="mt-4 grid gap-4 xl:grid-cols-2">
           {hasRouteReason && <PreviewBlock label={t('chat.trace.routeReason')}>{String(meta.route_reason)}</PreviewBlock>}
           {node.error && <PreviewBlock label={t('chat.trace.error')}>{node.error}</PreviewBlock>}
           <TokenList label={t('chat.trace.routerTools')} items={routerTools} />
           <TokenList label={t('chat.trace.selectedTools')} items={selectedTools} />
+          <TokenList label={t('chat.trace.skillAllowedTools')} items={skillAllowedTools} />
         </div>
       )}
 

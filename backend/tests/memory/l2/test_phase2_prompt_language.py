@@ -1,0 +1,28 @@
+"""Phase 2 system prompt builds with explicit user-language directive."""
+
+from __future__ import annotations
+
+from magi.memory.l2.pipeline.prompts import (
+    PHASE2_INTEGRATE_SYSTEM_PROMPT,
+    build_phase2_integrate_system_prompt,
+)
+
+
+def test_baseline_when_language_is_none():
+    assert build_phase2_integrate_system_prompt(None) == PHASE2_INTEGRATE_SYSTEM_PROMPT
+    assert build_phase2_integrate_system_prompt("") == PHASE2_INTEGRATE_SYSTEM_PROMPT
+
+
+def test_appends_language_directive():
+    prompt = build_phase2_integrate_system_prompt("zh-CN")
+    assert prompt.startswith(PHASE2_INTEGRATE_SYSTEM_PROMPT)
+    assert "## Language directive" in prompt
+    assert "`zh-CN`" in prompt
+    assert "natural_summary" in prompt
+
+
+def test_directive_is_appended_not_inlined():
+    """The baseline stays first; directive comes after."""
+    prompt = build_phase2_integrate_system_prompt("ja")
+    baseline_end = prompt.index(PHASE2_INTEGRATE_SYSTEM_PROMPT) + len(PHASE2_INTEGRATE_SYSTEM_PROMPT)
+    assert "## Language directive" in prompt[baseline_end:]

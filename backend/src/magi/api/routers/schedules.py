@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Body, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from ... import i18n as core_i18n
@@ -44,6 +44,20 @@ class ScheduleCreateBody(BaseModel):
     target_payload: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ScheduleRunBody(BaseModel):
+    """Optional body for ``POST /schedules/{id}/run`` — generic manual-trigger params.
+
+    ``override_params`` is shallow-merged into the schedule's stored
+    ``target_payload`` for this execution only; the DB row is not mutated.
+    Handlers opt in by reading ``context.schedule.target_payload``.
+
+    Example: ``{"override_params": {"days": 7}}`` to ask the diary handler
+    to backfill 7 days in one trigger.
+    """
+
+    override_params: dict[str, Any] = Field(default_factory=dict)
 
 
 class ActivityCancelBody(BaseModel):
@@ -324,7 +338,10 @@ async def delete_schedule(schedule_id: str) -> Response:
 
 
 @schedules_router.post("/{schedule_id}/run")
-async def run_schedule_now(schedule_id: str) -> dict[str, Any]:
+async def run_schedule_now(
+    schedule_id: str,
+    body: ScheduleRunBody | None = Body(default=None),
+) -> dict[str, Any]:
     repository = _repository()
     await repository.initialize()
     existing = await repository.get_schedule(schedule_id)
@@ -344,7 +361,15 @@ async def run_schedule_now(schedule_id: str) -> dict[str, Any]:
             ),
         ) from exc
 
-    result = await scheduler_service.execute_schedule(schedule_id, manual=True)
+    override_params = (body.override_params if body is not None else {}) or {}
+    # Fire-and-forget: returns after setup (lock + execution record); the
+    # handler runs in a background task. The HTTP request used to hang for
+    # the full duration of the handler — for diary backfill that's minutes
+    # of dead UI. Now the response is sub-second; status moves through the
+    # /schedules/activity feed.
+    result = await scheduler_service.execute_schedule_async(
+        schedule_id, manual=True, override_payload=override_params or None,
+    )
     if not result.success:
         if result.message == "schedule_not_found":
             raise HTTPException(

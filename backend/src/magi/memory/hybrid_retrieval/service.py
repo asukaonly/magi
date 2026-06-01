@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace as dc_replace
 from typing import Any, Callable, Dict, List, Optional
 
 from ...config import AppConfig
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
 from .evidence.session_bundles import EvidenceBundleMixin
+from .indexical_resolver import resolve as resolve_indexical
 from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider
+from .mode_inference import infer_query_mode
 from .mode_registry import MODE_REGISTRY, VALID_MODES
 from .router import normalize_query_mode
 from .models import (
@@ -23,6 +26,97 @@ from .service_execution import HybridRetrievalExecutionMixin
 from .service_postprocessing import HybridRetrievalPostProcessingMixin
 
 logger = logging.getLogger(__name__)
+
+
+# Round 5 #7: evidence_class staleness check is fire-once per process per
+# db_path so test suites + repeated service instantiation don't spam ops.
+_EVIDENCE_CLASS_WARNED_PATHS: set[str] = set()
+# Above this ratio of NULL evidence_class rows, log a WARNING pointing the
+# operator to the backfill script. Empirically: a freshly-migrated DB sits
+# near 1.0; a backfilled DB sits near 0.0.
+_EVIDENCE_CLASS_STALENESS_THRESHOLD: float = 0.10
+
+
+def _warn_if_evidence_class_stale(db_path: Optional[str]) -> None:
+    """Emit a one-shot WARNING when knowledge_graph still has many NULL
+    evidence_class rows — the Phase 1 evidence-aware routing degrades to a
+    no-op for those rows. Tolerant of missing DB / missing table / missing
+    column so a fresh install never breaks startup.
+    """
+    if not db_path or db_path in _EVIDENCE_CLASS_WARNED_PATHS:
+        return
+    _EVIDENCE_CLASS_WARNED_PATHS.add(db_path)  # warn-once guard runs first
+    try:
+        import sqlite3
+
+        with sqlite3.connect(db_path) as conn:
+            cur = conn.execute(
+                "SELECT COUNT(*), "
+                "       SUM(CASE WHEN evidence_class IS NULL THEN 1 ELSE 0 END) "
+                "FROM knowledge_graph"
+            )
+            row = cur.fetchone()
+            if not row or not row[0]:
+                return
+            total, null_count = int(row[0]), int(row[1] or 0)
+    except Exception:  # noqa: BLE001 — missing table / column / DB; skip silently
+        return
+
+    if total == 0:
+        return
+    ratio = null_count / total
+    if ratio < _EVIDENCE_CLASS_STALENESS_THRESHOLD:
+        return
+    logger.warning(
+        "knowledge_graph.evidence_class is unset for %d/%d rows (%.1f%%) — "
+        "run scripts/backfill_kg_evidence_class.py against %s to restore "
+        "Phase 1 evidence-aware routing.",
+        null_count, total, ratio * 100.0, db_path,
+    )
+
+
+# Round 5 I2: trace keys emitted to ops logs so the routing decisions
+# (mode_source, indexical_resolved, etc.) and quality counters
+# (dropped_unresolved_entity_count) are visible without dumping
+# the payload object. Keep this short — log line, not dump.
+_TRACE_KEYS_LOGGED: tuple[str, ...] = (
+    "query_mode",
+    "mode_source",
+    "inferred_mode",
+    "indexical_resolved",
+    "indexical_cue",
+    "indexical_cue_orphaned",
+    "mode_rrf_applied",
+    "l1_retrieval_scopes",
+    "dropped_unresolved_entity_count",
+)
+
+
+def _log_retrieval_trace(payload: "RetrievalPayload") -> None:
+    """Emit selected trace keys to the module logger.
+
+    Trace keys that are unset on a given request are omitted so the line
+    stays short and easy to grep. ``dropped_unresolved_entity_count`` is
+    only included when > 0 (the projection layer only writes it then).
+    """
+    trace = getattr(payload, "trace", None) or {}
+    if not trace:
+        return
+    parts: list[str] = []
+    for key in _TRACE_KEYS_LOGGED:
+        if key not in trace:
+            continue
+        value = trace[key]
+        # Drop falsy values (None, "", [], False, 0) — keeps the line short
+        # and ensures dropped_unresolved_entity_count is only emitted when
+        # there's actually something dropped.
+        if not value:
+            continue
+        parts.append(f"{key}={value!r}")
+    if not parts:
+        return
+    logger.info("retrieval trace: %s", " ".join(parts))
+
 
 def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalConfig:
     """Build retrieval config from the runtime app config."""
@@ -91,10 +185,76 @@ class HybridRetrievalService(
             shadow_eval_enabled=self._config.intent_shadow_eval_enabled,
         )
 
+        # Round 5 #7: one-shot evidence_class staleness warning per db_path.
+        _warn_if_evidence_class_stale(getattr(unified_memory, "memory_db_path", None))
+
+    @property
+    def memory_db_path(self) -> Optional[str]:
+        """Path to the shared memory SQLite database.
+
+        Exposed for downstream consumers (e.g. the memory_query tool) that
+        need to perform direct lookups against catalog tables alongside the
+        retrieval payload. Returns ``None`` when the underlying unified
+        memory does not expose a database path (e.g. test doubles).
+        """
+        return getattr(self._memory, "memory_db_path", None)
+
     async def query(self, request: RetrievalQuery) -> RetrievalPayload:
         """Execute a layer-aware retrieval query."""
         self._refresh_runtime_config()
         self._refresh_handlers()
+
+        # Capture original caller intent BEFORE any inference / indexical
+        # override mutates request.query_mode. This flag — combined with the
+        # indexical-override flag below — gates RRF profile selection further
+        # down. Heuristic-inferred modes (Phase 4) must NOT distort RRF
+        # weights; only caller-authored modes (or the high-confidence
+        # indexical resolver) are authoritative enough to swap profiles.
+        caller_supplied_query_mode = bool(request.query_mode)
+
+        # 0. Indexical resolution — must run BEFORE the intent decider so its
+        #    overrides are authoritative. When a query contains an indexical
+        #    cue (e.g. '当时', 'just now') AND conversation context exists,
+        #    force episode_recall mode (which routes to L1 conversation_only
+        #    via mode_plan.l1_retrieval_scopes). dataclasses.replace keeps the
+        #    caller's request object untouched.
+        #
+        #    Design correction (2026-05-22): the resolver no longer mutates
+        #    request.time_range. '当时/那时/上次' typically reference deep
+        #    historical context, not the immediate prior turn ±2min. L1
+        #    content matching (BM25 + vector) finds the actually-referenced
+        #    events across all conversation history. See
+        #    indexical_resolver.py module docstring for the full rationale.
+        indexical = resolve_indexical(
+            query=request.query,
+            conversation_context=request.conversation_context,
+        )
+        indexical_trace: Dict[str, Any] = {}
+        if indexical.is_indexical:
+            request = dc_replace(
+                request,
+                query_mode=indexical.force_mode,
+            )
+            indexical_trace["indexical_resolved"] = True
+            indexical_trace["indexical_cue"] = indexical.cue_matched
+        elif indexical.cue_matched:
+            indexical_trace["indexical_cue_orphaned"] = indexical.cue_matched
+
+        # 0b. Mode source resolution — runs AFTER the indexical block so the
+        #     resolver's authoritative override wins. Three branches:
+        #       - indexical_override : Phase 3 already set request.query_mode.
+        #       - caller             : caller supplied a non-empty query_mode.
+        #       - inferred           : caller omitted it; run the heuristic
+        #                              inference module and apply the result.
+        if indexical.is_indexical:
+            indexical_trace["mode_source"] = "indexical_override"
+        elif request.query_mode:
+            indexical_trace["mode_source"] = "caller"
+        else:
+            inferred_mode = infer_query_mode(query=request.query)
+            request = dc_replace(request, query_mode=inferred_mode)
+            indexical_trace["mode_source"] = "inferred"
+            indexical_trace["inferred_mode"] = inferred_mode
 
         # 1. Resolve query mode — normalize legacy names first
         resolved_mode = normalize_query_mode(request.query_mode)
@@ -116,6 +276,8 @@ class HybridRetrievalService(
                 "domains": request.domain_filters,
             }
         )
+        if indexical_trace:
+            payload.trace.update(indexical_trace)
 
         # 2. L0 unconditional
         if request.session_id and self._memory.l0 is not None:
@@ -149,14 +311,23 @@ class HybridRetrievalService(
             for plan in decision.plans
         ]
 
-        # 4. Build mode-adapted L1 handler with RRF weights from mode plan
-        #    Only apply RRF overrides when query_mode was explicitly provided
-        #    by the caller (tool call / API). Auto-classified modes use default
-        #    weights to avoid keyword-heuristic errors distorting retrieval.
+        # 4. Build mode-adapted L1 handler with RRF weights from mode plan.
+        #    Only apply RRF overrides when the mode is AUTHORITATIVE:
+        #      - caller-supplied (tool call / API caller chose this mode), OR
+        #      - indexical-override (Phase 3 resolver fired with confidence
+        #        >= 0.9 on an indexical cue).
+        #    Heuristic-inferred modes (Phase 4 infer_query_mode) MUST NOT
+        #    drive RRF profile selection — keyword-heuristic errors would
+        #    distort retrieval. They still route to the right layers but use
+        #    default RRF weights.
         effective_l1 = self._l1
-        if mode_explicit and mode_plan.rrf_profile and self._l1 is not None:
-            from dataclasses import replace as dc_replace
-
+        authoritative_mode = caller_supplied_query_mode or indexical.is_indexical
+        if (
+            authoritative_mode
+            and mode_explicit
+            and mode_plan.rrf_profile
+            and self._l1 is not None
+        ):
             adapted_config = dc_replace(
                 self._config,
                 **{k: v for k, v in mode_plan.rrf_profile.items() if hasattr(self._config, k)},
@@ -167,13 +338,24 @@ class HybridRetrievalService(
         if effective_l1 is not None and mode_plan.l1_retrieval_scopes is not None:
             effective_l1 = effective_l1.with_l1_retrieval_scopes(mode_plan.l1_retrieval_scopes)
             payload.trace["l1_retrieval_scopes"] = list(mode_plan.l1_retrieval_scopes)
+        # Indexical resolver's scope override is authoritative — applies after
+        # the mode-plan scope so it wins for episode_recall (which has no
+        # default L1 scope in the registry). Trace is set even when no L1
+        # handler is wired up so the override intent is observable.
+        if indexical.is_indexical and indexical.l1_retrieval_scope:
+            indexical_scopes = [indexical.l1_retrieval_scope]
+            if effective_l1 is not None:
+                effective_l1 = effective_l1.with_l1_retrieval_scopes(indexical_scopes)
+            payload.trace["l1_retrieval_scopes"] = list(indexical_scopes)
         payload.trace["mode_explicit"] = mode_explicit
 
-        return await self._execute_query(
+        result = await self._execute_query(
             request, decision, intent_input, payload,
             effective_l1=effective_l1,
             mode_plan=mode_plan,
         )
+        _log_retrieval_trace(result)
+        return result
 
     def _refresh_handlers(self) -> None:
         """Rebuild layer handlers only when the underlying stores change.

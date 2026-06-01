@@ -49,8 +49,21 @@
     "personality": "人格",
     "memory": "记忆",
     "timeline": "时间线",
-    "tasks": "任务",
+    "tasks": {
+      "label": "任务",
+      "background": "后台任务",
+      "schedules": "调度配置",
+      "activity": "调度记录"
+    },
     "settings": "设置",
+    "personaCompanion": {
+      "firstDay": "今天初次见面",
+      "yesterday": "昨天起",
+      "companionDays_one": "陪伴 {{count}} 天",
+      "companionDays_other": "陪伴 {{count}} 天",
+      "companionYears": "陪伴 {{years}} 年 {{days}} 天",
+      "tooltip": "{{name}} · 创建于 {{date}}"
+    },
     "contentErrorTitle": "此页面遇到错误",
     "contentErrorDescription": "Magi 的其他部分仍可使用。如果这个页面持续失败，请重新加载应用。",
     "sidebarErrorTitle": "导航遇到错误",
@@ -126,6 +139,60 @@
       "loadFailed": "后台任务加载失败。"
     },
     "scheduled": {
+      "pageTitle": "调度配置",
+      "pageSubtitle": "管理周期性运行的任务、传感器同步与系统作业。",
+      "defaultDisplayName": "未命名调度",
+      "categories": {
+        "all": "全部",
+        "user": "用户自定义",
+        "sensor": "传感器同步",
+        "memory": "记忆维护",
+        "timeline": "时间线维护",
+        "other": "其他"
+      },
+      "filters": {
+        "showDisabled": "显示已禁用",
+        "window": {
+          "today": "今天",
+          "last24h": "近 24 小时",
+          "last7d": "近 7 天"
+        }
+      },
+      "status": {
+        "running": "运行中",
+        "disabled": "已禁用"
+      },
+      "systemJobs": {
+        "fallbackDescription": "由系统自动调度的内部维护作业。",
+        "memory_l2_maintenance": {
+          "title": "L2 记忆维护",
+          "description": "整理短期记忆向量索引和聚合数据。"
+        },
+        "memory_l3_summary": {
+          "title": "L3 记忆摘要",
+          "description": "周期性把短期记忆汇总成中期叙事。"
+        },
+        "memory_l4_maintenance": {
+          "title": "L4 记忆维护",
+          "description": "维护长期事实图谱与画像。"
+        },
+        "timeline_diary_narrative": {
+          "title": "时间线日记",
+          "description": "把当天的事件生成成日记式叙事。"
+        },
+        "timeline_standout_rescore": {
+          "title": "时间线亮点重排",
+          "description": "重新计算事件的重要性评分。"
+        },
+        "timeline_mood_aggregate": {
+          "title": "情绪聚合",
+          "description": "把情绪记录聚合成日／周视图。"
+        },
+        "timeline_representative_asset": {
+          "title": "代表性素材选择",
+          "description": "为时间线事件挑选代表图。"
+        }
+      },
       "sections": {
         "enabled": "已开启的调度任务",
         "enabledHint": "当前启用的周期、一次性和系统维护调度。传感器同步请到设置页更新。",
@@ -155,9 +222,12 @@
         "agent_task": "Agent 任务"
       },
       "activityStatus": {
+        "all": "全部",
         "running": "执行中",
         "queued": "排队中",
         "upcoming": "即将执行",
+        "succeeded": "成功",
+        "failed": "失败",
         "cancelled": "已停止"
       },
       "triggerTypes": {
@@ -173,7 +243,10 @@
         "triggerType": "触发类型",
         "intervalSeconds": "间隔秒数",
         "runAt": "执行时间",
-        "cronConfig": "Cron 配置"
+        "cronConfig": "Cron 配置",
+        "displayName": "名称",
+        "displayNamePlaceholder": "例如：每天早上的日报",
+        "lastError": "上次错误"
       },
       "actions": {
         "runNow": "立即执行",
@@ -183,18 +256,36 @@
         "disable": "停用",
         "delete": "删除",
         "openSettings": "去设置更新",
+        "openInfo": "查看说明",
         "sensorEditTitle": "传感器调度请在设置中更新",
         "stop": "停止",
         "stopUnavailable": "当前执行项暂不支持直接停止",
         "save": "保存",
-        "cancelEdit": "取消"
+        "cancelEdit": "取消",
+        "create": "新建调度任务",
+        "viewBackgroundTask": "查看后台任务"
       },
       "edit": {
         "title": "编辑调度"
       },
       "empty": {
         "enabled": "暂无已开启的调度任务。",
-        "activity": "暂无执行中或即将执行的调度任务。"
+        "activity": "暂无运行记录。",
+        "userCtaTitle": "还没有调度任务",
+        "userCtaDescription": "创建一个 Prompt 调度任务，让它按计划帮你运行。"
+      },
+      "activity": {
+        "manual": "手动触发",
+        "finishedAt": "完成时间",
+        "resultMessage": "执行结果",
+        "stats": "统计信息"
+      },
+      "duration": {
+        "subMs": "<1 毫秒",
+        "ms": "{{n}} 毫秒",
+        "sec": "{{n}} 秒",
+        "minSec": "{{m}} 分 {{s}} 秒",
+        "hourMin": "{{h}} 小时 {{m}} 分"
       },
       "feedback": {
         "loadFailed": "调度任务加载失败。",
@@ -211,8 +302,14 @@
         "invalidInterval": "请输入有效的间隔秒数。",
         "invalidPrompt": "请输入有效的 Prompt 文本。",
         "invalidRunAt": "请输入有效的执行时间。",
-        "invalidCron": "Cron 配置不是有效 JSON。"
+        "invalidCron": "Cron 配置不是有效 JSON。",
+        "createSuccess": "已创建调度任务。",
+        "createFailed": "调度任务创建失败。"
       }
+    },
+    "activity": {
+      "pageTitle": "调度记录",
+      "pageSubtitle": "查看历史执行、当前运行与即将运行的调度。"
     },
     "chatCard": {
       "eyebrow": "后台任务",
@@ -295,16 +392,8 @@
       "close": "关闭上下文面板"
     },
     "sources": {
-      "chrome_history": "Chrome 历史",
       "manual_journal": "手动记录",
-      "chat": "对话",
-      "photo_library": "照片库",
-      "screen_time": "应用使用情况",
-      "system_media": "听歌/视频记录",
-      "terminal_history": "终端历史",
-      "git_activity": "Git 活动",
-      "calendar": "日历",
-      "netease_music": "网易云音乐"
+      "chat": "对话"
     },
     "feed": {
       "showDetails": "查看详情",
@@ -405,6 +494,20 @@
       "loadFailed": "时间线加载失败：{{message}}",
       "detailFailed": "时间线上下文加载失败：{{message}}",
       "feedbackFailed": "时间线反馈保存失败：{{message}}"
+    },
+    "immersive": {
+      "themesLabel": "你那时关心的",
+      "moodCalendarLabel": "这个月",
+      "standoutLabel": "值得回来的",
+      "standoutEmpty": "再陪你几天，这里会出现更多值得回来的瞬间。",
+      "untitledMoment": "未命名",
+      "heartLabel": "想常回来",
+      "moreLabel": "更多",
+      "hideMemoryLabel": "不算这天的样子",
+      "hideConfirm": "已隐藏",
+      "hourEmpty": "这个小时没什么动静。",
+      "emptyDay": "再陪你几天，这页就会写满你的样子。",
+      "emptyMonth": "月度回顾需要几周时间慢慢长出来。先从日开始翻？"
     }
   },
   "dashboard": {
@@ -455,6 +558,17 @@
       "idle": "今天还没有传感器数据",
       "retry": "重新加载",
       "tooltip": "今日感知 · 共 {{total}} 条来自 {{count}} 个来源"
+    },
+    "portrait": {
+      "title": "我对你的看法",
+      "coldStartFallback": "我还在认识你，多聊聊。",
+      "toggleAria": "切换画像板",
+      "kinds": {
+        "reflection": "反思",
+        "assertion": "事实",
+        "relationship": "关系",
+        "procedure": "经验"
+      }
     },
     "recalledMemories": {
       "summary_one": "调用了 {{count}} 条记忆",
@@ -713,6 +827,7 @@
       "kindIteration": "处理轮次",
       "kindIntent": "意图识别",
       "kindLlm": "LLM 调用",
+      "kindSkill": "技能调用",
       "kindResponse": "结果输出",
       "kindRhythm": "自然节奏处理",
       "kindDispatch": "子任务启动",
@@ -773,7 +888,12 @@
       "taskOperation": "任务操作",
       "routerTools": "路由工具顺序",
       "selectedTools": "最终工具顺序",
-      "recommendedTools": "推荐工具排序"
+      "recommendedTools": "推荐工具排序",
+      "skillName": "技能",
+      "skillForkMode": "执行模式",
+      "skillForkOn": "子代理执行",
+      "skillForkOff": "内联执行",
+      "skillAllowedTools": "技能可用工具"
     },
     "worker": {
       "started": "Worker {{workerId}} 已启动（{{subagentType}}）：{{description}}",
@@ -857,7 +977,18 @@
       "channels": "接入渠道",
       "channelsTelegram": "Telegram",
       "control": "控制面",
+      "hooks": "Hooks",
       "system": "系统"
+    },
+    "hooks": {
+      "title": "已注册 Hooks",
+      "description": "展示当前生效的 Hook，包括来自 ~/.claude/settings.json 和插件贡献的 Hook。",
+      "totalCount": "共 {{count}} 个 Hook",
+      "handlerCount": "{{count}} 个处理器",
+      "empty": "暂无注册的 Hook。在 ~/.claude/settings.json 配置即可生效。",
+      "loadError": "加载失败：{{error}}",
+      "sourceUnknown": "未知来源",
+      "matcherPrefix": "匹配"
     },
     "preferencesDesc": "配置界面语言、主题和桌面行为",
     "personalProfileDesc": "管理 Magi 用来称呼和理解你的个人资料。",
@@ -1029,7 +1160,6 @@
     "autoBackgroundLongTasksDesc": "开启后，Magi 会用规则和模型判断较长任务是否适合后台执行。关闭后不会自动转后台，但你仍可在任务运行时手动转到后台。",
     "allowAskInBackgroundLabel": "允许后台任务向我提问",
     "allowAskInBackgroundDesc": "开启后，在后台运行的任务可以弹出问题对话框并等待你的回复。关闭时，后台任务尝试提问会直接报错，不会阻塞等待。",
-
     "llmDesc": "管理大模型的供应商和场景模型设置",
     "llmProvidersDesc": "配置模型供应商的连接信息、启用状态和可用模型。",
     "llmModelsDesc": "为不同场景分别选择模型——规划模型负责快速决策，核心模型负责深度推理。",
@@ -1821,12 +1951,7 @@
       },
       "sourceDesc": {
         "chat": "把对话轮次作为偏好、关系和持续关注点的直接证据。",
-        "manual_journal": "允许用户补充文字和图片引用，保存为记忆后展示在时间线中。",
-        "photo_library": "扫描本地照片目录，提取 EXIF 元数据并接入时间线。",
-        "screen_time": "基于前台应用激活事件记录使用情况，并按小时汇总成本地使用事件。",
-        "system_media": "自动记录你在听什么歌、看什么视频，支持 Spotify、网易云、QQ 音乐、浏览器等所有播放器。",
-        "terminal_history": "监控来自 zsh 和 bash 的终端命令历史记录。",
-        "git_activity": "追踪 Git 仓库活动记录，包括提交、检出、合并、变基等操作。"
+        "manual_journal": "允许用户补充文字和图片引用，保存为记忆后展示在时间线中。"
       },
       "syncModes": {
         "manual": "手动",
@@ -1916,6 +2041,18 @@
         "failedWithMessage": "插件操作失败：{{message}}",
         "cancelled": "插件操作已取消",
         "timedOut": "插件操作超时"
+      }
+    },
+    "permissionStatus": {
+      "refresh": "刷新",
+      "empty": "暂未报告权限信息。",
+      "required": "必需",
+      "openSettings": "打开系统设置",
+      "statuses": {
+        "granted": "已授权",
+        "denied": "已拒绝",
+        "notDetermined": "未决定",
+        "unknown": "未知"
       }
     },
     "channelStatus": {
@@ -2017,560 +2154,142 @@
         "reloadFailed": "执行器重载失败：{{message}}"
       }
     },
-    "plugins": {
-      "photo-library": {
-        "name": "照片库",
-        "description": "扫描本地照片目录，提取 EXIF 元数据并接入时间线",
-        "options": {
-          "enabled": {
-            "true": "启用",
-            "false": "停用"
-          },
-          "sync_mode": {
-            "manual": "手动",
-            "interval": "定时"
-          },
-          "analysis_features": {
-            "exif": "EXIF 元数据",
-            "geocode": "GPS 地理编码"
-          }
-        },
-        "fields": {
-          "enabled": {
-            "label": "启用",
-            "description": "开启照片库同步。"
-          },
-          "source_paths": {
-            "label": "照片目录",
-            "description": "要扫描的本地照片目录列表，可添加多个路径。"
-          },
-          "exclude_patterns": {
-            "label": "排除规则",
-            "description": "要跳过的目录或文件的 glob 模式（如 thumbnails、.cache）。",
-            "placeholder": "**/thumbnails"
-          },
-          "sync_mode": {
-            "label": "同步方式",
-            "description": "选择手动触发还是定时自动同步。"
-          },
-          "sync_interval_minutes": {
-            "label": "定时间隔（分钟）",
-            "description": "定时同步时的拉取间隔。"
-          },
-          "max_items_per_sync": {
-            "label": "单次最大数量",
-            "description": "每次同步最多处理的照片数量。"
-          },
-          "settle_window_hours": {
-            "label": "Session 收敛等待时间（小时）",
-            "description": "一组连续拍摄在停止新增这么多小时后，才会被视为已结束并写入时间线。值越小出现越快，值越大分组越稳。"
-          },
-          "analysis_features": {
-            "label": "分析能力",
-            "description": "照片元数据提取能力。"
-          }
-        },
-        "sections": {
-          "general": "常规"
-        }
-      },
-      "core-tools": {
-        "name": "核心工具",
-        "description": "内置工具，用于网页搜索、文件操作等功能"
-      },
-      "calendar": {
-        "name": "日历",
-        "description": "日历事件接入时间线",
-        "fields": {
-          "enabled": {
-            "label": "启用",
-            "description": "开启日历事件同步。"
-          },
-          "sync_mode": {
-            "label": "同步方式",
-            "description": "选择手动触发，还是按固定时间自动同步。"
-          },
-          "sync_interval_minutes": {
-            "label": "定时间隔",
-            "description": "选择定时同步时，多久拉取一次日历事件。"
-          },
-          "lookback_days": {
-            "label": "回溯天数",
-            "description": "首次同步时回溯多少天的历史日历。"
-          },
-          "recurring_expansion_days": {
-            "label": "未来重复日程天数",
-            "description": "对按周或按月重复的日程，向未来预先展开多少天，避免未来一段时间的重复事件漏掉。"
-          }
-        },
-        "options": {
-          "sync_mode": {
-            "manual": "手动",
-            "interval": "定时"
-          },
-          "sync_interval_minutes": {
-            "15": "15 分钟",
-            "30": "30 分钟",
-            "60": "1 小时",
-            "360": "6 小时"
-          }
-        },
-        "sections": {
-          "general": "常规",
-          "sync": "同步"
-        },
-        "activation": {
-          "title": "连接日历",
-          "description": "允许 Magi 读取你的日历事件，用于时间线同步。",
-          "confirm_label": "允许日历访问",
-          "cancel_label": "暂不连接"
-        },
-        "ui_blocks": {
-          "selected_calendars": {
-            "title": "同步日历",
-            "description": "选择哪些日历分组会被写入时间线。"
-          }
-        }
-      },
-      "chrome-history": {
-        "name": "Chrome 历史",
-        "description": "本地 Google Chrome 浏览历史接入时间线",
-        "fields": {
-          "sensors.chrome_history.profile": {
-            "label": "配置档案",
-            "description": "要读取的 Chrome 配置目录，例如 Default 或 Profile 1。"
-          },
-          "sensors.chrome_history.sync_mode": {
-            "label": "同步方式",
-            "description": "控制 Chrome 历史的同步策略。"
-          },
-          "sensors.chrome_history.sync_interval_minutes": {
-            "label": "定时间隔",
-            "description": "定时同步 Chrome 历史的时间间隔。"
-          },
-          "sensors.chrome_history.merge_window_minutes": {
-            "label": "合并窗口（分钟）",
-            "description": "同一页面在该时间窗口内的多次访问会合并成一条时间线事件。"
-          },
-          "sensors.chrome_history.lookback_hours": {
-            "label": "回溯小时数",
-            "description": "还没有游标时，首次同步向前读取多少小时的历史。"
-          },
-          "sensors.chrome_history.max_items_per_sync": {
-            "label": "单次最大条数",
-            "description": "每次同步最多写入多少条浏览记录。"
-          }
-        },
-        "options": {
-          "enabled": {
-            "true": "启用",
-            "false": "停用"
-          },
-          "sync_mode": {
-            "manual": "手动",
-            "interval": "定时"
-          },
-          "default_retention_mode": {
-            "analyze_only": "仅分析",
-            "retain_raw": "保留原始"
-          },
-          "storage_mode": {
-            "managed": "托管",
-            "external_reference": "外部引用"
-          },
-          "initial_sync_policy": {
-            "full": "同步全部历史",
-            "lookback_days": "同步最近几天",
-            "from_now": "仅同步新记录"
-          },
-          "fetch_page_content": {
-            "true": "是",
-            "false": "否"
-          }
-        },
-        "sections": {
-          "general": "常规",
-          "sync": "同步",
-          "storage": "存储",
-          "activation": "激活"
-        }
-      },
-      "git-activity": {
-        "name": "Git 活动",
-        "description": "Git 仓库活动接入时间线",
-        "fields": {
-          "sensors.git_activity.repos": {
-            "label": "仓库目录",
-            "description": "选择一个或多个要监控的 Git 仓库文件夹。"
-          },
-          "sensors.git_activity.sync_interval_minutes": {
-            "label": "同步间隔（分钟）",
-            "description": "多久检查一次新的 Git 活动。"
-          },
-          "sensors.git_activity.initial_sync_policy": {
-            "label": "首次同步范围",
-            "description": "首次启用时要导入多少历史记录。"
-          },
-          "sensors.git_activity.initial_sync_lookback_days": {
-            "label": "回溯天数",
-            "description": "首次同步范围设为“最近几天”时使用。"
-          },
-          "sensors.git_activity.sensitive_mode": {
-            "label": "敏感内容处理",
-            "description": "如何处理包含敏感内容的提交信息。"
-          },
-          "sensors.git_activity.sensitive_keywords": {
-            "label": "额外敏感关键词",
-            "description": "提交信息里命中这些关键词时会按上面的敏感策略处理。"
-          }
-        },
-        "options": {
-          "enabled": {
-            "true": "启用",
-            "false": "停用"
-          },
-          "initial_sync_policy": {
-            "full": "同步全部历史",
-            "lookback_days": "同步最近几天",
-            "from_now": "仅同步之后的新记录"
-          },
-          "sensitive_mode": {
-            "redact": "脱敏敏感内容",
-            "block": "整条跳过"
-          }
-        },
-        "sections": {
-          "general": "常规",
-          "sync": "同步",
-          "privacy": "隐私"
-        }
-      },
-      "netease-music": {
-        "name": "网易云音乐",
-        "description": "自动同步网易云音乐的播放历史到时间线（支持 Windows 和 macOS）",
-        "fields": {
-          "sensors.netease_music.sync_mode": {
-            "label": "同步方式",
-            "description": "如何读取并同步网易云音乐播放记录。"
-          },
-          "sensors.netease_music.sync_interval_minutes": {
-            "label": "同步间隔（分钟）",
-            "description": "定时同步模式下的轮询间隔。"
-          },
-          "sensors.netease_music.min_play_duration": {
-            "label": "最短播放时长（秒）",
-            "description": "播放少于这个时长的曲目会被忽略，避免把点开就切走的内容写进时间线。"
-          },
-          "sensors.netease_music.db_path": {
-            "label": "数据库路径",
-            "description": "网易云音乐本地播放数据库 local.db 的路径。"
-          },
-          "sensors.netease_music.initial_sync_policy": {
-            "label": "首次同步范围",
-            "description": "首次同步时，先把多少历史记录写入时间线。"
-          },
-          "sensors.netease_music.tag_strategy": {
-            "label": "曲风标签来源",
-            "description": "为播放记录补充曲风或流派标签的方式。"
-          },
-          "sensors.netease_music.lastfm_api_key": {
-            "label": "Last.fm API Key",
-            "description": "当曲风标签来源设为 Last.fm 时必填，可在 last.fm/api/account/create 免费申请。"
-          }
-        },
-        "options": {
-          "enabled": {
-            "true": "启用",
-            "false": "停用"
-          },
-          "sync_mode": {
-            "manual": "手动",
-            "interval": "定时",
-            "watch": "监听"
-          },
-          "default_retention_mode": {
-            "analyze_only": "仅分析",
-            "retain_raw": "保留原始"
-          },
-          "storage_mode": {
-            "managed": "托管",
-            "external_reference": "外部引用"
-          },
-          "initial_sync_policy": {
-            "full": "同步全部历史",
-            "lookback_days": "同步最近几天",
-            "from_now": "仅同步新曲目"
-          },
-          "tag_strategy": {
-            "off": "关闭",
-            "builtin": "内置（本地别名数据，覆盖率有限）",
-            "lastfm": "Last.fm"
-          }
-        },
-        "sections": {
-          "general": "常规",
-          "analysis": "分析",
-          "activation": "激活"
-        }
-      },
-      "screen-time": {
-        "name": "应用使用情况",
-        "description": "基于前台应用激活事件记录使用情况，并按小时汇总到时间线",
-        "fields": {
-          "enabled": {
-            "label": "启用应用使用同步",
-            "description": "跟踪前台应用激活事件，并把按小时汇总的结果写入记忆。"
-          },
-          "sync_interval_minutes": {
-            "label": "刷新间隔",
-            "description": "已完成的小时应用使用桶，多久刷新一次并写入记忆。"
-          }
-        },
-        "options": {
-          "sync_interval_minutes": {
-            "1": "每 1 分钟",
-            "5": "每 5 分钟",
-            "15": "每 15 分钟",
-            "60": "每 60 分钟"
-          }
-        },
-        "sections": {
-          "general": "常规",
-          "sync": "同步"
-        }
-      },
-      "system-media": {
-        "name": "听歌/视频记录",
-        "description": "自动记录系统媒体会话里的音乐和视频播放，适用于支持系统媒体控制的播放器",
-        "fields": {
-          "enabled": {
-            "label": "启用听歌记录",
-            "description": "自动检测并记录系统媒体会话中的音乐和视频。常见浏览器标签页、Spotify 等通常可用，网易云音乐当前不保证支持。"
-          },
-          "sync_interval_minutes": {
-            "label": "记录频率",
-            "description": "多久把已完成的播放记录写入记忆。"
-          },
-          "min_session_seconds": {
-            "label": "最短播放时长（秒）",
-            "description": "一次播放累计不到这个时长就不记入时间线，主要用于过滤点开就切走的歌或视频。"
-          },
-          "pause_timeout_seconds": {
-            "label": "暂停多久算听完（秒）",
-            "description": "暂停超过这个时长后，当前这条播放记录会被视为已经结束。比如 300 表示暂停 5 分钟后自动收尾。"
-          }
-        },
-        "section_notes": {
-          "sync": "这两个阈值一起决定一条记录什么时候成立、什么时候结束：最短播放时长用于过滤点开就切走的内容；暂停多久算听完用于判断一次播放会话是否已经结束。"
-        },
-        "options": {
-          "sync_interval_minutes": {
-            "1": "每 1 分钟",
-            "5": "每 5 分钟",
-            "15": "每 15 分钟"
-          }
-        },
-        "sections": {
-          "general": "常规",
-          "sync": "同步"
-        }
-      },
-      "terminal-history": {
-        "name": "终端历史",
-        "description": "终端命令历史接入时间线",
-        "options": {
-          "enabled": {
-            "true": "启用",
-            "false": "停用"
-          },
-          "default_retention_mode": {
-            "analyze_only": "仅分析",
-            "retain_raw": "保留原始"
-          },
-          "initial_sync_policy": {
-            "full": "同步全部历史",
-            "lookback_days": "同步最近几天",
-            "from_now": "仅同步新命令"
-          },
-          "sensitive_mode": {
-            "redact": "脱敏敏感内容",
-            "skip": "跳过包含敏感内容的命令",
-            "include": "包含所有内容"
-          }
-        },
-        "sections": {
-          "general": "常规",
-          "retention": "保留策略",
-          "privacy": "隐私",
-          "activation": "激活"
-        }
-      },
-      "telegram": {
-        "name": "Telegram",
-        "description": "双向 Telegram Bot 消息渠道适配器",
-        "fields": {
-          "bot_token": {
-            "label": "Bot Token",
-            "description": "从 @BotFather 获取的 Bot API Token。"
-          },
-          "mode": {
-            "label": "接入模式",
-            "description": "连接 Telegram 服务器的方式。"
-          },
-          "proxy": {
-            "label": "代理地址",
-            "description": "访问 Telegram API 的代理，留空则使用全局网络代理。",
-            "placeholder": "http://127.0.0.1:7890"
-          },
-          "allowed_user_ids": {
-            "label": "允许的用户 ID",
-            "description": "允许与 Bot 交互的 Telegram 用户 ID，留空则不限制。"
-          },
-          "group_trigger_keyword": {
-            "label": "群聊触发关键词",
-            "description": "在群聊中触发回复的关键词（除 @机器人 和 /ask 外）。"
-          },
-          "magi_user_id": {
-            "label": "Magi 用户 ID",
-            "description": "映射到 Magi 内部用户身份的 ID。"
-          },
-          "max_message_length": {
-            "label": "最大消息长度",
-            "description": "单条消息的最大字符数。"
-          }
-        },
-        "options": {
-          "mode": {
-            "polling": "轮询",
-            "webhook": "Webhook"
-          }
-        },
-        "sections": {
-          "general": "常规"
-        }
-      }
-    }
+    "plugins": {}
   },
   "memory": {
     "title": "记忆查看",
     "subtitle": "L0-L4 分层记忆系统",
     "nav": {
-      "overview": "记忆工作台",
-      "workbench": "工作台记忆",
-      "events": "事件记忆",
-      "knowledge": "知识记忆",
-      "reflection": "摘要反思记忆",
-      "skills": "工具技能记忆"
-    },
-    "overview": {
-      "eyebrow": "记忆工作台",
-      "subtitle": "在一个工作台里检索、查看和处理面向用户的分层记忆。",
-      "storageSummary": "当前共有 {{total}} 条记忆，占用 {{size}}。",
-      "storageSummaryCompact": "当前共有 {{total}} 条记忆。",
-      "totalMemoriesLabel": "记忆条数",
-      "diskUsageLabel": "占用大小",
-      "searchLabel": "跨层搜索",
-      "searchModeLabel": "搜索范围",
-      "searchResultsTitle": "搜索结果",
-      "searchOverviewTitle": "记忆线索",
-      "searchOverviewBody": "使用「{{mode}}」为“{{query}}”找到 {{total}} 条记忆线索。",
-      "searchResultSummary": "共找到 {{total}} 条展示结果，已按记忆层分组。",
-      "modeBadge": "模式：{{mode}}",
-      "curatedEvidenceTitle": "精选证据",
-      "curatedEvidenceBody": "先展示跨层最强的线索，方便你在进入完整层页前确认证据是否可靠。",
-      "layeredResultsTitle": "分层结果",
-      "diagnosticsTitle": "检索诊断",
-      "requestedModeLabel": "请求：{{mode}}",
-      "resolvedModeLabel": "解析：{{mode}}",
-      "executedLayersLabel": "执行：{{layers}}",
-      "noneValue": "无",
-      "searchModes": {
-        "auto": {
-          "label": "智能",
-          "description": "由记忆路由自动选择最合适的分层检索计划。"
-        },
-        "events": {
-          "label": "事件",
-          "description": "只搜索 L1 原始事件流。"
-        },
-        "knowledge": {
-          "label": "知识",
-          "description": "搜索 L2 结构化事实，并在需要时回退到 L1。"
-        },
-        "summaries": {
-          "label": "摘要",
-          "description": "搜索 L3 摘要与反思。"
-        },
-        "skills": {
-          "label": "技能",
-          "description": "搜索 L4 程序性工具和技能记忆。"
-        },
-        "state": {
-          "label": "状态",
-          "description": "搜索当前状态类记忆。"
-        },
-        "episodes": {
-          "label": "片段",
-          "description": "搜索历史经历片段。"
-        }
-      },
-      "queryModes": {
-        "event_stream": "事件流",
-        "exact_fact": "精确事实",
-        "current_state": "当前状态",
-        "episode_recall": "经历召回",
-        "summary": "摘要",
-        "strategy": "策略",
-        "activity_summary": "活动摘要"
-      },
-      "searchResultsBody": "围绕“{{query}}”整理出的跨层线索会先落在这里，便于快速判断应该进入哪一层继续查看。",
-      "searchIdleBody": "输入一个关键词后，这里会把跨层线索整理成适合继续深入的入口。",
-      "searchIdleHint": "还没有搜索结果。你可以先搜索偏好、人物、地点或技能名称，再从结果最密集的层继续进入。",
-      "searchingResults": "正在检索记忆线索...",
-      "noSearchResults": "暂时没有命中结果。可以换一个更具体的关键词，或直接从下方层级入口进入。",
-      "matchCount": "{{count}} 条展示命中",
-      "resultCountLabel": "展示 {{shown}} / {{total}} 条",
-      "viewAll": "查看全部",
-      "untitledResult": "未命名记忆项",
-      "sourceMeta": "来源 {{value}}",
-      "domainMeta": "领域 {{value}}",
-      "timeMeta": "时间 {{value}}",
-      "scoreMeta": "评分 {{value}}",
-      "resultKinds": {
-        "event": "事件",
-        "entity": "实体",
-        "relationship": "关系",
-        "assertion": "断言",
-        "episode": "片段",
-        "stateFact": "状态",
-        "stateHistory": "历史",
-        "reflection": "反思",
-        "skill": "技能"
-      },
-      "allClear": "当前没有需要关注的记忆项。",
-      "attentionTitle": "{{count}} 项需要关注",
-      "pendingAssertions": "{{count}} 条待确认断言需要处理",
-      "openBreakers": "{{count}} 个技能熔断状态需要查看",
-      "matchesLabel": "命中",
-      "workspaceTitle": "层级入口",
-      "workspaceBody": "从这里进入 5 层独立记忆页面。每一层都保留自己的筛选方式和阅读节奏，方便按任务深入查看。",
-      "workspaceHint": "先在总览判断信号密度，再进入具体层页展开处理，会更容易保持方向感。",
-      "statsTitle": "层级入口状态",
-      "statsBody": "5 层记忆已经拆成独立页面，后续可以在不打断整体结构的前提下继续扩展每层能力。",
-      "asideLabel": "柔和总览",
-      "asideTitle": "今天的记忆空间很安静，但信息在持续生长",
-      "asideBody": "先用搜索或层入口找到你要看的记忆，再从最近变化里判断哪些层最近最值得进入。",
-      "recentChangesTitle": "最近变化",
-      "recommendedTitle": "建议进入层",
-      "recommendedBody": "当搜索开始出现偏向时，这里会优先提示最值得打开的层页。",
-      "recommendedReasonHits": "{{count}} 条相关线索",
-      "recommendedEmpty": "还没有明显的搜索偏向。可以先从你最关心的层开始浏览。",
-      "layerCardHint": "继续深入这一层",
-      "changes": {
-        "summaryTitle": "新摘要沉淀",
-        "relationTitle": "知识关系规模",
-        "skillTitle": "技能记忆条目"
+      "stories": "反思",
+      "episodes": "经历",
+      "portrait": "关于你",
+      "recall": "找记忆",
+      "governance": "整理",
+      "devSubtreeLabel": "开发者视图",
+      "dev": {
+        "events": "原始事件 (L1)",
+        "knowledge": "结构化知识 (L2)",
+        "workbench": "工作台记忆 (L0)",
+        "skills": "工具技能 (L4)",
+        "stats": "存储统计"
       }
+    },
+    "stories": {
+      "title": "反思",
+      "subtitle": "Magi 对你的几条想法。你可以确认它说得对不对，或让它别再这么想。",
+      "emptyTitle": "还没有 Magi 关于你的反思",
+      "emptyBody": "继续使用一段时间，这里会出现它对你的观察。",
+      "evidenceChip": "{{count}} 条证据",
+      "sections": {
+        "reflections": "Magi 的反思",
+        "reflectionsEmpty": "Magi 还没有从你的记忆里得出新的反思。",
+        "periodic": "时段记录",
+        "periodicEmpty": "还没有时段总结。"
+      },
+      "provenance": "Magi 自动生成 · {{timestamp}}",
+      "states": {
+        "pending_confirmation": "待确认",
+        "confirmed": "已确认",
+        "rejected": "已拒绝",
+        "archived": "已收起",
+        "neutral": ""
+      },
+      "actions": {
+        "archive": "收起",
+        "viewEvidence": "查看证据"
+      },
+      "categories": {
+        "state_change": "状态变化",
+        "trend_shift": "趋势变化",
+        "conflict_resolution": "冲突调和",
+        "task_reflection": "任务反思",
+        "goal_refinement": "目标更新",
+        "preference_emergence": "偏好浮现",
+        "risk_escalation": "风险升级",
+        "milestone_review": "里程碑回顾",
+        "day": "本日总结",
+        "week": "本周总结",
+        "month": "本月总结",
+        "quarter": "本季度总结",
+        "year": "本年度总结"
+      },
+      "detailRail": {
+        "evidenceTitle": "证据",
+        "evidenceLoading": "加载中…",
+        "evidenceEmpty": "没有找到关联的事件。"
+      }
+    },
+    "episodes": {
+      "title": "经历",
+      "subtitle": "你被命名、标注、置顶的经历片段。",
+      "pinnedSection": "置顶",
+      "recentSection": "最近",
+      "emptyTitle": "还没有可读的章节",
+      "emptyBody": "经历会随着对话和活动累积成章节。",
+      "filters": {
+        "all": "全部",
+        "activity": "活动",
+        "visit": "拜访",
+        "session": "会话",
+        "conversation": "对话"
+      },
+      "actions": {
+        "pin": "置顶",
+        "unpin": "取消置顶",
+        "rename": "重命名",
+        "annotate": "备注",
+        "forget": "遗忘"
+      },
+      "awaitingLabel": "等 Magi 起草标题..."
+    },
+    "portrait": {
+      "title": "关于你",
+      "subtitle": "Magi 眼中的你。",
+      "segments": {
+        "identity": "身份",
+        "state": "当下",
+        "preferences": "偏好",
+        "relationships": "关系",
+        "impression": "Magi 对你的总体印象"
+      },
+      "coldStartFallback": "Magi 还没有从你的记忆里得出关于你的整体印象。继续使用，这里会逐渐丰满。"
+    },
+    "recall": {
+      "title": "找记忆",
+      "subtitle": "用自然语言把过去翻出来。",
+      "searchPlaceholder": "想找一段对话、一个名字、一件做过的事…",
+      "modes": {
+        "auto": "智能",
+        "events": "你说过 / 做过的事",
+        "knowledge": "一句具体的事实",
+        "state": "你现在的状态",
+        "episodes": "一段经历",
+        "summaries": "Magi 的总结",
+        "skills": "Magi 学到的做事方式"
+      },
+      "advancedToggle": "调试细节",
+      "noResults": "没找到合适的记忆，可以换一个更具体的词。"
+    },
+    "governance": {
+      "title": "整理",
+      "subtitle": "可审阅、可纠正、可遗忘的记忆控制台。",
+      "sections": {
+        "forget": "遗忘",
+        "privacy": "隐私范围",
+        "developer": "开发者视图"
+      },
+      "developerBody": "原始事件、L2 结构化知识、L0 工作台和 L4 工具记忆都在这里。",
+      "forgetBody": "从这里删除某个实体、某段时间或某个章节的记忆。",
+      "forgetSuccess": "已遗忘",
+      "forgetError": "操作失败",
+      "privacyBody": "查看每个来源当前的隐私范围。修改在「设置」里完成。",
+      "storageTitle": "存储统计",
+      "storageBody": "当前共有 {{total}} 条记忆，占用 {{size}}。",
+      "reconsolidateTitle": "整理章节",
+      "reconsolidateBody": "让 Magi 把最近形成的活动片段升级成章节，并给它们起标题。",
+      "reconsolidateRun": "立即整理",
+      "reconsolidateBusy": "整理中...",
+      "reconsolidateResult": "升级 {{promoted}} 条 · 标志 {{standouts}} 条 · 新章节 {{summaries}} 条"
     },
     "pages": {
       "workbench": {

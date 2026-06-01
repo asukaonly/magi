@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from ..utils.packaged_paths import get_repo_root
+from .allowed_tools_rules import parse_allowed_tools, rules_to_strings
 from .schema import SkillMetadata, SkillFrontmatter
 
 logger = logging.getLogger(__name__)
@@ -33,10 +34,17 @@ class SkillIndexer:
     Full skill content is loaded on-demand by SkillLoader.
     """
 
-    # Skill directories in priority order (higher priority first)
+    # Skill directories.
+    #
+    # NOTE on priority: scan_all() iterates in reverse and applies
+    # ``dict.update()``, so a location listed EARLIER in this tuple wins when
+    # the same skill name appears in multiple locations. The list is ordered
+    # high-priority first for readability; do not reorder without updating
+    # scan_all().
     _REPO_ROOT = get_repo_root()
     SKILL_LOCATIONS = [
-        Path.home() / ".claude" / "skills",     # Personal (high priority)
+        Path.home() / ".claude" / "skills",     # Personal — Claude Code compatible
+        Path.home() / ".agents" / "skills",     # Personal — agents-style layout
         _REPO_ROOT / "skills",                  # Project predefined skills (magi/skills)
         _REPO_ROOT / ".claude" / "skills",      # Project local (lower priority)
     ]
@@ -243,11 +251,19 @@ class SkillIndexer:
                 logger.warning(f"Compatibility too long in {source_file}: {len(str(compatibility))} chars (max 500)")
                 compatibility = str(compatibility)[:500]
 
-            # Validate allowed-tools is a list if present
-            allowed_tools = data.get("allowed-tools")
-            if allowed_tools is not None and not isinstance(allowed_tools, list):
-                logger.warning(f"allowed-tools must be a list in {source_file}")
-                allowed_tools = None
+            # Normalize allowed-tools. Per the Claude Code spec this field
+            # accepts a YAML list *or* a whitespace/comma-separated string
+            # containing entries like ``Bash(git add *)``. We canonicalise
+            # to a list of display strings here; downstream code reparses
+            # the strings into ToolRule objects when matching.
+            allowed_tools_raw = data.get("allowed-tools")
+            parsed_rules = parse_allowed_tools(allowed_tools_raw)
+            if allowed_tools_raw is not None and not parsed_rules:
+                logger.warning(
+                    "allowed-tools in %s could not be parsed; ignoring",
+                    source_file,
+                )
+            allowed_tools = rules_to_strings(parsed_rules) if parsed_rules else None
 
             return SkillFrontmatter(
                 name=name,
@@ -267,7 +283,7 @@ class SkillIndexer:
                 metadata=data.get("metadata", {}),
             )
 
-        except yaml.YAMLerror as e:
+        except yaml.YAMLError as e:
             logger.warning(f"Failed to parse YAML in {source_file}: {e}")
             return None
 

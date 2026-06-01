@@ -91,6 +91,7 @@ class UnifiedMemoryStore(
             if memory_db_path
             else (memory_dir / "memory.db")
         )
+        self.memory_db_path: str = shared_memory_db
         archive_dir = memory_dir / "archive"
         archive_dir.mkdir(parents=True, exist_ok=True)
 
@@ -103,6 +104,11 @@ class UnifiedMemoryStore(
         self._l2_batch_flush_interval_seconds = int(l2_batch_flush_interval_seconds)
         self.l3: Optional[L3SummaryStore] = None
         self.l4: Optional[L4ProceduralMemoryStore] = None
+        # Location subsystem — both built lazily after the DB exists so the
+        # migration's location_samples table is guaranteed to be present.
+        # Setup happens at the bottom of __init__.
+        self.location_sample_store = None  # type: Optional[Any]
+        self.location_resolver = None  # type: Optional[Any]
         self._contradiction_service = ContradictionInsightService()
         self._task_reflection_service = TaskReflectionService()
         self._state_change_service = StateChangeService()
@@ -176,6 +182,39 @@ class UnifiedMemoryStore(
                 vector_enabled=enable_l4_vectors,
                 async_embeddings=async_embeddings,
             )
+
+        # Manual memory entries — user-authored notes that mirror to L1.
+        from .manual_entries import ManualEntryAssetStore, ManualEntryStore, WeatherFetcher
+        self.manual_entry_store = ManualEntryStore(db_path=shared_memory_db)
+        self.manual_entry_asset_store = ManualEntryAssetStore(
+            media_root=memory_dir.parent / "media",
+        )
+        # Weather chip — Open-Meteo HTTP client + small LRU cache. Singleton
+        # so the cache is shared across requests. Best-effort; failures
+        # return None and the entry simply has no weather attached.
+        self.manual_entry_weather_fetcher = WeatherFetcher()
+
+        # Location subsystem (separate concern, always-on — IPGeo costs
+        # nothing on machines without WiFi and is a strict-improvement over
+        # an empty place line in the Hero). WiFi is wired alongside but the
+        # scheduler auto-backoffs to 6h on adapters that can't scan, so the
+        # cost is negligible on headless / no-WiFi machines.
+        from ..location import LocationSampleStore, PlaceGeocodeCache
+        from ..location.nominatim import NominatimClient
+        from ..location.resolver import LocationResolver
+        from ..location.sources.ipgeo import IPGeoLocationSource
+        from ..location.sources.wifi import WiFiLocationSource
+        self.location_sample_store = LocationSampleStore(db_path=shared_memory_db)
+        self.place_geocode_cache = PlaceGeocodeCache(db_path=shared_memory_db)
+        nominatim_client = NominatimClient(cache=self.place_geocode_cache)
+        self.location_resolver = LocationResolver(
+            sources=[
+                WiFiLocationSource(
+                    store=self.location_sample_store, nominatim=nominatim_client,
+                ),
+                IPGeoLocationSource(store=self.location_sample_store),
+            ],
+        )
 
         self._initialized = False
         self._write_lock = asyncio.Lock()

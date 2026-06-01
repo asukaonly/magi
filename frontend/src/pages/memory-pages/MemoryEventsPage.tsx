@@ -86,7 +86,7 @@ export const MemoryEventsPage = () => {
 
   return (
     <MemoryPageFrame
-      title={t('memory.nav.events')}
+      title={t('memory.nav.dev.events')}
       description={t('memory.pages.events.subtitle')}
       actions={
         <Button

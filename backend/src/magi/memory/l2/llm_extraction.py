@@ -10,6 +10,7 @@ from .models import L2EventWindow, L2Phase1Result, L2Phase2Result
 from .pipeline.prompts import (
     PHASE1_EXTRACT_SYSTEM_PROMPT,
     PHASE2_INTEGRATE_SYSTEM_PROMPT,
+    build_phase2_integrate_system_prompt,
     render_phase1_extract_prompt,
     render_phase2_integrate_prompt,
 )
@@ -106,6 +107,16 @@ class L2LLMExtractionMixin:
             existing_edge_count=len(existing_graph_edges) if existing_graph_edges else 0,
             existing_assertion_count=len(existing_assertions) if existing_assertions else 0,
         )
+        # Resolve user language so the LLM knows what to write natural_summary
+        # in. Falls back to the baseline prompt (which only says "user's
+        # language") when no language context is available — extraction often
+        # runs in background tasks without an HTTP request scope.
+        from ...i18n import get_effective_language
+        try:
+            user_language = get_effective_language(default="")
+        except Exception:
+            user_language = ""
+
         prompt = render_phase2_integrate_prompt(
             phase1_result=phase1_result.to_dict(),
             existing_graph_edges=existing_graph_edges,
@@ -114,7 +125,7 @@ class L2LLMExtractionMixin:
             focal_subject=focal_subject,
         )
         payload = await self._generate_json(
-            system_prompt=PHASE2_INTEGRATE_SYSTEM_PROMPT,
+            system_prompt=build_phase2_integrate_system_prompt(user_language or None),
             prompt=prompt,
             request_kind="memory:l2_phase2_integrate",
             turn_id=event_ids[0] if event_ids else None,

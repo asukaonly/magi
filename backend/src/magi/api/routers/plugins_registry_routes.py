@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from ... import i18n as core_i18n
 from .plugins_common import legacy_plugins_module
@@ -19,7 +19,16 @@ plugins_registry_router = APIRouter()
 
 
 @plugins_registry_router.get("/registry", response_model=PluginRegistryResponse)
-async def list_registry_plugins():
+async def list_registry_plugins(
+    include: str | None = Query(
+        default=None,
+        description=(
+            "Comma-separated extras to include. Pass 'libraries' to also "
+            "return library packages (hidden by default since they are "
+            "installed automatically as dependencies, not by user choice)."
+        ),
+    ),
+):
     """List all available plugins from the remote registry."""
     legacy = legacy_plugins_module()
     manager = legacy._try_plugin_manager()
@@ -35,8 +44,13 @@ async def list_registry_plugins():
             ),
         ) from exc
 
+    include_set = {p.strip() for p in (include or "").split(",") if p.strip()}
+    include_libraries = "libraries" in include_set
+
     result: list[PluginRegistryEntryResponse] = []
     for entry in index.plugins:
+        if entry.kind == "library" and not include_libraries:
+            continue
         installed_version = manager.check_installed_version(entry.plugin_id) if manager else None
         installed = installed_version is not None
         update_available = False

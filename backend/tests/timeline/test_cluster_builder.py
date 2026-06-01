@@ -120,3 +120,117 @@ async def test_cluster_builder_exposes_episode_user_annotations() -> None:
     assert clusters[0]["user_label"] == "Weekly Planning"
     assert clusters[0]["user_note"] == "Keep this in review."
     assert clusters[0]["user_pinned"] is True
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Event-derived label fallback (P12-T2)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _chrome_event(*, event_id: str, ts: float, domain: str) -> dict:
+    """Build a Chrome-history-shaped L1 event for the cluster builder."""
+    return {
+        "event_id": event_id,
+        "timestamp": ts,
+        "source": "chrome_history",
+        "metadata": {
+            "timeline": {
+                # The shape the Chrome sensor actually writes today —
+                # source-name tag + the visited domain. cluster_builder
+                # must filter out the source-name and surface the domain.
+                "tags": ["chrome_history", domain],
+                "title": f"Some page at {domain}",
+            },
+        },
+    }
+
+
+async def test_cluster_builder_derives_label_from_event_tags_when_episode_is_placeholder() -> None:
+    """Episode with default label='activity' but Chrome events carrying
+    a domain tag should surface the domain, not the placeholder."""
+    builder = TimelineClusterBuilder()
+    events = [
+        _chrome_event(event_id="e1", ts=110.0, domain="openai.com"),
+        _chrome_event(event_id="e2", ts=130.0, domain="openai.com"),
+        _chrome_event(event_id="e3", ts=170.0, domain="openai.com"),
+    ]
+    clusters = builder.build(
+        events,
+        scale="day",
+        episodes=[
+            {
+                "episode_id": "ep-1",
+                "time_start": 100.0,
+                "time_end": 200.0,
+                "label": "activity",  # the default placeholder
+                "summary": "",
+                "source_event_count": 3,
+            }
+        ],
+    )
+    assert len(clusters) == 1
+    assert clusters[0]["label"] == "openai.com"
+    # Display label should NOT be title-cased (would mangle the domain).
+    assert "Openai" not in clusters[0]["label"]
+
+
+async def test_cluster_builder_joins_top_two_domains_with_ideographic_comma() -> None:
+    """Mixed-domain cluster: top 2 by frequency joined with 、."""
+    builder = TimelineClusterBuilder()
+    events = [
+        _chrome_event(event_id="e1", ts=110.0, domain="openai.com"),
+        _chrome_event(event_id="e2", ts=120.0, domain="openai.com"),
+        _chrome_event(event_id="e3", ts=130.0, domain="anthropic.com"),
+        _chrome_event(event_id="e4", ts=140.0, domain="news.ycombinator.com"),
+    ]
+    clusters = builder.build(
+        events,
+        scale="day",
+        episodes=[{
+            "episode_id": "ep-1", "time_start": 100.0, "time_end": 200.0,
+            "label": "", "source_event_count": 4,
+        }],
+    )
+    # Top 2 by frequency are openai.com (2) and a tie between the other
+    # two (1 each). The first-listed in Counter insertion order wins
+    # the tie — Counter preserves insertion order for equal counts.
+    assert clusters[0]["label"].startswith("openai.com、")
+    assert "、" in clusters[0]["label"]
+
+
+async def test_cluster_builder_keeps_existing_episode_label_when_meaningful() -> None:
+    """Don't override when the episode itself has a real label."""
+    builder = TimelineClusterBuilder()
+    events = [_chrome_event(event_id="e1", ts=110.0, domain="openai.com")]
+    clusters = builder.build(
+        events,
+        scale="day",
+        episodes=[{
+            "episode_id": "ep-1", "time_start": 100.0, "time_end": 200.0,
+            "label": "planning", "source_event_count": 1,
+        }],
+    )
+    # "planning" gets title-cased the historical way ("Planning"), not
+    # replaced by the event-derived domain.
+    assert clusters[0]["label"] == "Planning"
+
+
+async def test_cluster_builder_falls_back_to_episode_type_when_no_specific_tags() -> None:
+    """Events with only the generic source-name tag (no domain) should
+    fall through to the episode_type fallback, not produce an empty
+    label."""
+    builder = TimelineClusterBuilder()
+    events = [{
+        "event_id": "e1", "timestamp": 110.0, "source": "chrome_history",
+        "metadata": {"timeline": {"tags": ["chrome_history"]}},  # no domain
+    }]
+    clusters = builder.build(
+        events,
+        scale="day",
+        episodes=[{
+            "episode_id": "ep-1", "time_start": 100.0, "time_end": 200.0,
+            "label": "activity", "episode_type": "session",
+            "source_event_count": 1,
+        }],
+    )
+    assert clusters[0]["label"] == "Session"

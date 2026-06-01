@@ -81,6 +81,16 @@ class SignatureTrigger:
     exit_behavior: str = ""
     """How the persona returns to baseline when the condition ends."""
 
+    emotion_impact: Dict[str, float] = field(default_factory=dict)
+    """Per-turn delta applied to emotional state when this trigger fires.
+
+    Keys: ``mood``, ``stress``, ``energy``. Values are signed floats clamped
+    by the engine. When omitted, a family-default lookup keyed on
+    ``trigger_id`` is used (see ``trigger_emotion_impact.py``); when
+    explicitly set, the override replaces the default entirely. Empty dict
+    + unknown trigger_id family = no emotion impact.
+    """
+
 
 @dataclass
 class QuietHour:
@@ -178,12 +188,23 @@ class PersonalityConfig:
         for st in (data.get("signature_triggers") or []):
             if not isinstance(st, dict):
                 continue
+            raw_impact = st.get("emotion_impact") or {}
+            emotion_impact: Dict[str, float] = {}
+            if isinstance(raw_impact, dict):
+                for key, value in raw_impact.items():
+                    if key not in {"mood", "stress", "energy"}:
+                        continue
+                    try:
+                        emotion_impact[key] = float(value)
+                    except (TypeError, ValueError):
+                        continue
             signature_triggers.append(SignatureTrigger(
                 trigger_id=str(st.get("trigger_id", "")),
                 activates_when=str(st.get("activates_when", "")),
                 behavior_shift=str(st.get("behavior_shift", "")),
                 intensity_levels=dict(st.get("intensity_levels", {})),
                 exit_behavior=str(st.get("exit_behavior", "")),
+                emotion_impact=emotion_impact,
             ))
 
         persona_layers: List[PersonaLayer] = []
@@ -276,16 +297,10 @@ class PersonalityLoader:
                 return alt
         raise FileNotFoundError(f"Personality file not found: {name}.json")
 
-    def load(self, name: str = "default") -> PersonalityConfig:
+    def load(self, name: str) -> PersonalityConfig:
         if name in self._cache:
             return self._cache[name]
-        try:
-            file_path = self._resolve_file_path(name)
-        except FileNotFoundError:
-            if name == "default":
-                logger.warning("Default personality file not found, using built-in defaults")
-                return PersonalityConfig()
-            raise
+        file_path = self._resolve_file_path(name)
 
         content = file_path.read_text(encoding="utf-8")
         try:
@@ -302,7 +317,7 @@ class PersonalityLoader:
         self._cache[name] = config
         return config
 
-    def load_raw(self, name: str = "default") -> str:
+    def load_raw(self, name: str) -> str:
         try:
             file_path = self._resolve_file_path(name)
         except FileNotFoundError:

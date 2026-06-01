@@ -11,16 +11,21 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-DEFAULT_PERSONALITY = "default"
-
 # In-memory active persona state. Initialized from the persona registry during
 # ``PersonalityModule.init()`` and kept as a runtime cache for synchronous users.
-_current_slug: str = DEFAULT_PERSONALITY
+# Empty string indicates "no persona resolved yet" — callers must wait for
+# ``PersonalityModule.init()`` to complete before reading.
+_current_slug: str = ""
 _current_config: Optional["PersonalityConfig"] = None
 
 
 def get_current_personality() -> str:
-    """Return the active personality slug from the runtime cache."""
+    """Return the active personality slug from the runtime cache.
+
+    Returns an empty string before ``PersonalityModule.init()`` has resolved an
+    active persona from the registry. Callers should treat empty as
+    "not yet initialized" rather than a valid persona slug.
+    """
     return _current_slug
 
 
@@ -37,12 +42,25 @@ def set_current_personality(
 
     This does not write durable state. Callers that need persistence should
     update ``PersonaRepository`` as the source of truth.
+
+    Raises:
+        ValueError: if ``name`` is empty. Use ``clear_active_persona()`` to
+            reset the cache instead.
     """
+    if not name:
+        raise ValueError("active persona slug must be non-empty")
     global _current_slug, _current_config
-    _current_slug = name or DEFAULT_PERSONALITY
+    _current_slug = name
     _current_config = config
     logger.debug("In-memory active persona set to '%s'", _current_slug)
     return True
+
+
+def clear_active_persona() -> None:
+    """Reset the active persona cache. Intended for tests and shutdown."""
+    global _current_slug, _current_config
+    _current_slug = ""
+    _current_config = None
 
 
 async def resolve_persona_config(slug: str) -> Optional["PersonalityConfig"]:
@@ -64,7 +82,7 @@ async def resolve_persona_config(slug: str) -> Optional["PersonalityConfig"]:
 
 
 __all__ = [
-    "DEFAULT_PERSONALITY",
+    "clear_active_persona",
     "get_current_personality",
     "get_current_personality_config",
     "resolve_persona_config",

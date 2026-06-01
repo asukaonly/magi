@@ -45,6 +45,11 @@ export interface TimelineClusterBlock {
   user_label?: string | null;
   user_note?: string | null;
   user_pinned?: boolean;
+
+  // Plan 1+2 immersive fields (Plan 3 backend Task 1 surfaces them)
+  slice_narrative?: string;
+  slice_sensory_detail?: string;
+  representative_asset_ref?: string;
 }
 
 export interface TimelineReflectionWindow {
@@ -81,6 +86,7 @@ export interface TimelineOverview {
   summary: string;
   key_takeaways: string[];
   confidence: number;
+  essence_prose?: string;
 }
 
 export interface TimelineStateChange {
@@ -139,6 +145,10 @@ export interface TimelineViewportResponse {
   state_markers: TimelineStateMarker[];
   source_mix: TimelineSourceMixItem[];
   theme_cards: TimelineThemeCard[];
+  /** Top labels for the period from LocationResolver (city/region/POI),
+   *  ordered by aggregate time-weighted contribution. Index 0 is the
+   *  primary chip; subsequent entries can be rendered as secondary chips. */
+  place_hints?: string[];
   clusters: TimelineClusterBlock[];
   reflections: TimelineReflectionWindow[];
   raw_events: TimelineRawEvent[];
@@ -190,4 +200,59 @@ export const timelineApi = {
     const response = await api.get<TimelineContextBundle>(`/timeline/context/${anchorId}`);
     return unwrapGatewayPayload(response);
   },
+
+  getStandout: async (
+    options?: { month?: string; periodStart?: number; periodEnd?: number; limit?: number }
+  ): Promise<TimelineStandoutResponse> => {
+    const params: Record<string, string> = { limit: String(options?.limit ?? 50) };
+    if (options?.month) params.month = options.month;
+    if (options?.periodStart !== undefined) params.period_start = String(options.periodStart);
+    if (options?.periodEnd !== undefined) params.period_end = String(options.periodEnd);
+    const response = await api.get<TimelineStandoutResponse>('/timeline/standout', { params });
+    return unwrapGatewayPayload(response);
+  },
+
+  getMoodCalendar: async (month: string): Promise<TimelineMoodCalendarResponse> => {
+    const response = await api.get<TimelineMoodCalendarResponse>('/timeline/mood-calendar', {
+      params: { month },
+    });
+    return unwrapGatewayPayload(response);
+  },
 };
+
+// ============================================
+// Standout — Plan 1 endpoint, frontend wrapper
+// ============================================
+
+export interface TimelineStandoutItem {
+  episode_id: string;
+  scale: string;
+  start: number;
+  end: number;
+  title: string;
+  date: string;
+  source: 'user' | 'magi';
+  score: number;
+}
+
+export interface TimelineStandoutResponse {
+  month: string | null;
+  items: TimelineStandoutItem[];
+}
+
+// ============================================
+// Mood calendar — Plan 1 endpoint, frontend wrapper
+// ============================================
+
+export interface TimelineMoodCalendarDay {
+  date: string;
+  dominant_valence: string;
+  volatility: number;
+  event_count: number;
+  sparkline: number[];
+}
+
+export interface TimelineMoodCalendarResponse {
+  month: string;
+  days: TimelineMoodCalendarDay[];
+}

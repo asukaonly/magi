@@ -175,6 +175,52 @@ async def dispatch_user_message(
     normalized_metadata = dict(metadata or {})
     if normalized_reply_to_message_id is not None:
         normalized_metadata["reply_to_message_id"] = normalized_reply_to_message_id
+
+    # Phase 2.4: UserPromptSubmit hook — runs after validation but before
+    # persistence so a DENY truly blocks submission and a MODIFY can rewrite
+    # the message body before it lands in the chat store.
+    from ...hooks.contracts import HookEventType, HookOutcome
+    from ...hooks.dispatch import dispatch_hook
+
+    submit_decision = await dispatch_hook(
+        HookEventType.USER_PROMPT_SUBMIT,
+        session_id=resolved_session_id,
+        turn_id=turn_id,
+        user_id=user_id,
+        workspace=normalized_workspace_path,
+        user_message=normalized_message,
+        extra={
+            "source": source,
+            "has_attachments": bool(normalized_attachments),
+            "reply_to_message_id": normalized_reply_to_message_id,
+        },
+    )
+    if submit_decision.outcome == HookOutcome.DENY:
+        return MessageDispatchOutcome(
+            success=False,
+            user_id=user_id,
+            session_id=resolved_session_id,
+            turn_id=turn_id,
+            error_code="HOOK_DENIED",
+            error_message=submit_decision.reason or "User prompt rejected by hook",
+        )
+    if submit_decision.outcome == HookOutcome.MODIFY and submit_decision.modified_user_message is not None:
+        normalized_message = submit_decision.modified_user_message
+        if not normalized_message.strip() and not normalized_attachments:
+            return MessageDispatchOutcome(
+                success=False,
+                user_id=user_id,
+                session_id=resolved_session_id,
+                turn_id=turn_id,
+                error_code=EMPTY_TURN,
+                error_message=t(
+                    "chat.dispatch.errors.empty_turn",
+                    fallback="Message text or attachments are required.",
+                ),
+            )
+    elif submit_decision.outcome == HookOutcome.INJECT_CONTEXT and submit_decision.additional_context:
+        normalized_metadata.setdefault("hook_injected_context", submit_decision.additional_context)
+
     created_at = time.time()
     created_at_ms = int(created_at * 1000)
     active_persona_id = await _resolve_active_persona_id()

@@ -7,8 +7,8 @@ import pytest
 
 
 class _FakeDBInitializer:
-    async def insert_default_data(self, *, persona_name: str) -> None:
-        self.persona_name = persona_name
+    async def insert_default_data(self) -> None:
+        self.called = True
 
 
 class _FakeScenarioPool:
@@ -162,9 +162,9 @@ async def test_memory_ingestion_subscriber_module_init_and_shutdown() -> None:
 
     await module.init()
     assert context.memory.ingestion_subscriber is not None
-    assert len(bus.subscriptions) == 8
+    assert len(bus.subscriptions) == 9
 
     await module.shutdown()
     assert context.memory.ingestion_subscriber is None
-    assert len(bus.unsubscribed) == 8
+    assert len(bus.unsubscribed) == 9
 

@@ -16,6 +16,7 @@ import {
   Network,
   Code2,
   IdCard,
+  Webhook,
 } from 'lucide-react';
 
 import type { NavItem } from '@/types/settings';
@@ -59,6 +60,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Wrench,
     children: [{ id: 'toolsBuiltin' }, { id: 'toolsPlugins' }, { id: 'toolsSkills' }],
   },
+  { id: 'hooks', icon: Webhook },
   {
     id: 'statistics',
     icon: BarChart3,

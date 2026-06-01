@@ -72,6 +72,26 @@ class Plugin(ABC):
         self.settings = dict(settings)
         self._i18n = None
 
+    async def shutdown(self) -> None:
+        """Release any long-lived resources owned by this plugin.
+
+        Called by the host immediately before unloading the plugin (e.g. on
+        disable, on settings update which triggers reload, on backend
+        shutdown). Plugins that spawn subprocesses, run background timers,
+        or hold OS observers MUST override this and tear them down here.
+
+        Without this hook, host-driven reload (e.g. when the user updates
+        settings via the UI) creates a fresh plugin instance alongside the
+        old one — the old instance's timers keep ticking and its
+        subprocess keeps consuming resources until the backend exits. The
+        symptom is "I changed the interval to 120s and now captures fire
+        every 3s" — actually four sensor instances at 12s each, stacking.
+
+        Default is a no-op. Must be idempotent: the host may call shutdown
+        multiple times. Should not raise; the host will log and continue
+        if you do, but the next reload will still proceed.
+        """
+
     def t(
         self,
         key: str,
@@ -107,6 +127,29 @@ class Plugin(ABC):
 
     def get_channel_fields(self) -> list[ExtensionFieldSpec]:
         """Return declarative settings fields for the optional channel contribution."""
+        return []
+
+    def get_hooks(self) -> list[tuple[str, Any, str | None]]:
+        """Return ``(event_type, handler, matcher)`` tuples contributed by this plugin.
+
+        ``event_type`` must be a valid ``HookEventType`` value (the string form, e.g.
+        ``"PreToolUse"``). ``handler`` is an ``async def handler(ctx) -> HookDecision``.
+        ``matcher`` is an optional substring used to filter the dispatch matcher key
+        (e.g. ``"Bash"`` to only run on the Bash tool); pass ``None`` to receive
+        every dispatch.
+
+        Plugins that do not contribute hooks should leave the default empty list.
+        """
+        return []
+
+    def get_skills(self) -> list[tuple[str, Path]]:
+        """Return ``(skill_id, path_to_skill_dir)`` tuples contributed by this plugin.
+
+        Each path must point at a directory containing a ``SKILL.md`` file. The host
+        runtime is responsible for invoking the indexer on the returned paths.
+
+        Plugins that do not contribute skills should leave the default empty list.
+        """
         return []
 
     def get_settings_resources(self) -> list[PluginSettingsResourceSpec]:

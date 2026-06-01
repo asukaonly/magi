@@ -1,9 +1,26 @@
-"""Split plugin config layout helpers for the runtime config loader."""
+"""Split plugin config layout helpers for the runtime config loader.
+
+Per-plugin default settings are declared in each plugin's ``plugin.toml``
+under the ``[plugin.default_settings]`` table. When the host first creates
+``~/.magi/config/plugins/{plugin_id}.yaml`` it reads that dict via
+:meth:`_load_manifest_defaults_for_known_plugins` and writes it verbatim.
+
+This is the single rail: adding a new plugin requires zero magi backend
+changes — plugins are fully self-describing.
+"""
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
+    import tomli as tomllib  # type: ignore[no-redef]
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigPluginLayoutMixin:
@@ -51,103 +68,60 @@ class ConfigPluginLayoutMixin:
                     merged_packages[plugin_id].update(package_data)
         return merged
 
-    def _default_plugin_settings_map(self) -> Dict[str, Dict[str, Any]]:
-        """Return default per-plugin settings."""
-        return {
-            "core-tools": {},
-            "photo-library": {
-                "sensors": {
-                    "photo_library": {
-                        "enabled": False,
-                        "sync_mode": "manual",
-                        "sync_interval_minutes": 60,
-                        "default_retention_mode": "analyze_only",
-                        "storage_mode": "external_reference",
-                        "source_paths": [],
-                        "exclude_patterns": [],
-                        "analysis_features": ["exif"],
-                        "edge_whitelist": ["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
-                    },
-                }
-            },
-            "chrome-history": {
-                "sensors": {
-                    "chrome_history": {
-                        "enabled": False,
-                        "sync_mode": "interval",
-                        "sync_interval_minutes": 30,
-                        "default_retention_mode": "analyze_only",
-                        "storage_mode": "managed",
-                        "profile": "Default",
-                        "lookback_hours": 24,
-                        "max_items_per_sync": 1000,
-                        "edge_whitelist": ["VISITED", "VIEWED"],
-                    }
-                }
-            },
-            "calendar": {
-                "sensors": {
-                    "calendar": {
-                        "enabled": False,
-                        "sync_mode": "interval",
-                        "sync_interval_minutes": 30,
-                        "lookback_days": 30,
-                        "recurring_expansion_days": 30,
-                        "default_retention_mode": "full",
-                    }
-                }
-            },
-            "git-activity": {
-                "sensors": {
-                    "git_activity": {
-                        "enabled": False,
-                        "repos": [],
-                        "sync_interval_minutes": 30,
-                        "initial_sync_policy": "lookback_days",
-                        "initial_sync_lookback_days": 30,
-                        "sensitive_mode": "redact",
-                        "sensitive_keywords": [],
-                        "default_retention_mode": "analyze_only",
-                    }
-                }
-            },
-            "screen-time": {
-                "sensors": {
-                    "screen_time": {
-                        "enabled": False,
-                        "sync_interval_minutes": 5,
-                    }
-                }
-            },
-            "system-media": {
-                "sensors": {
-                    "system_media": {
-                        "enabled": False,
-                        "sync_interval_minutes": 1,
-                        "min_session_seconds": 30,
-                        "pause_timeout_seconds": 300,
-                    }
-                }
-            },
-            "terminal-history": {
-                "sensors": {
-                    "terminal_history": {
-                        "enabled": False,
-                        "sync_interval_minutes": 15,
-                        "initial_sync_policy": "lookback_days",
-                        "initial_sync_lookback_days": 7,
-                        "initial_sync_configured": False,
-                        "sensitive_mode": "redact",
-                        "sensitive_keywords": [],
-                        "dedup_window_seconds": 60,
-                        "default_retention_mode": "analyze_only",
-                    }
-                }
-            },
-        }
+    def _load_manifest_defaults_for_known_plugins(self) -> Dict[str, Dict[str, Any]]:
+        """Read each known plugin's ``[plugin.default_settings]`` table.
+
+        Iterates entries in ``~/.magi/config/plugins/index.yaml`` (which has
+        already been written earlier in :meth:`_ensure_split_plugin_config_layout`)
+        and, for every package that carries a ``manifest_path``, attempts to
+        load that ``plugin.toml``. The ``[plugin.default_settings]`` sub-table
+        is returned per plugin id.
+
+        Any failure (missing manifest file, invalid TOML, no
+        ``default_settings`` key) is silently treated as "no defaults
+        provided" — the plugin gets no ``{plugin_id}.yaml`` written until it
+        ships a manifest with defaults.
+        """
+        index_data = self._load_yaml_file(self._plugins_index_file)
+        if not isinstance(index_data, dict):
+            return {}
+        packages = index_data.get("packages")
+        if not isinstance(packages, dict):
+            return {}
+
+        defaults: Dict[str, Dict[str, Any]] = {}
+        for plugin_id, package_data in packages.items():
+            if not isinstance(package_data, dict):
+                continue
+            manifest_path = package_data.get("manifest_path")
+            if not manifest_path:
+                continue
+            try:
+                manifest_file = Path(manifest_path)
+                if not manifest_file.is_file():
+                    continue
+                with manifest_file.open("rb") as handle:
+                    manifest = tomllib.load(handle)
+            except (OSError, ValueError, tomllib.TOMLDecodeError):
+                continue
+            plugin_table = manifest.get("plugin") if isinstance(manifest, dict) else None
+            if not isinstance(plugin_table, dict):
+                continue
+            manifest_defaults = plugin_table.get("default_settings")
+            if not isinstance(manifest_defaults, dict):
+                continue
+            defaults[plugin_id] = manifest_defaults
+        return defaults
 
     def _migrate_chrome_history_plugin_defaults(self, index_data: Dict[str, Any]) -> bool:
-        """Promote legacy chrome-history package state to the new builtin defaults."""
+        """Promote legacy chrome-history package state to the new builtin defaults.
+
+        Defaults now live in chrome-history's ``plugin.toml`` manifest. This
+        helper reads them from there via
+        :meth:`_load_manifest_defaults_for_known_plugins`; if the manifest
+        lookup turns up empty (e.g. manifest missing or malformed) we skip
+        seeding rather than crash.
+        """
         packages = index_data.setdefault("packages", {})
         package_data = packages.setdefault(
             "chrome-history",
@@ -168,11 +142,17 @@ class ConfigPluginLayoutMixin:
             changed = True
 
         if not settings_data:
-            self._write_yaml_file(
-                settings_file,
-                self._default_plugin_settings_map()["chrome-history"],
-            )
-            changed = True
+            manifest_defaults = self._load_manifest_defaults_for_known_plugins()
+            chrome_defaults = manifest_defaults.get("chrome-history")
+            if chrome_defaults:
+                self._write_yaml_file(settings_file, chrome_defaults)
+                changed = True
+            else:
+                logger.warning(
+                    "chrome-history manifest defaults unavailable; skipping "
+                    "legacy seed migration. Plugin will pick up defaults on "
+                    "next manifest load."
+                )
 
         return changed
 
@@ -224,7 +204,11 @@ class ConfigPluginLayoutMixin:
         elif index_changed:
             self._write_yaml_file(self._plugins_index_file, index_data)
 
-        for plugin_id, defaults in self._default_plugin_settings_map().items():
+        # Plugins declare their seed defaults via [plugin.default_settings] in
+        # their plugin.toml. See the module docstring for the rationale
+        # (defaults belong with the plugin).
+        seed_map = self._load_manifest_defaults_for_known_plugins()
+        for plugin_id, defaults in seed_map.items():
             plugin_file = self._plugin_settings_file(plugin_id)
             if not plugin_file.exists():
                 self._write_yaml_file(plugin_file, defaults)

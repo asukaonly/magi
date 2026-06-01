@@ -32,6 +32,40 @@ vi.mock('@/api', () => ({
   },
 }));
 
+vi.mock('@/api/modules/personas', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/personas')>(
+    '@/api/modules/personas',
+  );
+  // PersonaHeader (host of the new chat "+" button after the title-bar
+  // refactor) only renders when there's an active persona — so the test
+  // mock must surface one or every sidebar test loses access to the
+  // create-chat button.
+  return {
+    ...actual,
+    personasApi: {
+      ...actual.personasApi,
+      getActive: vi.fn().mockResolvedValue({ success: true, persona_id: 'p1' }),
+      get: vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          persona_id: 'p1',
+          name: 'Test',
+          slug: 'test',
+          locale: 'en',
+          config: { name: 'Test' },
+          avatar_path: '',
+          group_name: 'general',
+          sort_order: 0,
+          is_builtin: false,
+          seed_slug: null,
+          created_at: 0,
+          updated_at: 0,
+        },
+      }),
+    },
+  };
+});
+
 describe('sidebar navigation', () => {
   const storage = new Map<string, string>();
 
@@ -83,7 +117,7 @@ describe('sidebar navigation', () => {
     expect(screen.getByRole('button', { name: 'shell.memory' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.settings' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.timeline' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'shell.tasks' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'shell.tasks.label' })).toBeInTheDocument();
     expect(screen.queryByTestId('sidebar-conversation-rail')).not.toBeInTheDocument();
 
     await user.click(conversationButton);
@@ -551,16 +585,15 @@ describe('sidebar navigation', () => {
     );
 
     await user.click(await screen.findByRole('button', { name: 'shell.memory' }));
-    await user.click(screen.getByRole('button', { name: 'memory.nav.knowledge' }));
+    await user.click(screen.getByRole('button', { name: 'memory.nav.episodes' }));
 
     expect(screen.getByTestId('sidebar-memory-panel')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.workbench' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.events' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.knowledge' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.reflection' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.skills' })).toBeInTheDocument();
-    expect(screen.getByTestId('location')).toHaveTextContent('/memory/knowledge');
+    expect(screen.getByRole('button', { name: 'memory.nav.stories' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.episodes' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.portrait' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.recall' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.governance' })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/memory/episodes');
     expect(useChatShellStore.getState().activePanel).toBe('memory');
   });
 
@@ -585,12 +618,11 @@ describe('sidebar navigation', () => {
 
     expect(configApi.get).not.toHaveBeenCalled();
     expect(screen.getByTestId('sidebar-memory-panel')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.workbench' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.events' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.knowledge' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.reflection' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.skills' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.stories' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.episodes' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.portrait' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.recall' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.governance' })).toBeInTheDocument();
   });
 
   it('renders unread badges for inactive chat sessions', async () => {

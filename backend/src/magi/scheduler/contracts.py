@@ -18,6 +18,12 @@ class ScheduledTargetType(str, Enum):
     MEMORY_L3_SUMMARY = "memory_l3_summary"
     MEMORY_L4_MAINTENANCE = "memory_l4_maintenance"
     USER_AGENT_TASK = "user_agent_task"
+    TIMELINE_DIARY_NARRATIVE = "timeline_diary_narrative"
+    TIMELINE_STANDOUT_RESCORE = "timeline_standout_rescore"
+    TIMELINE_MOOD_AGGREGATE = "timeline_mood_aggregate"
+    TIMELINE_REPRESENTATIVE_ASSET = "timeline_representative_asset"
+    LOCATION_IPGEO_POLL = "location_ipgeo_poll"
+    LOCATION_WIFI_POLL = "location_wifi_poll"
 
 
 class TriggerType(str, Enum):

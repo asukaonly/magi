@@ -142,6 +142,7 @@ class ExploreRenderHandler(BaseExecutionHandler):
             scenario=Scenario.ANALYSIS,
             include_tool_catalog=False,
             persona_id=getattr(request.context, "active_persona_id", None),
+            persona_routing_hint=getattr(request.intent, "persona_routing_hint", None),
         )
         messages = filtered_history + [
             {

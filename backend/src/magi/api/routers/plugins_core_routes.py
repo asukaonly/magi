@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query, status
 
 from ... import i18n as core_i18n
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshChannelsCommand
 from ...plugins.contracts import PluginSettingsResourcePayload
-from .plugins_common import legacy_plugins_module
+from .plugins_common import (
+    _get_plugin_i18n,
+    legacy_plugins_module,
+    translate_with_fallback,
+)
 from .plugins_schemas import (
     PluginPackageResponse,
     PluginSettingsActionRequest,
@@ -47,13 +53,26 @@ async def _refresh_channels_after_plugin_change(plugin_id: str, reason: str) -> 
 
 
 @plugins_core_router.get("", response_model=PluginsListResponse)
-async def list_plugins():
+async def list_plugins(
+    include: str | None = Query(
+        default=None,
+        description=(
+            "Comma-separated extras to include. Pass 'libraries' to also "
+            "return library packages (hidden by default — they are auto-"
+            "installed and managed via refcount, not user toggle)."
+        ),
+    ),
+):
     legacy = legacy_plugins_module()
     try:
         manager = legacy.resolve_plugin_manager()
     except RuntimeError:
         return PluginsListResponse(plugins=[], total=0)
     packages = manager.list_packages()
+    include_set = {p.strip() for p in (include or "").split(",") if p.strip()}
+    include_libraries = "libraries" in include_set
+    if not include_libraries:
+        packages = [p for p in packages if p.manifest.kind != "library"]
     return PluginsListResponse(
         plugins=[legacy._serialize_package(item) for item in packages],
         total=len(packages),
@@ -115,6 +134,60 @@ async def update_plugin_settings(plugin_id: str, request: PluginSettingsUpdateRe
     return legacy._serialize_package(state)
 
 
+def _translate_resource_payload(payload_dict: dict[str, Any], plugin_id: str) -> dict[str, Any]:
+    """Resolve any ``*_i18n_key`` references inside a settings-resource payload.
+
+    The plugin emits ``label_i18n_key`` / ``description_i18n_key`` strings that
+    refer into its own i18n bundle (e.g. ``{plugin_id}.permissions.x.label``).
+    The frontend i18next instance does not load plugin bundles, so we translate
+    the keys server-side here and write the result back into ``label`` /
+    ``description`` before responding.
+    """
+
+    state = payload_dict.get("data") if isinstance(payload_dict, dict) else None
+    if not isinstance(state, dict):
+        return payload_dict
+
+    package = legacy_plugins_module()._try_plugin_manager()
+    package_state = package.get_package(plugin_id) if package is not None else None
+    plugin_dir = (
+        package_state.manifest.plugin_dir if package_state and package_state.manifest else ""
+    )
+    try:
+        i18n = _get_plugin_i18n(plugin_id, plugin_dir)
+    except Exception:  # noqa: BLE001 - never block a payload on i18n
+        return payload_dict
+    if i18n is None:
+        return payload_dict
+
+    def _resolve_item(item: Any) -> Any:
+        if not isinstance(item, dict):
+            return item
+        resolved = dict(item)
+        label_key = resolved.get("label_i18n_key")
+        if isinstance(label_key, str) and label_key:
+            translated = translate_with_fallback(i18n, label_key, None)
+            if translated:
+                resolved["label"] = translated
+        description_key = resolved.get("description_i18n_key")
+        if isinstance(description_key, str) and description_key:
+            translated = translate_with_fallback(i18n, description_key, None)
+            if translated:
+                resolved["description"] = translated
+        return resolved
+
+    def _walk(node: Any) -> Any:
+        if isinstance(node, list):
+            return [_walk(child) for child in node]
+        if isinstance(node, dict):
+            walked = {key: _walk(value) for key, value in node.items()}
+            return _resolve_item(walked)
+        return node
+
+    payload_dict["data"] = _walk(state)
+    return payload_dict
+
+
 @plugins_core_router.get(
     "/{plugin_id}/settings/resources/{resource_name}", response_model=PluginSettingsResourceResponse
 )
@@ -135,8 +208,11 @@ async def read_plugin_settings_resource(plugin_id: str, resource_name: str):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     if isinstance(payload, PluginSettingsResourcePayload):
-        return PluginSettingsResourceResponse(**payload.model_dump())
-    return PluginSettingsResourceResponse(**payload)
+        payload_dict = payload.model_dump()
+    else:
+        payload_dict = dict(payload)
+    payload_dict = _translate_resource_payload(payload_dict, plugin_id)
+    return PluginSettingsResourceResponse(**payload_dict)
 
 
 def _serialize_action_run(plugin_id: str, action_id: str, run) -> PluginSettingsActionRunResponse:

@@ -6,6 +6,8 @@ from dataclasses import asdict
 from typing import Any, Dict, Optional
 
 from ...memory.hybrid_retrieval import build_query
+from ...memory.hybrid_retrieval.models import ConversationTurn
+from ...memory.l2.entities.catalog.lookup import get_canonical_names
 from ...memory.provider import get_hybrid_retrieval_service
 from ...plugins.provider import resolve_plugin_manager
 from ...memory.retrieval_projection import project_historical_recall
@@ -126,8 +128,12 @@ class MemoryQueryTool(Tool):
                 ToolParameter(
                     name="query_mode",
                     type=ParameterType.STRING,
-                    description=_QUERY_MODE_DESCRIPTION,
-                    required=True,
+                    description=(
+                        "Optional. The system auto-detects the retrieval mode from the query "
+                        "content + conversation context. Pass a value only when overriding "
+                        "the automatic detection (rare)."
+                    ),
+                    required=False,
                     enum=["exact_fact", "current_state", "episode_recall", "cross_session", "temporal_compare", "summary", "activity_summary", "strategy"],
                 ),
                 ToolParameter(
@@ -145,6 +151,17 @@ class MemoryQueryTool(Tool):
                     default=20,
                     min_value=1,
                     max_value=100,
+                ),
+                ToolParameter(
+                    name="conversation_context",
+                    type=ParameterType.ARRAY,
+                    array_item_type=ParameterType.OBJECT,
+                    description=(
+                        "Optional. Recent conversation turns (each {role, content, timestamp}) "
+                        "providing context for indexical references like '当时'/'我说'/'just now'. "
+                        "Auto-injected by the runtime — callers should not need to populate this manually."
+                    ),
+                    required=False,
                 ),
             ],
             tags=["memory", "search", "history"],
@@ -201,6 +218,31 @@ class MemoryQueryTool(Tool):
             # Persistent memory recall should not inherit the current chat session
             # unless a caller explicitly opts into session-local lookup.
             session_id = parameters.get("session_id")
+            current_user_text = context.env_vars.get("current_user_text") or None
+            # Parse incoming conversation_context (list of dicts → list[ConversationTurn]).
+            # Auto-injected by the runtime for indexical reference resolution; tolerant
+            # of malformed entries (skip items missing required keys).
+            raw_context = parameters.get("conversation_context") or []
+            conversation_context: Optional[list[ConversationTurn]] = None
+            if raw_context:
+                turns: list[ConversationTurn] = []
+                for item in raw_context:
+                    if not isinstance(item, dict):
+                        continue
+                    if not {"role", "content", "timestamp"} <= item.keys():
+                        continue
+                    try:
+                        turns.append(
+                            ConversationTurn(
+                                role=item["role"],
+                                content=item["content"],
+                                timestamp=float(item["timestamp"]),
+                            )
+                        )
+                    except (TypeError, ValueError):
+                        continue
+                if turns:
+                    conversation_context = turns
             request = build_query(
                 query=parameters["query"],
                 user_id=user_id,
@@ -211,8 +253,11 @@ class MemoryQueryTool(Tool):
                 domain_filters=parameters.get("domains", []) or [],
                 summary_categories=parameters.get("summary_categories", []) or [],
                 limit=parameters.get("limit", 20),
+                exclude_user_text=current_user_text,
+                conversation_context=conversation_context,
             )
-            payload = await self._get_service().query(request)
+            service = self._get_service()
+            payload = await service.query(request)
             payload_dict = asdict(payload) if hasattr(payload, "__dataclass_fields__") else {
                 "l0_workbench": getattr(payload, "l0_workbench", []),
                 "l1_events": getattr(payload, "l1_events", []),
@@ -229,11 +274,65 @@ class MemoryQueryTool(Tool):
                 plugin_manager = resolve_plugin_manager()
             except RuntimeError:
                 plugin_manager = None
+
+            # Phase 5: batch-resolve canonical names so the projection layer drops
+            # findings whose entity_ids would otherwise leak raw hashes.
+            entity_ids: set[str] = set()
+            for rel in (payload_dict.get("l2_relationships") or []):
+                if isinstance(rel, dict):
+                    if rel.get("subject_id"):
+                        entity_ids.add(str(rel["subject_id"]))
+                    if rel.get("object_id"):
+                        entity_ids.add(str(rel["object_id"]))
+            for assertion in (payload_dict.get("l2_assertions") or []):
+                if isinstance(assertion, dict):
+                    if assertion.get("entity_id"):
+                        entity_ids.add(str(assertion["entity_id"]))
+                    # Assertions can also carry a target_entity_id that the
+                    # projection layer resolves through canonical_names.
+                    if assertion.get("target_entity_id"):
+                        entity_ids.add(str(assertion["target_entity_id"]))
+            # Round 3 C1: entity_cards feed the entity_refs surface — their
+            # entity_ids must also be resolved so refs don't silently drop.
+            for card in (payload_dict.get("l2_entity_cards") or []):
+                if isinstance(card, dict) and card.get("entity_id"):
+                    entity_ids.add(str(card["entity_id"]))
+            # Round 3 C1: resolved_entities from the L2 query trace are the
+            # other source for entity_refs (see retrieval_projection_refs).
+            trace_dict = payload_dict.get("trace") or {}
+            if isinstance(trace_dict, dict):
+                l2_trace = trace_dict.get("l2_query_trace")
+                if isinstance(l2_trace, dict):
+                    for ent in (l2_trace.get("resolved_entities") or []):
+                        if isinstance(ent, dict) and ent.get("entity_id"):
+                            entity_ids.add(str(ent["entity_id"]))
+
+            # Resolve via entity_catalog. The projection layer treats
+            # ``canonical_names is None`` as legacy mode (no entity-leak
+            # filtering) and a populated/empty dict as Phase 5 mode (drop
+            # findings whose entity_ids resolve to no canonical name). To
+            # preserve legacy behaviour when the service does not expose a
+            # memory_db_path (e.g. test doubles or fresh deploys), we only
+            # opt into Phase 5 mode when a real string path is available.
+            # The isinstance guard rejects MagicMock-style auto-attributes.
+            db_path_attr = getattr(service, "memory_db_path", None) or getattr(
+                service, "_memory_db_path", None
+            )
+            db_path = db_path_attr if isinstance(db_path_attr, str) else None
+            canonical_names: dict[str, str] | None = None
+            if db_path:
+                canonical_names = (
+                    await get_canonical_names(db_path, entity_ids)
+                    if entity_ids
+                    else {}
+                )
+
             historical_recall = asdict(
                 project_historical_recall(
                     payload=payload_dict,
                     request=request,
                     plugin_manager=plugin_manager,
+                    canonical_names=canonical_names,
                 )
             )
             return ToolResult(

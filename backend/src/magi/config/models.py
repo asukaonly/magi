@@ -235,6 +235,7 @@ class LLMScenario(str, Enum):
     MEMORY_SUMMARIZER = "memory_summarizer"
     EMBEDDING = "embedding"
     IMAGE_GENERATION = "image_generation"
+    TIMELINE_DIARY_NARRATIVE = "timeline_diary_narrative"
 
 
 class LLMProviderConnectionSettings(BaseModel):

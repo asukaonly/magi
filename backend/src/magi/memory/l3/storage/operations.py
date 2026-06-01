@@ -216,6 +216,8 @@ class L3SummaryPersistenceMixin:
                 "insight_key": insight_key,
                 "review_state": candidate.review_state or existing_summary.get("review_state"),
                 "insight_metadata": merged_metadata,
+                "narrative_style": str(existing_summary.get("narrative_style") or "default"),
+                "essence_prose": existing_summary.get("essence_prose"),
                 "created_at": float(existing_summary.get("created_at") or now),
                 "updated_at": now,
             }
@@ -241,6 +243,8 @@ class L3SummaryPersistenceMixin:
                 "insight_key": insight_key,
                 "review_state": candidate.review_state,
                 "insight_metadata": dict(candidate.insight_metadata or {}),
+                "narrative_style": "default",
+                "essence_prose": None,
                 "created_at": now,
                 "updated_at": now,
             }
@@ -334,6 +338,25 @@ class L3SummaryPersistenceMixin:
                 rows = await cursor.fetchall()
         return [row_to_summary_task_link(row) for row in rows]
 
+    async def get_episodic_summary_by_episode_id(self, episode_id: str) -> Optional[Dict[str, Any]]:
+        """Return the most recent L3 episodic summary linked to an L2 episode."""
+        host = cast(_L3SummaryPersistenceHostProtocol, self)
+        await host.initialize()
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT * FROM summaries
+                WHERE summary_category = 'episodic'
+                  AND json_extract(insight_metadata, '$.source_episode_id') = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (episode_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return self._row_to_dict(row) if row is not None else None
+
     async def filter_linked_event_ids(self, event_ids: list[str]) -> list[str]:
         """Return the subset of event ids that are already covered by summary links."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)
@@ -367,6 +390,9 @@ class L3SummaryPersistenceMixin:
         review_state = str(review_state_raw).strip() if isinstance(review_state_raw, str) else None
         review_state = review_state or None
         insight_metadata = self._encode_optional_json(summary.get("insight_metadata"))
+        narrative_style = str(summary.get("narrative_style") or "default")
+        essence_prose_raw = summary.get("essence_prose")
+        essence_prose = str(essence_prose_raw) if essence_prose_raw else None
         async with sqlite_connection_async(host.db_path) as db:
             await db.execute(
                 """
@@ -376,8 +402,9 @@ class L3SummaryPersistenceMixin:
                     source_event_count, importance_aggregate, event_type_distribution,
                     generated_by_model, generation_prompt, generation_reason,
                     insight_key, review_state, insight_metadata,
+                    narrative_style, essence_prose,
                     embedding_chunk_count, last_embedded_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     summary["summary_id"],
@@ -400,6 +427,8 @@ class L3SummaryPersistenceMixin:
                     insight_key,
                     review_state,
                     insight_metadata,
+                    narrative_style,
+                    essence_prose,
                     int(summary.get("embedding_chunk_count") or 0),
                     float(summary["last_embedded_at"]) if summary.get("last_embedded_at") is not None else None,
                     float(summary["created_at"]),

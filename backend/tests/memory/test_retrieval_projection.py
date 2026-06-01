@@ -487,3 +487,34 @@ def test_project_historical_recall_infers_answer_kind_from_findings_before_query
     projected = project_historical_recall(payload=payload, request=request)
 
     assert projected.findings[0]["statement"] == "user:local_user INTERESTED_IN topic:mystery"
+
+
+def test_coerce_request_propagates_all_fields_from_dict() -> None:
+    """Round 5 #8: dict path of _coerce_request must preserve exclude_user_text,
+    conversation_context, and summary_categories — earlier it silently dropped
+    them, degrading callers that passed dicts (tests / plugins)."""
+    from magi.memory.hybrid_retrieval.models import ConversationTurn
+    from magi.memory.retrieval_projection import _coerce_request
+
+    turn = ConversationTurn(role="user", content="hi", timestamp=1.0)
+    coerced = _coerce_request(
+        {
+            "query": "q",
+            "user_id": "u",
+            "session_id": "s",
+            "time_range": {"start": 1},
+            "query_mode": "exact_fact",
+            "source_filters": ["chrome"],
+            "domain_filters": ["d.com"],
+            "summary_categories": ["work"],
+            "limit": 5,
+            "exclude_user_text": "echo",
+            "conversation_context": [turn],
+        }
+    )
+    assert coerced.exclude_user_text == "echo"
+    assert coerced.conversation_context == [turn]
+    assert coerced.summary_categories == ["work"]
+    assert coerced.source_filters == ["chrome"]
+    assert coerced.domain_filters == ["d.com"]
+    assert coerced.limit == 5

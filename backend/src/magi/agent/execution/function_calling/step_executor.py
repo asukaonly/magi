@@ -214,6 +214,7 @@ class FunctionCallingStepExecutor:
                         execution_workspace=execution_workspace,
                         orchestration_strategy=orchestration_strategy,
                         cancel_token=token,
+                        recent_messages=state.messages,
                     )
                 tool_results.append(result)
                 if result.error_code == "CANCELLED" or await token.is_cancelled():

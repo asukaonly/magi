@@ -30,6 +30,38 @@ from .plugins_schemas import (
 logger = logging.getLogger(__name__)
 
 
+def normalize_plugin_id(plugin_id: str) -> str:
+    """Normalize a plugin_id for plugin i18n lookups.
+
+    Plugin i18n files use the underscored form (e.g. ``chrome_history``) as the
+    root key, while the manifest's ``plugin_id`` may use either hyphens or
+    underscores (e.g. ``chrome-history`` vs ``git_activity``). This helper
+    returns the canonical underscored form so the same key works for either
+    style of plugin id.
+    """
+    return plugin_id.replace("-", "_")
+
+
+def translate_with_fallback(
+    i18n: PluginI18n, key: str, fallback: str | None
+) -> str | None:
+    """Look up a plugin-i18n key, returning ``fallback`` if missing.
+
+    Returns ``None`` only when both the translation is missing *and* ``fallback``
+    is ``None``. Never raises on missing keys.
+    """
+    if i18n is None:
+        return fallback
+    try:
+        value = i18n.t(key, fallback=None)
+    except Exception as exc:  # noqa: BLE001 - defensive: never break serialization
+        logger.debug("plugin i18n lookup failed for key=%s: %s", key, exc)
+        return fallback
+    if not value or value == key:
+        return fallback
+    return value
+
+
 def legacy_plugins_module() -> ModuleType:
     return import_module("magi.api.routers.plugins")
 
@@ -65,16 +97,20 @@ def _get_plugin_i18n(plugin_id: str, plugin_dir: str) -> PluginI18n:
 def _serialize_manifest(manifest: PluginManifest) -> PluginManifestResponse:
     legacy = legacy_plugins_module()
     i18n = legacy._get_plugin_i18n(manifest.plugin_id, manifest.plugin_dir)
-    plugin_id = manifest.plugin_id
+    plugin_id_normalized = normalize_plugin_id(manifest.plugin_id)
 
-    translated_name = i18n.t(f"{plugin_id}.name", fallback=manifest.name)
-    translated_description = i18n.t(f"{plugin_id}.description", fallback=manifest.description)
+    translated_name = translate_with_fallback(
+        i18n, f"{plugin_id_normalized}.name", manifest.name
+    )
+    translated_description = translate_with_fallback(
+        i18n, f"{plugin_id_normalized}.description", manifest.description
+    )
 
     return PluginManifestResponse(
         plugin_id=manifest.plugin_id,
-        name=translated_name,
+        name=translated_name or manifest.name,
         version=manifest.version,
-        description=translated_description,
+        description=translated_description or manifest.description,
         author=manifest.author,
         official=manifest.official,
         contribution_types=[item.value for item in manifest.contribution_types],
@@ -85,9 +121,19 @@ def _serialize_manifest(manifest: PluginManifest) -> PluginManifestResponse:
 
 
 def _serialize_field(
-    field: ExtensionFieldSpec, i18n: PluginI18n, contribution_id: str
+    field: ExtensionFieldSpec,
+    i18n: PluginI18n,
+    contribution_id: str,
+    plugin_id: str | None = None,
 ) -> dict[str, Any]:
-    """Serialize a field with translation."""
+    """Serialize a field with translation.
+
+    In addition to the legacy ``label`` / ``description`` / ``options[].label``
+    keys (which retain the contribution-scoped lookup for backward
+    compatibility), the result now includes ``*_translated`` mirrors looked up
+    from the plugin's *own* i18n namespace using the plugin-id-normalized
+    schema (e.g. ``{chrome_history}.fields.{field_key_short}.label``).
+    """
     label_key = f"fields.{contribution_id}.{field.key}.label"
     desc_key = f"fields.{contribution_id}.{field.key}.description"
 
@@ -95,13 +141,54 @@ def _serialize_field(
     field_dict["label"] = i18n.t(label_key, fallback=field.label)
     field_dict["description"] = i18n.t(desc_key, fallback=field.description)
 
+    # New plugin-scoped lookups (Phase 1 dual-rail).
+    if plugin_id:
+        plugin_id_normalized = normalize_plugin_id(plugin_id)
+        # Strip the ``sensors.{source}.`` (or similar) prefix to get the short key.
+        field_key_short = field.key.split(".")[-1]
+
+        field_dict["label_translated"] = translate_with_fallback(
+            i18n,
+            f"{plugin_id_normalized}.fields.{field_key_short}.label",
+            field.label,
+        )
+        field_dict["description_translated"] = translate_with_fallback(
+            i18n,
+            f"{plugin_id_normalized}.fields.{field_key_short}.description",
+            field.description,
+        )
+        # Section label lookup: prefer per-plugin override; falls back to the
+        # raw section key so the frontend can apply its shared section table.
+        section_value = field_dict.get("section")
+        if isinstance(section_value, str) and section_value:
+            field_dict["section_translated"] = translate_with_fallback(
+                i18n,
+                f"{plugin_id_normalized}.sections.{section_value}",
+                None,
+            )
+            field_dict["section_note_translated"] = translate_with_fallback(
+                i18n,
+                f"{plugin_id_normalized}.section_notes.{section_value}",
+                None,
+            )
+
     if field_dict.get("options"):
         translated_options = []
         for opt in field_dict["options"]:
             opt_label_key = f"fields.{contribution_id}.{field.key}.options.{opt['value']}"
-            translated_options.append(
-                {"label": i18n.t(opt_label_key, fallback=opt["label"]), "value": opt["value"]}
-            )
+            entry = {
+                "label": i18n.t(opt_label_key, fallback=opt["label"]),
+                "value": opt["value"],
+            }
+            if plugin_id:
+                plugin_id_normalized = normalize_plugin_id(plugin_id)
+                field_key_short = field.key.split(".")[-1]
+                entry["label_translated"] = translate_with_fallback(
+                    i18n,
+                    f"{plugin_id_normalized}.options.{field_key_short}.{opt['value']}",
+                    opt["label"],
+                )
+            translated_options.append(entry)
         field_dict["options"] = translated_options
 
     return field_dict
@@ -114,16 +201,29 @@ def _serialize_contribution(
     display_name_key = f"contributions.{contribution_id}.display_name"
     description_key = f"contributions.{contribution_id}.description"
     serialized_fields = [
-        _serialize_field(field, i18n, contribution_id) for field in contribution.fields
+        _serialize_field(field, i18n, contribution_id, plugin_id=contribution.plugin_id)
+        for field in contribution.fields
     ]
     metadata = dict(contribution.metadata)
     settings_actions = metadata.get("settings_actions")
     if isinstance(settings_actions, list):
         metadata["settings_actions"] = [
-            _serialize_settings_action(item, i18n)
+            _serialize_settings_action(item, i18n, plugin_id=contribution.plugin_id)
             for item in settings_actions
             if isinstance(item, dict)
         ]
+    settings_ui_blocks = metadata.get("settings_ui_blocks")
+    if isinstance(settings_ui_blocks, list):
+        metadata["settings_ui_blocks"] = [
+            _serialize_settings_ui_block(item, i18n, plugin_id=contribution.plugin_id)
+            for item in settings_ui_blocks
+            if isinstance(item, dict)
+        ]
+    activation_flow = metadata.get("activation_flow")
+    if isinstance(activation_flow, dict):
+        metadata["activation_flow"] = _serialize_activation_flow(
+            activation_flow, i18n, plugin_id=contribution.plugin_id
+        )
 
     return PluginContributionResponse(
         plugin_id=contribution.plugin_id,
@@ -141,7 +241,9 @@ def _serialize_contribution(
     )
 
 
-def _serialize_settings_action(action: dict[str, Any], i18n: PluginI18n) -> dict[str, Any]:
+def _serialize_settings_action(
+    action: dict[str, Any], i18n: PluginI18n, plugin_id: str | None = None
+) -> dict[str, Any]:
     action_id = str(action.get("action_id") or "")
     if not action_id:
         return dict(action)
@@ -151,7 +253,53 @@ def _serialize_settings_action(action: dict[str, Any], i18n: PluginI18n) -> dict
             f"actions.{action_id}.{key}",
             fallback=str(action.get(key) or ""),
         )
+    # New plugin-scoped mirrors (Phase 1 dual-rail).
+    if plugin_id:
+        plugin_id_normalized = normalize_plugin_id(plugin_id)
+        for key in ("label", "description", "button_label"):
+            translated[f"{key}_translated"] = translate_with_fallback(
+                i18n,
+                f"{plugin_id_normalized}.actions.{action_id}.{key}",
+                str(action.get(key) or ""),
+            )
     return translated
+
+
+def _serialize_settings_ui_block(
+    block: dict[str, Any], i18n: PluginI18n, plugin_id: str | None = None
+) -> dict[str, Any]:
+    """Augment a settings_ui_block dict with translated mirrors."""
+    block_id = str(block.get("block_id") or "")
+    out = dict(block)
+    if plugin_id and block_id:
+        plugin_id_normalized = normalize_plugin_id(plugin_id)
+        out["title_translated"] = translate_with_fallback(
+            i18n,
+            f"{plugin_id_normalized}.ui_blocks.{block_id}.title",
+            str(block.get("title") or ""),
+        )
+        out["description_translated"] = translate_with_fallback(
+            i18n,
+            f"{plugin_id_normalized}.ui_blocks.{block_id}.description",
+            str(block.get("description") or ""),
+        )
+    return out
+
+
+def _serialize_activation_flow(
+    flow: dict[str, Any], i18n: PluginI18n, plugin_id: str | None = None
+) -> dict[str, Any]:
+    """Augment an activation_flow dict with translated mirrors."""
+    out = dict(flow)
+    if plugin_id:
+        plugin_id_normalized = normalize_plugin_id(plugin_id)
+        for key in ("title", "description", "confirm_label", "cancel_label"):
+            out[f"{key}_translated"] = translate_with_fallback(
+                i18n,
+                f"{plugin_id_normalized}.activation.{key}",
+                str(flow.get(key) or ""),
+            )
+    return out
 
 
 def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> PluginPackageState:
@@ -178,8 +326,18 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
     )
     replace_plugin_directory(plugin_source, dest_dir)
 
-    save_config({f"plugins.packages.{entry.plugin_id}": {"enabled": True}})
-    logger.info("Saved lightweight plugin install config", extra={"plugin_id": entry.plugin_id})
+    # Libraries are always trusted+enabled (they're installed as deps, not
+    # by user toggle). Plugin packages stay at the legacy default
+    # (enabled, untrusted — caller may upgrade trust later).
+    is_library = entry.kind == "library"
+    package_config: dict[str, Any] = {"enabled": True}
+    if is_library:
+        package_config["trusted"] = True
+    save_config({f"plugins.packages.{entry.plugin_id}": package_config})
+    logger.info(
+        "Saved lightweight plugin install config",
+        extra={"plugin_id": entry.plugin_id, "kind": entry.kind},
+    )
 
     ctypes: list[ContributionType] = []
     for ct in entry.contribution_types:
@@ -196,16 +354,129 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
             description=entry.description,
             author=entry.author,
             official=entry.official,
+            kind=entry.kind,
             contribution_types=ctypes,
+            depends_on=list(entry.depends_on),
             platforms=entry.platforms,
             plugin_dir=str(dest_dir),
             source="external",
         ),
         enabled=True,
-        trusted=False,
+        trusted=is_library,
         loaded=False,
         healthy=True,
     )
+
+
+async def _resolve_install_closure(
+    target_id: str,
+    registry: PluginRegistryClient,
+    *,
+    already_installed: set[str],
+) -> list[PluginRegistryEntry]:
+    """Walk the registry to compute install order for *target_id* + missing deps.
+
+    Returns registry entries in install order (deps first, target last).
+    Entries whose ``plugin_id`` is already in *already_installed* are skipped.
+    Raises ``ValueError`` if any required entry is missing from the registry
+    or if a cycle is detected — both indicate a registry packaging bug.
+    """
+    install_order: list[PluginRegistryEntry] = []
+    visiting: set[str] = set()
+    resolved: set[str] = set()
+
+    async def _visit(plugin_id: str) -> None:
+        if plugin_id in resolved or plugin_id in already_installed:
+            return
+        if plugin_id in visiting:
+            raise ValueError(
+                f"Cyclic plugin dependency detected involving {plugin_id}"
+            )
+        entry = await registry.fetch_entry(plugin_id)
+        if entry is None:
+            raise ValueError(f"Plugin not found in registry: {plugin_id}")
+        visiting.add(plugin_id)
+        for dep_id in entry.depends_on:
+            await _visit(dep_id)
+        visiting.discard(plugin_id)
+        resolved.add(plugin_id)
+        install_order.append(entry)
+
+    await _visit(target_id)
+    return install_order
+
+
+async def install_with_closure(
+    target_id: str,
+    registry: PluginRegistryClient,
+    manager,  # PluginManager | None
+    *,
+    progress_reporter=None,
+) -> tuple[PluginPackageState, list[str]]:
+    """Install *target_id* and any missing registry-declared dependencies.
+
+    Returns ``(state_of_target, extra_installed_ids)`` where the second
+    element lists plugin_ids installed solely as deps (in install order,
+    excluding the target). Caller can surface "also installed: …" UX.
+
+    Uses the active *manager* when available; otherwise falls back to
+    :func:`_lightweight_install`. Both paths persist state via the config
+    layer so a later scan picks them up identically.
+    """
+    if manager is not None:
+        already_installed = set(manager._package_states.keys())  # noqa: SLF001
+    else:
+        from ...config import get_config
+
+        already_installed = set(get_config().plugins.packages.keys())
+
+    order = await _resolve_install_closure(
+        target_id, registry, already_installed=already_installed
+    )
+    if not order:
+        # Target was already installed and no missing deps — refresh by
+        # treating it as a normal single-entry install.
+        entry = await registry.fetch_entry(target_id)
+        if entry is None:
+            raise ValueError(f"Plugin not found in registry: {target_id}")
+        order = [entry]
+
+    extra_installed: list[str] = []
+    target_state: PluginPackageState | None = None
+
+    for entry in order:
+        is_target = entry.plugin_id == target_id
+        if progress_reporter is not None:
+            label = "Installing" if is_target else "Installing dependency"
+            progress_reporter(
+                "install",
+                f"{label}: {entry.name}",
+                None,
+            )
+        plugin_dir = await registry.clone_plugin(entry)
+        if manager is not None:
+            state = await _to_thread(
+                manager.install_plugin_from_directory,
+                plugin_dir,
+                progress_reporter=progress_reporter,
+            )
+        else:
+            state = await _to_thread(_lightweight_install, plugin_dir, entry)
+        if is_target:
+            target_state = state
+        else:
+            extra_installed.append(entry.plugin_id)
+
+    assert target_state is not None  # _resolve_install_closure guarantees this
+    return target_state, extra_installed
+
+
+async def _to_thread(func, /, *args, **kwargs):
+    """Thin wrapper so this module doesn't pull asyncio at import time
+    in tests that don't need it."""
+    import asyncio
+
+    return await asyncio.to_thread(func, *args, **kwargs)
 
 
 def _serialize_package(state: PluginPackageState) -> PluginPackageResponse:
@@ -276,14 +547,20 @@ __all__ = [
     "_get_plugin_i18n",
     "_get_registry_client",
     "_lightweight_install",
+    "_resolve_install_closure",
+    "install_with_closure",
     "_require_package",
+    "_serialize_activation_flow",
     "_serialize_contribution",
     "_serialize_field",
     "_serialize_settings_action",
+    "_serialize_settings_ui_block",
     "_serialize_manifest",
     "_serialize_package",
     "_serialize_package_lightweight",
     "_try_plugin_manager",
     "_version_newer",
     "legacy_plugins_module",
+    "normalize_plugin_id",
+    "translate_with_fallback",
 ]

@@ -254,6 +254,99 @@ def test_core_tools_plugin_registers_memory_query_tool(monkeypatch: pytest.Monke
     assert "memory_query" in tool_registry.list_tools()
 
 
+def _write_shutdown_test_plugin(base: Path) -> None:
+    """Plugin whose shutdown() flips a class-level flag so we can observe it."""
+    plugin_dir = base / "shutdown-test"
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    (plugin_dir / "plugin.toml").write_text(
+        """
+[plugin]
+id = "shutdown-test"
+name = "Shutdown Test"
+version = "1.0.0"
+description = "Plugin shutdown hook test"
+author = "Test"
+entry_module = "plugin"
+entry_class = "ShutdownTestPlugin"
+official = false
+contribution_types = ["tool"]
+""".strip(),
+        encoding="utf-8",
+    )
+    (plugin_dir / "plugin.py").write_text(
+        """from magi_plugin_sdk import Plugin
+
+class ShutdownTestPlugin(Plugin):
+    shutdown_calls: list[int] = []
+
+    async def shutdown(self) -> None:
+        # Bump a class-level counter so the test can verify the host
+        # called us — instance vs class is mocked here because every load
+        # creates a fresh instance.
+        ShutdownTestPlugin.shutdown_calls.append(1)
+""".strip(),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.asyncio
+async def test_unload_plugin_invokes_shutdown_hook(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Regression: previously unload_plugin dropped the plugin from the
+    registry without ever giving it a chance to clean up sensors /
+    subprocesses / timers. Every reload (settings update, disable) leaked
+    the old instance. Now the host must invoke `plugin.shutdown()`."""
+    _write_shutdown_test_plugin(tmp_path)
+    config = AppConfig()
+    config.plugins.packages["shutdown-test"] = PluginSettings(
+        enabled=True,
+        trusted=True,
+        source="external",
+        settings={},
+    )
+
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config",
+        lambda updates: _apply_updates(config, updates) or True,
+    )
+
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        search_paths=[tmp_path],
+    )
+
+    manager.scan(persist_discovery=True)
+    manager.activate_enabled_plugins()
+
+    # Plugin loader uses entry_module="plugin", flattens into a single
+    # module under magi_plugin_<id>. Read the class through the loaded
+    # instance to avoid coupling to the loader's exact module name.
+    instance = manager._plugin_instances["shutdown-test"]
+    plugin_cls = type(instance)
+    assert plugin_cls.shutdown_calls == []
+
+    manager.unload_plugin("shutdown-test")
+
+    # Drain pending shutdown tasks. unload_plugin schedules shutdown on
+    # the running loop and returns immediately; we yield so the task can
+    # run before we assert.
+    import asyncio
+    # Give the loop one cycle. With asyncio mode=auto, pytest-asyncio is
+    # already in an event loop here.
+    for _ in range(50):
+        if plugin_cls.shutdown_calls:
+            break
+        await asyncio.sleep(0.01)
+
+    assert plugin_cls.shutdown_calls == [1], (
+        "Host did not invoke plugin.shutdown() on unload"
+    )
+
+
 def test_plugin_manager_reload_clears_cached_plugin_submodules(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

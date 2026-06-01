@@ -96,8 +96,9 @@ frontend/src-tauri/binaries/magi-backend-*
 frontend/src-tauri/gen/
 .alma-snapshots
 
-# Superpowers brainstorming
+# Superpowers brainstorming + scratch specs/plans
 .superpowers/
+docs/superpowers/
 
 # Local-only docs workspace
 docs/dev/
@@ -108,4 +109,8 @@ backend/magi-backend.spec
 /.magi/
 
 # Cursor
-.cursor/
+.cursor/frontend/node_modules
+
+# Local worktree symlinks
+frontend/node_modules
+.venv

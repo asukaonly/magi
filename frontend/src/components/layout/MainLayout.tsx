@@ -3,15 +3,19 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
-import { panelByPathname } from '@/pages/chat-route-helpers';
+import { useActivePersona } from '@/hooks/useActivePersona';
+import { panelByPathname, shouldRenderChatWorkspace } from '@/pages/chat-route-helpers';
+import { DEFAULT_USER_ID } from '@/constants';
 import AppShellProviders from './AppShellProviders';
+import { AppTitleBar } from './AppTitleBar';
 import BackendHealthBanner from './BackendHealthBanner';
 import Sidebar from './Sidebar';
 import ShellOverlays from './ShellOverlays';
+import { MemoryPortraitRail } from '@/components/chat/MemoryPortraitRail';
+import { PortraitFloater } from '@/components/chat/portrait/PortraitFloater';
 import { PermissionModalHost, AskDialog } from '@/components/control';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
-
-const SHELL_DRAG_STRIP_LEFT = '56px';
+import { ChatWorkspaceProvider } from '@/stores/chat-workspace-context';
 
 const PageContentErrorFallback = () => {
   const { t } = useTranslation('app');
@@ -76,10 +80,29 @@ const ShellOverlayErrorFallback = () => {
   );
 };
 
+const PortraitRailHost: React.FC = () => {
+  const portraitRailOpen = useChatShellStore((s) => s.portraitRailOpen);
+  const viewportIsNarrow = useChatShellStore((s) => s.viewportIsNarrow);
+  const currentSessionId = useConversationStore((s) => s.currentSessionId);
+  const { persona } = useActivePersona();
+  if (!portraitRailOpen || !currentSessionId || !persona) {
+    return null;
+  }
+  const props = {
+    sessionId: currentSessionId,
+    userId: DEFAULT_USER_ID,
+    personaId: persona.personaId,
+  };
+  return viewportIsNarrow ? <PortraitFloater {...props} /> : <MemoryPortraitRail {...props} />;
+};
+
 const MainLayout: React.FC = () => {
   const location = useLocation();
   const activePanel = useChatShellStore((state) => state.activePanel);
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+  const setViewportIsNarrow = useChatShellStore((state) => state.setViewportIsNarrow);
+  const viewportIsNarrow = useChatShellStore((state) => state.viewportIsNarrow);
+  const portraitRailOpen = useChatShellStore((state) => state.portraitRailOpen);
   const currentSessionId = useConversationStore((state) => state.currentSessionId);
   useBackendHealth();
 
@@ -87,37 +110,63 @@ const MainLayout: React.FC = () => {
     setActivePanel(panelByPathname(location.pathname));
   }, [location.pathname, setActivePanel]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+    const mql = window.matchMedia('(max-width: 1279px)');
+    const apply = (matches: boolean) => setViewportIsNarrow(matches);
+    apply(mql.matches);
+    const listener = (e: MediaQueryListEvent) => apply(e.matches);
+    mql.addEventListener('change', listener);
+    return () => mql.removeEventListener('change', listener);
+  }, [setViewportIsNarrow]);
+
+  // Portrait rail is chat-shell scoped. Hide it (and collapse the grid
+  // back to two columns) whenever the user navigates to timeline, memory,
+  // settings, or any other non-chat route.
+  const isChatRoute = shouldRenderChatWorkspace(location.pathname);
+  const railVisible = isChatRoute && portraitRailOpen;
+  const railColumnVisible = railVisible && !viewportIsNarrow;
+  const gridColsClass = railColumnVisible
+    ? 'grid-cols-[auto_minmax(0,1fr)_auto]'
+    : 'grid-cols-[auto_minmax(0,1fr)]';
+
   return (
     <AppShellProviders>
-      <div className="h-screen w-screen overflow-hidden">
-        <div className="desktop-surface relative grid h-full w-full grid-cols-[auto_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden">
-          {/* Keep an invisible drag strip for macOS overlay mode without rendering a detached title bar */}
-          <div
-            className="absolute right-0 top-0 z-40 h-4"
-            style={{
-              left: SHELL_DRAG_STRIP_LEFT,
-              WebkitAppRegion: 'drag'
-            } as React.CSSProperties}
-            data-tauri-drag-region
-          />
-          <ErrorBoundary resetKey={location.pathname} fallback={<SidebarErrorFallback />}>
-            <Sidebar />
-          </ErrorBoundary>
-          <div className="col-start-2 flex min-h-0 min-w-0 flex-col">
-            <BackendHealthBanner />
-            <main className="min-h-0 flex-1 overflow-hidden">
-              <div className="page-enter h-full overflow-hidden">
-                <ErrorBoundary resetKey={location.pathname} fallback={<PageContentErrorFallback />}>
-                  <Outlet />
-                </ErrorBoundary>
-              </div>
-            </main>
+      <ChatWorkspaceProvider>
+        <div className="flex h-screen w-screen flex-col overflow-hidden">
+          <AppTitleBar />
+          <div className={`desktop-surface relative grid min-h-0 w-full flex-1 ${gridColsClass} grid-rows-[minmax(0,1fr)] overflow-hidden`}>
+            <ErrorBoundary resetKey={location.pathname} fallback={<SidebarErrorFallback />}>
+              <Sidebar />
+            </ErrorBoundary>
+            <div className="col-start-2 flex min-h-0 min-w-0 flex-col">
+              <BackendHealthBanner />
+              <main className="min-h-0 flex-1 overflow-hidden">
+                <div className="page-enter h-full overflow-hidden">
+                  <ErrorBoundary resetKey={location.pathname} fallback={<PageContentErrorFallback />}>
+                    <Outlet />
+                  </ErrorBoundary>
+                </div>
+              </main>
+            </div>
+            {railColumnVisible ? (
+              <ErrorBoundary resetKey={currentSessionId} fallback={null}>
+                <PortraitRailHost />
+              </ErrorBoundary>
+            ) : null}
+            {viewportIsNarrow && railVisible ? (
+              <ErrorBoundary resetKey={currentSessionId} fallback={null}>
+                <PortraitRailHost />
+              </ErrorBoundary>
+            ) : null}
+            <ErrorBoundary resetKey={activePanel} fallback={<ShellOverlayErrorFallback />}>
+              <ShellOverlays />
+            </ErrorBoundary>
           </div>
-          <ErrorBoundary resetKey={activePanel} fallback={<ShellOverlayErrorFallback />}>
-            <ShellOverlays />
-          </ErrorBoundary>
         </div>
-      </div>
+      </ChatWorkspaceProvider>
       <ErrorBoundary resetKey={currentSessionId} fallback={null}>
         {/* Control-plane hosts mirror pending interactions into the active chat. */}
         <PermissionModalHost sessionId={currentSessionId} intervalMs={0} />

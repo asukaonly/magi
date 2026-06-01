@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS summaries (
 	insight_key TEXT,
 	review_state TEXT,
 	insight_metadata TEXT,
+	narrative_style TEXT NOT NULL DEFAULT 'default',
+	essence_prose TEXT,
 	embedding_status TEXT NOT NULL DEFAULT 'disabled',
 	embedding_profile_id TEXT,
 	embedding_chunk_count INTEGER NOT NULL DEFAULT 0,
@@ -44,6 +46,8 @@ CREATE INDEX IF NOT EXISTS idx_summaries_period
 	ON summaries(summary_type, summary_category, period_start, period_end);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_summaries_insight_key
 	ON summaries(insight_key) WHERE insight_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_summaries_narrative_style
+	ON summaries(narrative_style, summary_type, period_start DESC);
 
 CREATE TABLE IF NOT EXISTS summary_event_links (
 	link_id TEXT PRIMARY KEY,

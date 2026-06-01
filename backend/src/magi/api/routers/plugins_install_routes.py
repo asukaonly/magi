@@ -114,27 +114,41 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
             ),
         )
 
+    if entry.kind == "library":
+        # Libraries are installed only as dep closure of a real plugin;
+        # rejecting the direct call keeps the UI/CLI honest about what's
+        # user-installable. (See plugins_common.install_with_closure.)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=core_i18n.t(
+                "plugins.errors.library_not_directly_installable",
+                fallback=(
+                    "Library components are installed automatically as "
+                    "plugin dependencies and cannot be installed directly."
+                ),
+            ),
+        )
+
     try:
         logger.info(
             "Plugin registry install requested",
             extra={"plugin_id": request.plugin_id, "registry_path": entry.path},
         )
-        plugin_dir = await registry.clone_plugin(entry)
+        from .plugins_common import install_with_closure
+
+        target_state, extra_installed = await install_with_closure(
+            request.plugin_id, registry, manager
+        )
         logger.info(
-            "Plugin registry source ready",
-            extra={"plugin_id": request.plugin_id, "plugin_dir": str(plugin_dir)},
+            "Plugin registry install completed",
+            extra={
+                "plugin_id": request.plugin_id,
+                "auto_installed_deps": extra_installed,
+            },
         )
         if manager is not None:
-            state = manager.install_plugin_from_directory(plugin_dir)
-            logger.info("Plugin registry install completed", extra={"plugin_id": request.plugin_id})
-            return legacy._serialize_package(state)
-
-        state = legacy._lightweight_install(plugin_dir, entry)
-        logger.info(
-            "Plugin registry lightweight install completed",
-            extra={"plugin_id": request.plugin_id},
-        )
-        return legacy._serialize_package_lightweight(state)
+            return legacy._serialize_package(target_state)
+        return legacy._serialize_package_lightweight(target_state)
     except ValueError as exc:
         logger.warning(
             "Plugin registry install rejected",

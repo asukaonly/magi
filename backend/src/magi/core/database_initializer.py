@@ -42,9 +42,8 @@ class DatabaseInitializer:
         self.runtime_paths.resources_dir.mkdir(parents=True, exist_ok=True)
         self.runtime_paths.runtime_dir.mkdir(parents=True, exist_ok=True)
 
-    async def insert_default_data(self, persona_name: str = "default") -> None:
+    async def insert_default_data(self) -> None:
         """Mark first-run setup complete. Stores own their own seed data."""
-        _ = persona_name
         if self.is_first_run:
             self.mark_initialized()
 

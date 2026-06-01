@@ -29,6 +29,35 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Maximum number of nested fork-mode skill invocations allowed in a single
+# task. Direct-mode skills are unaffected — they share the parent context
+# and don't recurse the same way. Configurable via env var because the
+# right ceiling depends on how composable a workspace's skill library is.
+import contextvars as _contextvars
+import os as _os
+
+
+def _resolve_max_fork_depth() -> int:
+    raw = _os.environ.get("MAGI_SKILLS_MAX_FORK_DEPTH", "").strip()
+    if not raw:
+        return 3
+    try:
+        value = int(raw)
+    except ValueError:
+        return 3
+    return max(1, value)
+
+
+MAX_FORK_DEPTH = _resolve_max_fork_depth()
+_fork_depth: _contextvars.ContextVar[int] = _contextvars.ContextVar(
+    "magi_skill_fork_depth", default=0
+)
+
+
+class SkillForkDepthExceeded(RuntimeError):
+    """Raised when a fork-mode skill recurses past ``MAX_FORK_DEPTH``."""
+
+
 def _get_tool_registry():
     """Lazy import to avoid circular dependency."""
     from ..tools.registry import tool_registry
@@ -98,29 +127,18 @@ class SkillSubagent:
 
     def _build_available_tools(self) -> List[str]:
         """
-        Build list of available tools based on allowed_tools restriction.
+        Return the full tool list available to this subagent.
 
-        Returns:
-            List of tool names available to this subagent
+        Per the Claude Code Skills spec, ``allowed-tools`` is a
+        *pre-approval* list, not a restriction on which tools can be
+        called. The subagent therefore sees every registered tool; the
+        skill's allowed-tools rules are used only to skip permission
+        prompts for matching calls (see
+        :mod:`magi.skills.active_restrictions`).
+
+        ``self.allowed_tools`` is retained for telemetry / logging only.
         """
-        registry = _get_tool_registry()
-        all_tools = registry.list_tools()  # Returns list of tool names
-
-        if self.allowed_tools is None:
-            return all_tools
-
-        # Filter to only allowed tools
-        available = [t for t in all_tools if t in self.allowed_tools]
-
-        # Always include bash for script execution
-        if "bash" not in available and self.allowed_tools is not None:
-            # Check if skill has scripts - if so, bash should be available
-            scripts = self.skill.supporting_data.get("scripts", [])
-            if scripts:
-                available.append("bash")
-                logger.info(f"Auto-including 'bash' tool for skill with scripts: {self.skill.name}")
-
-        return available
+        return _get_tool_registry().list_tools()
 
     async def execute(
         self,
@@ -142,7 +160,33 @@ class SkillSubagent:
         start_time = time.time()
         context = context or {}
 
-        logger.info(f"SkillSubagent executing | id={self.subagent_id}")
+        # Fork-depth guard: a contextvar tracks how many nested fork-mode
+        # skills are currently on the call stack of this asyncio task.
+        # Going past MAX_FORK_DEPTH would let a skill that fork-invokes
+        # itself (directly or transitively) blow up token usage and
+        # latency without bound, so we cut it off here.
+        depth = _fork_depth.get()
+        if depth >= MAX_FORK_DEPTH:
+            logger.warning(
+                "SkillSubagent fork depth exceeded | skill=%s depth=%d max=%d",
+                self.skill.name,
+                depth,
+                MAX_FORK_DEPTH,
+            )
+            return SkillResult(
+                success=False,
+                error=(
+                    f"Fork-mode skill '{self.skill.name}' rejected: nesting "
+                    f"depth would exceed MAX_FORK_DEPTH={MAX_FORK_DEPTH}. "
+                    f"Set MAGI_SKILLS_MAX_FORK_DEPTH to override."
+                ),
+                execution_time=0.0,
+            )
+        depth_token = _fork_depth.set(depth + 1)
+
+        logger.info(
+            f"SkillSubagent executing | id={self.subagent_id} | depth={depth + 1}"
+        )
 
         try:
             # Check if we need tools
@@ -185,6 +229,8 @@ class SkillSubagent:
                 error=str(e),
                 execution_time=execution_time,
             )
+        finally:
+            _fork_depth.reset(depth_token)
 
     def _should_use_tools(self, user_message: str) -> bool:
         """

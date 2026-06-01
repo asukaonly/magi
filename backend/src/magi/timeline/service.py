@@ -9,6 +9,51 @@ from .insight_pipeline import TimelineInsightPipeline
 from .viewport_builder import TimelineViewportBuilder
 
 
+_WEEKDAY_LABELS = ("一", "二", "三", "四", "五", "六", "日")
+
+
+def _synthesize_standout_title(time_start: float, time_end: float) -> str:
+    """Build a readable fallback title from time + duration metadata.
+
+    Used when an episode has no slice_narrative, user_label, or label.
+    Format: "周日 14:00 · 3h" (no source/topic info — that would require
+    pulling them from the row, which the caller can add later if needed).
+    """
+    from datetime import datetime
+
+    # Local time — the standout list above formats `date` in local time
+    # for the same reason (server tz = user tz for desktop deployment).
+    # Mixing UTC here would put the title's "14:00" 8 hours off from
+    # the "date" it's stamped under for non-UTC users.
+    dt = datetime.fromtimestamp(time_start)
+    weekday = _WEEKDAY_LABELS[dt.weekday()]
+    hh_mm = dt.strftime("%H:%M")
+
+    duration_seconds = max(0.0, time_end - time_start)
+    if duration_seconds >= 3600:
+        hours = duration_seconds / 3600.0
+        duration_label = f"{hours:.0f}h" if hours >= 2 else f"{hours:.1f}h"
+    elif duration_seconds >= 60:
+        minutes = int(duration_seconds // 60)
+        duration_label = f"{minutes}m"
+    else:
+        duration_label = "短"
+
+    return f"周{weekday} {hh_mm} · {duration_label}"
+
+
+async def _resolve_photo_library_asset(asset_ref: str) -> tuple[Optional[str], Optional[str]]:
+    """Resolve a photo-library:// ref to (file_path, content_type).
+
+    Plan 3 ships a minimal resolver that returns (None, None). Plan 4 (or a
+    later integration step) will plug in the photo-library plugin's actual
+    reader once a stable host-callable resolve API is exposed.
+
+    Tests monkeypatch this function at the module level.
+    """
+    return None, None
+
+
 class TimelineService:
     """Provides timeline-oriented operations over unified memory."""
 
@@ -20,6 +65,8 @@ class TimelineService:
             l2_store=getattr(unified_memory, "l2", None),
             l3_store=getattr(unified_memory, "l3", None),
             l4_store=getattr(unified_memory, "l4", None),
+            entity_catalog=getattr(unified_memory, "l2_entity_catalog", None),
+            location_resolver=getattr(unified_memory, "location_resolver", None),
         )
 
     async def upsert_event(
@@ -63,6 +110,133 @@ class TimelineService:
             focus=focus,
             locale=locale,
         )
+
+    async def list_standout(
+        self,
+        *,
+        period_start: Optional[float],
+        period_end: Optional[float],
+        limit: int = 50,
+    ) -> list[dict]:
+        """List standout episodes — Magi-curated + user-pinned — for the sidebar.
+
+        Returns serializable dicts shaped for the GET /timeline/standout payload.
+        """
+        from datetime import datetime, timezone
+
+        store = getattr(self._unified_memory, "l2", None)
+        if store is None:
+            return []
+
+        rows = await store.list_standout_episodes(
+            period_start=period_start, period_end=period_end, limit=limit,
+        )
+        items: list[dict] = []
+        for r in rows:
+            ts = float(r.get("time_start") or 0.0)
+            te = float(r.get("time_end") or ts)
+            # Title fallback chain:
+            #   slice_narrative (LLM-written sentence, available after diary scheduler runs)
+            #   → user_label (manual)
+            #   → label (rule-based, usually empty)
+            #   → synthetic ("周日 14:00 · 3h" derived from time + duration)
+            title = (
+                str(r.get("slice_narrative") or "").strip()
+                or str(r.get("user_label") or "").strip()
+                or str(r.get("label") or "").strip()
+                or _synthesize_standout_title(ts, te)
+            )
+            items.append({
+                "episode_id": r["episode_id"],
+                "scale": "day",
+                "start": ts,
+                "end": te,
+                "title": title,
+                # Format in the server's local timezone. For magi's
+                # desktop-app deployment, server tz = user tz, so this
+                # matches the user's day boundary. This is the same
+                # convention daily_mood_aggregate's day_local_date uses
+                # — keep them aligned so the sidebar standout list and
+                # mood calendar pin events to the same calendar day.
+                # (If we ever multi-user this server-side, a tz query
+                # param will be needed.)
+                "date": datetime.fromtimestamp(ts).strftime("%Y-%m-%d"),
+                "source": "user" if r.get("user_pinned") else "magi",
+                "score": float(r.get("standout_score") or 0.0),
+            })
+        return items
+
+    async def list_mood_calendar(self, *, month: str) -> dict:
+        """Sidebar mood calendar payload for a YYYY-MM month.
+
+        Days with no daily_mood_aggregate row are omitted; the frontend
+        renders empty cells for missing dates.
+        """
+        from calendar import monthrange
+        from magi.memory.l3.daily_mood.store import DailyMoodAggregateStore
+
+        try:
+            year, mo = (int(p) for p in month.split("-", 1))
+            last_day = monthrange(year, mo)[1]
+        except (ValueError, OverflowError):
+            return {"month": month, "days": [], "error": "invalid_month"}
+
+        db_path = getattr(self._unified_memory, "memory_db_path", None)
+        if db_path is None:
+            return {"month": month, "days": []}
+
+        store = DailyMoodAggregateStore(db_path=str(db_path))
+        start_date = f"{year:04d}-{mo:02d}-01"
+        end_date = f"{year:04d}-{mo:02d}-{last_day:02d}"
+        rows = await store.list_aggregates(start_date=start_date, end_date=end_date)
+
+        return {
+            "month": month,
+            "days": [
+                {
+                    "date": r.day_local_date,
+                    "dominant_valence": r.dominant_valence,
+                    "volatility": r.volatility_score,
+                    "event_count": r.event_count,
+                    "sparkline": r.state_curve_compact,
+                }
+                for r in rows
+            ],
+        }
+
+    async def serve_asset(self, *, asset_ref: str) -> Optional[tuple[bytes, str]]:
+        """Resolve an asset_ref and read its bytes from disk.
+
+        Returns (bytes, content_type) on success, None when the ref is empty,
+        unrecognized, or the file is missing. The route turns None into 404.
+
+        Currently routes two schemes:
+          - ``photo-library://...``      from the photo-library plugin
+          - ``manual-entry-asset://...`` from user-uploaded entry images
+        """
+        if not asset_ref:
+            return None
+
+        scheme, _, _ = asset_ref.partition("://")
+
+        if scheme == "manual-entry-asset":
+            asset_store = getattr(self._unified_memory, "manual_entry_asset_store", None)
+            if asset_store is None:
+                return None
+            return asset_store.resolve(asset_ref)
+
+        if scheme == "photo-library":
+            file_path, content_type = await _resolve_photo_library_asset(asset_ref)
+            if not file_path:
+                return None
+            try:
+                with open(file_path, "rb") as fh:
+                    data = fh.read()
+            except OSError:
+                return None
+            return data, content_type or "application/octet-stream"
+
+        return None
 
     async def get_context_bundle(self, anchor_id: str) -> Optional[dict]:
         if getattr(self._unified_memory, "l1", None) is None:

@@ -23,7 +23,6 @@ from .l2_edge_vectors import L2EdgeVectorSupplementMixin
 from .l2_entity_resolution import L2EntityResolutionMixin
 from .l2_relationship_queries import L2RelationshipQueryMixin
 from .l2_query_execution import L2QueryExecutionMixin
-from .l2_semantic_relationships import L2SemanticRelationshipMixin
 from .l2_handler_utils import (
     allows_object_id_filter,
     allows_object_type_filter,
@@ -53,7 +52,6 @@ class L2Handler(
     L2EntityResolutionMixin,
     L2RelationshipQueryMixin,
     L2EdgeVectorSupplementMixin,
-    L2SemanticRelationshipMixin,
     L2QueryExecutionMixin,
 ):
     """Execute L2 knowledge graph queries from structured conditions."""

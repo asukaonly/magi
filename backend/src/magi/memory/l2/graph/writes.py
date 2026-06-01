@@ -73,6 +73,7 @@ class L2StoreGraphWriteMixin:
         valid_from: float | None = None,
         valid_to: float | None = None,
         privacy_scope: str | None = None,
+        evidence_class: str | None = None,
     ) -> str:
         """Insert or refresh a knowledge-graph edge."""
         host = cast(_GraphWriteHostProtocol, self)
@@ -98,6 +99,7 @@ class L2StoreGraphWriteMixin:
                 valid_from=valid_from,
                 valid_to=valid_to,
                 privacy_scope=privacy_scope,
+                evidence_class=evidence_class,
             )
             await db.commit()
         return triple_id
@@ -150,6 +152,11 @@ class L2StoreGraphWriteMixin:
                             if edge_write.get("privacy_scope") is not None
                             else None
                         ),
+                        evidence_class=(
+                            str(edge_write["evidence_class"]).strip() or None
+                            if edge_write.get("evidence_class") is not None
+                            else None
+                        ),
                     )
                 )
             await db.commit()
@@ -175,6 +182,7 @@ class L2StoreGraphWriteMixin:
         valid_from: float | None = None,
         valid_to: float | None = None,
         privacy_scope: str | None = None,
+        evidence_class: str | None = None,
     ) -> str:
         host = cast(_GraphWriteHostProtocol, self)
         normalized_subject_type = normalize_store_entity_type(subject_type) or subject_type
@@ -205,6 +213,16 @@ class L2StoreGraphWriteMixin:
             stripped_privacy = str(privacy_scope).strip()
             if stripped_privacy:
                 normalized_privacy_scope = stripped_privacy
+
+        # evidence_class is nullable in schema (NULL means "unknown — apply
+        # default policy weight, do NOT exclude on filter"). Treat empty
+        # strings as None so callers can't accidentally smuggle "" into a
+        # column the filter expects to be either a known label or NULL.
+        normalized_evidence_class: str | None = None
+        if evidence_class is not None:
+            stripped_evidence_class = str(evidence_class).strip()
+            if stripped_evidence_class:
+                normalized_evidence_class = stripped_evidence_class
 
         effective_predicate = predicate
         async with db.execute(
@@ -273,6 +291,7 @@ class L2StoreGraphWriteMixin:
                     embedding_status = 'pending', expires_at = COALESCE(?, expires_at),
                     valid_from = COALESCE(?, valid_from), valid_to = COALESCE(?, valid_to),
                     privacy_scope = COALESCE(?, privacy_scope),
+                    evidence_class = COALESCE(?, evidence_class),
                     updated_at = ?, status = 'active'
                 WHERE triple_id = ?
                 """,
@@ -294,6 +313,10 @@ class L2StoreGraphWriteMixin:
                     float(valid_from) if valid_from is not None else None,
                     effective_valid_to,
                     normalized_privacy_scope,
+                    # COALESCE(?, evidence_class): NULL new value preserves the
+                    # existing class; non-NULL new value wins (simple Phase 1
+                    # arbitration — Phase 2 may add hierarchical strength rules).
+                    normalized_evidence_class,
                     now,
                     triple_id,
                 ),
@@ -306,8 +329,9 @@ class L2StoreGraphWriteMixin:
                     fact_kind, confidence, evidence_event_ids, observation_count, first_observed_at,
                     last_observed_at, last_confirmed_at, source_type, extraction_method,
                     evidence_text, natural_summary, embedding_status, expires_at,
-                    valid_from, valid_to, status, privacy_scope, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 'active', ?, ?, ?)
+                    valid_from, valid_to, status, privacy_scope, evidence_class,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 'active', ?, ?, ?, ?)
                 """,
                 (
                     triple_id,
@@ -331,6 +355,7 @@ class L2StoreGraphWriteMixin:
                     effective_valid_from,
                     effective_valid_to,
                     normalized_privacy_scope or "private",
+                    normalized_evidence_class,
                     now,
                     now,
                 ),

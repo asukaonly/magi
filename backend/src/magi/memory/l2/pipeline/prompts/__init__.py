@@ -209,6 +209,31 @@ Return JSON only:
 ```
 """
 
+def build_phase2_integrate_system_prompt(user_language: str | None = None) -> str:
+    """Return the Phase 2 system prompt with an explicit language directive.
+
+    When ``user_language`` is supplied (e.g. "zh-CN", "en", "ja"), the prompt
+    is suffixed with a binding instruction: every ``natural_summary`` and every
+    user-facing ``trait_value`` for state assertions must be written in that
+    language. Profile-fact ``trait_value`` (real_name, address preference, etc.)
+    still follows rule 5/9 and preserves the original script.
+
+    When ``user_language`` is None, returns the baseline prompt unchanged so
+    the LLM falls back to inferring language from evidence text.
+    """
+    if not user_language:
+        return PHASE2_INTEGRATE_SYSTEM_PROMPT
+    return PHASE2_INTEGRATE_SYSTEM_PROMPT + (
+        "\n\n## Language directive\n"
+        f"The user's primary language is `{user_language}`. Write every "
+        "`natural_summary` in that language. For state-class assertion "
+        "`trait_value` (mood, stress, engagement, sleep, energy, focus), also "
+        "use that language unless the evidence text supplies an explicit foreign "
+        "term the user chose. Profile-fact `trait_value` (real_name, addressing "
+        "preference, etc.) still preserves the source script per rule 5/9."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helper: format timestamp for prompts
 # ---------------------------------------------------------------------------
@@ -444,6 +469,7 @@ def _find_phase1_entity_id_for_claim(
 __all__ = [
     "PHASE1_EXTRACT_SYSTEM_PROMPT",
     "PHASE2_INTEGRATE_SYSTEM_PROMPT",
+    "build_phase2_integrate_system_prompt",
     "ENTITY_RECONCILE_SYSTEM_PROMPT",
     "ENTITY_RESOLUTION_SYSTEM_PROMPT",
     "CONFLICT_ARBITRATION_SYSTEM_PROMPT",

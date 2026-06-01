@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .entity_display import display_name_for
 from .hybrid_retrieval.models import RetrievalPayload
 
 
@@ -11,19 +12,44 @@ def build_entity_refs(
     payload: RetrievalPayload,
     *,
     plugin_entity_refs: list[dict[str, Any]] | None = None,
+    canonical_names: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
+    """Build the ``entity_refs`` array for the recall envelope.
+
+    When ``canonical_names`` is provided, each candidate ref's ``entity_id``
+    is resolved via the map. If the map has no entry AND the source row has
+    no pre-resolved ``canonical_name``/``name``/``label`` field of its own,
+    the ref is DROPPED — never rendered with the raw id as a chip label,
+    which would otherwise leak entity hashes into the UI surface (the
+    original "关系 74f953b57f75" bug).
+
+    When ``canonical_names`` is ``None``, behavior is identical to the
+    legacy projection — callers that pre-resolve names on the cards keep
+    working unchanged.
+    """
     refs: list[dict[str, Any]] = []
     trace = payload.trace if isinstance(payload.trace, dict) else {}
     l2_trace = trace.get("l2_query_trace") if isinstance(trace.get("l2_query_trace"), dict) else {}
     resolved_entities = l2_trace.get("resolved_entities") if isinstance(l2_trace.get("resolved_entities"), list) else []
 
     for item in [*resolved_entities, *payload.l2_entity_cards]:
-        normalized = normalize_entity_ref(item)
+        normalized = normalize_entity_ref(item, canonical_names=canonical_names)
         if normalized is not None:
             refs.append(normalized)
 
     if isinstance(plugin_entity_refs, list):
-        refs.extend(item for item in plugin_entity_refs if isinstance(item, dict))
+        for item in plugin_entity_refs:
+            if not isinstance(item, dict):
+                continue
+            if canonical_names is not None:
+                # Apply the same resolve-or-drop policy to plugin-supplied
+                # refs so a misbehaving plugin cannot reintroduce the leak.
+                normalized = normalize_entity_ref(item, canonical_names=canonical_names)
+                if normalized is None:
+                    continue
+                refs.append(normalized)
+            else:
+                refs.append(item)
 
     return dedupe_records(refs, primary_key="entity_id")
 
@@ -69,14 +95,45 @@ def build_plugin_recall_artifacts(
     }
 
 
-def normalize_entity_ref(item: Any) -> dict[str, Any] | None:
+def normalize_entity_ref(
+    item: Any,
+    *,
+    canonical_names: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    """Normalize a single entity ref candidate into the rendered shape.
+
+    When ``canonical_names`` is provided, the display name is resolved via
+    :func:`magi.memory.entity_display.display_name_for` (catalog → slug →
+    ``(未命名 {type})``) with any pre-resolved upstream name field taking
+    precedence over the slug/未命名 fallbacks. A ref is DROPPED (returns
+    ``None``) only when no source produces any name — preserving Phase 5's
+    safety invariant against rendering raw hashes as chip labels.
+
+    When ``canonical_names`` is ``None`` the legacy fallback chain is
+    preserved for backward compatibility.
+    """
     if not isinstance(item, dict):
         return None
     entity_id = str(item.get("entity_id") or item.get("resolved_entity_id") or "").strip()
     if not entity_id:
         return None
     entity_type = str(item.get("entity_type") or _type_from_entity_id(entity_id) or "").strip() or None
-    canonical_name = str(item.get("canonical_name") or item.get("name") or item.get("label") or "").strip() or None
+    pre_canonical = str(item.get("canonical_name") or item.get("name") or item.get("label") or "").strip() or None
+
+    if canonical_names is not None:
+        # Round 4: catalog name wins, else pre-resolved upstream name (richer
+        # than slug), else slug / '(未命名 {type})' via display_name_for.
+        # Drop only when none of these produce a usable display string —
+        # which now requires the id to lack a 'type:slug' shape entirely.
+        if entity_id in canonical_names:
+            canonical_name = canonical_names[entity_id]
+        else:
+            canonical_name = pre_canonical or display_name_for(entity_id, canonical_names)
+        if not canonical_name:
+            return None
+    else:
+        canonical_name = pre_canonical
+
     match_source = str(item.get("match_source") or "").strip() or None
     normalized: dict[str, Any] = {"entity_id": entity_id}
     if entity_type is not None:

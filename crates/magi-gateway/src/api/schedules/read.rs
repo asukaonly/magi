@@ -2,6 +2,7 @@ use rusqlite::Connection;
 use serde_json::{json, Value};
 
 use super::storage::{open_scheduler_db, serialize_schedule, SCHEDULE_COLUMNS};
+use super::types::ActivityFilters;
 
 pub(super) fn query_schedules(enabled_only: bool) -> Value {
     let conn = match open_scheduler_db() {
@@ -311,19 +312,41 @@ pub(super) fn query_executions(schedule_id: Option<&str>, limit: i64) -> Value {
     json!({"executions": executions})
 }
 
-pub(super) fn query_activity(limit: i64) -> Value {
+pub(super) fn query_activity(filters: ActivityFilters) -> Value {
     let conn = match open_scheduler_db() {
         Some(c) => c,
-        None => return json!({"activities": []}),
+        None => return json!({"activities": [], "total": 0}),
     };
+    let limit = filters.limit.max(1);
+    let offset = filters.offset.max(0);
     let mut activities: Vec<Value> = Vec::new();
+    let live_only_on_first_page = offset == 0;
 
+    // Build a schedule_id → title lookup once. We need this both for the
+    // currently-running snapshots and for naming history rows (so the user
+    // sees "screen_time" instead of "exec_<hex>"). Includes disabled
+    // schedules so history for paused schedules still shows their name.
+    let schedules = query_schedules(false)
+        .get("schedules")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mut schedule_titles: std::collections::HashMap<String, String> =
+        std::collections::HashMap::with_capacity(schedules.len());
+    for schedule in &schedules {
+        if let Some(id) = schedule.get("schedule_id").and_then(|v| v.as_str()) {
+            schedule_titles.insert(id.to_string(), schedule_title(schedule));
+        }
+    }
+
+    // 1) Outstanding sensor sync jobs (queued/running) — first page only.
+    if live_only_on_first_page {
     if let Ok(mut stmt) = conn.prepare(
         "SELECT job_id, schedule_id, target_type, target_key, source_type, status, created_at, started_at, error \
          FROM sensor_sync_jobs WHERE status IN ('queued', 'running') ORDER BY created_at ASC LIMIT ?1",
     ) {
         let jobs = stmt
-            .query_map(rusqlite::params![limit.max(1)], |row| {
+            .query_map(rusqlite::params![limit], |row| {
                 let job_id: String = row.get(0)?;
                 let schedule_id: String = row.get(1)?;
                 let target_type: String = row.get(2)?;
@@ -342,10 +365,15 @@ pub(super) fn query_activity(limit: i64) -> Value {
                     "status": status,
                     "planned_at": created_at,
                     "started_at": started_at,
+                    "finished_at": Value::Null,
                     "duration_ms": Value::Null,
                     "cancellable": status == "queued",
                     "cancel_kind": if status == "queued" { Value::String("sensor_sync_job".to_string()) } else { Value::Null },
                     "error": error,
+                    "background_task_id": Value::Null,
+                    "result_message": Value::Null,
+                    "stats": json!({}),
+                    "manual": false,
                 }))
             })
             .ok()
@@ -353,16 +381,14 @@ pub(super) fn query_activity(limit: i64) -> Value {
             .unwrap_or_default();
         activities.extend(jobs);
     }
+    } // end live_only_on_first_page (sensor jobs)
 
-    let schedules = query_schedules(true)
-        .get("schedules")
-        .and_then(|value| value.as_array())
-        .cloned()
-        .unwrap_or_default();
-    for schedule in schedules {
-        if activities.len() >= limit.max(1) as usize {
-            break;
-        }
+    // 2) Currently running non-sensor schedules — first page only.
+    // Upcoming (next_run_at) snapshots are intentionally NOT surfaced — the
+    // schedule config page already shows "next run" per row, and upcoming rows
+    // have no actions to take, so they'd just be duplicate noise.
+    if live_only_on_first_page {
+    for schedule in &schedules {
         let state = schedule
             .get("target_state")
             .cloned()
@@ -375,6 +401,9 @@ pub(super) fn query_activity(limit: i64) -> Value {
             .get("target_type")
             .and_then(|value| value.as_str())
             .unwrap_or("");
+        if !running || target_type == "sensor_sync" {
+            continue;
+        }
         let schedule_id = schedule
             .get("schedule_id")
             .and_then(|value| value.as_str())
@@ -383,64 +412,317 @@ pub(super) fn query_activity(limit: i64) -> Value {
             .get("target_key")
             .and_then(|value| value.as_str())
             .unwrap_or("");
-        let title = schedule_title(&schedule);
-        if running && target_type != "sensor_sync" {
-            activities.push(json!({
-                "activity_id": format!("target:{target_type}:{target_key}"),
-                "schedule_id": schedule_id,
-                "title": title,
-                "target_type": target_type,
-                "target_key": target_key,
-                "status": "running",
-                "planned_at": Value::Null,
-                "started_at": state.get("last_run_at").cloned().unwrap_or(Value::Null),
-                "duration_ms": Value::Null,
-                "cancellable": false,
-                "cancel_kind": Value::Null,
-                "error": state.get("last_error").cloned().unwrap_or(Value::Null),
-            }));
-            continue;
+        let title = schedule_title(schedule);
+        activities.push(json!({
+            "activity_id": format!("target:{target_type}:{target_key}"),
+            "schedule_id": schedule_id,
+            "title": title,
+            "target_type": target_type,
+            "target_key": target_key,
+            "status": "running",
+            "planned_at": Value::Null,
+            "started_at": state.get("last_run_at").cloned().unwrap_or(Value::Null),
+            "finished_at": Value::Null,
+            "duration_ms": Value::Null,
+            "cancellable": false,
+            "cancel_kind": Value::Null,
+            "error": state.get("last_error").cloned().unwrap_or(Value::Null),
+            "background_task_id": Value::Null,
+            "result_message": Value::Null,
+            "stats": json!({}),
+            "manual": false,
+        }));
+    }
+    } // end live_only_on_first_page (running snapshots)
+
+    // 3) Historical executions from schedule_executions, scoped to the
+    // requested window + filters.
+    // Map display-status names back to DB names: succeeded → success.
+    let raw_statuses: Vec<String> = filters
+        .statuses
+        .iter()
+        .map(|s| match s.as_str() {
+            "succeeded" => "success".to_string(),
+            other => other.to_string(),
+        })
+        .collect();
+    let mut where_clauses: Vec<String> = Vec::new();
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    if let Some(since) = filters.since {
+        where_clauses.push(format!("started_at >= ?{}", params.len() + 1));
+        params.push(Box::new(since));
+    }
+    if let Some(until) = filters.until {
+        where_clauses.push(format!("started_at <= ?{}", params.len() + 1));
+        params.push(Box::new(until));
+    }
+    if !raw_statuses.is_empty() {
+        let placeholders: Vec<String> = (0..raw_statuses.len())
+            .map(|i| format!("?{}", params.len() + 1 + i))
+            .collect();
+        where_clauses.push(format!("status IN ({})", placeholders.join(",")));
+        for s in &raw_statuses {
+            params.push(Box::new(s.clone()));
         }
-        let next_run_at = state.get("next_run_at").cloned().unwrap_or(Value::Null);
-        if !next_run_at.is_null() && !running {
-            activities.push(json!({
-                "activity_id": format!("upcoming:{schedule_id}"),
-                "schedule_id": schedule_id,
-                "title": title,
-                "target_type": target_type,
-                "target_key": target_key,
-                "status": "upcoming",
-                "planned_at": next_run_at,
-                "started_at": Value::Null,
-                "duration_ms": Value::Null,
-                "cancellable": false,
-                "cancel_kind": Value::Null,
-                "error": state.get("last_error").cloned().unwrap_or(Value::Null),
-            }));
+    }
+    if !filters.target_types.is_empty() {
+        let placeholders: Vec<String> = (0..filters.target_types.len())
+            .map(|i| format!("?{}", params.len() + 1 + i))
+            .collect();
+        where_clauses.push(format!("target_type IN ({})", placeholders.join(",")));
+        for t in &filters.target_types {
+            params.push(Box::new(t.clone()));
+        }
+    }
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", where_clauses.join(" AND "))
+    };
+
+    // Count of history rows matching filters (used for frontend pagination).
+    // Uses the same params as the data query so far, before we append
+    // LIMIT/OFFSET below.
+    let count_query =
+        format!("SELECT COUNT(*) FROM schedule_executions{where_sql}");
+    let history_total: i64 = {
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
+        conn.query_row(&count_query, param_refs.as_slice(), |row| row.get::<_, i64>(0))
+            .unwrap_or(0)
+    };
+
+    let limit_param_idx = params.len() + 1;
+    params.push(Box::new(limit));
+    let offset_param_idx = params.len() + 1;
+    params.push(Box::new(offset));
+    let history_query = format!(
+        "SELECT {EXECUTION_COLUMNS} FROM schedule_executions{where_sql} \
+         ORDER BY started_at DESC LIMIT ?{limit_param_idx} OFFSET ?{offset_param_idx}"
+    );
+
+    if let Ok(mut stmt) = conn.prepare(&history_query) {
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
+        let rows: Vec<Value> = stmt
+            .query_map(param_refs.as_slice(), serialize_execution)
+            .ok()
+            .map(|iter| iter.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default();
+        for mut row in rows {
+            // Adapt the execution row into the activity DTO shape used elsewhere.
+            let execution_id = row
+                .get("execution_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let schedule_id = row
+                .get("schedule_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let raw_status = row
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let display_status = match raw_status.as_str() {
+                "success" => "succeeded",
+                other => other,
+            };
+            // Use the schedule's display title so users see e.g. "screen_time"
+            // or "Drink water reminder" instead of "exec_<hex>". Fall back to
+            // schedule_id (more meaningful than the random execution_id) when
+            // the schedule was deleted.
+            let display_title = schedule_titles
+                .get(&schedule_id)
+                .cloned()
+                .unwrap_or_else(|| schedule_id.clone());
+            let object = row
+                .as_object_mut()
+                .expect("serialize_execution always returns object");
+            object.insert(
+                "activity_id".into(),
+                Value::String(format!("execution:{execution_id}")),
+            );
+            object.insert("status".into(), Value::String(display_status.into()));
+            object.insert(
+                "planned_at".into(),
+                object
+                    .get("started_at")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            );
+            object.insert("cancellable".into(), Value::Bool(false));
+            object.insert("cancel_kind".into(), Value::Null);
+            object.insert("background_task_id".into(), Value::Null);
+            object.insert("title".into(), Value::String(display_title));
+            activities.push(row);
         }
     }
 
-    activities.truncate(limit.max(1) as usize);
-    json!({"activities": activities})
+    // 4) Apply the target_types / statuses filters across the merged set so
+    // sensor jobs and currently-running rows respect them too.
+    let allowed_types: Option<std::collections::HashSet<&str>> = if filters.target_types.is_empty()
+    {
+        None
+    } else {
+        Some(filters.target_types.iter().map(|s| s.as_str()).collect())
+    };
+    let allowed_statuses: Option<std::collections::HashSet<&str>> = if filters.statuses.is_empty() {
+        None
+    } else {
+        Some(filters.statuses.iter().map(|s| s.as_str()).collect())
+    };
+    if allowed_types.is_some() || allowed_statuses.is_some() {
+        activities.retain(|a| {
+            let t = a.get("target_type").and_then(|v| v.as_str()).unwrap_or("");
+            let s = a.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            allowed_types.as_ref().is_none_or(|set| set.contains(t))
+                && allowed_statuses.as_ref().is_none_or(|set| set.contains(s))
+        });
+    }
+
+    // 5) Sort: running first, then by started_at descending.
+    activities.sort_by(|a, b| {
+        let a_running = a.get("status").and_then(|v| v.as_str()) == Some("running");
+        let b_running = b.get("status").and_then(|v| v.as_str()) == Some("running");
+        if a_running != b_running {
+            return b_running.cmp(&a_running);
+        }
+        let a_ts = a
+            .get("started_at")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let b_ts = b
+            .get("started_at")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        b_ts.partial_cmp(&a_ts).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // Truncate only when live rows pushed us past the page size on page 1;
+    // on later pages the SQL LIMIT already constrained the slice.
+    activities.truncate(limit as usize + 32);
+
+    // Build chip-count aggregations. These reflect the time window only
+    // (since/until), independent of the category/status filters — otherwise
+    // selecting one chip would zero out every other chip and make the filter
+    // unusable.
+    let mut target_type_counts: std::collections::BTreeMap<String, i64> =
+        std::collections::BTreeMap::new();
+    let mut status_counts: std::collections::BTreeMap<String, i64> =
+        std::collections::BTreeMap::new();
+
+    // Time-window-only WHERE clause for the history aggregation.
+    let mut count_where: Vec<String> = Vec::new();
+    let mut count_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    if let Some(since) = filters.since {
+        count_where.push(format!("started_at >= ?{}", count_params.len() + 1));
+        count_params.push(Box::new(since));
+    }
+    if let Some(until) = filters.until {
+        count_where.push(format!("started_at <= ?{}", count_params.len() + 1));
+        count_params.push(Box::new(until));
+    }
+    let count_where_sql = if count_where.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", count_where.join(" AND "))
+    };
+    let agg_query = format!(
+        "SELECT target_type, status, COUNT(*) FROM schedule_executions{count_where_sql} \
+         GROUP BY target_type, status"
+    );
+    if let Ok(mut stmt) = conn.prepare(&agg_query) {
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            count_params.iter().map(|p| p.as_ref()).collect();
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        });
+        if let Ok(rows) = rows {
+            for entry in rows.flatten() {
+                let (target_type, raw_status, count) = entry;
+                let display_status = match raw_status.as_str() {
+                    "success" => "succeeded".to_string(),
+                    other => other.to_string(),
+                };
+                *target_type_counts.entry(target_type).or_insert(0) += count;
+                *status_counts.entry(display_status).or_insert(0) += count;
+            }
+        }
+    }
+
+    // Live rows: count current sensor jobs (queued/running) and currently-
+    // running non-sensor schedules. These are state snapshots, not time-bound,
+    // so they always count regardless of the time window.
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT target_type, status, COUNT(*) FROM sensor_sync_jobs \
+         WHERE status IN ('queued', 'running') GROUP BY target_type, status",
+    ) {
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        });
+        if let Ok(rows) = rows {
+            for (target_type, status, count) in rows.flatten() {
+                *target_type_counts.entry(target_type).or_insert(0) += count;
+                *status_counts.entry(status).or_insert(0) += count;
+            }
+        }
+    }
+    for schedule in &schedules {
+        let running = schedule
+            .get("target_state")
+            .and_then(|s| s.get("running"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let target_type = schedule
+            .get("target_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if running && target_type != "sensor_sync" {
+            *target_type_counts
+                .entry(target_type.to_string())
+                .or_insert(0) += 1;
+            *status_counts.entry("running".into()).or_insert(0) += 1;
+        }
+    }
+
+    json!({
+        "activities": activities,
+        "total": history_total,
+        "target_type_counts": target_type_counts,
+        "status_counts": status_counts,
+    })
 }
 
 fn schedule_title(schedule: &Value) -> String {
+    // Match the Python `_schedule_title` precedence used everywhere else:
+    // metadata/payload display_name → title → source_type → plugin_id, finally
+    // fall back to schedule_id (more meaningful than target_key for users).
+    for key in ["display_name", "title", "source_type", "plugin_id"] {
+        for source in ["metadata", "target_payload"] {
+            if let Some(value) = schedule
+                .get(source)
+                .and_then(|outer| outer.get(key))
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.trim().is_empty())
+            {
+                return value.to_string();
+            }
+        }
+    }
     schedule
-        .get("metadata")
-        .and_then(|metadata| metadata.get("title"))
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| {
-            schedule
-                .get("target_payload")
-                .and_then(|payload| payload.get("title"))
-                .and_then(|value| value.as_str())
-        })
-        .unwrap_or_else(|| {
-            schedule
-                .get("target_key")
-                .and_then(|value| value.as_str())
-                .unwrap_or("")
-        })
+        .get("schedule_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
         .to_string()
 }

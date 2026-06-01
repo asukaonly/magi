@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   Activity,
   Brain,
+  CalendarClock,
+  History,
   ListChecks,
   MessageCircle,
   MoreHorizontal,
-  Plus,
   Settings,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -24,7 +25,11 @@ import {
 } from '@/components/ui/dialog';
 import { useChatShellStore, useConversationStore, type ChatPanelType } from '@/stores';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
+import { useSchedulesStore } from '@/stores/schedules';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
+import { PersonaHeader } from './PersonaHeader';
+import { MoodCalendar } from '@/components/timeline/immersive/sidebar/MoodCalendar';
+import { StandoutList } from '@/components/timeline/immersive/sidebar/StandoutList';
 
 const USER_ID = DEFAULT_USER_ID;
 const SESSION_EVENT = 'magi-session-sync';
@@ -36,12 +41,17 @@ interface SidebarProps {
 type ActivityPanel = Exclude<ChatPanelType, 'none'>;
 
 const MEMORY_DESTINATIONS = [
-  { key: 'overview', path: '/memory/overview' },
-  { key: 'workbench', path: '/memory/workbench' },
-  { key: 'events', path: '/memory/events' },
-  { key: 'knowledge', path: '/memory/knowledge' },
-  { key: 'reflection', path: '/memory/reflection' },
-  { key: 'skills', path: '/memory/skills' },
+  { key: 'stories', path: '/memory/stories' },
+  { key: 'episodes', path: '/memory/episodes' },
+  { key: 'portrait', path: '/memory/portrait' },
+  { key: 'recall', path: '/memory/recall' },
+  { key: 'governance', path: '/memory/governance' },
+] as const;
+
+const TASKS_DESTINATIONS = [
+  { key: 'background', path: '/tasks/background', icon: ListChecks },
+  { key: 'schedules', path: '/tasks/schedules', icon: CalendarClock },
+  { key: 'activity', path: '/tasks/schedules/activity', icon: History },
 ] as const;
 
 const formatSessionTime = (timestamp: number, locale: string): string => {
@@ -71,6 +81,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const activePanel = useChatShellStore((state) => state.activePanel);
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const clearSettingsNavigationIntent = useChatShellStore((state) => state.clearSettingsNavigationIntent);
+  const timelinePanel = useChatShellStore((state) => state.timelinePanel);
 
   const [loading, setLoading] = useState(false);
   const isConversationRoute = location.pathname === '/' || location.pathname === '/chat';
@@ -290,6 +301,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   }, [currentSessionId, orderedSessionIds, sessionsById, t]);
 
   const tasksActiveCount = useBackgroundTaskStore((state) => state.activeCount);
+  const runningSchedulesCount = useSchedulesStore((state) => state.runningCount);
 
   if (collapsed) {
     return null;
@@ -299,11 +311,8 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const timelineActive = activePanel === 'timeline' || location.pathname === '/timeline';
   const memoryActive = activePanel === 'memory' || isMemoryRoute;
   const settingsActive = activePanel === 'settings';
-  const tasksActive = activePanel === 'tasks' || location.pathname === '/tasks';
+  const tasksActive = activePanel === 'tasks' || location.pathname.startsWith('/tasks');
   const sessionMenuSession = sessionMenu ? sessionsById[sessionMenu.sessionId] : null;
-
-  const toolButtonClass =
-    'flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--sidebar-tool))] text-[hsl(var(--sidebar-muted))] transition-colors duration-150 ease-out hover:bg-[hsl(var(--sidebar-tool-hover))] hover:text-[hsl(var(--sidebar-active-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]';
 
   const panelNavButtonClass = (active: boolean) => cn(
     'relative flex h-8 w-full items-center gap-2 rounded-[5px] px-2.5 text-left text-[13px] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[2px] before:rounded-full before:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]',
@@ -351,7 +360,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     if (panel === 'memory') {
       setActivePanel('memory');
       if (!isMemoryRoute) {
-        navigate('/memory/overview');
+        navigate('/memory/stories');
       }
       return;
     }
@@ -395,22 +404,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
   const renderConversationPanel = () => (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="sidebar-conversation-rail">
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-[hsl(var(--sidebar-border))] px-3">
-        <span className="text-[11px] font-semibold uppercase text-[hsl(var(--sidebar-muted))]">
-          {t('shell.conversation')}
-        </span>
-        <button
-          type="button"
-          onClick={() => {
-            void handleCreateSession();
-          }}
-          className={toolButtonClass}
-          aria-label={t('shell.newChat')}
-          title={t('shell.newChat')}
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </div>
+      <PersonaHeader onCreateChat={() => { void handleCreateSession(); }} />
 
       <div className="flex min-h-0 flex-1 flex-col px-2.5 py-2.5">
         <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
@@ -489,18 +483,16 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   );
 
   const renderMemoryPanel = () => (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="sidebar-memory-panel">
-      <div className="flex h-11 shrink-0 items-center border-b border-[hsl(var(--sidebar-border))] px-3">
-        <span className="text-[11px] font-semibold uppercase text-[hsl(var(--sidebar-muted))]">
-          {t('shell.memory')}
-        </span>
-      </div>
+    <div
+      className="flex min-h-0 flex-1 flex-col pt-2"
+      data-testid="sidebar-memory-panel"
+    >
       <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5 pr-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         <div className="space-y-0.5">
           {MEMORY_DESTINATIONS.map((item) => {
             const destinationActive =
               location.pathname === item.path ||
-              (item.path === '/memory/overview' && location.pathname === '/events');
+              (item.path === '/memory/stories' && (location.pathname === '/events' || location.pathname === '/memory/overview'));
             return (
               <button
                 key={item.key}
@@ -524,7 +516,83 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     </div>
   );
 
+  const renderTasksPanel = () => {
+    const activeMap: Record<string, boolean> = {
+      background:
+        location.pathname === '/tasks/background' || location.pathname === '/tasks',
+      schedules:
+        location.pathname === '/tasks/schedules' ||
+        location.pathname === '/tasks/schedules/',
+      activity: location.pathname === '/tasks/schedules/activity',
+    };
+    const badgeFor: Record<string, number> = {
+      background: tasksActiveCount,
+      schedules: 0,
+      activity: runningSchedulesCount,
+    };
+    return (
+      <div className="flex min-h-0 flex-1 flex-col pt-2" data-testid="sidebar-tasks-panel">
+        <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5 pr-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+          <div className="space-y-0.5">
+            {TASKS_DESTINATIONS.map(({ key, path, icon: Icon }) => {
+              const active = activeMap[key];
+              const badge = badgeFor[key];
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    setActivePanel('tasks');
+                    navigate(path);
+                  }}
+                  aria-label={t(`shell.tasks.${key}`)}
+                  aria-current={active ? 'page' : undefined}
+                  className={panelNavButtonClass(active)}
+                >
+                  <Icon className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {t(`shell.tasks.${key}`)}
+                  </span>
+                  {badge > 0 ? (
+                    <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-[hsl(var(--sidebar-badge))] px-1 text-[9px] font-medium leading-4 text-[hsl(var(--sidebar-badge-foreground))]">
+                      {Math.min(badge, 99)}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTimelinePanel = () => (
+    <div
+      className="flex min-h-0 flex-1 flex-col pt-2"
+      data-testid="sidebar-timeline-panel"
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <MoodCalendar
+          month={timelinePanel.monthForCalendar}
+          days={timelinePanel.moodDays}
+          scale={timelinePanel.scale}
+          selectedRangeStart={timelinePanel.selectedRangeStart}
+          selectedRangeEnd={timelinePanel.selectedRangeEnd}
+          onSelectDate={(d) => timelinePanel.onSelectDate?.(d)}
+        />
+        <StandoutList
+          items={timelinePanel.standoutItems}
+          onSelectEpisode={(id) => timelinePanel.onSelectStandoutEpisode?.(id)}
+        />
+      </div>
+    </div>
+  );
+
   const renderPanelContent = () => {
+    if (openPanel === 'tasks') {
+      return renderTasksPanel();
+    }
     if (openPanel === 'conversation') {
       return renderConversationPanel();
     }
@@ -533,25 +601,19 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       return renderMemoryPanel();
     }
 
+    if (openPanel === 'timeline') {
+      return renderTimelinePanel();
+    }
+
     if (!openPanel) {
       return null;
     }
 
-    const titleByPanel: Record<ActivityPanel, string> = {
-      conversation: t('shell.conversation'),
-      timeline: t('shell.timeline'),
-      memory: t('shell.memory'),
-      tasks: t('shell.tasks'),
-      settings: t('shell.settings'),
-    };
-
     return (
-      <div className="flex min-h-0 flex-1 flex-col" data-testid={`sidebar-${openPanel}-panel`}>
-        <div className="flex h-11 shrink-0 items-center border-b border-[hsl(var(--sidebar-border))] px-3">
-          <span className="text-[11px] font-semibold uppercase text-[hsl(var(--sidebar-muted))]">
-            {titleByPanel[openPanel]}
-          </span>
-        </div>
+      <div
+        className="flex min-h-0 flex-1 flex-col pt-2"
+        data-testid={`sidebar-${openPanel}-panel`}
+      >
         <div className="min-h-0 flex-1" />
       </div>
     );
@@ -593,7 +655,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
           </button>
         </div>
       ) : null}
-      <div className="flex w-14 shrink-0 flex-col border-r border-[hsl(var(--sidebar-border))] px-1.5 py-3" data-testid="sidebar-activity-bar">
+      <div
+        className="flex w-14 shrink-0 flex-col border-r border-[hsl(var(--sidebar-border))] px-1.5 pb-3 pt-3"
+        data-testid="sidebar-activity-bar"
+      >
         <div className="flex min-h-0 flex-1 flex-col items-center gap-1">
           {renderActivityButton(
             'conversation',
@@ -618,10 +683,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         <div className="flex shrink-0 flex-col items-center gap-1">
           {renderActivityButton(
             'tasks',
-            t('shell.tasks'),
+            t('shell.tasks.label'),
             <ListChecks className="h-[18px] w-[18px]" />,
             tasksActive,
-            tasksActiveCount,
+            tasksActiveCount + runningSchedulesCount,
           )}
           {renderActivityButton(
             'settings',

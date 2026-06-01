@@ -36,6 +36,7 @@ def map_trace_kind(node_type: str) -> str:
         "worker_attempt": "attempt",
         "response_emit": "response",
         "rhythm_processing": "rhythm",
+        "skill_call": "skill",
     }
     return mapping.get(node_type, node_type or "step")
 

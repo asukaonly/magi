@@ -115,6 +115,14 @@ class L2StoreRowMappingMixin:
             "status": str(row["status"]),
             "deprecated_by": row["deprecated_by"],
             "deprecated_at": float(row["deprecated_at"]) if row["deprecated_at"] else None,
+            # NULL evidence_class is load-bearing: downstream filter treats it
+            # as "unknown — apply default weight, do NOT exclude", so surface
+            # it as None rather than coercing to a string.
+            "evidence_class": (
+                str(row["evidence_class"])
+                if "evidence_class" in columns and row["evidence_class"] is not None
+                else None
+            ),
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         }

@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List
 
+from ..evidence import EvidenceClass
+from ..evidence.policy import _POLICY_MATRIX
 from .answerability import (
     extract_query_phrases,
     extract_query_tokens,
@@ -17,6 +19,31 @@ from .reranker_utils import (
     _recency_bonus,
     _secondary_timestamp,
 )
+
+
+# Default evidence weight for L2 edges with NULL evidence_class (rows that
+# pre-date the evidence-aware backfill). Sits between USER_SELF_REPORT (1.0)
+# and ASSISTANT_QUOTE (0.0) so pre-backfill rows compete fairly with
+# backfilled ones but still lose to declared user self-reports.
+_DEFAULT_EVIDENCE_WEIGHT = 0.5
+
+
+def _evidence_weight(label: str | None) -> float:
+    """Look up the evidence_weight prior for an L2 edge's evidence_class label.
+
+    Unknown or NULL labels fall back to ``_DEFAULT_EVIDENCE_WEIGHT`` so that
+    pre-backfill rows are neither boosted nor zeroed out.
+    """
+    if not label:
+        return _DEFAULT_EVIDENCE_WEIGHT
+    try:
+        cls = EvidenceClass.from_value(label)
+    except ValueError:
+        return _DEFAULT_EVIDENCE_WEIGHT
+    decision = _POLICY_MATRIX.get(cls)
+    if decision is None:
+        return _DEFAULT_EVIDENCE_WEIGHT
+    return float(decision.evidence_weight)
 
 
 class HeuristicRetrievalReranker(BaseRetrievalReranker):
@@ -237,7 +264,7 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
         recency_bonus = _recency_bonus(ts_value if ts_value > 0 else None, now=getattr(self, "_rerank_now", None))
 
         base_rrf_score = float(fused_scores.get(item_id, 0.0))
-        final_score = (
+        unweighted_score = (
             base_rrf_score
             + token_overlap
             + phrase_score
@@ -246,6 +273,16 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
             + recency_bonus
             - generic_penalty
         )
+
+        # Apply evidence_weight as a multiplicative prior on L2 edges only.
+        # evidence_class is an L2-specific column; for other layers the prior
+        # is a no-op (weight = 1.0).
+        if layer == "L2":
+            evidence_weight = _evidence_weight(item.get("evidence_class"))
+        else:
+            evidence_weight = 1.0
+        final_score = unweighted_score * evidence_weight
+
         trace = {
             "backend": "heuristic",
             "layer": layer,
@@ -258,6 +295,8 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
             "distance_bonus": round(distance_bonus, 6),
             "recency_bonus": round(recency_bonus, 6),
             "generic_penalty": round(generic_penalty, 6),
+            "evidence_weight": round(evidence_weight, 6),
+            "unweighted_score": round(unweighted_score, 6),
         }
         enriched = dict(item)
         enriched["retrieval_score"] = final_score

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .entity_display import display_name_for
 from .hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
 from .recall_rendering import is_echo_finding
 from .retrieval_projection_summary import split_relationship_statement
@@ -50,12 +51,21 @@ _PREDICATE_BONUS: dict[str, dict[str, dict[str, float]]] = {
 # Public API
 # ---------------------------------------------------------------------------
 
-def build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[dict[str, Any]]:
+def build_findings(
+    payload: RetrievalPayload,
+    request: RetrievalQuery,
+    canonical_names: dict[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
     """Build a ranked list of findings from all memory layers.
 
     Every layer's results are projected, scored with a unified quality
     metric, and sorted.  Mode preference is a soft bonus rather than a
     hard layer selector.
+
+    Returns ``(findings, dropped_count)``. ``dropped_count > 0`` when
+    ``canonical_names`` is supplied and some L2 findings were filtered
+    because their referenced entity_ids had no canonical name (would
+    otherwise leak raw hashes into the user-facing envelope).
     """
     mode = str(request.query_mode or "").strip() or "exact_fact"
     explicit_chat_source = _has_explicit_chat_source(request.source_filters)
@@ -68,8 +78,17 @@ def build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[d
             explicit_chat_source=explicit_chat_source,
         )
     )
-    candidates.extend(_project_relationships(payload.l2_relationships))
-    candidates.extend(_project_assertions(payload.l2_assertions))
+
+    rel_findings, rel_dropped = _project_relationships(
+        payload.l2_relationships, canonical_names
+    )
+    candidates.extend(rel_findings)
+
+    asrt_findings, asrt_dropped = _project_assertions(
+        payload.l2_assertions, canonical_names
+    )
+    candidates.extend(asrt_findings)
+
     candidates.extend(_project_reflections(payload.l3_reflections))
     candidates.extend(_project_procedures(payload.l4_procedures))
 
@@ -79,7 +98,14 @@ def build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[d
     for c in candidates:
         _attach_score(c, mode=mode, answer_kind=answer_kind, polarity=polarity)
 
-    candidates = [c for c in candidates if not is_echo_finding(c, request.query)]
+    echo_texts = [request.query]
+    if request.exclude_user_text:
+        echo_texts.append(request.exclude_user_text)
+    candidates = [
+        c
+        for c in candidates
+        if not any(is_echo_finding(c, text) for text in echo_texts if text)
+    ]
 
     candidates.sort(key=lambda x: -float(x.get("_score", 0.0)))
 
@@ -87,7 +113,7 @@ def build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[d
     selected = candidates[:limit]
     for finding in selected:
         finding["topic"] = _derive_finding_topic(finding)
-    return selected
+    return selected, rel_dropped + asrt_dropped
 
 
 # ---------------------------------------------------------------------------
@@ -204,15 +230,56 @@ def _attach_score(
 # Per-layer projection helpers
 # ---------------------------------------------------------------------------
 
-def _project_relationships(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _project_relationships(
+    items: list[dict[str, Any]],
+    canonical_names: dict[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Project L2 relationships into findings.
+
+    Returns ``(findings, dropped_count)``.
+
+    When ``canonical_names`` is provided, subject/object are resolved via
+    :func:`magi.memory.entity_display.display_name_for` — catalog name wins;
+    else the slug part of ``type:slug``; else ``(未命名 {type})`` for
+    hash-like slugs; else dropped when the id is not even a ``type:slug``.
+    A pre-resolved ``subject``/``object`` string on the item is used as a
+    last-resort fallback when the id resolution returns None.
+
+    When ``canonical_names`` is None, behavior matches the legacy fallback
+    chain (``subject`` then ``subject_id``) for backward compatibility.
+    """
     findings: list[dict[str, Any]] = []
+    dropped = 0
     for item in items:
         if not isinstance(item, dict):
             continue
-        subject = str(item.get("subject") or item.get("subject_id") or "").strip()
+        subject_id = str(item.get("subject_id") or "").strip()
+        object_id = str(item.get("object_id") or "").strip()
+        pre_subject = str(item.get("subject") or "").strip()
+        pre_object = str(item.get("object") or "").strip()
+
+        if canonical_names is not None:
+            # Round 4: try catalog → slug → '(未命名 {type})' → fall through
+            # to pre-resolved upstream value → drop.
+            resolved_subject = (
+                display_name_for(subject_id, canonical_names) if subject_id else None
+            )
+            resolved_object = (
+                display_name_for(object_id, canonical_names) if object_id else None
+            )
+            subject = (resolved_subject or pre_subject).strip()
+            object_value = (resolved_object or pre_object).strip()
+            if not subject or not object_value:
+                dropped += 1
+                continue
+        else:
+            subject = (pre_subject or subject_id).strip()
+            object_value = (pre_object or object_id).strip()
+
         predicate = str(item.get("predicate") or "").strip()
-        object_value = str(item.get("object") or item.get("object_id") or "").strip()
         if not subject or not predicate or not object_value:
+            if canonical_names is not None:
+                dropped += 1
             continue
         finding: dict[str, Any] = {
             "kind": "relationship",
@@ -228,24 +295,80 @@ def _project_relationships(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if evidence_text:
             finding["evidence_text"] = evidence_text
         findings.append(finding)
-    return findings
+    return findings, dropped
 
 
-def _project_assertions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _project_assertions(
+    items: list[dict[str, Any]],
+    canonical_names: dict[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Project L2 assertions into findings.
+
+    Returns ``(findings, dropped_count)``.
+
+    When ``canonical_names`` is provided, subject and ``target_entity_id``
+    are resolved via :func:`magi.memory.entity_display.display_name_for`
+    (catalog → slug → ``(未命名 {type})`` → None). Assertions are only
+    dropped when the resolver returns None AND no upstream pre-resolved
+    field exists.
+
+    When ``canonical_names`` is None, behavior matches the legacy fallback
+    chain (``subject`` then ``entity_id``) for backward compatibility.
+    """
     findings: list[dict[str, Any]] = []
+    dropped = 0
     for item in items:
         if not isinstance(item, dict):
             continue
-        subject = str(item.get("subject") or item.get("entity_id") or "").strip()
+        entity_id = str(item.get("entity_id") or "").strip()
+        pre_subject = str(item.get("subject") or "").strip()
+
+        if canonical_names is not None:
+            resolved_subject = (
+                display_name_for(entity_id, canonical_names) if entity_id else None
+            )
+            subject = (resolved_subject or pre_subject).strip()
+            if not subject:
+                dropped += 1
+                continue
+        else:
+            subject = (pre_subject or entity_id).strip()
+
         predicate = str(item.get("predicate") or item.get("trait_name") or item.get("trait_family") or "").strip()
-        value = str(
-            item.get("claim")
-            or item.get("content")
-            or item.get("trait_value")
-            or item.get("target_entity_id")
-            or ""
-        ).strip()
+
+        # Round 3 C3 + Round 4 C2: when claim/content/trait_value are empty,
+        # resolve target_entity_id through display_name_for (catalog name →
+        # slug → '(未命名 {type})'); drop the assertion only if the id has
+        # no parseable type:slug shape at all.
+        direct_value = (
+            str(item.get("claim") or "").strip()
+            or str(item.get("content") or "").strip()
+            or str(item.get("trait_value") or "").strip()
+        )
+        target_id = str(item.get("target_entity_id") or "").strip()
+
+        if direct_value:
+            value = direct_value
+        elif target_id:
+            if canonical_names is not None:
+                resolved_target = display_name_for(target_id, canonical_names)
+                if not resolved_target:
+                    # Same safety invariant as Phase 5: never leak raw ids.
+                    # Only reached when target_id is not 'type:slug' shaped.
+                    dropped += 1
+                    continue
+                value = resolved_target
+            else:
+                # Legacy mode (canonical_names=None): preserve old fall-through
+                # so callers that have not opted into resolution still get the
+                # raw id as before. Phase 5 callers always pass a dict.
+                value = target_id
+        else:
+            value = ""
+
         if not subject or not predicate or not value:
+            if canonical_names is not None:
+                dropped += 1
             continue
         findings.append(
             {
@@ -259,7 +382,7 @@ def _project_assertions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "_retrieval_score": float(item.get("confidence") or item.get("confidence_score") or 0.0),
             }
         )
-    return findings
+    return findings, dropped
 
 
 _FACT_LIKE_QUERY_MODES = frozenset(

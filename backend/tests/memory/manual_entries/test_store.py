@@ -1,0 +1,228 @@
+"""ManualEntryStore CRUD + soft-delete coverage."""
+
+from __future__ import annotations
+
+import time
+
+import pytest
+
+from magi.memory.manual_entries import ManualEntry, ManualEntryStore
+
+
+def _entry(**overrides) -> ManualEntry:
+    """Build a default entry; tests override only the fields they care about."""
+    now = time.time()
+    defaults = dict(
+        entry_id="",
+        created_at=now,
+        event_at=now,
+        kind="quick",
+        body="hello world",
+        mood=None,
+        location_label=None,
+        attachments=[],
+    )
+    defaults.update(overrides)
+    return ManualEntry(**defaults)
+
+
+@pytest.mark.asyncio
+async def test_create_and_get_roundtrip(manual_entry_db: str):
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="一念之间"))
+    assert entry_id.startswith("me-")
+
+    fetched = await store.get(entry_id)
+    assert fetched is not None
+    assert fetched.body == "一念之间"
+    assert fetched.deleted_at is None
+    assert fetched.kind == "quick"
+
+
+@pytest.mark.asyncio
+async def test_create_with_attachments_and_mood(manual_entry_db: str):
+    store = ManualEntryStore(db_path=manual_entry_db)
+    refs = [
+        "manual-entry-asset://aaa.png",
+        "manual-entry-asset://bbb.jpg",
+    ]
+    entry_id = await store.create(_entry(
+        body="带图的一条",
+        mood="warm",
+        attachments=refs,
+        location_label="杭州",
+        location_lat=30.27,
+        location_lng=120.15,
+    ))
+    fetched = await store.get(entry_id)
+    assert fetched.mood == "warm"
+    assert fetched.attachments == refs
+    assert fetched.location_label == "杭州"
+    assert fetched.location_lat == pytest.approx(30.27)
+
+
+@pytest.mark.asyncio
+async def test_list_window_filters_by_event_at_and_excludes_deleted(manual_entry_db: str):
+    store = ManualEntryStore(db_path=manual_entry_db)
+    id_a = await store.create(_entry(event_at=100.0, body="A"))
+    id_b = await store.create(_entry(event_at=200.0, body="B"))
+    id_c = await store.create(_entry(event_at=350.0, body="C"))
+    await store.soft_delete(id_b)
+
+    in_window = await store.list_window(time_start=50.0, time_end=300.0)
+    bodies = [e.body for e in in_window]
+    assert "A" in bodies
+    assert "B" not in bodies  # soft-deleted
+    assert "C" not in bodies  # out of window
+
+    with_deleted = await store.list_window(
+        time_start=50.0, time_end=300.0, include_deleted=True,
+    )
+    assert {e.body for e in with_deleted} == {"A", "B"}
+
+
+@pytest.mark.asyncio
+async def test_update_only_touches_provided_fields(manual_entry_db: str):
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="原文", mood="cool"))
+
+    ok = await store.update(entry_id, body="改动后的正文")
+    assert ok
+    fetched = await store.get(entry_id)
+    assert fetched.body == "改动后的正文"
+    # mood untouched
+    assert fetched.mood == "cool"
+
+
+@pytest.mark.asyncio
+async def test_update_with_no_fields_is_noop(manual_entry_db: str):
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="x"))
+    ok = await store.update(entry_id)
+    assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_update_mood_empty_string_clears_to_null(manual_entry_db: str):
+    """Allowing mood='' to clear lets the UI distinguish 'not changed' from
+    'explicitly clear it' (since None means 'don't touch')."""
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(mood="warm"))
+    await store.update(entry_id, mood="")
+    fetched = await store.get(entry_id)
+    assert fetched.mood is None
+
+
+@pytest.mark.asyncio
+async def test_soft_delete_idempotent(manual_entry_db: str):
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="x"))
+    first = await store.soft_delete(entry_id)
+    second = await store.soft_delete(entry_id)
+    assert first is True
+    # Second time the WHERE clause excludes already-deleted rows → no row changed
+    assert second is False
+
+
+@pytest.mark.asyncio
+async def test_link_l1_event(manual_entry_db: str):
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="x"))
+    await store.link_l1_event(entry_id, "01HXYZ123")
+    fetched = await store.get(entry_id)
+    assert fetched.l1_event_id == "01HXYZ123"
+
+
+@pytest.mark.asyncio
+async def test_weather_roundtrip(manual_entry_db: str):
+    """set_weather persists a JSON blob; re-read produces an equal dict."""
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="x"))
+    payload = {"code": 2, "temp_c": 22.5, "fetched_at": 1716210000.0}
+
+    changed = await store.set_weather(entry_id, payload)
+    assert changed is True
+
+    fetched = await store.get(entry_id)
+    assert fetched.weather == payload
+
+
+@pytest.mark.asyncio
+async def test_weather_clear_with_none(manual_entry_db: str):
+    """set_weather(None) clears a previously-attached snapshot."""
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="x"))
+    await store.set_weather(entry_id, {"code": 0, "temp_c": 20.0, "fetched_at": 1.0})
+    await store.set_weather(entry_id, None)
+
+    fetched = await store.get(entry_id)
+    assert fetched.weather is None
+
+
+@pytest.mark.asyncio
+async def test_create_with_weather_field(manual_entry_db: str):
+    """Weather supplied at creation time persists via the INSERT path."""
+    store = ManualEntryStore(db_path=manual_entry_db)
+    payload = {"code": 61, "temp_c": 15.0, "fetched_at": 100.0}
+    entry_id = await store.create(_entry(body="rainy", weather=payload))
+    fetched = await store.get(entry_id)
+    assert fetched.weather == payload
+
+
+@pytest.mark.asyncio
+async def test_body_doc_roundtrip_via_create(manual_entry_db: str):
+    """A ProseMirror JSON doc supplied at creation survives a get()."""
+    store = ManualEntryStore(db_path=manual_entry_db)
+    doc = {
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [
+                {"type": "text", "text": "今天天气"},
+                {"type": "text", "marks": [{"type": "bold"}], "text": "真好"},
+            ]},
+        ],
+    }
+    entry_id = await store.create(_entry(body="今天天气真好", body_doc=doc))
+    fetched = await store.get(entry_id)
+    assert fetched.body == "今天天气真好"
+    assert fetched.body_doc == doc
+
+
+@pytest.mark.asyncio
+async def test_body_doc_update_set_and_clear(manual_entry_db: str):
+    """body_doc uses the two-arg shape: body_doc=dict sets, clear_body_doc=True clears."""
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="hi"))
+    doc = {"type": "doc", "content": [{"type": "paragraph"}]}
+
+    await store.update(entry_id, body_doc=doc)
+    assert (await store.get(entry_id)).body_doc == doc
+
+    # body_doc=None alone doesn't touch — body stays
+    await store.update(entry_id, body="x")
+    assert (await store.get(entry_id)).body_doc == doc
+
+    # clear_body_doc=True wipes it
+    await store.update(entry_id, clear_body_doc=True)
+    assert (await store.get(entry_id)).body_doc is None
+
+
+@pytest.mark.asyncio
+async def test_update_location_label_set_and_clear(manual_entry_db: str):
+    """location_label follows the empty-string-clears convention:
+    ``None`` = don't touch, ``""`` = clear to NULL, other strings set."""
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="x", location_label="杭州"))
+
+    # Setting to a new value writes it.
+    await store.update(entry_id, location_label="北京")
+    assert (await store.get(entry_id)).location_label == "北京"
+
+    # Empty string clears to NULL.
+    await store.update(entry_id, location_label="")
+    assert (await store.get(entry_id)).location_label is None
+
+    # Untouched on a body-only update.
+    await store.update(entry_id, location_label="苏州")
+    await store.update(entry_id, body="边改")
+    assert (await store.get(entry_id)).location_label == "苏州"

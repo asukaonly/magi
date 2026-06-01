@@ -86,7 +86,11 @@ def test_skill_indexer_project_local_location_is_repo_relative_not_cwd(
     reloaded_module = importlib.reload(indexer_module)
 
     expected_project_local = Path(reloaded_module.__file__).resolve().parents[4] / ".claude" / "skills"
-    observed_project_local = reloaded_module.SkillIndexer.SKILL_LOCATIONS[2]
+    # Locate the entry by value rather than by fixed index — SKILL_LOCATIONS
+    # gained the ``~/.agents/skills`` slot in addition to ``~/.claude/skills``
+    # so positional asserts are fragile.
+    assert expected_project_local in reloaded_module.SkillIndexer.SKILL_LOCATIONS
+    observed_project_local = expected_project_local
 
     assert observed_project_local == expected_project_local
     assert observed_project_local != tmp_path / ".claude" / "skills"

@@ -52,6 +52,17 @@ class StateChangeService:
             return None
 
         content = self._render_content(packet, normalized_outcomes)
+
+        # If every outcome carries an `expires_at`, the insight inherits the
+        # latest expiry as its salience window. If any outcome has no expiry
+        # (e.g. evidence_only or none decay policy), the insight stays salient
+        # indefinitely — represented as None.
+        expiries = [o.expires_at for o in normalized_outcomes]
+        if expiries and all(e is not None for e in expiries):
+            salience_until = max(float(e) for e in expiries if e is not None)
+        else:
+            salience_until = None
+
         return L3Candidate(
             summary_type="insight",
             summary_category="state_change",
@@ -67,6 +78,7 @@ class StateChangeService:
                 "entity_type": packet.entity_type,
                 "trigger_reason": packet.trigger_reason,
                 "outcomes": [self._outcome_metadata(outcome) for outcome in normalized_outcomes],
+                "salience_until": salience_until,
             },
         )
 
@@ -117,7 +129,26 @@ class StateChangeService:
         packet: StateChangePacket,
         outcomes: list[ReconciledTraitOutcome],
     ) -> str:
+        # Prefer the natural-language summaries that L2 already produced for
+        # each underlying assertion. Each outcome carries `natural_summary`;
+        # we keep up to three (matching the existing fragment cap below) and
+        # join them with separators that read naturally in either language.
         zh = wants_zh()
+        natural_fragments: list[str] = []
+        for outcome in outcomes:
+            summary = str(getattr(outcome, "natural_summary", "") or "").strip()
+            if not summary:
+                continue
+            # Strip a trailing period so we can join cleanly; we'll add one back.
+            summary = summary.rstrip("。.")
+            if summary not in natural_fragments:
+                natural_fragments.append(summary)
+
+        if natural_fragments:
+            joined = ("；" if zh else "; ").join(natural_fragments[:3])
+            return f"{joined}。" if zh else f"{joined}."
+
+        # Fallback: legacy deterministic template using trait labels.
         grouped: dict[str, list[ReconciledTraitOutcome]] = {}
         for outcome in outcomes:
             grouped.setdefault(str(outcome.trait_name), []).append(outcome)

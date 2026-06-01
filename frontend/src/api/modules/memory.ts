@@ -249,6 +249,30 @@ export interface L2Episode {
   user_label?: string | null;
   user_note?: string | null;
   user_pinned?: boolean;
+  primary_entity_ids?: string[] | null;
+  primary_place_ids?: string[] | null;
+  primary_topic_keys?: string[] | null;
+}
+
+export interface L2EpisodeSummary {
+  summary_id: string;
+  content: string;
+  label: string;
+  updated_at: number | null;
+  is_fallback: boolean;
+}
+
+export interface L2EpisodeWithSummary extends L2Episode {
+  episode_summary?: L2EpisodeSummary | null;
+}
+
+export interface EpisodeReconsolidateResult {
+  promoted: number;
+  standouts: number;
+  merged: number;
+  invalidated: number;
+  summaries_generated: number;
+  summary_errors: string[];
 }
 
 export interface EpisodeAnnotationPayload {
@@ -516,6 +540,14 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/reconcile', { entity_ids: entityIds })),
   refreshL2Snapshots: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/snapshot-refresh', { entity_ids: entityIds })),
+  listEpisodes: async (params?: PaginationParams & {
+    episode_type?: string;
+    status?: string;
+    surface?: 'standout';
+  }): Promise<PaginatedResponse<L2EpisodeWithSummary>> =>
+    unwrapMemoryResponse(await api.get<PaginatedResponse<L2EpisodeWithSummary>>('/memory/l2/episodes', { params })),
+  reconsolidateEpisodes: async (): Promise<EpisodeReconsolidateResult> =>
+    unwrapMemoryResponse(await api.post<EpisodeReconsolidateResult>('/memory/l2/episodes/reconsolidate')),
   annotateEpisode: async (episodeId: string, payload: EpisodeAnnotationPayload): Promise<L2Episode> =>
     unwrapMemoryResponse(await api.patch<L2Episode>(`/memory/l2/episodes/${episodeId}`, payload)),
   forgetEpisode: async (episodeId: string, deleteEvents = false): Promise<ForgetEpisodeResponse> =>

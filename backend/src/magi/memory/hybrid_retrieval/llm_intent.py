@@ -6,13 +6,17 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Literal, Optional
+
+EvidenceFocus = Literal["declared", "observed", "both"]
+_VALID_EVIDENCE_FOCI: frozenset[str] = frozenset(("declared", "observed", "both"))
 
 from .answerability import (
     extract_comparison_spans,
     extract_query_tokens,
     extract_quoted_spans,
 )
+from .evidence_routing import classes_from_focus, infer_allowed_evidence_classes
 from .l2_intent import (
     _VALID_PREDICATE_FAMILIES,
     _VALID_SUBJECT_HINTS,
@@ -47,7 +51,20 @@ You produce a single refinement object that is applied to every routed plan:
 - ``subject_hint`` (optional, L2): "self" when the user is asking about themselves,
   "explicit" when an entity is mentioned, "none" otherwise.
 - ``predicate_family`` (optional, L2): one of ``preference``, ``profile_fact``,
-  ``relationship``, ``activity``, ``unknown``.
+  ``relationship``, ``activity``, ``unknown``. This drives downstream predicate
+  expansion but is NOT load-bearing for evidence-class filtering.
+- ``evidence_focus`` (optional, L2): when the user is asking about themselves
+  (subject_hint="self"), classify what evidence tier the question wants:
+    * ``"declared"`` — user is asking about what they explicitly said/claimed
+      in conversation. Examples: "what music do I like", "what name did I tell
+      you", "what are my preferences".
+    * ``"observed"`` — user is asking about their own behavior captured from
+      external sources (Chrome history, app usage). Examples: "what companies
+      did I browse", "what sites did I visit most".
+    * ``"both"`` — both declared and observed legitimately apply. Example:
+      "what am I into right now".
+  Leave null when the query isn't self-referential or the tier is genuinely
+  unclear. This field is preferred over predicate_family for evidence filtering.
 - ``semantic_frame`` (optional, L2): structured query semantics with the schema:
     {
       "query_family": "affinity" | "relationship" | "profile" | "activity" | "lookup",
@@ -77,6 +94,7 @@ Return JSON only:
   "entities": ["string", ...],
   "subject_hint": "self" | "explicit" | "none",
   "predicate_family": "preference" | "profile_fact" | "relationship" | "activity" | "unknown",
+  "evidence_focus": "declared" | "observed" | "both" | null,
   "semantic_frame": { ... } | null,
   "reasoning": "string"
 }"""
@@ -96,6 +114,7 @@ class LLMRefinement:
     entities: Optional[list[str]] = None
     subject_hint: Optional[str] = None
     predicate_family: Optional[str] = None
+    evidence_focus: Optional[EvidenceFocus] = None
     semantic_frame: Optional[L2SemanticFrame] = None
     reasoning: str = ""
 
@@ -193,6 +212,11 @@ class LLMIntentDecider:
             else None
         )
 
+        evidence_focus_raw = data.get("evidence_focus")
+        evidence_focus: Optional[EvidenceFocus] = None
+        if isinstance(evidence_focus_raw, str) and evidence_focus_raw in _VALID_EVIDENCE_FOCI:
+            evidence_focus = evidence_focus_raw  # type: ignore[assignment]
+
         semantic_frame = _parse_semantic_frame(data.get("semantic_frame"))
         reasoning = str(data.get("reasoning") or "")
 
@@ -204,6 +228,7 @@ class LLMIntentDecider:
             entities=entities,
             subject_hint=subject_hint,
             predicate_family=predicate_family,
+            evidence_focus=evidence_focus,
             semantic_frame=semantic_frame,
             reasoning=reasoning,
         )
@@ -236,6 +261,19 @@ class LLMIntentDecider:
                 if refinement.semantic_frame is not None:
                     conditions.semantic_frame = refinement.semantic_frame
                 enrich_l2_conditions(conditions, original_query)
+                if conditions.allowed_evidence_classes is None:
+                    focused = classes_from_focus(refinement.evidence_focus)
+                    if focused is not None:
+                        conditions.allowed_evidence_classes = focused
+                        conditions.evidence_focus_source = "llm"
+                    else:
+                        inferred = infer_allowed_evidence_classes(
+                            predicate_family=conditions.predicate_family,
+                            subject_scope=conditions.subject_hint,
+                        )
+                        if inferred is not None:
+                            conditions.allowed_evidence_classes = inferred
+                            conditions.evidence_focus_source = "family_fallback"
             elif plan.layer == "L3" and isinstance(conditions, L3Conditions):
                 if refined_query:
                     conditions.content_query = refined_query

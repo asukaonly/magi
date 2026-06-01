@@ -1,0 +1,311 @@
+import React, { useCallback, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
+import { useChatShellStore, useConversationStore } from '@/stores';
+import { isMacPlatform } from '@/lib/platform';
+import { cn } from '@/lib/utils';
+import { ChatTodayStrip } from '@/components/chat/ChatTodayStrip';
+import { Sparkles } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { shouldRenderChatWorkspace } from '@/pages/chat-route-helpers';
+import { ChatWorkspacePicker } from './ChatWorkspacePicker';
+import { AppWindowControls } from './AppWindowControls';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { MonthGridPicker } from '@/components/timeline/immersive/picker/MonthGridPicker';
+import { WeekListPicker } from '@/components/timeline/immersive/picker/WeekListPicker';
+
+const SCALE_LABEL: Record<string, string> = { month: "月", week: "周", day: "日", hour: "时" };
+
+
+const TimelineTitleBarSlot: React.FC = () => {
+  const { t } = useTranslation('app');
+  const panel = useChatShellStore((s) => s.timelinePanel);
+
+  return (
+    <div className="flex h-full flex-1 items-center gap-3 px-3 text-xs">
+      <span className="text-sm font-semibold text-foreground">
+        {t('timeline.title', { defaultValue: '时间线' })}
+      </span>
+      <div className="flex-1" />
+      {/* Scale tab group */}
+      <div className="flex rounded-md bg-foreground/5 p-0.5">
+        {(['month', 'week', 'day', 'hour'] as const).map((s) => (
+          <button
+            key={s}
+            type="button"
+            data-active={s === panel.scale ? 'true' : 'false'}
+            onClick={() => panel.onScaleChange?.(s)}
+            onMouseDown={(e) => e.stopPropagation()}
+            className={cn(
+              'min-w-[28px] rounded-sm px-2.5 py-1 text-center transition-colors',
+              s === panel.scale
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {SCALE_LABEL[s]}
+          </button>
+        ))}
+      </div>
+      {/* Date label + prev/next nav grouped together */}
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => panel.onPrevious?.()}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="rounded-md p-1 text-muted-foreground hover:bg-foreground/5"
+        >
+          ‹
+        </button>
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              onMouseDown={(e) => e.stopPropagation()}
+              data-no-drag
+              className="cursor-pointer rounded border border-transparent bg-transparent px-2 py-0.5 text-xs text-muted-foreground hover:border-border hover:text-foreground w-[160px] text-center"
+            >
+              {panel.dateLabel}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="center"
+            className="w-auto p-0"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            {panel.scale === "month" ? (
+              <MonthGridPicker
+                selectedMonth={(() => {
+                  const d = new Date(panel.viewportStart * 1000);
+                  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+                })()}
+                onSelectMonth={(m) => panel.onSelectFromDateInput?.(m)}
+              />
+            ) : panel.scale === "week" ? (
+              <WeekListPicker
+                selectedWeekStart={panel.viewportStart}
+                onSelectWeek={(w) => panel.onSelectFromDateInput?.(w)}
+              />
+            ) : (
+              <>
+                <Calendar
+                  mode="single"
+                  selected={new Date(panel.viewportStart * 1000)}
+                  onSelect={(date) => {
+                    if (!date) return;
+                    const y = date.getFullYear();
+                    const m = String(date.getMonth() + 1).padStart(2, "0");
+                    const d = String(date.getDate()).padStart(2, "0");
+                    if (panel.scale === "hour") {
+                      const currentHour = new Date(panel.viewportStart * 1000).getHours();
+                      const hh = String(currentHour).padStart(2, "0");
+                      panel.onSelectFromDateInput?.(`${y}-${m}-${d}T${hh}:00`);
+                    } else {
+                      panel.onSelectFromDateInput?.(`${y}-${m}-${d}`);
+                    }
+                  }}
+                  initialFocus
+                />
+                {panel.scale === "hour" ? (
+                  <div className="border-t border-border px-3 py-2">
+                    <div className="mb-1.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                      时
+                    </div>
+                    <div className="grid grid-cols-6 gap-1">
+                      {Array.from({ length: 24 }, (_, i) => i).map((h) => {
+                        const selectedHour = new Date(panel.viewportStart * 1000).getHours();
+                        const isSel = h === selectedHour;
+                        return (
+                          <button
+                            key={h}
+                            type="button"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={() => {
+                              const dt = new Date(panel.viewportStart * 1000);
+                              const y = dt.getFullYear();
+                              const m = String(dt.getMonth() + 1).padStart(2, "0");
+                              const dd = String(dt.getDate()).padStart(2, "0");
+                              const hh = String(h).padStart(2, "0");
+                              panel.onSelectFromDateInput?.(`${y}-${m}-${dd}T${hh}:00`);
+                            }}
+                            className={cn(
+                              "rounded px-2 py-1 text-xs",
+                              isSel
+                                ? "bg-foreground text-background"
+                                : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                            )}
+                          >
+                            {String(h).padStart(2, "0")}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </PopoverContent>
+        </Popover>
+        <button
+          type="button"
+          disabled={!panel.canGoNext}
+          onClick={() => panel.onNext?.()}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="rounded-md p-1 text-muted-foreground hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          ›
+        </button>
+      </div>
+      {/* Search input */}
+      <input
+        type="text"
+        data-no-drag
+        value={panel.draftQuery}
+        onChange={(e) => panel.onDraftQueryChange?.(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') panel.onSubmitQuery?.();
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+        placeholder={t('timeline.searchPlaceholder', { defaultValue: '筛选当前时段' })}
+        className="h-6 w-40 rounded-md border border-border bg-background px-2 text-xs"
+      />
+    </div>
+  );
+};
+
+/**
+ * Selector for elements that should NOT trigger window-drag when clicked.
+ * Buttons, links, inputs, dropdown menus, and anything explicitly opted out
+ * via `data-no-drag`. `closest()` against this list makes background-vs-
+ * interactive detection robust regardless of where the click lands within
+ * the title bar.
+ */
+const NO_DRAG_SELECTOR = 'button, a, input, select, textarea, [data-no-drag], [role="menu"], [role="combobox"]';
+
+/**
+ * App-wide title bar. Sits as the first row of MainLayout and spans the
+ * full window width so OS chrome (macOS traffic lights, Windows min/max/
+ * close) has its own dedicated stripe instead of overlapping content.
+ *
+ * Per-route content (current behavior — chat-only chrome):
+ *   - "/", "/chat"    → TodayStrip + workspace picker + portrait toggle
+ *   - everything else → empty (just acts as the drag/resize handle)
+ */
+
+const TITLE_BAR_HEIGHT_CLASS = 'h-9'; // 36px
+
+export const AppTitleBar = () => {
+  const { t } = useTranslation('app');
+  const location = useLocation();
+  const isMac = isMacPlatform();
+
+  // Disable native decorations on Windows so our hand-drawn controls own
+  // the title bar. macOS uses native traffic-light overlay (tauri.conf
+  // titleBarStyle:"Overlay") and Linux follows the Windows path. Runs
+  // once at mount; safe no-op when not inside Tauri.
+  useEffect(() => {
+    if (isMac || typeof window === 'undefined') {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const mod = await import('@tauri-apps/api/window');
+        if (cancelled) return;
+        await mod.getCurrentWindow().setDecorations(false);
+      } catch {
+        /* not running in Tauri */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isMac]);
+
+  const portraitRailOpen = useChatShellStore((s) => s.portraitRailOpen);
+  const setPortraitRailOpen = useChatShellStore((s) => s.setPortraitRailOpen);
+  const currentSessionId = useConversationStore((s) => s.currentSessionId);
+  const chatChromeVisible = shouldRenderChatWorkspace(location.pathname) && Boolean(currentSessionId);
+  const isTimelineRoute = location.pathname === '/timeline';
+
+  // Drag + double-click maximize are both handled in mousedown.
+  //
+  // We cannot use a separate onDoubleClick handler here: as soon as the
+  // first mousedown calls `startDragging()` the OS captures the mouse
+  // and React never sees a paired click — so dblclick is never emitted
+  // for the kind of slow native gesture we'd want it for.
+  //
+  // Instead we look at `MouseEvent.detail` on the mousedown itself.
+  // The browser increments it for every press within the platform's
+  // double-click time window, so detail === 2 means the user pressed
+  // twice in rapid succession on the same spot. That maps to
+  // toggleMaximize; anything else starts a normal window drag.
+  const handleMouseDown = useCallback(async (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest?.(NO_DRAG_SELECTOR)) return;
+    try {
+      const mod = await import('@tauri-apps/api/window');
+      const win = mod.getCurrentWindow();
+      if (e.detail >= 2) {
+        await win.toggleMaximize();
+      } else {
+        await win.startDragging();
+      }
+    } catch {
+      /* not in Tauri (e.g. pure browser dev preview) */
+    }
+  }, []);
+
+  return (
+    <div
+      className={cn(
+        'relative z-30 flex shrink-0 items-center border-b border-border/30 bg-background/95 backdrop-blur select-none',
+        TITLE_BAR_HEIGHT_CLASS,
+      )}
+      onMouseDown={handleMouseDown}
+    >
+      {/* macOS traffic-light reserve (left). Windows/Linux: small left padding. */}
+      <div className={cn('shrink-0', isMac ? 'w-[72px]' : 'w-3')} />
+
+      {/* Center / left content: route-specific chrome. */}
+      {isTimelineRoute ? (
+        <TimelineTitleBarSlot />
+      ) : (
+        <>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {chatChromeVisible ? <ChatTodayStrip /> : null}
+          </div>
+
+          {/* Right content: route-specific actions. handleMouseDown bails when
+              the click lands on a button so these still work normally. */}
+          <div className="flex shrink-0 items-center gap-2 pr-2">
+            {chatChromeVisible ? (
+              <>
+                <ChatWorkspacePicker />
+                <button
+                  type="button"
+                  onClick={() => setPortraitRailOpen(!portraitRailOpen)}
+                  aria-label={t('chat.portrait.toggleAria')}
+                  aria-pressed={portraitRailOpen}
+                  title={t('chat.portrait.toggleAria')}
+                  data-testid="chat-portrait-toggle"
+                  className={cn(
+                    'flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors',
+                    'hover:bg-muted hover:text-foreground',
+                    portraitRailOpen && 'text-foreground',
+                  )}
+                >
+                  <Sparkles className="h-4 w-4" />
+                </button>
+              </>
+            ) : null}
+          </div>
+        </>
+      )}
+
+      {/* Windows / Linux: hand-drawn window controls in the right slot. */}
+      {!isMac ? <AppWindowControls className="ml-1" /> : null}
+    </div>
+  );
+};
