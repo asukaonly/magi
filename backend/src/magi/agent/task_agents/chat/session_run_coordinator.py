@@ -24,6 +24,27 @@ logger = get_logger(__name__)
 
 _CHECKPOINT_EVENT_TYPES = {"CHAT_TOOL_LOOP_STEP"}
 
+# Phase H+1: sources that originate from MAGI-native surfaces (chat HTTP
+# /chat router, the chat UI's SSE stream, etc.) keep the legacy
+# ``user_message`` trigger. Every other source (telegram, weixin, slack,
+# ...) flips the resulting ``RunTrigger`` to ``external_inbound`` and
+# additionally produces an ``IncomingEvent(external_inbound)`` when the
+# message lands on an already-active run.
+_MAGI_NATIVE_SOURCES = frozenset({"api", "magi-chat", "chat_sse"})
+
+
+def _is_external_source(source: str | None) -> bool:
+    """Phase H+1: classify a dispatcher ``source`` string.
+
+    Treats empty/whitespace as native (matches the legacy default in
+    :class:`UserMessagePayload`). Case-insensitive comparison so plugins
+    using ``"Telegram"`` etc. still classify correctly.
+    """
+    normalized = (source or "api").strip().lower()
+    if not normalized:
+        return False
+    return normalized not in _MAGI_NATIVE_SOURCES
+
 
 class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
     """Own session-scoped active run state and interjection handling."""
@@ -468,16 +489,28 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         payload: UserMessagePayload,
         turn_id: str | None,
     ) -> RunTrigger:
-        """Phase H: build a ``RunTrigger`` describing a fresh user-message run.
+        """Phase H+1: build a source-aware ``RunTrigger`` for a fresh run.
 
-        Used at the call site of ``create_active_run`` inside
-        ``handle_user_turn`` / ``ahandle_user_turn`` so the resulting
-        ``AgentRun`` carries a typed trigger record. ``source_channel``
-        is set to ``"chat_sse"`` because chat HTTP runs land here via the
-        SSE entrypoint; downstream callers that originate from a
-        different channel can construct their own ``RunTrigger`` and
-        pass it through directly.
+        - HTTP /chat & chat UI (``source`` in :data:`_MAGI_NATIVE_SOURCES`)
+          → ``trigger_type="user_message"`` with ``source_channel="chat_sse"``
+          (preserves the Phase H Task 6 behavior).
+        - Any other source (``telegram``, ``weixin``, ``slack``, ...) →
+          ``trigger_type="external_inbound"`` with ``source_channel`` set
+          to the dispatcher source string so downstream consumers can
+          reason about provenance.
+
+        Used at the ``create_active_run`` call sites inside
+        :meth:`handle_user_turn` / :meth:`ahandle_user_turn`.
         """
+        if _is_external_source(payload.source):
+            return RunTrigger(
+                trigger_type="external_inbound",
+                source_channel=payload.source.strip().lower(),
+                requester=payload.user_id,
+                priority="foreground",
+                correlation=[turn_id] if turn_id else [],
+                payload={"content": payload.content} if payload.content else {},
+            )
         return RunTrigger(
             trigger_type="user_message",
             source_channel="chat_sse",
@@ -485,6 +518,33 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             priority="foreground",
             correlation=[turn_id] if turn_id else [],
             payload={"content": payload.content} if payload.content else {},
+        )
+
+    @staticmethod
+    def _build_external_inbound_event(
+        *,
+        payload: UserMessagePayload,
+        active_run_id: str | None,
+    ) -> IncomingEvent:
+        """Phase H+1: build the ``IncomingEvent(external_inbound)`` queued
+        alongside the legacy ``pending_turn`` when an external message
+        lands on an already-active run.
+
+        Kept as a helper so both the sync and async ``handle_user_turn``
+        paths share one construction site.
+        """
+        import time
+        import uuid
+        return IncomingEvent(
+            event_id=uuid.uuid4().hex,
+            event_type="external_inbound",
+            target_run_id=active_run_id,
+            arrived_at_ms=int(time.time() * 1000),
+            payload={
+                "source_channel": payload.source,
+                "content": payload.content,
+                "user_id": payload.user_id,
+            },
         )
 
     def handle_user_turn(
@@ -547,6 +607,17 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             active_run = self._run_store.get_active_run(payload.session_id)
             planner_fact_kind = IncomingFactKind.OTHER_FACT
             superseded_turns = []
+        # Phase H+1: external (telegram/weixin/...) inbounds landing on an
+        # active run ALSO append a typed IncomingEvent. The legacy
+        # ``pending_turns`` queue is kept for backward compat (session
+        # turn queue already merges both queues since Phase H Task 4).
+        if active_run is not None and _is_external_source(payload.source):
+            active_run.pending_events.append(
+                self._build_external_inbound_event(
+                    payload=payload,
+                    active_run_id=active_run.run_id,
+                )
+            )
         return SessionFactDecision(
             active_run=active_run,
             planner_fact=source_fact,
@@ -625,6 +696,15 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             active_run = self._run_store.get_active_run(payload.session_id)
             planner_fact_kind = IncomingFactKind.OTHER_FACT
             superseded_turns = []
+        # Phase H+1: see ``handle_user_turn`` — mirror the IncomingEvent
+        # emission on the async path so both routes behave identically.
+        if active_run is not None and _is_external_source(payload.source):
+            active_run.pending_events.append(
+                self._build_external_inbound_event(
+                    payload=payload,
+                    active_run_id=active_run.run_id,
+                )
+            )
         return SessionFactDecision(
             active_run=active_run,
             planner_fact=source_fact,
