@@ -41,6 +41,20 @@ def test_chat_task_agent_passes_conversation_log_to_history_service() -> None:
     assert agent._history_service._conversation_log is stub
 
 
+def test_chat_task_agent_passes_conversation_log_to_coordinator() -> None:
+    """Phase F Task 10: the coordinator receives the same log so it can
+    call ``record_consumed`` per turn."""
+    stub = _StubConversationLog()
+    agent = ChatTaskAgent(
+        agent_id="u-chat",
+        llm_adapter=_FakeLLMAdapter(),
+        channel_registry_resolver=lambda: None,
+        receipts_store_resolver=lambda: None,
+        conversation_log_resolver=lambda: stub,
+    )
+    assert agent._coordinator._conversation_log is stub
+
+
 def test_chat_task_agent_handles_missing_conversation_log() -> None:
     """Default resolver returns None when container unavailable."""
     agent = ChatTaskAgent(

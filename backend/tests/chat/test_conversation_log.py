@@ -213,3 +213,59 @@ async def test_find_dependents_returns_recorded_runs(log):
 async def test_find_dependents_empty_when_no_runs_consumed(log):
     deps = await log.find_dependents(session_id="s1", message_id="m1")
     assert deps == []
+
+
+@pytest.mark.asyncio
+async def test_list_visible_message_ids_returns_ordered_visible_ids(log):
+    """Phase F Task 10: ordered list of visible message_ids backs the
+    coordinator's record_consumed call."""
+    await log.append(_user_event("ev-1", "first", ts=1000), session_id="s1")
+    await log.append(_reply_event("ev-2", "second", ts=2000), session_id="s1")
+    await log.append(_user_event("ev-3", "third", ts=3000), session_id="s1")
+    ids = await log.list_visible_message_ids(session_id="s1")
+    assert ids == ["ev-1", "ev-2", "ev-3"]
+
+
+@pytest.mark.asyncio
+async def test_list_visible_message_ids_excludes_redacted(log):
+    """A redacted message must not appear in the visible-id list — the
+    coordinator should not tag the new run as a consumer of a hidden row."""
+    await log.append(_user_event("ev-1", "first", ts=1000), session_id="s1")
+    await log.append(_user_event("ev-2", "secret", ts=2000), session_id="s1")
+    redact = ConversationEvent(
+        event_id="ev-r",
+        event_type="message_redacted",
+        timestamp_ms=3000,
+        actor="system",
+        content=None,
+        redacts="ev-2",
+    )
+    await log.append(redact, session_id="s1")
+    ids = await log.list_visible_message_ids(session_id="s1")
+    # ev-2 is is_visible=0 after redact; the ev-r row itself is a redaction
+    # marker so it never surfaces. Only ev-1 remains.
+    assert ids == ["ev-1"]
+
+
+@pytest.mark.asyncio
+async def test_list_visible_message_ids_excludes_replaced(log):
+    """A revised message's chain head is the new event; the original is
+    skipped because its replaced_by_message_id is set."""
+    await log.append(_user_event("ev-1", "first draft", ts=1000), session_id="s1")
+    revision = ConversationEvent(
+        event_id="ev-2",
+        event_type="message_revised",
+        timestamp_ms=2000,
+        actor="u1",
+        content=[ContentBlock(kind="text", text="revised")],
+        revises="ev-1",
+    )
+    await log.append(revision, session_id="s1")
+    ids = await log.list_visible_message_ids(session_id="s1")
+    assert ids == ["ev-2"]
+
+
+@pytest.mark.asyncio
+async def test_list_visible_message_ids_returns_empty_for_unknown_session(log):
+    ids = await log.list_visible_message_ids(session_id="missing")
+    assert ids == []

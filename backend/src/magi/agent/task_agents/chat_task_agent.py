@@ -298,6 +298,7 @@ class ChatTaskAgent(
             self._handler_registry.register(handler)
         _channel_registry = self._channel_registry_resolver()
         _receipts_store = self._receipts_store_resolver()
+        _conversation_log = self._conversation_log_resolver()
         self._coordinator = ChatExecutionCoordinator(
             context_decider=self.context_decider,
             fact_classifier=self._fact_classifier,
@@ -308,6 +309,7 @@ class ChatTaskAgent(
             channel_registry=_channel_registry,
             user_prefs_provider=self._read_delivery_prefs,
             receipts_store=_receipts_store,
+            conversation_log=_conversation_log,
         )
         # Phase G+1: back-fill the coordinator on the shared handler
         # dependencies so DirectLLMHandler.execute() can route text_delta

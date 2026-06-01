@@ -164,6 +164,28 @@ class ConversationLog:
             message_id=message_id,
         )
 
+    async def list_visible_message_ids(self, *, session_id: str) -> list[str]:
+        """Return the message_ids that materialize into visible history.
+
+        Same row-selection rules as :meth:`materialize`: skip ``redaction``
+        rows, skip ``is_visible=0`` rows, and skip rows that have been
+        replaced. Used by the execution coordinator to tag the new run as
+        a consumer of these messages so a later cross-run retract can
+        propagate via :meth:`find_dependents`.
+        """
+        records = await self._messages.list_messages(session_id=session_id)
+        out: list[str] = []
+        for rec in records:
+            if rec.message_kind == "redaction":
+                continue
+            if not rec.is_visible:
+                continue
+            if rec.replaced_by_message_id is not None:
+                continue
+            if rec.message_id:
+                out.append(rec.message_id)
+        return out
+
     # === internals ===
 
     async def _resolve_role_kind(

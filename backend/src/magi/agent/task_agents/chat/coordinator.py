@@ -143,6 +143,7 @@ class ChatExecutionCoordinator:
         channel_registry: Any | None = None,
         user_prefs_provider: Callable[[str], Awaitable[dict]] | None = None,
         receipts_store: Any | None = None,
+        conversation_log: Any | None = None,
     ) -> None:
         self._context_decider = context_decider
         self._fact_classifier = fact_classifier
@@ -176,6 +177,12 @@ class ChatExecutionCoordinator:
         # walking stale snapshot.node_states. None for legacy callers; the
         # fanout path simply skips persistence in that case.
         self._receipts_store = receipts_store
+        # Phase F Task 10: optional ConversationLog. When supplied,
+        # ``execute()`` records this run as a consumer of the currently
+        # visible message_ids so a later cross-run retract (Task 11) can
+        # propagate via ``ConversationLog.find_dependents``. None for
+        # legacy callers / tests — recording is silently skipped.
+        self._conversation_log = conversation_log
         tool_registry = getattr(context_decider, "tool_registry", None)
         self._tool_hint_resolver = (
             ToolHintResolver(tool_registry)
@@ -465,6 +472,39 @@ class ChatExecutionCoordinator:
             node_specs = self._graph_builder.build_node_sequence(route_decision)
             session_id = getattr(getattr(request, "context", None), "session_id", "") or ""
             session_run_id = getattr(getattr(request, "context", None), "session_run_id", "") or ""
+
+            # Phase F Task 10: tag this run as a consumer of the currently
+            # visible history. ConversationLog.find_dependents reverses this
+            # map for cross-run retract propagation (Task 11). Failures are
+            # swallowed so a log outage never blocks execution — the cost
+            # of a missed record is at worst a future retract that doesn't
+            # propagate to this run.
+            if self._conversation_log is not None and session_id and session_run_id:
+                try:
+                    message_ids = await self._conversation_log.list_visible_message_ids(
+                        session_id=session_id,
+                    )
+                except Exception:
+                    logger.warning(
+                        "ConversationLog.list_visible_message_ids failed",
+                        exc_info=True,
+                    )
+                    message_ids = []
+                if message_ids:
+                    try:
+                        await self._conversation_log.record_consumed(
+                            session_id=session_id,
+                            run_id=session_run_id,
+                            revision=int(
+                                getattr(request.context, "session_run_revision", 0) or 0
+                            ),
+                            message_ids=message_ids,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "ConversationLog.record_consumed failed",
+                            exc_info=True,
+                        )
 
             # Look for a resume snapshot — populated when a background
             # dispatcher rehydrates a detached run.
