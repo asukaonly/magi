@@ -76,6 +76,7 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             recent_tool_errors=[],
             workspace_path=None,
             persona_id=None,
+            persona_routing_hint=None,
         )
         self.assertEqual(llm_params.system_prompt, "owned-by-context-layer")
 

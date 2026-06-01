@@ -1085,7 +1085,10 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         recent_tool_errors=None,
         include_tool_catalog=True,
         persona_id=None,
+        persona_routing_hint=None,
+        **kwargs,
     ):
+        _ = (tools, recent_tool_errors, persona_routing_hint, kwargs)
         calls["build_system_prompt"] = {
             "scenario": scenario,
             "user_id": user_id,

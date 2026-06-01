@@ -80,9 +80,12 @@ class _FakeOrchestrator:
         conversation_history: Any = None,
         session_summary: Any = None,
         session_origin: Any = None,
+        reply_context: Any = None,
         allow_attachment_grounding: bool = False,
+        ephemeral_context: Any = None,
+        **kwargs: Any,
     ) -> FunctionCallingStepState:
-        _ = (system_prompt, selected_tools, conversation_history, session_summary, session_origin, allow_attachment_grounding)
+        _ = (system_prompt, selected_tools, conversation_history, session_summary, session_origin, reply_context, allow_attachment_grounding, ephemeral_context, kwargs)
         self.build_step_state_calls.append(turn.text)
         return FunctionCallingStepState(
             messages=[{"role": "user", "content": turn.text}],

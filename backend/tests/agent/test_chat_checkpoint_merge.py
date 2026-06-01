@@ -26,8 +26,8 @@ class _FakeOrchestrator:
         self.execute_with_tools_calls: list[dict[str, object]] = []
         self.fallback_calls: list[dict[str, object]] = []
 
-    def build_step_state(self, *, turn, system_prompt, selected_tools, conversation_history=None, session_summary=None, session_origin=None, allow_attachment_grounding=False):  # type: ignore[no-untyped-def]
-        _ = (system_prompt, selected_tools, conversation_history, session_summary, session_origin, allow_attachment_grounding)
+    def build_step_state(self, *, turn, system_prompt, selected_tools, conversation_history=None, session_summary=None, session_origin=None, reply_context=None, allow_attachment_grounding=False, ephemeral_context=None, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (system_prompt, selected_tools, conversation_history, session_summary, session_origin, reply_context, allow_attachment_grounding, ephemeral_context, kwargs)
         self.build_step_state_calls.append(turn.text)
         return FunctionCallingStepState(
             messages=[{"role": "user", "content": turn.text}],

@@ -19,6 +19,7 @@ from magi.tools.builtin.ask_user_question_tool import AskUserQuestionTool
 from magi.tools.builtin.plan_mode_tool import EnterPlanModeTool, ExitPlanModeTool
 from magi.tools.builtin.todo_write_tool import TodoWriteTool
 from magi.tools.schema import ToolExecutionContext
+from magi_plugin_sdk.capabilities import ToolCapabilities
 
 
 @contextlib.contextmanager
@@ -224,7 +225,6 @@ async def test_ask_user_question_suspends_and_resumes_background_task() -> None:
     with _override(
         control_session_store=store,
         control_interaction_broker=broker,
-        background_task_manager=manager,
     ):
         tool = AskUserQuestionTool()
         ctx = ToolExecutionContext(
@@ -232,6 +232,7 @@ async def test_ask_user_question_suspends_and_resumes_background_task() -> None:
             env_vars={"session_id": "sid-F", "intent": "background"},
             permissions=[],
             enabled_features=["allow_ask_in_background"],
+            capabilities=ToolCapabilities(background=manager),
         )
 
         async def answer_later() -> None:
@@ -281,7 +282,6 @@ async def test_ask_user_question_resumes_background_on_timeout() -> None:
     with _override(
         control_session_store=store,
         control_interaction_broker=broker,
-        background_task_manager=manager,
     ):
         tool = AskUserQuestionTool()
         ctx = ToolExecutionContext(
@@ -289,6 +289,7 @@ async def test_ask_user_question_resumes_background_on_timeout() -> None:
             env_vars={"session_id": "sid-G", "intent": "background"},
             permissions=[],
             enabled_features=["allow_ask_in_background"],
+            capabilities=ToolCapabilities(background=manager),
         )
         result = await tool.execute(
             {"question": "Continue?", "timeout_seconds": 1}, ctx

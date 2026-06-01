@@ -127,7 +127,10 @@ def test_session_run_coordinator_records_stale_result_and_drops_it_from_planning
         UserMessagePayload(
             user_id="user-1",
             session_id="session-1",
-            content="Stop and change the goal to the frontend flow.",
+            # Strict cancel phrase — InterruptionClassifier requires the full
+            # normalized message to match a canonical phrase (see
+            # interruption_phrases.yaml). Longer sentences defer instead.
+            content="Stop.",
             turn_id="turn-2",
         )
     )
