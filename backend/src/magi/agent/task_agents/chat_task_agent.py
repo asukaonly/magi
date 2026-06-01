@@ -108,6 +108,7 @@ class ChatTaskAgent(
         control_session_store_provider: Callable[[], Any] | None = None,
         channel_registry_resolver: Callable[[], Any] | None = None,
         receipts_store_resolver: Callable[[], Any] | None = None,
+        conversation_log_resolver: Callable[[], Any] | None = None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
         # Phase G+1: resolver returning the live ChannelRegistry (or None
@@ -122,6 +123,12 @@ class ChatTaskAgent(
         # them without walking the run snapshot.
         self._receipts_store_resolver = (
             receipts_store_resolver or self._resolve_receipts_store
+        )
+        # Phase F: resolver returning the live ConversationLog (or None
+        # pre-bootstrap / in tests). Threaded into ChatHistoryService so
+        # the typed event-sourced history API can be consumed in Task 8.
+        self._conversation_log_resolver = (
+            conversation_log_resolver or self._resolve_conversation_log
         )
         self.llm = llm_adapter
         self._llm_pool = llm_pool
@@ -171,6 +178,7 @@ class ChatTaskAgent(
             chat_read_service_factory=self._chat_read_service_factory,
             scenario_llm_pool=llm_pool,
             llm_adapter=llm_adapter,
+            conversation_log=self._conversation_log_resolver(),
         )
         self._fact_classifier = ChatFactClassifier()
         self._prompt_service = ChatPromptService(
@@ -187,6 +195,7 @@ class ChatTaskAgent(
             ),
             interruption_classifier=self._interruption_classifier,
             receipts_store=self._receipts_store_resolver(),
+            conversation_log=self._conversation_log_resolver(),
         )
         self._planning_service = ChatPlanningService(
             agent_id=self.agent_id,
@@ -290,6 +299,7 @@ class ChatTaskAgent(
             self._handler_registry.register(handler)
         _channel_registry = self._channel_registry_resolver()
         _receipts_store = self._receipts_store_resolver()
+        _conversation_log = self._conversation_log_resolver()
         self._coordinator = ChatExecutionCoordinator(
             context_decider=self.context_decider,
             fact_classifier=self._fact_classifier,
@@ -300,6 +310,7 @@ class ChatTaskAgent(
             channel_registry=_channel_registry,
             user_prefs_provider=self._read_delivery_prefs,
             receipts_store=_receipts_store,
+            conversation_log=_conversation_log,
         )
         # Phase G+1: back-fill the coordinator on the shared handler
         # dependencies so DirectLLMHandler.execute() can route text_delta
@@ -397,6 +408,30 @@ class ChatTaskAgent(
         if module is None:
             return None
         return getattr(module, "_receipts_store", None)
+
+    @staticmethod
+    def _resolve_conversation_log() -> Any | None:
+        """Pull the live ConversationLog out of the runtime container.
+
+        Mirrors :meth:`_resolve_receipts_store`. Returns ``None`` pre-
+        bootstrap, in tests where the container provider returns a bare
+        ``object()`` placeholder, or when the chat lifecycle module hasn't
+        wired a log yet. ChatHistoryService falls back to legacy paths in
+        that case.
+        """
+        try:
+            from ...core.container import get_container
+
+            context = get_container().runtime_bootstrap_context()
+        except Exception:
+            return None
+        chat_state = getattr(context, "chat", None)
+        if chat_state is None:
+            return None
+        module = getattr(chat_state, "module", None)
+        if module is None:
+            return None
+        return getattr(module, "_conversation_log", None)
 
     @staticmethod
     async def _read_delivery_prefs(user_id: str) -> dict[str, Any]:
