@@ -69,7 +69,7 @@ Notes:
 
 - the scheduler engine is infrastructure, even if bootstrap starts it later in dependency order
 - bootstrap order and ownership layer are not the same thing
-- `runtime_trace/` stores execution observability data; it is not durable memory and does not participate in L6 recall
+- `runtime_trace/` stores execution observability data; it is not durable memory and does not participate in L7 recall
 - workspace storage is an infrastructure facade: `core` owns workspace identity, path safety, generated directory creation, and state manifests; upper layers receive scoped paths instead of constructing `<workspace>/.magi` paths directly
 
 ### L2. Configuration
@@ -98,7 +98,29 @@ Primary packages:
 
 - `events/`
 
-### L4. Plugin Registration Layer
+### L4. Control Plane
+
+Responsibilities:
+
+- session execution-control state (ask/question, plan-mode, todo, detach) and its store
+- interaction registry (pending-interaction futures; the `InteractionBroker` core) and timeout semantics
+- permission gateway, rules, and risk state (execution gating)
+- control-event emission (state changes published on the message bus)
+
+Primary packages:
+
+- `control/`
+
+Notes:
+
+- the control plane is shared substrate: tools (L8) actuate it, the agent runtime (L12) reads/drives it, and chat/transport (L14/L15) observe and feed it — so it lives low, depended on downward by all of them
+- it depends only on L1 infrastructure and L3 events; it must NOT import upward (no `chat`, `transport`, `agent`, `tools`, `llm`, `memory`)
+- transcript rendering of control state is the CHAT layer's job: `chat` subscribes to control events and writes state messages itself (downward); the control plane does not reach into `chat`/`transport`
+- interaction answers flow downward: `transport` delivers user answers into the control interaction registry (`transport → control`)
+- `run_control` (detach signal / `current_detach_signal`) belongs here, not in the agent runtime
+- runtime-actuator tools (`ask_user`, `plan_mode`, `todo_write`, `detach_to_background`, `agent_tool`) are first-party features, not plugins; they depend on this layer directly and live outside the plugin-isolation scope (see ADR-0001)
+
+### L5. Plugin Registration Layer
 
 Responsibilities:
 
@@ -116,7 +138,7 @@ Notes:
 - this layer owns package lifecycle only
 - tools and sensors return to their owning runtime layers after registration
 
-### L5. LLM Runtime
+### L6. LLM Runtime
 
 Responsibilities:
 
@@ -129,7 +151,7 @@ Primary packages:
 
 - `llm/`
 
-### L6. Memory Layer
+### L7. Memory Layer
 
 Responsibilities:
 
@@ -144,7 +166,7 @@ Primary packages:
 
 - `memory/`
 
-### L7. Tools And Skills Layer
+### L8. Tools And Skills Layer
 
 Responsibilities:
 
@@ -157,7 +179,7 @@ Primary packages:
 - `tools/`
 - `skills/`
 
-### L8. Personality Layer
+### L9. Personality Layer
 
 Responsibilities:
 
@@ -174,11 +196,11 @@ Primary packages:
 
 Notes:
 
-- L8 owns `PersonaTurnPlanner` and the `PersonaTurnPlan` contract described in [Persona Runtime Architecture](./persona-runtime-architecture.md).
-- L8 may consume task/runtime hints from L11 and profile/memory state from lower layers, but persona-specific trigger interpretation must not be duplicated in chat handlers, context rendering, or post-processing.
+- L9 owns `PersonaTurnPlanner` and the `PersonaTurnPlan` contract described in [Persona Runtime Architecture](./persona-runtime-architecture.md).
+- L9 may consume task/runtime hints from L12 and profile/memory state from lower layers, but persona-specific trigger interpretation must not be duplicated in chat handlers, context rendering, or post-processing.
 - post-processing may update future relationship and dynamic state; it should not be the primary place where the already emitted turn's persona mode is chosen.
 
-### L9. Sensors Layer
+### L10. Sensors Layer
 
 Responsibilities:
 
@@ -196,15 +218,15 @@ Notes:
 
 - plugin-contributed sensors are registered in `plugins/`, but runtime execution belongs here
 - all sensor plugins inherit from `SensorBase` and produce `SensorOutput`
-- `SensorIngestionGateway` routes outputs to memory (L6), timeline (L12), and knowledge graph
+- `SensorIngestionGateway` routes outputs to memory (L7), timeline (L13), and knowledge graph
 
-### L10. Context Layer
+### L11. Context Layer
 
 Responsibilities:
 
 - prompt-context assembly
 - recall shaping
-- prompt rendering from typed context inputs, including the `PersonaTurnPlan` produced by L8
+- prompt rendering from typed context inputs, including the `PersonaTurnPlan` produced by L9
 
 Primary packages:
 
@@ -212,11 +234,11 @@ Primary packages:
 
 Notes:
 
-- L10 consumes the persona behavior plan and renders it into the final system prompt.
-- L10 should not classify registers, activate persona triggers, or evaluate relationship layers itself.
-- scenario prompt storage should not become a second source of persona behavior truth; persona registers and trigger behavior belong in L8 persona config.
+- L11 consumes the persona behavior plan and renders it into the final system prompt.
+- L11 should not classify registers, activate persona triggers, or evaluate relationship layers itself.
+- scenario prompt storage should not become a second source of persona behavior truth; persona registers and trigger behavior belong in L9 persona config.
 
-### L11. Agent Runtime
+### L12. Agent Runtime
 
 Responsibilities:
 
@@ -235,14 +257,14 @@ Primary packages:
 
 Notes:
 
-- `agent/runtime/` is the correct L11 home for runtime control flow
+- `agent/runtime/` is the correct L12 home for runtime control flow
 - it is not a replacement for infrastructure and should not be described as a second `core/`
 
-### L12. Timeline Domain
+### L13. Timeline Domain
 
 Responsibilities:
 
-- timeline read models (`TimelineEvent` is L12-internal, not exported)
+- timeline read models (`TimelineEvent` is L13-internal, not exported)
 - scale-aware viewport and context-bundle read models
 - timeline adapter (`TimelineAdapter`) stores host-rendered `TimelineEvent` objects
 - timeline normalization and insight extraction
@@ -254,11 +276,11 @@ Primary packages:
 
 Notes:
 
-- `TimelineEvent` is an L12-internal view model; sensors produce `SensorOutput` (L9)
+- `TimelineEvent` is an L13-internal view model; sensors produce `SensorOutput` (L10)
 - host projection is the sole owner of timeline display rendering from `SensorOutput.activity` + `SensorOutput.narration`
 - `TimelineAdapter` is the sole entry point for rendered timeline events into the timeline read model
 
-### L13. External Services
+### L14. External Services
 
 Responsibilities:
 
@@ -284,7 +306,7 @@ Notes:
 - `chat/` owns transcript truth (`chat.db`), attachment storage, and session workspace; it is not the memory layer
 - `channels/` provides bidirectional adapters for external messaging platforms; each channel routes messages into the standard chat pipeline
 
-### L14. Connection And Transport
+### L15. Connection And Transport
 
 Responsibilities:
 
@@ -355,8 +377,8 @@ When placing new code, use this sequence:
 
 ### Sensor → Timeline → Memory Contract
 
-- sensors (L9) produce domain-neutral `SensorOutput` with per-sensor `SensorMemoryPolicy`
-- `SensorIngestionGateway` (L9) routes each output to memory (L6) and optionally to timeline (L12)
+- sensors (L10) produce domain-neutral `SensorOutput` with per-sensor `SensorMemoryPolicy`
+- `SensorIngestionGateway` (L10) routes each output to memory (L7) and optionally to timeline (L13)
 - timeline is a downstream consumer that builds its own read model (`TimelineEvent`) from sensor outputs
 - memory is the lifecycle system that retains, derives, summarizes, and retrieves durable knowledge from runtime and sensor inputs
 - raw behavioral facts enter memory via `SENSOR_EVENT` classification and enter timeline via `TimelineAdapter`
@@ -384,16 +406,17 @@ The current codebase maps to the layered model like this:
 - `core/`, `scheduler/`, `runtime_trace/`, parts of `utils/` -> L1 application infrastructure
 - `config/` -> L2 configuration
 - `events/` -> L3 message bus
-- `plugins/` -> L4 plugin registration
-- `llm/` -> L5 LLM runtime
-- `memory/` -> L6 memory
-- `tools/`, `skills/` -> L7 tools and skills
-- `personality/` -> L8 personality
-- `awareness/`, event emitter -> L9 sensors
-- `context/` -> L10 context
-- `agent/` -> L11 agent runtime
-- `timeline/` -> L12 timeline domain
-- `api/`, `chat/`, `tasks/`, `channels/` -> L13 external services
-- `ipc/`, `transport/` and `crates/magi-gateway/` -> L14 connection and transport
+- `control/` -> L4 control plane
+- `plugins/` -> L5 plugin registration
+- `llm/` -> L6 LLM runtime
+- `memory/` -> L7 memory
+- `tools/`, `skills/` -> L8 tools and skills
+- `personality/` -> L9 personality
+- `awareness/`, event emitter -> L10 sensors
+- `context/` -> L11 context
+- `agent/` -> L12 agent runtime
+- `timeline/` -> L13 timeline domain
+- `api/`, `chat/`, `tasks/`, `channels/` -> L14 external services
+- `ipc/`, `transport/` and `crates/magi-gateway/` -> L15 connection and transport
 
 The boundary rules above should remain stable even as package internals evolve.
