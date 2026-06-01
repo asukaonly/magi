@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 
 import pytest
 
@@ -89,10 +88,12 @@ async def _wait_until(predicate, *, timeout: float = 2.0) -> None:
 
 @pytest.mark.asyncio
 async def test_background_task_end_to_end_pipeline(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    runtime_paths_with_schema, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Persistent store for the manager.
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
     # Stand-in runtime-trace store wired into the transport broadcaster.
     trace_store = _RecordingTraceStore()
@@ -189,9 +190,11 @@ async def test_background_task_end_to_end_pipeline(
 
 @pytest.mark.asyncio
 async def test_background_task_failure_broadcasts_and_delivers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    runtime_paths_with_schema, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
     trace_store = _RecordingTraceStore()
     monkeypatch.setattr(
         chat_events_module, "resolve_runtime_trace_store", lambda: trace_store

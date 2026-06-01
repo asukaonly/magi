@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+from collections import deque
 from types import SimpleNamespace
-from pathlib import Path
 
 import pytest
 
 from magi.agent.runtime.contracts import FactRecord
-from magi.agent.task_agents.chat.postprocess_service import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
+from magi.agent.task_agents.chat.interruption_classifier import InterruptionDisposition
+from magi.agent.task_agents.chat.postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
 from magi.agent.task_agents import chat_task_agent as chat_task_agent_module
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent, _format_llm_error
 from magi.agent.task_agents.common import ExecutionMode, IncomingFactKind
 from magi.chat import ChatStore
 from magi.events.events import EventTypes
+from magi.tools.context_routing import RouteDecision
 
 
 class _FakeLLMAdapter:
@@ -19,22 +21,44 @@ class _FakeLLMAdapter:
     supports_embeddings = False
 
 
-def _make_decision(user_message: str) -> SimpleNamespace:
-    return SimpleNamespace(
-        intent="chat",
+def _make_decision(user_message: str) -> RouteDecision:
+    return RouteDecision(
+        profile="chat",
+        graph_shape="reply",
+        complexity="simple",
         tools=[],
-        deep_thinking=False,
-        thinking_depth="none",
         reasoning=f"route:{user_message}",
-        orchestration_strategy={
-            "mode": "direct",
-            "planner": "task_agent",
-            "default_leaf_type": "general-purpose",
-            "allow_parallel": False,
-        },
         memory_route="none",
-        llm_trace={},
     )
+
+
+class _StubInterruptionClassifier:
+    """Forces the bound :class:`SessionRunCoordinator` to apply a scripted
+    interruption disposition.
+
+    Phase H6 made the sync ``InterruptionClassifier.classify`` strict
+    (only full-message matches against ``interruption_phrases.yaml``
+    yield INTERRUPT; everything else returns DEFER). These runtime tests
+    target the *agent* end-to-end flow for AUGMENT / INTERRUPT cases
+    without spinning up a real LLM, so they swap in this stub.
+    """
+
+    def __init__(self, dispositions: list[InterruptionDisposition]) -> None:
+        self._queue: deque[InterruptionDisposition] = deque(dispositions)
+        self._last: InterruptionDisposition = InterruptionDisposition.DEFER
+
+    def classify(self, context):  # type: ignore[no-untyped-def]
+        _ = context
+        if self._queue:
+            self._last = self._queue.popleft()
+        return self._last
+
+    async def aclassify(self, context):  # type: ignore[no-untyped-def]
+        return self.classify(context)
+
+    def looks_like_strict_interrupt(self, user_text: str) -> bool:
+        _ = user_text
+        return False
 
 
 def _user_fact(content: str, *, turn_id: str) -> FactRecord:
@@ -151,6 +175,12 @@ async def test_chat_task_agent_prefers_user_fact_over_tool_loop_trace_in_mixed_b
 @pytest.mark.asyncio
 async def test_chat_task_agent_routes_pending_augment_into_next_checkpoint(monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    # The sync InterruptionClassifier only emits INTERRUPT / DEFER. Force
+    # AUGMENT so the coordinator queues the second turn for checkpoint
+    # merging instead of dropping it as a deferred turn.
+    agent._session_run_coordinator._interruption_classifier = _StubInterruptionClassifier(
+        [InterruptionDisposition.AUGMENT]
+    )
     seen_messages: list[str] = []
 
     async def _fake_decide(user_message: str, decision_context: dict):  # type: ignore[no-untyped-def]
@@ -192,8 +222,10 @@ async def test_chat_task_agent_routes_pending_augment_into_next_checkpoint(monke
 
 
 @pytest.mark.asyncio
-async def test_chat_task_agent_marks_augmented_turn_as_merged(tmp_path: Path, monkeypatch) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_task_agent_marks_augmented_turn_as_merged(
+    runtime_paths_with_schema, monkeypatch
+) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",
@@ -210,6 +242,9 @@ async def test_chat_task_agent_marks_augmented_turn_as_merged(tmp_path: Path, mo
         created_at_ms=200,
     )
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter(), chat_store=chat_store)
+    agent._session_run_coordinator._interruption_classifier = _StubInterruptionClassifier(
+        [InterruptionDisposition.AUGMENT]
+    )
 
     async def _fake_decide(user_message: str, decision_context: dict):  # type: ignore[no-untyped-def]
         _ = decision_context
@@ -235,8 +270,10 @@ async def test_chat_task_agent_marks_augmented_turn_as_merged(tmp_path: Path, mo
 
 
 @pytest.mark.asyncio
-async def test_chat_task_agent_marks_interrupted_turn_as_interrupted(tmp_path: Path) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_task_agent_marks_interrupted_turn_as_interrupted(
+    runtime_paths_with_schema,
+) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",
@@ -253,6 +290,13 @@ async def test_chat_task_agent_marks_interrupted_turn_as_interrupted(tmp_path: P
         created_at_ms=200,
     )
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter(), chat_store=chat_store)
+    # Phase H6 sync InterruptionClassifier only matches the strict
+    # cancel-phrase list; "Stop and change the goal..." no longer
+    # qualifies. Force INTERRUPT so this test still exercises the
+    # interrupt-supersession bookkeeping path.
+    agent._session_run_coordinator._interruption_classifier = _StubInterruptionClassifier(
+        [InterruptionDisposition.INTERRUPT]
+    )
 
     first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
     await agent.build_context(await agent.merge_facts([first_fact]))
@@ -333,7 +377,7 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
 
     emitted: list[dict] = []
 
-    async def _fake_emit(*, event, user_id, session_id, turn_id):
+    async def _fake_emit(*, event, user_id, session_id, turn_id, **_kwargs):
         emitted.append({"kind": event.kind, "text": event.text})
 
     monkeypatch.setattr(agent, "_emit_stream_event", _fake_emit)
@@ -526,6 +570,7 @@ async def test_add_fact_ingress_interrupt_requests_cancel_on_active_run() -> Non
             session_id="s-chat",
             content="Inspect the login flow.",
             turn_id="turn-1",
+            source="api",
         )  # type: ignore[arg-type]
     )
     assert agent._session_run_coordinator.get_active_run("s-chat").status == "running"
@@ -552,6 +597,7 @@ async def test_add_fact_ingress_interrupt_accepts_chinese_cancel_phrase() -> Non
             session_id="s-chat",
             content="Inspect the login flow.",
             turn_id="turn-1",
+            source="api",
         )  # type: ignore[arg-type]
     )
 
@@ -579,6 +625,7 @@ async def test_add_fact_long_message_containing_stop_keyword_falls_through_to_ll
             session_id="s-chat",
             content="Inspect the login flow.",
             turn_id="turn-1",
+            source="api",
         )  # type: ignore[arg-type]
     )
 
@@ -605,6 +652,7 @@ async def test_add_fact_non_interrupt_does_not_cancel_active_run() -> None:
             session_id="s-chat",
             content="Inspect the login flow.",
             turn_id="turn-1",
+            source="api",
         )  # type: ignore[arg-type]
     )
 
@@ -663,6 +711,7 @@ async def test_drain_deferred_turns_mints_fresh_turn_id_for_reinjection() -> Non
             session_id="s-chat",
             content="Plan the refactor.",
             turn_id="turn-root",
+            source="api",
         )  # type: ignore[arg-type]
     )
     agent._session_run_coordinator._run_store.append_pending_turn(

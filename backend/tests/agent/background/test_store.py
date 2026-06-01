@@ -38,8 +38,10 @@ def _make_spec(
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> BackgroundTaskStore:
-    return BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+def store(runtime_paths_with_schema) -> BackgroundTaskStore:
+    return BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
 
 
 # ----------------------------------------------------------------------
