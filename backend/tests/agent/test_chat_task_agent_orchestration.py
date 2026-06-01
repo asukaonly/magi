@@ -185,7 +185,14 @@ async def test_chat_history_service_loads_active_summary_context_and_tail(tmp_pa
     history_context = await service.get_or_load_history_context("u-chat", "s-chat")
 
     assert history_context.session_origin == "Started with build system debugging."
-    assert history_context.session_summary == "The first turn established the original topic."
+    # commit b357735a (persona boundary summaries) wraps the active
+    # token-budget summary in a "# Rolling Token-Budget Summary" markdown
+    # section so it can be combined with persona-boundary / attachment
+    # manifest sections in the prompt.
+    assert history_context.session_summary == (
+        "# Rolling Token-Budget Summary\n"
+        "The first turn established the original topic."
+    )
     assert history_context.messages == [
         {"role": "user", "content": "tail starts here"},
         {"role": "user", "content": "latest tail"},
