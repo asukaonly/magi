@@ -42,3 +42,60 @@ def test_projection_consented_none_when_absent():
     resp = _serialize_package_lightweight(state, packages={})
     assert resp.manifest.consented_capabilities is None
     assert resp.manifest.capabilities[0].capability == "calendar"
+
+
+def test_config_exported_plugin_settings_has_capability_fields():
+    # Guards against the duplicate-model bug: the PluginSettings that AppConfig
+    # actually uses (re-exported from magi.config) must carry these fields, or
+    # consented_capabilities/official get silently dropped on config load.
+    from magi.config import PluginSettings as ExportedPluginSettings
+
+    s = ExportedPluginSettings.model_validate(
+        {"official": True, "consented_capabilities": [{"capability": "network"}]}
+    )
+    assert s.official is True
+    assert s.consented_capabilities[0].capability == "network"
+
+
+def test_appconfig_round_trips_consented_capabilities():
+    # End-to-end: a package's consented_capabilities survives AppConfig validation
+    # (the real model path), not just direct plugin_models construction.
+    from magi.config.models import AppConfig
+
+    cfg = AppConfig.model_validate(
+        {"plugins": {"packages": {"demo": {"consented_capabilities": [{"capability": "calendar"}]}}}}
+    )
+    pkg = cfg.plugins.packages["demo"]
+    assert pkg.consented_capabilities[0].capability == "calendar"
+
+
+import io
+import tarfile
+from pathlib import Path
+
+
+def _make_archive(tmp_path: Path) -> Path:
+    toml = (
+        b'[plugin]\n'
+        b'id = "demo"\nname = "Demo"\nversion = "1.0.0"\n'
+        b'entry_module = "plugin"\nentry_class = "Demo"\n'
+        b'\n[[plugin.permissions.capabilities]]\n'
+        b'capability = "network"\nscope = ["x.com"]\n'
+    )
+    archive = tmp_path / "demo.tar.gz"
+    with tarfile.open(archive, "w:gz") as tf:
+        info = tarfile.TarInfo("demo/plugin.toml")
+        info.size = len(toml)
+        tf.addfile(info, io.BytesIO(toml))
+    return archive
+
+
+def test_inspect_reads_capabilities_without_installing(tmp_path):
+    from magi.plugins.manager import PluginManager
+
+    mgr = PluginManager.__new__(PluginManager)  # avoid full init
+    archive = _make_archive(tmp_path)
+    manifest = mgr.inspect_plugin_archive(archive)
+    assert manifest.plugin_id == "demo"
+    assert manifest.capabilities[0].capability == "network"
+    assert manifest.capabilities[0].scope == ["x.com"]

@@ -5788,6 +5788,39 @@ export interface components {
              */
             readonly state_transition_enabled: boolean;
         };
+        /**
+         * PluginCapability
+         * @description A single self-declared capability shown to the user for install-time
+         *     consent. NOT enforced at runtime (no sandbox this iteration).
+         *
+         *     ``capability`` is a permissive ``str`` for forward-compat: a newer
+         *     registry may declare a capability an older app doesn't know, and that must
+         *     not break parsing. The authoritative known set is enforced at build time in
+         *     magi-plugins ``scripts/build-registry.py`` and rendered with a known map +
+         *     graceful fallback in the frontend. Known values: screen_recording,
+         *     accessibility, calendar, photos, contacts, system_media, filesystem_read,
+         *     filesystem_write, network, subprocess.
+         */
+        readonly PluginCapability: {
+            /** Capability */
+            readonly capability: string;
+            /**
+             * Optional
+             * @default false
+             */
+            readonly optional: boolean;
+            /**
+             * Reason
+             * @default
+             */
+            readonly reason: string;
+            /** Reason I18N */
+            readonly reason_i18n?: {
+                readonly [key: string]: string;
+            };
+            /** Scope */
+            readonly scope?: readonly string[];
+        };
         /** PluginContributionResponse */
         readonly PluginContributionResponse: {
             /** Contribution Id */
@@ -5874,6 +5907,10 @@ export interface components {
         readonly PluginManifestResponse: {
             /** Author */
             readonly author: string;
+            /** Capabilities */
+            readonly capabilities?: readonly components["schemas"]["PluginCapability"][];
+            /** Consented Capabilities */
+            readonly consented_capabilities?: readonly components["schemas"]["PluginCapability"][] | null;
             /** Contribution Types */
             readonly contribution_types: readonly string[];
             /** Description */
@@ -5920,6 +5957,8 @@ export interface components {
              * @default
              */
             readonly author: string;
+            /** Capabilities */
+            readonly capabilities?: readonly components["schemas"]["PluginCapability"][];
             /** Contribution Types */
             readonly contribution_types?: readonly string[];
             /**
