@@ -213,6 +213,36 @@ class LocalizedText(BaseModel):
     en: str
 
 
+class PluginCapability(BaseModel):
+    """A single self-declared capability shown to the user for install-time
+    consent. NOT enforced at runtime (no sandbox this iteration).
+
+    ``capability`` is a permissive ``str`` for forward-compat: a newer
+    registry may declare a capability an older app doesn't know, and that must
+    not break parsing. The authoritative known set is enforced at build time in
+    magi-plugins ``scripts/build-registry.py`` and rendered with a known map +
+    graceful fallback in the frontend. Known values: screen_recording,
+    accessibility, calendar, photos, contacts, system_media, filesystem_read,
+    filesystem_write, network, subprocess.
+    """
+
+    capability: str
+    scope: list[str] = Field(default_factory=list)
+    """For filesystem_read/write/network/subprocess: path prefixes / hosts /
+    executables. Empty = unspecified (broadest). Ignored for OS permissions."""
+    optional: bool = False
+    reason: str = ""
+    reason_i18n: dict[str, str] = Field(default_factory=dict)
+
+
+class PluginPermissions(BaseModel):
+    """The ``[plugin.permissions]`` table. ``extra='allow'`` tolerates legacy
+    keys (``declares``, ``memory_access``) so existing manifests still parse."""
+
+    capabilities: list[PluginCapability] = Field(default_factory=list)
+    model_config = {"extra": "allow"}
+
+
 class LocalRequirementFileExists(BaseModel):
     """Requires a file to exist at the platform-specific path."""
 
@@ -324,12 +354,19 @@ class PluginManifest(BaseModel):
     See :class:`SuggestionDescriptor` and the onboarding redesign spec
     (``docs/superpowers/specs/2026-05-28-onboarding-redesign-design.md``).
     """
+    permissions: Optional[PluginPermissions] = None
+    """Declared capabilities + legacy permission keys, from the
+    ``[plugin.permissions]`` table. See :class:`PluginCapability`."""
 
     model_config = {"populate_by_name": True}
 
     @property
     def plugin_path(self) -> Path:
         return Path(self.plugin_dir)
+
+    @property
+    def capabilities(self) -> list[PluginCapability]:
+        return self.permissions.capabilities if self.permissions else []
 
 
 class PluginContribution(BaseModel):
@@ -384,6 +421,9 @@ class PluginRegistryEntry(BaseModel):
     """Optional declaration of how/when this plugin should be auto-suggested,
     mirroring :attr:`PluginManifest.suggestion_descriptor` so the registry can
     drive install-first suggestions without a local manifest."""
+    capabilities: list[PluginCapability] = Field(default_factory=list)
+    """Self-declared capabilities, copied verbatim from the plugin's
+    ``[[plugin.permissions.capabilities]]`` by build-registry.py."""
 
 
 class PluginRegistryIndex(BaseModel):
