@@ -19,8 +19,10 @@ from magi.tools.builtin.agent_tool import AgentTool, WorkerRunState
 
 
 @pytest.fixture
-async def runtime_trace_store(tmp_path: Path):
-    store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+async def runtime_trace_store(runtime_paths_with_schema):
+    store = RuntimeTraceStore(
+        db_path=str(runtime_paths_with_schema.runtime_trace_db_path)
+    )
     await store.initialize()
     try:
         yield store
