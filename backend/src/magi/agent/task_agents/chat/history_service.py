@@ -87,6 +87,7 @@ class ChatHistoryService:
         scenario_llm_pool: Any | None = None,
         llm_adapter: Any | None = None,
         persona_boundary_summary_generator: PersonaBoundarySummaryGenerator | None = None,
+        conversation_log: Any | None = None,
     ) -> None:
         runtime_paths = get_runtime_paths()
         self._l1_db_path = l1_db_path
@@ -101,6 +102,10 @@ class ChatHistoryService:
         self._scenario_llm_pool = scenario_llm_pool
         self._llm_adapter = llm_adapter
         self._persona_boundary_summary_generator = persona_boundary_summary_generator
+        # Phase F: optional typed-event view over the chat transcript. None
+        # in test paths / pre-bootstrap; Task 8 will gate behavior on
+        # presence rather than read-modify-write the legacy cache.
+        self._conversation_log = conversation_log
 
     async def get_or_load_history(
         self,
