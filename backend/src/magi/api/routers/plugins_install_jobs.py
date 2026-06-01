@@ -237,6 +237,15 @@ class PluginInstallJobManager:
                 plugin_dir,
                 progress_reporter=self._reporter(job),
             )
+            from ...config import save_config
+
+            save_config(
+                {
+                    f"plugins.packages.{plugin_id}.consented_capabilities": [
+                        c.model_dump() for c in entry.capabilities
+                    ]
+                }
+            )
             job.complete(_serialize_package(new_state))
         except Exception as exc:
             job.fail(str(exc))

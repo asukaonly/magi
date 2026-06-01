@@ -1,6 +1,8 @@
 """Session-scoped execution coordination for chat task-agent turns."""
 from __future__ import annotations
 
+from magi_plugin_sdk.run_trigger import IncomingEvent, RunTrigger
+
 from ....agent.run_control import DetachSignal, RetractRequested
 from ....agent.runtime.contracts import FactRecord
 from ....core.logger import get_logger
@@ -129,10 +131,34 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
     ) -> bool:
         """Phase F Task 11: cross-run retract of a single message.
 
+        Phase H Task 7: thin wrapper around the internal
+        :meth:`_do_message_retract` so the same logic is reachable from
+        ``dispatch_event(user_retract)``. Both entry points funnel into
+        one implementation; we keep this public name for legacy callers
+        (``ChatTaskAgent`` and tests) that pre-date the typed dispatcher.
+
+        See :meth:`_do_message_retract` for the full pipeline contract.
+        """
+        return await self._do_message_retract(
+            session_id=session_id,
+            message_id=message_id,
+            actor=actor,
+            payload=payload,
+        )
+
+    async def _do_message_retract(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        actor: str = "system",
+        payload: RetractRequested | None = None,
+    ) -> bool:
+        """Internal: actual cross-run retract work for a single message.
+
         Distinct from :meth:`request_retract` (which cancels the active
-        run): this entry point marks ONE message redacted in the
-        ConversationLog and then propagates the retract to every dependent
-        active run.
+        run): this marks ONE message redacted in the ConversationLog and
+        then propagates the retract to every dependent active run.
 
         Pipeline:
         1. Append a ``message_redacted`` event to the log — the log's
@@ -149,6 +175,10 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         otherwise (no log wired, append failed, find_dependents failed,
         or no dependents to signal). Failures in the log calls are
         swallowed so a transient log outage cannot crash the caller.
+
+        Called by:
+        - ``request_message_retract`` (legacy public entry point)
+        - ``dispatch_event(IncomingEvent(event_type="user_retract"))``
         """
         if self._conversation_log is None:
             return False
@@ -198,6 +228,79 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                     exc_info=True,
                 )
         return signaled > 0
+
+    async def dispatch_event(
+        self,
+        *,
+        session_id: str,
+        event: IncomingEvent,
+    ) -> bool:
+        """Phase H: typed dispatcher for IncomingEvents.
+
+        Returns True when the event was handled (queued to the active run's
+        pending_events, or routed to a sibling coordinator method).
+        Returns False when the caller needs to take a follow-up action —
+        e.g. starting a new run with ``trigger=external_inbound`` because
+        no active run exists yet.
+        """
+        if event.event_type in {"user_steer", "user_augment"}:
+            active_run = self._run_store.get_active_run(session_id)
+            if active_run is None:
+                return False
+            active_run.pending_events.append(event)
+            return True
+
+        if event.event_type == "user_retract":
+            message_id = str(event.payload.get("message_id") or "")
+            if not message_id:
+                logger.warning(
+                    "user_retract event missing payload.message_id; skipping"
+                )
+                return False
+            # Phase H Task 7: dispatch_event funnels into the same
+            # private ``_do_message_retract`` that the public wrapper
+            # ``request_message_retract`` calls. Calling the private
+            # path avoids any future recursion concern if the public
+            # wrapper grows additional pre/post-processing.
+            return await self._do_message_retract(
+                session_id=session_id, message_id=message_id,
+            )
+
+        if event.event_type == "external_inbound":
+            active_run = self._run_store.get_active_run(session_id)
+            if active_run is None:
+                return False
+            active_run.pending_events.append(event)
+            return True
+
+        if event.event_type == "child_run_completed":
+            active_run = self._run_store.get_active_run(session_id)
+            if active_run is None:
+                logger.warning(
+                    "child_run_completed for unknown session %s", session_id,
+                )
+                return False
+            active_run.pending_events.append(event)
+            return True
+
+        if event.event_type in {
+            "scheduled_fire",
+            "sensor_event",
+            "tool_advisory_arrival",
+            "user_defer",
+        }:
+            active_run = self._run_store.get_active_run(session_id)
+            if active_run is not None:
+                active_run.pending_events.append(event)
+                return True
+            logger.info(
+                "dispatch_event: no active run for %s event %s; skipping",
+                event.event_type, event.event_id,
+            )
+            return False
+
+        logger.warning("dispatch_event: unknown event_type %r", event.event_type)
+        return False
 
     def coordinate(self, classified_fact: ClassifiedFact) -> SessionFactDecision:
         """Resolve the visible fact and session-run state for one batch."""
@@ -359,6 +462,31 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             session_id=classified_fact.session_id,
         )
 
+    @staticmethod
+    def _user_message_trigger(
+        *,
+        payload: UserMessagePayload,
+        turn_id: str | None,
+    ) -> RunTrigger:
+        """Phase H: build a ``RunTrigger`` describing a fresh user-message run.
+
+        Used at the call site of ``create_active_run`` inside
+        ``handle_user_turn`` / ``ahandle_user_turn`` so the resulting
+        ``AgentRun`` carries a typed trigger record. ``source_channel``
+        is set to ``"chat_sse"`` because chat HTTP runs land here via the
+        SSE entrypoint; downstream callers that originate from a
+        different channel can construct their own ``RunTrigger`` and
+        pass it through directly.
+        """
+        return RunTrigger(
+            trigger_type="user_message",
+            source_channel="chat_sse",
+            requester=payload.user_id,
+            priority="foreground",
+            correlation=[turn_id] if turn_id else [],
+            payload={"content": payload.content} if payload.content else {},
+        )
+
     def handle_user_turn(
         self,
         payload: UserMessagePayload,
@@ -374,6 +502,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 payload.session_id,
                 root_turn_id=turn_id,
                 root_user_message=payload.content,
+                trigger=self._user_message_trigger(payload=payload, turn_id=turn_id),
             )
             return SessionFactDecision(
                 active_run=active_run,
@@ -449,6 +578,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 payload.session_id,
                 root_turn_id=turn_id,
                 root_user_message=payload.content,
+                trigger=self._user_message_trigger(payload=payload, turn_id=turn_id),
             )
             return SessionFactDecision(
                 active_run=active_run,

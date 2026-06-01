@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from ...plugins.contracts import PluginCapability
+
 
 class PluginSettingsUpdateRequest(BaseModel):
     updates: dict[str, Any] = Field(default_factory=dict)
@@ -36,6 +38,8 @@ class PluginManifestResponse(BaseModel):
     source: str
     plugin_dir: str
     manifest_path: str
+    capabilities: list[PluginCapability] = Field(default_factory=list)
+    consented_capabilities: list[PluginCapability] | None = None
 
 
 class PluginContributionResponse(BaseModel):
@@ -85,6 +89,7 @@ class PluginRegistryEntryResponse(BaseModel):
     installed: bool = False
     installed_version: str | None = None
     update_available: bool = False
+    capabilities: list[PluginCapability] = Field(default_factory=list)
 
 
 class PluginRegistryResponse(BaseModel):

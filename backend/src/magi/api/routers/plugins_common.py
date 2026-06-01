@@ -17,6 +17,7 @@ from ...plugins.contracts import (
     PluginContribution,
     PluginManifest,
     PluginPackageState,
+    PluginPermissions,
     PluginRegistryEntry,
 )
 from ...plugins.i18n import PluginI18n
@@ -141,6 +142,12 @@ def _serialize_manifest(
         source=manifest.source,
         plugin_dir=manifest.plugin_dir,
         manifest_path=manifest.manifest_path,
+        capabilities=manifest.capabilities,
+        consented_capabilities=(
+            packages[manifest.plugin_id].consented_capabilities
+            if manifest.plugin_id in packages
+            else None
+        ),
     )
 
 
@@ -415,6 +422,7 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
     if is_library:
         package_config["trusted"] = True
     package_config["official"] = bool(entry.official)   # registry is authoritative
+    package_config["consented_capabilities"] = [c.model_dump() for c in entry.capabilities]
     save_config({f"plugins.packages.{entry.plugin_id}": package_config})
     logger.info(
         "Saved lightweight plugin install config",
@@ -442,6 +450,7 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
             platforms=entry.platforms,
             plugin_dir=str(dest_dir),
             source="external",
+            permissions=PluginPermissions(capabilities=list(entry.capabilities)),
         ),
         enabled=True,
         trusted=is_library,
@@ -552,7 +561,12 @@ async def install_with_closure(
             from ...config import save_config
 
             save_config(
-                {f"plugins.packages.{entry.plugin_id}.official": bool(entry.official)}
+                {
+                    f"plugins.packages.{entry.plugin_id}.official": bool(entry.official),
+                    f"plugins.packages.{entry.plugin_id}.consented_capabilities": [
+                        c.model_dump() for c in entry.capabilities
+                    ],
+                }
             )
         else:
             state = await _to_thread(_lightweight_install, plugin_dir, entry)
@@ -610,6 +624,12 @@ def _serialize_package_lightweight(
             source=m.source,
             plugin_dir=m.plugin_dir,
             manifest_path=m.manifest_path,
+            capabilities=m.capabilities,
+            consented_capabilities=(
+                packages[m.plugin_id].consented_capabilities
+                if m.plugin_id in packages
+                else None
+            ),
         ),
         enabled=state.enabled,
         trusted=state.trusted,

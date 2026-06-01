@@ -84,6 +84,7 @@ async def list_registry_plugins(
                 installed=installed,
                 installed_version=installed_version,
                 update_available=update_available,
+                capabilities=entry.capabilities,
             )
         )
     return PluginRegistryResponse(plugins=result, registry_version=index.registry_version)
@@ -158,6 +159,15 @@ async def update_plugin(plugin_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
+    from ...config import save_config
+
+    save_config(
+        {
+            f"plugins.packages.{plugin_id}.consented_capabilities": [
+                c.model_dump() for c in entry.capabilities
+            ]
+        }
+    )
     return legacy._serialize_package(new_state)
 
 

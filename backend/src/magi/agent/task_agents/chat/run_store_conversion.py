@@ -5,6 +5,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from magi_plugin_sdk.run_trigger import RunTrigger
+
 from .run_contracts import ActiveRun, PendingTurn, RunResult, RunResultDisposition
 
 
@@ -12,15 +14,21 @@ class SessionRunConversionMixin:
     """Convert L0 execution-state payloads to chat run contracts."""
 
     _l0_store: Any
+    _run_triggers: "dict[tuple[str, str], RunTrigger]"
 
     def _get_run(self, session_id: str) -> ActiveRun | None:
         state = self._l0_store.get_execution_state_sync(session_id)
         run = state.get("run")
         if not isinstance(run, dict):
             return None
+        run_id = str(run["run_id"])
+        # Phase H: overlay the in-memory typed trigger if recorded for
+        # this (session, run). Background-restored runs lack one and
+        # surface ``trigger=None``.
+        trigger = self._run_triggers.get((session_id, run_id))
         return ActiveRun(
             session_id=str(run["session_id"]),
-            run_id=str(run["run_id"]),
+            run_id=run_id,
             status=str(run.get("status") or "running"),
             root_turn_id=str(run["root_turn_id"]) if run.get("root_turn_id") is not None else None,
             root_user_message=str(run.get("root_user_message") or ""),
@@ -46,6 +54,7 @@ class SessionRunConversionMixin:
             stale_results=[self._to_run_result(item) for item in state.get("stale_results", [])],
             created_at=float(run.get("created_at") or 0.0),
             updated_at=float(run.get("updated_at") or 0.0),
+            trigger=trigger,
         )
 
     def _require_run(self, session_id: str) -> ActiveRun:

@@ -34,20 +34,28 @@ def test_agentrun_carries_phase_e_fields_with_defaults() -> None:
 
 def test_agentrun_accepts_phase_e_fields_on_construction() -> None:
     from magi.agent.task_agents.chat.run_contracts import AgentRun
+    from magi_plugin_sdk.run_trigger import RunTrigger
 
+    trigger = RunTrigger(
+        trigger_type="user_message",
+        source_channel=None,
+        requester="u-1",
+        priority="foreground",
+    )
     run = AgentRun(
         session_id="s1",
         run_id="r1",
         graph=("tool_loop", "validate"),
         node_states={"tool_loop": {"iterations": 2}},
         consumed_events=("e1", "e2"),
-        trigger="user_message",
+        trigger=trigger,
         deliveries=("chat_sse",),
     )
     assert run.graph == ("tool_loop", "validate")
     assert run.node_states == {"tool_loop": {"iterations": 2}}
     assert run.consumed_events == ("e1", "e2")
-    assert run.trigger == "user_message"
+    assert run.trigger is trigger
+    assert run.trigger.trigger_type == "user_message"
     assert run.deliveries == ("chat_sse",)
 
 
