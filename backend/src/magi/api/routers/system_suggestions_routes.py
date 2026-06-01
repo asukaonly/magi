@@ -128,6 +128,13 @@ def build_default_system_suggestions_router(
             classify=classify_dep(),
             throttle=_THROTTLE,
         )
+        try:
+            from magi.notifications.service import materialize_suggestion_notifications
+            await materialize_suggestion_notifications(
+                user_id="default_user", locale=request.locale, proposals=proposals,
+            )
+        except Exception:
+            logger.warning("notification materialization failed", exc_info=True)
         return CheckResponse(suggestions=proposals)
 
     @router.post("/system-suggestions/dismiss", response_model=DismissResponse)

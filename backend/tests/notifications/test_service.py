@@ -52,3 +52,18 @@ def test_cooldown_elapsed_recreates(tmp_path):
         "UPDATE user_notifications SET dismissed_at_ms=? WHERE id=?", (old, nid)); c.commit(); c.close()
     svc.materialize(user_id="default_user", locale="zh", proposals=[_proposal()])
     assert len(store.list_for_user("default_user")) == 1   # recreated
+
+async def test_materialize_helper_inserts_and_signals(tmp_path, monkeypatch):
+    import magi.notifications.store as store_mod
+    s = store_mod.NotificationStore(str(tmp_path / "n.db")); s.ensure_schema()
+    monkeypatch.setattr(store_mod, "_STORE", s)
+    signals = []
+    import magi.notifications.service as svc_mod
+    async def fake_signal(**kw): signals.append(kw)
+    monkeypatch.setattr(svc_mod, "_emit_notification_added_signal", fake_signal)
+    from types import SimpleNamespace
+    p = SimpleNamespace(category="browser_history", dedupe_key="browser_history",
+        plugin_ids=[], installable_plugin_ids=[], confidence=0.9, rationale={"zh":"x","en":"y"})
+    await svc_mod.materialize_suggestion_notifications(user_id="default_user", locale="zh", proposals=[p])
+    assert len(s.list_for_user("default_user")) == 1
+    assert signals and signals[0]["unread_count"] == 1

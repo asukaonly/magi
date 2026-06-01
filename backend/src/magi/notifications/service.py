@@ -2,11 +2,12 @@
 dedup + cooldown, and expose feed/state transitions for the API."""
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Any, Iterable
 
-from magi.notifications.store import NotificationRow, NotificationStore
+from magi.notifications.store import NotificationRow, NotificationStore, get_notification_store
 
 # Cooldown windows by dismiss kind (mirrors suggestion-dismissal TTLs).
 _COOLDOWN_MS = {
@@ -88,3 +89,31 @@ class NotificationService:
 
     def action(self, notification_id: int) -> None:
         self._store.mark_actioned(notification_id)
+
+
+async def materialize_suggestion_notifications(*, user_id: str, locale: str, proposals) -> None:
+    """Materialize proposals into durable notifications, then emit a live
+    'user_notification_added' signal so the frontend refreshes. Best-effort:
+    callers wrap in try/except so /check never fails."""
+    store = get_notification_store()
+    svc = NotificationService(store=store)
+    # store methods are sync sqlite3 → run off the event loop
+    await asyncio.to_thread(svc.materialize, user_id=user_id, locale=locale, proposals=list(proposals))
+    unread = await asyncio.to_thread(store.unread_count, user_id)
+    await _emit_notification_added_signal(user_id=user_id, unread_count=unread)
+
+
+async def _emit_notification_added_signal(*, user_id: str, unread_count: int) -> None:
+    import json as _json
+    from magi.runtime_trace.provider import resolve_runtime_trace_store
+    from magi.runtime_trace.contracts import RuntimeNotificationRecord
+    rec = RuntimeNotificationRecord(
+        notification_id=0,
+        channel="user_notification_added",
+        payload_json=_json.dumps({"unread_count": unread_count}, ensure_ascii=False),
+        created_at_ms=0,  # required field; store coalesces 0 -> int(time.time()*1000)
+        user_id=user_id,
+        session_id="",
+    )
+    # resolve_runtime_trace_store().append_notification is async (aiosqlite)
+    await resolve_runtime_trace_store().append_notification(rec)
