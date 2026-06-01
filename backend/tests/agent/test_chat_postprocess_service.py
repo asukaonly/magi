@@ -985,6 +985,19 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
         "selected_tools": [],
         "task_hint": {},
         "recommended_tools": [],
+        # commit efc3161b (align runtime trace flow) added the optional
+        # llm_trace payload to the persisted selected_tools_json so the
+        # frontend can render provider/model/token details inline.
+        "llm_trace": {
+            "provider": "openai",
+            "model": "gpt-4.1-mini",
+            "input_tokens": 48,
+            "output_tokens": 12,
+            "total_tokens": 60,
+            "reasoning_tokens": 0,
+            "thinking_enabled": False,
+            "duration_ms": 310,
+        },
     }
     assert len(notifications) == 1
     assert notifications[0].channel == "turn_ux_plan"
