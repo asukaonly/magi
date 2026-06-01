@@ -154,6 +154,13 @@ optional = false                        # 可选, 默认 false
 / 主机 / 可执行名的列表;**空 scope 表示"未限定/任意"**(最宽)。系统权限类
 忽略 scope。
 
+**`capability` 用 `str` 而非 `Literal`(前向兼容)**:若新版 registry 声明了旧版
+App 不认识的能力,`Literal` 会让整个 `PluginRegistryIndex.model_validate` 失败、
+marketplace 直接 502。所以 wire 模型用 `str`;**已知枚举的权威校验放在
+`magi-plugins/scripts/build-registry.py` 的 `KNOWN_CAPABILITIES`(CI 拦截未知能力,
+非零退出)**,前端用"已知类别映射 + 未知优雅降级"渲染。新增能力 = 同时更新
+build-registry 的 set、SDK 的已知列表注释、前端类别映射,是一次刻意动作。
+
 **SDK `magi/sdk/src/magi_plugin_sdk/contracts.py`**(`PluginManifest:275`、
 `PluginRegistryEntry:361` 所在文件):
 
@@ -161,11 +168,7 @@ optional = false                        # 可选, 默认 false
 class PluginCapability(BaseModel):
     """A single declared capability. Self-declared by the plugin; shown to the
     user for informed consent. NOT enforced at runtime (no sandbox)."""
-    capability: Literal[
-        "screen_recording", "accessibility", "calendar", "photos",
-        "contacts", "system_media",
-        "filesystem_read", "filesystem_write", "network", "subprocess",
-    ]
+    capability: str   # 已知枚举见下表; 用 str 而非 Literal 以前向兼容
     scope: list[str] = Field(default_factory=list)
     optional: bool = False
     reason: str = ""
@@ -230,8 +233,10 @@ if capabilities:
   追加 `consented_capabilities = entry.capabilities`。不变式:registry 安装/更新
   成功后,`config.plugins.packages[id].consented_capabilities == entry.capabilities`
   (用户在弹窗里已看到并同意)。
-- **sideload 安装**:落地后持久化 `consented_capabilities = manifest.capabilities`
-  (用户在 inspect 弹窗里看到的就是 archive manifest 声明的)。
+- **sideload 安装**:**不**持久化 consented(YAGNI):sideload 插件不在 registry,
+  没有 marketplace 更新路径(`update_plugin` 对非 registry 插件 404),persisted
+  consented 永远不会被 diff 消费 → 死数据。inspect 弹窗已完成"安装前知情同意"的
+  目的;持久化留待将来 sideload 真有更新路径时再加。
 - **已装插件投影**:`PluginPackageResponse`(及前端 `PluginPackageState`)需同时
   暴露 manifest 的 `capabilities`(本地声明)和 `consented_capabilities`(已同意),
   供前端更新时 diff、设置页展示。
@@ -312,7 +317,7 @@ async def inspect_plugin_upload(file: UploadFile):
 1. 选文件 → 前端调 `/install/upload/inspect` → 后端解包读 manifest 返回能力(不
    激活)。
 2. `PluginConsentDialog`(sideload 模式)展示 → 确认才 `/install/upload/jobs`。
-3. 落地 + 持久化 `consented_capabilities = manifest.capabilities`。
+3. 落地(不持久化 consented,见 §4.4 YAGNI)。
 
 ### 5.4 用户更新插件(magi)— diff 规则
 
