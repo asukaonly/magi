@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Callable
@@ -13,7 +12,6 @@ from ..core.logger import get_logger
 from ..plugins.i18n import get_current_language as get_plugin_current_language
 from ..plugins.i18n import set_current_language as set_plugin_current_language
 from ..plugins.sensors import SensorRegistry
-from ..runtime_trace import RuntimeNotificationRecord
 from ..scheduler.contracts import (
     ScheduleDefinition,
     ScheduledExecutionContext,
@@ -258,13 +256,9 @@ class SensorSchedulerContrib:
             checkpoint_interval = 50
             target_type_enum = ScheduledTargetType.SENSOR_SYNC
 
-            # Emit initial progress notification
-            await self._emit_sync_progress(
-                source_type=source_type,
-                processed=0,
-                total=total_items,
-                schedule_id=schedule_id,
-            )
+            # (sensor_sync_progress notification deleted in Phase G+4 — was a dead
+            # write; no frontend listener handled the channel, so the event went
+            # nowhere. Re-add with a frontend handler if progress UI is needed.)
 
             for idx, item in enumerate(sorted_items):
                 fetched = await sensor.fetch_item(item)
@@ -286,16 +280,8 @@ class SensorSchedulerContrib:
                     allowed_edge_whitelist=allowed_edge_whitelist,
                 )
 
-                # Mid-batch cursor checkpoint + progress report
+                # Mid-batch cursor checkpoint
                 if (idx + 1) % checkpoint_interval == 0:
-                    # Progress notification
-                    await self._emit_sync_progress(
-                        source_type=source_type,
-                        processed=idx + 1,
-                        total=total_items,
-                        schedule_id=schedule_id,
-                    )
-
                     # Mid-batch cursor save (skip on last item — final cursor is set below)
                     if idx + 1 < total_items:
                         item_mtime = float(item.get("modified_at") or 0.0)
@@ -308,15 +294,6 @@ class SensorSchedulerContrib:
                             except Exception:
                                 logger.debug("Mid-batch cursor save failed", target_key=target_key)
 
-            # Emit completion progress notification
-            await self._emit_sync_progress(
-                source_type=source_type,
-                processed=total_items,
-                total=total_items,
-                schedule_id=schedule_id,
-                completed=True,
-            )
-
             return ScheduledExecutionResult(
                 success=True,
                 message="sensor_sync_completed",
@@ -327,39 +304,3 @@ class SensorSchedulerContrib:
         finally:
             set_plugin_current_language(previous_language or None)
 
-    async def _emit_sync_progress(
-        self,
-        *,
-        source_type: str,
-        processed: int,
-        total: int,
-        schedule_id: str,
-        completed: bool = False,
-    ) -> None:
-        """Write a sensor_sync_progress notification for the Tauri event bridge."""
-        try:
-            from ..runtime_trace.provider import resolve_runtime_trace_store
-
-            store = resolve_runtime_trace_store()
-            payload = {
-                "source_type": source_type,
-                "processed": processed,
-                "total": total,
-                "completed": completed,
-                "schedule_id": schedule_id,
-            }
-            await store.append_notification(
-                RuntimeNotificationRecord(
-                    notification_id=0,
-                    channel="sensor_sync_progress",
-                    user_id="system",
-                    session_id="",
-                    payload_json=json.dumps(payload, ensure_ascii=False),
-                )
-            )
-        except Exception:
-            logger.debug(
-                "Sync progress notification failed",
-                source_type=source_type,
-                processed=processed,
-            )
