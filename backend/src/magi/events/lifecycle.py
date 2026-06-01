@@ -174,6 +174,11 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                                 "workspace_path": user_message.workspace_path,
                                 "timestamp": float(user_message.created_at),
                                 "metadata": dict(user_message.metadata),
+                                # Phase H+1: propagate dispatcher source into
+                                # the fact payload so UserMessagePayload.from_dict
+                                # can tag the resulting RunTrigger
+                                # (api → user_message; telegram/weixin → external_inbound).
+                                "source": user_message.source,
                             },
                             source=user_message.source,
                             level=EventLevel.INFO,
