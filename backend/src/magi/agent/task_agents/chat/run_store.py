@@ -5,6 +5,8 @@ from __future__ import annotations
 from threading import RLock
 from typing import TYPE_CHECKING
 
+from magi_plugin_sdk.run_trigger import RunTrigger
+
 from ....memory.l0.working_memory import L0WorkingMemoryStore
 from ...run_control import RunControl
 from .run_store_conversion import SessionRunConversionMixin
@@ -38,6 +40,11 @@ class SessionRunStore(
         self._run_controls: dict[tuple[str, str], RunControl] = {}
         # Phase E: per-run snapshot storage (in-memory; persistence via background task spec)
         self._run_snapshots: dict[tuple[str, str], "RunSnapshot"] = {}
+        # Phase H: per-run trigger storage (in-memory; L0 does not yet
+        # persist the typed RunTrigger). Cleared alongside the run when
+        # ``create_active_run`` replaces the active run for a session and
+        # when ``complete_active_run`` clears execution state.
+        self._run_triggers: dict[tuple[str, str], RunTrigger] = {}
 
 
 __all__ = ["SessionRunStore"]

@@ -1,7 +1,7 @@
 """Session-scoped execution coordination for chat task-agent turns."""
 from __future__ import annotations
 
-from magi_plugin_sdk.run_trigger import IncomingEvent
+from magi_plugin_sdk.run_trigger import IncomingEvent, RunTrigger
 
 from ....agent.run_control import DetachSignal, RetractRequested
 from ....agent.runtime.contracts import FactRecord
@@ -429,6 +429,31 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             session_id=classified_fact.session_id,
         )
 
+    @staticmethod
+    def _user_message_trigger(
+        *,
+        payload: UserMessagePayload,
+        turn_id: str | None,
+    ) -> RunTrigger:
+        """Phase H: build a ``RunTrigger`` describing a fresh user-message run.
+
+        Used at the call site of ``create_active_run`` inside
+        ``handle_user_turn`` / ``ahandle_user_turn`` so the resulting
+        ``AgentRun`` carries a typed trigger record. ``source_channel``
+        is set to ``"chat_sse"`` because chat HTTP runs land here via the
+        SSE entrypoint; downstream callers that originate from a
+        different channel can construct their own ``RunTrigger`` and
+        pass it through directly.
+        """
+        return RunTrigger(
+            trigger_type="user_message",
+            source_channel="chat_sse",
+            requester=payload.user_id,
+            priority="foreground",
+            correlation=[turn_id] if turn_id else [],
+            payload={"content": payload.content} if payload.content else {},
+        )
+
     def handle_user_turn(
         self,
         payload: UserMessagePayload,
@@ -444,6 +469,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 payload.session_id,
                 root_turn_id=turn_id,
                 root_user_message=payload.content,
+                trigger=self._user_message_trigger(payload=payload, turn_id=turn_id),
             )
             return SessionFactDecision(
                 active_run=active_run,
@@ -519,6 +545,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 payload.session_id,
                 root_turn_id=turn_id,
                 root_user_message=payload.content,
+                trigger=self._user_message_trigger(payload=payload, turn_id=turn_id),
             )
             return SessionFactDecision(
                 active_run=active_run,
