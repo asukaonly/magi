@@ -1,21 +1,49 @@
-"""Persist control-plane state as durable chat status messages."""
+"""Project control-plane state-change events into durable chat transcript rows.
+
+Control-Plane Extraction Phase 1. The control-actuator tools (enter/exit plan
+mode, ``todo_write``, ``ask_user_question``) used to call ``persist_*`` helpers
+in ``magi.agent.control.chat_state_persister`` directly, which forced the
+control package to import chat/transport. That dependency is now inverted: the
+tools publish control state-change events on the L3 event bus (a legal downward
+edge), and this chat-side subscriber owns the transcript projection.
+
+The persistence logic below is MOVED VERBATIM from the former
+``chat_state_persister`` module — its dedup / replace / hide / threading
+semantics are behaviour-bearing and a golden parity test guards byte-identical
+output. Do not rewrite it.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import uuid
 from typing import Any, Iterable
 
-from ...chat import ChatMessageRecord
-from ...chat.provider import get_chat_store
-from ...core.logger import get_logger
-from ...runtime_defaults import DEFAULT_USER_ID
-from ...transport.chat_events import (
+from ..events.domain_payloads import (
+    AskSnapshot,
+    ControlAskAnswered,
+    ControlAskRequested,
+    ControlPlanStateChanged,
+    ControlTodoStateChanged,
+)
+from ..events.events import Event, EventTypes
+from ..events.payload_helpers import expect_payload, PayloadTypeError
+from ..runtime_defaults import DEFAULT_USER_ID
+from .contracts import ChatMessageRecord
+from .provider import get_chat_store
+from ..transport.chat_events import (
     broadcast_chat_message_hidden,
     broadcast_chat_message_upsert,
 )
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Helpers (moved verbatim from chat_state_persister).
+# ---------------------------------------------------------------------------
 
 
 def _resolve_user_id(user_id: str | None) -> str:
@@ -35,6 +63,103 @@ def _coerce_created_at_ms(value: Any) -> int | None:
     if numeric < 10_000_000_000:
         numeric *= 1000
     return int(numeric)
+
+
+def _now_ms() -> int:
+    import time
+
+    return int(time.time() * 1000)
+
+
+def _payload_json_matches(existing_payload_json: str | None, payload: dict[str, Any]) -> bool:
+    raw = str(existing_payload_json or "").strip()
+    if not raw:
+        return False
+    try:
+        existing_payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return False
+    return existing_payload == payload
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized or None
+
+
+def _ask_request_message_id(request_id: str) -> str:
+    return f"ask:{request_id}"
+
+
+def _ask_response_message_id(request_id: str) -> str:
+    return f"ask-response:{request_id}"
+
+
+class _AskView:
+    """Read-only view exposing ``AskSnapshot`` fields via attribute access.
+
+    The transcript projector reads the ask object purely through ``getattr``;
+    rebuilding a lightweight namespace from the event snapshot keeps the moved
+    persistence logic byte-identical without importing control's ``AskState``.
+    """
+
+    __slots__ = (
+        "request_id",
+        "question",
+        "options",
+        "allow_free_text",
+        "asked_at",
+        "timeout_seconds",
+        "expires_at",
+        "answered_at",
+        "answer",
+        "resolution",
+        "status",
+    )
+
+    def __init__(self, snapshot: AskSnapshot) -> None:
+        self.request_id = snapshot.request_id
+        self.question = snapshot.question
+        self.options = tuple(snapshot.options)
+        self.allow_free_text = snapshot.allow_free_text
+        self.asked_at = snapshot.asked_at
+        self.timeout_seconds = snapshot.timeout_seconds
+        self.expires_at = snapshot.expires_at
+        self.answered_at = snapshot.answered_at
+        self.answer = snapshot.answer
+        self.resolution = snapshot.resolution
+        self.status = snapshot.status
+
+
+def _ask_state_payload(
+    *,
+    session_id: str,
+    ask: Any,
+    background: bool,
+) -> dict[str, Any]:
+    asked_at_ms = _coerce_created_at_ms(getattr(ask, "asked_at", None))
+    answered_at_ms = _coerce_created_at_ms(getattr(ask, "answered_at", None))
+    expires_at_ms = _coerce_created_at_ms(getattr(ask, "expires_at", None))
+    return {
+        "ask_request_id": str(getattr(ask, "request_id", "") or "").strip(),
+        "session_id": session_id,
+        "status": str(getattr(ask, "status", "pending") or "pending").strip() or "pending",
+        "question": str(getattr(ask, "question", "") or "").strip(),
+        "options": [str(item).strip() for item in getattr(ask, "options", ()) if str(item).strip()],
+        "allow_free_text": bool(getattr(ask, "allow_free_text", True)),
+        "timeout_seconds": getattr(ask, "timeout_seconds", None),
+        "created_at_ms": asked_at_ms,
+        "expires_at_ms": expires_at_ms,
+        "answered_at_ms": answered_at_ms,
+        "answer": getattr(ask, "answer", None),
+        "resolution": getattr(ask, "resolution", None),
+        "background": bool(background),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Projectors (moved verbatim from chat_state_persister).
+# ---------------------------------------------------------------------------
 
 
 async def persist_plan_state_message(
@@ -113,40 +238,6 @@ async def persist_todo_state_message(
         content_text=content_text,
         created_at_ms=latest_updated_ms or None,
     )
-
-
-def _ask_request_message_id(request_id: str) -> str:
-    return f"ask:{request_id}"
-
-
-def _ask_response_message_id(request_id: str) -> str:
-    return f"ask-response:{request_id}"
-
-
-def _ask_state_payload(
-    *,
-    session_id: str,
-    ask: Any,
-    background: bool,
-) -> dict[str, Any]:
-    asked_at_ms = _coerce_created_at_ms(getattr(ask, "asked_at", None))
-    answered_at_ms = _coerce_created_at_ms(getattr(ask, "answered_at", None))
-    expires_at_ms = _coerce_created_at_ms(getattr(ask, "expires_at", None))
-    return {
-        "ask_request_id": str(getattr(ask, "request_id", "") or "").strip(),
-        "session_id": session_id,
-        "status": str(getattr(ask, "status", "pending") or "pending").strip() or "pending",
-        "question": str(getattr(ask, "question", "") or "").strip(),
-        "options": [str(item).strip() for item in getattr(ask, "options", ()) if str(item).strip()],
-        "allow_free_text": bool(getattr(ask, "allow_free_text", True)),
-        "timeout_seconds": getattr(ask, "timeout_seconds", None),
-        "created_at_ms": asked_at_ms,
-        "expires_at_ms": expires_at_ms,
-        "answered_at_ms": answered_at_ms,
-        "answer": getattr(ask, "answer", None),
-        "resolution": getattr(ask, "resolution", None),
-        "background": bool(background),
-    }
 
 
 async def persist_ask_request_message(
@@ -399,29 +490,151 @@ async def _hide_latest_status_message(
         logger.debug("control_status_message.hide_broadcast_failed", exc_info=True)
 
 
-def _now_ms() -> int:
-    import time
-
-    return int(time.time() * 1000)
-
-
-def _payload_json_matches(existing_payload_json: str | None, payload: dict[str, Any]) -> bool:
-    raw = str(existing_payload_json or "").strip()
-    if not raw:
-        return False
-    try:
-        existing_payload = json.loads(raw)
-    except json.JSONDecodeError:
-        return False
-    return existing_payload == payload
+# ---------------------------------------------------------------------------
+# Subscriber wiring.
+# ---------------------------------------------------------------------------
 
 
-def _normalize_optional_text(value: str | None) -> str | None:
-    normalized = str(value or "").strip()
-    return normalized or None
+class ControlTranscriptSubscriber:
+    """Subscribe to control state-change events; project them into the transcript.
+
+    Mirrors :class:`magi.runtime_trace.subscribers.RuntimeTraceSubscriber`:
+    one ``subscribe`` per event type, handler errors caught and logged, and an
+    in-flight set drained on ``stop`` so a clean shutdown completes pending
+    transcript writes. Projection per subscriber is serialized so successive
+    events for the same turn (e.g. an ask request then its answer) apply in
+    publish order.
+    """
+
+    def __init__(self, *, event_bus) -> None:
+        self._bus = event_bus
+        self._sub_ids: list[str] = []
+        self._inflight: set[asyncio.Task] = set()
+        self._serialize_lock = asyncio.Lock()
+
+    async def start(self) -> None:
+        self._sub_ids.append(
+            await self._bus.subscribe(
+                EventTypes.CONTROL_PLAN_STATE_CHANGED, self._on_plan_state_changed
+            )
+        )
+        self._sub_ids.append(
+            await self._bus.subscribe(
+                EventTypes.CONTROL_TODO_STATE_CHANGED, self._on_todo_state_changed
+            )
+        )
+        self._sub_ids.append(
+            await self._bus.subscribe(
+                EventTypes.CONTROL_ASK_REQUESTED, self._on_ask_requested
+            )
+        )
+        self._sub_ids.append(
+            await self._bus.subscribe(
+                EventTypes.CONTROL_ASK_ANSWERED, self._on_ask_answered
+            )
+        )
+
+    async def stop(self) -> None:
+        for sub_id in self._sub_ids:
+            try:
+                await self._bus.unsubscribe(sub_id)
+            except Exception:
+                logger.exception("unsubscribe failed")
+        self._sub_ids = []
+        await self.drain()
+
+    async def drain(self) -> None:
+        if not self._inflight:
+            return
+        await asyncio.gather(*list(self._inflight), return_exceptions=True)
+
+    # -- event handlers -----------------------------------------------------
+
+    async def _on_plan_state_changed(self, event: Event) -> None:
+        try:
+            payload = expect_payload(event, ControlPlanStateChanged)
+        except PayloadTypeError:
+            logger.exception("malformed ControlPlanStateChanged payload")
+            return
+        self._spawn(self._project_plan_state(payload))
+
+    async def _on_todo_state_changed(self, event: Event) -> None:
+        try:
+            payload = expect_payload(event, ControlTodoStateChanged)
+        except PayloadTypeError:
+            logger.exception("malformed ControlTodoStateChanged payload")
+            return
+        self._spawn(self._project_todo_state(payload))
+
+    async def _on_ask_requested(self, event: Event) -> None:
+        try:
+            payload = expect_payload(event, ControlAskRequested)
+        except PayloadTypeError:
+            logger.exception("malformed ControlAskRequested payload")
+            return
+        self._spawn(self._project_ask_requested(payload))
+
+    async def _on_ask_answered(self, event: Event) -> None:
+        try:
+            payload = expect_payload(event, ControlAskAnswered)
+        except PayloadTypeError:
+            logger.exception("malformed ControlAskAnswered payload")
+            return
+        self._spawn(self._project_ask_answered(payload))
+
+    # -- projection (serialized + error-isolated) ---------------------------
+
+    def _spawn(self, coro) -> None:
+        task = asyncio.create_task(self._serialized(coro))
+        self._inflight.add(task)
+        task.add_done_callback(self._inflight.discard)
+
+    async def _serialized(self, coro) -> None:
+        async with self._serialize_lock:
+            try:
+                await coro
+            except Exception:
+                logger.exception("control transcript projection failed")
+
+    async def _project_plan_state(self, p: ControlPlanStateChanged) -> None:
+        await persist_plan_state_message(
+            session_id=p.session_id,
+            user_id=p.user_id,
+            turn_id=p.turn_id,
+            state=dict(p.state),
+        )
+
+    async def _project_todo_state(self, p: ControlTodoStateChanged) -> None:
+        await persist_todo_state_message(
+            session_id=p.session_id,
+            user_id=p.user_id,
+            turn_id=p.turn_id,
+            items=[dict(item) for item in p.items],
+            orchestration_id=p.orchestration_id,
+        )
+
+    async def _project_ask_requested(self, p: ControlAskRequested) -> None:
+        await persist_ask_request_message(
+            session_id=p.session_id,
+            user_id=p.user_id,
+            turn_id=p.turn_id,
+            ask=_AskView(p.ask),
+            background=p.background,
+        )
+
+    async def _project_ask_answered(self, p: ControlAskAnswered) -> None:
+        await persist_ask_response_message(
+            session_id=p.session_id,
+            user_id=p.user_id,
+            turn_id=p.turn_id,
+            ask=_AskView(p.ask),
+            answer=p.answer,
+            background=p.background,
+        )
 
 
 __all__ = [
+    "ControlTranscriptSubscriber",
     "persist_ask_request_message",
     "persist_ask_response_message",
     "persist_plan_state_message",

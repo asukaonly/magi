@@ -75,3 +75,36 @@ class ChatProjectorModule(LifecycleModule):
 
     async def shutdown(self) -> None:
         self._context.chat.projector = None
+
+
+class ControlTranscriptSubscriberModule(LifecycleModule):
+    """Wire the control->chat transcript subscriber to the runtime event bus.
+
+    Control-Plane Extraction Phase 1: the control-actuator tools publish
+    control state-change events on the L3 bus; this chat-side subscriber owns
+    the durable transcript projection (formerly in
+    ``magi.agent.control.chat_state_persister``). Depends on the chat store so
+    ``get_chat_store()`` resolves inside the projector, and on the message bus
+    so it can subscribe.
+    """
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(
+            name="runtime_control_transcript_subscriber",
+            dependencies=("runtime_chat_store", "runtime_message_bus"),
+        )
+        self._context = context
+        self._subscriber = None
+
+    async def init(self) -> None:
+        from .control_transcript_subscriber import ControlTranscriptSubscriber
+
+        message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        self._subscriber = ControlTranscriptSubscriber(event_bus=message_bus)
+        await self._subscriber.start()
+        logger.info("ControlTranscriptSubscriber started")
+
+    async def shutdown(self) -> None:
+        if self._subscriber is not None:
+            await self._subscriber.stop()
+            self._subscriber = None

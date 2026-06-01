@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ...agent.control.chat_state_persister import persist_plan_state_message
+from ...agent.control.common.events import publish_control_plan_state_changed
 from ...agent.control.provider import resolve_control_session_store
 from ...core.logger import get_logger
 from ...runtime_defaults import DEFAULT_USER_ID
@@ -84,7 +84,7 @@ class EnterPlanModeTool(Tool):
             return ToolResult(success=False, error=str(exc))
         state = await store.enter_plan_mode(sid)
         logger.info("plan_mode.entered", session_id=sid)
-        await persist_plan_state_message(
+        await publish_control_plan_state_changed(
             session_id=sid,
             user_id=_user_id(context),
             turn_id=_turn_id(context),
@@ -142,7 +142,7 @@ class ExitPlanModeTool(Tool):
             return ToolResult(success=False, error=str(exc))
         state = await store.exit_plan_mode(sid, plan_text=plan_text)
         logger.info("plan_mode.exited", session_id=sid, plan_length=len(plan_text))
-        await persist_plan_state_message(
+        await publish_control_plan_state_changed(
             session_id=sid,
             user_id=_user_id(context),
             turn_id=_turn_id(context),

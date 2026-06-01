@@ -20,9 +20,9 @@ from ...agent.control.provider import (
     resolve_control_interaction_broker,
     resolve_control_session_store,
 )
-from ...agent.control.chat_state_persister import (
-    persist_ask_request_message,
-    persist_ask_response_message,
+from ...agent.control.common.events import (
+    publish_control_ask_answered,
+    publish_control_ask_requested,
 )
 from ...core.logger import get_logger
 from ...agent.control.common import InteractionTimeoutError
@@ -256,7 +256,7 @@ class AskUserQuestionTool(Tool):
 
         is_background = intent.startswith("background")
         try:
-            await persist_ask_request_message(
+            await publish_control_ask_requested(
                 session_id=sid,
                 user_id=user_id,
                 turn_id=turn_id,
@@ -353,7 +353,7 @@ class AskUserQuestionTool(Tool):
                 closed_ask = await store.close_ask(sid, answer=None, resolution="cancelled")
                 if closed_ask is not None:
                     try:
-                        await persist_ask_request_message(
+                        await publish_control_ask_requested(
                             session_id=sid,
                             user_id=user_id,
                             turn_id=turn_id,
@@ -397,7 +397,7 @@ class AskUserQuestionTool(Tool):
             closed_ask = await store.close_ask(sid, answer=None, resolution="timeout")
             if closed_ask is not None:
                 try:
-                    await persist_ask_request_message(
+                    await publish_control_ask_requested(
                         session_id=sid,
                         user_id=user_id,
                         turn_id=turn_id,
@@ -429,7 +429,7 @@ class AskUserQuestionTool(Tool):
         closed_ask = await store.close_ask(sid, answer=answer_text, resolution="user")
         if closed_ask is not None:
             try:
-                await persist_ask_response_message(
+                await publish_control_ask_answered(
                     session_id=sid,
                     user_id=user_id,
                     turn_id=turn_id,

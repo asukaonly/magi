@@ -192,3 +192,13 @@ class EventTypes:
     # Run lifecycle events (Phase A run control)
     RUN_RETRACTED = "run.retracted"
     RUN_SUSPENDED = "run.suspended"
+
+    # Control-plane state-change events (Control-Plane Extraction Phase 1).
+    # Emitted by control-actuator tools; consumed by a chat-side subscriber
+    # which owns transcript projection. This inverts the former direct
+    # control -> chat/transport dependency into a downward control -> events
+    # publication that the chat layer subscribes to.
+    CONTROL_PLAN_STATE_CHANGED = "control.plan_state_changed"
+    CONTROL_TODO_STATE_CHANGED = "control.todo_state_changed"
+    CONTROL_ASK_REQUESTED = "control.ask_requested"
+    CONTROL_ASK_ANSWERED = "control.ask_answered"
