@@ -55,6 +55,21 @@ def test_chat_task_agent_passes_conversation_log_to_coordinator() -> None:
     assert agent._coordinator._conversation_log is stub
 
 
+def test_chat_task_agent_passes_conversation_log_to_session_run_coordinator() -> None:
+    """Phase F Task 11: SessionRunCoordinator receives the same log so
+    ``request_message_retract`` can append redaction events + find
+    dependent runs."""
+    stub = _StubConversationLog()
+    agent = ChatTaskAgent(
+        agent_id="u-chat",
+        llm_adapter=_FakeLLMAdapter(),
+        channel_registry_resolver=lambda: None,
+        receipts_store_resolver=lambda: None,
+        conversation_log_resolver=lambda: stub,
+    )
+    assert agent._session_run_coordinator._conversation_log is stub
+
+
 def test_chat_task_agent_handles_missing_conversation_log() -> None:
     """Default resolver returns None when container unavailable."""
     agent = ChatTaskAgent(

@@ -33,6 +33,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         interruption_classifier: InterruptionClassifier | None = None,
         delivery_router: object | None = None,
         receipts_store: object | None = None,
+        conversation_log: object | None = None,
     ) -> None:
         self._run_store = run_store or SessionRunStore()
         self._interruption_classifier = interruption_classifier or InterruptionClassifier()
@@ -45,6 +46,11 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         # from this store (when wired) so it no longer depends on the
         # run snapshot carrying the receipt list.
         self._receipts_store = receipts_store
+        # Phase F Task 11: optional ConversationLog — when wired,
+        # ``request_message_retract`` appends a message_redacted event
+        # and propagates the redaction to every active dependent run via
+        # the log's find_dependents → RetractSignal pipeline.
+        self._conversation_log = conversation_log
 
     def request_retract(
         self,
@@ -112,6 +118,86 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             asyncio.create_task(_retract_via_store())
 
         return True
+
+    async def request_message_retract(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        actor: str = "system",
+        payload: RetractRequested | None = None,
+    ) -> bool:
+        """Phase F Task 11: cross-run retract of a single message.
+
+        Distinct from :meth:`request_retract` (which cancels the active
+        run): this entry point marks ONE message redacted in the
+        ConversationLog and then propagates the retract to every dependent
+        active run.
+
+        Pipeline:
+        1. Append a ``message_redacted`` event to the log — the log's
+           ``append`` side effect flips ``is_visible=0`` on the target so
+           subsequent materializations exclude it.
+        2. Ask the log for the runs that consumed the target message_id
+           via ``find_dependents``.
+        3. For each dependent run, look up its registered RunControl and
+           fire ``retract_signal``. Runs whose control is no longer
+           registered (e.g., completed runs) are silently skipped — the
+           active-run propagation is what carries the cross-run guarantee.
+
+        Returns True if any active dependent run was signaled, False
+        otherwise (no log wired, append failed, find_dependents failed,
+        or no dependents to signal). Failures in the log calls are
+        swallowed so a transient log outage cannot crash the caller.
+        """
+        if self._conversation_log is None:
+            return False
+        import time
+        import uuid
+        from magi_plugin_sdk.conversation import ConversationEvent
+        redact_event = ConversationEvent(
+            event_id=uuid.uuid4().hex,
+            event_type="message_redacted",
+            timestamp_ms=int(time.time() * 1000),
+            actor=actor,
+            content=None,
+            redacts=message_id,
+        )
+        try:
+            await self._conversation_log.append(redact_event, session_id=session_id)
+        except Exception:
+            logger.warning(
+                "ConversationLog.append(message_redacted) failed", exc_info=True,
+            )
+            return False
+        try:
+            deps = await self._conversation_log.find_dependents(
+                session_id=session_id, message_id=message_id,
+            )
+        except Exception:
+            logger.warning(
+                "ConversationLog.find_dependents failed", exc_info=True,
+            )
+            return False
+        signaled = 0
+        for dep_run_id, _dep_revision in deps:
+            control = self._run_store.get_active_run_control(session_id, dep_run_id)
+            if control is None:
+                # Completed-run propagation is intentionally a no-op in
+                # this MVP — it would need schema changes to flag the
+                # past snapshot as ``revision_invalidated``. The active
+                # path covers the cross-run guarantee that matters most.
+                continue
+            try:
+                control.retract_signal.request(payload)
+                signaled += 1
+            except Exception:
+                logger.warning(
+                    "RetractSignal.request failed for dependent run %s",
+                    dep_run_id,
+                    exc_info=True,
+                )
+        return signaled > 0
 
     def coordinate(self, classified_fact: ClassifiedFact) -> SessionFactDecision:
         """Resolve the visible fact and session-run state for one batch."""

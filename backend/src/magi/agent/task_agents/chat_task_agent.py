@@ -195,6 +195,7 @@ class ChatTaskAgent(
             ),
             interruption_classifier=self._interruption_classifier,
             receipts_store=self._receipts_store_resolver(),
+            conversation_log=self._conversation_log_resolver(),
         )
         self._planning_service = ChatPlanningService(
             agent_id=self.agent_id,
