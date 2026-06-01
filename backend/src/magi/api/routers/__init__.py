@@ -28,6 +28,7 @@ from .profile import profile_router
 from .availability_routes import availability_router
 from .chat_preview_routes import chat_preview_router
 from .system_suggestions_routes import system_suggestions_router
+from .notifications_routes import notifications_router
 
 __all__ = [
     "tools_router",
@@ -55,4 +56,5 @@ __all__ = [
     "availability_router",
     "chat_preview_router",
     "system_suggestions_router",
+    "notifications_router",
 ]
