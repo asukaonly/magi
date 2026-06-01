@@ -672,8 +672,10 @@ async def test_runtime_notifier_appends_response_and_trace_notifications(
 
 
 @pytest.fixture
-async def runtime_trace_store(tmp_path):
-    store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+async def runtime_trace_store(runtime_paths_with_schema):
+    store = RuntimeTraceStore(
+        db_path=str(runtime_paths_with_schema.runtime_trace_db_path)
+    )
     await store.initialize()
     try:
         yield store
@@ -724,8 +726,10 @@ async def trace_event_bus(runtime_trace_store):
 
 
 @pytest.fixture
-async def chat_store(tmp_path):
-    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def chat_store(runtime_paths_with_schema):
+    store = ChatStore(
+        db_path=str(runtime_paths_with_schema.chat_db_path)
+    )
     await store.initialize()
     try:
         yield store

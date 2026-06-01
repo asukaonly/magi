@@ -22,8 +22,8 @@ from magi.chat import ChatStore
 
 
 @pytest.fixture
-async def chat_store(tmp_path):
-    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def chat_store(runtime_paths_with_schema):
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.initialize()
     try:
         yield store

@@ -16,10 +16,10 @@ def _turn_column_names(db_path: Path) -> set[str]:
 
 
 @pytest.mark.asyncio
-async def test_chat_turn_run_metadata_round_trips(tmp_path: Path) -> None:
+async def test_chat_turn_run_metadata_round_trips(runtime_paths_with_schema) -> None:
     from magi.chat import ChatStore
 
-    db_path = tmp_path / "chat.db"
+    db_path = runtime_paths_with_schema.chat_db_path
     store = ChatStore(db_path=str(db_path))
     await store.initialize()
 

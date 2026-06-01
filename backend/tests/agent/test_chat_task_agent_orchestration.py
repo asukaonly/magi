@@ -52,11 +52,11 @@ async def test_chat_task_agent_requires_explicit_session_id_for_user_messages() 
 
 
 @pytest.mark.asyncio
-async def test_chat_history_service_uses_explicit_session_pairs_without_state_file(tmp_path: Path) -> None:
+async def test_chat_history_service_uses_explicit_session_pairs_without_state_file(tmp_path: Path, runtime_paths_with_schema) -> None:
     from magi.chat.read_service import ChatReadService
 
     isolated_read_service = ChatReadService()
-    isolated_read_service._chat_db_path = tmp_path / "chat.db"
+    isolated_read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
     isolated_read_service._l1_db_path = tmp_path / "l1.sqlite3"
     isolated_read_service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
 
@@ -81,8 +81,8 @@ async def test_chat_history_service_uses_explicit_session_pairs_without_state_fi
 
 
 @pytest.mark.asyncio
-async def test_chat_history_service_reloads_cache_when_history_version_changes(tmp_path: Path) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_history_service_reloads_cache_when_history_version_changes(tmp_path: Path, runtime_paths_with_schema) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",
@@ -119,8 +119,8 @@ async def test_chat_history_service_reloads_cache_when_history_version_changes(t
 
 
 @pytest.mark.asyncio
-async def test_chat_history_service_loads_active_summary_context_and_tail(tmp_path: Path) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_history_service_loads_active_summary_context_and_tail(tmp_path: Path, runtime_paths_with_schema) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",
@@ -171,7 +171,7 @@ async def test_chat_history_service_loads_active_summary_context_and_tail(tmp_pa
     from magi.chat.read_service import ChatReadService
 
     isolated_read_service = ChatReadService()
-    isolated_read_service._chat_db_path = tmp_path / "chat.db"
+    isolated_read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
     isolated_read_service._l1_db_path = tmp_path / "l1.sqlite3"
     isolated_read_service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
 
@@ -193,8 +193,8 @@ async def test_chat_history_service_loads_active_summary_context_and_tail(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_chat_history_service_summarizes_previous_persona_segment(tmp_path: Path) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_history_service_summarizes_previous_persona_segment(tmp_path: Path, runtime_paths_with_schema) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",
@@ -235,7 +235,7 @@ async def test_chat_history_service_summarizes_previous_persona_segment(tmp_path
     from magi.chat.read_service import ChatReadService
 
     isolated_read_service = ChatReadService()
-    isolated_read_service._chat_db_path = tmp_path / "chat.db"
+    isolated_read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
     isolated_read_service._l1_db_path = tmp_path / "l1.sqlite3"
     isolated_read_service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
 
@@ -287,8 +287,8 @@ async def test_chat_history_service_summarizes_previous_persona_segment(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_chat_history_service_retries_reload_after_transient_read_failure(tmp_path: Path) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_history_service_retries_reload_after_transient_read_failure(tmp_path: Path, runtime_paths_with_schema) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",
@@ -301,7 +301,7 @@ async def test_chat_history_service_retries_reload_after_transient_read_failure(
     from magi.chat.read_service import ChatReadService
 
     real_read_service = ChatReadService()
-    real_read_service._chat_db_path = tmp_path / "chat.db"
+    real_read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
     real_read_service._l1_db_path = tmp_path / "l1.sqlite3"
     real_read_service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
 
@@ -353,8 +353,8 @@ def test_chat_history_service_extracts_asset_ref_handles_from_tool_state() -> No
 
 
 @pytest.mark.asyncio
-async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path, runtime_paths_with_schema) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     original_user_message = await chat_store.create_user_turn(
         session_id="s-chat",
@@ -487,8 +487,8 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_chat_task_agent_falls_back_to_recent_photo_context_without_explicit_reply(tmp_path: Path) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_task_agent_falls_back_to_recent_photo_context_without_explicit_reply(tmp_path: Path, runtime_paths_with_schema) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",

@@ -80,12 +80,12 @@ async def _seed_turn(store: ChatStore, *, session_id: str = "session-1", turn_id
 
 @pytest.mark.asyncio
 async def test_persist_plan_state_message_replaces_prior_plan_for_same_turn(
-    tmp_path,
+    runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from magi.agent.control.chat_state_persister import persist_plan_state_message
 
-    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.initialize()
     await _seed_turn(store)
     upserts: list[str] = []
@@ -141,12 +141,12 @@ async def test_persist_plan_state_message_replaces_prior_plan_for_same_turn(
 
 @pytest.mark.asyncio
 async def test_persist_todo_state_message_hides_message_when_list_clears(
-    tmp_path,
+    runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from magi.agent.control.chat_state_persister import persist_todo_state_message
 
-    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.initialize()
     await _seed_turn(store)
     upserts: list[str] = []
@@ -203,12 +203,12 @@ async def test_persist_todo_state_message_hides_message_when_list_clears(
 
 @pytest.mark.asyncio
 async def test_persist_todo_state_message_noops_when_payload_unchanged(
-    tmp_path,
+    runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from magi.agent.control.chat_state_persister import persist_todo_state_message
 
-    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.initialize()
     await _seed_turn(store)
     upserts: list[str] = []
@@ -269,7 +269,7 @@ async def test_persist_todo_state_message_noops_when_payload_unchanged(
 
 @pytest.mark.asyncio
 async def test_persist_ask_messages_use_stable_transcript_rows(
-    tmp_path,
+    runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from magi.agent.control.chat_state_persister import (
@@ -277,7 +277,7 @@ async def test_persist_ask_messages_use_stable_transcript_rows(
         persist_ask_response_message,
     )
 
-    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.initialize()
     await _seed_turn(store)
     upserts: list[str] = []

@@ -61,10 +61,10 @@ def test_runtime_paths_exposes_chat_db_path(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_store_creates_chat_tables(tmp_path: Path) -> None:
+async def test_chat_store_creates_chat_tables(runtime_paths_with_schema) -> None:
     from magi.chat import ChatStore
 
-    db_path = tmp_path / "chat.db"
+    db_path = runtime_paths_with_schema.chat_db_path
     store = ChatStore(db_path=str(db_path))
 
     await store.initialize()
@@ -82,10 +82,10 @@ async def test_chat_store_creates_chat_tables(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_store_persists_turn_and_message_records(tmp_path: Path) -> None:
+async def test_chat_store_persists_turn_and_message_records(runtime_paths_with_schema) -> None:
     from magi.chat import ChatMessageRecord, ChatSessionRecord, ChatStore, ChatTurnRecord
 
-    db_path = tmp_path / "chat.db"
+    db_path = runtime_paths_with_schema.chat_db_path
     store = ChatStore(db_path=str(db_path))
     await store.initialize()
 
@@ -179,10 +179,10 @@ async def test_chat_store_persists_turn_and_message_records(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_chat_store_activates_latest_context_summary(tmp_path: Path) -> None:
+async def test_chat_store_activates_latest_context_summary(runtime_paths_with_schema) -> None:
     from magi.chat import ChatContextSummaryRecord, ChatStore
 
-    db_path = tmp_path / "chat.db"
+    db_path = runtime_paths_with_schema.chat_db_path
     store = ChatStore(db_path=str(db_path))
     await store.initialize()
 
@@ -256,10 +256,10 @@ async def test_chat_store_activates_latest_context_summary(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_chat_store_bumps_history_version_when_creating_user_turn(tmp_path: Path) -> None:
+async def test_chat_store_bumps_history_version_when_creating_user_turn(runtime_paths_with_schema) -> None:
     from magi.chat import ChatStore
 
-    db_path = tmp_path / "chat.db"
+    db_path = runtime_paths_with_schema.chat_db_path
     store = ChatStore(db_path=str(db_path))
     await store.initialize()
 
@@ -280,10 +280,10 @@ async def test_chat_store_bumps_history_version_when_creating_user_turn(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_chat_store_history_survives_reinitialization(tmp_path: Path) -> None:
+async def test_chat_store_history_survives_reinitialization(runtime_paths_with_schema) -> None:
     from magi.chat import ChatMessageRecord, ChatStore
 
-    db_path = tmp_path / "chat.db"
+    db_path = runtime_paths_with_schema.chat_db_path
     store = ChatStore(db_path=str(db_path))
     await store.initialize()
 
@@ -333,10 +333,10 @@ async def test_chat_store_history_survives_reinitialization(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_chat_store_persists_attachment_metadata_on_user_turn(tmp_path: Path) -> None:
+async def test_chat_store_persists_attachment_metadata_on_user_turn(runtime_paths_with_schema) -> None:
     from magi.chat import ChatStore
 
-    db_path = tmp_path / "chat.db"
+    db_path = runtime_paths_with_schema.chat_db_path
     store = ChatStore(db_path=str(db_path))
     await store.initialize()
 
@@ -358,10 +358,10 @@ async def test_chat_store_persists_attachment_metadata_on_user_turn(tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_chat_store_marks_interim_messages_replaced_by_final(tmp_path: Path) -> None:
+async def test_chat_store_marks_interim_messages_replaced_by_final(runtime_paths_with_schema) -> None:
     from magi.chat import ChatMessageRecord, ChatSessionRecord, ChatStore, ChatTurnRecord
 
-    db_path = tmp_path / "chat.db"
+    db_path = runtime_paths_with_schema.chat_db_path
     store = ChatStore(db_path=str(db_path))
     await store.initialize()
 
