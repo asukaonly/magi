@@ -14,7 +14,7 @@ import aiosqlite
 from ..core.logger import get_logger
 from ..core.sqlite import sqlite_connection_async
 from .plugin_ingress import PluginIngressPersistenceMixin
-from .runtime_status import RuntimeStatusPersistenceMixin
+from .runtime_notifications import RuntimeNotificationPersistenceMixin
 from .trace_records import TraceRecordPersistenceMixin
 
 T = TypeVar("T")
@@ -32,7 +32,7 @@ def _is_retryable_sqlite_lock(exc: Exception) -> bool:
 
 
 class RuntimeTraceStore(
-    RuntimeStatusPersistenceMixin,
+    RuntimeNotificationPersistenceMixin,
     PluginIngressPersistenceMixin,
     TraceRecordPersistenceMixin,
 ):

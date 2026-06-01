@@ -193,13 +193,12 @@ fn build_runtime_status() -> Value {
         Err(_) => (false, "offline".to_string(), None, None),
     };
 
-    let pending_commands: Option<i64> = conn
-        .query_row(
-            "SELECT COUNT(*) FROM runtime_notifications WHERE consumed_at IS NULL",
-            [],
-            |row| row.get(0),
-        )
-        .ok();
+    // `pending_commands` exposes the worker's command-queue depth (sourced from
+    // runtime_heartbeats.queue_backlog). The previous query against
+    // `runtime_notifications.consumed_at` was a no-op — that column has never
+    // existed in the schema, so the row-fetch silently errored and the metric
+    // was always null. Reuse the heartbeat-reported backlog instead.
+    let pending_commands = queue_backlog;
 
     let queue_backlog_healthy = queue_backlog.map(|b| b <= PENDING_COMMAND_WARNING_THRESHOLD);
 

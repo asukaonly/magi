@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
-import time
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -20,7 +16,6 @@ from magi.channels.contracts import (
 )
 from magi.channels.registry import ChannelRegistry
 from magi.channels.session_mapper import ChannelSessionMapper
-from magi.channels.notification_relay import NotificationRelay
 
 
 # ---------------------------------------------------------------------------
@@ -214,181 +209,4 @@ class TestChannelSessionMapper:
         cursor = await mapper.get_notification_cursor("telegram", "12345")
         assert cursor == 42
 
-
-# ---------------------------------------------------------------------------
-# NotificationRelay
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-class TestNotificationRelay:
-    async def test_dispatches_agent_response(self) -> None:
-        channel = FakeChannel("telegram")
-        registry = ChannelRegistry()
-        registry.register(channel)
-
-        mapper = MagicMock(spec=ChannelSessionMapper)
-        mapper.lookup_by_session = AsyncMock(
-            return_value=ChannelSessionMapping(
-                channel_type="telegram",
-                external_chat_id="12345",
-                magi_session_id="sess_abc",
-                magi_user_id="user1",
-            )
-        )
-        mapper.get_notification_cursor = AsyncMock(return_value=0)
-        mapper.update_notification_cursor = AsyncMock()
-        mapper.update_relay_cursor = AsyncMock()
-
-        notif = MagicMock()
-        notif.notification_id = 1
-        notif.channel = "agent_response"
-        notif.session_id = "sess_abc"
-        notif.payload_json = json.dumps({"content": "Hello from Magi!"})
-
-        trace_store = MagicMock()
-        trace_store.get_latest_notification_id = AsyncMock(return_value=0)
-        trace_store.list_notifications = AsyncMock(side_effect=[[notif], []])
-
-        relay = NotificationRelay(
-            registry=registry,
-            session_mapper=mapper,
-            trace_store=trace_store,
-            poll_interval_s=0.01,
-        )
-
-        # Run one cycle then stop
-        relay._running = True
-        relay._cursor = 0
-        await relay._poll_cycle()
-
-        assert len(channel.sent) == 1
-        target, content = channel.sent[0]
-        assert target.channel_type == "telegram"
-        assert target.external_chat_id == "12345"
-        assert content.text == "Hello from Magi!"
-        mapper.update_notification_cursor.assert_awaited_once_with("telegram", "12345", 1)
-        mapper.update_relay_cursor.assert_awaited_once_with("notification_relay", 1)
-
-    async def test_ignores_non_channel_sessions(self) -> None:
-        channel = FakeChannel("telegram")
-        registry = ChannelRegistry()
-        registry.register(channel)
-
-        mapper = MagicMock(spec=ChannelSessionMapper)
-        mapper.lookup_by_session = AsyncMock(return_value=None)  # Not a channel session
-        mapper.update_relay_cursor = AsyncMock()
-
-        notif = MagicMock()
-        notif.notification_id = 1
-        notif.channel = "agent_response"
-        notif.session_id = "unknown_sess"
-        notif.payload_json = json.dumps({"content": "Should not be sent"})
-
-        trace_store = MagicMock()
-        trace_store.get_latest_notification_id = AsyncMock(return_value=0)
-        trace_store.list_notifications = AsyncMock(side_effect=[[notif], []])
-
-        relay = NotificationRelay(
-            registry=registry,
-            session_mapper=mapper,
-            trace_store=trace_store,
-        )
-
-        relay._running = True
-        relay._cursor = 0
-        await relay._poll_cycle()
-
-        assert len(channel.sent) == 0
-
-    async def test_ignores_non_response_channels(self) -> None:
-        channel = FakeChannel("telegram")
-        registry = ChannelRegistry()
-        registry.register(channel)
-
-        mapper = MagicMock(spec=ChannelSessionMapper)
-
-        notif = MagicMock()
-        notif.notification_id = 1
-        notif.channel = "turn_ux_plan"
-        notif.session_id = "sess_x"
-        notif.payload_json = json.dumps({})
-
-        trace_store = MagicMock()
-        trace_store.get_latest_notification_id = AsyncMock(return_value=0)
-        trace_store.list_notifications = AsyncMock(side_effect=[[notif], []])
-
-        relay = NotificationRelay(
-            registry=registry,
-            session_mapper=mapper,
-            trace_store=trace_store,
-        )
-
-        relay._running = True
-        relay._cursor = 0
-        await relay._poll_cycle()
-
-        # Mapper should not even be called for non-response channels
-        mapper.lookup_by_session.assert_not_called()
-        assert len(channel.sent) == 0
-        mapper.update_relay_cursor.assert_awaited_once_with("notification_relay", 1)
-
-    async def test_assembles_streamed_chunks(self) -> None:
-        """Relay accumulates content_delta from streaming chunks and sends on is_final."""
-        channel = FakeChannel("telegram")
-        registry = ChannelRegistry()
-        registry.register(channel)
-
-        mapper = MagicMock(spec=ChannelSessionMapper)
-        mapper.lookup_by_session = AsyncMock(
-            return_value=ChannelSessionMapping(
-                channel_type="telegram",
-                external_chat_id="12345",
-                magi_session_id="sess_abc",
-                magi_user_id="user1",
-            )
-        )
-        mapper.get_notification_cursor = AsyncMock(return_value=0)
-        mapper.update_notification_cursor = AsyncMock()
-        mapper.update_relay_cursor = AsyncMock()
-
-        def _make_chunk(nid: int, delta: str, is_final: bool) -> MagicMock:
-            n = MagicMock()
-            n.notification_id = nid
-            n.channel = "agent_response_chunk"
-            n.session_id = "sess_abc"
-            payload: dict[str, Any] = {
-                "turn_id": "turn_1",
-                "content_delta": delta,
-                "is_final": is_final,
-            }
-            n.payload_json = json.dumps(payload)
-            return n
-
-        chunks = [
-            _make_chunk(1, "Hello", False),
-            _make_chunk(2, " world", False),
-            _make_chunk(3, "!", False),
-            _make_chunk(4, "", True),  # final marker, empty delta
-        ]
-
-        trace_store = MagicMock()
-        trace_store.get_latest_notification_id = AsyncMock(return_value=0)
-        trace_store.list_notifications = AsyncMock(side_effect=[chunks, []])
-
-        relay = NotificationRelay(
-            registry=registry,
-            session_mapper=mapper,
-            trace_store=trace_store,
-            poll_interval_s=0.01,
-        )
-
-        relay._running = True
-        relay._cursor = 0
-        await relay._poll_cycle()
-
-        assert len(channel.sent) == 1
-        _, content = channel.sent[0]
-        assert content.text == "Hello world!"
-        assert content.is_final is True
-        mapper.update_notification_cursor.assert_awaited_once_with("telegram", "12345", 4)
-        assert mapper.update_relay_cursor.await_count == 4
+# NotificationRelay tests removed in Phase G+4 — class deleted (retired by Phase G+1).

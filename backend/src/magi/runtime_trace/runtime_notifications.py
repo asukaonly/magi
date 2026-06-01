@@ -1,4 +1,4 @@
-"""Runtime notification and heartbeat persistence."""
+"""Runtime notification (and heartbeat) persistence."""
 
 from __future__ import annotations
 
@@ -12,8 +12,15 @@ from .contracts import RuntimeHeartbeatRecord, RuntimeNotificationRecord
 T = TypeVar("T")
 
 
-class RuntimeStatusPersistenceMixin:
-    """Persist runtime notifications and heartbeat rows."""
+class RuntimeNotificationPersistenceMixin:
+    """Persist runtime_notifications rows (the primary IPC bus to the Rust
+    notification bridge) and the related runtime_heartbeats row that the
+    bridge / metrics endpoints inspect for worker liveness.
+
+    Notifications dominate (append, list, latest-id); heartbeat upsert and
+    read live alongside because they share the same underlying connection
+    and hot-write profile.
+    """
 
     db_path: str
 
