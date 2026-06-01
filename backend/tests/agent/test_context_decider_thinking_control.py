@@ -6,7 +6,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import pytest
 
 from magi.llm.base import LLMAdapter
-from magi.config.models import LLMScenario, ThinkingDepth
+from magi.config.models import LLMScenario
 from magi.tools.context_decider import ContextDecider
 from magi.tools.context_decider_context import ContextDeciderContext
 
@@ -74,23 +74,6 @@ class _DummyToolRegistry:
 
     def list_tools(self) -> List[str]:
         return ["agent"]
-
-    def is_skill(self, name: str) -> bool:
-        _ = name
-        return False
-
-
-class _ResearchToolRegistry:
-    _skills: Dict[str, Any] = {}
-
-    def get_all_tools_info(self) -> List[Dict[str, Any]]:
-        return [
-            {"name": "web-search", "description": "Search the web", "type": "tool"},
-            {"name": "web-fetch", "description": "Fetch web pages", "type": "tool"},
-        ]
-
-    def list_tools(self) -> List[str]:
-        return ["web-search", "web-fetch"]
 
     def is_skill(self, name: str) -> bool:
         _ = name
@@ -182,19 +165,6 @@ async def test_context_decider_ignores_context_toggle_and_keeps_disable_thinking
     assert seen["disable_thinking"] is True
 
 
-def test_context_decider_parses_decompose_orchestration_strategy() -> None:
-    decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
-
-    decision = decider._parse_response(
-        '{"intent":"planning","tools":["agent"],"deep_thinking":true,"reasoning":"repo architecture","orchestration_strategy":{"mode":"decompose","planner":"task_agent","default_leaf_type":"CodeExplore","allow_parallel":true}}'
-    )
-
-    assert decision.orchestration_strategy["mode"] == "decompose"
-    assert decision.orchestration_strategy["planner"] == "task_agent"
-    assert decision.orchestration_strategy["default_leaf_type"] == "CodeExplore"
-    assert decision.orchestration_strategy["allow_parallel"] is True
-
-
 def test_context_decider_prompt_includes_recent_tool_error_config_path() -> None:
     decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
 
@@ -244,24 +214,6 @@ def test_context_decider_prompt_excludes_latest_user_message_from_recent_convers
 
     assert prompt.count("- user: 你是谁啊") == 0
     assert "## User Request\n\n你是谁啊" in prompt
-
-
-def test_context_decider_rule_fallback_returns_conservative_chat_intent() -> None:
-    """Without retry/trace context, the fallback returns chat with no tools.
-
-    The previous implementation guessed an intent from substring tables
-    (research/files/web/bash/skills); that path was the H1 whack-a-mole
-    finding and has been removed in favor of pushing routing into the
-    LLM classifier.
-    """
-    decider = ContextDecider(tool_registry=_ResearchToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
-
-    decision = decider._rule_based_fallback("搜一下最近7天杭州有什么重要的新闻，给我来10条并附上链接")
-
-    assert decision.intent == "chat"
-    assert decision.tools == []
-    assert decision.thinking_depth == ThinkingDepth.NONE
-    assert decision.orchestration_strategy["mode"] == "direct"
 
 
 def test_context_decider_prompt_includes_routing_environment_fields() -> None:
