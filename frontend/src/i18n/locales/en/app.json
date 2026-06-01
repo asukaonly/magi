@@ -17,7 +17,15 @@
     "bellAria": "Notifications",
     "title": "Notifications",
     "empty": "No notifications",
-    "markAllRead": "Mark all read"
+    "markAllRead": "Mark all read",
+    "clearAll": "Clear all",
+    "dismissAria": "Dismiss this notification",
+    "suggestionTitle": "Connect \"{{plugin}}\"",
+    "suggestionTitleGeneric": "New data-source suggestion",
+    "connect": "Connect",
+    "installAndConnect": "Install & connect",
+    "installing": "Installing…",
+    "connectHint": "Connect it so magi can use this data."
   },
   "nav": {
     "dashboard": "Dashboard",

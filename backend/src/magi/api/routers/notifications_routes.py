@@ -60,6 +60,11 @@ def build_default_notifications_router(*, service_dep: Callable[[], Notification
             svc.mark_read(req.ids)
         return {"ok": True}
 
+    @router.post("/notifications/dismiss-all")
+    async def dismiss_all() -> dict:
+        dismissed = service_dep().dismiss_all(_USER_ID, "explicit")
+        return {"ok": True, "dismissed": dismissed}
+
     @router.post("/notifications/{notification_id}/dismiss")
     async def dismiss(notification_id: int) -> dict:
         service_dep().dismiss(notification_id, "explicit")

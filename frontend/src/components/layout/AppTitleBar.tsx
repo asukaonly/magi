@@ -306,8 +306,9 @@ export const AppTitleBar = () => {
       )}
 
       {/* Global notification bell — rendered for every route (outside the
-          isTimelineRoute ternary), just before the window controls. */}
-      <div className="flex shrink-0 items-center pr-1">
+          isTimelineRoute ternary), just before the window controls. Extra
+          right padding keeps the unread badge clear of the window corner. */}
+      <div className={cn('flex shrink-0 items-center', isMac ? 'pr-3' : 'pr-1')}>
         <NotificationBell />
       </div>
 

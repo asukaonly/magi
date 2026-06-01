@@ -239,6 +239,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
     "notifications": {
         "/notifications": {"GET"},
         "/notifications/mark-read": {"POST"},
+        "/notifications/dismiss-all": {"POST"},
         "/notifications/{notification_id}/dismiss": {"POST"},
         "/notifications/{notification_id}/action": {"POST"},
     },

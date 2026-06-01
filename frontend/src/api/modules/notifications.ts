@@ -40,6 +40,9 @@ export async function markAllRead(): Promise<void> {
 export async function dismissNotification(id: number): Promise<void> {
   await api.post(`/notifications/${id}/dismiss`, {});
 }
+export async function dismissAllNotifications(): Promise<void> {
+  await api.post('/notifications/dismiss-all', {});
+}
 export async function actionNotification(id: number): Promise<void> {
   await api.post(`/notifications/${id}/action`, {});
 }

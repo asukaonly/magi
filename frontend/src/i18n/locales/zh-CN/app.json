@@ -17,7 +17,15 @@
     "bellAria": "通知",
     "title": "通知",
     "empty": "暂无通知",
-    "markAllRead": "全部已读"
+    "markAllRead": "全部已读",
+    "clearAll": "全部清除",
+    "dismissAria": "删除此通知",
+    "suggestionTitle": "推荐连接「{{plugin}}」",
+    "suggestionTitleGeneric": "新的数据源建议",
+    "connect": "连接",
+    "installAndConnect": "安装并连接",
+    "installing": "安装中…",
+    "connectHint": "连接后 magi 就能读取这部分数据。"
   },
   "nav": {
     "dashboard": "仪表盘",

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import {
   listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead,
-  dismissNotification, actionNotification, type NotificationItem,
+  dismissNotification, dismissAllNotifications, actionNotification, type NotificationItem,
 } from '@/api/modules/notifications';
 
 interface NotificationState {
@@ -12,6 +12,7 @@ interface NotificationState {
   markRead: (ids: number[]) => Promise<void>;
   markAllRead: () => Promise<void>;
   dismiss: (id: number) => Promise<void>;
+  dismissAll: () => Promise<void>;
   act: (id: number) => Promise<void>;
 }
 
@@ -33,5 +34,6 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   markRead: async (ids) => { await apiMarkRead(ids); await get().refresh(); },
   markAllRead: async () => { await apiMarkAllRead(); await get().refresh(); },
   dismiss: async (id) => { await dismissNotification(id); await get().refresh(); },
+  dismissAll: async () => { await dismissAllNotifications(); await get().refresh(); },
   act: async (id) => { await actionNotification(id); await get().refresh(); },
 }));

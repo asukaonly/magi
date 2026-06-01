@@ -2140,6 +2140,23 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/notifications/dismiss-all": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /** Dismiss All */
+        readonly post: operations["dismiss_all_api_notifications_dismiss_all_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/notifications/mark-read": {
         readonly parameters: {
             readonly query?: never;
@@ -11178,6 +11195,28 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["ListResponse"];
+                };
+            };
+        };
+    };
+    readonly dismiss_all_api_notifications_dismiss_all_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly [key: string]: unknown;
+                    };
                 };
             };
         };
