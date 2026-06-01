@@ -68,4 +68,59 @@ class RunTrigger:
         )
 
 
-__all__ = ["RunTrigger", "RUN_TRIGGER_TYPES", "RUN_TRIGGER_PRIORITIES"]
+INCOMING_EVENT_TYPES = frozenset({
+    "user_steer", "user_augment", "user_defer", "user_retract",
+    "external_inbound", "scheduled_fire",
+    "child_run_completed", "tool_advisory_arrival",
+    "sensor_event",
+})
+
+
+@dataclass(frozen=True, slots=True)
+class IncomingEvent:
+    """A typed signal arriving during or before a run.
+
+    Generalizes the chat-specific ``PendingTurn`` so external inbound
+    (Telegram/Slack), scheduled fires, sensor events, and child-run
+    completion all flow through the same queue + dispatcher.
+    """
+    event_id: str
+    event_type: str
+    target_run_id: str | None
+    arrived_at_ms: int
+    payload: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.event_type not in INCOMING_EVENT_TYPES:
+            raise ValueError(
+                f"IncomingEvent.event_type must be one of {sorted(INCOMING_EVENT_TYPES)}, "
+                f"got {self.event_type!r}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "event_id": self.event_id,
+            "event_type": self.event_type,
+            "target_run_id": self.target_run_id,
+            "arrived_at_ms": int(self.arrived_at_ms),
+            "payload": dict(self.payload),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "IncomingEvent":
+        return cls(
+            event_id=d["event_id"],
+            event_type=d["event_type"],
+            target_run_id=d.get("target_run_id"),
+            arrived_at_ms=int(d["arrived_at_ms"]),
+            payload=dict(d.get("payload") or {}),
+        )
+
+
+__all__ = [
+    "RunTrigger",
+    "RUN_TRIGGER_TYPES",
+    "RUN_TRIGGER_PRIORITIES",
+    "IncomingEvent",
+    "INCOMING_EVENT_TYPES",
+]
