@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional, Protocol
 
 from ....agent.cancel import CancelToken, null_cancel_token
-from ....agent.run_control import null_run_control
+from magi.control.run_control import null_run_control
 from ....agent.runtime.contracts import FactRecord
 from ...task_orchestrator import TaskOrchestrator
 from .contracts import (

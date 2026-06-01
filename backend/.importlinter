@@ -30,6 +30,7 @@ layers =
     memory
     llm
     plugins
+    control
     events
     config
     scheduler | runtime_trace
@@ -46,9 +47,6 @@ ignore_imports =
     # Buckets: tools/skills->agent (33), agent->chat/channels/transport (24),
     # L13 api/chat/channels siblings (15), L7 tools<->skills siblings (9),
     # runtime_trace->events (7), awareness->timeline (4), other (~23).
-    magi.agent.control.chat_state_persister -> magi.chat
-    magi.agent.control.chat_state_persister -> magi.chat.provider
-    magi.agent.control.chat_state_persister -> magi.transport.chat_events
     magi.agent.execution.function_calling.guardrails -> magi.chat.workspace
     magi.agent.lifecycle -> magi.chat
     magi.agent.lifecycle -> magi.transport.chat_events
@@ -95,10 +93,15 @@ ignore_imports =
     magi.channels.attachments -> magi.chat.attachment_storage
     magi.channels.dispatcher -> magi.api.services.message_dispatch_service
     magi.channels.session_mapper -> magi.chat
+    # Control-Plane Extraction Phase 1: the transcript-projection broadcast
+    # dependency was RELOCATED here from the now-deleted
+    # ``magi.agent.control.chat_state_persister -> magi.transport.chat_events``
+    # edge (chat now owns transcript projection). Net debt shrank: three
+    # control->chat/transport edges were removed and only this one added.
+    magi.chat.control_transcript_subscriber -> magi.transport.chat_events
     magi.chat.read_service -> magi.api.services.chat_trace.read_service
     magi.context.assembler -> magi.chat.workspace
     magi.core.runtime_operational_gc -> magi.config.models
-    magi.llm.cancellable_client -> magi.agent.run_control
     magi.memory.event_translation -> magi.awareness.sensor_memory_projection
     magi.memory.portrait.factory -> magi.api.routers.memory.dependencies
     magi.memory.portrait.factory -> magi.personality.persona_repository
@@ -123,15 +126,12 @@ ignore_imports =
     magi.tools -> magi.skills.runner
     magi.tools -> magi.skills.schema
     magi.tools.builtin.agent_tool -> magi.agent.workers
-    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common.events
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.provider
     magi.tools.builtin.detach_to_background_tool -> magi.agent.run_control
-    magi.tools.builtin.plan_mode_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.common.events
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.provider
-    magi.tools.builtin.todo_write_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.todo_write_tool -> magi.agent.control.common.events
     magi.tools.builtin.todo_write_tool -> magi.agent.control.provider
     magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store
@@ -182,16 +182,13 @@ ignore_imports =
     magi.skills.subagent -> magi.llm.base
     magi.skills.subagent -> magi.llm.provider_bridge
     magi.tools.builtin.agent_tool -> magi.agent.workers
-    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common.events
     magi.tools.builtin.ask_user_question_tool -> magi.agent.control.provider
     magi.tools.builtin.detach_to_background_tool -> magi.agent.run_control
     magi.tools.builtin.find_relevant_tools_tool -> magi.memory.provider
-    magi.tools.builtin.plan_mode_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.common.events
     magi.tools.builtin.plan_mode_tool -> magi.agent.control.provider
-    magi.tools.builtin.todo_write_tool -> magi.agent.control.chat_state_persister
     magi.tools.builtin.todo_write_tool -> magi.agent.control.common.events
     magi.tools.builtin.todo_write_tool -> magi.agent.control.provider
     magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store

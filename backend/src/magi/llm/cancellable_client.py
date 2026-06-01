@@ -3,7 +3,7 @@
 This is the single LLM entry point used by all run-graph nodes
 (ReplyNode / ToolLoopNode / PlanFanoutNode / ValidateNode). It wraps
 :class:`~magi.llm.provider_bridge.LLMProviderBridge` and polls the
-caller-supplied :class:`~magi.agent.run_control.RunControl` between
+caller-supplied :class:`~magi.control.run_control.RunControl` between
 stream chunks, raising :class:`CancellationRaised` or
 :class:`RetractRaised` as appropriate so the calling node can return the
 right :class:`NodeResult` status.
@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
-from ..agent.run_control import (
+from ..control.run_control import (
     RetractRequested,
     RunControl,
 )

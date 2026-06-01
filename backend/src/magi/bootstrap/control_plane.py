@@ -2,11 +2,11 @@
 
 Owns the lifetime of the process-wide control-plane singletons:
 
-* :class:`~magi.agent.control.session_store.ControlSessionStore`
-* :class:`~magi.agent.control.settings_manager.ControlSettingsManager`
-* :class:`~magi.agent.control.common.InteractionBroker`
-* :class:`~magi.agent.control.permission.rules.PermissionRuleStore`
-* :class:`~magi.agent.control.permission.gateway.PermissionGateway`
+* :class:`~magi.control.session_store.ControlSessionStore`
+* :class:`~magi.control.settings_manager.ControlSettingsManager`
+* :class:`~magi.control.common.InteractionBroker`
+* :class:`~magi.control.permission.rules.PermissionRuleStore`
+* :class:`~magi.control.permission.gateway.PermissionGateway`
 
 Wiring order:
 
@@ -38,18 +38,18 @@ from typing import Any
 
 from dependency_injector import providers
 
-from ..agent.control.common import InteractionBroker
-from ..agent.control.common.events import publish_control_event
-from ..agent.control.permission.brokered_prompter import (
+from ..control.common import InteractionBroker
+from ..control.common.events import publish_control_event
+from ..control.permission.brokered_prompter import (
     BrokeredPermissionPrompter,
     PendingPermissionRegistry,
 )
-from ..agent.control.permission.classifier import RiskClassifier
-from ..agent.control.permission.gateway import PermissionGateway
-from ..agent.control.permission.rules import PermissionRuleStore
-from ..agent.control.session_store import ControlSessionStore
-from ..agent.control.settings import ControlSettings
-from ..agent.control.settings_manager import ControlSettingsManager
+from ..control.permission.classifier import RiskClassifier
+from ..control.permission.gateway import PermissionGateway
+from ..control.permission.rules import PermissionRuleStore
+from ..control.session_store import ControlSessionStore
+from ..control.settings import ControlSettings
+from ..control.settings_manager import ControlSettingsManager
 from ..core.container import get_container
 from ..core.logger import get_logger
 from .context import RuntimeBootstrapContext

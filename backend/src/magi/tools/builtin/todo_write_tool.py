@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Dict
 
-from ...agent.control.chat_state_persister import persist_todo_state_message
+from ...agent.control.common.events import publish_control_todo_state_changed
 from ...agent.control.provider import resolve_control_session_store
 from ...core.logger import get_logger
 from ...runtime_defaults import DEFAULT_USER_ID
@@ -112,7 +112,7 @@ class TodoWriteTool(Tool):
             count=len(todos),
             in_progress=sum(1 for t in todos if t.status.value == "in_progress"),
         )
-        await persist_todo_state_message(
+        await publish_control_todo_state_changed(
             session_id=sid,
             user_id=user_id,
             turn_id=turn_id,

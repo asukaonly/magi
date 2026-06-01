@@ -26,7 +26,11 @@ from ..awareness.lifecycle import (
     TimelineSubscriberModule,
 )
 from ..channels.lifecycle import ChannelsModule
-from ..chat.lifecycle import ChatProjectorModule, ChatStoreModule
+from ..chat.lifecycle import (
+    ChatProjectorModule,
+    ChatStoreModule,
+    ControlTranscriptSubscriberModule,
+)
 from ..config.lifecycle import ConfigurationModule
 from ..context.lifecycle import ContextModule
 from ..core.lifecycle import CoreDependenciesModule
@@ -173,6 +177,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         MemoryIngestionSubscriberModule(context),
         LLMUsageSubscriberModule(context),
         ChatProjectorModule(context),
+        ControlTranscriptSubscriberModule(context),
         _build_runtime_trace_module(context),
         RuntimeTraceSubscriberModule(context),
         HooksModule(context),

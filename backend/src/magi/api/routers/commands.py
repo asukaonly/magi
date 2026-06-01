@@ -35,7 +35,7 @@ from ...agent.background.contracts import (
     BackgroundTaskTriggerSource,
 )
 from ...agent.background.provider import resolve_background_task_manager
-from ...agent.control.permission.provider import get_permission_gateway
+from ...control.permission.provider import get_permission_gateway
 from ...chat import ChatMessageRecord
 from ...chat.provider import get_chat_store
 from ...commands import CommandRunner

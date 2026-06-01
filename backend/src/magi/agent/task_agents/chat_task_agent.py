@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from ...agent.orchestration import get_orchestration_store
 from ...agent.cancel import SessionRunCancelToken
-from ...agent.run_control import null_run_control
+from magi.control.run_control import null_run_control
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...agent.trace import now_wall_ms
 from ...chat import ChatProjector, ChatReadService, ChatStore

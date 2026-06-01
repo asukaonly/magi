@@ -11,7 +11,7 @@ from ....agent.background.dispatcher import (
     BackgroundDispatcher,
 )
 from ....agent.background.launch import BackgroundLaunchService
-from ....agent.run_control import (
+from magi.control.run_control import (
     DetachSignal,
     SteerInbox,
     bind_detach_signal,

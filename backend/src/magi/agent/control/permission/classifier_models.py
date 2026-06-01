@@ -1,16 +1,13 @@
-"""Risk classifier result models.
+"""Backward-compatibility shim -> :mod:`magi.control.permission.classifier_models`.
 
-RiskSignal, ClassificationResult, and RiskLevel are promoted to the SDK layer
-so plugin tools can depend on them without importing host internals.
-These re-exports preserve identity with the SDK types.
-"""
+Aliases this old module path to the canonical module *object* so that
+attribute lookups, monkeypatching, and identity all match exactly.
+The plugin-scope actuator tools / skills still import via this path; they relocate to the control layer in Phase 4."""
 
 from __future__ import annotations
 
-from magi_plugin_sdk.permissions import (  # noqa: F401 (re-export)
-    ClassificationResult,
-    RiskLevel,
-    RiskSignal,
-)
+import sys
 
-__all__ = ["ClassificationResult", "RiskLevel", "RiskSignal"]
+import magi.control.permission.classifier_models as _canonical
+
+sys.modules[__name__] = _canonical
