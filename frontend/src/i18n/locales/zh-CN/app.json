@@ -13,6 +13,12 @@
   "common": {
     "loading": "加载中..."
   },
+  "notifications": {
+    "bellAria": "通知",
+    "title": "通知",
+    "empty": "暂无通知",
+    "markAllRead": "全部已读"
+  },
   "nav": {
     "dashboard": "仪表盘",
     "chat": "AI 对话",

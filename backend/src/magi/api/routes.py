@@ -236,6 +236,12 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/system-suggestions/dismissals/{dedupe_key}": {"DELETE"},
         "/system-suggestions/installable": {"GET"},
     },
+    "notifications": {
+        "/notifications": {"GET"},
+        "/notifications/mark-read": {"POST"},
+        "/notifications/{notification_id}/dismiss": {"POST"},
+        "/notifications/{notification_id}/action": {"POST"},
+    },
 
 }
 
@@ -283,6 +289,7 @@ def register_api_routes(app: FastAPI) -> None:
         availability_router,
         chat_preview_router,
         system_suggestions_router,
+        notifications_router,
     )
 
     app.include_router(
@@ -407,4 +414,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(system_suggestions_router, _PUBLIC_ROUTE_METHODS["system_suggestions"]),
         prefix="/api",
         tags=["System Suggestions"],
+    )
+    app.include_router(
+        _build_public_router(notifications_router, _PUBLIC_ROUTE_METHODS["notifications"]),
+        prefix="/api",
+        tags=["Notifications"],
     )

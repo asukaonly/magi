@@ -2123,6 +2123,74 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/notifications": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** List Notifications */
+        readonly get: operations["list_notifications_api_notifications_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/notifications/mark-read": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /** Mark Read */
+        readonly post: operations["mark_read_api_notifications_mark_read_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/notifications/{notification_id}/action": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /** Action */
+        readonly post: operations["action_api_notifications__notification_id__action_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/notifications/{notification_id}/dismiss": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /** Dismiss */
+        readonly post: operations["dismiss_api_notifications__notification_id__dismiss_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/personalities/": {
         readonly parameters: {
             readonly query?: never;
@@ -3105,6 +3173,57 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/system-suggestions/dismissals": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** List Dismissals */
+        readonly get: operations["list_dismissals_api_system_suggestions_dismissals_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/system-suggestions/dismissals/{dedupe_key}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        /** Clear Dismissal */
+        readonly delete: operations["clear_dismissal_api_system_suggestions_dismissals__dedupe_key__delete"];
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/system-suggestions/installable": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** List Installable */
+        readonly get: operations["list_installable_api_system_suggestions_installable_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/timeline/asset/{asset_ref}": {
         readonly parameters: {
             readonly query?: never;
@@ -3480,6 +3599,11 @@ export interface components {
              * @enum {string}
              */
             readonly locale: "zh" | "en";
+            /**
+             * Session Id
+             * @default default
+             */
+            readonly session_id: string;
             /** Text */
             readonly text: string;
         };
@@ -3487,6 +3611,13 @@ export interface components {
         readonly CheckResponse: {
             /** Suggestions */
             readonly suggestions: readonly components["schemas"]["SuggestionProposal"][];
+        };
+        /** ClearDismissalResponse */
+        readonly ClearDismissalResponse: {
+            /** Cleared */
+            readonly cleared: boolean;
+            /** Dedupe Key */
+            readonly dedupe_key: string;
         };
         /** ConfigResponse */
         readonly ConfigResponse: {
@@ -3616,6 +3747,17 @@ export interface components {
             readonly dedupe_key: string;
             /** Dismissed */
             readonly dismissed: boolean;
+        };
+        /** DismissalItem */
+        readonly DismissalItem: {
+            /** Dedupe Key */
+            readonly dedupe_key: string;
+            /**
+             * Dismissed At
+             * Format: date-time
+             */
+            readonly dismissed_at: string;
+            readonly kind: components["schemas"]["DismissalKind"];
         };
         /**
          * DismissalKind
@@ -3914,6 +4056,19 @@ export interface components {
             readonly vocab_available?: readonly string[];
             /** Vocab Avoided */
             readonly vocab_avoided?: readonly string[];
+        };
+        /** InstallableItem */
+        readonly InstallableItem: {
+            /** Category */
+            readonly category: string;
+            /** Installed */
+            readonly installed: boolean;
+            /** Plugin Id */
+            readonly plugin_id: string;
+            /** Rationale */
+            readonly rationale: {
+                readonly [key: string]: string;
+            };
         };
         /** JournalReflectRequest */
         readonly JournalReflectRequest: {
@@ -4777,6 +4932,23 @@ export interface components {
                 readonly [key: string]: unknown;
             }[];
         };
+        /** ListDismissalsResponse */
+        readonly ListDismissalsResponse: {
+            /** Dismissals */
+            readonly dismissals: readonly components["schemas"]["DismissalItem"][];
+        };
+        /** ListInstallableResponse */
+        readonly ListInstallableResponse: {
+            /** Items */
+            readonly items: readonly components["schemas"]["InstallableItem"][];
+        };
+        /** ListResponse */
+        readonly ListResponse: {
+            /** Items */
+            readonly items: readonly components["schemas"]["NotificationItemModel"][];
+            /** Unread Count */
+            readonly unread_count: number;
+        };
         /** ListSkillsResponse */
         readonly ListSkillsResponse: {
             /** Data */
@@ -4932,6 +5104,16 @@ export interface components {
             readonly mood?: string | null;
             /** User Pinned */
             readonly user_pinned?: boolean | null;
+        };
+        /** MarkReadRequest */
+        readonly MarkReadRequest: {
+            /**
+             * All
+             * @default false
+             */
+            readonly all: boolean;
+            /** Ids */
+            readonly ids?: readonly number[] | null;
         };
         /** MemoryConfigModel */
         readonly "MemoryConfigModel-Input": {
@@ -5196,6 +5378,29 @@ export interface components {
              * @default http
              */
             readonly proxy_type: string;
+        };
+        /** NotificationItemModel */
+        readonly NotificationItemModel: {
+            /** Body */
+            readonly body: string;
+            /** Created At Ms */
+            readonly created_at_ms: number;
+            /** Dedupe Key */
+            readonly dedupe_key: string;
+            /** Id */
+            readonly id: number;
+            /** Kind */
+            readonly kind: string;
+            /** Payload */
+            readonly payload: {
+                readonly [key: string]: unknown;
+            };
+            /** Read At Ms */
+            readonly read_at_ms?: number | null;
+            /** Status */
+            readonly status: string;
+            /** Title */
+            readonly title: string;
         };
         /** OnboardingTemplateDataModel */
         readonly OnboardingTemplateDataModel: {
@@ -6276,6 +6481,8 @@ export interface components {
             readonly confidence: number;
             /** Dedupe Key */
             readonly dedupe_key: string;
+            /** Installable Plugin Ids */
+            readonly installable_plugin_ids?: readonly string[];
             /** Plugin Ids */
             readonly plugin_ids: readonly string[];
             /** Rationale */
@@ -10916,6 +11123,127 @@ export interface operations {
             };
         };
     };
+    readonly list_notifications_api_notifications_get: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListResponse"];
+                };
+            };
+        };
+    };
+    readonly mark_read_api_notifications_mark_read_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["MarkReadRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly action_api_notifications__notification_id__action_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly notification_id: number;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly dismiss_api_notifications__notification_id__dismiss_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly notification_id: number;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     readonly list_personality_presets_api_personalities__get: {
         readonly parameters: {
             readonly query?: {
@@ -12751,6 +13079,77 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly list_dismissals_api_system_suggestions_dismissals_get: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListDismissalsResponse"];
+                };
+            };
+        };
+    };
+    readonly clear_dismissal_api_system_suggestions_dismissals__dedupe_key__delete: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly dedupe_key: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ClearDismissalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly list_installable_api_system_suggestions_installable_get: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListInstallableResponse"];
                 };
             };
         };

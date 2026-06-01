@@ -36,6 +36,7 @@ const BRIDGE_EVENTS = [
   'chat_message_upserted',
   'chat_message_hidden',
   'background_task_state_changed',
+  'user_notification_added',
   'code_agent_delegation_event',
   'code_agent_delegation_state',
   // Control-plane channels (forwarded by the Rust bridge with `.` → `:` swap;

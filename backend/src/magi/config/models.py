@@ -874,6 +874,7 @@ class RuntimeTraceLifecycleSettings(BaseModel):
     raw_retention_days: int = Field(default=7, ge=1)
     notifications_retention_days: int = Field(default=7, ge=1)
     plugin_ingress_retention_days: int = Field(default=7, ge=1)
+    user_notifications_retention_days: int = Field(default=30, ge=1)
 
 
 class LLMUsageLifecycleSettings(BaseModel):
