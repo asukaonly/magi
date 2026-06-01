@@ -6,6 +6,8 @@ from enum import Enum
 from typing import Any
 from time import time
 
+from magi_plugin_sdk.run_trigger import IncomingEvent, RunTrigger  # noqa: F401 — re-export for callers
+
 
 class RunResultDisposition(str, Enum):
     """How a run result should be treated by the session store."""
@@ -44,6 +46,10 @@ class AgentRun:
     Phase E adds graph + node_states + consumed_events + trigger + deliveries.
     Phase E keeps the legacy name ``ActiveRun`` as an alias so callers
     that imported the old name continue working without churn.
+    Phase H upgrades ``trigger`` from ``str | None`` to a typed
+    ``RunTrigger | None`` and adds the parallel ``pending_events`` queue
+    (``list[IncomingEvent]``) alongside legacy ``pending_turns`` (kept
+    for backward compat).
     """
 
     session_id: str
@@ -65,8 +71,11 @@ class AgentRun:
     graph: tuple[str, ...] = ()
     node_states: dict[str, dict[str, Any]] = field(default_factory=dict)
     consumed_events: tuple[str, ...] = ()
-    trigger: str | None = None
+    # === Phase H: trigger upgraded from str to RunTrigger ===
+    trigger: RunTrigger | None = None
     deliveries: tuple[str, ...] = ()
+    # === Phase H: parallel queue to pending_turns ===
+    pending_events: list[IncomingEvent] = field(default_factory=list)
 
 
 # Backward-compat alias — many call sites still import ActiveRun.
