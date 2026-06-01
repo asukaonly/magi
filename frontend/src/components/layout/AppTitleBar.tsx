@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { shouldRenderChatWorkspace } from '@/pages/chat-route-helpers';
 import { ChatWorkspacePicker } from './ChatWorkspacePicker';
 import { AppWindowControls } from './AppWindowControls';
+import { NotificationBell } from './NotificationBell';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { MonthGridPicker } from '@/components/timeline/immersive/picker/MonthGridPicker';
@@ -303,6 +304,12 @@ export const AppTitleBar = () => {
           </div>
         </>
       )}
+
+      {/* Global notification bell — rendered for every route (outside the
+          isTimelineRoute ternary), just before the window controls. */}
+      <div className="flex shrink-0 items-center pr-1">
+        <NotificationBell />
+      </div>
 
       {/* Windows / Linux: hand-drawn window controls in the right slot. */}
       {!isMac ? <AppWindowControls className="ml-1" /> : null}
