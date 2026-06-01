@@ -5,6 +5,7 @@ import {
 } from '@/domain/chat/state';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
+import { useNotificationStore } from '@/stores/notifications';
 import { useChatTraceStore } from '@/stores/chat-trace';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useContextUsageStore } from '@/stores/context-usage';
@@ -276,6 +277,11 @@ export const applyRealtimeStoreProjection = (
       return true;
     }
     return false;
+  }
+
+  if (eventName === 'user_notification_added') {
+    void useNotificationStore.getState().refresh();
+    return true;
   }
 
   if (eventName === 'code_agent_delegation_event' && message.data && typeof message.data === 'object') {
