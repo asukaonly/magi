@@ -5,6 +5,14 @@ export type ExtensionSurface = 'extensions' | 'tools' | 'timeline';
 export type ExtensionFieldType = 'switch' | 'select' | 'input' | 'number' | 'secret' | 'path' | 'tags';
 export type PluginSettingsActionStatus = 'pending' | 'succeeded' | 'failed' | 'cancelled';
 
+export interface PluginCapability {
+  capability: string;
+  scope: string[];
+  optional: boolean;
+  reason: string;
+  reason_i18n: Record<string, string>;
+}
+
 export interface ExtensionFieldOption {
   label: string;
   value: string;
@@ -182,6 +190,8 @@ export interface PluginManifest {
   source: string;
   plugin_dir: string;
   manifest_path: string;
+  capabilities: PluginCapability[];
+  consented_capabilities?: PluginCapability[] | null;
 }
 
 export interface PluginContribution {
@@ -325,6 +335,7 @@ export interface PluginRegistryEntry {
   installed: boolean;
   installed_version: string | null;
   update_available: boolean;
+  capabilities: PluginCapability[];
 }
 
 export interface PluginRegistryResponse {
@@ -491,6 +502,16 @@ export const pluginsApi = {
   ): Promise<PluginPackageState> => {
     const snapshot = await pluginsApi.startInstallFromUpload(file);
     return waitForInstallJob(snapshot, onProgress);
+  },
+
+  inspectUpload: async (file: File): Promise<PluginManifest> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post<PluginManifest>('/plugins/install/upload/inspect', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    });
+    return unwrapPayload(response as PluginManifest | ApiResponse<PluginManifest>);
   },
 
   uninstall: async (pluginId: string): Promise<void> => {

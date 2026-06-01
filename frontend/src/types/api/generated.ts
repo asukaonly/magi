@@ -3105,6 +3105,57 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/system-suggestions/dismissals": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** List Dismissals */
+        readonly get: operations["list_dismissals_api_system_suggestions_dismissals_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/system-suggestions/dismissals/{dedupe_key}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        /** Clear Dismissal */
+        readonly delete: operations["clear_dismissal_api_system_suggestions_dismissals__dedupe_key__delete"];
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/system-suggestions/installable": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** List Installable */
+        readonly get: operations["list_installable_api_system_suggestions_installable_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/timeline/asset/{asset_ref}": {
         readonly parameters: {
             readonly query?: never;
@@ -3480,6 +3531,11 @@ export interface components {
              * @enum {string}
              */
             readonly locale: "zh" | "en";
+            /**
+             * Session Id
+             * @default default
+             */
+            readonly session_id: string;
             /** Text */
             readonly text: string;
         };
@@ -3487,6 +3543,13 @@ export interface components {
         readonly CheckResponse: {
             /** Suggestions */
             readonly suggestions: readonly components["schemas"]["SuggestionProposal"][];
+        };
+        /** ClearDismissalResponse */
+        readonly ClearDismissalResponse: {
+            /** Cleared */
+            readonly cleared: boolean;
+            /** Dedupe Key */
+            readonly dedupe_key: string;
         };
         /** ConfigResponse */
         readonly ConfigResponse: {
@@ -3616,6 +3679,17 @@ export interface components {
             readonly dedupe_key: string;
             /** Dismissed */
             readonly dismissed: boolean;
+        };
+        /** DismissalItem */
+        readonly DismissalItem: {
+            /** Dedupe Key */
+            readonly dedupe_key: string;
+            /**
+             * Dismissed At
+             * Format: date-time
+             */
+            readonly dismissed_at: string;
+            readonly kind: components["schemas"]["DismissalKind"];
         };
         /**
          * DismissalKind
@@ -3914,6 +3988,19 @@ export interface components {
             readonly vocab_available?: readonly string[];
             /** Vocab Avoided */
             readonly vocab_avoided?: readonly string[];
+        };
+        /** InstallableItem */
+        readonly InstallableItem: {
+            /** Category */
+            readonly category: string;
+            /** Installed */
+            readonly installed: boolean;
+            /** Plugin Id */
+            readonly plugin_id: string;
+            /** Rationale */
+            readonly rationale: {
+                readonly [key: string]: string;
+            };
         };
         /** JournalReflectRequest */
         readonly JournalReflectRequest: {
@@ -4777,6 +4864,16 @@ export interface components {
                 readonly [key: string]: unknown;
             }[];
         };
+        /** ListDismissalsResponse */
+        readonly ListDismissalsResponse: {
+            /** Dismissals */
+            readonly dismissals: readonly components["schemas"]["DismissalItem"][];
+        };
+        /** ListInstallableResponse */
+        readonly ListInstallableResponse: {
+            /** Items */
+            readonly items: readonly components["schemas"]["InstallableItem"][];
+        };
         /** ListSkillsResponse */
         readonly ListSkillsResponse: {
             /** Data */
@@ -5583,6 +5680,39 @@ export interface components {
              */
             readonly state_transition_enabled: boolean;
         };
+        /**
+         * PluginCapability
+         * @description A single self-declared capability shown to the user for install-time
+         *     consent. NOT enforced at runtime (no sandbox this iteration).
+         *
+         *     ``capability`` is a permissive ``str`` for forward-compat: a newer
+         *     registry may declare a capability an older app doesn't know, and that must
+         *     not break parsing. The authoritative known set is enforced at build time in
+         *     magi-plugins ``scripts/build-registry.py`` and rendered with a known map +
+         *     graceful fallback in the frontend. Known values: screen_recording,
+         *     accessibility, calendar, photos, contacts, system_media, filesystem_read,
+         *     filesystem_write, network, subprocess.
+         */
+        readonly PluginCapability: {
+            /** Capability */
+            readonly capability: string;
+            /**
+             * Optional
+             * @default false
+             */
+            readonly optional: boolean;
+            /**
+             * Reason
+             * @default
+             */
+            readonly reason: string;
+            /** Reason I18N */
+            readonly reason_i18n?: {
+                readonly [key: string]: string;
+            };
+            /** Scope */
+            readonly scope?: readonly string[];
+        };
         /** PluginContributionResponse */
         readonly PluginContributionResponse: {
             /** Contribution Id */
@@ -5669,6 +5799,10 @@ export interface components {
         readonly PluginManifestResponse: {
             /** Author */
             readonly author: string;
+            /** Capabilities */
+            readonly capabilities?: readonly components["schemas"]["PluginCapability"][];
+            /** Consented Capabilities */
+            readonly consented_capabilities?: readonly components["schemas"]["PluginCapability"][] | null;
             /** Contribution Types */
             readonly contribution_types: readonly string[];
             /** Description */
@@ -5715,6 +5849,8 @@ export interface components {
              * @default
              */
             readonly author: string;
+            /** Capabilities */
+            readonly capabilities?: readonly components["schemas"]["PluginCapability"][];
             /** Contribution Types */
             readonly contribution_types?: readonly string[];
             /**
@@ -6276,6 +6412,8 @@ export interface components {
             readonly confidence: number;
             /** Dedupe Key */
             readonly dedupe_key: string;
+            /** Installable Plugin Ids */
+            readonly installable_plugin_ids?: readonly string[];
             /** Plugin Ids */
             readonly plugin_ids: readonly string[];
             /** Rationale */
@@ -12751,6 +12889,77 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly list_dismissals_api_system_suggestions_dismissals_get: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListDismissalsResponse"];
+                };
+            };
+        };
+    };
+    readonly clear_dismissal_api_system_suggestions_dismissals__dedupe_key__delete: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly dedupe_key: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ClearDismissalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly list_installable_api_system_suggestions_installable_get: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListInstallableResponse"];
                 };
             };
         };
