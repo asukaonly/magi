@@ -12,6 +12,7 @@ from ....llm.streaming_events import LLMStreamEvent, emit_stream_event, get_stre
 from ....runtime_trace import RuntimeTraceStore
 from ...cancel import CancelToken
 from ...message_utils import append_latest_user_message
+from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
 from ...turn_input import UserTurnInput
 from ...run_control import (
     DetachSignal,
@@ -115,6 +116,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         context_window: int | None = None,
         permission_gateway: Any = None,
         permission_gateway_provider: Callable[[], Any] | None = None,
+        attachment_resolver: AttachmentResolverPort | None = None,
     ):
         """
         Initialize the executor.
@@ -137,6 +139,11 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         self.runtime_trace_store = runtime_trace_store
         self.permission_gateway = permission_gateway
         self._permission_gateway_provider = permission_gateway_provider
+        # Resolves managed attachment payloads at message-build time. Chat
+        # wires a chat-backed resolver; non-chat callers (workers, sub-agents,
+        # background tasks) leave this as a null resolver, preserving their
+        # current behavior of never touching a chat read service.
+        self._attachment_resolver = attachment_resolver or NullAttachmentResolver()
         self._operations = _FunctionCallingOperations(self)
         self.step_executor = FunctionCallingStepExecutor(self)
         self._current_messages: List[Dict[str, Any]] = []
@@ -173,6 +180,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         messages = append_latest_user_message(
             conversation_history,
             turn,
+            resolver=self._attachment_resolver,
             session_summary=session_summary,
             session_origin=session_origin,
             reply_context=reply_context,
@@ -305,6 +313,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                     user_id=user_id,
                     session_id=session_id,
                 ),
+                resolver=self._attachment_resolver,
                 history_limit=max(len(messages), 1) + 1,
             ),
         )

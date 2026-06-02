@@ -50,8 +50,6 @@ ignore_imports =
     magi.agent.execution.function_calling.guardrails -> magi.chat.workspace
     magi.agent.lifecycle -> magi.chat
     magi.agent.lifecycle -> magi.transport.chat_events
-    magi.agent.message_utils -> magi.chat
-    magi.agent.task_agents.chat.attachment_context -> magi.chat
     magi.agent.task_agents.chat.coordinator -> magi.channels.delivery_prefs
     magi.agent.task_agents.chat.coordinator -> magi.channels.delivery_router
     magi.agent.task_agents.chat.history_service -> magi.chat

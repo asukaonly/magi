@@ -43,6 +43,7 @@ from ....channels.delivery_router import DeliveryRouter
 from ....channels.delivery_prefs import resolve_delivery_targets
 from magi_plugin_sdk.delivery import DeliveryContent
 from ...run.builder import GraphBuilder
+from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
 from ...run.nodes.plan_fanout import PlanFanoutNode
 from ...run.nodes.reply import ReplyNode
 from ...run.nodes.tool_loop import ToolLoopNode
@@ -144,9 +145,14 @@ class ChatExecutionCoordinator:
         user_prefs_provider: Callable[[str], Awaitable[dict]] | None = None,
         receipts_store: Any | None = None,
         conversation_log: Any | None = None,
+        attachment_resolver: AttachmentResolverPort | None = None,
     ) -> None:
         self._context_decider = context_decider
         self._fact_classifier = fact_classifier
+        # Resolves managed attachment payloads when classifying a turn's
+        # effective attachments. Chat wires a chat-backed resolver; defaults
+        # to a null resolver for legacy / test callers.
+        self._attachment_resolver = attachment_resolver or NullAttachmentResolver()
         self._handler_registry = handler_registry
         self._intent_trace_callback = intent_trace_callback
         self._tool_advisory_provider = tool_advisory_provider
@@ -312,7 +318,9 @@ class ChatExecutionCoordinator:
             user_message=context.latest_user_message,
             strategy=decision.to_legacy_strategy_dict(),
         )
-        effective_attachments = resolve_effective_turn_attachments(context)
+        effective_attachments = resolve_effective_turn_attachments(
+            context, resolver=self._attachment_resolver
+        )
         has_image_attachments = any(
             isinstance(item, dict) and str(item.get("kind") or "").strip() == "image"
             for item in effective_attachments

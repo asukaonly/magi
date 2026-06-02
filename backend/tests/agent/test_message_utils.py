@@ -1,8 +1,27 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from magi.agent.message_utils import append_latest_user_message
+from magi.agent.run.ports import NullAttachmentResolver
 from magi.agent.task_agents.chat.contracts import ChatReplyContext
 from magi.agent.turn_input import UserTurnInput
+
+_NULL_RESOLVER = NullAttachmentResolver()
+
+
+class _FakeAttachmentResolver:
+    """Resolver returning a known payload for one attachment id."""
+
+    def __init__(self, *, storage_path: str) -> None:
+        self._storage_path = storage_path
+        self.calls: list[tuple[str, str, str]] = []
+
+    def get_attachment_payload(
+        self, user_id: str, session_id: str, attachment_id: str
+    ) -> dict[str, object] | None:
+        self.calls.append((user_id, session_id, attachment_id))
+        return {"attachment_id": attachment_id, "storage_path": self._storage_path}
 
 
 def _turn(text: str) -> UserTurnInput:
@@ -36,6 +55,7 @@ def test_append_latest_user_message_without_limit_keeps_full_short_history() -> 
         history,
         _turn("message 3"),
         history_token_budget=10_000,
+        resolver=_NULL_RESOLVER,
     )
 
     assert [item["content"] for item in messages] == [
@@ -59,6 +79,7 @@ def test_append_latest_user_message_adds_origin_anchor_when_head_is_trimmed() ->
         history,
         _turn("current question"),
         history_token_budget=120,
+        resolver=_NULL_RESOLVER,
     )
 
     assert messages[0]["role"] == "user"
@@ -79,6 +100,7 @@ def test_append_latest_user_message_keeps_legacy_limit_when_explicit() -> None:
         history,
         _turn("message 3"),
         history_limit=1,
+        resolver=_NULL_RESOLVER,
     )
 
     assert [item["content"] for item in messages] == ["message 2", "message 3"]
@@ -95,6 +117,7 @@ def test_append_latest_user_message_removes_persisted_current_turn_with_attachme
         history,
         _turn_with_attachments("Voice transcript: hello"),
         history_token_budget=10_000,
+        resolver=_NULL_RESOLVER,
     )
 
     assert [item["content"] for item in messages] == [
@@ -129,6 +152,7 @@ def test_append_latest_user_message_marks_explicit_reply_target_attachments() ->
         _turn("这个图上文字是居中的还是居左的"),
         history_token_budget=10_000,
         reply_context=reply_context,
+        resolver=_NULL_RESOLVER,
     )
 
     assert len(messages) == 1
@@ -141,3 +165,59 @@ def test_append_latest_user_message_marks_explicit_reply_target_attachments() ->
     assert "name=image.png" in content
     assert "kind=image" in content
     assert "parse_status=not_applicable" in content
+
+
+def _image_turn(text: str) -> UserTurnInput:
+    return UserTurnInput(
+        text=text,
+        attachments=[
+            {
+                "attachment_id": "att-image",
+                "kind": "image",
+                "mime_type": "image/png",
+                # No ``storage_path``: forces resolution through the resolver.
+            }
+        ],
+        user_id="user-1",
+        session_id="session-1",
+    )
+
+
+def test_append_latest_user_message_resolves_image_payload_via_resolver(
+    tmp_path: Path,
+) -> None:
+    """A chat turn resolves an image attachment payload through the injected
+    resolver and the resolved storage_path lands in the built content."""
+    image_path = tmp_path / "diagram.png"
+    image_path.write_bytes(b"fake-image-bytes")
+    resolver = _FakeAttachmentResolver(storage_path=str(image_path))
+
+    messages = append_latest_user_message(
+        [],
+        _image_turn("describe this screenshot"),
+        history_token_budget=10_000,
+        resolver=resolver,
+    )
+
+    assert resolver.calls == [("user-1", "session-1", "att-image")]
+    content = messages[-1]["content"]
+    assert content[0] == {"type": "text", "text": "describe this screenshot"}
+    assert content[1]["type"] == "image"
+    assert content[1]["mime_type"] == "image/png"
+
+
+def test_append_latest_user_message_null_resolver_drops_unresolvable_image(
+    tmp_path: Path,
+) -> None:
+    """NullAttachmentResolver resolves no payload, so an image attachment with
+    no storage_path yields no image block (text-only content)."""
+    messages = append_latest_user_message(
+        [],
+        _image_turn("describe this screenshot"),
+        history_token_budget=10_000,
+        resolver=_NULL_RESOLVER,
+    )
+
+    # Only the text block survives; no image block was built because the null
+    # resolver returned no storage_path.
+    assert messages[-1]["content"] == "describe this screenshot"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
 from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
@@ -43,6 +43,7 @@ from .handler_helpers import (
     serialize_ux_plan as _serialize_ux_plan,
 )
 from .attachment_context import resolve_effective_turn_attachments
+from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
 from ...task_orchestrator import TaskOrchestrator
 
 logger = get_logger(__name__)
@@ -60,6 +61,12 @@ class ChatHandlerDependencies:
     history_service: ChatHistoryService
     agent_id: str
     get_task_agent_manager: callable
+    # Resolves managed attachment payloads for a turn. Chat wires a
+    # chat-backed resolver; defaults to a null resolver so tests / non-chat
+    # callers can build dependencies without a chat read service.
+    attachment_resolver: AttachmentResolverPort = field(
+        default_factory=NullAttachmentResolver
+    )
     session_run_coordinator: Any | None = None
     background_dispatcher: BackgroundDispatcher | None = None
     background_launch_service: BackgroundLaunchService | None = None
@@ -106,12 +113,22 @@ def _build_common_cancel_token(
 class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
     mode = ExecutionMode.FUNCTION_CALLING
 
+    @property
+    def _attachment_resolver(self) -> AttachmentResolverPort:
+        # Duck-typed deps (e.g. test SimpleNamespace) may omit the field;
+        # fall back to a null resolver so attachment resolution is a no-op
+        # rather than touching chat.
+        resolver = getattr(self._deps, "attachment_resolver", None)
+        return resolver if resolver is not None else NullAttachmentResolver()
+
     async def build_request(self, request: ExecutionRequest) -> FunctionCallingRequest:
         prompt_package = await self._deps.context_service.build_prompt_package(
             user_id=request.context.user_id,
             session_id=request.context.session_id,
             user_message=request.context.latest_user_message,
-            attachments=resolve_effective_turn_attachments(request.context),
+            attachments=resolve_effective_turn_attachments(
+                request.context, resolver=self._attachment_resolver
+            ),
             task_category=request.intent.intent,
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
@@ -221,7 +238,9 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                 await self._deps.function_calling_orchestrator.execute_with_tools(
                     turn=UserTurnInput(
                         text=request.context.latest_user_message,
-                        attachments=resolve_effective_turn_attachments(request.context),
+                        attachments=resolve_effective_turn_attachments(
+                            request.context, resolver=self._attachment_resolver
+                        ),
                         user_id=request.context.user_id,
                         session_id=request.context.session_id,
                     ),
@@ -292,7 +311,9 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         def _build_turn(text: str) -> UserTurnInput:
             return UserTurnInput(
                 text=text,
-                attachments=resolve_effective_turn_attachments(request.context),
+                attachments=resolve_effective_turn_attachments(
+                    request.context, resolver=self._attachment_resolver
+                ),
                 user_id=request.context.user_id,
                 session_id=request.context.session_id,
             )

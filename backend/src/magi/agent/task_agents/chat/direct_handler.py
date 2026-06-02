@@ -19,6 +19,7 @@ from .handler_helpers import (
     serialize_ux_plan as _serialize_ux_plan,
 )
 from .attachment_context import resolve_effective_turn_attachments
+from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
 from ....runtime_trace import enrich_event_context_with_turn_trace
 
 IMAGE_VISION_UNSUPPORTED_RESPONSE_KEY = "chat.image_vision_unsupported"
@@ -57,8 +58,18 @@ def _build_llm_event_context(context: object, turn_id: object) -> dict[str, obje
 class DirectLLMHandler(BaseExecutionHandler):
     mode = ExecutionMode.DIRECT_LLM
 
+    @property
+    def _attachment_resolver(self) -> AttachmentResolverPort:
+        # Duck-typed deps (e.g. test SimpleNamespace) may omit the field;
+        # fall back to a null resolver so attachment resolution is a no-op
+        # rather than touching chat.
+        resolver = getattr(self._deps, "attachment_resolver", None)
+        return resolver if resolver is not None else NullAttachmentResolver()
+
     async def build_request(self, request: ExecutionRequest) -> DirectLLMRequest:
-        attachments = resolve_effective_turn_attachments(request.context)
+        attachments = resolve_effective_turn_attachments(
+            request.context, resolver=self._attachment_resolver
+        )
         attachments_for_model = (
             attachments
             if _image_attachments_supported(request.context, attachments)
@@ -97,6 +108,7 @@ class DirectLLMHandler(BaseExecutionHandler):
             messages=append_latest_user_message(
                 request.context.history,
                 turn,
+                resolver=self._attachment_resolver,
                 session_summary=getattr(request.context, "session_summary", None),
                 session_origin=getattr(request.context, "session_origin", None),
                 reply_context=getattr(request.context, "reply_context", None),
@@ -124,7 +136,9 @@ class DirectLLMHandler(BaseExecutionHandler):
 
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
         event_context = _build_llm_event_context(request.context, turn_id)
-        attachments = resolve_effective_turn_attachments(request.context)
+        attachments = resolve_effective_turn_attachments(
+            request.context, resolver=self._attachment_resolver
+        )
         if not _image_attachments_supported(request.context, attachments):
             return ExecutionResult(
                 mode=request.mode,

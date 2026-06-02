@@ -27,6 +27,7 @@ from ...tools.registry import tool_registry
 from ...runtime_trace import RuntimeTraceStore
 from ...utils.runtime import get_runtime_paths
 from ..execution.function_calling import FunctionCallingOrchestrator
+from ..run.ports import LazyAttachmentResolver
 from ...llm.streaming_events import stream_scope
 from .chat.interruption_classifier import InterruptionClassifier
 from .chat import (
@@ -151,6 +152,13 @@ class ChatTaskAgent(
         )
         self.prompt_context_renderer = PromptContextRenderer()
         self._chat_read_service = self._chat_read_service_factory()
+        # Chat-backed attachment resolver injected into the engine (orchestrator,
+        # handlers, coordinator). Delegates to ``chat_read_service_factory``
+        # lazily per resolve, preserving the prior lazy-singleton semantics of
+        # calling ``get_chat_read_service()`` at message-build time.
+        self._attachment_resolver = LazyAttachmentResolver(
+            self._chat_read_service_factory
+        )
         self._context_retrieval_service = ContextRetrievalService(
             unified_memory=unified_memory,
             retrieval_service=hybrid_retrieval_service,
@@ -271,6 +279,7 @@ class ChatTaskAgent(
             runtime_trace_store=runtime_trace_store,
             scenario_llm_pool=llm_pool,
             permission_gateway_provider=permission_gateway_provider,
+            attachment_resolver=self._attachment_resolver,
         )
         handler_deps = ChatHandlerDependencies(
             context_service=self._context_service,
@@ -281,6 +290,7 @@ class ChatTaskAgent(
             history_service=self._history_service,
             agent_id=self.agent_id,
             get_task_agent_manager=lambda: self._task_agent_manager,
+            attachment_resolver=self._attachment_resolver,
             session_run_coordinator=self._session_run_coordinator,
             background_dispatcher=background_dispatcher,
             background_launch_service=background_launch_service,
@@ -311,6 +321,7 @@ class ChatTaskAgent(
             user_prefs_provider=self._read_delivery_prefs,
             receipts_store=_receipts_store,
             conversation_log=_conversation_log,
+            attachment_resolver=self._attachment_resolver,
         )
         # Phase G+1: back-fill the coordinator on the shared handler
         # dependencies so DirectLLMHandler.execute() can route text_delta

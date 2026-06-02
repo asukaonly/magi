@@ -1,17 +1,22 @@
 """Helpers for resolving chat attachment context for a turn."""
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
-from ....chat import get_chat_read_service
+from ....agent.run.ports import AttachmentResolverPort
 
 
 def resolve_effective_turn_attachments(
     context: object,
     *,
-    read_service_factory: Callable[[], Any] | None = get_chat_read_service,
+    resolver: AttachmentResolverPort,
 ) -> list[dict[str, Any]]:
-    """Return attachments directly on the current turn plus explicit reply-target attachments."""
+    """Return attachments directly on the current turn plus explicit reply-target attachments.
+
+    ``resolver`` resolves managed payloads for explicit reply-target
+    attachments. Chat injects a chat-backed resolver; non-chat callers inject
+    ``NullAttachmentResolver`` (which resolves nothing).
+    """
 
     attachments: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
@@ -27,7 +32,7 @@ def resolve_effective_turn_attachments(
                 normalized = _resolve_managed_attachment_payload(
                     context,
                     normalized,
-                    read_service_factory=read_service_factory,
+                    resolver=resolver,
                 )
             attachment_id = str(normalized.get("attachment_id") or "").strip()
             if attachment_id:
@@ -52,10 +57,10 @@ def _resolve_managed_attachment_payload(
     context: object,
     attachment: dict[str, Any],
     *,
-    read_service_factory: Callable[[], Any] | None,
+    resolver: AttachmentResolverPort,
 ) -> dict[str, Any]:
     attachment_id = str(attachment.get("attachment_id") or "").strip()
-    if not attachment_id or read_service_factory is None:
+    if not attachment_id:
         return attachment
     user_id = _context_value(context, "user_id")
     session_id = _context_value(context, "session_id")
@@ -66,7 +71,7 @@ def _resolve_managed_attachment_payload(
     if not user_id or not session_id:
         return attachment
     try:
-        resolved = read_service_factory().get_attachment_payload(user_id, session_id, attachment_id)
+        resolved = resolver.get_attachment_payload(user_id, session_id, attachment_id)
     except (RuntimeError, ValueError):
         return attachment
     if not isinstance(resolved, dict):

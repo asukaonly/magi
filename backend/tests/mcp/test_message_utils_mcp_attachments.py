@@ -1,7 +1,10 @@
 """Verify _build_latest_user_message_content emits MCP resource blocks."""
 
 from magi.agent.message_utils import append_latest_user_message
+from magi.agent.run.ports import NullAttachmentResolver
 from magi.agent.turn_input import UserTurnInput
+
+_NULL_RESOLVER = NullAttachmentResolver()
 
 
 def test_mcp_resource_emits_text_block():
@@ -21,6 +24,7 @@ def test_mcp_resource_emits_text_block():
                 }
             ],
         ),
+        resolver=_NULL_RESOLVER,
     )
     assert len(messages) == 1
     content = messages[0]["content"]
@@ -45,6 +49,7 @@ def test_mcp_resource_without_resolved_text_is_silent():
                 }
             ],
         ),
+        resolver=_NULL_RESOLVER,
     )
     # User text only — no resolved_text means no extra block.
     assert messages[0]["content"] == "hi"
@@ -60,6 +65,7 @@ def test_image_path_still_works():
                 {"kind": "image", "storage_path": "/tmp/does-not-exist.png"},
             ],
         ),
+        resolver=_NULL_RESOLVER,
     )
     # Missing image is silently skipped; user text returned as plain string.
     assert messages[0]["content"] == "look"
