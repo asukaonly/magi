@@ -1,8 +1,5 @@
 import json
 import pytest
-from magi.agent.background import (
-    BackgroundTask, BackgroundTaskSpec, BackgroundTaskStatus, BackgroundTaskTriggerSource,
-)
 
 
 class _FakeChatStore:
@@ -57,6 +54,12 @@ async def test_persist_completion_message_writes_record():
     assert json.loads(written.payload_json)["background_task_id"] == "task_abc"
     assert store.replaced == [("msg_pending", written.message_id)]
     assert store.bumped == ["s1"]
+    # Full record-shape snapshot — these fields are the most likely to silently
+    # break if persist_completion_message is edited later.
+    assert written.created_at_ms == 1_700_000_000_000
+    assert written.sequence_no == 1  # first next_sequence_no() call
+    assert written.turn_id is None
+    assert written.replaced_by_message_id is None
 
 
 @pytest.mark.asyncio
