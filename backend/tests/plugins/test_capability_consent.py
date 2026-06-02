@@ -99,3 +99,29 @@ def test_inspect_reads_capabilities_without_installing(tmp_path):
     assert manifest.plugin_id == "demo"
     assert manifest.capabilities[0].capability == "network"
     assert manifest.capabilities[0].scope == ["x.com"]
+
+
+def test_corrupt_targz_raises_valueerror(tmp_path):
+    # A file with a valid extension but corrupt contents must surface as
+    # ValueError (→ HTTP 400), not an unhandled tarfile/gzip error (→ 500).
+    import pytest
+
+    from magi.plugins.manager import PluginManager
+
+    mgr = PluginManager.__new__(PluginManager)
+    bad = tmp_path / "corrupt.tar.gz"
+    bad.write_bytes(b"this is definitely not a gzip tarball")
+    with pytest.raises(ValueError):
+        mgr.inspect_plugin_archive(bad)
+
+
+def test_corrupt_zip_raises_valueerror(tmp_path):
+    import pytest
+
+    from magi.plugins.manager import PluginManager
+
+    mgr = PluginManager.__new__(PluginManager)
+    bad = tmp_path / "corrupt.zip"
+    bad.write_bytes(b"PK\x03\x04 not really a valid zip archive")
+    with pytest.raises(ValueError):
+        mgr.inspect_plugin_archive(bad)
