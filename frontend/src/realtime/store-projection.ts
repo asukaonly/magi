@@ -76,7 +76,24 @@ export const applyRealtimeStoreProjection = (
       return projectTraceSummary() || projected;
     }
 
-    if (sessionId) {
+    const messageId = payload.message_id ? String(payload.message_id) : undefined;
+
+    // Phase G channel-delivery emission (ChatSseChannel.deliver) writes
+    // ``agent_response`` rows that carry ONLY ``content`` + ``is_final`` —
+    // ``DeliveryContent`` doesn't propagate turn_id or message_id, so the
+    // payload is intrinsically lossy. For those rows the persisted bubble
+    // arrives separately via ``chat_message_upserted`` (with the real
+    // message_id + turn_id), so projecting BOTH would produce a duplicate
+    // assistant bubble — the channel emission's no-turnId fallback in
+    // ``applyAgentResponse`` can only ``insertAfterTurnAnchor``, never
+    // replace the live streaming bubble. We skip the bubble projection
+    // here and let ``chat_message_upserted`` own the timeline render.
+    // Side effects (SESSION_SYNC, refreshVisibleTrace, clearPendingResponseTurn)
+    // still fire from ``useChatRealtimeEffects`` since the event itself
+    // is still subscribed.
+    const isLossyChannelDelivery = !turnId && !messageId;
+
+    if (sessionId && !isLossyChannelDelivery) {
       conversationStore.receiveAgentResponse({
         sessionId,
         content: String(payload.content || ''),
@@ -84,7 +101,7 @@ export const applyRealtimeStoreProjection = (
           ? payload.attachments as any[]
           : undefined,
         timestamp,
-        messageId: payload.message_id ? String(payload.message_id) : undefined,
+        messageId,
         messageKind: payload.message_kind ? String(payload.message_kind) : null,
         personaId,
         turnId: turnId || undefined,
