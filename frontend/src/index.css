@@ -713,6 +713,19 @@
   50%      { opacity: 0.85; transform: scale(1.06); }
 }
 
+/**
+ * Pending typing-indicator dots. Three dots bounce in a staggered loop while
+ * the assistant is between "user pressed send" and "first chunk arrives" —
+ * a 1–3s window that otherwise reads as a frozen UI. Kept subtle (opacity
+ * + tiny scale) so the eye is drawn to the new bubble once it lands rather
+ * than the placeholder. Stagger is handled by per-dot animation-delay on
+ * the consumer (PendingAssistantBubble), not here.
+ */
+@keyframes magiPendingDot {
+  0%, 60%, 100% { opacity: 0.35; transform: scale(0.85); }
+  30%           { opacity: 1;    transform: scale(1); }
+}
+
 .chat-avatar-shell {
   position: relative;
   display: inline-flex;

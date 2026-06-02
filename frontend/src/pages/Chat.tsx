@@ -692,6 +692,7 @@ export const ChatPage: React.FC = () => {
         messageContextMenu={messageContextMenu}
         messageContextMenuRef={messageContextMenuRef}
         timelineRef={timelineScrollRef}
+        waitingForReply={waitingForReply}
         onSetReplyTarget={setReplyTarget}
         onOpenImagePreview={setHistoryImagePreview}
         onOpenTraceDrawer={openTraceDrawer}
