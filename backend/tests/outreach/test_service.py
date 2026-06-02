@@ -105,3 +105,53 @@ async def test_drain_due_pushes_and_marks_delivered():
                    external=external, outbox=outbox, log=log)
     await svc.drain_due(now_ms=1000)
     assert external.pushes and outbox.marked == [(7, "delivered")]
+
+
+@pytest.mark.asyncio
+async def test_submit_desktop_failure_does_not_block_external_push():
+    class _FailingDesktop:
+        async def write(self, intent, body): raise RuntimeError("desktop down")
+    external, log = _External(), _Log()
+    svc = _service(ResolvedTargets("s1", _ext_target()), GovernorVerdict.PUSH_NOW,
+                   desktop=_FailingDesktop(), external=external, log=log)
+    await svc.submit(_intent())  # must not raise
+    assert external.pushes
+    assert log.records
+
+
+@pytest.mark.asyncio
+async def test_submit_drop_does_not_push_or_enqueue():
+    external, outbox, log = _External(), _Outbox(), _Log()
+    svc = _service(ResolvedTargets("s1", _ext_target()), GovernorVerdict.DROP,
+                   external=external, outbox=outbox, log=log)
+    await svc.submit(_intent())
+    assert not external.pushes and not outbox.enqueued and not log.records
+
+
+@pytest.mark.asyncio
+async def test_drain_external_none_marks_dropped():
+    import json
+    class _DrainOutbox:
+        def __init__(self): self.marked = []
+        async def list_due(self, *, now_ms):
+            return [{"id": 9, "intent_json": json.dumps(_intent().to_dict()), "release_at_ms": 1}]
+        async def mark_status(self, row_id, status): self.marked.append((row_id, status))
+    external, outbox = _External(), _DrainOutbox()
+    svc = _service(ResolvedTargets(None, None), GovernorVerdict.PUSH_NOW,
+                   external=external, outbox=outbox)
+    await svc.drain_due(now_ms=1000)
+    assert not external.pushes and outbox.marked == [(9, "dropped")]
+
+
+@pytest.mark.asyncio
+async def test_drain_bad_json_marks_dropped():
+    class _DrainOutbox:
+        def __init__(self): self.marked = []
+        async def list_due(self, *, now_ms):
+            return [{"id": 11, "intent_json": "{not valid json", "release_at_ms": 1}]
+        async def mark_status(self, row_id, status): self.marked.append((row_id, status))
+    external, outbox = _External(), _DrainOutbox()
+    svc = _service(ResolvedTargets("s1", _ext_target()), GovernorVerdict.PUSH_NOW,
+                   external=external, outbox=outbox)
+    await svc.drain_due(now_ms=1000)
+    assert not external.pushes and outbox.marked == [(11, "dropped")]

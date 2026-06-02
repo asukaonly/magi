@@ -42,20 +42,25 @@ class OutreachService:
             except Exception:
                 logger.warning("outreach: desktop write failed", exc_info=True)
         if targets.external is not None:
-            await self._handle_external(intent, body, targets.external)
+            # External exceptions propagate intentionally — the caller (producer)
+            # owns isolation/retry; we do not double-guard here.
+            await self._route_external(intent, body, targets.external)
 
-    async def _handle_external(self, intent: OutreachIntent, body: str, target: Any) -> None:
+    async def _push_and_record(self, intent: OutreachIntent, body: str, target: Any) -> None:
+        await self._external.push(intent, body, target=target)
+        await self._log.record(
+            correlation_id=intent.correlation_id, user_id=intent.user_id,
+            channel_type=target.channel_type, delivered_at_ms=now_wall_ms(),
+        )
+
+    async def _route_external(self, intent: OutreachIntent, body: str, target: Any) -> None:
         verdict, release_at = await self._governor.evaluate(intent, external_target=target)
         if verdict is GovernorVerdict.PUSH_NOW:
-            await self._external.push(intent, body, target=target)
-            await self._log.record(
-                correlation_id=intent.correlation_id, user_id=intent.user_id,
-                channel_type=target.channel_type, delivered_at_ms=now_wall_ms(),
-            )
+            await self._push_and_record(intent, body, target)
         elif verdict is GovernorVerdict.DEFER:
             await self._outbox.enqueue(
                 intent_json=json.dumps(intent.to_dict(), ensure_ascii=False),
-                release_at_ms=int(release_at or now_wall_ms()),
+                release_at_ms=int(release_at if release_at is not None else now_wall_ms()),
                 created_at_ms=now_wall_ms(),
             )
         else:
@@ -75,12 +80,10 @@ class OutreachService:
             body = await self._compose(intent)
             verdict, _ = await self._governor.evaluate(intent, external_target=targets.external)
             if verdict is GovernorVerdict.PUSH_NOW:
-                await self._external.push(intent, body, target=targets.external)
-                await self._log.record(
-                    correlation_id=intent.correlation_id, user_id=intent.user_id,
-                    channel_type=targets.external.channel_type, delivered_at_ms=now_wall_ms(),
-                )
+                await self._push_and_record(intent, body, target=targets.external)
                 await self._outbox.mark_status(row["id"], "delivered")
             elif verdict is GovernorVerdict.DROP:
                 await self._outbox.mark_status(row["id"], "dropped")
-            # DEFER: leave 'pending' for a later drain
+            # DEFER: leave 'pending'; the governor must eventually converge to
+            # PUSH_NOW or DROP (release_at_ms is not updated here, so this row
+            # re-enters every drain cycle until it converges).
