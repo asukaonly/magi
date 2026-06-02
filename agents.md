@@ -16,6 +16,7 @@ This document defines mandatory implementation and delivery rules for coding age
 - Use Conventional Commits with clear English subjects.
 - Use English for AI-generated comments/docstrings, logs, and error messages.
 - Add tests or explicit validation evidence for behavior changes.
+- When adding a backend HTTP route, also register its path + methods in `_PUBLIC_ROUTE_METHODS` (`backend/src/magi/api/routes.py`); the public app is built by filtering routers through this allowlist, so an unlisted route returns 404 at runtime even though it exists on the router (see Coding Standards → Adding an API route).
 
 **Don't**
 - Don't batch unrelated tasks in one commit.
@@ -24,6 +25,7 @@ This document defines mandatory implementation and delivery rules for coding age
 - Don't diverge from the active `docs/` guidance without documenting why and impact.
 - Don't commit temporary plans, review scratchpads, or exploratory design notes under `docs/`.
 - Don't skip validation for core logic changes.
+- Don't treat a router-import unit test as proof a route is reachable — that bypasses the `_build_public_router` allowlist filter; assert through the public router (or hit the live endpoint).
 - Don't enforce English-only for UI copy unless explicitly required.
 - Never add any compatibility code paths; this project is in active development mode.
 
@@ -222,6 +224,24 @@ magi-plugins/                     # github.com/asukaonly/magi-plugins
 - Use specific exceptions and structured logging (`structlog`).
 - Prefer Google-style docstrings for non-trivial public APIs.
 - AI-generated comments/docstrings/log/error text must be English.
+
+### Adding an API route
+Declaring a route on its `APIRouter` is NOT enough to make it reachable. Required steps:
+1. **Declare** it: `@some_router.<method>("/path", ...)`.
+2. **Allowlist** it: add `"/path": {"<METHOD>"}` under the router's group in `_PUBLIC_ROUTE_METHODS` (`backend/src/magi/api/routes.py`). `register_api_routes()` filters every router through `_build_public_router`, so a route missing from the allowlist is silently dropped → **HTTP 404 in the running app** (router-import unit tests still pass — they bypass the filter). Use the router-relative path (no `/api/<group>` prefix; the prefix is added when the filtered router is mounted).
+3. **Gateway**: the Rust gateway (`crates/magi-gateway`) proxies all non-native paths to Python via `.fallback(proxy_handler)` — no gateway change needed for proxied routes. Only add `.route(...)` in `crates/magi-gateway/src/api/mod.rs` if the endpoint is implemented natively in Rust.
+4. **Types**: if the request/response schema changed, run `npm run gen:api-types` and update the hand-written client under `frontend/src/api/`; CI drift-checks `generated.ts`.
+5. **Reload**: the backend runs as a `--no-reload` IPC sidecar — fully relaunch the app (not webview reload) to pick up route/code changes.
+
+Prove reachability through the public router, not just the raw router:
+
+```python
+from magi.api.routers.plugins import plugins_router
+from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
+public = _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"])
+assert "/install/upload/inspect" in {r.path for r in public.routes}
+```
 
 ### TypeScript / React
 - Naming:

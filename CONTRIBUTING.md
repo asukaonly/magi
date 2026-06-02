@@ -76,6 +76,7 @@ cargo test -p magi-gateway
 
 - Keep each change atomic and independently verifiable.
 - Add or update tests when behavior changes. If automated coverage is not practical, document the validation you performed.
+- When adding a backend API route, also register its path + methods in `_PUBLIC_ROUTE_METHODS` (`backend/src/magi/api/routes.py`) — otherwise it returns 404 at runtime despite existing on the router. See `agents.md` → Coding Standards → Adding an API route.
 - Prefer direct fixes over compatibility shims.
 - Use English for commit messages, code comments, docstrings, logs, and error messages.
 - Use Conventional Commits for commit subjects.
