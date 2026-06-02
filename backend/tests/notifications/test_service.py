@@ -29,29 +29,50 @@ def test_materialize_dedups_active(tmp_path):
     svc.materialize(user_id="default_user", locale="zh", proposals=[_proposal()])
     assert len(store.list_for_user("default_user")) == 1   # bumped, not duplicated
 
-def test_materialize_respects_dismiss_cooldown(tmp_path):
-    svc, store = _svc(tmp_path)
-    svc.materialize(user_id="default_user", locale="zh", proposals=[_proposal()])
-    nid = store.list_for_user("default_user")[0].id
-    store.mark_dismissed(nid, "explicit")  # 30d cooldown
-    svc.materialize(user_id="default_user", locale="zh", proposals=[_proposal()])
-    # within cooldown → not recreated
-    assert store.list_for_user("default_user") == []
+def test_dismiss_records_preference(tmp_path):
+    import magi.notifications.store as store_mod
+    s = store_mod.NotificationStore(str(tmp_path / "n.db")); s.ensure_schema()
+    nid = s.insert(store_mod.NotificationRow(user_id="default_user", kind="suggestion",
+        dedupe_key="browser_history", title="t", body="b", created_at_ms=1))
+    recorded = []
+    from magi.notifications.service import NotificationService
+    svc = NotificationService(store=s, record_dismissal=lambda key, kind: recorded.append((key, kind)))
+    svc.dismiss(nid, "explicit")
+    assert s.get(nid).status == "dismissed"
+    assert recorded == [("browser_history", "explicit")]
 
-def test_cooldown_elapsed_recreates(tmp_path):
-    svc, store = _svc(tmp_path)
-    # seed a dismissed row 31 days old
-    from magi.notifications.store import NotificationRow
-    old = int(time.time()*1000) - 31*86_400_000
-    nid = store.insert(NotificationRow(user_id="default_user", kind="suggestion",
-        dedupe_key="browser_history", title="t", body="b", created_at_ms=old))
-    store.mark_dismissed(nid, "explicit")
-    # backdate dismissed_at too
-    import sqlite3
-    c = sqlite3.connect(str(tmp_path/"n.db")); c.execute(
-        "UPDATE user_notifications SET dismissed_at_ms=? WHERE id=?", (old, nid)); c.commit(); c.close()
-    svc.materialize(user_id="default_user", locale="zh", proposals=[_proposal()])
-    assert len(store.list_for_user("default_user")) == 1   # recreated
+
+def test_dismiss_all_records_each_key(tmp_path):
+    import magi.notifications.store as store_mod
+    s = store_mod.NotificationStore(str(tmp_path / "n.db")); s.ensure_schema()
+    s.insert(store_mod.NotificationRow(user_id="default_user", kind="suggestion",
+        dedupe_key="a", title="t", body="b", created_at_ms=1))
+    s.insert(store_mod.NotificationRow(user_id="default_user", kind="suggestion",
+        dedupe_key="b", title="t", body="b", created_at_ms=2))
+    recorded = []
+    from magi.notifications.service import NotificationService
+    svc = NotificationService(store=s, record_dismissal=lambda key, kind: recorded.append(key))
+    n = svc.dismiss_all("default_user", "explicit")
+    assert n == 2
+    assert sorted(recorded) == ["a", "b"]
+    assert s.list_for_user("default_user") == []
+
+
+def test_materialize_reinserts_after_restore(tmp_path):
+    # No notification-layer cooldown: a dismissed row does NOT block a fresh
+    # insert (suppression is the matcher's job; restore clears that gate).
+    import magi.notifications.store as store_mod
+    s = store_mod.NotificationStore(str(tmp_path / "n.db")); s.ensure_schema()
+    from magi.notifications.service import NotificationService
+    svc = NotificationService(store=s)
+    from types import SimpleNamespace
+    p = SimpleNamespace(category="music", dedupe_key="music", plugin_ids=[],
+                        installable_plugin_ids=[], confidence=0.9, rationale={"zh": "x", "en": "y"})
+    svc.materialize(user_id="default_user", locale="zh", proposals=[p])
+    nid = s.list_for_user("default_user")[0].id
+    s.mark_dismissed(nid, "explicit")                      # simulate prior dismiss
+    svc.materialize(user_id="default_user", locale="zh", proposals=[p])  # matcher would re-pass after restore
+    assert len(s.list_for_user("default_user")) == 1       # a fresh row exists again
 
 async def test_materialize_helper_inserts_and_signals(tmp_path, monkeypatch):
     import magi.notifications.store as store_mod

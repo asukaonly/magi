@@ -80,7 +80,8 @@ def build_default_notifications_router(*, service_dep: Callable[[], Notification
 
 def _default_service() -> NotificationService:
     from magi.notifications.store import get_notification_store
-    return NotificationService(store=get_notification_store())
+    from magi.system_suggestions.dismissals import record_dismissal
+    return NotificationService(store=get_notification_store(), record_dismissal=record_dismissal)
 
 
 def _build_production_notifications_router() -> APIRouter:
