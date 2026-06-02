@@ -16,7 +16,11 @@ export interface UseSystemSuggestionsResult {
   proposals: SuggestionProposal[];
   loading: boolean;
   error: Error | null;
-  dismiss: (dedupeKey: string, kind: DismissalKind) => Promise<void>;
+  dismiss: (
+    dedupeKey: string,
+    kind: DismissalKind,
+    title?: string,
+  ) => Promise<void>;
 }
 
 export function useSystemSuggestions({
@@ -53,10 +57,16 @@ export function useSystemSuggestions({
   }, [triggerText, locale, sessionId]);
 
   const dismiss = useCallback(
-    async (dedupeKey: string, kind: DismissalKind) => {
+    async (dedupeKey: string, kind: DismissalKind, title?: string) => {
       setProposals((prev) => prev.filter((p) => p.dedupe_key !== dedupeKey));
       try {
-        await dismissSystemSuggestion({ dedupe_key: dedupeKey, kind });
+        // Only include `title` when provided so callers without the localized
+        // text don't send an explicit `title: undefined` in the request body.
+        await dismissSystemSuggestion(
+          title === undefined
+            ? { dedupe_key: dedupeKey, kind }
+            : { dedupe_key: dedupeKey, kind, title },
+        );
       } catch (err) {
         console.warn('failed to persist dismissal', err);
       }

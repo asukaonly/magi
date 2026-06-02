@@ -44,8 +44,8 @@ def app_with_suggestions(make_manifest_fixture):
     def is_dismissed(dedupe_key: str) -> bool:
         return dedupe_key in dismissals
 
-    def record_dismissal(dedupe_key: str, kind: str) -> None:
-        dismissals[dedupe_key] = kind
+    def record_dismissal(dedupe_key: str, kind: str, title: str | None = None) -> None:
+        dismissals[dedupe_key] = (kind, title)
 
     async def fake_classify(recent_text, candidates, locale):
         # High confidence for every gated candidate so build_proposals keeps it.
@@ -98,7 +98,7 @@ def app_with_dismissals():
             candidates_dep=lambda: (lambda: []),
             availability_dep=lambda: (lambda _candidates: (lambda _p: True)),
             is_dismissed_dep=lambda: (lambda _k: False),
-            record_dismissal_dep=lambda: (lambda _k, _kind: None),
+            record_dismissal_dep=lambda: (lambda _k, _kind, _title=None: None),
             list_dismissals_dep=lambda: list_dismissals,
             clear_dismissal_dep=lambda: clear_dismissal,
             classify_dep=lambda: fake_classify,
@@ -148,11 +148,16 @@ def test_post_dismiss_records_and_persists(app_with_suggestions) -> None:
     client = TestClient(app)
     response = client.post(
         "/system-suggestions/dismiss",
-        json={"dedupe_key": "browser_history", "kind": "explicit"},
+        json={
+            "dedupe_key": "browser_history",
+            "kind": "explicit",
+            "title": "看看你的浏览历史",
+        },
     )
     assert response.status_code == 200
     assert response.json() == {"dedupe_key": "browser_history", "dismissed": True}
-    assert "browser_history" in dismissals
+    # The route forwards the localized title to the recorder as the 3rd arg.
+    assert dismissals["browser_history"] == ("explicit", "看看你的浏览历史")
 
 
 def test_post_dismiss_rejects_unknown_kind(app_with_suggestions) -> None:
@@ -228,7 +233,7 @@ def app_with_installable():
             # Registry-only candidate is available on this device.
             availability_dep=_availability_factory({"spotify-history"}),
             is_dismissed_dep=lambda: (lambda _k: False),
-            record_dismissal_dep=lambda: (lambda _k, _kind: None),
+            record_dismissal_dep=lambda: (lambda _k, _kind, _title=None: None),
             list_dismissals_dep=lambda: (lambda: []),
             clear_dismissal_dep=lambda: (lambda _k: True),
             classify_dep=lambda: fake_classify,
@@ -295,7 +300,7 @@ def app_with_installable_endpoint():
             # Only the installed candidate is available on this device.
             availability_dep=_availability_factory({"chrome-history"}),
             is_dismissed_dep=lambda: (lambda _k: False),
-            record_dismissal_dep=lambda: (lambda _k, _kind: None),
+            record_dismissal_dep=lambda: (lambda _k, _kind, _title=None: None),
             list_dismissals_dep=lambda: (lambda: []),
             clear_dismissal_dep=lambda: (lambda _k: True),
             classify_dep=lambda: fake_classify,

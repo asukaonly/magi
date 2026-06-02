@@ -74,4 +74,22 @@ describe('NotificationCenter', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'notifications.restore' }));
     await waitFor(() => expect(suggestionsApi.clearDismissal).toHaveBeenCalledWith('music'));
   });
+
+  it('labels a dismissed row with its stored localized title (not humanized key)', async () => {
+    vi.spyOn(suggestionsApi, 'listDismissals').mockResolvedValue([
+      { dedupe_key: 'browser_history', dismissed_at: new Date().toISOString(),
+        kind: 'explicit', title: '看看你的浏览历史' },
+    ]);
+    render(<NotificationCenter />);
+    await userEvent.click(await screen.findByRole('button', { name: /notifications.dismissedTitle/ }));
+    // Shows the localized title the user saw, not the humanized "Browser History".
+    expect(await screen.findByText('看看你的浏览历史')).toBeInTheDocument();
+    expect(screen.queryByText('Browser History')).not.toBeInTheDocument();
+  });
+
+  it('falls back to humanized dedupe_key when a dismissal has no title', async () => {
+    render(<NotificationCenter />);  // default mock: { dedupe_key: 'music' } (no title)
+    await userEvent.click(await screen.findByRole('button', { name: /notifications.dismissedTitle/ }));
+    expect(await screen.findByText('Music')).toBeInTheDocument();
+  });
 });

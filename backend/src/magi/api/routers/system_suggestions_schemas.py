@@ -23,6 +23,8 @@ class CheckResponse(BaseModel):
 class DismissRequest(BaseModel):
     dedupe_key: str = Field(min_length=1)
     kind: DismissalKind
+    title: str | None = None
+    """Localized text the user saw, stored so the restore list stays consistent."""
 
 
 class DismissResponse(BaseModel):
@@ -34,6 +36,7 @@ class DismissalItem(BaseModel):
     dedupe_key: str
     dismissed_at: datetime
     kind: DismissalKind
+    title: str | None = None
 
 
 class ListDismissalsResponse(BaseModel):

@@ -81,7 +81,9 @@ AvailabilityDep = Callable[
     [], Callable[[list[SuggestionCandidate]], Callable[[str], bool]]
 ]
 IsDismissedDep = Callable[[], Callable[[str], bool]]
-RecordDismissalDep = Callable[[], Callable[[str, str], None]]
+# The inner writer accepts (dedupe_key, kind, title=None); title is optional so
+# callers may pass two or three args. ``...`` keeps two-arg fakes type-valid.
+RecordDismissalDep = Callable[[], Callable[..., None]]
 ListDismissalsDep = Callable[[], Callable[[], list["DismissalItem"]]]
 ClearDismissalDep = Callable[[], Callable[[str], bool]]
 ClassifyDep = Callable[[], ClassifyFn]
@@ -140,7 +142,7 @@ def build_default_system_suggestions_router(
     @router.post("/system-suggestions/dismiss", response_model=DismissResponse)
     async def dismiss(request: DismissRequest) -> DismissResponse:
         record = record_dismissal_dep()
-        record(request.dedupe_key, request.kind.value)
+        record(request.dedupe_key, request.kind.value, request.title)
         return DismissResponse(dedupe_key=request.dedupe_key, dismissed=True)
 
     @router.get(
@@ -337,7 +339,12 @@ def _default_list_dismissals():
 
     def _list():
         return [
-            DismissalItem(dedupe_key=r.dedupe_key, dismissed_at=r.dismissed_at, kind=r.kind)
+            DismissalItem(
+                dedupe_key=r.dedupe_key,
+                dismissed_at=r.dismissed_at,
+                kind=r.kind,
+                title=r.title,
+            )
             for r in list_active_dismissals()
         ]
 

@@ -62,8 +62,14 @@ def load_dismissals_from_config() -> dict[str, DismissalRecord]:
     return out
 
 
-def record_dismissal(dedupe_key: str, kind: str = "explicit") -> None:
-    """Write/overwrite a dismissal for dedupe_key via GET→mutate→PUT."""
+def record_dismissal(
+    dedupe_key: str, kind: str = "explicit", title: str | None = None
+) -> None:
+    """Write/overwrite a dismissal for dedupe_key via GET→mutate→PUT.
+
+    ``title`` is the localized notification text the user saw; it is stored so
+    the restore list can show the same string instead of a humanized key.
+    """
     loader = _get_loader()
     if loader is not None:
         loader.load()
@@ -77,6 +83,7 @@ def record_dismissal(dedupe_key: str, kind: str = "explicit") -> None:
         dedupe_key=dedupe_key,
         dismissed_at=datetime.now(timezone.utc),
         kind=DismissalKind(kind),
+        title=title,
     )
     dismissals[dedupe_key] = record.model_dump(mode="json")
     prefs["suggestion_dismissals"] = dismissals

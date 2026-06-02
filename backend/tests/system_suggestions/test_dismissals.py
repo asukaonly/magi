@@ -122,3 +122,59 @@ def test_record_list_clear_roundtrip(monkeypatch):
     assert dmod.clear_dismissal("browser_history") is True
     assert dmod.list_active_dismissals() == []
     assert dmod.clear_dismissal("browser_history") is False
+
+
+def test_record_dismissal_stores_and_returns_title(monkeypatch):
+    """record_dismissal persists the localized title; it round-trips on load."""
+    store: dict = {"preferences": {}}
+
+    class FakeLoader:
+        def load(self):
+            pass
+
+        def get_raw_value(self, *keys, default=None):
+            cur = store
+            for k in keys:
+                if not isinstance(cur, dict) or k not in cur:
+                    return default
+                cur = cur[k]
+            return cur
+
+    def fake_save(patch):
+        store["preferences"].update(patch.get("preferences", {}))
+
+    monkeypatch.setattr(dmod, "_get_loader", lambda: FakeLoader())
+    monkeypatch.setattr(dmod, "_save_config", fake_save)
+
+    dmod.record_dismissal("browser_history", "explicit", title="看看你的浏览历史")
+    active = dmod.list_active_dismissals()
+    assert len(active) == 1
+    assert active[0].dedupe_key == "browser_history"
+    assert active[0].title == "看看你的浏览历史"
+
+
+def test_record_dismissal_title_defaults_to_none(monkeypatch):
+    """Omitting title leaves it None (back-compat with pre-title records)."""
+    store: dict = {"preferences": {}}
+
+    class FakeLoader:
+        def load(self):
+            pass
+
+        def get_raw_value(self, *keys, default=None):
+            cur = store
+            for k in keys:
+                if not isinstance(cur, dict) or k not in cur:
+                    return default
+                cur = cur[k]
+            return cur
+
+    def fake_save(patch):
+        store["preferences"].update(patch.get("preferences", {}))
+
+    monkeypatch.setattr(dmod, "_get_loader", lambda: FakeLoader())
+    monkeypatch.setattr(dmod, "_save_config", fake_save)
+
+    dmod.record_dismissal("calendar", "explicit")
+    active = dmod.list_active_dismissals()
+    assert active[0].title is None
