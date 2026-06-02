@@ -8,7 +8,7 @@ and ``agent_response_chunk`` (streaming text deltas) records. When a
 ``trace_store`` is wired into this channel, ``deliver``/``deliver_chunk``
 append rows directly there, mirroring the schema produced by
 ``ChatRuntimeNotifier.emit_agent_response`` / ``emit_stream_event`` in
-``magi.agent.task_agents.chat.postprocess.notifications``.
+``magi.chat.task_agent.postprocess.notifications``.
 
 Backward compat: the legacy ``emit_to_chat`` callable still works when
 ``trace_store=None``. Both may be set independently.

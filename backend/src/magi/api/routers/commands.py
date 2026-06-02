@@ -134,7 +134,7 @@ def _resolve_notifier():
     and bootstrap edge cases work without it.
     """
     try:
-        from ...agent.task_agents.chat.postprocess.notifications import (
+        from ...chat.task_agent.postprocess.notifications import (
             ChatRuntimeNotifier,
         )
     except Exception:
