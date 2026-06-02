@@ -68,7 +68,7 @@ export const PluginConsentDialog: React.FC<Props> = ({
       <>
         {system.length > 0 && (
           <div>
-            <div className="mb-0.5 mt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               {t('settings.marketplace.consent.groupSystem')}
             </div>
             {system.map((c, i) => renderRow(c, i))}
@@ -76,7 +76,7 @@ export const PluginConsentDialog: React.FC<Props> = ({
         )}
         {data.length > 0 && (
           <div>
-            <div className="mb-0.5 mt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               {t('settings.marketplace.consent.groupData')}
             </div>
             {data.map((c, i) => renderRow(c, i))}
@@ -102,21 +102,23 @@ export const PluginConsentDialog: React.FC<Props> = ({
           </DialogDescription>
         </DialogHeader>
 
-        {isUpdate && (
-          <div className="mb-1">
-            <div className="text-sm font-medium text-orange-700">
-              {t('settings.marketplace.consent.updateNewLede')}
+        <div className="max-h-[60vh] space-y-3 overflow-y-auto px-6 pb-4">
+          {isUpdate && (
+            <div className="mb-1">
+              <div className="text-sm font-medium text-orange-700">
+                {t('settings.marketplace.consent.updateNewLede')}
+              </div>
+              {newCapabilities!.map((c, i) => renderRow(c, i, true))}
             </div>
-            {newCapabilities!.map((c, i) => renderRow(c, i, true))}
-          </div>
-        )}
+          )}
 
-        <div className="text-sm">
-          {capabilities.length === 0
-            ? t('settings.marketplace.consent.ledeEmpty')
-            : t('settings.marketplace.consent.lede')}
+          <div className="text-sm">
+            {capabilities.length === 0
+              ? t('settings.marketplace.consent.ledeEmpty')
+              : t('settings.marketplace.consent.lede')}
+          </div>
+          {capabilities.length > 0 && renderGroups(capabilities)}
         </div>
-        {capabilities.length > 0 && renderGroups(capabilities)}
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onCancel}>
