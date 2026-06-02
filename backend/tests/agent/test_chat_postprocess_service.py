@@ -7,11 +7,11 @@ from types import SimpleNamespace
 
 from magi.chat import ChatStore
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
-from magi.agent.task_agents.chat.postprocess.components import (
+from magi.chat.task_agent.postprocess.components import (
     ChatOutcomeWriter,
     ChatRuntimeNotifier,
 )
-from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
+from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 from magi.agent.task_agents.chat.session_run_coordinator import TurnSupersession
 from magi.agent.task_agents.common import (
     AssistantResponsePlan,
@@ -200,7 +200,7 @@ class _FakeChatProjector:
 
 @pytest.mark.asyncio
 async def test_memory_updates_do_not_pass_stp_rules_after_response(monkeypatch) -> None:
-    import magi.agent.task_agents.chat.postprocess.memory as postprocess_module
+    import magi.chat.task_agent.postprocess.memory as postprocess_module
 
     analysis_calls: list[dict[str, object]] = []
 
@@ -245,7 +245,7 @@ async def test_memory_updates_do_not_pass_stp_rules_after_response(monkeypatch) 
 
 @pytest.mark.asyncio
 async def test_memory_updates_skip_stp_rules_outside_direct_chat_scope(monkeypatch) -> None:
-    import magi.agent.task_agents.chat.postprocess.memory as postprocess_module
+    import magi.chat.task_agent.postprocess.memory as postprocess_module
 
     analysis_calls: list[dict[str, object]] = []
 

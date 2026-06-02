@@ -6,22 +6,22 @@ import asyncio
 import json
 from typing import Any, Callable, TYPE_CHECKING
 
-from ....core.logger import get_logger
-from ....agent.runtime.contracts import FactRecord
-from ....agent.trace import (
+from magi.core.logger import get_logger
+from magi.agent.runtime.contracts import FactRecord
+from magi.agent.trace import (
     now_wall_ms,
 )
-from ....chat import ChatProjector, ChatStore
-from ....events.events import EventTypes
-from ....runtime_trace import (
+from magi.chat import ChatProjector, ChatStore
+from magi.events.events import EventTypes
+from magi.runtime_trace import (
     RuntimeTraceStore,
 )
-from ..common import (
+from magi.agent.task_agents.common import (
     ExecutionResult,
     FunctionCallingExecutionResult,
     IncomingFactKind,
 )
-from .contracts import ChatParseOutcome, ChatRuntimeContext
+from magi.agent.task_agents.chat.contracts import ChatParseOutcome, ChatRuntimeContext
 from .history_service import ChatHistoryService
 from .postprocess.background import ChatPostprocessBackgroundMixin
 from .postprocess.components import ChatOutcomeWriter, ChatRuntimeNotifier
@@ -31,16 +31,16 @@ from .postprocess.outcomes import ChatPostprocessOutcomeMixin
 from .postprocess.session import ChatPostprocessSessionMixin
 from .postprocess.tool_events import ChatPostprocessToolEventMixin
 from .postprocess.trace import ChatPostprocessTraceMixin
-from .session_run_coordinator import TurnSupersession
+from magi.agent.task_agents.chat.session_run_coordinator import TurnSupersession
 
 if TYPE_CHECKING:
-    from ....api.services.chat_trace.read_service import ChatTraceReadService
+    from magi.api.services.chat_trace.read_service import ChatTraceReadService
 
 logger = get_logger(__name__)
 
 
 def _default_chat_read_service_factory() -> Any:
-    from ....chat import get_chat_read_service
+    from magi.chat import get_chat_read_service
 
     return get_chat_read_service()
 
@@ -558,7 +558,7 @@ class ChatPostProcessService:
         """
         from dataclasses import asdict
 
-        from ....events.domain_payloads import RunRetracted, RunSuspended
+        from magi.events.domain_payloads import RunRetracted, RunSuspended
 
         terminal_status = self._detect_terminal_status(result)
         if terminal_status not in {"retracted", "suspended"}:

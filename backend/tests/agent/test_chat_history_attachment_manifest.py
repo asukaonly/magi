@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from magi.agent.task_agents.chat.history_service import ChatHistoryService
+from magi.chat.task_agent.history_service import ChatHistoryService
 from magi.chat.read.models import ChatDisplayMessage
 
 

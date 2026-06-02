@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from ....agent.runtime.contracts import FactRecord
-from ....agent.runtime.types import TaskAgentType
-from ....agent.trace import now_wall_ms
-from ....chat import ChatTurnRecord
-from ....core.logger import get_logger
+from magi.agent.runtime.contracts import FactRecord
+from magi.agent.runtime.types import TaskAgentType
+from magi.agent.trace import now_wall_ms
+from magi.chat import ChatTurnRecord
+from magi.core.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -30,7 +30,7 @@ class ChatSessionControlMixin:
     async def _request_ingress_interrupt(self, fact: FactRecord) -> None:
         """Best-effort strict interrupt handling before the fact queue drains."""
         try:
-            from ....events.events import EventTypes
+            from magi.events.events import EventTypes
 
             if fact.event_type != EventTypes.USER_MESSAGE:
                 return
@@ -80,7 +80,7 @@ class ChatSessionControlMixin:
             return
         if not deferred_turns:
             return
-        from ....events.events import EventTypes
+        from magi.events.events import EventTypes
 
         for pending_turn in deferred_turns:
             reinjected_turn_id = uuid4().hex

@@ -222,7 +222,7 @@ def test_active_chat_context_path_does_not_import_legacy_builder() -> None:
     files = [
         src_root / "agent/task_agents/chat/prompt_service.py",
         src_root / "agent/task_agents/chat/handlers.py",
-        src_root / "agent/task_agents/chat/planning_service.py",
+        src_root / "chat/task_agent/planning_service.py",
         src_root / "context/__init__.py",
     ]
 

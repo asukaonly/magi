@@ -12,7 +12,7 @@ from magi.agent.background.contracts import (
     BackgroundTaskStatus,
     BackgroundTaskTriggerSource,
 )
-from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
+from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 from magi.chat import ChatStore
 
 

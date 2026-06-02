@@ -5,8 +5,8 @@ import json
 import uuid
 from typing import Any, Callable
 
-from .....chat import ChatMessageRecord, ChatProjector, ChatStore, ChatTurnRecord
-from ...common import AssistantResponsePlan, AssistantResponseSegment
+from magi.chat import ChatMessageRecord, ChatProjector, ChatStore, ChatTurnRecord
+from magi.agent.task_agents.common import AssistantResponsePlan, AssistantResponseSegment
 from .notifications import ChatRuntimeNotifier
 
 REACTION_EMOJI_BY_STYLE = {

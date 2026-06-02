@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Protocol, cast
 
-from .....agent.runtime.contracts import FactRecord
-from .....agent.trace import now_wall_ms
-from .....runtime_trace.span_publisher import publish_trace_span, resolve_event_bus
-from ..contracts import ChatRuntimeContext
+from magi.agent.runtime.contracts import FactRecord
+from magi.agent.trace import now_wall_ms
+from magi.runtime_trace.span_publisher import publish_trace_span, resolve_event_bus
+from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
 
 
 def _preview_text(value: Any, *, limit: int = 240) -> str | None:

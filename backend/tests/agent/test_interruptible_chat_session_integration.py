@@ -6,7 +6,7 @@ import pytest
 
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.task_agents.chat.interruption_classifier import InterruptionDisposition
-from magi.agent.task_agents.chat.postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
+from magi.chat.task_agent.postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
 from magi.agent.task_agents.common import ExecutionMode, IncomingFactKind
 from magi.events.events import EventTypes

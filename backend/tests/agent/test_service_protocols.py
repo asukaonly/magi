@@ -18,7 +18,7 @@ from magi.agent.task_agents.common.service_protocols import (
     HistoryServiceProtocol,
     PromptServiceProtocol,
 )
-from magi.agent.task_agents.chat.history_service import ChatHistoryService
+from magi.chat.task_agent.history_service import ChatHistoryService
 from magi.agent.task_agents.chat.prompt_service import ChatPromptService
 
 
@@ -56,7 +56,7 @@ class TestHistoryServiceProtocol(unittest.TestCase):
 class TestDependencyBundleImports(unittest.TestCase):
     def test_handlers_module_imports_no_concrete_chat_service(self) -> None:
         handlers_path = (
-            Path(inspect.getfile(ChatHistoryService)).parent / "handlers.py"
+            Path(inspect.getfile(ChatPromptService)).parent / "handlers.py"
         )
         tree = ast.parse(handlers_path.read_text())
         imported_names: set[str] = set()

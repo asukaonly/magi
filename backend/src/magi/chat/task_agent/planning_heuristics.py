@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional
 
-from ...orchestration import PlannedSubtask
+from magi.agent.orchestration import PlannedSubtask
 
 
 def looks_like_external_evidence_subtask(description: str, subtask_prompt: str) -> bool:

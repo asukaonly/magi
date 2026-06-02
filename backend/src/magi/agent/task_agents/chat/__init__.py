@@ -21,10 +21,7 @@ from ..common import (
 )
 from .coordinator import ChatExecutionCoordinator
 from .fact_classifier import ChatFactClassifier
-from .planning_service import ChatPlanningService
-from .postprocess_service import ChatPostProcessService
 from .prompt_service import ChatPromptService
-from .history_service import ChatHistoryService
 from .run_store import SessionRunStore
 from .session_run_coordinator import CheckpointDecision, SessionFactDecision, SessionRunCoordinator
 
@@ -35,12 +32,9 @@ __all__ = [
     "ChatExecutionCoordinator",
     "ChatFactClassifier",
     "ChatParseOutcome",
-    "ChatPlanningService",
-    "ChatPostProcessService",
     "ChatPromptService",
     "ChatReplyContext",
     "ChatRuntimeContext",
-    "ChatHistoryService",
     "ExecutionHandlerRegistry",
     "ExecutionMode",
     "ExecutionRequest",

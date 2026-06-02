@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from typing import Any, Protocol, cast
 
-from .....chat import ChatMessageRecord
-from ...common import AssistantResponsePlan, IncomingFactKind
-from ..contracts import ChatRuntimeContext
+from magi.chat import ChatMessageRecord
+from magi.agent.task_agents.common import AssistantResponsePlan, IncomingFactKind
+from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
 from .components import ChatOutcomeWriter
 
 

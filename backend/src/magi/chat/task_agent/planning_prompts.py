@@ -5,11 +5,11 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from ....i18n import llm_language_label
-from ....tools.schema import ToolExecutionContext
-from ....tools.tool_hint_resolver import ToolHintResolver
+from magi.i18n import llm_language_label
+from magi.tools.schema import ToolExecutionContext
+from magi.tools.tool_hint_resolver import ToolHintResolver
 from magi.bootstrap.tool_capabilities import build_tool_capabilities
-from ...orchestration import PlannedSubtask
+from magi.agent.orchestration import PlannedSubtask
 from .planning_heuristics import (
     build_research_seed_subtasks,
     classify_request_profile,

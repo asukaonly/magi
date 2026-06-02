@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.task_agents.chat.transcript_summarizer import (
+from magi.chat.task_agent.transcript_summarizer import (
     ChatTranscriptSummarizer,
     TranscriptSummaryInput,
 )

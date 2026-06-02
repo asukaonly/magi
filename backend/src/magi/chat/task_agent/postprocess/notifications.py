@@ -6,9 +6,9 @@ import json
 import time
 from typing import Any, Callable
 
-from .....agent.trace import now_wall_ms
-from .....llm.streaming_events import LLMStreamEvent
-from .....runtime_trace import RuntimeNotificationRecord, RuntimeTraceStore
+from magi.agent.trace import now_wall_ms
+from magi.llm.streaming_events import LLMStreamEvent
+from magi.runtime_trace import RuntimeNotificationRecord, RuntimeTraceStore
 
 
 class ChatRuntimeNotifier:

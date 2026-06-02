@@ -140,7 +140,7 @@ def build_postprocess_with_capture() -> tuple[Any, list[dict[str, Any]]]:
     Returns (service, captured_events). Each captured event is a dict
     {'event_type': str, 'payload': ...}.
     """
-    from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
+    from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 
     captured: list[dict[str, Any]] = []
     emitter = _CapturingEventEmitter(captured)

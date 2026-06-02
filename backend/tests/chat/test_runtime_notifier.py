@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from magi.agent.task_agents.chat.postprocess.components import ChatRuntimeNotifier
+from magi.chat.task_agent.postprocess.components import ChatRuntimeNotifier
 from magi.llm.streaming_events import LLMStreamEvent
 from magi.runtime_trace import RuntimeNotificationRecord
 

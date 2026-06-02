@@ -7,13 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
-from ....chat import ChatContextSummaryRecord, ChatStore
-from ....config.models import LLMScenario, ThinkingDepth
-from ....core.logger import get_logger
-from ....core.sqlite import connect_sqlite
-from ....llm.provider_bridge import LLMProviderBridge
-from ....utils.runtime import get_runtime_paths
-from ...trace import now_wall_ms
+from magi.chat import ChatContextSummaryRecord, ChatStore
+from magi.config.models import LLMScenario, ThinkingDepth
+from magi.core.logger import get_logger
+from magi.core.sqlite import connect_sqlite
+from magi.llm.provider_bridge import LLMProviderBridge
+from magi.utils.runtime import get_runtime_paths
+from magi.agent.trace import now_wall_ms
 
 logger = get_logger(__name__)
 
@@ -691,7 +691,7 @@ Rules:
         if self._chat_read_service_factory is not None:
             read_service = self._chat_read_service_factory()
         else:
-            from ....chat.read_service import get_chat_read_service
+            from magi.chat.read_service import get_chat_read_service
 
             read_service = get_chat_read_service()
         if self._chat_store is not None and hasattr(read_service, "_chat_db_path"):

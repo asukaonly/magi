@@ -33,10 +33,7 @@ from .chat.interruption_classifier import InterruptionClassifier
 from .chat import (
     ChatExecutionCoordinator,
     ChatFactClassifier,
-    ChatHistoryService,
     IntentDecision,
-    ChatPlanningService,
-    ChatPostProcessService,
     ChatPromptService,
     ChatRuntimeContext,
     ExecutionHandlerRegistry,
@@ -46,6 +43,9 @@ from .chat import (
     SessionRunStore,
     ToolSelection,
 )
+from magi.chat.task_agent.history_service import ChatHistoryService
+from magi.chat.task_agent.planning_service import ChatPlanningService
+from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 from .chat.direct_handler import DirectLLMHandler
 from .chat.explore_render import ExploreRenderHandler
 from .chat.handlers import (
@@ -53,11 +53,11 @@ from .chat.handlers import (
     FunctionCallingHandler,
     build_common_handler_dependencies,
 )
-from .chat.reply_context import ChatReplyContextMixin
+from magi.chat.task_agent.reply_context import ChatReplyContextMixin
 from .chat.rhythm import ResponseRhythmPlanner, is_conversation_rhythm_enabled
-from .chat.session_control import ChatSessionControlMixin
+from magi.chat.task_agent.session_control import ChatSessionControlMixin
 from .chat.streaming import ChatStreamingMixin, format_llm_error as _format_llm_error
-from .chat.transcript_summarizer import ChatTranscriptSummarizer
+from magi.chat.task_agent.transcript_summarizer import ChatTranscriptSummarizer
 from .common import (
     FactOnlyHandler,
     OrchestrationLaunchHandler,

@@ -52,19 +52,10 @@ ignore_imports =
     magi.agent.lifecycle -> magi.transport.chat_events
     magi.agent.task_agents.chat.coordinator -> magi.channels.delivery_prefs
     magi.agent.task_agents.chat.coordinator -> magi.channels.delivery_router
-    magi.agent.task_agents.chat.history_service -> magi.chat
-    magi.agent.task_agents.chat.history_service -> magi.chat.read_service
-    magi.agent.task_agents.chat.postprocess.background -> magi.chat
-    magi.agent.task_agents.chat.postprocess.components -> magi.chat
-    magi.agent.task_agents.chat.postprocess.outcomes -> magi.chat
-    magi.agent.task_agents.chat.postprocess.session -> magi.chat
-    magi.agent.task_agents.chat.postprocess_service -> magi.api.services.chat_trace.read_service
-    magi.agent.task_agents.chat.postprocess_service -> magi.chat
-    magi.agent.task_agents.chat.reply_context -> magi.chat
-    magi.agent.task_agents.chat.session_control -> magi.chat
-    magi.agent.task_agents.chat.transcript_summarizer -> magi.chat
     magi.agent.task_agents.chat_task_agent -> magi.api.services.chat_trace.read_service
     magi.agent.task_agents.chat_task_agent -> magi.chat
+    # P2-TEMP scaffolding — remove in P2 Task 4/5 when chat_task_agent moves
+    magi.agent.task_agents.chat_task_agent -> magi.chat.**
     magi.agent.task_agents.factory -> magi.chat
     magi.agent.task_agents.factory -> magi.timeline.handler
     magi.agent.task_orchestration_workspace -> magi.chat.workspace
@@ -98,6 +89,9 @@ ignore_imports =
     # control->chat/transport edges were removed and only this one added.
     magi.chat.control_transcript_subscriber -> magi.transport.chat_events
     magi.chat.read_service -> magi.api.services.chat_trace.read_service
+    # RELOCATED from magi.agent.task_agents.chat.postprocess_service (P2 Task 2);
+    # still a chat->api cross-sibling edge, just moved with the module.
+    magi.chat.task_agent.postprocess_service -> magi.api.services.chat_trace.read_service
     magi.context.assembler -> magi.chat.workspace
     magi.core.runtime_operational_gc -> magi.config.models
     magi.memory.event_translation -> magi.awareness.sensor_memory_projection

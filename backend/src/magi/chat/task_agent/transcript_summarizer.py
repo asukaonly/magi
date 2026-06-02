@@ -8,12 +8,12 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
-from ....chat import ChatContextSummaryRecord, ChatMessageRecord, ChatStore
-from ....config.models import LLMScenario, ThinkingDepth
-from ....core.logger import get_logger
-from ....llm.provider_bridge import LLMProviderBridge
-from ...message_utils import DEFAULT_HISTORY_TOKEN_BUDGET
-from ...trace import now_wall_ms
+from magi.chat import ChatContextSummaryRecord, ChatMessageRecord, ChatStore
+from magi.config.models import LLMScenario, ThinkingDepth
+from magi.core.logger import get_logger
+from magi.llm.provider_bridge import LLMProviderBridge
+from magi.agent.message_utils import DEFAULT_HISTORY_TOKEN_BUDGET
+from magi.agent.trace import now_wall_ms
 
 logger = get_logger(__name__)
 

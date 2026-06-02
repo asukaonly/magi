@@ -16,9 +16,9 @@ from magi.agent.orchestration import (
     TaskOrchestrationState,
     WorkerResult,
 )
-from magi.agent.task_agents.chat.history_service import ChatHistoryService
+from magi.chat.task_agent.history_service import ChatHistoryService
 from magi.agent.task_agents.chat import ExecutionMode, ExecutionRequest, IntentDecision, OrchestrationPlan, ToolSelection
-from magi.agent.task_agents.chat import planning_service as planning_service_module
+from magi.chat.task_agent import planning_service as planning_service_module
 from magi.tools.context_routing import RouteDecision
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
 from magi.agent.task_agents.explore_task_agent import EXPLORE_TASK_COMPLETED

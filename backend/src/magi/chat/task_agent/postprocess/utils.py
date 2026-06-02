@@ -5,8 +5,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from .....agent.runtime.contracts import FactRecord
-from ...common import ExecutionResult
+from magi.agent.runtime.contracts import FactRecord
+from magi.agent.task_agents.common import ExecutionResult
 
 
 def build_trace_id(turn_id: str) -> str:

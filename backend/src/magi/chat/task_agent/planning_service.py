@@ -4,23 +4,23 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from ....core.logger import get_logger
-from ....context.service import ContextAssemblyService
-from ....context.scenarios import Scenario
-from ....events.domain_payloads import TaskContext
-from ....i18n import llm_language_label
-from ....llm.streaming_events import get_stream_sink, stream_source
-from ....tools.registry import ToolRegistry
-from ....tools.tool_hint_resolver import ToolHintResolver
-from ...execution.tool_invocation_service import (
+from magi.core.logger import get_logger
+from magi.context.service import ContextAssemblyService
+from magi.context.scenarios import Scenario
+from magi.events.domain_payloads import TaskContext
+from magi.i18n import llm_language_label
+from magi.llm.streaming_events import get_stream_sink, stream_source
+from magi.tools.registry import ToolRegistry
+from magi.tools.tool_hint_resolver import ToolHintResolver
+from magi.agent.execution.tool_invocation_service import (
     InvocationContext,
     ToolCall as _ServiceToolCall,
 )
-from ...orchestration import PlannedSubtask, SubtaskPlan, TaskOrchestrationState
-from ..common import OrchestrationPlan
+from magi.agent.orchestration import PlannedSubtask, SubtaskPlan, TaskOrchestrationState
+from magi.agent.task_agents.common import OrchestrationPlan
 from .history_service import ChatHistoryService
 from .planning_prompts import ChatPlanningPromptMixin
-from .prompt_service import ChatPromptService
+from magi.agent.task_agents.chat.prompt_service import ChatPromptService
 
 logger = get_logger(__name__)
 
@@ -56,7 +56,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
 
     @property
     def _tool_invocation_service(self):
-        from ...execution.tool_invocation_service import get_tool_invocation_service
+        from magi.agent.execution.tool_invocation_service import get_tool_invocation_service
         if not hasattr(self, "_tool_invocation_service_cached"):
             self._tool_invocation_service_cached = get_tool_invocation_service(self._tool_registry)
         return self._tool_invocation_service_cached

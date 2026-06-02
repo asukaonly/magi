@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.task_agents.chat.history_service import ChatHistoryService
+from magi.chat.task_agent.history_service import ChatHistoryService
 from magi_plugin_sdk.conversation import ConversationEvent
 
 

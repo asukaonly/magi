@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ...asset_refs import normalize_asset_ref_list, normalize_asset_ref_payload
-from ....chat import ChatMessageRecord, ChatStore
-from .contracts import ChatReplyContext
+from magi.agent.asset_refs import normalize_asset_ref_list, normalize_asset_ref_payload
+from magi.chat import ChatMessageRecord, ChatStore
+from magi.agent.task_agents.chat.contracts import ChatReplyContext
 
 
 class ChatReplyContextMixin:
