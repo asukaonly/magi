@@ -146,10 +146,21 @@ class ConfigLoaderFileOpsMixin:
             return {}
 
     def _write_yaml_file(self, path: Path, data: Dict[str, Any]) -> None:
-        """Write a YAML file with a normalized dict payload."""
+        """Write a YAML file with a normalized dict payload.
+
+        Uses ``safe_dump`` (not ``dump``) so non-native types (Python
+        enums, dataclasses, custom objects) refuse to serialize. This
+        prevents the silent-corruption mode where ``yaml.dump`` emits
+        an unsafe ``!!python/object/apply:Foo.Bar`` tag that the
+        symmetric ``yaml.safe_load`` then refuses to read, leaving the
+        settings UI showing an empty config and a stack trace in the
+        backend logs. Callers must convert enums to their ``.value``
+        (or use ``pydantic.BaseModel.model_dump(mode="json")``) BEFORE
+        passing data here — ``safe_dump`` will raise loudly otherwise.
+        """
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, 'w', encoding='utf-8') as f:
-            yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            yaml.safe_dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
     def _load_yaml(self) -> Dict[str, Any]:
         """Load and parse YAML configuration file."""
