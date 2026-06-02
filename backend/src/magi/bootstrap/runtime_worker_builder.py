@@ -44,6 +44,7 @@ from ..events.lifecycle import (
     RuntimeCommandProcessorModule,
     RuntimeCommandQueueModule,
 )
+from ..identity.lifecycle import IdentityModule
 from ..llm.lifecycle import LLMRuntimeModule, LLMUsageSubscriberModule
 from ..mcp.lifecycle import MCPModule
 from ..memory.lifecycle import (
@@ -165,6 +166,12 @@ def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[Life
         # plugin / MCP / agent modules start spawning new ones.
         _build_subprocess_orphan_cleanup_module(context),
         CoreDependenciesModule(context),
+        # L1 substrate — identity must initialize right after core so
+        # runtime_paths.identity_db_path is available. Channels/api/
+        # awareness modules later in the lifecycle pull the resolver
+        # off the bootstrap context (no hard dependency edge — identity
+        # is L1, everything imports down to it).
+        IdentityModule(context),
         ConfigurationModule(context),
         RuntimeCommandQueueModule(context),
         MessageBusModule(context),
