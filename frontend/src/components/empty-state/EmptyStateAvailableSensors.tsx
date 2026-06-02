@@ -99,7 +99,10 @@ export function EmptyStateAvailableSensors({
   }
 
   return (
-    <div className="space-y-3">
+    // text-left: the timeline/memory empty states wrap this in a `text-center`
+    // container; without this the inherited centering shifts each row's (short)
+    // title vs (longer) description so they look misaligned.
+    <div className="space-y-3 text-left">
       <h3 className="text-sm font-medium text-foreground">
         {t('emptyState.heading')}
       </h3>
