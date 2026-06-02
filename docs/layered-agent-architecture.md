@@ -110,6 +110,7 @@ Responsibilities:
 Primary packages:
 
 - `control/`
+- `control/tools/` (host runtime-control tools: `plan_mode`, `todo_write`)
 
 Notes:
 
@@ -118,7 +119,7 @@ Notes:
 - transcript rendering of control state is the CHAT layer's job: `chat` subscribes to control events and writes state messages itself (downward); the control plane does not reach into `chat`/`transport`
 - interaction answers flow downward: `transport` delivers user answers into the control interaction registry (`transport → control`)
 - `run_control` (detach signal / `current_detach_signal`) belongs here, not in the agent runtime
-- runtime-actuator tools (`ask_user`, `plan_mode`, `todo_write`, `detach_to_background`, `agent_tool`) are first-party features, not plugins; they depend on this layer directly and live outside the plugin-isolation scope (see ADR-0001)
+- the four "actuator tools" split by species (ADR-0002): `ask_user` + `detach` are shareable capabilities exposed to ALL tools (incl. plugins) as SDK ports on `ToolExecutionContext` (`InteractionPort`/`DetachPort`), so they stay capability tools in `tools/builtin`; `plan_mode` + `todo_write` are host runtime-control tools in `control/tools/`; `agent_tool` (spawn sub-agent) is a runtime-control tool in the agent layer (`agent/runtime_tools/`, L12). The host runtime-control tools are closed and NOT plugin-contributable.
 
 ### L5. Plugin Registration Layer
 
@@ -178,6 +179,12 @@ Primary packages:
 
 - `tools/`
 - `skills/`
+
+Notes:
+
+- **Tool taxonomy (ADR-0002):** two tool species share one origin-agnostic registry — **capability tools** (do work; depend only on `magi_plugin_sdk` + host-injected capability ports; first-party ≡ third-party; extensible) and **runtime-control tools** (drive agent execution state; host-owned, closed; live in `control/tools/` (L4) and `agent/runtime_tools/` (L12), registered via the composition root). The `plugin-isolation` contract governs only capability-tool code (`tools/builtin`, `tools/code_agent`): SDK-only, never host internals.
+- **Capability ports:** the host hands capabilities to tools via a `ToolCapabilities` bundle on `ToolExecutionContext` (SDK Protocols the host implements): trace, delegation-events, background, session-cache, chat, memory-query, image-gen, interaction (ask), detach. A tool depends on the Protocol, never the host package.
+- **Tool sources are host integrations:** the plugin manager (`plugins/`, L5), the MCP bridge (`mcp/`), and the skill-execution engine (`skills/`) all register their tools into the single registry. These integration packages are HOST code (`magi.skills` runs sub-agents via the orchestrator, like `magi.mcp` and `magi.plugins`) — so NONE are in the `plugin-isolation` source scope. Only third-party *content* (plugin / skill / MCP-server code) follows the plugin contract; it is loaded dynamically and runtime-guarded, not statically import-checked.
 
 ### L9. Personality Layer
 
@@ -253,12 +260,14 @@ Primary packages:
 - `agent/runtime/`
 - `agent/task_agents/`
 - `agent/workers/`
+- `agent/runtime_tools/`
 - `agent/task_orchestrator.py`
 
 Notes:
 
 - `agent/runtime/` is the correct L12 home for runtime control flow
 - it is not a replacement for infrastructure and should not be described as a second `core/`
+- `agent/runtime_tools/` holds host runtime-control tools that need the agent runtime itself (e.g. `agent_tool`, which spawns sub-agents via `WorkerAgentManager`). The L8 tool registry cannot import L12, so these are registered by the composition root (`bootstrap/`), not via the plugin/core-tools path (ADR-0002).
 
 ### L13. Timeline Domain
 
@@ -406,15 +415,15 @@ The current codebase maps to the layered model like this:
 - `core/`, `scheduler/`, `runtime_trace/`, parts of `utils/` -> L1 application infrastructure
 - `config/` -> L2 configuration
 - `events/` -> L3 message bus
-- `control/` -> L4 control plane
+- `control/` (incl. `control/tools/` host runtime-control tools plan/todo) -> L4 control plane
 - `plugins/` -> L5 plugin registration
 - `llm/` -> L6 LLM runtime
 - `memory/` -> L7 memory
-- `tools/`, `skills/` -> L8 tools and skills
+- `tools/`, `skills/` -> L8 tools and skills (`skills/` is the host skill-execution engine; `mcp/` bridges MCP servers — both are host tool-source integrations like `plugins/`, NOT plugin-implementation code)
 - `personality/` -> L9 personality
 - `awareness/`, event emitter -> L10 sensors
 - `context/` -> L11 context
-- `agent/` -> L12 agent runtime
+- `agent/` (incl. `agent/runtime_tools/` host runtime-control tool agent_tool) -> L12 agent runtime
 - `timeline/` -> L13 timeline domain
 - `api/`, `chat/`, `tasks/`, `channels/` -> L14 external services
 - `ipc/`, `transport/` and `crates/magi-gateway/` -> L15 connection and transport
