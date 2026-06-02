@@ -994,14 +994,7 @@
       "channelsTelegram": "Telegram",
       "control": "控制面",
       "hooks": "Hooks",
-      "suggestions": "系统建议",
       "system": "系统"
-    },
-    "suggestions": {
-      "title": "系统建议",
-      "description": "管理你忽略过的功能建议。",
-      "empty": "没有已忽略的建议。",
-      "restore": "恢复"
     },
     "hooks": {
       "title": "已注册 Hooks",

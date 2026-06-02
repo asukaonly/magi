@@ -981,14 +981,7 @@
       "channelsTelegram": "Telegram",
       "control": "Control Plane",
       "hooks": "Hooks",
-      "suggestions": "Suggestions",
       "system": "System"
-    },
-    "suggestions": {
-      "title": "Suggestions",
-      "description": "Manage feature suggestions you've dismissed.",
-      "empty": "No dismissed suggestions.",
-      "restore": "Restore"
     },
     "hooks": {
       "title": "Registered Hooks",
