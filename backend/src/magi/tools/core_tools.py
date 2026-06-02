@@ -19,13 +19,13 @@ from .builtin.delegate_to_external_coder_tool import DelegateToExternalCoderTool
 from .builtin.glob_tool import GlobTool
 from .builtin.grep_tool import GrepTool
 from .builtin.image_generation_tool import ImageGenerationTool
-from .builtin.plan_mode_tool import EnterPlanModeTool, ExitPlanModeTool
+from magi.control.tools import EnterPlanModeTool, ExitPlanModeTool
 from .builtin.powershell_tool import PowerShellTool
 from .builtin.prepare_chat_attachments_tool import PrepareChatAttachmentsTool
 from .builtin.read_chat_attachment_tool import ReadChatAttachmentTool
 from .builtin.schedule_tool import ScheduleTool
 from .builtin.system_settings_tool import SystemSettingsTool
-from .builtin.todo_write_tool import TodoWriteTool
+from magi.control.tools import TodoWriteTool
 from .builtin.trace_query_tool import TraceQueryTool
 from .builtin.weather_tool import WeatherTool
 from .builtin.web_fetch_tool import WebFetchTool

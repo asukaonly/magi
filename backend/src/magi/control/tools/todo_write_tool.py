@@ -5,12 +5,12 @@ from __future__ import annotations
 import uuid
 from typing import Any, Dict
 
-from ...agent.control.common.events import publish_control_todo_state_changed
-from ...agent.control.provider import resolve_control_session_store
-from ...core.logger import get_logger
-from ...runtime_defaults import DEFAULT_USER_ID
-from ...agent.control.session_store import TodoListError
-from ..schema import (
+from magi.control.common.events import publish_control_todo_state_changed
+from magi.control.provider import resolve_control_session_store
+from magi.core.logger import get_logger
+from magi.runtime_defaults import DEFAULT_USER_ID
+from magi.control.session_store import TodoListError
+from magi_plugin_sdk.tools import (
     ParameterType,
     Tool,
     ToolExecutionContext,
@@ -119,7 +119,7 @@ class TodoWriteTool(Tool):
             items=[t.to_dict() for t in todos],
         )
         try:
-            from ...agent.control.common.events import publish_control_event
+            from magi.control.common.events import publish_control_event
 
             await publish_control_event(
                 "control.todo.updated",

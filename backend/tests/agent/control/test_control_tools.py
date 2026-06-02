@@ -17,8 +17,7 @@ from magi.agent.control.session_store import ControlSessionStore
 from magi.core.container import get_container
 from magi.events.events import EventTypes
 from magi.tools.builtin.ask_user_question_tool import AskUserQuestionTool
-from magi.tools.builtin.plan_mode_tool import EnterPlanModeTool, ExitPlanModeTool
-from magi.tools.builtin.todo_write_tool import TodoWriteTool
+from magi.control.tools import EnterPlanModeTool, ExitPlanModeTool, TodoWriteTool
 from magi.bootstrap.tool_capabilities import _HostInteractionPort
 from magi.tools.schema import ToolExecutionContext
 from magi_plugin_sdk.capabilities import ToolCapabilities
