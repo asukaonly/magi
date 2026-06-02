@@ -138,7 +138,7 @@ if __name__ == "__main__":
 
 
 def test_chat_prompt_service_does_not_import_memory_retrieval_primitives() -> None:
-    source = Path(__file__).resolve().parents[2] / "src/magi/agent/task_agents/chat/prompt_service.py"
+    source = Path(__file__).resolve().parents[2] / "src/magi/chat/task_agent/prompt_service.py"
     text = source.read_text(encoding="utf-8")
 
     assert "get_unified_memory" not in text

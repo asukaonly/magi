@@ -220,7 +220,7 @@ def test_active_chat_context_path_does_not_import_legacy_builder() -> None:
     """Verify chat task-agent prompt flow no longer depends on context.builder."""
     src_root = Path(__file__).resolve().parents[2] / "src/magi"
     files = [
-        src_root / "agent/task_agents/chat/prompt_service.py",
+        src_root / "chat/task_agent/prompt_service.py",
         src_root / "agent/task_agents/chat/handlers.py",
         src_root / "chat/task_agent/planning_service.py",
         src_root / "context/__init__.py",
