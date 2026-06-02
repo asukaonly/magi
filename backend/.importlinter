@@ -48,11 +48,6 @@ ignore_imports =
     # L13 api/chat/channels siblings (15), L7 tools<->skills siblings (9),
     # runtime_trace->events (7), awareness->timeline (4), other (~23).
     magi.agent.execution.function_calling.guardrails -> magi.chat.workspace
-    magi.agent.lifecycle -> magi.chat
-    # P2-TEMP — remove in Task 4 wiring inversion. lifecycle imports the
-    # relocated chat-agent factory (magi.chat.task_agent.factory) until the
-    # composition wiring is inverted to the bootstrap root.
-    magi.agent.lifecycle -> magi.chat.task_agent.factory
     magi.agent.lifecycle -> magi.transport.chat_events
     magi.agent.task_agents.chat.coordinator -> magi.channels.delivery_prefs
     magi.agent.task_agents.chat.coordinator -> magi.channels.delivery_router

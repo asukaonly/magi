@@ -18,6 +18,8 @@ from ..core.logger import get_logger
 logger = get_logger(__name__)
 
 from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
+from ..chat import get_chat_read_service
+from ..chat.task_agent.factory import create_chat_agent_factory
 from ..awareness.lifecycle import (
     KGSubscriberModule,
     SensorModule,
@@ -194,7 +196,11 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         PersonalityModule(context),
         SensorModule(context),
         ContextModule(context),
-        AgentRuntimeModule(context),
+        AgentRuntimeModule(
+            context,
+            create_chat_agent_factory=create_chat_agent_factory,
+            chat_read_service_factory=get_chat_read_service,
+        ),
     ]
 
 

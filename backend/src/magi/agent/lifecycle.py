@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, Callable
+
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.background_tasks import (
     build_background_task_wiring,
     build_completion_handshake_listener,
 )
-from ..chat import get_chat_read_service
 from ..core.logger import get_logger
 from ..control.provider import resolve_control_session_store
 from ..control.permission.provider import get_permission_gateway
@@ -18,7 +19,9 @@ from ..utils.runtime import get_runtime_paths
 from .runtime import AgentRuntime, RouterAgent, TaskAgentManager
 from .scheduled_agent_task import UserAgentTaskScheduleContributor
 from .task_agents.factory import create_default_agent_factory
-from ..chat.task_agent.factory import create_chat_agent_factory
+
+if TYPE_CHECKING:
+    from .runtime import TaskAgent
 
 logger = get_logger(__name__)
 
@@ -26,7 +29,13 @@ logger = get_logger(__name__)
 class AgentRuntimeModule(LifecycleModule):
     """Initialize TaskAgentManager, RouterAgent, and AgentRuntime (L11 - Agent Runtime layer)."""
 
-    def __init__(self, context: RuntimeBootstrapContext):
+    def __init__(
+        self,
+        context: RuntimeBootstrapContext,
+        *,
+        create_chat_agent_factory: Callable[..., Callable[[str], "TaskAgent"]],
+        chat_read_service_factory: Callable[..., Any],
+    ):
         super().__init__(
             name="runtime_agent_core",
             dependencies=(
@@ -42,6 +51,8 @@ class AgentRuntimeModule(LifecycleModule):
         )
         self._context = context
         self._background_wiring = None
+        self._create_chat_agent_factory = create_chat_agent_factory
+        self._chat_read_service_factory = chat_read_service_factory
 
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "runtime config")
@@ -78,7 +89,7 @@ class AgentRuntimeModule(LifecycleModule):
         self._context.agent_runtime.background_task_manager = background_wiring.manager
 
         task_agent_manager = TaskAgentManager(
-            create_chat_agent=create_chat_agent_factory(
+            create_chat_agent=self._create_chat_agent_factory(
                 llm_adapter=llm_adapter,
                 llm_pool=llm_pool,
                 memory=memory,
@@ -89,7 +100,7 @@ class AgentRuntimeModule(LifecycleModule):
                 runtime_trace_store=runtime_trace_store,
                 chat_store=chat_store,
                 chat_projector=chat_projector,
-                chat_read_service_factory=get_chat_read_service,
+                chat_read_service_factory=self._chat_read_service_factory,
                 config=config,
                 background_dispatcher=background_wiring.dispatcher if bg_settings.enabled else None,
                 background_launch_service=background_wiring.launch_service if bg_settings.enabled else None,
