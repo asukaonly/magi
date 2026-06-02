@@ -146,7 +146,10 @@ allow_indirect_imports = true
 source_modules =
     magi.tools.builtin
     magi.tools.code_agent
-    magi.skills
+    # magi.skills excluded (Phase 5): it is the HOST skill-execution engine
+    # (runner/subagent/loader/indexer), host integration code like magi.mcp and
+    # magi.plugins — NOT plugin-implementation content. The third-party skill
+    # *content* plugins contribute is dynamically loaded and runtime-guarded.
 forbidden_modules =
     magi.agent
     magi.chat
@@ -166,12 +169,5 @@ ignore_imports =
     # them as the underlying import is removed during later migration phases.
     # Some edges also violate the layers contract and appear in BOTH baselines;
     # when an import is removed, delete it from BOTH ignore_imports lists.
-    magi.skills.lifecycle -> magi.agent.control.permission.provider
-    magi.skills.runner -> magi.chat.workspace
-    magi.skills.runner -> magi.llm.base
-    magi.skills.subagent -> magi.agent.execution.function_calling
-    magi.skills.subagent -> magi.chat.workspace
-    magi.skills.subagent -> magi.llm.base
-    magi.skills.subagent -> magi.llm.provider_bridge
     magi.tools.builtin.agent_tool -> magi.agent.workers
     magi.tools.builtin.find_relevant_tools_tool -> magi.memory.provider
