@@ -159,6 +159,7 @@ forbidden_modules =
     magi.personality
     magi.llm
     magi.events
+    magi.control
 ignore_imports =
     # == KNOWN DEBT BASELINE (frozen 2026-05-31; ratchet down, never up) ==
     # Plugin->host edges that exist today. Do NOT add entries; only delete
