@@ -21,6 +21,13 @@ class Urgency(str, Enum):
 
 
 class GovernorVerdict(str, Enum):
+    """Outcome of the external-push governance decision.
+
+    Produced by ``outreach.governor.Governor`` and consumed by
+    ``outreach.service.OutreachService``. Defined here as a shared contract
+    so both modules depend on ``contracts`` rather than on each other.
+    """
+
     PUSH_NOW = "push_now"
     DEFER = "defer"
     DROP = "drop"
@@ -41,6 +48,8 @@ class OutreachIntent:
     title: str
     facts: str
     correlation_id: str
+    # Terminal-event timestamp (epoch ms): the moment the task reached its
+    # terminal state — completion, failure, OR cancellation (not success-only).
     completed_at_ms: int
     pending_message_id: str | None = None
     urgency: Urgency = Urgency.NORMAL
@@ -61,7 +70,12 @@ class OutreachIntent:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "OutreachIntent":
+    def from_dict(cls, data: dict[str, Any]) -> OutreachIntent:
+        # ``completed_at_ms`` is required (like kind/user_id/correlation_id):
+        # a missing timestamp is data corruption, not a sensible 0-default.
+        # ``origin_session_id`` / ``pending_message_id`` are intentionally NOT
+        # str()-coerced — they are ``str | None`` and coercion would turn a
+        # legitimate ``None`` into the string "None".
         return cls(
             kind=OutreachKind(data["kind"]),
             user_id=str(data["user_id"]),
@@ -69,7 +83,7 @@ class OutreachIntent:
             title=str(data.get("title") or ""),
             facts=str(data.get("facts") or ""),
             correlation_id=str(data["correlation_id"]),
-            completed_at_ms=int(data.get("completed_at_ms") or 0),
+            completed_at_ms=int(data["completed_at_ms"]),
             pending_message_id=data.get("pending_message_id"),
             urgency=Urgency(data.get("urgency") or Urgency.NORMAL.value),
             payload=dict(data.get("payload") or {}),
@@ -78,5 +92,12 @@ class OutreachIntent:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedTargets:
+    """Which surfaces an OutreachIntent should reach.
+
+    ``desktop_session_id`` is the originating chat session (when it still
+    exists); ``external`` is an external channel target (Telegram/WeChat,
+    etc.) when the task originated from one. Either may be ``None``.
+    """
+
     desktop_session_id: str | None = None
     external: ChannelTarget | None = None
