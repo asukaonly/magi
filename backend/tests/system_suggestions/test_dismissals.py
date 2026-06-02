@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import magi.system_suggestions.dismissals as dmod
 from magi.system_suggestions.contracts import DismissalKind, DismissalRecord
 from magi.system_suggestions.dismissals import (
     DismissalRepository,
@@ -94,3 +95,30 @@ def test_repository_is_dismissed_uses_TTL() -> None:
     assert repo.is_dismissed("browser_history", now=now) is False
     assert repo.is_dismissed("calendar", now=now) is True
     assert repo.is_dismissed("unknown_key", now=now) is False
+
+
+def test_record_list_clear_roundtrip(monkeypatch):
+    store: dict = {"preferences": {}}
+
+    class FakeLoader:
+        def load(self): pass
+        def get_raw_value(self, *keys, default=None):
+            cur = store
+            for k in keys:
+                if not isinstance(cur, dict) or k not in cur:
+                    return default
+                cur = cur[k]
+            return cur
+
+    def fake_save(patch):
+        store["preferences"].update(patch.get("preferences", {}))
+
+    monkeypatch.setattr(dmod, "_get_loader", lambda: FakeLoader())
+    monkeypatch.setattr(dmod, "_save_config", fake_save)
+
+    dmod.record_dismissal("browser_history", "explicit")
+    active = dmod.list_active_dismissals()
+    assert [r.dedupe_key for r in active] == ["browser_history"]
+    assert dmod.clear_dismissal("browser_history") is True
+    assert dmod.list_active_dismissals() == []
+    assert dmod.clear_dismissal("browser_history") is False

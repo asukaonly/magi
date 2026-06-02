@@ -307,42 +307,15 @@ def _default_availability() -> Callable[
     return _factory
 
 
-def _load_dismissals_from_config() -> dict[str, "DismissalRecord"]:
-    """Load the current dismissal map from the live config.
-
-    Reads ``preferences.suggestion_dismissals`` from the running
-    :class:`AppConfig`. Returns an empty dict if the config or section is
-    missing. Records are coerced into :class:`DismissalRecord` so callers can
-    apply TTL logic uniformly.
-    """
-    from magi.config import get_loader
-    from magi.system_suggestions.contracts import DismissalRecord
-
-    loader = get_loader()
-    if loader is None:
-        return {}
-    raw = loader.get_raw_value("preferences", "suggestion_dismissals", default={})
-    if not isinstance(raw, dict):
-        return {}
-    out: dict[str, DismissalRecord] = {}
-    for key, value in raw.items():
-        if isinstance(value, DismissalRecord):
-            out[key] = value
-            continue
-        if isinstance(value, dict):
-            try:
-                out[key] = DismissalRecord.model_validate(value)
-            except Exception:
-                continue
-    return out
-
-
 def _default_is_dismissed() -> Callable[[str], bool]:
     """Return ``(dedupe_key) -> bool`` over the live dismissal map."""
-    from magi.system_suggestions.dismissals import is_dismissal_active
+    from magi.system_suggestions.dismissals import (
+        is_dismissal_active,
+        load_dismissals_from_config,
+    )
 
     def _is_dismissed(dedupe_key: str) -> bool:
-        records = _load_dismissals_from_config()
+        records = load_dismissals_from_config()
         rec = records.get(dedupe_key)
         if rec is None:
             return False
@@ -352,81 +325,29 @@ def _default_is_dismissed() -> Callable[[str], bool]:
 
 
 def _default_record_dismissal() -> Callable[[str, str], None]:
-    """Return a writer that persists a dismissal via GET → mutate → PUT.
+    """Return the shared config-backed dismissal writer (GET → mutate → PUT)."""
+    from magi.system_suggestions.dismissals import record_dismissal
 
-    Loads the current ``preferences`` block from the live config, sets
-    ``suggestion_dismissals[dedupe_key]`` to a fresh
-    :class:`DismissalRecord`, then writes the entire merged ``preferences``
-    block back via :func:`save_config`. This mirrors the safe full-config
-    pattern the frontend uses for ``first_conversation_completed`` and avoids
-    clobbering unrelated preference fields.
-    """
-    from datetime import datetime, timezone
-
-    from magi.config import get_loader, save_config
-    from magi.system_suggestions.contracts import DismissalKind, DismissalRecord
-
-    def _record(dedupe_key: str, kind: str) -> None:
-        loader = get_loader()
-        # If the loader hasn't been initialized yet (e.g. during very early
-        # boot), prime it via save_config's internal lazy init.
-        if loader is not None:
-            loader.load()
-        preferences_raw = (
-            loader.get_raw_value("preferences", default={}) if loader else {}
-        )
-        if not isinstance(preferences_raw, dict):
-            preferences_raw = {}
-        # Mutate in-place: the dismissals map lives under preferences.
-        dismissals = preferences_raw.get("suggestion_dismissals")
-        if not isinstance(dismissals, dict):
-            dismissals = {}
-        record = DismissalRecord(
-            dedupe_key=dedupe_key,
-            dismissed_at=datetime.now(timezone.utc),
-            kind=DismissalKind(kind),
-        )
-        dismissals[dedupe_key] = record.model_dump(mode="json")
-        preferences_raw["suggestion_dismissals"] = dismissals
-        save_config({"preferences": preferences_raw})
-
-    return _record
+    return record_dismissal
 
 
 def _default_list_dismissals():
     from magi.api.routers.system_suggestions_schemas import DismissalItem
-    from magi.system_suggestions.dismissals import is_dismissal_active
+    from magi.system_suggestions.dismissals import list_active_dismissals
 
     def _list():
-        records = _load_dismissals_from_config()
         return [
-            DismissalItem(dedupe_key=k, dismissed_at=r.dismissed_at, kind=r.kind)
-            for k, r in records.items()
-            if is_dismissal_active(r)
+            DismissalItem(dedupe_key=r.dedupe_key, dismissed_at=r.dismissed_at, kind=r.kind)
+            for r in list_active_dismissals()
         ]
 
     return _list
 
 
 def _default_clear_dismissal():
-    from magi.config import get_loader, save_config
+    from magi.system_suggestions.dismissals import clear_dismissal
 
-    def _clear(dedupe_key: str) -> bool:
-        loader = get_loader()
-        if loader is not None:
-            loader.load()
-        prefs = (loader.get_raw_value("preferences", default={}) if loader else {}) or {}
-        if not isinstance(prefs, dict):
-            prefs = {}
-        dismissals = prefs.get("suggestion_dismissals")
-        if not isinstance(dismissals, dict) or dedupe_key not in dismissals:
-            return False
-        del dismissals[dedupe_key]
-        prefs["suggestion_dismissals"] = dismissals
-        save_config({"preferences": prefs})
-        return True
-
-    return _clear
+    return clear_dismissal
 
 
 def _default_classify() -> ClassifyFn:
