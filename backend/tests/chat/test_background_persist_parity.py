@@ -1,0 +1,69 @@
+import json
+import pytest
+from magi.agent.background import (
+    BackgroundTask, BackgroundTaskSpec, BackgroundTaskStatus, BackgroundTaskTriggerSource,
+)
+
+
+class _FakeChatStore:
+    def __init__(self) -> None:
+        self.appended = []
+        self.replaced = []
+        self.bumped = []
+        self._seq = 0
+
+    async def next_sequence_no(self, *, session_id: str) -> int:
+        self._seq += 1
+        return self._seq
+
+    async def append_message(self, record) -> None:
+        self.appended.append(record)
+
+    async def mark_message_replaced(self, *, message_id: str, replaced_by_message_id: str) -> None:
+        self.replaced.append((message_id, replaced_by_message_id))
+
+    async def bump_history_version(self, session_id: str) -> int:
+        self.bumped.append(session_id)
+        return len(self.bumped)
+
+
+@pytest.mark.asyncio
+async def test_persist_completion_message_writes_record():
+    from magi.chat.task_agent.postprocess.background import persist_completion_message
+
+    store = _FakeChatStore()
+    record = await persist_completion_message(
+        store,
+        session_id="s1",
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_final",
+        body="All done — found 3 options.",
+        payload={"background_task_id": "task_abc", "background_task_status": "succeeded"},
+        pending_message_id="msg_pending",
+        created_at_ms=1_700_000_000_000,
+    )
+    assert record is not None
+    assert len(store.appended) == 1
+    written = store.appended[0]
+    assert written.session_id == "s1"
+    assert written.user_id == "u1"
+    assert written.role == "assistant"
+    assert written.message_kind == "assistant_final"
+    assert written.content_text == "All done — found 3 options."
+    assert written.is_visible is True
+    assert written.is_final is True
+    assert written.replaces_message_id == "msg_pending"
+    assert json.loads(written.payload_json)["background_task_id"] == "task_abc"
+    assert store.replaced == [("msg_pending", written.message_id)]
+    assert store.bumped == ["s1"]
+
+
+@pytest.mark.asyncio
+async def test_persist_returns_none_without_store():
+    from magi.chat.task_agent.postprocess.background import persist_completion_message
+    assert await persist_completion_message(
+        None, session_id="s1", user_id="u1", role="assistant",
+        message_kind="assistant_final", body="x", payload={},
+        pending_message_id=None, created_at_ms=1,
+    ) is None

@@ -15,6 +15,53 @@ class _BackgroundPostprocessHostProtocol(Protocol):
     _chat_store: Any
 
 
+async def persist_completion_message(
+    chat_store: Any,
+    *,
+    session_id: str,
+    user_id: str,
+    role: str,
+    message_kind: str,
+    body: str,
+    payload: dict[str, Any],
+    pending_message_id: str | None,
+    created_at_ms: int,
+) -> "ChatMessageRecord | None":
+    """Append a completion transcript row with a caller-supplied body.
+
+    Mirrors the exact record fields / pending-replacement / history-bump
+    semantics that ``deliver_background_task_completion`` produced inline,
+    so callers (legacy wrapper + outreach DesktopTranscriptExecutor) share
+    one persistence path.
+    """
+    if chat_store is None:
+        return None
+    record = ChatMessageRecord(
+        message_id=f"msg_{uuid.uuid4().hex[:16]}",
+        session_id=session_id,
+        turn_id=None,
+        user_id=user_id,
+        role=role,
+        message_kind=message_kind,
+        content_text=body,
+        payload_json=json.dumps(payload, ensure_ascii=False),
+        is_final=True,
+        is_visible=True,
+        created_at_ms=created_at_ms,
+        sequence_no=await chat_store.next_sequence_no(session_id=session_id),
+        replaces_message_id=pending_message_id,
+        replaced_by_message_id=None,
+    )
+    await chat_store.append_message(record)
+    if pending_message_id is not None:
+        await chat_store.mark_message_replaced(
+            message_id=pending_message_id,
+            replaced_by_message_id=record.message_id,
+        )
+    await chat_store.bump_history_version(session_id)
+    return record
+
+
 class ChatPostprocessBackgroundMixin:
     """Persist chat-visible completion messages for background tasks."""
 
@@ -75,30 +122,17 @@ class ChatPostprocessBackgroundMixin:
         finished_at = task.finished_at if task.finished_at is not None else task.updated_at
         completed_at_ms = int(finished_at * 1000) if finished_at else now_wall_ms()
 
-        record = ChatMessageRecord(
-            message_id=f"msg_{uuid.uuid4().hex[:16]}",
+        return await persist_completion_message(
+            host._chat_store,
             session_id=session_id,
-            turn_id=None,
             user_id=user_id,
             role="system",
             message_kind="background_task_completion",
-            content_text=content_text,
-            payload_json=json.dumps(payload, ensure_ascii=False),
-            is_final=True,
-            is_visible=True,
+            body=content_text,
+            payload=payload,
+            pending_message_id=pending_message_id,
             created_at_ms=completed_at_ms,
-            sequence_no=await host._chat_store.next_sequence_no(session_id=session_id),
-            replaces_message_id=pending_message_id,
-            replaced_by_message_id=None,
         )
-        await host._chat_store.append_message(record)
-        if pending_message_id is not None:
-            await host._chat_store.mark_message_replaced(
-                message_id=pending_message_id,
-                replaced_by_message_id=record.message_id,
-            )
-        await host._chat_store.bump_history_version(session_id)
-        return record
 
     async def _deliver_assistant_output_message(
         self,
@@ -123,27 +157,14 @@ class ChatPostprocessBackgroundMixin:
         finished_at = task.finished_at if task.finished_at is not None else task.updated_at
         completed_at_ms = int(finished_at * 1000) if finished_at else now_wall_ms()
 
-        record = ChatMessageRecord(
-            message_id=f"msg_{uuid.uuid4().hex[:16]}",
+        return await persist_completion_message(
+            host._chat_store,
             session_id=session_id,
-            turn_id=None,
             user_id=user_id,
             role="assistant",
             message_kind="assistant_final",
-            content_text=body,
-            payload_json=json.dumps(payload, ensure_ascii=False),
-            is_final=True,
-            is_visible=True,
+            body=body,
+            payload=payload,
+            pending_message_id=pending_message_id,
             created_at_ms=completed_at_ms,
-            sequence_no=await host._chat_store.next_sequence_no(session_id=session_id),
-            replaces_message_id=pending_message_id,
-            replaced_by_message_id=None,
         )
-        await host._chat_store.append_message(record)
-        if pending_message_id is not None:
-            await host._chat_store.mark_message_replaced(
-                message_id=pending_message_id,
-                replaced_by_message_id=record.message_id,
-            )
-        await host._chat_store.bump_history_version(session_id)
-        return record
