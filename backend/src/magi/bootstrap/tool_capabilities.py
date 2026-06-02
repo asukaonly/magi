@@ -172,6 +172,27 @@ class _HostImageGenPort:
         await publish_llm_usage_span(**kwargs)
 
 
+class _HostDetachPort:
+    """Adapter routing DetachPort calls to the host run-control layer (lazy imports)."""
+
+    def _signal(self):
+        from magi.control.run_control import current_detach_signal
+        return current_detach_signal()
+
+    def is_available(self) -> bool:
+        return self._signal() is not None
+
+    def is_requested(self) -> bool:
+        s = self._signal()
+        return bool(s and s.is_requested())
+
+    def request(self, *, reason: str, requested_by: str = "llm", note: str = "") -> None:
+        from magi.control.run_control import DetachRequested
+        s = self._signal()
+        if s is not None:
+            s.request(DetachRequested(reason=reason, requested_by=requested_by, note=note))
+
+
 class _HostInteractionPort:
     """Adapter implementing the ask-user capability over the control plane.
 
@@ -485,6 +506,7 @@ def build_tool_capabilities() -> ToolCapabilities:
             chat=_HostChatPort(),
             image_gen=_HostImageGenPort(),
             interaction=_HostInteractionPort(),
+            detach=_HostDetachPort(),
         )
     return _capabilities
 

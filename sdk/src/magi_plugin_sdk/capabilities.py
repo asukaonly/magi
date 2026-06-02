@@ -123,6 +123,26 @@ class AskOutcome:
     timed_out: bool
 
 
+class DetachPort(Protocol):
+    """Port for the detach-to-background capability.
+
+    The host adapter wraps the DetachSignal ContextVar; tools and plugins call
+    through this port so they never import host run-control internals directly.
+    """
+
+    def is_available(self) -> bool:
+        """True iff there is a current detach signal (a detachable run in context)."""
+        ...
+
+    def is_requested(self) -> bool:
+        """True iff a detach has already been requested in the current run."""
+        ...
+
+    def request(self, *, reason: str, requested_by: str = "llm", note: str = "") -> None:
+        """Record a detach request; no-op if no signal is available."""
+        ...
+
+
 class InteractionPort(Protocol):
     """Port for the ask-user capability.
 
@@ -173,6 +193,7 @@ class ToolCapabilities:
     control: Optional[Any] = None
     interaction: Optional[InteractionPort] = None
     subagent: Optional[Any] = None
+    detach: Optional[DetachPort] = None
 
 
 __all__ = [
@@ -185,4 +206,5 @@ __all__ = [
     "ImageGenPort",
     "InteractionPort",
     "AskOutcome",
+    "DetachPort",
 ]

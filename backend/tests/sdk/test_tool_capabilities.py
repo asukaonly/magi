@@ -38,3 +38,19 @@ def test_reset_tool_capabilities_rebuilds():
     first = build_tool_capabilities()
     reset_tool_capabilities()
     assert build_tool_capabilities() is not first
+
+
+def test_detach_port_is_wired():
+    """build_tool_capabilities().detach is a non-None DetachPort-compatible object."""
+    from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
+
+    reset_tool_capabilities()
+    caps = build_tool_capabilities()
+    d = caps.detach
+    assert d is not None, "caps.detach must be wired"
+    assert hasattr(d, "is_available"), "DetachPort must have is_available"
+    assert hasattr(d, "is_requested"), "DetachPort must have is_requested"
+    assert hasattr(d, "request"), "DetachPort must have request"
+    # Without an active detach signal the port reports not available.
+    assert d.is_available() is False
+    assert d.is_requested() is False
