@@ -146,6 +146,78 @@ describe('conversation store', () => {
     }));
   });
 
+  it('skips bubble projection for lossy channel-delivery agent_response (no turn_id / no message_id)', () => {
+    // Phase G ``ChatSseChannel.deliver`` writes ``agent_response`` rows that
+    // carry only ``content`` + ``is_final`` — no turn_id, no message_id —
+    // because ``DeliveryContent`` doesn't propagate those. The persisted
+    // bubble arrives via a separate ``chat_message_upserted`` event. If we
+    // *also* project this lossy emission, ``applyAgentResponse``'s
+    // no-turnId fallback inserts a duplicate bubble next to the streaming
+    // one, producing the ghost the user sees after streaming ends.
+    const store = useConversationStore.getState();
+
+    // Seed the timeline with a finished streaming bubble for turn-a — what
+    // the user sees right before the duplicate would normally appear.
+    store.appendStreamTextDelta({
+      sessionId: 'session-a',
+      turnId: 'turn-a',
+      personaId: 'persona-seven',
+      textDelta: 'streamed reply',
+    });
+    store.appendStreamTextFlush({
+      sessionId: 'session-a',
+      turnId: 'turn-a',
+      personaId: 'persona-seven',
+    });
+    const beforeCount =
+      useConversationStore.getState().messagesBySession['session-a']?.length || 0;
+    expect(beforeCount).toBe(1);
+
+    // Apply the lossy channel-delivery agent_response — content only.
+    const projected = applyRealtimeStoreProjection({
+      event: 'agent_response',
+      data: {
+        session_id: 'session-a',
+        content: 'streamed reply',
+        is_final: true,
+        timestamp: Date.now() / 1000,
+        // intentionally no turn_id / no message_id
+      },
+    });
+
+    // The handler still returns ``true`` (event handled) but no bubble was
+    // added — the existing streaming bubble is left untouched.
+    expect(projected).toBe(true);
+    const afterMessages = useConversationStore.getState().messagesBySession['session-a'] || [];
+    expect(afterMessages.length).toBe(1);
+    expect(afterMessages[0].content).toBe('streamed reply');
+  });
+
+  it('still projects bubbles for richer agent_response payloads that carry turn_id or message_id', () => {
+    // When the payload carries identity (older ChatRuntimeNotifier path),
+    // we want the projection to keep working — the lossy-skip is gated
+    // strictly on BOTH ids being absent.
+    applyRealtimeStoreProjection({
+      event: 'agent_response',
+      data: {
+        session_id: 'session-a',
+        content: 'rich reply',
+        timestamp: Date.now() / 1000,
+        turn_id: 'turn-a',
+        message_id: 'msg-a',
+        message_kind: 'assistant_final',
+      },
+    });
+
+    const message = useConversationStore.getState().messagesBySession['session-a']?.[0];
+    expect(message).toEqual(expect.objectContaining({
+      role: 'assistant',
+      content: 'rich reply',
+      messageId: 'msg-a',
+      turnId: 'turn-a',
+    }));
+  });
+
   it('accepts trace update invalidations without summaries', () => {
     const projected = applyRealtimeStoreProjection({
       event: 'execution_trace_update',
