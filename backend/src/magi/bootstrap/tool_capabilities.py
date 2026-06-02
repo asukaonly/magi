@@ -120,6 +120,20 @@ class _HostMemoryQueryPort:
         from magi.memory.hybrid_retrieval.models import ConversationTurn
         return ConversationTurn(**kwargs)
 
+    def get_l4_store(self):
+        """Return UnifiedMemoryStore.l4, or None if memory is unavailable.
+
+        Lazy import of get_unified_memory keeps this adapter free of top-level
+        host-memory imports.  The tool receives None on any failure and must
+        handle that gracefully.
+        """
+        try:
+            from magi.memory.provider import get_unified_memory
+            unified_memory = get_unified_memory()
+        except Exception:
+            return None
+        return getattr(unified_memory, "l4", None)
+
 
 class _HostChatPort:
     """Adapter routing ChatPort calls to host chat layer (lazy imports)."""

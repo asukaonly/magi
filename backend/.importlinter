@@ -170,4 +170,3 @@ ignore_imports =
     # Some edges also violate the layers contract and appear in BOTH baselines;
     # when an import is removed, delete it from BOTH ignore_imports lists.
     magi.tools.builtin.agent_tool -> magi.agent.workers
-    magi.tools.builtin.find_relevant_tools_tool -> magi.memory.provider
