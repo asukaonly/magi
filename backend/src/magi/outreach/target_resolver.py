@@ -44,7 +44,10 @@ class TargetResolver:
         if mapping is not None and getattr(mapping, "channel_type", None) and mapping.channel_type != "chat_sse":
             external = ChannelTarget(
                 channel_type=mapping.channel_type,
-                external_chat_id=getattr(mapping, "external_chat_id", "") or "",
+                # Leave empty: external channels resolve their chat_id from
+                # magi_session_id via session_mapper at deliver time (matches the
+                # proven interactive-reply path in channels/delivery_prefs.py).
+                external_chat_id="",
                 magi_session_id=session_id,
                 magi_user_id=intent.user_id,
             )

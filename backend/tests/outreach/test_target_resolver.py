@@ -34,7 +34,9 @@ async def test_external_origin_yields_desktop_and_external():
     out = await r.resolve(_intent())
     assert out.desktop_session_id == "s1"
     assert out.external is not None and out.external.channel_type == "telegram"
-    assert out.external.external_chat_id == "X1" and out.external.magi_session_id == "s1"
+    # external_chat_id is intentionally "" — the channel resolves it from
+    # magi_session_id at deliver time (see TargetResolver / delivery_prefs).
+    assert out.external.external_chat_id == "" and out.external.magi_session_id == "s1"
 
 
 @pytest.mark.asyncio

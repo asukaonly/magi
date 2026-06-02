@@ -11,7 +11,7 @@ from ..config.models import LLMScenario
 from ..core.logger import get_logger
 from ..llm.provider import get_scenario_llm_pool
 from ..llm.provider_bridge import LLMProviderBridge
-from .active_persona import resolve_persona_config
+from .active_persona import get_current_personality_config, resolve_persona_config
 
 logger = get_logger(__name__)
 
@@ -52,7 +52,14 @@ async def compose_outreach_line(
 ) -> str:
     fallback = _fallback_template(kind=kind, title=title, facts=facts)
     try:
-        config = await resolve_persona_config(persona_name)
+        # persona_name=None means "use the active persona". resolve_persona_config
+        # requires a real slug (it returns None for None), so read the active
+        # persona's cached config directly — otherwise every outreach line would
+        # silently degrade to the un-personified fallback in production.
+        if persona_name is None:
+            config = get_current_personality_config()
+        else:
+            config = await resolve_persona_config(persona_name)
     except Exception:
         logger.warning("outreach compose: persona resolve failed", exc_info=True)
         return fallback
