@@ -25,7 +25,9 @@
     "connect": "Connect",
     "installAndConnect": "Install & connect",
     "installing": "Installing…",
-    "connectHint": "Connect it so magi can use this data."
+    "connectHint": "Connect it so magi can use this data.",
+    "dismissedTitle": "Dismissed",
+    "restore": "Restore"
   },
   "nav": {
     "dashboard": "Dashboard",

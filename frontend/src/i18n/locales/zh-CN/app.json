@@ -25,7 +25,9 @@
     "connect": "连接",
     "installAndConnect": "安装并连接",
     "installing": "安装中…",
-    "connectHint": "连接后 magi 就能读取这部分数据。"
+    "connectHint": "连接后 magi 就能读取这部分数据。",
+    "dismissedTitle": "已忽略",
+    "restore": "恢复"
   },
   "nav": {
     "dashboard": "仪表盘",
