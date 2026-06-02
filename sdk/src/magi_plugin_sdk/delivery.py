@@ -64,11 +64,18 @@ class DeliveryChunk:
     ``seq`` is monotonic per (target, run); ``is_final=True`` marks the
     last chunk for this delivery. ``text`` may be empty on the final
     chunk if the channel only needs the boundary signal.
+
+    ``turn_id`` lets streaming-capable channels (chat_sse) tag each
+    chunk with the chat-side turn identifier so consumers can group
+    chunks into the right active streaming bubble. Default ``None`` for
+    backward compat — channels that don't need it (e.g., non-streaming
+    Telegram) simply ignore it.
     """
 
     text: str
     is_final: bool
     seq: int
+    turn_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

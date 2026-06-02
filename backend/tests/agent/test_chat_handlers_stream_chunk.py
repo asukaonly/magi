@@ -43,6 +43,7 @@ class _RecordingCoordinator:
         text: str,
         is_final: bool,
         seq: int,
+        turn_id: str | None = None,
     ) -> None:
         self.calls.append(
             {
@@ -51,6 +52,7 @@ class _RecordingCoordinator:
                 "text": text,
                 "is_final": is_final,
                 "seq": seq,
+                "turn_id": turn_id,
             }
         )
 

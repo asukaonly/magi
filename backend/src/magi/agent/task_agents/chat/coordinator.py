@@ -603,6 +603,7 @@ class ChatExecutionCoordinator:
         text: str,
         is_final: bool,
         seq: int,
+        turn_id: str | None = None,
     ) -> None:
         """Stream one chunk to every configured channel for this user/session.
 
@@ -629,7 +630,10 @@ class ChatExecutionCoordinator:
             user_id=user_id, session_id=session_id, user_prefs=user_prefs,
         )
         await self._delivery_router.fanout_chunk(
-            chunk=DeliveryChunk(text=text, is_final=is_final, seq=seq),
+            chunk=DeliveryChunk(
+                text=text, is_final=is_final, seq=seq,
+                turn_id=turn_id,
+            ),
             targets=targets,
         )
 

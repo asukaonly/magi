@@ -160,6 +160,7 @@ class DirectLLMHandler(BaseExecutionHandler):
                                     await coordinator.dispatch_stream_chunk(
                                         session_id=request.context.session_id,
                                         user_id=request.context.user_id,
+                                        turn_id=str(turn_id or "") or None,
                                         text=event.text,
                                         is_final=False,
                                         seq=seq,
@@ -183,6 +184,7 @@ class DirectLLMHandler(BaseExecutionHandler):
                         await coordinator.dispatch_stream_chunk(
                             session_id=request.context.session_id,
                             user_id=request.context.user_id,
+                            turn_id=str(turn_id or "") or None,
                             text="",
                             is_final=True,
                             seq=seq,

@@ -180,13 +180,16 @@ class ChatSseChannel(Channel):
         legacy wiring continues to receive chunks.
         """
         session_id = target.magi_session_id
+        # Phase G+1 fix: take turn_id from the chunk itself when the handler
+        # supplies it (DirectLLMHandler now does). Frontend filters chunks
+        # by turn_id — empty string was silently dropped, causing the chat
+        # UI to look one-shot even though backend emitted 100+ chunks.
+        turn_id = str(chunk.turn_id or "")
         if self._trace_store is not None:
             payload: dict[str, Any] = {
                 "user_id": target.magi_user_id,
                 "session_id": session_id,
-                # turn_id unknown at this layer; the chat orchestration
-                # layer correlates via session_id + the in-flight turn.
-                "turn_id": "",
+                "turn_id": turn_id,
                 "event": {"kind": "text_delta", "text": chunk.text},
                 "is_final": bool(chunk.is_final),
                 "seq": int(chunk.seq),
@@ -198,6 +201,7 @@ class ChatSseChannel(Channel):
                     channel="agent_response_chunk",
                     user_id=str(target.magi_user_id or ""),
                     session_id=session_id,
+                    turn_id=turn_id,
                     payload_json=json.dumps(payload, ensure_ascii=False),
                     created_at_ms=int(time.time() * 1000),
                 )
