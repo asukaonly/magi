@@ -84,7 +84,10 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     assert "from ..agent import get_unified_memory" not in memory_query_tool
     assert "memory.provider" in memory_dependencies
     assert "memory.provider" in timeline_router
-    assert "memory.provider" in memory_query_tool
+    # memory_query_tool resolves memory through the capability port
+    # (context.capabilities.memory_query), not a runtime getter or
+    # memory.provider import (Phase 2 G+I: memory_query SDK port).
+    assert "context.capabilities.memory_query" in memory_query_tool
     assert "require_unified_memory" not in memory_router
     assert "require_unified_memory" not in memory_dependencies
     assert "require_unified_memory" not in timeline_router
@@ -234,7 +237,8 @@ def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
     assert "require_control_interaction_broker" not in runtime_bindings
     assert "require_pending_permission_registry" not in runtime_bindings
     assert "require_background_task_manager" not in runtime_bindings
-    assert "require_scheduler_service" not in runtime_bindings
+    # scheduler_service IS a boundary-consumed binding (schedule_tool +
+    # api/routers/schedules), so it legitimately lives here.
     assert "require_sensor_scheduler_contrib" not in runtime_bindings
     assert "require_permission_gateway" not in runtime_bindings
     assert "require_scenario_llm_pool" not in runtime_bindings

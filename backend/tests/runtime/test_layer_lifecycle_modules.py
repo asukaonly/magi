@@ -42,6 +42,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
     modules = build_runtime_modules(RuntimeBootstrapContext())
 
     assert [module.name for module in modules] == [
+        "subprocess_orphan_cleanup",
         "runtime_core_dependencies",
         "runtime_configuration",
         "runtime_command_queue",
@@ -50,8 +51,15 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_plugin_system",
         "runtime_llm",
         "runtime_memory",
+        "runtime_media_registry",
+        "runtime_memory_ingestion_subscriber",
+        "runtime_llm_usage_subscriber",
         "runtime_chat_projector",
+        "runtime_control_transcript_subscriber",
         "runtime_trace",
+        "runtime_trace_subscriber",
+        "runtime_hooks",
+        "runtime_first_party_tools",
         "runtime_tools",
         "runtime_skills",
         "runtime_mcp",
@@ -62,6 +70,9 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_command_processor",
         "runtime_plugin_ingress_processor",
         "runtime_timeline",
+        "runtime_timeline_subscriber",
+        "runtime_kg_subscriber",
+        "runtime_sensor_state_subscriber",
         "runtime_scheduler",
         "runtime_agent_schedule_registration",
         "runtime_sensor_scheduler",
@@ -70,6 +81,8 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_control_plane",
         "runtime_l2_maintenance_scheduler",
         "runtime_l3_summary_scheduler",
+        "runtime_l4_maintenance_scheduler",
+        "runtime_timeline_schedulers",
         "runtime_other_dependencies",
         "runtime_channels",
     ]
@@ -97,7 +110,7 @@ def test_runtime_worker_phase_metadata_matches_built_module_order() -> None:
     assert tuple(module.name for module in modules) == get_runtime_worker_module_order()
 
     phase_plan = describe_runtime_worker_phase_plan()
-    assert "infrastructure=runtime_core_dependencies" in phase_plan
+    assert "infrastructure=subprocess_orphan_cleanup" in phase_plan
     assert "exports_and_maintenance=runtime_exports" in phase_plan
 
 

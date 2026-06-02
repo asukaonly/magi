@@ -11,6 +11,13 @@ def test_is_llm_selection_pending_when_required_selection_blank() -> None:
 
 
 def test_is_llm_selection_pending_when_required_selections_ready() -> None:
+    # A default AppConfig() ships with blank required selections
+    # (context_decider/core provider_id+model default to ""), so the
+    # user must pick a provider/model on first run. Populate them to
+    # exercise the "ready" path.
     config = AppConfig()
+    for scenario in ("context_decider", "core"):
+        config.llm.selections[scenario].provider_id = "openai"
+        config.llm.selections[scenario].model = "gpt-4o"
 
     assert _is_llm_selection_pending(config) is False

@@ -95,8 +95,14 @@ class _FakeFunctionCallingOrchestrator:
         selected_tools,
         user_id,
         session_id=None,
+        session_run_id=None,
+        session_run_revision=0,
         turn_id=None,
         conversation_history=None,
+        session_summary=None,
+        session_origin=None,
+        reply_context=None,
+        ephemeral_context=None,
         max_iterations=10,
         disable_thinking=True,
         intent="unknown",
@@ -107,6 +113,10 @@ class _FakeFunctionCallingOrchestrator:
         final_response_json_mode=False,
         thinking_depth=None,
         cancel_token=None,
+        steer_inbox=None,
+        detach_signal=None,
+        control=None,
+        route_decision=None,
     ):
         user_message = turn.text
         _ = (
@@ -114,8 +124,14 @@ class _FakeFunctionCallingOrchestrator:
             selected_tools,
             user_id,
             session_id,
+            session_run_id,
+            session_run_revision,
             turn_id,
             conversation_history,
+            session_summary,
+            session_origin,
+            reply_context,
+            ephemeral_context,
             disable_thinking,
             intent,
             execution_agent_id,
@@ -124,6 +140,10 @@ class _FakeFunctionCallingOrchestrator:
             llm_timeout_seconds,
             final_response_json_mode,
             thinking_depth,
+            steer_inbox,
+            detach_signal,
+            control,
+            route_decision,
         )
         self.last_max_iterations = max_iterations
         self.last_cancel_token = cancel_token
@@ -272,7 +292,7 @@ async def test_agent_tool_uses_30_iteration_default_for_workers(monkeypatch):
 @pytest.mark.asyncio
 async def test_agent_tool_persists_worker_trace_nodes_to_runtime_trace_store(
     monkeypatch,
-    tmp_path: Path,
+    runtime_paths_with_schema,
 ):
     from magi.agent.workers import worker_manager as worker_manager_module
 
@@ -280,7 +300,9 @@ async def test_agent_tool_persists_worker_trace_nodes_to_runtime_trace_store(
         worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator
     )
     tool = AgentTool()
-    runtime_trace_store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+    runtime_trace_store = RuntimeTraceStore(
+        db_path=str(runtime_paths_with_schema.runtime_trace_db_path)
+    )
     await runtime_trace_store.initialize()
     message_bus = InMemoryMessageBusBackend()
     await message_bus.start()
@@ -589,10 +611,7 @@ def test_agent_tool_general_prompt_matches_validator_schema():
         selected_tools=["file_read", "grep"],
     )
 
-    assert (
-        '"findings":[{"title":"string","detail":"string","path":"string","why_it_matters":"string"}]'
-        in prompt
-    )
+    assert '"findings":[{"title":"string","detail":"string"}]' in prompt
     assert '"evidence":[{"path":"string","detail":"string"}]' in prompt
 
 
