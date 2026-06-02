@@ -269,6 +269,16 @@ Notes:
 - it is not a replacement for infrastructure and should not be described as a second `core/`
 - `agent/runtime_tools/` holds host runtime-control tools that need the agent runtime itself (e.g. `agent_tool`, which spawns sub-agents via `WorkerAgentManager`). The L8 tool registry cannot import L12, so these are registered by the composition root (`bootstrap/`), not via the plugin/core-tools path (ADR-0002).
 
+#### Agent runtime — three rings (ADR-0004)
+
+The run-execution stack is three concentric rings, each separated by a dependency-inversion seam. Rings 1–2 are the domain-agnostic agent runtime (L12); ring 3 is the per-surface driver, which lives in *its own domain layer*, not in `agent/`:
+
+1. **Run Engine** — `FunctionCallingOrchestrator` (`agent/execution/`) + `NodeSequenceRunner` + the node framework (`agent/run/`): a bounded LLM↔tool run. Domain-agnostic and **chat-free** — already used headless by worker / subagent / background. The engine does not runtime-import handlers (they are injected; only TYPE_CHECKING refs exist).
+2. **Generic handler framework** — `TaskAgent` base, `BaseExecutionHandler`, execution contracts, and the handler *algorithms* (`DirectLLMHandler` / `FunctionCallingHandler`). Domain-agnostic; drives the engine through **injected service Protocols** (prompt / planning / history).
+3. **Domain drivers** — the surface-specific composition: chat = coordinator + `Chat{Prompt,Planning,History}Service` + postprocess / transcript / session / reply-context + run stores; timeline likewise. A driver lives in its **highest domain layer** (chat L14, timeline L13), implements the ring-2 Protocols, and registers its task-agent factory (ADR-0003). The agent runtime dispatches by type via the injected/registered factory and never imports a domain driver.
+
+Seam status: **ring 1 ↔ 2 is inverted & clean** (engine request/result contracts + `AttachmentResolverPort` in `agent/run/ports.py`, ADR-0004 P1). **Ring 2 ↔ 3 inversion is in progress** (P2 / ADR-0003): the handler dependency bundle is being lifted off concrete `Chat*Service` onto ring-2 Protocols so the chat driver can descend into the `chat` layer.
+
 ### L13. Timeline Domain
 
 Responsibilities:

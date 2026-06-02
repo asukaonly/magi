@@ -49,15 +49,31 @@ A trigger source turns an external signal into a `RunRequest` for a driver: user
 - Real refactor of the agent core's most central area; must preserve chat behavior exactly. Done in stages (below), lowest-risk first.
 - The Engine/Driver/Trigger contracts must be defined carefully (the `RunRequest` + event stream is the load-bearing seam).
 
-## Staging (P1 first — motivated by the batch orchestrator)
-- **P1 — Extract the Run Engine.** Pull the generic run-loop (handlers `DirectLLMHandler`/`FunctionCallingHandler` + the bounded-run + the generic background completion handshake) out of `agent/task_agents/chat/` into the generic agent runtime; define the `RunRequest` + event-stream contract. **Low-risk, and the batch orchestrator rides it immediately** (a chat-free bounded run, no chat postprocess). No driver moves yet.
-- **P2 — Driver registry + relocate the chat driver** (this is ADR-0003's body): formalize driver registration (dispatch by type, no core import); move the chat task-agent into the `chat` layer as the "chat" driver. Retires `agent → chat`.
+## Refinement (grounded during P1 execution, 2026-06-02)
+
+Grounding P1 against the code refined the Engine/Driver picture into **three concentric rings**, each separated from the next by a dependency-inversion seam:
+
+| Ring | What | Where | Status |
+|---|---|---|---|
+| **1 — Run Engine** | `FunctionCallingOrchestrator` (`agent/execution`) + `NodeSequenceRunner` + node framework (`agent/run`): a bounded LLM↔tool run | agent core | domain-agnostic; already used headless by worker / subagent / background |
+| **2 — Generic handler framework** | `TaskAgent` base, `BaseExecutionHandler`, execution contracts (`ExecutionRequest/Result`), and the handler *algorithms* (`DirectLLMHandler` / `FunctionCallingHandler`) | `agent/task_agents` (generic part) | algorithms are domain-agnostic; drive the engine through **injected services** |
+| **3 — Domain drivers** | chat: coordinator + `Chat{Prompt,Planning,History}Service` + postprocess / transcript / session / reply-context + run stores; timeline likewise | their own domain layer (chat L14, timeline L13) | own domain I/O + data |
+
+**Seams:**
+- **Ring 1 ↔ Ring 2** — engine request/result contracts + `AttachmentResolverPort` + TYPE_CHECKING-only handler refs (handlers are injected, not runtime-imported by the engine). **Inverted & clean as of P1** (commit `c6cc4841`; the lint ratchet locks it).
+- **Ring 2 ↔ Ring 3** — the handler dependency bundle (`ChatHandlerDependencies`) is typed against concrete `Chat*Service`. **Not yet inverted** — this *is* the real `agent → chat` coupling, and the substance of P2.
+
+**Correction to the original P1 idea:** "relocate the handlers into the engine" was wrong — the handlers are Ring 2 (generic algorithms), not Ring 1 (the engine). A flat move would drag `Chat*Service` into the engine or invert the import direction. The handlers relocate **only after** the Ring 2↔3 inversion (define service Protocols → retype the bundle → chat implements them), which is P2.
+
+## Staging
+- **P1 — Run Engine is chat-free. ✅ DONE.** Severed the engine's only chat coupling (attachment-payload resolution) behind `AttachmentResolverPort`; the engine + the shared `message_utils` no longer import `magi.chat`; two layers-baseline edges retired (commit `c6cc4841`, lint `2 kept, 0 broken`). Ring 1 is domain-agnostic and lint-locked. (The handler relocation originally imagined here was reassigned to P2 — see Refinement.)
+- **P2 — Ring 2↔3 inversion + chat driver descent (= [ADR-0003](./domain-task-agents-adr.md), sharpened).** Define generic handler-service Protocols (`PromptService` / `PlanningService` / `HistoryService` — exactly the methods the handlers call) in Ring 2; retype the handler dependency bundle to a generic `HandlerDependencies`; relocate the now-generic handlers to a Ring-2 home; move the chat driver (`ChatTaskAgent` + `Chat*Service` + coordinator + stores) into the `chat` layer implementing those Protocols; dispatch via the injected/registered factory (composition root). Retires the `agent → chat` cluster.
 - **P3 — Trigger abstraction:** lift `RunTrigger`/`IncomingEvent` out of chat's coordinator into a standalone trigger seam; unify scheduler / inbound / item-queue as trigger sources producing `RunRequest`s. **Foundation for scheduled-background and voice.**
 - **P4 — Generalize:** relocate the timeline driver; land batch / voice / scheduled-task as drivers+triggers on the seam.
 
 ## Action Items
-1. [ ] P1: define `RunRequest` + event-stream contract; extract generic run-loop handlers + bounded-run + generic background completion from `chat/` to the agent runtime; verify chat behavior parity + lint `2 kept, 0 broken`; batch orchestrator delegates to the extracted engine.
-2. [ ] P2 (= ADR-0003): driver registry + chat driver → `chat` layer; retire `agent → chat` baseline edges.
+1. [x] P1: Run Engine made chat-free via `AttachmentResolverPort` (commit `c6cc4841`); engine + `message_utils` no longer import `magi.chat`; baseline −2 edges; lint `2 kept, 0 broken`. (Grounding reassigned the handler relocation to P2.)
+2. [ ] P2 (= ADR-0003, sharpened): Ring 2↔3 handler↔service Protocol inversion → relocate now-generic handlers to Ring 2 → move chat driver (`ChatTaskAgent` + `Chat*Service` + coordinator + stores) to the `chat` layer → composition-root/registry dispatch. Retire the `agent → chat` cluster; lint `2 kept, 0 broken`; chat behavior byte-faithful.
 3. [ ] P3: trigger seam (RunTrigger out of chat; scheduler/inbound/item-queue as sources).
 4. [ ] P4: timeline driver relocation; batch/voice/scheduled drivers on the seam.
 5. [ ] Update `layered-agent-architecture.md` with the Engine/Driver/Trigger model as each stage lands.
