@@ -119,6 +119,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/{plugin_id}/update": {"POST"},
         "/{plugin_id}/update/jobs": {"POST"},
         "/install/upload": {"POST"},
+        "/install/upload/inspect": {"POST"},
         "/install/upload/jobs": {"POST"},
         "/install/registry": {"POST"},
         "/install/registry/jobs": {"POST"},
