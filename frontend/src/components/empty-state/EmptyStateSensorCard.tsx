@@ -42,7 +42,7 @@ export function EmptyStateSensorCard({
         data-testid={`empty-state-connect-${pluginId}`}
         onClick={() => onConnect(pluginId)}
         disabled={disabled}
-        className="ml-auto shrink-0 rounded-md border border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
+        className="ml-auto shrink-0 min-w-[5.5rem] rounded-md border border-primary/40 px-3 py-1.5 text-center text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
       >
         {t(connectLabelKey ?? 'emptyState.connect')}
       </button>
