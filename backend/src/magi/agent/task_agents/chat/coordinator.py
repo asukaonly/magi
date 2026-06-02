@@ -574,7 +574,16 @@ class ChatExecutionCoordinator:
                     origin_channel=origin_channel,
                 )
                 if targets:
-                    content = DeliveryContent(text=runner_result.response_text or "")
+                    # Phase A media-outbound: attachments produced by tools
+                    # (image_generation_tool, prepare_chat_attachments,
+                    # screenshot_timeline, photo_library, …) ride along
+                    # so external channels can send images/documents back,
+                    # not just the joined text. chat_sse already reads
+                    # them out of chat_messages, so nothing changes there.
+                    content = DeliveryContent(
+                        text=runner_result.response_text or "",
+                        attachments=tuple(runner_result.attachments or ()),
+                    )
                     receipts = await self._delivery_router.fanout_deliver(
                         content=content, targets=targets,
                     )
