@@ -29,9 +29,10 @@ from ..common import (
     FunctionCallingExecutionResult,
     FunctionCallingRequest,
 )
-from .history_service import ChatHistoryService
-from .planning_service import ChatPlanningService
-from .prompt_service import ChatPromptService
+from ..common.service_protocols import (
+    HistoryServiceProtocol,
+    PromptServiceProtocol,
+)
 from .explore_render import start_explore_task_agent
 from .runtime_control import FunctionCallingRuntimeControlMixin
 from .handler_helpers import (
@@ -54,11 +55,18 @@ class ChatHandlerDependencies:
     """Shared dependencies passed to chat execution handlers."""
 
     context_service: ContextAssemblyService
-    prompt_service: ChatPromptService
-    planning_service: ChatPlanningService
+    # Ring-2 protocols (see common.service_protocols): the generic handlers
+    # only touch a small, stable surface of these collaborators, so the bundle
+    # is typed against the protocol rather than the concrete chat service. The
+    # concrete ``ChatPromptService`` / ``ChatHistoryService`` still satisfy
+    # these structurally and are passed unchanged at construction sites.
+    prompt_service: PromptServiceProtocol
+    # Not touched by ring-2 handler code (only carried for other consumers);
+    # left untyped so the bundle stays free of concrete chat service classes.
+    planning_service: Any
     function_calling_orchestrator: any
     task_orchestrator: TaskOrchestrator
-    history_service: ChatHistoryService
+    history_service: HistoryServiceProtocol
     agent_id: str
     get_task_agent_manager: callable
     # Resolves managed attachment payloads for a turn. Chat wires a
