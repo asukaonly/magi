@@ -12,7 +12,7 @@ import { EmptyStateSensorCard } from './EmptyStateSensorCard';
 import { PluginActivationDialog } from '../plugins/PluginActivationDialog';
 
 /**
- * Orchestrator component for the empty-state CTA grid.
+ * Orchestrator component for the empty-state CTA list.
  *
  * Responsibilities:
  *   1. Source the candidate plugins from the backend
@@ -37,13 +37,13 @@ import { PluginActivationDialog } from '../plugins/PluginActivationDialog';
  * The orchestrator is intentionally self-contained: unlike
  * `TimelineSourcesSection` it does NOT lift draft state up to a parent. The
  * empty-state surface persists immediately on confirm and then refreshes the
- * installable list so the connected card disappears from the grid on success.
+ * installable list so the connected row disappears from the list on success.
  */
 
 export interface EmptyStateAvailableSensorsProps {
   /**
    * Plugin IDs that are already installed/configured and should be hidden from
-   * the grid. The orchestrator filters them from the rendered cards.
+   * the list. The orchestrator filters them from the rendered rows.
    */
   excludePluginIds?: string[];
   /** Optional callback fired after a plugin is successfully activated. */
@@ -103,7 +103,7 @@ export function EmptyStateAvailableSensors({
       <h3 className="text-sm font-medium text-foreground">
         {t('emptyState.heading')}
       </h3>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="divide-y divide-border/55 overflow-hidden rounded-lg border border-border/55">
         {ordered.map((item) => {
           const meta = getEmptyStatePluginMeta(item.plugin_id);
           if (!meta) {

@@ -189,8 +189,8 @@
   },
   "emptyState": {
     "heading": "Let me see your activity",
-    "connect": "Connect",
-    "installAndConnect": "Install & connect",
+    "connect": "Enable",
+    "installAndConnect": "Install & enable",
     "installing": "Installing…",
     "plugins": {
       "chromeHistory": {
