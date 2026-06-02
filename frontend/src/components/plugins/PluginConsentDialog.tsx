@@ -4,7 +4,6 @@ import * as LucideIcons from 'lucide-react';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { PluginCapability } from '@/api/modules/plugins';
 import { capabilityMeta, groupCapabilities } from '@/lib/pluginCapabilities';
@@ -51,9 +50,9 @@ export const PluginConsentDialog: React.FC<Props> = ({
               <code className="ml-1.5 text-xs text-muted-foreground">{c.scope.join(', ')}</code>
             )}
             {c.optional && (
-              <Badge variant="secondary" className="ml-1.5 text-[10px]">
+              <span className="ml-1.5 inline-flex items-center rounded border border-border/60 px-1 py-px text-[10px] font-normal leading-none text-muted-foreground/90 align-[1px]">
                 {t('settings.marketplace.consent.optionalTag')}
-              </Badge>
+              </span>
             )}
           </div>
           <div className="text-xs text-muted-foreground">{desc}</div>
