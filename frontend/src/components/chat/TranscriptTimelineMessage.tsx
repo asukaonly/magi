@@ -36,12 +36,19 @@ const assistantMarkdownComponents: Components = {
     </h2>
   ),
   h3: ({ children }) => <h3 className="mb-2 mt-4 text-base font-semibold leading-snug text-foreground">{children}</h3>,
-  p: ({ children }) => <p className="mb-4 whitespace-pre-wrap text-sm leading-7 text-foreground last:mb-0">{children}</p>,
-  ul: ({ children }) => <ul className="mb-4 list-disc space-y-2 pl-5 text-sm leading-7 text-foreground marker:text-muted-foreground">{children}</ul>,
-  ol: ({ children, start }) => <ol start={start} className="mb-4 list-decimal space-y-2 pl-5 text-sm leading-7 text-foreground marker:text-muted-foreground">{children}</ol>,
+  // Block-element bottom margin: ``mb-3`` (12px) keeps paragraphs / lists /
+  // quotes visually distinct while shrinking the gap that previously read
+  // as a full blank line — ``mb-4`` (16px) combined with ``leading-7``
+  // (28px line-height) put roughly a line's worth of whitespace between
+  // every paragraph and felt too airy for Chinese prose. Kept consistent
+  // across <p>/<ul>/<ol>/<blockquote>/<pre>/<table> so the vertical rhythm
+  // doesn't break when a list or code block sits between paragraphs.
+  p: ({ children }) => <p className="mb-3 whitespace-pre-wrap text-sm leading-7 text-foreground last:mb-0">{children}</p>,
+  ul: ({ children }) => <ul className="mb-3 list-disc space-y-2 pl-5 text-sm leading-7 text-foreground marker:text-muted-foreground">{children}</ul>,
+  ol: ({ children, start }) => <ol start={start} className="mb-3 list-decimal space-y-2 pl-5 text-sm leading-7 text-foreground marker:text-muted-foreground">{children}</ol>,
   li: ({ children }) => <li className="pl-1">{children}</li>,
   blockquote: ({ children }) => (
-    <blockquote className="mb-4 rounded-r-2xl border-l-4 border-primary/35 bg-primary/5 px-4 py-3 text-sm leading-7 text-foreground/85 shadow-sm">
+    <blockquote className="mb-3 rounded-r-2xl border-l-4 border-primary/35 bg-primary/5 px-4 py-3 text-sm leading-7 text-foreground/85 shadow-sm">
       {children}
     </blockquote>
   ),
@@ -58,12 +65,12 @@ const assistantMarkdownComponents: Components = {
     );
   },
   pre: ({ children }) => (
-    <pre className="mb-4 overflow-x-auto rounded-2xl border border-foreground/10 bg-foreground px-4 py-4 text-[13px] leading-7 text-background shadow-sm">
+    <pre className="mb-3 overflow-x-auto rounded-2xl border border-foreground/10 bg-foreground px-4 py-4 text-[13px] leading-7 text-background shadow-sm">
       {children}
     </pre>
   ),
   table: ({ children }) => (
-    <div className="mb-4 overflow-x-auto rounded-2xl border border-border/60 bg-background/80 shadow-sm">
+    <div className="mb-3 overflow-x-auto rounded-2xl border border-border/60 bg-background/80 shadow-sm">
       <table className="min-w-full border-collapse text-sm leading-6 text-foreground">{children}</table>
     </div>
   ),
