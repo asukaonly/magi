@@ -49,14 +49,13 @@ ignore_imports =
     # runtime_trace->events (7), awareness->timeline (4), other (~23).
     magi.agent.execution.function_calling.guardrails -> magi.chat.workspace
     magi.agent.lifecycle -> magi.chat
+    # P2-TEMP — remove in Task 4 wiring inversion. lifecycle imports the
+    # relocated chat-agent factory (magi.chat.task_agent.factory) until the
+    # composition wiring is inverted to the bootstrap root.
+    magi.agent.lifecycle -> magi.chat.task_agent.factory
     magi.agent.lifecycle -> magi.transport.chat_events
     magi.agent.task_agents.chat.coordinator -> magi.channels.delivery_prefs
     magi.agent.task_agents.chat.coordinator -> magi.channels.delivery_router
-    magi.agent.task_agents.chat_task_agent -> magi.api.services.chat_trace.read_service
-    magi.agent.task_agents.chat_task_agent -> magi.chat
-    # P2-TEMP scaffolding — remove in P2 Task 4/5 when chat_task_agent moves
-    magi.agent.task_agents.chat_task_agent -> magi.chat.**
-    magi.agent.task_agents.factory -> magi.chat
     magi.agent.task_agents.factory -> magi.timeline.handler
     magi.agent.task_orchestration_workspace -> magi.chat.workspace
     magi.agent.workers.worker_prompting -> magi.chat.workspace
@@ -94,6 +93,10 @@ ignore_imports =
     # control->chat/transport edges were removed and only this one added.
     magi.chat.control_transcript_subscriber -> magi.transport.chat_events
     magi.chat.read_service -> magi.api.services.chat_trace.read_service
+    # RELOCATED from magi.agent.task_agents.chat_task_agent (P2 Task 3) when
+    # ChatTaskAgent moved into the chat layer; still a chat->api cross-sibling
+    # edge, just moved with the module.
+    magi.chat.task_agent.chat_task_agent -> magi.api.services.chat_trace.read_service
     # RELOCATED from magi.agent.task_agents.chat.postprocess_service (P2 Task 2);
     # still a chat->api cross-sibling edge, just moved with the module.
     magi.chat.task_agent.postprocess_service -> magi.api.services.chat_trace.read_service

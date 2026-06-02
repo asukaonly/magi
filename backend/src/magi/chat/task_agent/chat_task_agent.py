@@ -4,33 +4,33 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from ...agent.orchestration import get_orchestration_store
-from ...agent.cancel import SessionRunCancelToken
+from magi.agent.orchestration import get_orchestration_store
+from magi.agent.cancel import SessionRunCancelToken
 from magi.control.run_control import null_run_control
-from ...agent.task_orchestrator import TaskOrchestrator
-from ...agent.trace import now_wall_ms
-from ...chat import ChatProjector, ChatReadService, ChatStore
-from ...config import get_config, get_user_preference
-from ...core.logger import get_logger
-from ...agent.runtime.contracts import FactRecord
-from ...agent.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
-from ...agent.runtime.types import TaskAgentType
-from ...context import (
+from magi.agent.task_orchestrator import TaskOrchestrator
+from magi.agent.trace import now_wall_ms
+from magi.chat import ChatProjector, ChatReadService, ChatStore
+from magi.config import get_config, get_user_preference
+from magi.core.logger import get_logger
+from magi.agent.runtime.contracts import FactRecord
+from magi.agent.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
+from magi.agent.runtime.types import TaskAgentType
+from magi.context import (
     ContextAssemblyService,
     ContextRetrievalService,
     PromptContextAssembler,
     PromptContextRenderer,
 )
-from ...context.user_profile_service import UserProfileService
-from ...tools.context_decider import ContextDecider
-from ...tools.registry import tool_registry
-from ...runtime_trace import RuntimeTraceStore
-from ...utils.runtime import get_runtime_paths
-from ..execution.function_calling import FunctionCallingOrchestrator
-from ..run.ports import LazyAttachmentResolver
-from ...llm.streaming_events import stream_scope
-from .chat.interruption_classifier import InterruptionClassifier
-from .chat import (
+from magi.context.user_profile_service import UserProfileService
+from magi.tools.context_decider import ContextDecider
+from magi.tools.registry import tool_registry
+from magi.runtime_trace import RuntimeTraceStore
+from magi.utils.runtime import get_runtime_paths
+from magi.agent.execution.function_calling import FunctionCallingOrchestrator
+from magi.agent.run.ports import LazyAttachmentResolver
+from magi.llm.streaming_events import stream_scope
+from magi.agent.task_agents.chat.interruption_classifier import InterruptionClassifier
+from magi.agent.task_agents.chat import (
     ChatExecutionCoordinator,
     ChatFactClassifier,
     IntentDecision,
@@ -46,19 +46,25 @@ from .chat import (
 from magi.chat.task_agent.history_service import ChatHistoryService
 from magi.chat.task_agent.planning_service import ChatPlanningService
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
-from .chat.direct_handler import DirectLLMHandler
-from .chat.explore_render import ExploreRenderHandler
-from .chat.handlers import (
+from magi.agent.task_agents.chat.direct_handler import DirectLLMHandler
+from magi.agent.task_agents.chat.explore_render import ExploreRenderHandler
+from magi.agent.task_agents.chat.handlers import (
     ChatHandlerDependencies,
     FunctionCallingHandler,
     build_common_handler_dependencies,
 )
 from magi.chat.task_agent.reply_context import ChatReplyContextMixin
-from .chat.rhythm import ResponseRhythmPlanner, is_conversation_rhythm_enabled
+from magi.agent.task_agents.chat.rhythm import (
+    ResponseRhythmPlanner,
+    is_conversation_rhythm_enabled,
+)
 from magi.chat.task_agent.session_control import ChatSessionControlMixin
-from .chat.streaming import ChatStreamingMixin, format_llm_error as _format_llm_error
+from magi.agent.task_agents.chat.streaming import (
+    ChatStreamingMixin,
+    format_llm_error as _format_llm_error,
+)
 from magi.chat.task_agent.transcript_summarizer import ChatTranscriptSummarizer
-from .common import (
+from magi.agent.task_agents.common import (
     FactOnlyHandler,
     OrchestrationLaunchHandler,
     OrchestrationUpdateHandler,
@@ -68,7 +74,7 @@ logger = get_logger(__name__)
 
 
 def _default_chat_read_service_factory() -> ChatReadService:
-    from ...chat import get_chat_read_service
+    from magi.chat import get_chat_read_service
 
     return get_chat_read_service()
 
@@ -226,7 +232,7 @@ class ChatTaskAgent(
             control_session_store_provider=control_session_store_provider,
         )
         # Initialize trace read service for enriching AI_RESPONSE events
-        from ...api.services.chat_trace.read_service import ChatTraceReadService
+        from magi.api.services.chat_trace.read_service import ChatTraceReadService
 
         try:
             trace_read_service = ChatTraceReadService()
@@ -380,7 +386,7 @@ class ChatTaskAgent(
         to the legacy delivery path when the registry is ``None``.
         """
         try:
-            from ...core.container import get_container
+            from magi.core.container import get_container
 
             context = get_container().runtime_bootstrap_context()
         except Exception:
@@ -407,7 +413,7 @@ class ChatTaskAgent(
         persistence in that case.
         """
         try:
-            from ...core.container import get_container
+            from magi.core.container import get_container
 
             context = get_container().runtime_bootstrap_context()
         except Exception:
@@ -431,7 +437,7 @@ class ChatTaskAgent(
         that case.
         """
         try:
-            from ...core.container import get_container
+            from magi.core.container import get_container
 
             context = get_container().runtime_bootstrap_context()
         except Exception:
@@ -489,7 +495,7 @@ class ChatTaskAgent(
     @staticmethod
     def _resolve_message_bus() -> Any | None:
         try:
-            from ...core.container import get_container
+            from magi.core.container import get_container
 
             bus = get_container().message_bus()
         except Exception:
@@ -760,7 +766,7 @@ class ChatTaskAgent(
                     "Failed to resolve persona id from user turn", turn_id=turn_id
                 )
         try:
-            from ...personality.persona_repository import PersonaRepository
+            from magi.personality.persona_repository import PersonaRepository
 
             repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
             await repo.init()

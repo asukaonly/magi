@@ -20,7 +20,7 @@ from magi.chat.task_agent.history_service import ChatHistoryService
 from magi.agent.task_agents.chat import ExecutionMode, ExecutionRequest, IntentDecision, OrchestrationPlan, ToolSelection
 from magi.chat.task_agent import planning_service as planning_service_module
 from magi.tools.context_routing import RouteDecision
-from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
+from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.agent.task_agents.explore_task_agent import EXPLORE_TASK_COMPLETED
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.runtime.types import TaskAgentType

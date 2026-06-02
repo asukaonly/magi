@@ -12,7 +12,7 @@ def test_build_context_uses_session_run_cancel_token_not_null() -> None:
     left this as null because Task 10 didn't wire it; Phase B Task 1 fixes
     it so external cancel calls flow through the bundle to all three
     execution paths."""
-    from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
+    from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 
     src = inspect.getsource(ChatTaskAgent.build_context)
     assert "turn_control.cancel_token = SessionRunCancelToken(" in src, (

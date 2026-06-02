@@ -14,7 +14,7 @@ from magi.agent.task_agents.chat import (
     OrchestrationPlan,
     ToolSelection,
 )
-from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
+from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.config.models import LLMScenario
 from magi.personality.models import EmotionalState, TaskBehaviorProfile
 from magi.personality.loader import PersonalityConfig

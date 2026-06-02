@@ -12,7 +12,7 @@ from magi.agent.task_agents.chat import (
     OrchestrationPlan,
     ToolSelection,
 )
-from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
+from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.context.contracts import PromptPackage
 
 

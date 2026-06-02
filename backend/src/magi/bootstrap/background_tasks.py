@@ -29,7 +29,7 @@ from ..tools import tool_registry
 if TYPE_CHECKING:
     from ..agent.background import BackgroundTask
     from ..agent.runtime import TaskAgentManager
-    from ..agent.task_agents.chat_task_agent import ChatTaskAgent
+    from ..chat.task_agent.chat_task_agent import ChatTaskAgent
 
 logger = structlog.get_logger(__name__)
 

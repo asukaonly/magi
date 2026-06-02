@@ -120,7 +120,7 @@ def test_bootstrap_and_agent_exports_do_not_keep_chat_runtime_aliases() -> None:
 def test_agent_execution_package_uses_function_calling_orchestrator_name() -> None:
     execution_init = (BACKEND_SRC / "agent/execution/__init__.py").read_text(encoding="utf-8")
     function_calling_source = (BACKEND_SRC / "agent/execution/function_calling/__init__.py").read_text(encoding="utf-8")
-    chat_agent_source = (BACKEND_SRC / "agent/task_agents/chat_task_agent.py").read_text(encoding="utf-8")
+    chat_agent_source = (BACKEND_SRC / "chat/task_agent/chat_task_agent.py").read_text(encoding="utf-8")
     worker_manager_source = (BACKEND_SRC / "agent/workers/worker_manager.py").read_text(encoding="utf-8")
     chat_handlers_source = (BACKEND_SRC / "agent/task_agents/chat/handlers.py").read_text(encoding="utf-8")
     skills_subagent_source = (BACKEND_SRC / "skills/subagent.py").read_text(encoding="utf-8")
@@ -270,7 +270,7 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     awareness_lifecycle = (BACKEND_SRC / "awareness/lifecycle.py").read_text(encoding="utf-8")
     bootstrap_context = (BACKEND_SRC / "bootstrap/context.py").read_text(encoding="utf-8")
     config_lifecycle = (BACKEND_SRC / "config/lifecycle.py").read_text(encoding="utf-8")
-    chat_task_agent = (BACKEND_SRC / "agent/task_agents/chat_task_agent.py").read_text(encoding="utf-8")
+    chat_task_agent = (BACKEND_SRC / "chat/task_agent/chat_task_agent.py").read_text(encoding="utf-8")
     explore_task_agent = (BACKEND_SRC / "agent/task_agents/explore_task_agent.py").read_text(encoding="utf-8")
     timeline_task_agent = (BACKEND_SRC / "agent/task_agents/timeline_task_agent.py").read_text(encoding="utf-8")
     postprocess_service = (BACKEND_SRC / "chat/task_agent/postprocess_service.py").read_text(encoding="utf-8")

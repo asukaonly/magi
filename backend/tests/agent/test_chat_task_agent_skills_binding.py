@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
+from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 
 
 def test_chat_task_agent_uses_injected_shared_skill_runner() -> None:

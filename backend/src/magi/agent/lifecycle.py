@@ -17,7 +17,8 @@ from ..transport.chat_events import broadcast_background_task_state_changed
 from ..utils.runtime import get_runtime_paths
 from .runtime import AgentRuntime, RouterAgent, TaskAgentManager
 from .scheduled_agent_task import UserAgentTaskScheduleContributor
-from .task_agents.factory import create_chat_agent_factory, create_default_agent_factory
+from .task_agents.factory import create_default_agent_factory
+from ..chat.task_agent.factory import create_chat_agent_factory
 
 logger = get_logger(__name__)
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
+from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 
 
 class _FakeLLMAdapter:
@@ -35,7 +35,7 @@ async def test_user_prefs_provider_reads_delivery_channels_from_config(monkeypat
             return ["chat_sse", "telegram"]
         return default
 
-    import magi.agent.task_agents.chat_task_agent as cta_mod
+    import magi.chat.task_agent.chat_task_agent as cta_mod
 
     monkeypatch.setattr(cta_mod, "get_user_preference", fake_get_user_preference)
 
@@ -56,7 +56,7 @@ async def test_user_prefs_provider_reads_delivery_channels_from_config(monkeypat
 async def test_user_prefs_provider_returns_empty_dict_when_no_preference(monkeypatch):
     """When delivery_channels is unset / falsy, return empty dict so the
     downstream resolver safely defaults to chat_sse-only delivery."""
-    import magi.agent.task_agents.chat_task_agent as cta_mod
+    import magi.chat.task_agent.chat_task_agent as cta_mod
 
     monkeypatch.setattr(
         cta_mod, "get_user_preference", lambda k, default=None: default
@@ -75,7 +75,7 @@ async def test_user_prefs_provider_returns_empty_dict_when_no_preference(monkeyp
 async def test_user_prefs_provider_ignores_non_list_value(monkeypatch):
     """Defensive: when the stored preference is not a list (e.g. legacy string),
     treat it as unset and return empty so resolution falls back to default."""
-    import magi.agent.task_agents.chat_task_agent as cta_mod
+    import magi.chat.task_agent.chat_task_agent as cta_mod
 
     monkeypatch.setattr(
         cta_mod,
@@ -96,7 +96,7 @@ async def test_user_prefs_provider_ignores_non_list_value(monkeypatch):
 async def test_user_prefs_provider_empty_list_returns_empty_dict(monkeypatch):
     """An empty list should be treated as 'no preference set' — return {}
     rather than {'delivery_channels': []} which would suppress all delivery."""
-    import magi.agent.task_agents.chat_task_agent as cta_mod
+    import magi.chat.task_agent.chat_task_agent as cta_mod
 
     monkeypatch.setattr(
         cta_mod,

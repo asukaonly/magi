@@ -1,29 +1,25 @@
 """Concrete TaskAgent implementations.
 
 Exports are loaded lazily (PEP 562) so that importing a *sibling* submodule
-does not eagerly pull in ``chat_task_agent``. ``chat_task_agent`` constructs
-the chat-driver services that now live in ``magi.chat.task_agent`` (relocated
-in P2 Task 2); eager loading here would create an import cycle when one of
-those relocated modules is imported before this package is initialized.
+does not eagerly pull in the others. ``ChatTaskAgent`` was relocated to
+``magi.chat.task_agent.chat_task_agent`` in P2 Task 3 and is no longer
+re-exported here.
 """
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .chat_task_agent import ChatTaskAgent
     from .default_task_agent import DefaultTaskAgent
     from .explore_task_agent import ExploreTaskAgent
     from .timeline_task_agent import TimelineTaskAgent
 
 _LAZY_EXPORTS = {
-    "ChatTaskAgent": ".chat_task_agent",
     "DefaultTaskAgent": ".default_task_agent",
     "ExploreTaskAgent": ".explore_task_agent",
     "TimelineTaskAgent": ".timeline_task_agent",
 }
 
 __all__ = [
-    "ChatTaskAgent",
     "DefaultTaskAgent",
     "ExploreTaskAgent",
     "TimelineTaskAgent",

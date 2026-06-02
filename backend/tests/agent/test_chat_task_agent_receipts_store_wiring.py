@@ -10,7 +10,7 @@ stub without depending on the runtime container.
 """
 from __future__ import annotations
 
-from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
+from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 
 
 class _FakeLLMAdapter:
