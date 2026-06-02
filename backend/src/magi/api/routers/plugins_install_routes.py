@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, status
 
 from ... import i18n as core_i18n
+from ...plugins.installation import InvalidPluginArchiveError
 from .plugins_common import legacy_plugins_module
 from .plugins_install_jobs import plugin_install_jobs, require_plugin_install_job
 from .plugins_schemas import PluginInstallJobSnapshot, PluginInstallRequest, PluginManifestResponse, PluginPackageResponse
@@ -51,6 +52,18 @@ async def install_plugin_from_upload(file: UploadFile):
         )
         try:
             state = manager.install_plugin_from_archive(archive_path)
+        except InvalidPluginArchiveError as exc:
+            logger.warning(
+                "Plugin upload install rejected (invalid archive)",
+                extra={"filename": file.filename, "error": str(exc)},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=core_i18n.t(
+                    "plugins.errors.archive_invalid",
+                    fallback="The uploaded file is not a valid plugin archive",
+                ),
+            ) from exc
         except ValueError as exc:
             logger.warning(
                 "Plugin upload install rejected",
@@ -93,6 +106,14 @@ async def inspect_plugin_upload(file: UploadFile):
         archive_path.write_bytes(await file.read())
         try:
             manifest = manager.inspect_plugin_archive(archive_path)
+        except InvalidPluginArchiveError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=core_i18n.t(
+                    "plugins.errors.archive_invalid",
+                    fallback="The uploaded file is not a valid plugin archive",
+                ),
+            ) from exc
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return PluginManifestResponse(

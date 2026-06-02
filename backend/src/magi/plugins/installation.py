@@ -205,6 +205,13 @@ def _build_loose_dependency_install_command(
     return cmd
 
 
+class InvalidPluginArchiveError(ValueError):
+    """Raised when an uploaded archive is unsupported, corrupt/truncated, or
+    contains unsafe paths. A ``ValueError`` subclass so existing generic
+    handlers still map it to HTTP 400; routes catch it specifically to return a
+    localized "not a valid archive" message instead of the raw English detail."""
+
+
 class UnlockedDependencyError(RuntimeError):
     """Raised when a plugin declares dependencies but ships no requirements.lock."""
 
@@ -572,11 +579,12 @@ class PluginInstallationMixin:
     def _extract_archive(archive_path: Path, dest: Path) -> None:
         """Extract a .tar.gz or .zip archive into *dest*.
 
-        Raises ``ValueError`` for an unsupported, corrupt/truncated, or
-        path-unsafe archive. Corrupt-archive errors (``tarfile.ReadError``,
+        Raises :class:`InvalidPluginArchiveError` (a ``ValueError`` subclass)
+        for an unsupported, corrupt/truncated, or path-unsafe archive. The
+        low-level corrupt-archive errors (``tarfile.ReadError``,
         ``gzip.BadGzipFile``, ``zipfile.BadZipFile``, truncation ``EOFError``)
-        are re-raised as ``ValueError`` so upload routes surface a clean HTTP
-        400 ("not a valid archive") instead of an unhandled 500.
+        are re-raised as :class:`InvalidPluginArchiveError` so upload routes can
+        return a clean, localized HTTP 400 instead of an unhandled 500.
         """
         name = archive_path.name.lower()
         if name.endswith(".tar.gz") or name.endswith(".tgz"):
@@ -584,16 +592,16 @@ class PluginInstallationMixin:
                 with tarfile.open(archive_path, "r:gz") as tf:
                     for member in tf.getmembers():
                         if member.name.startswith("/") or ".." in member.name.split("/"):
-                            raise ValueError(f"Unsafe path in archive: {member.name}")
+                            raise InvalidPluginArchiveError(f"Unsafe path in archive: {member.name}")
                     tf.extractall(dest)
             except (tarfile.TarError, gzip.BadGzipFile, EOFError) as exc:
-                raise ValueError(f"Not a valid .tar.gz archive: {exc}") from exc
+                raise InvalidPluginArchiveError(f"Not a valid .tar.gz archive: {exc}") from exc
         elif name.endswith(".zip"):
             try:
                 with zipfile.ZipFile(archive_path, "r") as zf:
                     for info in zf.infolist():
                         if info.filename.startswith("/") or ".." in info.filename.split("/"):
-                            raise ValueError(f"Unsafe path in archive: {info.filename}")
+                            raise InvalidPluginArchiveError(f"Unsafe path in archive: {info.filename}")
                         extracted_str = zf.extract(info, dest)
                         if not info.is_dir():
                             # zipfile.extract drops Unix permissions even when the
@@ -603,9 +611,9 @@ class PluginInstallationMixin:
                             if mode:
                                 Path(extracted_str).chmod(mode)
             except zipfile.BadZipFile as exc:
-                raise ValueError(f"Not a valid .zip archive: {exc}") from exc
+                raise InvalidPluginArchiveError(f"Not a valid .zip archive: {exc}") from exc
         else:
-            raise ValueError(f"Unsupported archive format: {archive_path.name}")
+            raise InvalidPluginArchiveError(f"Unsupported archive format: {archive_path.name}")
 
     @staticmethod
     def _find_manifest_in_tree(root: Path) -> Path | None:

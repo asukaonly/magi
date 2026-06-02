@@ -361,6 +361,7 @@
       "not_found": "未找到插件",
       "filename_required": "需要文件名",
       "archive_extension_invalid": "归档文件必须是 .tar.gz、.tgz 或 .zip",
+      "archive_invalid": "上传的文件不是有效的插件归档",
       "not_found_in_registry": "注册表中未找到插件",
       "registry_unreachable": "无法连接插件注册表",
       "cannot_update_builtin": "内置插件不能更新",
