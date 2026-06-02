@@ -53,3 +53,11 @@ async def test_high_urgency_bypasses_budget_not_quiet_hours():
 async def test_normal_push_now():
     v, _ = await _gov(_Log(count=0), hour=12).evaluate(_intent(), external_target=object())
     assert v is GovernorVerdict.PUSH_NOW
+
+
+@pytest.mark.asyncio
+async def test_none_target_drops():
+    # No external surface to reach -> DROP, before any delivery-log IO.
+    v, release = await _gov(_Log(), hour=12).evaluate(_intent(), external_target=None)
+    assert v is GovernorVerdict.DROP
+    assert release is None
