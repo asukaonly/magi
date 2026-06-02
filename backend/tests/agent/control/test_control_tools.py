@@ -19,6 +19,7 @@ from magi.events.events import EventTypes
 from magi.tools.builtin.ask_user_question_tool import AskUserQuestionTool
 from magi.tools.builtin.plan_mode_tool import EnterPlanModeTool, ExitPlanModeTool
 from magi.tools.builtin.todo_write_tool import TodoWriteTool
+from magi.bootstrap.tool_capabilities import _HostInteractionPort
 from magi.tools.schema import ToolExecutionContext
 from magi_plugin_sdk.capabilities import ToolCapabilities
 
@@ -56,6 +57,9 @@ def _ctx(session_id: str = "sid", intent: str = "chat") -> ToolExecutionContext:
         env_vars={"session_id": session_id, "intent": intent},
         permissions=[],
         enabled_features=[],
+        # ask_user_question routes through the SDK InteractionPort; the host
+        # adapter resolves the overridden control bindings installed below.
+        capabilities=ToolCapabilities(interaction=_HostInteractionPort()),
     )
 
 
@@ -247,7 +251,9 @@ async def test_ask_user_question_suspends_and_resumes_background_task() -> None:
             env_vars={"session_id": "sid-F", "intent": "background"},
             permissions=[],
             enabled_features=["allow_ask_in_background"],
-            capabilities=ToolCapabilities(background=manager),
+            capabilities=ToolCapabilities(
+                background=manager, interaction=_HostInteractionPort()
+            ),
         )
 
         async def answer_later() -> None:
@@ -304,7 +310,9 @@ async def test_ask_user_question_resumes_background_on_timeout() -> None:
             env_vars={"session_id": "sid-G", "intent": "background"},
             permissions=[],
             enabled_features=["allow_ask_in_background"],
-            capabilities=ToolCapabilities(background=manager),
+            capabilities=ToolCapabilities(
+                background=manager, interaction=_HostInteractionPort()
+            ),
         )
         result = await tool.execute(
             {"question": "Continue?", "timeout_seconds": 1}, ctx
