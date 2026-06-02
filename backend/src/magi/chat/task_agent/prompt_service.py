@@ -10,7 +10,7 @@ from magi.config.models import LLMScenario, ThinkingDepth
 from magi.llm.streaming_events import LLMStreamEvent
 from magi.agent.orchestration import WorkerResult
 from magi.agent.task_agents.common import TaskAgentLLMService
-from magi.agent.task_agents.chat.contracts import ChatReplyContext
+from magi.agent.task_agents.handlers.contracts import ChatReplyContext
 
 
 class ChatPromptService:

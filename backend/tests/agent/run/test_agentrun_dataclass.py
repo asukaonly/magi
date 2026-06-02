@@ -4,21 +4,21 @@ from __future__ import annotations
 
 def test_agentrun_class_exists() -> None:
     """AgentRun is the canonical name; ActiveRun remains as a backward-compat alias."""
-    from magi.agent.task_agents.chat.run_contracts import AgentRun
+    from magi.agent.task_agents.handlers.run_contracts import AgentRun
 
     assert AgentRun.__name__ == "AgentRun"
 
 
 def test_active_run_remains_alias_for_agentrun() -> None:
     """Backward compat: callers that import ActiveRun still work."""
-    from magi.agent.task_agents.chat.run_contracts import ActiveRun, AgentRun
+    from magi.agent.task_agents.handlers.run_contracts import ActiveRun, AgentRun
 
     assert ActiveRun is AgentRun
 
 
 def test_agentrun_carries_phase_e_fields_with_defaults() -> None:
     """New Phase E fields default-factory so existing constructors don't break."""
-    from magi.agent.task_agents.chat.run_contracts import AgentRun
+    from magi.agent.task_agents.handlers.run_contracts import AgentRun
 
     run = AgentRun(session_id="s1", run_id="r1")
     # Existing fields
@@ -33,7 +33,7 @@ def test_agentrun_carries_phase_e_fields_with_defaults() -> None:
 
 
 def test_agentrun_accepts_phase_e_fields_on_construction() -> None:
-    from magi.agent.task_agents.chat.run_contracts import AgentRun
+    from magi.agent.task_agents.handlers.run_contracts import AgentRun
     from magi_plugin_sdk.run_trigger import RunTrigger
 
     trigger = RunTrigger(
@@ -61,7 +61,7 @@ def test_agentrun_accepts_phase_e_fields_on_construction() -> None:
 
 def test_agentrun_pending_turns_unchanged() -> None:
     """Phase A/B pending_turns mechanism preserved exactly."""
-    from magi.agent.task_agents.chat.run_contracts import AgentRun, PendingTurn
+    from magi.agent.task_agents.handlers.run_contracts import AgentRun, PendingTurn
 
     run = AgentRun(session_id="s1", run_id="r1")
     run.pending_turns.append(PendingTurn(turn_id="t1", content="hi", revision=0))

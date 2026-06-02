@@ -15,11 +15,11 @@ from types import SimpleNamespace
 from typing import AsyncIterator, Callable, Iterable
 
 from magi.agent.run_control import RunControl
-from magi.agent.task_agents.chat.contracts import (
+from magi.agent.task_agents.handlers.contracts import (
     ChatRuntimeContext,
     IntentDecision,
 )
-from magi.agent.task_agents.chat.direct_handler import DirectLLMHandler
+from magi.agent.task_agents.handlers.direct_handler import DirectLLMHandler
 from magi.agent.task_agents.common.contracts import (
     DirectLLMRequest,
     ExecutionMode,

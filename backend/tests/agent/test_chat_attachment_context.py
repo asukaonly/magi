@@ -3,8 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from magi.agent.run.ports import NullAttachmentResolver
-from magi.agent.task_agents.chat.attachment_context import resolve_effective_turn_attachments
-from magi.agent.task_agents.chat.contracts import ChatReplyContext
+from magi.agent.task_agents.handlers.attachment_context import resolve_effective_turn_attachments
+from magi.agent.task_agents.handlers.contracts import ChatReplyContext
 
 _NULL_RESOLVER = NullAttachmentResolver()
 

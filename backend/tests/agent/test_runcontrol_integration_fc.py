@@ -294,7 +294,7 @@ def test_function_calling_handler_passes_context_control_to_orchestrator() -> No
     steer_inbox), causing _resolve_control() to discard the registered bundle.
     """
     import inspect
-    from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
+    from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
 
     src = inspect.getsource(FunctionCallingHandler.execute)
     assert "control=" in src and (
@@ -320,7 +320,7 @@ def test_function_calling_handler_passes_route_decision_to_orchestrator() -> Non
     """FunctionCallingHandler.execute must forward request.intent.route_decision
     as route_decision= to execute_with_tools."""
     import inspect
-    from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
+    from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
 
     src = inspect.getsource(FunctionCallingHandler.execute)
     assert "route_decision" in src and (
@@ -337,7 +337,7 @@ def test_function_calling_handler_no_longer_uses_orchestration_plan_to_strategy_
     migration adapter)."""
     import inspect
 
-    from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
+    from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
 
     src = inspect.getsource(FunctionCallingHandler)
     assert "orchestration_plan.to_strategy_dict()" not in src, (

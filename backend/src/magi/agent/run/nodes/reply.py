@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 from .protocol import NodeOutcome, NodeResult
 
 if TYPE_CHECKING:
-    from ...task_agents.chat.direct_handler import DirectLLMHandler
+    from ...task_agents.handlers.direct_handler import DirectLLMHandler
     from ...task_agents.common.contracts import ExecutionRequest
 
 

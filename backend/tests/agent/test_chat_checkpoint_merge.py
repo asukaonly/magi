@@ -8,8 +8,8 @@ from magi.agent.execution.function_calling.step_executor import (
     FunctionCallingStepOutcome,
     FunctionCallingStepState,
 )
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
-from magi.agent.task_agents.chat.handlers import ChatHandlerDependencies, FunctionCallingHandler
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
+from magi.agent.task_agents.handlers.handlers import ChatHandlerDependencies, FunctionCallingHandler
 from magi.chat.task_agent.interruption_classifier import InterruptionDisposition
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.agent.task_agents.common import ExecutionMode, FunctionCallingRequest, IncomingFactKind, OrchestrationPlan, ToolSelection, UserMessagePayload

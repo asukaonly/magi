@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.task_agents.common import IncomingFactKind, TaskFactPayload
 from .interruption_classifier import InterruptionDisposition
-from magi.agent.task_agents.chat.run_contracts import ActiveRun, PendingTurn
+from magi.agent.task_agents.handlers.run_contracts import ActiveRun, PendingTurn
 
 
 @dataclass(slots=True)

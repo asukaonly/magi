@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import pytest
 
-from magi.agent.task_agents.chat.run_contracts import AgentRun
+from magi.agent.task_agents.handlers.run_contracts import AgentRun
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.agent.task_agents.common.contracts import UserMessagePayload
 from magi_plugin_sdk.run_trigger import IncomingEvent, RunTrigger
@@ -62,7 +62,7 @@ class _StubRunStore:
         *,
         disposition: str = "augment",
     ):
-        from magi.agent.task_agents.chat.run_contracts import PendingTurn
+        from magi.agent.task_agents.handlers.run_contracts import PendingTurn
         run = self._active[session_id]
         pt = PendingTurn(
             turn_id=turn_id,

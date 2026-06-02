@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from magi.agent.task_agents.chat import ChatRuntimeContext, ExecutionMode, UserMessagePayload
-from magi.agent.task_agents.chat import ExecutionHandlerRegistry
+from magi.agent.task_agents.handlers import ChatRuntimeContext, ExecutionMode, UserMessagePayload
+from magi.agent.task_agents.handlers import ExecutionHandlerRegistry
 from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 from magi.chat.task_agent.fact_classifier import ChatFactClassifier, IncomingFactKind
 from magi.agent.runtime.contracts import FactRecord
@@ -1609,7 +1609,7 @@ async def test_execute_uses_user_prefs_provider_for_fanout_targets():
         latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-9"),
         session_run_id="run-9",
     )
-    from magi.agent.task_agents.chat.contracts import IntentDecision
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
     intent = IntentDecision(
         intent="chat",
         difficulty="normal",
@@ -1646,7 +1646,7 @@ async def test_execute_swallows_user_prefs_provider_errors_and_uses_default_targ
     from magi_plugin_sdk.channels import Channel
     from magi_plugin_sdk.delivery import DeliveryReceipt
     from magi.tools.context_routing import RouteDecision
-    from magi.agent.task_agents.chat.contracts import IntentDecision
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
 
     class _Rec(Channel):
         def __init__(self, ctype):
@@ -1771,7 +1771,7 @@ async def test_execute_passes_runner_attachments_through_to_delivery_content():
     from magi_plugin_sdk.channels import Channel
     from magi_plugin_sdk.delivery import DeliveryReceipt
     from magi.tools.context_routing import RouteDecision
-    from magi.agent.task_agents.chat.contracts import IntentDecision
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
 
     class _Capture(Channel):
         def __init__(self, ctype):
@@ -1915,7 +1915,7 @@ async def test_execute_passes_empty_attachments_when_runner_has_none():
     from magi_plugin_sdk.channels import Channel
     from magi_plugin_sdk.delivery import DeliveryReceipt
     from magi.tools.context_routing import RouteDecision
-    from magi.agent.task_agents.chat.contracts import IntentDecision
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
 
     class _Capture(Channel):
         def __init__(self): self.received = []
@@ -2005,12 +2005,12 @@ async def test_execute_routes_reply_back_to_origin_channel_from_run_trigger():
     from magi.agent.task_agents.common.contracts import (
         ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
     )
-    from magi.agent.task_agents.chat.run_contracts import AgentRun
+    from magi.agent.task_agents.handlers.run_contracts import AgentRun
     from magi_plugin_sdk.channels import Channel
     from magi_plugin_sdk.delivery import DeliveryReceipt
     from magi_plugin_sdk.run_trigger import RunTrigger
     from magi.tools.context_routing import RouteDecision
-    from magi.agent.task_agents.chat.contracts import IntentDecision
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
 
     class _Rec(Channel):
         def __init__(self, ctype):
@@ -2152,7 +2152,7 @@ async def test_execute_context_user_prefs_wins_over_provider():
     from magi_plugin_sdk.channels import Channel
     from magi_plugin_sdk.delivery import DeliveryReceipt
     from magi.tools.context_routing import RouteDecision
-    from magi.agent.task_agents.chat.contracts import IntentDecision
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
 
     class _Rec(Channel):
         def __init__(self, ctype):

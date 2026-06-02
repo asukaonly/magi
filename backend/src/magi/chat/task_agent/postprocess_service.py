@@ -21,7 +21,7 @@ from magi.agent.task_agents.common import (
     FunctionCallingExecutionResult,
     IncomingFactKind,
 )
-from magi.agent.task_agents.chat.contracts import ChatParseOutcome, ChatRuntimeContext
+from magi.agent.task_agents.handlers.contracts import ChatParseOutcome, ChatRuntimeContext
 from .history_service import ChatHistoryService
 from .postprocess.background import ChatPostprocessBackgroundMixin
 from .postprocess.components import ChatOutcomeWriter, ChatRuntimeNotifier

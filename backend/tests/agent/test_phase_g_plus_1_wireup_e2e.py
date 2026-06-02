@@ -29,14 +29,14 @@ from __future__ import annotations
 
 import pytest
 
-from magi.agent.task_agents.chat import (
+from magi.agent.task_agents.handlers import (
     ChatRuntimeContext,
     ExecutionMode,
     UserMessagePayload,
 )
-from magi.agent.task_agents.chat import ExecutionHandlerRegistry
+from magi.agent.task_agents.handlers import ExecutionHandlerRegistry
 from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
-from magi.agent.task_agents.chat.contracts import IntentDecision
+from magi.agent.task_agents.handlers.contracts import IntentDecision
 from magi.chat.task_agent.fact_classifier import (
     ChatFactClassifier,
     IncomingFactKind,

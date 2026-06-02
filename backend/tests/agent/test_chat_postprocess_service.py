@@ -6,7 +6,7 @@ import pytest
 from types import SimpleNamespace
 
 from magi.chat import ChatStore
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
 from magi.chat.task_agent.postprocess.components import (
     ChatOutcomeWriter,
     ChatRuntimeNotifier,

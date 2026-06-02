@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from magi.control.run_control import RunControl
     from magi.llm.streaming_events import LLMStreamEvent
 
-    from ..chat.contracts import ChatReplyContext
+    from ..handlers.contracts import ChatReplyContext
 
 
 @runtime_checkable

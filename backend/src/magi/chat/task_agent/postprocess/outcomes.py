@@ -7,7 +7,7 @@ from typing import Any, Protocol, cast
 
 from magi.chat import ChatMessageRecord
 from magi.agent.task_agents.common import AssistantResponsePlan, IncomingFactKind
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
 from .components import ChatOutcomeWriter
 
 

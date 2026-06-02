@@ -18,8 +18,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
-from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
+from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
 from magi.agent.task_agents.common import (
     ExecutionMode,
     IncomingFactKind,

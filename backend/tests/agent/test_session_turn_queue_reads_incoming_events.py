@@ -1,7 +1,7 @@
 """Phase H Task 4: turn queue consumes new pending_events alongside legacy pending_turns."""
 from __future__ import annotations
 
-from magi.agent.task_agents.chat.run_contracts import AgentRun, PendingTurn
+from magi.agent.task_agents.handlers.run_contracts import AgentRun, PendingTurn
 from magi.chat.task_agent.session_turn_queue import (
     SessionRunTurnQueueMixin,
 )

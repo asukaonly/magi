@@ -55,7 +55,7 @@ class TestHistoryServiceProtocol(unittest.TestCase):
 
 class TestDependencyBundleImports(unittest.TestCase):
     def test_handlers_module_imports_no_concrete_chat_service(self) -> None:
-        from magi.agent.task_agents.chat import handlers as handlers_module
+        from magi.agent.task_agents.handlers import handlers as handlers_module
 
         handlers_path = Path(inspect.getfile(handlers_module))
         tree = ast.parse(handlers_path.read_text())

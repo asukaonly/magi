@@ -8,7 +8,7 @@ from typing import Any, Callable, Protocol, cast
 from magi.agent.trace import now_wall_ms
 from magi.chat import ChatTurnRecord
 from magi.core.logger import get_logger
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
 
 logger = get_logger(__name__)
 

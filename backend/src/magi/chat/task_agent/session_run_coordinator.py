@@ -14,7 +14,7 @@ from .interruption_classifier import (
     InterruptionDisposition,
     StepState,
 )
-from magi.agent.task_agents.chat.run_contracts import RunResultDisposition
+from magi.agent.task_agents.handlers.run_contracts import RunResultDisposition
 from .session_run_decisions import CheckpointDecision, SessionFactDecision, TurnSupersession
 from .session_run_lifecycle import SessionRunLifecycleMixin
 from .session_turn_queue import SessionRunTurnQueueMixin

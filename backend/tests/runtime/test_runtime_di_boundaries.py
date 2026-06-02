@@ -122,7 +122,7 @@ def test_agent_execution_package_uses_function_calling_orchestrator_name() -> No
     function_calling_source = (BACKEND_SRC / "agent/execution/function_calling/__init__.py").read_text(encoding="utf-8")
     chat_agent_source = (BACKEND_SRC / "chat/task_agent/chat_task_agent.py").read_text(encoding="utf-8")
     worker_manager_source = (BACKEND_SRC / "agent/workers/worker_manager.py").read_text(encoding="utf-8")
-    chat_handlers_source = (BACKEND_SRC / "agent/task_agents/chat/handlers.py").read_text(encoding="utf-8")
+    chat_handlers_source = (BACKEND_SRC / "agent/task_agents/handlers/handlers.py").read_text(encoding="utf-8")
     skills_subagent_source = (BACKEND_SRC / "skills/subagent.py").read_text(encoding="utf-8")
 
     assert "FunctionCallingExecutor" not in execution_init
@@ -275,7 +275,7 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     timeline_task_agent = (BACKEND_SRC / "agent/task_agents/timeline_task_agent.py").read_text(encoding="utf-8")
     postprocess_service = (BACKEND_SRC / "chat/task_agent/postprocess_service.py").read_text(encoding="utf-8")
     explore_postprocess_service = (BACKEND_SRC / "agent/task_agents/explore/postprocess_service.py").read_text(encoding="utf-8")
-    chat_handlers = (BACKEND_SRC / "agent/task_agents/chat/handlers.py").read_text(encoding="utf-8")
+    chat_handlers = (BACKEND_SRC / "agent/task_agents/handlers/handlers.py").read_text(encoding="utf-8")
     worker_manager = (BACKEND_SRC / "agent/workers/worker_manager.py").read_text(encoding="utf-8")
     function_calling = (BACKEND_SRC / "agent/execution/function_calling/__init__.py").read_text(encoding="utf-8")
     task_orchestrator = (BACKEND_SRC / "agent/task_orchestrator.py").read_text(encoding="utf-8")

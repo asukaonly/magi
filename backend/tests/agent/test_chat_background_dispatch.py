@@ -14,9 +14,9 @@ from magi.agent.background.dispatcher import (
     BackgroundDecisionSource,
     BackgroundDisposition,
 )
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
 from magi.chat.task_agent.fact_classifier import IncomingFactKind
-from magi.agent.task_agents.chat.handlers import (
+from magi.agent.task_agents.handlers.handlers import (
     ChatHandlerDependencies,
     FunctionCallingHandler,
 )
@@ -165,7 +165,7 @@ def _make_handler(
 @pytest.fixture(autouse=True)
 def _enable_auto_background_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "magi.agent.task_agents.chat.runtime_control._auto_background_dispatch_enabled",
+        "magi.agent.task_agents.handlers.runtime_control._auto_background_dispatch_enabled",
         lambda: True,
     )
 
@@ -259,7 +259,7 @@ async def test_background_branch_skips_when_auto_dispatch_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "magi.agent.task_agents.chat.runtime_control._auto_background_dispatch_enabled",
+        "magi.agent.task_agents.handlers.runtime_control._auto_background_dispatch_enabled",
         lambda: False,
     )
     dispatcher = _FakeDispatcher(

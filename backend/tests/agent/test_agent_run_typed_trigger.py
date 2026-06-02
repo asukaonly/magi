@@ -1,7 +1,7 @@
 """Phase H Task 3: AgentRun.trigger is typed; pending_events is new."""
 from __future__ import annotations
 
-from magi.agent.task_agents.chat.run_contracts import AgentRun
+from magi.agent.task_agents.handlers.run_contracts import AgentRun
 from magi_plugin_sdk.run_trigger import RunTrigger, IncomingEvent
 
 
@@ -52,7 +52,7 @@ def test_agent_run_pending_events_accepts_incoming_event():
 
 def test_agent_run_pending_turns_still_works_for_backward_compat():
     """Phase H keeps pending_turns alongside pending_events for now."""
-    from magi.agent.task_agents.chat.run_contracts import PendingTurn
+    from magi.agent.task_agents.handlers.run_contracts import PendingTurn
     legacy = PendingTurn(turn_id="t1", content="legacy", revision=0)
     run = AgentRun(
         session_id="s1",

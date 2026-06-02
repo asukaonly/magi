@@ -31,7 +31,7 @@ from magi.agent.task_agents.common import (
     IncomingFactKind,
     ToolSelection,
 )
-from magi.agent.task_agents.chat.contracts import (
+from magi.agent.task_agents.handlers.contracts import (
     AssistantSurfaceMode,
     ChatRuntimeContext,
     IntentDecision,
@@ -50,7 +50,7 @@ from magi.agent.run.nodes.tool_loop import ToolLoopNode
 from magi.agent.run.nodes.validate import ValidateNode
 from magi.agent.run.registry import NodeRegistry
 from magi.agent.run.runner import NodeSequenceRunner
-from magi.agent.task_agents.chat.attachment_context import resolve_effective_turn_attachments
+from magi.agent.task_agents.handlers.attachment_context import resolve_effective_turn_attachments
 from .fact_classifier import ChatFactClassifier
 
 logger = get_logger(__name__)

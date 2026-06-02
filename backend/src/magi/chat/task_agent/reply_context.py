@@ -7,7 +7,7 @@ from typing import Any
 
 from magi.agent.asset_refs import normalize_asset_ref_list, normalize_asset_ref_payload
 from magi.chat import ChatMessageRecord, ChatStore
-from magi.agent.task_agents.chat.contracts import ChatReplyContext
+from magi.agent.task_agents.handlers.contracts import ChatReplyContext
 
 
 class ChatReplyContextMixin:

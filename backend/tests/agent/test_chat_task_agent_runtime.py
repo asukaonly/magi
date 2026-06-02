@@ -388,7 +388,7 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
 
     agent._coordinator = _FakeCoordinator()
 
-    from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+    from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
     from magi.agent.task_agents.common.contracts import IncomingFactKind, GenericFactPayload
 
     ctx = ChatRuntimeContext(
@@ -441,7 +441,7 @@ async def test_call_llm_does_not_emit_error_chunk_when_streaming_disabled(monkey
 
     agent._coordinator = _FakeCoordinator()
 
-    from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+    from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
     from magi.agent.task_agents.common.contracts import IncomingFactKind
 
     ctx = ChatRuntimeContext(
@@ -487,7 +487,7 @@ async def test_call_llm_skips_emit_when_no_turn_id(monkeypatch) -> None:
 
     agent._coordinator = _FakeCoordinator()
 
-    from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+    from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
     from magi.agent.task_agents.common.contracts import IncomingFactKind, GenericFactPayload
 
     ctx = ChatRuntimeContext(

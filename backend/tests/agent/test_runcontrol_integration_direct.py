@@ -22,7 +22,7 @@ from magi.agent.run_control import (
 
 def test_chat_runtime_context_carries_run_control() -> None:
     """ChatRuntimeContext must expose a ``control`` field so handlers can poll it."""
-    from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+    from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
 
     field_names = {f.name for f in ChatRuntimeContext.__dataclass_fields__.values()}
     assert "control" in field_names, (
@@ -34,7 +34,7 @@ def test_direct_llm_handler_execute_uses_control_from_context() -> None:
     """Verify DirectLLMHandler.execute reads request.context.control and
     propagates it into prompt_service calls. We assert this via source
     inspection — behavior tests below cover the runtime path."""
-    import magi.agent.task_agents.chat.direct_handler as dh
+    import magi.agent.task_agents.handlers.direct_handler as dh
 
     src = inspect.getsource(dh.DirectLLMHandler.execute)
     assert "request.context.control" in src or "context.control" in src, (

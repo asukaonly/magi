@@ -4,7 +4,7 @@ from pathlib import Path
 
 from magi.agent.message_utils import append_latest_user_message
 from magi.agent.run.ports import NullAttachmentResolver
-from magi.agent.task_agents.chat.contracts import ChatReplyContext
+from magi.agent.task_agents.handlers.contracts import ChatReplyContext
 from magi.agent.turn_input import UserTurnInput
 
 _NULL_RESOLVER = NullAttachmentResolver()

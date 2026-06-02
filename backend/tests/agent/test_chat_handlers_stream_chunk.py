@@ -13,11 +13,11 @@ from typing import AsyncIterator
 import pytest
 
 from magi.agent.run_control import RunControl, null_run_control
-from magi.agent.task_agents.chat.contracts import (
+from magi.agent.task_agents.handlers.contracts import (
     ChatRuntimeContext,
     IntentDecision,
 )
-from magi.agent.task_agents.chat.direct_handler import DirectLLMHandler
+from magi.agent.task_agents.handlers.direct_handler import DirectLLMHandler
 from magi.agent.task_agents.common.contracts import (
     DirectLLMRequest,
     ExecutionMode,

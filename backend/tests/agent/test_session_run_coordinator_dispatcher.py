@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from magi.agent.task_agents.chat.run_contracts import AgentRun
+from magi.agent.task_agents.handlers.run_contracts import AgentRun
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi_plugin_sdk.run_trigger import IncomingEvent
 

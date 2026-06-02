@@ -30,7 +30,7 @@ from magi.agent.execution.function_calling import FunctionCallingOrchestrator
 from magi.agent.run.ports import LazyAttachmentResolver
 from magi.llm.streaming_events import stream_scope
 from .interruption_classifier import InterruptionClassifier
-from magi.agent.task_agents.chat import (
+from magi.agent.task_agents.handlers import (
     IntentDecision,
     ChatRuntimeContext,
     ExecutionHandlerRegistry,
@@ -46,9 +46,9 @@ from .run_store import SessionRunStore
 from magi.chat.task_agent.history_service import ChatHistoryService
 from magi.chat.task_agent.planning_service import ChatPlanningService
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
-from magi.agent.task_agents.chat.direct_handler import DirectLLMHandler
-from magi.agent.task_agents.chat.explore_render import ExploreRenderHandler
-from magi.agent.task_agents.chat.handlers import (
+from magi.agent.task_agents.handlers.direct_handler import DirectLLMHandler
+from magi.agent.task_agents.handlers.explore_render import ExploreRenderHandler
+from magi.agent.task_agents.handlers.handlers import (
     ChatHandlerDependencies,
     FunctionCallingHandler,
     build_common_handler_dependencies,

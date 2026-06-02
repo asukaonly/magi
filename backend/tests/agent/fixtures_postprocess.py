@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
 from magi.agent.task_agents.common.contracts import (
     ExecutionMode,
     ExecutionResult,

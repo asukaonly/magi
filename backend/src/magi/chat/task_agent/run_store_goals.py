@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from magi.agent.task_agents.chat.run_contracts import ActiveRun
+from magi.agent.task_agents.handlers.run_contracts import ActiveRun
 
 
 class SessionRunGoalMixin:

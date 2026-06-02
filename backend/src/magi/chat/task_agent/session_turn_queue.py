@@ -8,7 +8,7 @@ from magi_plugin_sdk.run_trigger import IncomingEvent
 
 from magi.control.run_control import DetachRequested, DetachSignal
 from .interruption_classifier import InterruptionDisposition
-from magi.agent.task_agents.chat.run_contracts import ActiveRun, PendingTurn
+from magi.agent.task_agents.handlers.run_contracts import ActiveRun, PendingTurn
 from .session_run_decisions import CheckpointDecision, TurnSupersession
 
 if TYPE_CHECKING:

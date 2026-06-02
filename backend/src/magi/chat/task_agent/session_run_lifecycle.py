@@ -9,7 +9,7 @@ from magi.agent.runtime.contracts import FactRecord
 from magi.control.run_control import RunControl
 from magi.agent.task_agents.common import UserMessagePayload
 from .fact_classifier import ClassifiedFact
-from magi.agent.task_agents.chat.run_contracts import ActiveRun, RunResult, RunResultDisposition
+from magi.agent.task_agents.handlers.run_contracts import ActiveRun, RunResult, RunResultDisposition
 
 if TYPE_CHECKING:
     from .run_store import SessionRunStore

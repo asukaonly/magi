@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from .protocol import NodeOutcome, NodeResult
 
 if TYPE_CHECKING:
-    from ...task_agents.chat.handlers import FunctionCallingHandler
+    from ...task_agents.handlers.handlers import FunctionCallingHandler
     from ...task_agents.common.contracts import ExecutionRequest
 
 

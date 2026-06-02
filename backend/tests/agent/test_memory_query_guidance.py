@@ -10,7 +10,7 @@ import pytest
 
 
 def test_guidance_block_forbids_paraphrasing():
-    from magi.agent.task_agents.chat.handler_helpers import (
+    from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
     block = MEMORY_QUERY_GUIDANCE_BLOCK
@@ -25,7 +25,7 @@ def test_guidance_block_forbids_paraphrasing():
 def test_guidance_block_does_not_instruct_to_pick_query_mode():
     """Phase 4: the block should no longer tell the LLM to select query_mode
     from an enum. Either omit the instruction or mark it optional."""
-    from magi.agent.task_agents.chat.handler_helpers import (
+    from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
     block = MEMORY_QUERY_GUIDANCE_BLOCK.lower()
@@ -68,7 +68,7 @@ class _FakePromptService:
 
 
 def _build_context(message: str = "do you remember when we talked about X"):
-    from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+    from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
     from magi.agent.task_agents.common import (
         IncomingFactKind,
         UserMessagePayload,
@@ -100,7 +100,7 @@ def _build_context(message: str = "do you remember when we talked about X"):
 
 
 def _build_handler():
-    from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
+    from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
 
     return FunctionCallingHandler(
         SimpleNamespace(
@@ -114,8 +114,8 @@ def _build_handler():
 async def test_guidance_attached_when_memory_route_explicit_query():
     """Baseline (Phase 4 T5): explicit_query route + memory_query in tools
     must attach the guidance block."""
-    from magi.agent.task_agents.chat.contracts import IntentDecision
-    from magi.agent.task_agents.chat.handler_helpers import (
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
+    from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
     from magi.agent.task_agents.common import (
@@ -151,8 +151,8 @@ async def test_guidance_attached_when_memory_query_selected_but_route_is_none():
     non-explicit (memory_route == 'none') but memory_query still ended up in
     selected_tools, the chat LLM MUST still get the don't-paraphrase
     guidance — otherwise the original paraphrase regression returns."""
-    from magi.agent.task_agents.chat.contracts import IntentDecision
-    from magi.agent.task_agents.chat.handler_helpers import (
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
+    from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
     from magi.agent.task_agents.common import (
@@ -189,8 +189,8 @@ async def test_guidance_attached_when_memory_query_selected_but_route_is_none():
 async def test_guidance_not_attached_when_memory_query_not_selected():
     """Sanity guard: when memory_query is NOT among selected_tools, the
     guidance must NOT be attached even if memory_route is explicit_query."""
-    from magi.agent.task_agents.chat.contracts import IntentDecision
-    from magi.agent.task_agents.chat.handler_helpers import (
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
+    from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
     from magi.agent.task_agents.common import (

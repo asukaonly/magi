@@ -6,7 +6,7 @@ from copy import deepcopy
 from threading import RLock
 from typing import Any
 
-from magi.agent.task_agents.chat.run_contracts import RunResult, RunResultDisposition
+from magi.agent.task_agents.handlers.run_contracts import RunResult, RunResultDisposition
 
 
 class SessionRunResultMixin:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock
 
-from magi.agent.task_agents.chat import (
+from magi.agent.task_agents.handlers import (
     ChatRuntimeContext,
     ExecutionMode,
     GenericFactPayload,

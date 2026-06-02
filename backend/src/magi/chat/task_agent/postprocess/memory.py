@@ -12,7 +12,7 @@ from magi.memory.l3.models import TaskOutcomePacket
 from magi.personality.feature_flags import get_personality_feature_flags
 from magi.personality.interaction_analyzer import analyze_interaction
 from magi.agent.task_agents.common import ExecutionResult, IncomingFactKind
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
 
 logger = get_logger(__name__)
 
