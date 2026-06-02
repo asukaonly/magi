@@ -1756,6 +1756,153 @@ async def test_execute_swallows_user_prefs_provider_errors_and_uses_default_targ
 
 
 @pytest.mark.asyncio
+async def test_execute_routes_reply_back_to_origin_channel_from_run_trigger():
+    """Phase H+2 (this change): when a run was triggered by an external
+    channel (its ``AgentRun.trigger.source_channel`` is e.g. ``"weixin"``),
+    the coordinator MUST include that channel in the fanout targets even
+    when the user has no ``delivery_channels`` configured.
+
+    Before the fix, a WeChat user sending a message would see the agent
+    respond in the Magi chat UI (chat_sse default) but never receive the
+    reply on WeChat — the inbound channel identity was lost between
+    inbound dispatch and outbound fanout. This test reproduces the bug
+    end-to-end through ``coordinator.execute``.
+    """
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.common.contracts import (
+        ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
+    )
+    from magi.agent.task_agents.chat.run_contracts import AgentRun
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi_plugin_sdk.run_trigger import RunTrigger
+    from magi.tools.context_routing import RouteDecision
+    from magi.agent.task_agents.chat.contracts import IntentDecision
+
+    class _Rec(Channel):
+        def __init__(self, ctype):
+            self._t = ctype
+            self.delivered = []
+        @property
+        def channel_type(self):
+            return self._t
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.delivered.append((target, content))
+            return DeliveryReceipt(
+                channel_id=self._t,
+                external_message_id=f"{self._t}_1",
+                delivered_at_ms=1000,
+            )
+        async def retract(self, receipt): pass
+
+    sse = _Rec("chat_sse")
+    weixin = _Rec("weixin")
+
+    class _Registry:
+        def __init__(self, m): self._m = m
+        def get(self, k): return self._m.get(k)
+
+    registry = _Registry({"chat_sse": sse, "weixin": weixin})
+
+    # Crucially: no user_prefs.delivery_channels — proves the auto-route
+    # is driven by RunTrigger.source_channel, NOT by user config.
+    async def empty_provider(user_id):
+        return {}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=registry,
+        user_prefs_provider=empty_provider,
+    )
+
+    canned_result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM, response_text="reply for weixin",
+    )
+
+    class _FakeRunner:
+        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
+            return canned_result, RunSnapshot(
+                run_id=run_id,
+                graph=tuple(spec.node_type for spec in node_specs),
+                cursor=len(node_specs),
+                node_states={},
+            )
+
+    coordinator._node_sequence_runner = _FakeRunner()
+
+    route = RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    )
+    fact = FactRecord(
+        agent_id="chat:u-wx",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-wx", "session_id": "s-wx", "content": "你好"},
+    )
+    # The key bit: build an AgentRun carrying the inbound-channel trigger.
+    weixin_trigger = RunTrigger(
+        trigger_type="external_inbound",
+        source_channel="weixin",
+        requester="u-wx",
+        priority="foreground",
+    )
+    active_run = AgentRun(
+        session_id="s-wx", run_id="run-wx", trigger=weixin_trigger,
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-wx",
+        agent_type="chat",
+        runtime_key="chat:u-wx",
+        user_id="u-wx",
+        session_id="s-wx",
+        history_key="u-wx::s-wx",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="你好",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-wx"),
+        session_run_id="run-wx",
+        active_run=active_run,
+    )
+    intent = IntentDecision(
+        intent="chat",
+        difficulty="normal",
+        execution_mode=ExecutionMode.DIRECT_LLM,
+        route_decision=route,
+        reasoning="",
+    )
+    request = ExecutionRequest(
+        mode=ExecutionMode.DIRECT_LLM,
+        context=context,
+        intent=intent,
+        tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
+    )
+
+    result = await coordinator.execute(request)
+    assert result is canned_result
+
+    # The fix: weixin received the reply because the run's trigger
+    # carried source_channel="weixin". chat_sse also fired (the default).
+    assert len(weixin.delivered) == 1, "WeChat channel should have received the reply"
+    assert weixin.delivered[0][1].text == "reply for weixin"
+    assert len(sse.delivered) == 1, "chat_sse default delivery should still fire"
+
+
+@pytest.mark.asyncio
 async def test_execute_context_user_prefs_wins_over_provider():
     """When both provider and context.user_prefs supply prefs, context wins
     (request-time override semantics).
