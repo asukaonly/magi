@@ -138,6 +138,17 @@ class NotificationStore:
         finally:
             conn.close()
 
+    def get(self, notification_id: int) -> Optional[NotificationRow]:
+        conn = self._connect()
+        try:
+            r = conn.execute(
+                "SELECT * FROM user_notifications WHERE id=?",
+                (notification_id,),
+            ).fetchone()
+            return self._to_row(r) if r else None
+        finally:
+            conn.close()
+
     def find_latest_by_dedup(self, user_id: str, kind: str, dedupe_key: str) -> Optional[NotificationRow]:
         conn = self._connect()
         try:
