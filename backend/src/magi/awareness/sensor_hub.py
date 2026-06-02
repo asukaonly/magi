@@ -83,6 +83,16 @@ class SensorHub:
                 "workspace_path": str(data.get("workspace_path") or "").strip() or None,
                 "metadata": data.get("metadata") or {},
                 "timestamp": float(data.get("timestamp") or event.timestamp),
+                # Phase H+1 plumbing: ``UserMessagePayload.from_dict`` reads
+                # this to tag the resulting ``RunTrigger.source_channel``
+                # (api → user_message; telegram/weixin → external_inbound).
+                # Without this, the external channel scheme set by the
+                # dispatcher (e.g. "weixin") is silently dropped here and
+                # downstream defaults to "api", which the trigger then maps
+                # to chat_sse — so reply-via-origin-channel never fires for
+                # any external inbound. Defaults to "api" to preserve
+                # legacy behavior for events that genuinely lack a source.
+                "source": str(data.get("source") or "api"),
             },
             timestamp=float(data.get("timestamp") or event.timestamp),
             correlation_id=event.correlation_id,
