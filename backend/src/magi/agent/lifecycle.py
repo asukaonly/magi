@@ -35,6 +35,7 @@ class AgentRuntimeModule(LifecycleModule):
         *,
         create_chat_agent_factory: Callable[..., Callable[[str], "TaskAgent"]],
         chat_read_service_factory: Callable[..., Any],
+        build_timeline_handler: Callable[..., Any],
     ):
         super().__init__(
             name="runtime_agent_core",
@@ -53,6 +54,7 @@ class AgentRuntimeModule(LifecycleModule):
         self._background_wiring = None
         self._create_chat_agent_factory = create_chat_agent_factory
         self._chat_read_service_factory = chat_read_service_factory
+        self._build_timeline_handler = build_timeline_handler
 
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "runtime config")
@@ -114,6 +116,7 @@ class AgentRuntimeModule(LifecycleModule):
                 unified_memory=unified_memory,
                 plugin_manager=plugin_manager,
                 sensor_registry=sensor_registry,
+                build_timeline_handler=self._build_timeline_handler,
                 control_session_store_provider=resolve_control_session_store,
             ),
             idle_ttl_seconds=config.agent.runtime.task_agent_manager_idle_ttl_seconds,

@@ -11,7 +11,6 @@ from typing import Any, Callable
 from ...config import AppConfig
 from ...agent.runtime.types import TaskAgentType
 from ...memory import UnifiedMemoryStore
-from ...timeline.handler import build_timeline_handler
 from . import DefaultTaskAgent, ExploreTaskAgent, TimelineTaskAgent
 
 
@@ -23,6 +22,7 @@ def create_default_agent_factory(
     unified_memory: UnifiedMemoryStore,
     plugin_manager: Any,
     sensor_registry: Any,
+    build_timeline_handler: Callable[..., Any],
     control_session_store_provider: Callable[[], Any] | None = None,
 ) -> Callable[[str, str], Any]:
     """Return a factory callable that creates non-chat task agent instances."""

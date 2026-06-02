@@ -60,6 +60,7 @@ from ..runtime_trace.lifecycle import RuntimeTraceSubscriberModule
 from ..scheduler.lifecycle import SchedulerModule
 from ..hooks.lifecycle import HooksModule
 from ..skills.lifecycle import SkillsModule
+from ..timeline.handler import build_timeline_handler
 from ..timeline.lifecycle import TimelineModule, TimelineSchedulersModule
 from ..tools.lifecycle import ToolsModule
 
@@ -200,6 +201,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
             context,
             create_chat_agent_factory=create_chat_agent_factory,
             chat_read_service_factory=get_chat_read_service,
+            build_timeline_handler=build_timeline_handler,
         ),
     ]
 

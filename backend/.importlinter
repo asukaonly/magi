@@ -55,7 +55,6 @@ ignore_imports =
     # Faithful relocation, not new debt.
     magi.chat.task_agent.coordinator -> magi.channels.delivery_prefs
     magi.chat.task_agent.coordinator -> magi.channels.delivery_router
-    magi.agent.task_agents.factory -> magi.timeline.handler
     magi.agent.task_orchestration_workspace -> magi.chat.workspace
     magi.agent.workers.worker_prompting -> magi.chat.workspace
     magi.api.routers.commands -> magi.chat
