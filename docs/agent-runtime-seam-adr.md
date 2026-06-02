@@ -73,7 +73,7 @@ Grounding P1 against the code refined the Engine/Driver picture into **three con
 
 ## Action Items
 1. [x] P1: Run Engine made chat-free via `AttachmentResolverPort` (commit `c6cc4841`); engine + `message_utils` no longer import `magi.chat`; baseline −2 edges; lint `2 kept, 0 broken`. (Grounding reassigned the handler relocation to P2.)
-2. [ ] P2 (= ADR-0003, sharpened): Ring 2↔3 handler↔service Protocol inversion → relocate now-generic handlers to Ring 2 → move chat driver (`ChatTaskAgent` + `Chat*Service` + coordinator + stores) to the `chat` layer → composition-root/registry dispatch. Retire the `agent → chat` cluster; lint `2 kept, 0 broken`; chat behavior byte-faithful.
+2. [x] P2 (= ADR-0003, sharpened) — **substantially done**: Ring 2↔3 handler↔service Protocol inversion (`agent/task_agents/common/service_protocols.py`); chat-store service cluster + `ChatTaskAgent` + factory relocated to `chat/task_agent/` (L14); factory wiring inverted to the composition root so `agent/lifecycle.py` no longer imports chat. The `agent → chat` task-agent debt is retired; lint `2 kept, 0 broken`; chat behavior byte-faithful (1074 agent+chat tests pass). *Deferred (by-need):* relocating `ChatExecutionCoordinator` (still in `agent/task_agents/chat/`); the `agent.* → chat.workspace` consumers; physically renaming the ring-2 handlers out of the `agent/task_agents/chat/` folder (naming only — they are generic).
 3. [ ] P3: trigger seam (RunTrigger out of chat; scheduler/inbound/item-queue as sources).
 4. [ ] P4: timeline driver relocation; batch/voice/scheduled drivers on the seam.
 5. [ ] Update `layered-agent-architecture.md` with the Engine/Driver/Trigger model as each stage lands.

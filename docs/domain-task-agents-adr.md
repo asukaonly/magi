@@ -58,9 +58,11 @@ The decisive principle is directionality: if chat is a surface on top of the age
 
 ## Action Items
 
-1. [ ] Verify the agent router/dispatch selects task-agents by type via a factory/registry and does not hard-import `ChatTaskAgent`; if it does, that import is what inverts.
-2. [ ] Add/confirm a task-agent **registry** in the agent runtime (register factory by type; router looks up by type).
-3. [ ] Relocate `agent/task_agents/chat/*` + `chat_task_agent.py` → the `chat` layer (template). Fix imports (agent runtime → downward; chat store → intra). Register `create_chat_agent_factory` from chat (composition root / chat lifecycle).
-4. [ ] Confirm `agent → chat` edges are gone and lint stays `2 kept, 0 broken`; remove the retired edges from the layers baseline.
-5. [ ] Generalize to `TimelineTaskAgent` → `timeline`.
-6. [ ] Leave `explore`/`default` in `agent` (no domain reach). Document the "task-agent lives in its highest domain" rule in `layered-agent-architecture.md`.
+> **Implementation status (2026-06-02):** done as **ADR-0004 P2** (the Engine/Driver/Trigger seam's Ring 2↔3 inversion). `ChatTaskAgent` + its chat-driver service cluster now live in `chat/task_agent/` (L14); the handler bundle is typed against ring-2 Protocols; the factory is injected from the composition root; the `agent → chat` task-agent debt is retired (lint `2 kept, 0 broken`, chat behavior byte-faithful). `TimelineTaskAgent` and `ChatExecutionCoordinator` relocations remain (by-need).
+
+1. [x] Verified the dispatch (`TaskAgentManager`) selects by `target_task_agent_type` via injected factory callables and does NOT hard-import `ChatTaskAgent`.
+2. [x] Dispatch is injection-based (factory callables injected per type); a formal registry was unnecessary — the composition root injects `create_chat_agent`/`create_default_agent`.
+3. [x] Relocated `chat_task_agent.py` + the chat-store service cluster → `chat/task_agent/` (imports fixed: agent runtime downward, chat store intra). `create_chat_agent_factory` lives in `chat/` and is injected from the composition root.
+4. [x] `agent → chat` task-agent edges gone; lint `2 kept, 0 broken`; retired edges removed from the layers baseline.
+5. [ ] Generalize to `TimelineTaskAgent` → `timeline` (deferred, by-need).
+6. [x] `explore`/`default` stay in `agent` (no domain reach); the "task-agent lives in its highest domain" rule is documented in `layered-agent-architecture.md` (three-ring model).
