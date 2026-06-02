@@ -7,7 +7,7 @@ from typing import Any
 
 from magi_plugin_sdk.run_trigger import RunTrigger
 
-from .run_contracts import ActiveRun, PendingTurn, RunResult, RunResultDisposition
+from magi.agent.task_agents.chat.run_contracts import ActiveRun, PendingTurn, RunResult, RunResultDisposition
 
 
 class SessionRunConversionMixin:

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from magi.agent.task_agents.chat.run_store import SessionRunStore
+from magi.chat.task_agent.run_store import SessionRunStore
 from magi.agent.task_agents.common.contracts import UserMessagePayload
 from magi_plugin_sdk.run_trigger import RunTrigger
 
@@ -84,7 +84,7 @@ async def test_handle_user_turn_fresh_run_carries_user_message_trigger() -> None
     """End-to-end through SessionRunCoordinator.handle_user_turn: the
     fresh-run branch tags the new AgentRun with a user_message trigger
     derived from the UserMessagePayload."""
-    from magi.agent.task_agents.chat.session_run_coordinator import (
+    from magi.chat.task_agent.session_run_coordinator import (
         SessionRunCoordinator,
     )
 

@@ -10,7 +10,7 @@ from magi.agent.execution.function_calling import FunctionCallingOrchestrator, T
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
 from magi.agent.task_agents.chat.handlers import ChatHandlerDependencies, _start_explore_task_agent
 from magi.chat.task_agent.planning_service import ChatPlanningService
-from magi.agent.task_agents.chat.prompt_service import ChatPromptService
+from magi.chat.task_agent.prompt_service import ChatPromptService
 from magi.agent.task_agents.common import (
     ExecutionMode,
     ExecutionRequest,

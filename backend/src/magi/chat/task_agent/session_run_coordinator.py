@@ -4,9 +4,9 @@ from __future__ import annotations
 from magi_plugin_sdk.run_trigger import IncomingEvent, RunTrigger
 
 from magi.control.run_control import DetachSignal, RetractRequested
-from ....agent.runtime.contracts import FactRecord
-from ....core.logger import get_logger
-from ..common import IncomingFactKind, TaskFactPayload, UserMessagePayload
+from magi.agent.runtime.contracts import FactRecord
+from magi.core.logger import get_logger
+from magi.agent.task_agents.common import IncomingFactKind, TaskFactPayload, UserMessagePayload
 from .fact_classifier import ClassifiedFact
 from .interruption_classifier import (
     InterruptionClassifier,
@@ -14,7 +14,7 @@ from .interruption_classifier import (
     InterruptionDisposition,
     StepState,
 )
-from .run_contracts import RunResultDisposition
+from magi.agent.task_agents.chat.run_contracts import RunResultDisposition
 from .session_run_decisions import CheckpointDecision, SessionFactDecision, TurnSupersession
 from .session_run_lifecycle import SessionRunLifecycleMixin
 from .session_turn_queue import SessionRunTurnQueueMixin

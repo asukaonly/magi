@@ -10,12 +10,12 @@ from uuid import uuid4
 
 from magi_plugin_sdk.run_trigger import RunTrigger
 
-from ....core.logger import get_logger
-from ...run_control import RunControl
-from .run_contracts import AgentRun, ActiveRun, PendingTurn
+from magi.core.logger import get_logger
+from magi.agent.run_control import RunControl
+from magi.agent.task_agents.chat.run_contracts import AgentRun, ActiveRun, PendingTurn
 
 if TYPE_CHECKING:
-    from ...run.snapshot import RunSnapshot
+    from magi.agent.run.snapshot import RunSnapshot
 
 logger = get_logger(__name__)
 

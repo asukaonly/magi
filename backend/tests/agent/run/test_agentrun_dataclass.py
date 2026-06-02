@@ -73,7 +73,7 @@ def test_store_exposes_list_active_runs_for_concurrent_run_support() -> None:
     """Phase E: list_active_runs returns the current active runs as a list.
     For Phase E scope, the list typically has 0 or 1 entry; Phase G/H
     allows real concurrent runs (multi-channel inbound)."""
-    from magi.agent.task_agents.chat.run_store import SessionRunStore
+    from magi.chat.task_agent.run_store import SessionRunStore
 
     store = SessionRunStore()
     assert hasattr(store, "list_active_runs")
@@ -83,7 +83,7 @@ def test_store_exposes_list_active_runs_for_concurrent_run_support() -> None:
 
 
 def test_store_list_active_runs_returns_current_after_create() -> None:
-    from magi.agent.task_agents.chat.run_store import SessionRunStore
+    from magi.chat.task_agent.run_store import SessionRunStore
 
     store = SessionRunStore()
     store.create_active_run("session_x", root_user_message="hi")
@@ -94,7 +94,7 @@ def test_store_list_active_runs_returns_current_after_create() -> None:
 
 def test_store_single_active_run_returns_first_or_none() -> None:
     """Convenience accessor for callers that still assume single-run."""
-    from magi.agent.task_agents.chat.run_store import SessionRunStore
+    from magi.chat.task_agent.run_store import SessionRunStore
 
     store = SessionRunStore()
     assert store.single_active_run("session_y") is None

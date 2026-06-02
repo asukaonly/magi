@@ -7,9 +7,9 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from ....config import get_user_preference
-from ....core.logger import get_logger
-from ..common import AssistantResponsePlan, AssistantResponseSegment
+from magi.config import get_user_preference
+from magi.core.logger import get_logger
+from magi.agent.task_agents.common import AssistantResponsePlan, AssistantResponseSegment
 
 logger = get_logger(__name__)
 

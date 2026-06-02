@@ -49,8 +49,12 @@ ignore_imports =
     # runtime_trace->events (7), awareness->timeline (4), other (~23).
     magi.agent.execution.function_calling.guardrails -> magi.chat.workspace
     magi.agent.lifecycle -> magi.transport.chat_events
-    magi.agent.task_agents.chat.coordinator -> magi.channels.delivery_prefs
-    magi.agent.task_agents.chat.coordinator -> magi.channels.delivery_router
+    # ChatExecutionCoordinator RELOCATED from magi.agent.task_agents.chat.coordinator
+    # to magi.chat.task_agent.coordinator (P2 Task 6, chat-driver descent). The old
+    # edge was agent->channels; the new edge is chat->channels cross-sibling (L14).
+    # Faithful relocation, not new debt.
+    magi.chat.task_agent.coordinator -> magi.channels.delivery_prefs
+    magi.chat.task_agent.coordinator -> magi.channels.delivery_router
     magi.agent.task_agents.factory -> magi.timeline.handler
     magi.agent.task_orchestration_workspace -> magi.chat.workspace
     magi.agent.workers.worker_prompting -> magi.chat.workspace

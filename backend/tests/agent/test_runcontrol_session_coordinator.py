@@ -15,7 +15,7 @@ from magi.agent.run_control import (
 
 
 def test_coordinator_exposes_request_retract() -> None:
-    from magi.agent.task_agents.chat.session_run_coordinator import (
+    from magi.chat.task_agent.session_run_coordinator import (
         SessionRunCoordinator,
     )
 
@@ -25,7 +25,7 @@ def test_coordinator_exposes_request_retract() -> None:
 
 
 def test_store_exposes_run_control_register_lookup_unregister() -> None:
-    from magi.agent.task_agents.chat.run_store import SessionRunStore
+    from magi.chat.task_agent.run_store import SessionRunStore
 
     assert hasattr(SessionRunStore, "register_active_run_control")
     assert hasattr(SessionRunStore, "get_active_run_control")
@@ -35,7 +35,7 @@ def test_store_exposes_run_control_register_lookup_unregister() -> None:
 def test_store_register_lookup_unregister_roundtrip() -> None:
     """Registering a RunControl makes it retrievable by (session_id, run_id);
     unregistering removes it."""
-    from magi.agent.task_agents.chat.run_store import SessionRunStore
+    from magi.chat.task_agent.run_store import SessionRunStore
 
     store = SessionRunStore()
     control = null_run_control()
@@ -49,7 +49,7 @@ def test_store_register_lookup_unregister_roundtrip() -> None:
 
 def test_store_unregister_missing_is_noop() -> None:
     """unregister_active_run_control should not raise if no control is registered."""
-    from magi.agent.task_agents.chat.run_store import SessionRunStore
+    from magi.chat.task_agent.run_store import SessionRunStore
 
     store = SessionRunStore()
     # No registration yet — should be safe to unregister.

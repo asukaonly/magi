@@ -1168,7 +1168,7 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
 
 
 def test_chat_prompt_service_formats_dense_explore_render_text() -> None:
-    from magi.agent.task_agents.chat.prompt_service import ChatPromptService
+    from magi.chat.task_agent.prompt_service import ChatPromptService
 
     service = ChatPromptService(
         llm_adapter=_FakeLLMAdapter(),
@@ -1183,7 +1183,7 @@ def test_chat_prompt_service_formats_dense_explore_render_text() -> None:
 
 
 def test_chat_prompt_service_unwraps_markdown_fenced_explore_response() -> None:
-    from magi.agent.task_agents.chat.prompt_service import ChatPromptService
+    from magi.chat.task_agent.prompt_service import ChatPromptService
 
     service = ChatPromptService(
         llm_adapter=_FakeLLMAdapter(),

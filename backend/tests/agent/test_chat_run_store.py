@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from magi.agent.task_agents.chat.run_contracts import RunResultDisposition
-from magi.agent.task_agents.chat.run_store import SessionRunStore
+from magi.chat.task_agent.run_store import SessionRunStore
 
 
 def test_create_active_run_tracks_session_state() -> None:

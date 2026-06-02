@@ -4,9 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from ....agent.runtime.contracts import FactRecord
-from ....events.events import EventTypes
-from ..common import (
+from magi.agent.runtime.contracts import FactRecord
+from magi.events.events import EventTypes
+from magi.agent.task_agents.common import (
     ExploreTaskCompletedPayload,
     GenericFactPayload,
     IncomingFactKind,
@@ -14,7 +14,7 @@ from ..common import (
     UserMessagePayload,
     WorkerUpdatePayload,
 )
-from ..explore.constants import EXPLORE_TASK_COMPLETED
+from magi.agent.task_agents.explore.constants import EXPLORE_TASK_COMPLETED
 
 WORKER_AGENT_EVENT_TYPES = {
     "WORKER_AGENT_PROGRESS",

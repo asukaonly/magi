@@ -1,4 +1,11 @@
-"""Chat task-agent support package."""
+"""Chat task-agent support package — generic ring-2 handler framework.
+
+The chat-specific module cluster (coordinator, prompt/fact/interruption
+services, rhythm/streaming, run-store + session-run machinery) descended into
+the chat layer (``magi.chat.task_agent.*``) in P2 Task 6. What remains here is
+the generic, domain-agnostic ring-2 handler framework shared across task-agent
+drivers.
+"""
 
 from .contracts import (
     ChatParseOutcome,
@@ -19,20 +26,11 @@ from ..common import (
     ToolSelection,
     UserMessagePayload,
 )
-from .coordinator import ChatExecutionCoordinator
-from .fact_classifier import ChatFactClassifier
-from .prompt_service import ChatPromptService
-from .run_store import SessionRunStore
-from .session_run_coordinator import CheckpointDecision, SessionFactDecision, SessionRunCoordinator
 
 __all__ = [
-    "CheckpointDecision",
     "AssistantResponsePlan",
     "AssistantResponseSegment",
-    "ChatExecutionCoordinator",
-    "ChatFactClassifier",
     "ChatParseOutcome",
-    "ChatPromptService",
     "ChatReplyContext",
     "ChatRuntimeContext",
     "ExecutionHandlerRegistry",
@@ -43,9 +41,6 @@ __all__ = [
     "IncomingFactKind",
     "IntentDecision",
     "OrchestrationPlan",
-    "SessionFactDecision",
-    "SessionRunCoordinator",
-    "SessionRunStore",
     "ToolSelection",
     "UserMessagePayload",
 ]

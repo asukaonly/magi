@@ -34,8 +34,8 @@ from pathlib import Path
 
 import yaml
 
-from ....config.models import LLMScenario
-from ..common import TaskAgentLLMService
+from magi.config.models import LLMScenario
+from magi.agent.task_agents.common import TaskAgentLLMService
 
 
 MODEL_CLASSIFICATION_TIMEOUT_SECONDS = 8.0

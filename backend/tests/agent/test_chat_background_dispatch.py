@@ -15,7 +15,7 @@ from magi.agent.background.dispatcher import (
     BackgroundDisposition,
 )
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
-from magi.agent.task_agents.chat.fact_classifier import IncomingFactKind
+from magi.chat.task_agent.fact_classifier import IncomingFactKind
 from magi.agent.task_agents.chat.handlers import (
     ChatHandlerDependencies,
     FunctionCallingHandler,

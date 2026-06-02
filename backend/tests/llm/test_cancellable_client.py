@@ -228,7 +228,7 @@ async def test_task_agent_llm_service_accepts_optional_control() -> None:
 
 @pytest.mark.asyncio
 async def test_prompt_service_call_llm_accepts_optional_control() -> None:
-    from magi.agent.task_agents.chat.prompt_service import ChatPromptService
+    from magi.chat.task_agent.prompt_service import ChatPromptService
 
     import inspect
     params = inspect.signature(ChatPromptService.call_llm).parameters

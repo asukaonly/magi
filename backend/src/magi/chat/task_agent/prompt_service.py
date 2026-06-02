@@ -6,11 +6,11 @@ import re
 from typing import Any, AsyncIterator
 
 from magi.control.run_control import RunControl
-from ....config.models import LLMScenario, ThinkingDepth
-from ....llm.streaming_events import LLMStreamEvent
-from ...orchestration import WorkerResult
-from ..common import TaskAgentLLMService
-from .contracts import ChatReplyContext
+from magi.config.models import LLMScenario, ThinkingDepth
+from magi.llm.streaming_events import LLMStreamEvent
+from magi.agent.orchestration import WorkerResult
+from magi.agent.task_agents.common import TaskAgentLLMService
+from magi.agent.task_agents.chat.contracts import ChatReplyContext
 
 
 class ChatPromptService:

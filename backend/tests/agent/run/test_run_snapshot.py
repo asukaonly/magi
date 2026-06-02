@@ -65,7 +65,7 @@ def test_run_snapshot_empty_node_states_is_valid() -> None:
 def test_session_run_store_save_and_load_snapshot_round_trip() -> None:
     """SessionRunStore stores RunSnapshot in-memory keyed by (session_id, run_id)."""
     from magi.agent.run.snapshot import RunSnapshot
-    from magi.agent.task_agents.chat.run_store import SessionRunStore
+    from magi.chat.task_agent.run_store import SessionRunStore
 
     store = SessionRunStore()
     snapshot = RunSnapshot(
@@ -81,7 +81,7 @@ def test_session_run_store_save_and_load_snapshot_round_trip() -> None:
 
 
 def test_session_run_store_get_snapshot_returns_none_when_missing() -> None:
-    from magi.agent.task_agents.chat.run_store import SessionRunStore
+    from magi.chat.task_agent.run_store import SessionRunStore
 
     store = SessionRunStore()
     assert store.get_run_snapshot("nonexistent", "nonexistent") is None
@@ -90,7 +90,7 @@ def test_session_run_store_get_snapshot_returns_none_when_missing() -> None:
 def test_session_run_store_save_snapshot_overwrites_prior_for_same_run_id() -> None:
     """Saving a new snapshot for the same (session, run) replaces."""
     from magi.agent.run.snapshot import RunSnapshot
-    from magi.agent.task_agents.chat.run_store import SessionRunStore
+    from magi.chat.task_agent.run_store import SessionRunStore
 
     store = SessionRunStore()
     first = RunSnapshot(run_id="r1", graph=("reply",), cursor=0, node_states={})
@@ -103,7 +103,7 @@ def test_session_run_store_save_snapshot_overwrites_prior_for_same_run_id() -> N
 def test_session_run_store_clear_snapshot_removes_entry() -> None:
     """After a run completes, the snapshot can be cleared."""
     from magi.agent.run.snapshot import RunSnapshot
-    from magi.agent.task_agents.chat.run_store import SessionRunStore
+    from magi.chat.task_agent.run_store import SessionRunStore
 
     store = SessionRunStore()
     snapshot = RunSnapshot(run_id="r1", graph=("reply",), cursor=1, node_states={})

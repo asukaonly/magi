@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from magi.agent.runtime.contracts import FactRecord
-from magi.agent.task_agents.chat.fact_classifier import ChatFactClassifier
-from magi.agent.task_agents.chat.session_run_coordinator import SessionRunCoordinator
+from magi.chat.task_agent.fact_classifier import ChatFactClassifier
+from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.agent.task_agents.common import ExecutionResult, ExploreTaskCompletedPayload, IncomingFactKind, UserMessagePayload
 from magi.agent.task_agents.explore.constants import EXPLORE_TASK_COMPLETED
 from magi.agent.task_agents.explore.contracts import ExploreRuntimeContext

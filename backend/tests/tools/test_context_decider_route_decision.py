@@ -125,7 +125,7 @@ def test_chat_coordinator_match_intent_signature_returns_intent_decision_from_ro
     fields the rest of chat consumes: execution_mode, tools, thinking_depth,
     orchestration_plan, persona_routing_hint, etc.)."""
     import inspect
-    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator.match_intent)
     assert "decision.graph_shape" in src or "decision.profile" in src, (

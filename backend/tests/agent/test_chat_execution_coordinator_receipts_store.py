@@ -13,13 +13,13 @@ from magi.agent.task_agents.chat import (
     ExecutionMode,
     UserMessagePayload,
 )
-from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 from magi.agent.task_agents.chat.contracts import IntentDecision
-from magi.agent.task_agents.chat.fact_classifier import (
+from magi.chat.task_agent.fact_classifier import (
     ChatFactClassifier,
     IncomingFactKind,
 )
-from magi.agent.task_agents.chat.run_store import SessionRunStore
+from magi.chat.task_agent.run_store import SessionRunStore
 from magi.agent.task_agents.common.contracts import (
     ExecutionRequest,
     ExecutionResult,
@@ -238,5 +238,5 @@ async def test_execute_writes_receipts_to_store_not_snapshot():
 
 def test_attach_receipts_helper_is_deleted():
     """The snapshot-mutation helper is gone — receipts now go to the store."""
-    from magi.agent.task_agents.chat import coordinator as coord_mod
+    from magi.chat.task_agent import coordinator as coord_mod
     assert not hasattr(coord_mod, "_attach_receipts")

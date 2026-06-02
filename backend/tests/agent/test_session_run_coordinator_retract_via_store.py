@@ -8,8 +8,8 @@ import asyncio
 import pytest
 
 from magi.agent.run_control import null_run_control
-from magi.agent.task_agents.chat.run_store import SessionRunStore
-from magi.agent.task_agents.chat.session_run_coordinator import (
+from magi.chat.task_agent.run_store import SessionRunStore
+from magi.chat.task_agent.session_run_coordinator import (
     SessionRunCoordinator,
 )
 from magi_plugin_sdk.delivery import DeliveryReceipt
@@ -112,7 +112,7 @@ async def test_request_retract_with_no_receipts_is_a_noop_on_router():
 
 
 def test_snapshot_walking_helpers_are_deleted():
-    from magi.agent.task_agents.chat import session_run_coordinator as src_mod
+    from magi.chat.task_agent import session_run_coordinator as src_mod
 
     assert not hasattr(src_mod, "_extract_receipts_from_snapshot")
     assert not hasattr(src_mod, "_collect_receipts_from_snapshot")

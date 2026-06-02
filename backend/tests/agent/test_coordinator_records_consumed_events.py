@@ -22,9 +22,9 @@ from magi.agent.task_agents.chat import (
     ExecutionMode,
     UserMessagePayload,
 )
-from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 from magi.agent.task_agents.chat.contracts import IntentDecision
-from magi.agent.task_agents.chat.fact_classifier import (
+from magi.chat.task_agent.fact_classifier import (
     ChatFactClassifier,
     IncomingFactKind,
 )

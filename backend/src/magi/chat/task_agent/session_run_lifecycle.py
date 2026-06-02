@@ -5,15 +5,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from ....agent.runtime.contracts import FactRecord
+from magi.agent.runtime.contracts import FactRecord
 from magi.control.run_control import RunControl
-from ..common import UserMessagePayload
+from magi.agent.task_agents.common import UserMessagePayload
 from .fact_classifier import ClassifiedFact
-from .run_contracts import ActiveRun, RunResult, RunResultDisposition
+from magi.agent.task_agents.chat.run_contracts import ActiveRun, RunResult, RunResultDisposition
 
 if TYPE_CHECKING:
     from .run_store import SessionRunStore
-    from ...run.snapshot import RunSnapshot
+    from magi.agent.run.snapshot import RunSnapshot
 
 
 class SessionRunLifecycleMixin:

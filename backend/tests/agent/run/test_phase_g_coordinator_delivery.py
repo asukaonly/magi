@@ -7,7 +7,7 @@ import inspect
 def test_coordinator_constructs_delivery_router_in_init() -> None:
     """ChatExecutionCoordinator.__init__ must construct a DeliveryRouter
     if channel_registry is supplied."""
-    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator.__init__)
     assert "DeliveryRouter" in src, (
@@ -18,7 +18,7 @@ def test_coordinator_constructs_delivery_router_in_init() -> None:
 def test_coordinator_execute_calls_fanout_deliver_on_completion() -> None:
     """ChatExecutionCoordinator.execute must call delivery_router.fanout_deliver
     after the node sequence completes and store receipts."""
-    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator.execute)
     assert "fanout_deliver" in src or "_delivery_router" in src, (
@@ -31,7 +31,7 @@ def test_session_run_coordinator_request_retract_calls_fanout_retract() -> None:
     DeliveryReceiptsStore (Phase G+3 — no longer the snapshot) and call
     DeliveryRouter.fanout_retract."""
     import inspect
-    from magi.agent.task_agents.chat.session_run_coordinator import (
+    from magi.chat.task_agent.session_run_coordinator import (
         SessionRunCoordinator,
     )
 

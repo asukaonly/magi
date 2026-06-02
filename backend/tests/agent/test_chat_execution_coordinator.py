@@ -4,8 +4,8 @@ import pytest
 
 from magi.agent.task_agents.chat import ChatRuntimeContext, ExecutionMode, UserMessagePayload
 from magi.agent.task_agents.chat import ExecutionHandlerRegistry
-from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
-from magi.agent.task_agents.chat.fact_classifier import ChatFactClassifier, IncomingFactKind
+from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
+from magi.chat.task_agent.fact_classifier import ChatFactClassifier, IncomingFactKind
 from magi.agent.runtime.contracts import FactRecord
 from magi.config.models import ThinkingDepth
 from magi.events.events import EventTypes

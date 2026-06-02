@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from magi.agent.task_agents.chat.run_contracts import AgentRun, PendingTurn
-from magi.agent.task_agents.chat.session_turn_queue import (
+from magi.chat.task_agent.session_turn_queue import (
     SessionRunTurnQueueMixin,
 )
 from magi_plugin_sdk.run_trigger import IncomingEvent

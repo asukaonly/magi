@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ....llm.error_classifier import LLMErrorKind, classify_exception
-from ....llm.streaming_events import LLMStreamEvent
+from magi.llm.error_classifier import LLMErrorKind, classify_exception
+from magi.llm.streaming_events import LLMStreamEvent
 
 
 def format_llm_error(exc: Exception) -> str:

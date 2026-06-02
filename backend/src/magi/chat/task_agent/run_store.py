@@ -7,15 +7,15 @@ from typing import TYPE_CHECKING
 
 from magi_plugin_sdk.run_trigger import RunTrigger
 
-from ....memory.l0.working_memory import L0WorkingMemoryStore
-from ...run_control import RunControl
+from magi.memory.l0.working_memory import L0WorkingMemoryStore
+from magi.agent.run_control import RunControl
 from .run_store_conversion import SessionRunConversionMixin
 from .run_store_goals import SessionRunGoalMixin
 from .run_store_lifecycle import SessionRunLifecycleMixin
 from .run_store_results import SessionRunResultMixin
 
 if TYPE_CHECKING:
-    from ...run.snapshot import RunSnapshot
+    from magi.agent.run.snapshot import RunSnapshot
 
 
 class SessionRunStore(

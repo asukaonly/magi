@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from magi.agent.task_agents.chat import rhythm as rhythm_module
-from magi.agent.task_agents.chat.rhythm import ResponseRhythmPlanner
+from magi.chat.task_agent import rhythm as rhythm_module
+from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
 
 
 class _FakePromptService:

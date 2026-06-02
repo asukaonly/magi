@@ -34,7 +34,7 @@ from magi.agent.task_agents.chat.handlers import (
     ChatHandlerDependencies,
     FunctionCallingHandler,
 )
-from magi.agent.task_agents.chat.session_run_coordinator import (
+from magi.chat.task_agent.session_run_coordinator import (
     SessionRunCoordinator,
     TurnSupersession,
 )

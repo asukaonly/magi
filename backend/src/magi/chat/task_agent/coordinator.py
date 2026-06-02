@@ -10,28 +10,28 @@ import random
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, List
 
-from ....agent.message_utils import build_recent_messages
-from ....config.models import ThinkingDepth
-from ....core.logger import get_logger
-from ....personality.active_persona import get_current_personality_config
-from ....personality.persona_routing_brief import build_persona_routing_brief
-from ....personality.turn_planner import PersonaRoutingHint
-from ....tools.context_decider import ContextDecider
-from ....tools.context_decider_context import ContextDeciderContext
-from ....tools.context_routing import RouteDecision, should_decompose_external_request
-from ....tools.recommender import ToolRecommender
-from ....tools.schema import ToolExecutionContext
-from ....tools.tool_advisory_reranker import ToolAdvisoryReranker
-from ....tools.tool_hint_resolver import ToolHintResolver
+from magi.agent.message_utils import build_recent_messages
+from magi.config.models import ThinkingDepth
+from magi.core.logger import get_logger
+from magi.personality.active_persona import get_current_personality_config
+from magi.personality.persona_routing_brief import build_persona_routing_brief
+from magi.personality.turn_planner import PersonaRoutingHint
+from magi.tools.context_decider import ContextDecider
+from magi.tools.context_decider_context import ContextDeciderContext
+from magi.tools.context_routing import RouteDecision, should_decompose_external_request
+from magi.tools.recommender import ToolRecommender
+from magi.tools.schema import ToolExecutionContext
+from magi.tools.tool_advisory_reranker import ToolAdvisoryReranker
+from magi.tools.tool_hint_resolver import ToolHintResolver
 from magi.bootstrap.tool_capabilities import build_tool_capabilities
-from ..common import (
+from magi.agent.task_agents.common import (
     ExecutionMode,
     ExecutionHandlerRegistry,
     ExecutionRequest,
     IncomingFactKind,
     ToolSelection,
 )
-from .contracts import (
+from magi.agent.task_agents.chat.contracts import (
     AssistantSurfaceMode,
     ChatRuntimeContext,
     IntentDecision,
@@ -39,18 +39,18 @@ from .contracts import (
     TraceDisplayMode,
     TurnUXPlan,
 )
-from ....channels.delivery_router import DeliveryRouter
-from ....channels.delivery_prefs import resolve_delivery_targets
+from magi.channels.delivery_router import DeliveryRouter
+from magi.channels.delivery_prefs import resolve_delivery_targets
 from magi_plugin_sdk.delivery import DeliveryContent
-from ...run.builder import GraphBuilder
-from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
-from ...run.nodes.plan_fanout import PlanFanoutNode
-from ...run.nodes.reply import ReplyNode
-from ...run.nodes.tool_loop import ToolLoopNode
-from ...run.nodes.validate import ValidateNode
-from ...run.registry import NodeRegistry
-from ...run.runner import NodeSequenceRunner
-from .attachment_context import resolve_effective_turn_attachments
+from magi.agent.run.builder import GraphBuilder
+from magi.agent.run.ports import AttachmentResolverPort, NullAttachmentResolver
+from magi.agent.run.nodes.plan_fanout import PlanFanoutNode
+from magi.agent.run.nodes.reply import ReplyNode
+from magi.agent.run.nodes.tool_loop import ToolLoopNode
+from magi.agent.run.nodes.validate import ValidateNode
+from magi.agent.run.registry import NodeRegistry
+from magi.agent.run.runner import NodeSequenceRunner
+from magi.agent.task_agents.chat.attachment_context import resolve_effective_turn_attachments
 from .fact_classifier import ChatFactClassifier
 
 logger = get_logger(__name__)

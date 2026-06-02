@@ -29,20 +29,20 @@ from magi.utils.runtime import get_runtime_paths
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator
 from magi.agent.run.ports import LazyAttachmentResolver
 from magi.llm.streaming_events import stream_scope
-from magi.agent.task_agents.chat.interruption_classifier import InterruptionClassifier
+from .interruption_classifier import InterruptionClassifier
 from magi.agent.task_agents.chat import (
-    ChatExecutionCoordinator,
-    ChatFactClassifier,
     IntentDecision,
-    ChatPromptService,
     ChatRuntimeContext,
     ExecutionHandlerRegistry,
     ExecutionRequest,
     ExecutionResult,
-    SessionRunCoordinator,
-    SessionRunStore,
     ToolSelection,
 )
+from .coordinator import ChatExecutionCoordinator
+from .fact_classifier import ChatFactClassifier
+from .prompt_service import ChatPromptService
+from .session_run_coordinator import SessionRunCoordinator
+from .run_store import SessionRunStore
 from magi.chat.task_agent.history_service import ChatHistoryService
 from magi.chat.task_agent.planning_service import ChatPlanningService
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
@@ -54,12 +54,12 @@ from magi.agent.task_agents.chat.handlers import (
     build_common_handler_dependencies,
 )
 from magi.chat.task_agent.reply_context import ChatReplyContextMixin
-from magi.agent.task_agents.chat.rhythm import (
+from .rhythm import (
     ResponseRhythmPlanner,
     is_conversation_rhythm_enabled,
 )
 from magi.chat.task_agent.session_control import ChatSessionControlMixin
-from magi.agent.task_agents.chat.streaming import (
+from .streaming import (
     ChatStreamingMixin,
     format_llm_error as _format_llm_error,
 )

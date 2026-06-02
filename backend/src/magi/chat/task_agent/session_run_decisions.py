@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ....agent.runtime.contracts import FactRecord
-from ..common import IncomingFactKind, TaskFactPayload
+from magi.agent.runtime.contracts import FactRecord
+from magi.agent.task_agents.common import IncomingFactKind, TaskFactPayload
 from .interruption_classifier import InterruptionDisposition
-from .run_contracts import ActiveRun, PendingTurn
+from magi.agent.task_agents.chat.run_contracts import ActiveRun, PendingTurn
 
 
 @dataclass(slots=True)

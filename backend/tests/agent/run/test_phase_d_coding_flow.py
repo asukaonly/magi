@@ -8,7 +8,7 @@ import inspect
 def test_coordinator_constructs_validate_node_in_init() -> None:
     """ChatExecutionCoordinator.__init__ must construct a ValidateNode
     and register it on the NodeRegistry."""
-    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator.__init__)
     assert "ValidateNode" in src, (
@@ -19,7 +19,7 @@ def test_coordinator_constructs_validate_node_in_init() -> None:
 def test_coordinator_constructs_graph_builder_and_runner() -> None:
     """ChatExecutionCoordinator.__init__ must construct a GraphBuilder
     and a NodeSequenceRunner."""
-    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator.__init__)
     assert "GraphBuilder" in src
@@ -31,7 +31,7 @@ def test_coordinator_execute_uses_node_sequence_runner() -> None:
     paths through NodeSequenceRunner.run; single-node fallback for
     legacy single-Node paths is acceptable but the multi-node path
     must go through the runner."""
-    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator.execute)
     assert "_node_sequence_runner" in src or "node_sequence_runner" in src or "_runner" in src, (
@@ -233,7 +233,7 @@ def test_coordinator_execute_uses_run_with_snapshot_when_session_run_id_availabl
     carries a session_run_id, and saves the returned snapshot to the
     SessionRunStore."""
     import inspect
-    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator.execute)
     assert "run_with_snapshot" in src, (

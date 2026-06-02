@@ -11,8 +11,8 @@ from __future__ import annotations
 import pytest
 
 from magi.agent.run_control import RunControl, null_run_control
-from magi.agent.task_agents.chat.run_store import SessionRunStore
-from magi.agent.task_agents.chat.session_run_coordinator import (
+from magi.chat.task_agent.run_store import SessionRunStore
+from magi.chat.task_agent.session_run_coordinator import (
     SessionRunCoordinator,
 )
 

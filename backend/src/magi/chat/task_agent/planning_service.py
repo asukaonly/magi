@@ -20,7 +20,7 @@ from magi.agent.orchestration import PlannedSubtask, SubtaskPlan, TaskOrchestrat
 from magi.agent.task_agents.common import OrchestrationPlan
 from .history_service import ChatHistoryService
 from .planning_prompts import ChatPlanningPromptMixin
-from magi.agent.task_agents.chat.prompt_service import ChatPromptService
+from .prompt_service import ChatPromptService
 
 logger = get_logger(__name__)
 

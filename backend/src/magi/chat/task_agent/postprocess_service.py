@@ -31,7 +31,7 @@ from .postprocess.outcomes import ChatPostprocessOutcomeMixin
 from .postprocess.session import ChatPostprocessSessionMixin
 from .postprocess.tool_events import ChatPostprocessToolEventMixin
 from .postprocess.trace import ChatPostprocessTraceMixin
-from magi.agent.task_agents.chat.session_run_coordinator import TurnSupersession
+from .session_run_coordinator import TurnSupersession
 
 if TYPE_CHECKING:
     from magi.api.services.chat_trace.read_service import ChatTraceReadService

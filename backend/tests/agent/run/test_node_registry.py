@@ -79,7 +79,7 @@ def test_chat_execution_coordinator_has_node_registry_attribute() -> None:
     execute())."""
     import inspect
 
-    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator.__init__)
     assert "NodeRegistry" in src, (
@@ -95,7 +95,7 @@ def test_chat_execution_coordinator_execute_dispatches_via_node_registry() -> No
     The execute() source must reference the sequence runner."""
     import inspect
 
-    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator.execute)
     # Phase D: NodeSequenceRunner drives dispatch; the runner holds the registry.
@@ -112,7 +112,7 @@ def test_chat_execution_coordinator_no_longer_builds_orchestration_plan() -> Non
     OrchestrationPlan in match_intent."""
     import inspect
 
-    from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
+    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator)
     assert "_build_orchestration_plan_from_route" not in src, (
