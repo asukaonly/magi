@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.lifecycle import LifecycleModule
+from ..channels.delivery_router import DeliveryRouter
 from ..chat import get_chat_read_service
 from ..core.logger import get_logger
 from ..personality.outreach_compose import compose_outreach_line
 from ..scheduler.contracts import ScheduledTargetType
 from ..utils.runtime import get_runtime_paths
+from .contracts import OutreachIntent
 from .executor import DesktopTranscriptExecutor, ExternalChannelExecutor
 from .governor import Governor
 from .producers.background_completion import build_background_completion_producer
@@ -50,19 +52,24 @@ class OutreachModule(LifecycleModule):
 
         channels_module = getattr(getattr(ctx, "channels", None), "module", None)
         registry = getattr(channels_module, "_registry", None)
+        # receipts_store is OPTIONAL: ExternalChannelExecutor handles a None
+        # store gracefully (delivery still happens, receipts just aren't
+        # persisted). Only registry + session_mapper are hard requirements,
+        # so receipts_store is deliberately NOT part of the disable guard.
         receipts_store = getattr(channels_module, "_receipts_store", None)
         session_mapper = getattr(channels_module, "_session_mapper", None)
         if registry is None or session_mapper is None:
-            logger.warning("outreach: channels not fully wired; outreach disabled")
+            logger.warning(
+                "outreach DISABLED — channels registry/session_mapper unavailable; "
+                "no proactive task-completion delivery will occur"
+            )
             return
-
-        from ..channels.delivery_router import DeliveryRouter
 
         channels_db = str(get_runtime_paths().channels_db_path)
         delivery_log = OutreachDeliveryLogStore(db_path=channels_db)
         outbox = OutreachOutboxStore(db_path=channels_db)
 
-        async def _compose(intent):  # type: ignore[no-untyped-def]
+        async def _compose(intent: OutreachIntent) -> str:
             return await compose_outreach_line(
                 kind=intent.kind.value,
                 title=intent.title,
@@ -85,9 +92,18 @@ class OutreachModule(LifecycleModule):
             delivery_log=delivery_log,
         )
 
+        # Register the completion producer as a background-task listener.
+        # NOTE: AgentRuntimeModule has already called manager.start() by the
+        # time this module inits, so a task that completes in the brief boot
+        # window before this line would miss the producer (the Tasks-page
+        # broadcast listener, registered earlier, still fires). This is an
+        # accepted v1 edge case for recovered-pending tasks; see spec section 11.
         self._producer = build_background_completion_producer(service)
         manager.add_listener(self._producer)
 
+        # One-way-door note: if register_handler/schedule_interval below raise,
+        # the producer listener stays added (shutdown() still removes it), but
+        # the drain schedule would be absent — a restart re-runs this init.
         scheduler.register_handler(
             ScheduledTargetType.OUTREACH_OUTBOX_DRAIN,
             build_outbox_drain_handler(service),
