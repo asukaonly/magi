@@ -24,8 +24,6 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from magi.agent.run_control import DetachRequested, current_detach_signal
-
 from ..schema import (
     ParameterType,
     Tool,
@@ -97,9 +95,12 @@ class DetachToBackgroundTool(Tool):
         parameters: Dict[str, Any],
         context: ToolExecutionContext,
     ) -> ToolResult:
-        _ = context  # unused; detach scope is bound via ContextVar
-        signal = current_detach_signal()
-        if signal is None:
+        d = (
+            context.capabilities.detach
+            if context.capabilities is not None
+            else None
+        )
+        if d is None or not d.is_available():
             return ToolResult(
                 success=False,
                 error=(
@@ -114,11 +115,9 @@ class DetachToBackgroundTool(Tool):
         reason = str(parameters.get("reason") or "long_running").strip() or "long_running"
         note = str(parameters.get("note") or "").strip()
 
-        already_requested = signal.is_requested()
+        already_requested = d.is_requested()
         if not already_requested:
-            signal.request(
-                DetachRequested(reason=reason, requested_by="llm", note=note)
-            )
+            d.request(reason=reason, requested_by="llm", note=note)
 
         return ToolResult(
             success=True,

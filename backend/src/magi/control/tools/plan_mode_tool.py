@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ...agent.control.common.events import publish_control_plan_state_changed
-from ...agent.control.provider import resolve_control_session_store
-from ...core.logger import get_logger
-from ...runtime_defaults import DEFAULT_USER_ID
-from ..schema import (
+from magi.control.common.events import publish_control_plan_state_changed
+from magi.control.provider import resolve_control_session_store
+from magi.core.logger import get_logger
+from magi.runtime_defaults import DEFAULT_USER_ID
+from magi_plugin_sdk.tools import (
     ParameterType,
     Tool,
     ToolExecutionContext,
@@ -159,7 +159,7 @@ async def _emit_plan_event(
     turn_id: str | None = None,
 ) -> None:
     try:
-        from ...agent.control.common.events import publish_control_event
+        from magi.control.common.events import publish_control_event
 
         await publish_control_event(
             "control.plan.updated",

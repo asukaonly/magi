@@ -126,15 +126,6 @@ ignore_imports =
     magi.tools -> magi.skills.runner
     magi.tools -> magi.skills.schema
     magi.tools.builtin.agent_tool -> magi.agent.workers
-    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common
-    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common.events
-    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.provider
-    magi.tools.builtin.detach_to_background_tool -> magi.agent.run_control
-    magi.tools.builtin.plan_mode_tool -> magi.agent.control.common.events
-    magi.tools.builtin.plan_mode_tool -> magi.agent.control.provider
-    magi.tools.builtin.todo_write_tool -> magi.agent.control.common.events
-    magi.tools.builtin.todo_write_tool -> magi.agent.control.provider
-    magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store
     magi.tools.context_decider_prompt -> magi.agent.message_utils
     magi.tools.registry -> magi.skills.schema
     magi.tools.registry_lookup -> magi.skills.schema
@@ -168,6 +159,7 @@ forbidden_modules =
     magi.personality
     magi.llm
     magi.events
+    magi.control
 ignore_imports =
     # == KNOWN DEBT BASELINE (frozen 2026-05-31; ratchet down, never up) ==
     # Plugin->host edges that exist today. Do NOT add entries; only delete
@@ -182,13 +174,4 @@ ignore_imports =
     magi.skills.subagent -> magi.llm.base
     magi.skills.subagent -> magi.llm.provider_bridge
     magi.tools.builtin.agent_tool -> magi.agent.workers
-    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common
-    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.common.events
-    magi.tools.builtin.ask_user_question_tool -> magi.agent.control.provider
-    magi.tools.builtin.detach_to_background_tool -> magi.agent.run_control
     magi.tools.builtin.find_relevant_tools_tool -> magi.memory.provider
-    magi.tools.builtin.plan_mode_tool -> magi.agent.control.common.events
-    magi.tools.builtin.plan_mode_tool -> magi.agent.control.provider
-    magi.tools.builtin.todo_write_tool -> magi.agent.control.common.events
-    magi.tools.builtin.todo_write_tool -> magi.agent.control.provider
-    magi.tools.builtin.todo_write_tool -> magi.agent.control.session_store

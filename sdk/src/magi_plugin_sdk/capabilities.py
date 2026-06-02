@@ -105,6 +105,77 @@ class ImageGenPort(Protocol):
 
 
 @dataclass(slots=True)
+class AskOutcome:
+    """Result of an ``InteractionPort.ask`` call.
+
+    A single value object the tool maps straight onto its ``ToolResult``:
+
+    * ``answered`` — True only when the user supplied an answer.
+    * ``answer`` — the user's reply text (None unless ``answered``).
+    * ``resolution`` — ``"user"`` | ``"cancelled"`` | ``"timeout"``.
+    * ``timed_out`` — True iff ``resolution == "timeout"`` (carried explicitly
+      so callers don't have to string-match).
+    """
+
+    answered: bool
+    answer: Optional[str]
+    resolution: str
+    timed_out: bool
+
+
+class DetachPort(Protocol):
+    """Port for the detach-to-background capability.
+
+    The host adapter wraps the DetachSignal ContextVar; tools and plugins call
+    through this port so they never import host run-control internals directly.
+    """
+
+    def is_available(self) -> bool:
+        """True iff there is a current detach signal (a detachable run in context)."""
+        ...
+
+    def is_requested(self) -> bool:
+        """True iff a detach has already been requested in the current run."""
+        ...
+
+    def request(self, *, reason: str, requested_by: str = "llm", note: str = "") -> None:
+        """Record a detach request; no-op if no signal is available."""
+        ...
+
+
+class InteractionPort(Protocol):
+    """Port for the ask-user capability.
+
+    The host adapter owns the entire control-protocol orchestration — opening
+    the ask in the session store, emitting transcript + UI events, suspending
+    the waiter on the interaction broker, and resolving on answer / cancel /
+    timeout — and returns an :class:`AskOutcome`. Plugins and tools call this
+    instead of importing any host control internals.
+
+    Background suspend/resume of the *calling* task is driven by the optional
+    :class:`BackgroundPort` handed in via ``background_port`` (the host
+    interleaves the suspend/resume transitions into the ask flow at the exact
+    points the protocol requires); pass ``None`` for a foreground call.
+    """
+
+    async def ask(
+        self,
+        *,
+        session_id: str,
+        user_id: Optional[str],
+        turn_id: Optional[str],
+        question: str,
+        options: list[str],
+        allow_free_text: bool,
+        timeout_seconds: Optional[float],
+        background: bool = False,
+        background_task_id: Optional[str] = None,
+        background_port: Optional["BackgroundPort"] = None,
+        cancellation: Any = None,
+    ) -> "AskOutcome": ...
+
+
+@dataclass(slots=True)
 class ToolCapabilities:
     """Bundle of host capability ports injected into tool execution.
 
@@ -120,8 +191,9 @@ class ToolCapabilities:
     memory_query: Optional[MemoryQueryPort] = None
     image_gen: Optional[ImageGenPort] = None
     control: Optional[Any] = None
-    interaction: Optional[Any] = None
+    interaction: Optional[InteractionPort] = None
     subagent: Optional[Any] = None
+    detach: Optional[DetachPort] = None
 
 
 __all__ = [
@@ -132,4 +204,7 @@ __all__ = [
     "MemoryQueryPort",
     "ChatPort",
     "ImageGenPort",
+    "InteractionPort",
+    "AskOutcome",
+    "DetachPort",
 ]
