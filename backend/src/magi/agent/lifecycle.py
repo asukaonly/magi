@@ -8,7 +8,6 @@ from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.background_tasks import (
     build_background_task_wiring,
-    build_completion_handshake_listener,
 )
 from ..core.logger import get_logger
 from ..control.provider import resolve_control_session_store
@@ -150,10 +149,6 @@ class AgentRuntimeModule(LifecycleModule):
             )
         await self._context.agent_runtime.agent_runtime.start()
 
-        handshake_listener = build_completion_handshake_listener(
-            get_task_agent_manager=lambda: self._context.agent_runtime.task_agent_manager,
-        )
-        background_wiring.manager.add_listener(handshake_listener)
         background_wiring.manager.add_listener(broadcast_background_task_state_changed)
         await background_wiring.manager.start()
         await background_wiring.retention_gc.start()

@@ -29,6 +29,7 @@ from ..awareness.lifecycle import (
     TimelineSubscriberModule,
 )
 from ..channels.lifecycle import ChannelsModule
+from ..outreach.lifecycle import OutreachModule
 from ..chat.lifecycle import (
     ChatProjectorModule,
     ChatStoreModule,
@@ -233,6 +234,7 @@ def _build_exports_and_maintenance_modules(context: RuntimeBootstrapContext) -> 
         TimelineSchedulersModule(context),  # NEW
         OtherDependenciesModule(context),
         ChannelsModule(context),
+        OutreachModule(context),
     ]
 
 
