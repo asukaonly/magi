@@ -32,6 +32,7 @@ def resolve_delivery_targets(
     user_id: str,
     session_id: str,
     user_prefs: dict[str, Any],
+    origin_channel: str | None = None,
 ) -> list[ChannelTarget]:
     """Return the list of channels to deliver this run's reply to.
 
@@ -42,27 +43,52 @@ def resolve_delivery_targets(
     looks up its chat_id via session_mapper at deliver time).
 
     Default (no prefs): chat_sse-only for the current session.
+
+    ``origin_channel``: when non-empty, the channel SCHEME that
+    triggered this run (sourced from ``RunTrigger.source_channel`` at
+    the coordinator's fanout call site — set to ``"weixin"`` /
+    ``"telegram"`` / ``"chat_sse"`` by ``SessionRunCoordinator._user_message_trigger``).
+    It's appended to the target list unless an equal-scheme target is
+    already present, so a reply to an inbound WeChat / Telegram / etc.
+    message goes back to that channel even when the user hasn't
+    explicitly listed it in ``delivery_channels``. Without this
+    auto-append, an inbound from WeChat would only fanout to chat_sse
+    and the WeChat user would never hear back. ``chat_sse`` as origin
+    is effectively a no-op since the default target list already
+    includes it; passing it explicitly is still honored for symmetry.
     """
     requested = user_prefs.get("delivery_channels") if isinstance(user_prefs, dict) else None
     if not requested or not isinstance(requested, list):
-        return [_chat_sse_target(session_id, user_id)]
+        targets: list[ChannelTarget] = [_chat_sse_target(session_id, user_id)]
+    else:
+        targets = []
+        for channel_id in requested:
+            if not isinstance(channel_id, str) or not channel_id.strip():
+                continue
+            if channel_id == "chat_sse":
+                targets.append(_chat_sse_target(session_id, user_id))
+            else:
+                targets.append(ChannelTarget(
+                    channel_type=channel_id,
+                    external_chat_id="",
+                    magi_session_id=session_id,
+                    magi_user_id=user_id,
+                ))
+        if not targets:
+            # All entries were invalid / filtered — fall back to default.
+            targets = [_chat_sse_target(session_id, user_id)]
 
-    targets: list[ChannelTarget] = []
-    for channel_id in requested:
-        if not isinstance(channel_id, str) or not channel_id.strip():
-            continue
-        if channel_id == "chat_sse":
+    normalized_origin = (origin_channel or "").strip()
+    if normalized_origin and not any(t.channel_type == normalized_origin for t in targets):
+        if normalized_origin == "chat_sse":
             targets.append(_chat_sse_target(session_id, user_id))
         else:
             targets.append(ChannelTarget(
-                channel_type=channel_id,
+                channel_type=normalized_origin,
                 external_chat_id="",
                 magi_session_id=session_id,
                 magi_user_id=user_id,
             ))
-    if not targets:
-        # All entries were invalid / filtered — fall back to default.
-        return [_chat_sse_target(session_id, user_id)]
     return targets
 
 

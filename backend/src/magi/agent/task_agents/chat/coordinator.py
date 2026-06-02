@@ -554,8 +554,24 @@ class ChatExecutionCoordinator:
                 ctx_prefs = getattr(request.context, "user_prefs", None)
                 if isinstance(ctx_prefs, dict):
                     user_prefs = {**user_prefs, **ctx_prefs}
+                # Read the inbound channel scheme from this run's
+                # RunTrigger so resolve_delivery_targets can auto-append
+                # the originating channel. Without this, an inbound from
+                # WeChat / Telegram would only fanout to chat_sse (the
+                # default) and the external user would never hear back.
+                # Defensive chain: active_run can be None on legacy paths;
+                # trigger likewise on pre-Phase-H paths.
+                origin_channel: str | None = None
+                active_run = getattr(request.context, "active_run", None)
+                if active_run is not None:
+                    trigger = getattr(active_run, "trigger", None)
+                    if trigger is not None:
+                        origin_channel = getattr(trigger, "source_channel", None)
                 targets = resolve_delivery_targets(
-                    user_id=user_id, session_id=session_id or "", user_prefs=user_prefs,
+                    user_id=user_id,
+                    session_id=session_id or "",
+                    user_prefs=user_prefs,
+                    origin_channel=origin_channel,
                 )
                 if targets:
                     content = DeliveryContent(text=runner_result.response_text or "")
