@@ -18,6 +18,20 @@ function flushFrame(deltaMs: number) {
   }
 }
 
+/**
+ * Simulate ~60fps for ``totalMs`` total. Necessary because the hook's first
+ * tick after a (re)start records the baseline timestamp; only subsequent
+ * ticks have a meaningful dt. Tests that want to assert against real
+ * char-rates need multiple ticks under realistic frame timing.
+ */
+function flushFor(totalMs: number, frameMs = 16) {
+  let elapsed = 0;
+  while (elapsed < totalMs && pendingRafs.length > 0) {
+    flushFrame(frameMs);
+    elapsed += frameMs;
+  }
+}
+
 beforeEach(() => {
   now = 0;
   pendingRafs = [];
@@ -109,9 +123,12 @@ describe('useStreamingText', () => {
       { initialProps: { t: '', s: true } },
     );
     rerender({ t: 'x'.repeat(5000), s: true });
-    // After 100ms, adaptive rate maxes at 240cps → reveal ~24 chars (much
-    // more than the 6 the floor would give us).
-    act(() => flushFrame(100));
+    // Run ~100ms of real frame timing (6 frames at 16ms). Adaptive rate
+    // hits the 240cps ceiling on a 5000-char backlog, so we should reveal
+    // roughly 24 chars (240 cps * 0.1s). Allow generous tolerance: the
+    // first frame has dt=0 by construction so it only reveals 1 char, then
+    // subsequent frames advance properly.
+    act(() => flushFor(100));
     expect(result.current.length).toBeGreaterThan(10);
   });
 });
