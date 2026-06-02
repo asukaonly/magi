@@ -20,7 +20,6 @@ from .web_search_tool import WebSearchTool
 from .web_fetch_tool import WebFetchTool
 from .weather_tool import WeatherTool
 from .system_settings_tool import SystemSettingsTool
-from .agent_tool import AgentTool
 from .memory_query_tool import MemoryQueryTool
 from .schedule_tool import ScheduleTool
 from .trace_query_tool import TraceQueryTool
@@ -45,7 +44,6 @@ __all__ = [
     "SkillsCreatorTool",
     "WeatherTool",
     "SystemSettingsTool",
-    "AgentTool",
     "MemoryQueryTool",
     "ScheduleTool",
     "TraceQueryTool",

@@ -1,7 +1,6 @@
 """Single source of truth for official core tool classes."""
 from __future__ import annotations
 
-from .builtin.agent_tool import AgentTool
 from .builtin.ask_user_question_tool import AskUserQuestionTool
 from .builtin.bash_tool import BashTool
 from .builtin.capabilities_tool import CapabilitiesTool
@@ -52,7 +51,6 @@ CORE_TOOL_CLASSES: tuple[type, ...] = (
     WebFetchTool,
     WeatherTool,
     SystemSettingsTool,
-    AgentTool,
     MemoryQueryTool,
     TraceQueryTool,
     ScheduleTool,

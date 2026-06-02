@@ -15,7 +15,14 @@ class ToolsModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_tools",
-            dependencies=("runtime_llm", "runtime_configuration"),
+            dependencies=(
+                "runtime_llm",
+                "runtime_configuration",
+                # The composition root host-registers the `agent` runtime tool
+                # (magi.agent.runtime_tools) into the registry. Depend on it so
+                # the tool is present before we configure it with the LLM adapter.
+                "runtime_first_party_tools",
+            ),
         )
         self._context = context
 

@@ -7,6 +7,19 @@ from types import SimpleNamespace
 import pytest
 
 
+def _make_context_with_memory_query(memory_query_port=None):
+    """Build a ToolExecutionContext with an injected memory_query port."""
+    from magi.tools.schema import ToolExecutionContext
+    from magi_plugin_sdk.capabilities import ToolCapabilities
+
+    caps = ToolCapabilities(memory_query=memory_query_port)
+    return ToolExecutionContext(
+        agent_id="test-agent",
+        permissions=["authenticated"],
+        capabilities=caps,
+    )
+
+
 class TestFindRelevantToolsTool:
     @pytest.mark.asyncio
     async def test_tool_recommends_against_bound_registry_not_global(self, monkeypatch) -> None:
@@ -14,7 +27,6 @@ class TestFindRelevantToolsTool:
         from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
         from magi.tools.builtin.weather_tool import WeatherTool
         from magi.tools.registry import ToolRegistry
-        from magi.tools.schema import ToolExecutionContext
 
         # Keep the module-level singleton empty to prove the tool uses the
         # registry instance it was registered into.
@@ -26,13 +38,14 @@ class TestFindRelevantToolsTool:
         tool = registry.get_tool("find-relevant-tools")
 
         assert tool is not None
+        # No memory_query port needed; the tool falls back gracefully when None.
         result = await tool.execute(
             {
                 "query": "I already know the trip was in Hangzhou on 2025-05-01 and now I need the weather.",
                 "current_tools": ["memory_query"],
                 "limit": 1,
             },
-            ToolExecutionContext(agent_id="test-agent", permissions=["authenticated"]),
+            _make_context_with_memory_query(memory_query_port=None),
         )
 
         assert result.success is True
@@ -46,7 +59,6 @@ class TestFindRelevantToolsTool:
         from magi.tools.builtin.weather_tool import WeatherTool
         from magi.tools.registry import ToolRegistry
         from magi.tools.recommender import ToolRecommender
-        from magi.tools.schema import ToolExecutionContext
 
         registry = ToolRegistry()
         registry.register(FindRelevantToolsTool)
@@ -87,8 +99,11 @@ class TestFindRelevantToolsTool:
                     },
                 ]
 
+        class _FakeMemoryQueryPort:
+            def get_l4_store(self):
+                return _FakeL4Store()
+
         monkeypatch.setattr(ToolRecommender, "recommend_tools", _fake_recommend_tools)
-        monkeypatch.setattr(tool, "_get_l4_store", lambda: _FakeL4Store())
 
         result = await tool.execute(
             {
@@ -96,7 +111,7 @@ class TestFindRelevantToolsTool:
                 "current_tools": ["memory_query"],
                 "limit": 1,
             },
-            ToolExecutionContext(agent_id="test-agent", permissions=["authenticated"]),
+            _make_context_with_memory_query(memory_query_port=_FakeMemoryQueryPort()),
         )
 
         assert result.success is True
@@ -105,3 +120,27 @@ class TestFindRelevantToolsTool:
         assert result.data["recommendations"][0]["name"] == "weather"
         assert result.data["recommendations"][0]["l4_advisory"]["context_fit"] == 0.92
         assert "strong historical fit" in result.data["recommendations"][0]["reason"]
+
+    @pytest.mark.asyncio
+    async def test_get_l4_store_uses_memory_query_port(self) -> None:
+        """_get_l4_store reads through ctx.capabilities.memory_query.get_l4_store()."""
+        from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
+
+        sentinel = object()
+
+        class _FakeMemoryQueryPort:
+            def get_l4_store(self):
+                return sentinel
+
+        tool = FindRelevantToolsTool()
+        ctx = _make_context_with_memory_query(memory_query_port=_FakeMemoryQueryPort())
+        assert tool._get_l4_store(context=ctx) is sentinel
+
+    @pytest.mark.asyncio
+    async def test_get_l4_store_returns_none_when_no_port(self) -> None:
+        """_get_l4_store returns None gracefully when memory_query port is absent."""
+        from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
+
+        tool = FindRelevantToolsTool()
+        ctx = _make_context_with_memory_query(memory_query_port=None)
+        assert tool._get_l4_store(context=ctx) is None

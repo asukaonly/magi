@@ -45,6 +45,13 @@ class MemoryQueryPort(Protocol):
         canonical_names: Any = None,
     ) -> Any: ...
     def make_conversation_turn(self, **kwargs: Any) -> Any: ...
+    def get_l4_store(self) -> Optional[Any]:
+        """Return the L4 memory store (UnifiedMemoryStore.l4), or None if unavailable.
+
+        Used by tools that need the tool-advisory and other L4 services without
+        importing host memory internals directly.
+        """
+        ...
 
 
 class ChatPort(Protocol):

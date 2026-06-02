@@ -11,6 +11,7 @@ from .exports import RuntimeExportsModule
 from .control_plane import ControlPlaneModule
 from .lifecycle import LifecycleModule
 from .maintenance import OtherDependenciesModule
+from .runtime_tools import RuntimeFirstPartyToolsModule
 
 from ..core.logger import get_logger
 
@@ -181,6 +182,12 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         _build_runtime_trace_module(context),
         RuntimeTraceSubscriberModule(context),
         HooksModule(context),
+        # Host-register first-party runtime tools (e.g. the sub-agent-spawning
+        # `agent` tool, which lives at L12 in magi.agent.runtime_tools and so
+        # cannot be registered by the L8 core-tools plugin). Declared before
+        # ToolsModule and depended on by it, so the `agent` tool is present in
+        # the registry by the time ToolsModule configures it.
+        RuntimeFirstPartyToolsModule(),
         ToolsModule(context),
         SkillsModule(context),
         MCPModule(context),
