@@ -1756,6 +1756,239 @@ async def test_execute_swallows_user_prefs_provider_errors_and_uses_default_targ
 
 
 @pytest.mark.asyncio
+async def test_execute_passes_runner_attachments_through_to_delivery_content():
+    """Phase A media-outbound: ExecutionResult.attachments (produced by
+    image_generation_tool / prepare_chat_attachments / photo_library /
+    screenshot_timeline) MUST ride along on the DeliveryContent the
+    coordinator hands to fanout_deliver. Before this fix, the call site
+    only passed text, so external channels (telegram/weixin) could never
+    have known the agent wanted to attach images — even with downstream
+    channel-side support, the data was lost at this layer."""
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.common.contracts import (
+        ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
+    )
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi.tools.context_routing import RouteDecision
+    from magi.agent.task_agents.chat.contracts import IntentDecision
+
+    class _Capture(Channel):
+        def __init__(self, ctype):
+            self._t = ctype
+            self.received = []  # list of DeliveryContent
+        @property
+        def channel_type(self):
+            return self._t
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.received.append(content)
+            return DeliveryReceipt(
+                channel_id=self._t,
+                external_message_id=f"{self._t}_1",
+                delivered_at_ms=1000,
+            )
+        async def retract(self, receipt): pass
+
+    sse = _Capture("chat_sse")
+
+    class _Registry:
+        def __init__(self, m): self._m = m
+        def get(self, k): return self._m.get(k)
+
+    registry = _Registry({"chat_sse": sse})
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=registry,
+    )
+
+    image_attachment = {
+        "attachment_id": "att-img-1",
+        "kind": "image",
+        "original_name": "cyberpunk.png",
+        "mime_type": "image/png",
+        "size_bytes": 4096,
+        "storage_path": "/tmp/magi-att/cyberpunk.png",
+        "sha256": "deadbeef",
+    }
+    pdf_attachment = {
+        "attachment_id": "att-doc-1",
+        "kind": "document",
+        "original_name": "spec.pdf",
+        "mime_type": "application/pdf",
+        "size_bytes": 12345,
+        "storage_path": "/tmp/magi-att/spec.pdf",
+        "sha256": "cafebabe",
+    }
+    canned_result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="here's what you asked for",
+        attachments=[image_attachment, pdf_attachment],
+    )
+
+    class _FakeRunner:
+        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
+            return canned_result, RunSnapshot(
+                run_id=run_id,
+                graph=tuple(spec.node_type for spec in node_specs),
+                cursor=len(node_specs),
+                node_states={},
+            )
+
+    coordinator._node_sequence_runner = _FakeRunner()
+
+    route = RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    )
+    fact = FactRecord(
+        agent_id="chat:u-att",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-att", "session_id": "s-att", "content": "show"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-att",
+        agent_type="chat",
+        runtime_key="chat:u-att",
+        user_id="u-att",
+        session_id="s-att",
+        history_key="u-att::s-att",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="show",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-att"),
+        session_run_id="run-att",
+    )
+    intent = IntentDecision(
+        intent="chat",
+        difficulty="normal",
+        execution_mode=ExecutionMode.DIRECT_LLM,
+        route_decision=route,
+        reasoning="",
+    )
+    request = ExecutionRequest(
+        mode=ExecutionMode.DIRECT_LLM,
+        context=context,
+        intent=intent,
+        tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
+    )
+
+    await coordinator.execute(request)
+
+    assert len(sse.received) == 1
+    delivered = sse.received[0]
+    # Text is unchanged.
+    assert delivered.text == "here's what you asked for"
+    # Attachments arrived intact, in order, as a tuple of dicts.
+    assert len(delivered.attachments) == 2
+    assert delivered.attachments[0]["attachment_id"] == "att-img-1"
+    assert delivered.attachments[0]["kind"] == "image"
+    assert delivered.attachments[0]["storage_path"] == "/tmp/magi-att/cyberpunk.png"
+    assert delivered.attachments[1]["attachment_id"] == "att-doc-1"
+    assert delivered.attachments[1]["kind"] == "document"
+
+
+@pytest.mark.asyncio
+async def test_execute_passes_empty_attachments_when_runner_has_none():
+    """When ExecutionResult.attachments is empty (the common case for
+    text-only replies), DeliveryContent.attachments must be an empty
+    tuple — not crash, not leak a None into channel.deliver."""
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.common.contracts import (
+        ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
+    )
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi.tools.context_routing import RouteDecision
+    from magi.agent.task_agents.chat.contracts import IntentDecision
+
+    class _Capture(Channel):
+        def __init__(self): self.received = []
+        @property
+        def channel_type(self): return "chat_sse"
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.received.append(content)
+            return DeliveryReceipt(channel_id="chat_sse", external_message_id="x", delivered_at_ms=1)
+        async def retract(self, receipt): pass
+
+    sse = _Capture()
+
+    class _Registry:
+        def get(self, k): return sse if k == "chat_sse" else None
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple", tools=[], reasoning="",
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=_Registry(),
+    )
+    canned_result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="just words",
+        # attachments defaults to [] via dataclass field factory
+    )
+
+    class _FakeRunner:
+        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
+            return canned_result, RunSnapshot(
+                run_id=run_id,
+                graph=tuple(spec.node_type for spec in node_specs),
+                cursor=len(node_specs), node_states={},
+            )
+    coordinator._node_sequence_runner = _FakeRunner()
+
+    fact = FactRecord(
+        agent_id="chat:u",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u", "session_id": "s", "content": "hi"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact, recent_facts=[fact], batch_facts=[fact],
+        agent_id="u", agent_type="chat", runtime_key="chat:u",
+        user_id="u", session_id="s", history_key="u::s",
+        history=[], conversation_history=[], active_orchestrations=[],
+        latest_user_message="hi", incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u"),
+        session_run_id="r",
+    )
+    intent = IntentDecision(
+        intent="chat", difficulty="normal", execution_mode=ExecutionMode.DIRECT_LLM,
+        route_decision=RouteDecision(profile="chat", graph_shape="reply", complexity="simple", tools=[], reasoning=""),
+        reasoning="",
+    )
+    request = ExecutionRequest(
+        mode=ExecutionMode.DIRECT_LLM, context=context, intent=intent,
+        tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
+    )
+
+    await coordinator.execute(request)
+    assert len(sse.received) == 1
+    assert sse.received[0].attachments == ()
+
+
+@pytest.mark.asyncio
 async def test_execute_routes_reply_back_to_origin_channel_from_run_trigger():
     """Phase H+2 (this change): when a run was triggered by an external
     channel (its ``AgentRun.trigger.source_channel`` is e.g. ``"weixin"``),
