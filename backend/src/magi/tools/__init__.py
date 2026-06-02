@@ -41,7 +41,6 @@ from .builtin.web_search_tool import WebSearchTool
 from .builtin.web_fetch_tool import WebFetchTool
 from .builtin.weather_tool import WeatherTool
 from .builtin.system_settings_tool import SystemSettingsTool
-from .builtin.agent_tool import AgentTool
 from .builtin.memory_query_tool import MemoryQueryTool
 from .builtin.schedule_tool import ScheduleTool
 from .builtin.prepare_chat_attachments_tool import PrepareChatAttachmentsTool
@@ -110,7 +109,6 @@ __all__ = [
     "SkillsCreatorTool",
     "WeatherTool",
     "SystemSettingsTool",
-    "AgentTool",
     "MemoryQueryTool",
     "ScheduleTool",
     "PrepareChatAttachmentsTool",

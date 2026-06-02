@@ -15,7 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
     pytest = _PytestFallback()
 
-from magi.tools.builtin.agent_tool import (
+from magi.agent.runtime_tools import (
     AgentTool,
     WorkerRunState,
     WORKER_AGENT_COMPLETED,

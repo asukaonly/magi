@@ -6,7 +6,7 @@ import pytest
 
 # Import order matters: agent_tool transitively imports workers; importing
 # AgentTool first lets the workers module finish initializing.
-from magi.tools.builtin.agent_tool import AgentTool
+from magi.agent.runtime_tools import AgentTool
 from magi.agent.workers import WorkerAgentManager
 
 

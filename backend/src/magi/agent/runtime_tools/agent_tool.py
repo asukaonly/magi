@@ -4,15 +4,21 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
 
-from ...agent.workers import (
+from ..workers import (
     WorkerAgentManager,
     WorkerRunState,
     WORKER_AGENT_COMPLETED,
     WORKER_AGENT_FAILED,
     WORKER_AGENT_PROGRESS,
 )
-from ..registry import ToolRegistry
-from ..schema import (
+
+# L12 -> L8 downward (legal): the agent tool still hands its sub-agents a
+# reference to the host tool registry so they can resolve their own tool set.
+from magi.tools.registry import ToolRegistry
+
+# Use the SDK contracts directly (SDK-consistent) rather than re-importing the
+# host's magi.tools.schema re-exports.
+from magi_plugin_sdk import (
     ParameterType,
     Tool,
     ToolExecutionContext,

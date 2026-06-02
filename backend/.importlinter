@@ -125,7 +125,6 @@ ignore_imports =
     magi.tools -> magi.skills.loader
     magi.tools -> magi.skills.runner
     magi.tools -> magi.skills.schema
-    magi.tools.builtin.agent_tool -> magi.agent.workers
     magi.tools.context_decider_prompt -> magi.agent.message_utils
     magi.tools.registry -> magi.skills.schema
     magi.tools.registry_lookup -> magi.skills.schema
@@ -169,4 +168,8 @@ ignore_imports =
     # them as the underlying import is removed during later migration phases.
     # Some edges also violate the layers contract and appear in BOTH baselines;
     # when an import is removed, delete it from BOTH ignore_imports lists.
-    magi.tools.builtin.agent_tool -> magi.agent.workers
+    #
+    # BASELINE = 0 as of Phase 5 Task 3: the last plugin->host edge
+    # (magi.tools.builtin.agent_tool -> magi.agent.workers) was removed when
+    # agent_tool was relocated to magi.agent.runtime_tools and host-registered
+    # via the composition root. Do NOT add new entries here.

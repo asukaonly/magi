@@ -15,7 +15,7 @@ from magi.runtime_trace.store import RuntimeTraceStore
 from magi.runtime_trace.subscribers.runtime_trace_subscriber import (
     RuntimeTraceSubscriber,
 )
-from magi.tools.builtin.agent_tool import AgentTool, WorkerRunState
+from magi.agent.runtime_tools import AgentTool, WorkerRunState
 
 
 @pytest.fixture
