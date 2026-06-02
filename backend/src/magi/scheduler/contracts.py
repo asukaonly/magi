@@ -24,6 +24,7 @@ class ScheduledTargetType(str, Enum):
     TIMELINE_REPRESENTATIVE_ASSET = "timeline_representative_asset"
     LOCATION_IPGEO_POLL = "location_ipgeo_poll"
     LOCATION_WIFI_POLL = "location_wifi_poll"
+    OUTREACH_OUTBOX_DRAIN = "outreach_outbox_drain"
 
 
 class TriggerType(str, Enum):
