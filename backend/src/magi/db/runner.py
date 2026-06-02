@@ -73,6 +73,7 @@ MIGRATION_TARGETS: tuple[MigrationTarget, ...] = (
         db_path=lambda rp: rp.permission_rules_db_path,
     ),
     MigrationTarget(name="channels", db_path=lambda rp: rp.channels_db_path),
+    MigrationTarget(name="identity", db_path=lambda rp: rp.identity_db_path),
 )
 
 
