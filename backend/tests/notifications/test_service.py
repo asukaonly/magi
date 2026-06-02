@@ -33,28 +33,33 @@ def test_dismiss_records_preference(tmp_path):
     import magi.notifications.store as store_mod
     s = store_mod.NotificationStore(str(tmp_path / "n.db")); s.ensure_schema()
     nid = s.insert(store_mod.NotificationRow(user_id="default_user", kind="suggestion",
-        dedupe_key="browser_history", title="t", body="b", created_at_ms=1))
+        dedupe_key="browser_history", title="看看你的浏览历史", body="b", created_at_ms=1))
     recorded = []
     from magi.notifications.service import NotificationService
-    svc = NotificationService(store=s, record_dismissal=lambda key, kind: recorded.append((key, kind)))
+    # The recorder receives the row's localized title as the 3rd arg so the
+    # restore list can show the same string the user saw.
+    svc = NotificationService(store=s,
+        record_dismissal=lambda key, kind, title=None: recorded.append((key, kind, title)))
     svc.dismiss(nid, "explicit")
     assert s.get(nid).status == "dismissed"
-    assert recorded == [("browser_history", "explicit")]
+    assert recorded == [("browser_history", "explicit", "看看你的浏览历史")]
 
 
 def test_dismiss_all_records_each_key(tmp_path):
     import magi.notifications.store as store_mod
     s = store_mod.NotificationStore(str(tmp_path / "n.db")); s.ensure_schema()
     s.insert(store_mod.NotificationRow(user_id="default_user", kind="suggestion",
-        dedupe_key="a", title="t", body="b", created_at_ms=1))
+        dedupe_key="a", title="标题A", body="b", created_at_ms=1))
     s.insert(store_mod.NotificationRow(user_id="default_user", kind="suggestion",
-        dedupe_key="b", title="t", body="b", created_at_ms=2))
+        dedupe_key="b", title="标题B", body="b", created_at_ms=2))
     recorded = []
     from magi.notifications.service import NotificationService
-    svc = NotificationService(store=s, record_dismissal=lambda key, kind: recorded.append(key))
+    svc = NotificationService(store=s,
+        record_dismissal=lambda key, kind, title=None: recorded.append((key, title)))
     n = svc.dismiss_all("default_user", "explicit")
     assert n == 2
-    assert sorted(recorded) == ["a", "b"]
+    # Each key is recorded with its own row's localized title.
+    assert sorted(recorded) == [("a", "标题A"), ("b", "标题B")]
     assert s.list_for_user("default_user") == []
 
 

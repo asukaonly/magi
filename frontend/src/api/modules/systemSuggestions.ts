@@ -43,6 +43,12 @@ export interface DismissalItem {
   dedupe_key: string;
   dismissed_at: string;
   kind: DismissalKind;
+  /**
+   * The localized notification text the user saw when they dismissed it. Shown
+   * in the restore list so it stays consistent with the bell. May be absent for
+   * dismissals recorded before this field existed.
+   */
+  title?: string;
 }
 
 /**
@@ -70,6 +76,11 @@ export async function checkSystemSuggestions(args: {
 export async function dismissSystemSuggestion(args: {
   dedupe_key: string;
   kind: DismissalKind;
+  /**
+   * Localized text the user saw, persisted so the restore list shows the same
+   * string. Omit it to leave the stored title null.
+   */
+  title?: string;
 }): Promise<DismissResponse> {
   const response = await api.post<DismissResponse>(
     '/system-suggestions/dismiss',

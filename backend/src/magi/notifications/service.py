@@ -20,7 +20,7 @@ def _now_ms() -> int:
 
 class NotificationService:
     def __init__(self, *, store: NotificationStore,
-                 record_dismissal: "Callable[[str, str], None] | None" = None) -> None:
+                 record_dismissal: "Callable[..., None] | None" = None) -> None:
         self._store = store
         self._record_dismissal = record_dismissal
 
@@ -70,14 +70,22 @@ class NotificationService:
         row = self._store.get(notification_id)
         self._store.mark_dismissed(notification_id, kind)
         if row is not None and self._record_dismissal is not None:
-            self._record_dismissal(row.dedupe_key, kind)
+            # Persist the localized text the user saw so the restore list shows
+            # the same string (not a humanized English dedupe_key).
+            self._record_dismissal(row.dedupe_key, kind, row.title)
 
     def dismiss_all(self, user_id: str, kind: str = "explicit") -> int:
-        keys = {r.dedupe_key for r in self._store.list_for_user(user_id)}
+        # Snapshot rows (with their localized titles) BEFORE dismissing so each
+        # recorded dismissal carries the title the user saw.
+        rows = self._store.list_for_user(user_id)
+        seen: set[str] = set()
         count = self._store.mark_dismissed_all(user_id, kind)
         if self._record_dismissal is not None:
-            for key in keys:
-                self._record_dismissal(key, kind)
+            for r in rows:
+                if r.dedupe_key in seen:
+                    continue
+                seen.add(r.dedupe_key)
+                self._record_dismissal(r.dedupe_key, kind, r.title)
         return count
 
     def action(self, notification_id: int) -> None:

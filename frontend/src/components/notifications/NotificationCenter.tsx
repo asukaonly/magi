@@ -202,7 +202,7 @@ export function NotificationCenter(): JSX.Element {
               {dismissed.map((d) => (
                 <li key={d.dedupe_key} className="flex items-center justify-between px-4 py-1.5">
                   <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                    {humanizePluginId(d.dedupe_key)}
+                    {d.title || humanizePluginId(d.dedupe_key)}
                   </span>
                   <button type="button"
                     onClick={() => { void restore(d.dedupe_key).then(refreshDismissed); }}

@@ -654,7 +654,12 @@ export const ChatPage: React.FC = () => {
         proposal={topBarProposal}
         onOpen={(p) => setSideCardProposal(p)}
         onDismiss={(dedupeKey, kind) => {
-          void dismissSystemSuggestion(dedupeKey, kind);
+          // Persist the localized rationale the user saw so the bell's restore
+          // list shows the same text (not a humanized English key).
+          const title = topBarProposal
+            ? topBarProposal.rationale[suggestionLocale] ?? topBarProposal.rationale.en
+            : undefined;
+          void dismissSystemSuggestion(dedupeKey, kind, title);
         }}
       />
       {sideCardProposal && (
@@ -662,7 +667,9 @@ export const ChatPage: React.FC = () => {
           proposal={sideCardProposal}
           onClose={() => setSideCardProposal(null)}
           onDecline={(dedupeKey) => {
-            void dismissSystemSuggestion(dedupeKey, 'explicit');
+            const title =
+              sideCardProposal.rationale[suggestionLocale] ?? sideCardProposal.rationale.en;
+            void dismissSystemSuggestion(dedupeKey, 'explicit', title);
             setSideCardProposal(null);
           }}
           onActivated={() => setSideCardProposal(null)}

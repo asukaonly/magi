@@ -20,6 +20,12 @@ class DismissalRecord(BaseModel):
     dedupe_key: str
     dismissed_at: datetime
     kind: DismissalKind
+    title: str | None = None
+    """Localized notification text the user saw, for a consistent restore list.
+
+    Optional for backward compatibility with records persisted before this
+    field existed; the restore UI falls back to a humanized dedupe_key.
+    """
 
 
 class SuggestionProposal(BaseModel):
