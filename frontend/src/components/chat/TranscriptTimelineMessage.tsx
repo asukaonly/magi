@@ -7,6 +7,7 @@ import { AssistantRuntimePanel } from './AssistantRuntimePanel';
 import type { ChatTimelineMessage } from '@/domain/chat/state';
 import { normalizeAssistantMarkdownContent } from '@/domain/chat/markdown';
 import { openExternalUrl } from '@/runtime/desktop';
+import { useStreamingText } from '@/hooks/useStreamingText';
 
 type TranscriptTimelineMessageProps = {
   message: ChatTimelineMessage;
@@ -108,7 +109,19 @@ export const TranscriptTimelineMessage = ({
   onContextMenu,
 }: TranscriptTimelineMessageProps) => {
   const renderedContent = typeof content === 'string' ? content : message.content;
-  const showStreamingCaret = Boolean(message.streaming && !String(renderedContent || '').trim());
+  // Drip-animate streaming assistant content so the chunk-burst arrival
+  // pattern (~500ms IPC poll batches) reveals as a continuous typewriter
+  // rather than stepping in chunks. Disabled when prefers-reduced-motion is
+  // on (passed via shouldReduceMotion) or when the message isn't streaming
+  // (in which case the hook is a pure pass-through).
+  const isAssistantStreaming = message.role === 'assistant' && Boolean(message.streaming);
+  const drippedContent = useStreamingText(
+    String(renderedContent || ''),
+    isAssistantStreaming,
+    { disabled: shouldReduceMotion },
+  );
+  const displayContent = message.role === 'assistant' ? drippedContent : renderedContent;
+  const showStreamingCaret = Boolean(message.streaming && !String(displayContent || '').trim());
   const isUserMessage = message.role === 'user';
   const displayName = isUserMessage ? userNameLabel : assistantName;
   const headerActions = headerExtras ? (
@@ -160,16 +173,16 @@ export const TranscriptTimelineMessage = ({
             <div className="max-w-none text-current">
               <AssistantRuntimePanel runtimeStatuses={message.runtimeStatuses} reasoning={message.reasoning} toolCalls={message.toolCalls} streaming={message.streaming} />
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
-                {normalizeAssistantMarkdownContent(renderedContent)}
+                {normalizeAssistantMarkdownContent(displayContent)}
               </ReactMarkdown>
               {showStreamingCaret && (
                 <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current opacity-70" />
               )}
               {bubbleFooter}
             </div>
-          ) : renderedContent ? (
+          ) : displayContent ? (
             <>
-              <p className="m-0 whitespace-pre-wrap text-sm">{renderedContent}</p>
+              <p className="m-0 whitespace-pre-wrap text-sm">{displayContent}</p>
               {bubbleFooter}
             </>
           ) : null}
