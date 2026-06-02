@@ -66,3 +66,10 @@ def test_delete_expired_keeps_unread(tmp_path):
     assert deleted == 1                                  # only the read one
     ids = [i.id for i in s.list_for_user("default_user")]
     assert old_unread in ids and old_read not in ids
+
+def test_get_returns_row_or_none(tmp_path):
+    s = _store(tmp_path)
+    nid = s.insert(_row(dedupe_key="x"))
+    got = s.get(nid)
+    assert got is not None and got.id == nid and got.dedupe_key == "x"
+    assert s.get(999999) is None

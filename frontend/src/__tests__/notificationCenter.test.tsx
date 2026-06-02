@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { NotificationCenter } from '@/components/notifications/NotificationCenter';
 import * as api from '@/api/modules/notifications';
+import * as suggestionsApi from '@/api/modules/systemSuggestions';
 import { sensorsApi } from '@/api/modules/sensors';
 
 // `t` is mocked to echo the key, so composed titles render as their key
@@ -24,6 +25,10 @@ describe('NotificationCenter', () => {
     vi.spyOn(sensorsApi, 'getStatus').mockResolvedValue({ sources: [
       { plugin_id: 'chrome-history', source_name: 'chrome', activation_flow: { enabled_key: 'enabled', configured_key: 'configured', authorize_on_confirm: false, fields: [] } },
     ] } as any);
+    vi.spyOn(suggestionsApi, 'listDismissals').mockResolvedValue([
+      { dedupe_key: 'music', dismissed_at: new Date().toISOString(), kind: 'explicit' },
+    ]);
+    vi.spyOn(suggestionsApi, 'clearDismissal').mockResolvedValue();
   });
 
   it('marks a row read on expand', async () => {
@@ -60,5 +65,13 @@ describe('NotificationCenter', () => {
     await userEvent.click(within(row).getByText('notifications.suggestionTitle'));
     await userEvent.click(await screen.findByTestId('notification-connect-chrome-history'));
     await waitFor(() => expect(sensorsApi.getStatus).toHaveBeenCalled());
+  });
+
+  it('shows dismissed footer and restores', async () => {
+    render(<NotificationCenter />);
+    // expand the 已忽略 footer
+    await userEvent.click(await screen.findByRole('button', { name: /notifications.dismissedTitle/ }));
+    await userEvent.click(await screen.findByRole('button', { name: 'notifications.restore' }));
+    await waitFor(() => expect(suggestionsApi.clearDismissal).toHaveBeenCalledWith('music'));
   });
 });

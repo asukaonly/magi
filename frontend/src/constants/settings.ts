@@ -17,7 +17,6 @@ import {
   Code2,
   IdCard,
   Webhook,
-  Bell,
 } from 'lucide-react';
 
 import type { NavItem } from '@/types/settings';
@@ -62,7 +61,6 @@ export const NAV_ITEMS: NavItem[] = [
     children: [{ id: 'toolsBuiltin' }, { id: 'toolsPlugins' }, { id: 'toolsSkills' }],
   },
   { id: 'hooks', icon: Webhook },
-  { id: 'suggestions', icon: Bell },
   {
     id: 'statistics',
     icon: BarChart3,

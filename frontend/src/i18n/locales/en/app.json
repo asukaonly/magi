@@ -25,7 +25,9 @@
     "connect": "Connect",
     "installAndConnect": "Install & connect",
     "installing": "Installing…",
-    "connectHint": "Connect it so magi can use this data."
+    "connectHint": "Connect it so magi can use this data.",
+    "dismissedTitle": "Dismissed",
+    "restore": "Restore"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -979,14 +981,7 @@
       "channelsTelegram": "Telegram",
       "control": "Control Plane",
       "hooks": "Hooks",
-      "suggestions": "Suggestions",
       "system": "System"
-    },
-    "suggestions": {
-      "title": "Suggestions",
-      "description": "Manage feature suggestions you've dismissed.",
-      "empty": "No dismissed suggestions.",
-      "restore": "Restore"
     },
     "hooks": {
       "title": "Registered Hooks",

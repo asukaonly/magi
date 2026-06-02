@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useSuggestionDismissals } from '@/hooks/useSuggestionDismissals';
 import { usePluginActivation } from '@/hooks/usePluginActivation';
 import { PluginActivationDialog } from '@/components/plugins/PluginActivationDialog';
 import { getEmptyStatePluginMeta } from '@/constants/emptyStatePriorities';
@@ -22,7 +23,14 @@ function humanizePluginId(pluginId: string): string {
 export function NotificationCenter(): JSX.Element {
   const { t } = useTranslation('app');
   const { items, markRead, markAllRead, dismiss, dismissAll, act } = useNotifications();
+  const { items: dismissed, refresh: refreshDismissed, clear: restore } = useSuggestionDismissals();
+  const [showDismissed, setShowDismissed] = useState(false);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+
+  // Dismissing a notification records a preferences-level dismissal, so refresh
+  // the "已忽略" footer after each dismiss to keep the restore list in sync.
+  const onDismiss = (id: number) => { void dismiss(id).then(refreshDismissed); };
+  const onDismissAll = () => { void dismissAll().then(refreshDismissed); };
   // Notification id whose connect flow is in-flight. The server-side `action`
   // is recorded only after activation actually succeeds (onSuccess), not when
   // the dialog merely opens — so cancelling does not drop the item.
@@ -94,7 +102,7 @@ export function NotificationCenter(): JSX.Element {
             <button type="button" onClick={() => void markAllRead()} className="hover:text-foreground">
               {t('notifications.markAllRead')}
             </button>
-            <button type="button" onClick={() => void dismissAll()} className="hover:text-foreground">
+            <button type="button" onClick={onDismissAll} className="hover:text-foreground">
               {t('notifications.clearAll')}
             </button>
           </div>
@@ -136,7 +144,7 @@ export function NotificationCenter(): JSX.Element {
                     aria-label={t('notifications.dismissAria')}
                     onClick={(e) => {
                       e.stopPropagation();
-                      void dismiss(n.id);
+                      onDismiss(n.id);
                     }}
                     className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground/50 opacity-0 transition hover:text-foreground group-hover:opacity-100"
                   >
@@ -181,6 +189,32 @@ export function NotificationCenter(): JSX.Element {
           })}
         </ul>
       )}
+
+      {dismissed.length > 0 ? (
+        <div className="border-t border-border/55">
+          <button type="button" onClick={() => setShowDismissed((v) => !v)}
+            className="flex w-full items-center justify-between px-4 py-2 text-xs text-muted-foreground hover:text-foreground">
+            <span>{t('notifications.dismissedTitle')} ({dismissed.length})</span>
+            <span aria-hidden>{showDismissed ? '▾' : '▸'}</span>
+          </button>
+          {showDismissed ? (
+            <ul className="max-h-40 overflow-y-auto pb-2">
+              {dismissed.map((d) => (
+                <li key={d.dedupe_key} className="flex items-center justify-between px-4 py-1.5">
+                  <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                    {humanizePluginId(d.dedupe_key)}
+                  </span>
+                  <button type="button"
+                    onClick={() => { void restore(d.dedupe_key).then(refreshDismissed); }}
+                    className="shrink-0 text-xs text-primary hover:underline">
+                    {t('notifications.restore')}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
 
       {dialogState ? (
         <PluginActivationDialog

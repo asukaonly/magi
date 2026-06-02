@@ -27,6 +27,84 @@ def is_dismissal_active(rec: DismissalRecord, *, now: datetime | None = None) ->
     return (now - rec.dismissed_at) < ttl
 
 
+# --- config-backed single source of truth for suggestion dismissals ---
+# Seams for tests; default to the live config accessors (imported lazily to
+# keep this domain module free of an import-time dependency on magi.config).
+def _get_loader():
+    from magi.config import get_loader
+
+    return get_loader()
+
+
+def _save_config(patch: dict) -> None:
+    from magi.config import save_config
+
+    save_config(patch)
+
+
+def load_dismissals_from_config() -> dict[str, DismissalRecord]:
+    """Load preferences.suggestion_dismissals as DismissalRecord objects."""
+    loader = _get_loader()
+    if loader is None:
+        return {}
+    raw = loader.get_raw_value("preferences", "suggestion_dismissals", default={})
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, DismissalRecord] = {}
+    for key, value in raw.items():
+        if isinstance(value, DismissalRecord):
+            out[key] = value
+        elif isinstance(value, dict):
+            try:
+                out[key] = DismissalRecord.model_validate(value)
+            except Exception:
+                continue
+    return out
+
+
+def record_dismissal(dedupe_key: str, kind: str = "explicit") -> None:
+    """Write/overwrite a dismissal for dedupe_key via GET→mutate→PUT."""
+    loader = _get_loader()
+    if loader is not None:
+        loader.load()
+    prefs = (loader.get_raw_value("preferences", default={}) if loader else {}) or {}
+    if not isinstance(prefs, dict):
+        prefs = {}
+    dismissals = prefs.get("suggestion_dismissals")
+    if not isinstance(dismissals, dict):
+        dismissals = {}
+    record = DismissalRecord(
+        dedupe_key=dedupe_key,
+        dismissed_at=datetime.now(timezone.utc),
+        kind=DismissalKind(kind),
+    )
+    dismissals[dedupe_key] = record.model_dump(mode="json")
+    prefs["suggestion_dismissals"] = dismissals
+    _save_config({"preferences": prefs})
+
+
+def list_active_dismissals() -> list[DismissalRecord]:
+    """Active (non-expired) dismissal records."""
+    return [r for r in load_dismissals_from_config().values() if is_dismissal_active(r)]
+
+
+def clear_dismissal(dedupe_key: str) -> bool:
+    """Remove a dismissal. Returns True if one existed."""
+    loader = _get_loader()
+    if loader is not None:
+        loader.load()
+    prefs = (loader.get_raw_value("preferences", default={}) if loader else {}) or {}
+    if not isinstance(prefs, dict):
+        prefs = {}
+    dismissals = prefs.get("suggestion_dismissals")
+    if not isinstance(dismissals, dict) or dedupe_key not in dismissals:
+        return False
+    del dismissals[dedupe_key]
+    prefs["suggestion_dismissals"] = dismissals
+    _save_config({"preferences": prefs})
+    return True
+
+
 LoadFn = Callable[[], dict[str, DismissalRecord]]
 SaveFn = Callable[[dict[str, DismissalRecord]], None]
 
