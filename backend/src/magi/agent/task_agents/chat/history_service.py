@@ -219,14 +219,18 @@ class ChatHistoryService:
             return
         history.append({"role": "user", "content": user_message})
         self._update_lru_cache(history_key)
-        # Phase F: dual-write to ConversationLog when wired
-        if self._conversation_log is not None:
-            self._fire_and_forget_log_append(
-                history_key=history_key,
-                event_type="user_message",
-                actor=self._user_id_from_history_key(history_key),
-                text=user_message,
-            )
+        # Phase F dual-write: PAUSED. The ConversationLog implementation writes
+        # to the same chat_messages table that ChatOutcomeWriter (segmented /
+        # final / interim) also writes to, producing duplicate rows that the
+        # chat UI renders as ghost bubbles next to the real assistant message.
+        # Reintroduce when ConversationLog gets its own event-only table that
+        # doesn't compete with chat_messages — tracked for the cross-run
+        # retract follow-up (Phase F+1).
+        # if self._conversation_log is not None:
+        #     self._fire_and_forget_log_append(
+        #         history_key=history_key, event_type="user_message",
+        #         actor=self._user_id_from_history_key(history_key), text=user_message,
+        #     )
 
     def append_assistant_message(self, history_key: str, response_text: str) -> None:
         if not response_text:
@@ -237,14 +241,7 @@ class ChatHistoryService:
         )
         cached.messages.append({"role": "assistant", "content": response_text})
         self._update_lru_cache(history_key)
-        # Phase F: dual-write to ConversationLog when wired
-        if self._conversation_log is not None:
-            self._fire_and_forget_log_append(
-                history_key=history_key,
-                event_type="agent_reply",
-                actor=self._user_id_from_history_key(history_key),
-                text=response_text,
-            )
+        # Phase F dual-write: PAUSED — see append_user_message above for why.
 
     def store_tool_interaction(self, history_key: str, record: dict[str, Any]) -> None:
         records = self._tool_interactions.setdefault(history_key, [])

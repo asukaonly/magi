@@ -45,34 +45,33 @@ def _build_service(tmp_path: Path, *, log=None) -> ChatHistoryService:
 
 
 @pytest.mark.asyncio
-async def test_append_user_message_writes_user_event_to_log(tmp_path: Path) -> None:
+async def test_append_user_message_does_not_dual_write_to_log(tmp_path: Path) -> None:
+    """Phase F dual-write is PAUSED — see history_service.py for why.
+
+    ConversationLog.append wrote into the same chat_messages table that
+    ChatOutcomeWriter (segmented / final / interim) also writes to,
+    producing duplicate rows that chat UI rendered as ghost bubbles.
+    Reintroduce when ConversationLog gets its own event-only table."""
     log = _RecordingLog()
     service = _build_service(tmp_path, log=log)
-    # history_key format is user_id::session_id
     service.append_user_message("u-1::s-1", "hello")
-    # The async write is fire-and-forget — yield once so the task runs
     await asyncio.sleep(0)
-    assert len(log.appends) == 1
-    event, session_id = log.appends[0]
-    assert event.event_type == "user_message"
-    assert event.content is not None
-    assert event.content[0].text == "hello"
-    assert event.actor == "u-1"
-    assert session_id == "s-1"
+    assert log.appends == []
+    # In-memory cache still works
+    history = service.get_history("u-1", "s-1")
+    assert history == [{"role": "user", "content": "hello"}]
 
 
 @pytest.mark.asyncio
-async def test_append_assistant_message_writes_agent_reply_event(tmp_path: Path) -> None:
+async def test_append_assistant_message_does_not_dual_write_to_log(tmp_path: Path) -> None:
+    """Phase F dual-write is PAUSED — see test above for why."""
     log = _RecordingLog()
     service = _build_service(tmp_path, log=log)
     service.append_assistant_message("u-1::s-1", "hi back")
     await asyncio.sleep(0)
-    assert len(log.appends) == 1
-    event, session_id = log.appends[0]
-    assert event.event_type == "agent_reply"
-    assert event.content is not None
-    assert event.content[0].text == "hi back"
-    assert session_id == "s-1"
+    assert log.appends == []
+    history = service.get_history("u-1", "s-1")
+    assert history == [{"role": "assistant", "content": "hi back"}]
 
 
 @pytest.mark.asyncio
