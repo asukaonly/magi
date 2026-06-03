@@ -24,6 +24,7 @@ from ..core.logger import get_logger
 
 if TYPE_CHECKING:
     from magi_plugin_sdk.channels import Channel, ChannelTarget
+    from magi_plugin_sdk.control import ControlRequest
     from magi_plugin_sdk.delivery import DeliveryChunk, DeliveryContent, DeliveryReceipt
 
 logger = get_logger(__name__)
@@ -136,6 +137,66 @@ class DeliveryRouter:
                 )
 
         await asyncio.gather(*(_chunk_one(t) for t in targets))
+
+    async def fanout_control_request(
+        self,
+        *,
+        request: "ControlRequest",
+        targets: list["ChannelTarget"],
+    ) -> None:
+        """Fan out a Phase H+2 control prompt (permission approval) to
+        each target's channel in parallel.
+
+        Channels that opted in via ``supports_control_requests = True``
+        get ``Channel.deliver_control_request(target, request)``.
+        Channels that didn't opt in (the default for any plugin that
+        hasn't been migrated yet) are skipped silently — the host
+        already publishes the prompt to ``runtime_notifications`` for
+        the desktop side regardless, so a non-opted-in channel
+        means "no extra surface, fall back to desktop" not "user is
+        stuck". Same isolation guarantee as ``fanout_deliver``: a
+        failure in one channel never aborts the others.
+
+        No receipts are returned — the response path is the user
+        replying through their normal inbound message channel
+        (button-tap callback or ``/approve <short_id>`` text); the
+        host's slash-command parser correlates back via ``short_id``.
+        """
+        if not targets:
+            return
+
+        async def _request_one(target: "ChannelTarget") -> None:
+            channel = self._resolve(target.channel_type)
+            if channel is None:
+                logger.warning(
+                    "DeliveryRouter: no channel registered for control_request "
+                    "| channel_type=%r",
+                    target.channel_type,
+                )
+                return
+            # Capability gate — fast path that avoids paying for the
+            # NotImplementedError raise + catch in non-opted-in channels.
+            if not getattr(channel, "supports_control_requests", False):
+                return
+            try:
+                await channel.deliver_control_request(target, request)
+            except NotImplementedError:
+                # Defensive: plugin set the flag True but didn't override
+                # the method — treat as "didn't opt in" and don't crash
+                # the fanout for the channels that did opt in.
+                logger.info(
+                    "DeliveryRouter: channel reports control support but "
+                    "raised NotImplementedError | channel_type=%r",
+                    target.channel_type,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "DeliveryRouter: channel.deliver_control_request failed "
+                    "| channel_type=%r error=%s",
+                    target.channel_type, exc,
+                )
+
+        await asyncio.gather(*(_request_one(t) for t in targets))
 
     async def fanout_retract(
         self,
