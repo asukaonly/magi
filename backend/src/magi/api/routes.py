@@ -244,6 +244,10 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/notifications/{notification_id}/dismiss": {"POST"},
         "/notifications/{notification_id}/action": {"POST"},
     },
+    "channels_bindings": {
+        "/bindings": {"GET"},
+        "/bindings/{channel_type}/{external_user_id}/auto-approve": {"PUT"},
+    },
 
 }
 
@@ -292,6 +296,7 @@ def register_api_routes(app: FastAPI) -> None:
         chat_preview_router,
         system_suggestions_router,
         notifications_router,
+        channels_bindings_router,
     )
 
     app.include_router(
@@ -421,4 +426,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(notifications_router, _PUBLIC_ROUTE_METHODS["notifications"]),
         prefix="/api",
         tags=["Notifications"],
+    )
+    app.include_router(
+        _build_public_router(channels_bindings_router, _PUBLIC_ROUTE_METHODS["channels_bindings"]),
+        prefix="/api/channels",
+        tags=["Channels"],
     )

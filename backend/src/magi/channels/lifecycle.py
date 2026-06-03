@@ -55,6 +55,22 @@ class ChannelsModule(LifecycleModule):
         self._context.channels.module = self
         await self._start_channels()
 
+    # === Public accessors (used by api/routers and tests) ===
+
+    @property
+    def binding_settings_store(self):
+        """Per-binding settings store (Phase H+2). May be None
+        before init() runs. Used by the channels-bindings API
+        router to read/write the auto-approve toggle."""
+        return self._binding_settings_store
+
+    @property
+    def session_mapper(self):
+        """Session mapper used by the channels-bindings API to
+        list known bindings (joining session mappings with
+        settings rows)."""
+        return self._session_mapper
+
     async def restart(self) -> None:
         """Tear down running channels and re-initialize from current plugin state."""
         logger.info("Restarting channels module")

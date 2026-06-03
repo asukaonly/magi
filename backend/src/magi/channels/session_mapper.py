@@ -155,6 +155,20 @@ class ChannelSessionMapper:
                 return None
             return self._row_to_mapping(row)
 
+    async def list_all(self) -> list[ChannelSessionMapping]:
+        """Return every (channel, chat) → session mapping known to
+        the host. Used by the channels-bindings API to render the
+        full list of connected accounts (and their per-binding
+        auto-approve toggles)."""
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT * FROM channel_session_mappings "
+                "ORDER BY last_active_at_ms DESC"
+            )
+            rows = await cursor.fetchall()
+            return [self._row_to_mapping(row) for row in rows]
+
     async def lookup_by_session(
         self,
         magi_session_id: str,

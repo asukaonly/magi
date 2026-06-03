@@ -29,6 +29,7 @@ from .availability_routes import availability_router
 from .chat_preview_routes import chat_preview_router
 from .system_suggestions_routes import system_suggestions_router
 from .notifications_routes import notifications_router
+from .channels_bindings import channels_bindings_router
 
 __all__ = [
     "tools_router",
@@ -57,4 +58,5 @@ __all__ = [
     "chat_preview_router",
     "system_suggestions_router",
     "notifications_router",
+    "channels_bindings_router",
 ]
