@@ -79,6 +79,51 @@ class PendingPermissionRegistry:
     def get(self, request_id: str) -> PermissionRequest | None:
         return self._pending.get(request_id)
 
+    def find_by_short_id(
+        self, short_id: str, *, session_id: str | None = None
+    ) -> PermissionRequest | None:
+        """Look up a pending request by its human-typeable short_id.
+
+        Used by the channel slash-command parser to resolve
+        ``/approve <short_id>`` / ``/deny <short_id>`` back to a
+        full :class:`PermissionRequest`. The search is scoped to a
+        single session — same session has at most a handful of
+        pending requests, so the 24-bit short_id space is
+        collision-resistant within scope.
+
+        Returns ``None`` if no match. Returns ``None`` and logs a
+        warning if MULTIPLE matches in the same session (shouldn't
+        happen in practice, but if it does, the slash-command
+        handler will tell the user to respond on desktop instead of
+        guessing). Cross-session collisions are tolerated and
+        invisible — the caller must always pass the originating
+        session_id.
+
+        ``short_id`` is matched case-insensitively to match the
+        derivation convention (``derive_short_id`` lowercases) and
+        to be forgiving of users who type uppercase.
+        """
+        needle = short_id.strip().lower()
+        if not needle:
+            return None
+        matches = [
+            req
+            for req in self._pending.values()
+            if req.session_id == session_id and req.short_id == needle
+        ]
+        if not matches:
+            return None
+        if len(matches) > 1:
+            logger.warning(
+                "PendingPermissionRegistry.find_by_short_id ambiguous: "
+                "short_id=%s session_id=%s matched %d pending requests",
+                needle,
+                session_id,
+                len(matches),
+            )
+            return None
+        return matches[0]
+
 
 class BrokeredPermissionPrompter:
     """Prompter that bridges the gateway to the :class:`InteractionBroker`.
