@@ -163,6 +163,16 @@ class BatchStore:
             row = await cur.fetchone()
             return _row_to_job(row) if row else None
 
+    async def list_jobs_by_status(self, status: BatchJobStatus) -> "list[BatchJob]":
+        """All jobs in a given status, oldest first. Used by restart-resume."""
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                "SELECT * FROM batch_job WHERE status = ? ORDER BY created_at_ms",
+                (status.value,),
+            )
+            return [_row_to_job(r) for r in await cur.fetchall()]
+
     async def set_job_status(self, job_id: str, status: BatchJobStatus) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(

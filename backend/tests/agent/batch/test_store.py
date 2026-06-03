@@ -241,3 +241,14 @@ async def test_add_items_accepts_iterable_and_chunks(store):
 async def test_add_items_empty_iterable(store):
     job = await _make_job(store)
     assert await store.add_items(job.job_id, iter([])) == 0
+
+
+@pytest.mark.asyncio
+async def test_list_jobs_by_status(store):
+    j1 = await _make_job(store)
+    j2 = await _make_job(store)
+    await store.set_job_status(j1.job_id, BatchJobStatus.RUNNING)
+    running = await store.list_jobs_by_status(BatchJobStatus.RUNNING)
+    assert [j.job_id for j in running] == [j1.job_id]
+    planning = await store.list_jobs_by_status(BatchJobStatus.PLANNING)
+    assert {j.job_id for j in planning} == {j2.job_id}
