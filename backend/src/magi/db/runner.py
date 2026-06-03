@@ -74,6 +74,7 @@ MIGRATION_TARGETS: tuple[MigrationTarget, ...] = (
     ),
     MigrationTarget(name="channels", db_path=lambda rp: rp.channels_db_path),
     MigrationTarget(name="identity", db_path=lambda rp: rp.identity_db_path),
+    MigrationTarget(name="batch", db_path=lambda rp: rp.batch_db_path),
 )
 
 

@@ -250,6 +250,11 @@ class RuntimePaths:
         return self.data_dir / "identity" / "identity.db"
 
     @property
+    def batch_db_path(self) -> Path:
+        """Batch orchestrator manifest database path."""
+        return self.data_dir / "batch" / "batch.db"
+
+    @property
     def task_orchestrations_path(self) -> Path:
         """Task-orchestration recovery store path."""
         return self.runtime_dir / "task_orchestrations.json"
