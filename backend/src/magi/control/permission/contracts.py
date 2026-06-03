@@ -85,16 +85,44 @@ class PermissionRequest:
     created_at: float = field(default_factory=time)
     timeout_seconds: float | None = None
     expires_at: float | None = None
+    #: 6-char human-typeable correlation token derived deterministically
+    #: from ``request_id``. Surfaced in the channel slash-command UX so
+    #: a WeChat / Telegram user can type ``/approve <short_id>`` instead
+    #: of the full 32-char request_id. Scoped per-session for lookup
+    #: (cross-session collisions are tolerated — same session has at
+    #: most a handful of pending requests, so the 24-bit space is
+    #: collision-resistant in practice). Defaults to the last 6 hex
+    #: chars of ``request_id``.
+    short_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.short_id and self.request_id:
+            # Derive short_id from request_id deterministically so the
+            # two are always paired. Last 6 chars rather than first 6
+            # — uuid4 hex has uniform entropy throughout, but using
+            # the tail keeps the "ULID-ish prefix carries timestamp"
+            # invariant if request_id semantics ever change to ULID.
+            self.short_id = self.request_id[-6:].lower()
 
     @staticmethod
     def new_id() -> str:
         return uuid.uuid4().hex
+
+    @staticmethod
+    def derive_short_id(request_id: str) -> str:
+        """Compute the short_id that ``__post_init__`` would assign to
+        a request with the given request_id. Exposed for callers that
+        need to mention the short_id before the PermissionRequest
+        instance exists (rare; mostly tests + slash-command parser
+        helpers)."""
+        return request_id[-6:].lower()
 
     def to_dict(self) -> dict[str, Any]:
         created_at_ms = int(self.created_at * 1000)
         expires_at_ms = int(self.expires_at * 1000) if self.expires_at else None
         return {
             "request_id": self.request_id,
+            "short_id": self.short_id,
             "tool_name": self.tool_name,
             "arguments": self.arguments,
             "risk_level": self.risk_level.value,

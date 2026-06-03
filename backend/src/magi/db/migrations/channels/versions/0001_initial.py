@@ -44,6 +44,19 @@ CREATE TABLE IF NOT EXISTS channel_relay_state (
     value_integer   INTEGER NOT NULL DEFAULT 0,
     updated_at_ms   INTEGER NOT NULL
 );
+
+-- Phase H+2: per-binding settings (the "外部渠道免审批" toggle the
+-- user can flip from desktop Settings). Keyed by
+-- (channel_type, external_user_id) — one row per WeChat OpenID /
+-- Telegram user_id — so the same person on different channels can
+-- have different policies.
+CREATE TABLE IF NOT EXISTS channel_binding_settings (
+    channel_type      TEXT    NOT NULL,
+    external_user_id  TEXT    NOT NULL,
+    auto_approve      INTEGER NOT NULL DEFAULT 0,
+    updated_at_ms     INTEGER NOT NULL,
+    PRIMARY KEY (channel_type, external_user_id)
+);
 """
 
 

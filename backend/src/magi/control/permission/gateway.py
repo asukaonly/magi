@@ -132,8 +132,30 @@ class PermissionGateway:
         ]
         | None = None,
         prompter: PermissionPrompter | None = None,
-        prompt_timeout_seconds: float = 120.0,
+        # Phase H+2: default bumped 120 → 300 to accommodate external
+        # channel response latency. WeChat / Telegram users may be away
+        # from their device for minutes; 5 min keeps the prompt
+        # reachable without hanging the run indefinitely. Desktop users
+        # were never near the 120s ceiling either, so this is strictly
+        # a wider window with no regression.
+        prompt_timeout_seconds: float = 300.0,
         plan_mode_guard: Callable[[str | None, str], bool] | None = None,
+        # Phase H+2: per-binding auto-approve bypass. Both must be wired
+        # for the bypass to fire — when either is None (the default,
+        # also the partial-bootstrap state) the bypass is silently
+        # disabled and all prompts go through the normal flow.
+        # ``binding_settings_store`` is the SQLite-backed
+        # ``ChannelBindingSettingsStore`` (CF-7).
+        # ``binding_origin_resolver`` is an async callable
+        # ``session_id -> (channel_type, external_user_id) | None``
+        # that the bootstrap wires to a function reading the active
+        # run's ``RunTrigger.source_channel`` from the appropriate
+        # SessionRunStore (channels-side wire-up in CF-9/CF-10).
+        binding_settings_store: Any | None = None,
+        binding_origin_resolver: Callable[
+            [str | None], "Awaitable[tuple[str, str] | None]"
+        ]
+        | None = None,
     ) -> None:
         self._classifier = classifier
         self._rules = rules
@@ -143,6 +165,8 @@ class PermissionGateway:
         self._prompter = prompter
         self._prompt_timeout_seconds = float(prompt_timeout_seconds)
         self._plan_mode_guard = plan_mode_guard
+        self._binding_settings_store = binding_settings_store
+        self._binding_origin_resolver = binding_origin_resolver
 
     # ------------------------------------------------------------------
     # Public API
@@ -287,6 +311,25 @@ class PermissionGateway:
                 reason=f"mode={effective.permission_mode.value} risk={classification.level.value}",
             )
 
+        # 3.5) Phase H+2 per-binding auto-approve bypass.
+        # Fires AFTER kill-list + cached rules + _needs_prompt — so
+        # security floors (kill list) and explicit user-recorded
+        # rules still win over the toggle. The bypass only suppresses
+        # the prompt itself; if no prompt was going to fire anyway
+        # (mode=accept_edits in a low-risk situation), the existing
+        # "auto" decision path catches it above and we never reach
+        # here.
+        if await self._is_auto_approved_binding(session_id):
+            return PermissionDecision(
+                request_id=PermissionRequest.new_id(),
+                outcome=PermissionOutcome.ALLOWED,
+                source="auto_approve_binding",
+                reason=(
+                    "binding auto-approve enabled — prompt suppressed "
+                    "per user toggle"
+                ),
+            )
+
         # 4) Prompt the user.
         if self._prompter is None:
             # Fail-closed: no UI wired yet, but the classifier says we
@@ -340,6 +383,51 @@ class PermissionGateway:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    async def _is_auto_approved_binding(
+        self, session_id: str | None
+    ) -> bool:
+        """Check whether the originating channel binding has its
+        auto-approve toggle on. Returns False if either dependency
+        is unwired (partial bootstrap / tests), if session_id is
+        None, if the resolver can't identify an origin binding, or
+        if either lookup raises — fail-closed in every degenerate
+        case so the toggle never accidentally suppresses a prompt
+        the user would have wanted to see.
+        """
+        if self._binding_settings_store is None:
+            return False
+        if self._binding_origin_resolver is None:
+            return False
+        if not session_id:
+            return False
+        try:
+            binding = await self._binding_origin_resolver(session_id)
+        except Exception:
+            logger.warning(
+                "permission.binding_origin_resolver_failed "
+                "session_id=%s",
+                session_id,
+                exc_info=True,
+            )
+            return False
+        if binding is None:
+            return False
+        channel_type, external_user_id = binding
+        try:
+            settings = await self._binding_settings_store.get(
+                channel_type=channel_type,
+                external_user_id=external_user_id,
+            )
+        except Exception:
+            logger.warning(
+                "permission.binding_settings_lookup_failed "
+                "channel_type=%s external_user_id=%s",
+                channel_type, external_user_id,
+                exc_info=True,
+            )
+            return False
+        return bool(getattr(settings, "auto_approve", False))
 
     @staticmethod
     def _needs_prompt(

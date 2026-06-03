@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from .control import ControlRequest
     from .delivery import DeliveryChunk, DeliveryContent, DeliveryReceipt
 
 
@@ -212,6 +213,14 @@ class Channel(ABC):
     supports_revision: bool = False
     supports_attachments: bool = True  # most channels support text + attachments
 
+    # === Phase H+2 control-plane capability flag (override in subclass) ===
+    # ``True`` if the channel implements ``deliver_control_request`` —
+    # used by the host's DeliveryRouter.fanout_control_request to skip
+    # channels that haven't opted in, instead of catching
+    # NotImplementedError per call. Plugins that override the method
+    # MUST also flip this flag.
+    supports_control_requests: bool = False
+
     @property
     @abstractmethod
     def channel_type(self) -> str:
@@ -299,6 +308,39 @@ class Channel(ABC):
         raise NotImplementedError(
             f"Channel {type(self).__name__} does not support retract; "
             f"override Channel.retract() if the channel supports it"
+        )
+
+    async def deliver_control_request(
+        self,
+        target: "ChannelTarget",
+        request: "ControlRequest",
+    ) -> None:
+        """Phase H+2 control-plane fanout. Default: NotImplementedError.
+
+        When a tool call hits the permission gate, the host fans out
+        a ControlRequest to every channel connected to the
+        originating user (desktop SSE + the channel the user is
+        actually chatting from). Channels that opt in (Telegram with
+        inline buttons, WeChat with text instructions) override this
+        method and set ``supports_control_requests = True``.
+
+        The plugin's only contract here is "render the prompt in
+        whatever the platform supports." The user's response flows
+        back through the normal inbound message path — either a
+        button-tap-callback synthesized into ``/approve {short_id}``
+        (Telegram) or the user typing ``/approve {short_id}``
+        verbatim (WeChat). The host's slash-command parser correlates
+        the response back to ``request.request_id`` via short_id.
+
+        Channels that can't render any kind of out-of-band prompt
+        (pure email, batch-only platforms) should keep the default;
+        the host will silently skip them.
+        """
+        raise NotImplementedError(
+            f"Channel {type(self).__name__} does not support control "
+            f"requests; override Channel.deliver_control_request() "
+            f"and set supports_control_requests=True if the channel "
+            f"can render approval prompts."
         )
 
     def bind_session_mapper(self, session_mapper: ChannelSessionMapperProtocol) -> None:

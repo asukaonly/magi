@@ -74,6 +74,7 @@ class ControlPlaneWiring:
         "session_store",
         "gateway",
         "pending_permissions",
+        "prompter",
     )
 
     def __init__(
@@ -85,6 +86,7 @@ class ControlPlaneWiring:
         session_store: ControlSessionStore,
         gateway: PermissionGateway,
         pending_permissions: PendingPermissionRegistry,
+        prompter: BrokeredPermissionPrompter,
     ) -> None:
         self.settings_manager = settings_manager
         self.rule_store = rule_store
@@ -92,6 +94,11 @@ class ControlPlaneWiring:
         self.session_store = session_store
         self.gateway = gateway
         self.pending_permissions = pending_permissions
+        #: The constructed prompter — exposed so ChannelsModule (which
+        #: initializes later) can bind a control-fanout callback via
+        #: ``prompter.bind_fanout_callback`` once the channel registry
+        #: is built.
+        self.prompter = prompter
 
 
 class ControlPlaneModule(LifecycleModule):
@@ -168,7 +175,12 @@ class ControlPlaneModule(LifecycleModule):
             session_store=session_store,
             gateway=gateway,
             pending_permissions=pending_permissions,
+            prompter=prompter,
         )
+        # Park the module on context so ChannelsModule (Phase H+2) can
+        # reach the prompter to bind a control-fanout callback. See
+        # ``ChannelsModule.init`` for the late-binding code.
+        self._context.control_plane.module = self
         logger.info(
             "control_plane.initialized",
             permission_rules_db=db_path,
