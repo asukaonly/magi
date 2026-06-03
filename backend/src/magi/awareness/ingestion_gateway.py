@@ -13,6 +13,7 @@ from ulid import ULID
 from ..core.logger import get_logger
 from ..events.events import Event, EventTypes
 from ..events.domain_payloads import SensorEventEmitted, TaskContext
+from ..identity import canonicalize_user_id as _canonicalize_user_id
 from ..runtime_defaults import DEFAULT_USER_ID
 from .sensor_base import SensorBase
 from .sensor_output import SensorOutput, SensorOutputMetadata
@@ -119,11 +120,25 @@ class SensorIngestionGateway:
 
     @staticmethod
     def _resolve_memory_owner_user_id(output: SensorOutput) -> str:
+        """Phase H+2 identity layer ingress #5 (sensor side).
+
+        Sensor outputs may stash a user_id in provenance / domain_payload
+        — historically a system-level sensor (screenshot_timeline,
+        photo_library, browser_history) leaves it empty and falls
+        through to DEFAULT_USER_ID. A future per-user sensor might
+        populate it with a channel-specific identifier; in that case
+        the value MUST get canonicalized before reaching memory L1,
+        same contract as the four other ingress sites.
+
+        Returns a canonical user_id string in all cases; ``raw_value``
+        flows through ``canonicalize_user_id`` so any ``channel_*``
+        prefix collapses to the canonical local user.
+        """
         for container in (output.provenance, output.domain_payload):
             if not isinstance(container, dict):
                 continue
             for key in ("memory_owner_user_id", "owner_user_id", "user_id"):
                 raw_value = str(container.get(key) or "").strip()
                 if raw_value:
-                    return raw_value
-        return DEFAULT_USER_ID
+                    return str(_canonicalize_user_id(raw_value))
+        return str(_canonicalize_user_id(DEFAULT_USER_ID))
