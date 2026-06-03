@@ -30,6 +30,9 @@ from .builtin.weather_tool import WeatherTool
 from .builtin.web_fetch_tool import WebFetchTool
 from .builtin.web_search_tool import WebSearchTool
 from .builtin.memory_query_tool import MemoryQueryTool
+from .builtin.batch_create_tool import BatchCreateTool
+from .builtin.batch_item_update_tool import BatchItemUpdateTool
+from .builtin.batch_review_tool import BatchReviewTool
 
 CORE_TOOL_CLASSES: tuple[type, ...] = (
     BashTool,
@@ -62,5 +65,8 @@ CORE_TOOL_CLASSES: tuple[type, ...] = (
     ExitPlanModeTool,
     TodoWriteTool,
     AskUserQuestionTool,
+    BatchCreateTool,
+    BatchItemUpdateTool,
+    BatchReviewTool,
 )
 

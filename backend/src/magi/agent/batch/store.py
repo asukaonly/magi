@@ -350,3 +350,41 @@ class BatchStore:
                 else:
                     by_key[key] = row["item_id"]
             return conflicts
+
+    async def apply_review(
+        self,
+        job_id: str,
+        item_id: str,
+        decision: str,
+        *,
+        data: Any = None,
+        now_ms: int | None = None,
+    ) -> bool:
+        """Resolve a needs_review item: approve/override -> pending (re-process
+        with the decision recorded); skip -> skipped. Idempotent: only acts on
+        rows still ``needs_review``. Returns True if a row was updated.
+        """
+        now = now_ms if now_ms is not None else _now_ms()
+        new_status = (
+            BatchItemStatus.SKIPPED.value
+            if decision == "skip"
+            else BatchItemStatus.PENDING.value
+        )
+        payload = json.dumps({"decision": decision, "data": data})
+        async with aiosqlite.connect(self._db_path) as db:
+            cur = await db.execute(
+                "UPDATE batch_item SET status = ?, review_decision = ?, updated_at_ms = ? "
+                "WHERE job_id = ? AND item_id = ? AND status = 'needs_review'",
+                (new_status, payload, now, job_id, item_id),
+            )
+            await db.commit()
+            return cur.rowcount > 0
+
+
+def default_batch_store() -> BatchStore:
+    """Construct a BatchStore against the runtime batch DB (schema built by
+    alembic at startup). The store is stateless — one connection per call — so
+    a fresh instance per tool invocation is fine."""
+    from ...utils.runtime import get_runtime_paths
+
+    return BatchStore(db_path=str(get_runtime_paths().batch_db_path))
