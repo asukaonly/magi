@@ -4225,29 +4225,14 @@ export interface components {
             readonly max_concurrency?: number | null;
         };
         /** LLMConfigModel */
-        readonly "LLMConfigModel-Input": {
+        readonly LLMConfigModel: {
             /** Model Runtime Overrides */
             readonly model_runtime_overrides?: {
                 readonly [key: string]: components["schemas"]["LLMConcurrencyOverrideSettings"];
             };
             /** Providers */
             readonly providers?: {
-                readonly [key: string]: components["schemas"]["LLMProviderConfigModel-Input"];
-            };
-            /** Selections */
-            readonly selections?: {
-                readonly [key: string]: components["schemas"]["LLMSelectionConfigModel"];
-            };
-        };
-        /** LLMConfigModel */
-        readonly "LLMConfigModel-Output": {
-            /** Model Runtime Overrides */
-            readonly model_runtime_overrides?: {
-                readonly [key: string]: components["schemas"]["LLMConcurrencyOverrideSettings"];
-            };
-            /** Providers */
-            readonly providers?: {
-                readonly [key: string]: components["schemas"]["LLMProviderConfigModel-Output"];
+                readonly [key: string]: components["schemas"]["LLMProviderConfigModel"];
             };
             /** Selections */
             readonly selections?: {
@@ -4280,7 +4265,7 @@ export interface components {
         };
         /** LLMCustomProviderTemplateDataModel */
         readonly LLMCustomProviderTemplateDataModel: {
-            readonly defaults: components["schemas"]["LLMProviderConfigModel-Output"];
+            readonly defaults: components["schemas"]["LLMProviderConfigModel"];
             readonly template: components["schemas"]["LLMCustomProviderMetaModel"];
         };
         /** LLMCustomProviderTemplateResponseModel */
@@ -4474,7 +4459,7 @@ export interface components {
         readonly LLMProviderCatalogResolveRequestModel: {
             /** Providers */
             readonly providers?: {
-                readonly [key: string]: components["schemas"]["LLMProviderConfigModel-Input"];
+                readonly [key: string]: components["schemas"]["LLMProviderConfigModel"];
             };
         };
         /** LLMProviderCatalogResponseModel */
@@ -4486,40 +4471,7 @@ export interface components {
             readonly success: boolean;
         };
         /** LLMProviderConfigModel */
-        readonly "LLMProviderConfigModel-Input": {
-            /** Api Format */
-            readonly api_format?: string | null;
-            /** Api Key */
-            readonly api_key?: string | null;
-            /** Base Url */
-            readonly base_url?: string | null;
-            /** Custom Default Model */
-            readonly custom_default_model?: string | null;
-            /** Custom Models */
-            readonly custom_models?: readonly string[];
-            /**
-             * Display Name
-             * @default OpenAI
-             */
-            readonly display_name: string;
-            /**
-             * Enabled
-             * @default true
-             */
-            readonly enabled: boolean;
-            /** Model Metadata Overrides */
-            readonly model_metadata_overrides?: {
-                readonly [key: string]: components["schemas"]["LLMModelMetadataOverrideSettings"];
-            };
-            /**
-             * Provider Type
-             * @default openai
-             */
-            readonly provider_type: string;
-            readonly services?: components["schemas"]["LLMProviderServicesConfigModel"];
-        };
-        /** LLMProviderConfigModel */
-        readonly "LLMProviderConfigModel-Output": {
+        readonly LLMProviderConfigModel: {
             /** Api Format */
             readonly api_format?: string | null;
             /** Api Key */
@@ -5195,35 +5147,7 @@ export interface components {
             readonly ids?: readonly number[] | null;
         };
         /** MemoryConfigModel */
-        readonly "MemoryConfigModel-Input": {
-            /**
-             * Db Path
-             * @default ~/.magi/data/memory
-             */
-            readonly db_path: string | null;
-            readonly embedding?: components["schemas"]["EmbeddingConfigModel"];
-            readonly entity_semantic_edges?: components["schemas"]["EntitySemanticEdgeConfigModel"];
-            readonly graph_spreading?: components["schemas"]["GraphSpreadingConfigModel"];
-            /**
-             * History Behavior
-             * @default delete
-             */
-            readonly history_behavior: string;
-            readonly l0?: components["schemas"]["MemoryL0ConfigModel"];
-            readonly l1?: components["schemas"]["MemoryL1ConfigModel"];
-            readonly l2?: components["schemas"]["MemoryL2ConfigModel"];
-            readonly l3?: components["schemas"]["MemoryL3ConfigModel"];
-            readonly l4?: components["schemas"]["MemoryL4ConfigModel"];
-            readonly query_expansion?: components["schemas"]["QueryExpansionConfigModel"];
-            readonly reranker?: components["schemas"]["MemoryRerankerConfigModel"];
-            /**
-             * Retention Days
-             * @default 90
-             */
-            readonly retention_days: number;
-        };
-        /** MemoryConfigModel */
-        readonly "MemoryConfigModel-Output": {
+        readonly MemoryConfigModel: {
             /**
              * Db Path
              * @default ~/.magi/data/memory
@@ -6611,26 +6535,26 @@ export interface components {
         /** SystemConfigModel */
         readonly "SystemConfigModel-Input": {
             readonly agent?: components["schemas"]["AgentConfigModel"];
-            readonly llm?: components["schemas"]["LLMConfigModel-Input"];
-            readonly memory?: components["schemas"]["MemoryConfigModel-Input"];
+            readonly llm?: components["schemas"]["LLMConfigModel"];
+            readonly memory?: components["schemas"]["MemoryConfigModel"];
             readonly network?: components["schemas"]["NetworkProxyConfigModel"];
             readonly personality?: components["schemas"]["PersonalityConfigModel-Input"];
             readonly personalitySettings?: components["schemas"]["PersonalitySettingsModel"];
-            readonly preferences?: components["schemas"]["UserPreferencesModel-Input"];
-            readonly timeline?: components["schemas"]["TimelineConfigModel-Input"];
-            readonly tools?: components["schemas"]["ToolsConfigModel-Input"];
+            readonly preferences?: components["schemas"]["UserPreferencesModel"];
+            readonly timeline?: components["schemas"]["TimelineConfigModel"];
+            readonly tools?: components["schemas"]["ToolsConfigModel"];
         };
         /** SystemConfigModel */
         readonly "SystemConfigModel-Output": {
             readonly agent?: components["schemas"]["AgentConfigModel"];
-            readonly llm?: components["schemas"]["LLMConfigModel-Output"];
-            readonly memory?: components["schemas"]["MemoryConfigModel-Output"];
+            readonly llm?: components["schemas"]["LLMConfigModel"];
+            readonly memory?: components["schemas"]["MemoryConfigModel"];
             readonly network?: components["schemas"]["NetworkProxyConfigModel"];
             readonly personality?: components["schemas"]["PersonalityConfigModel-Output"];
             readonly personalitySettings?: components["schemas"]["PersonalitySettingsModel"];
-            readonly preferences?: components["schemas"]["UserPreferencesModel-Output"];
-            readonly timeline?: components["schemas"]["TimelineConfigModel-Output"];
-            readonly tools?: components["schemas"]["ToolsConfigModel-Output"];
+            readonly preferences?: components["schemas"]["UserPreferencesModel"];
+            readonly timeline?: components["schemas"]["TimelineConfigModel"];
+            readonly tools?: components["schemas"]["ToolsConfigModel"];
         };
         /** TestLLMProviderApiResponseModel */
         readonly TestLLMProviderApiResponseModel: {
@@ -6695,11 +6619,7 @@ export interface components {
             readonly success: boolean;
         };
         /** TimelineConfigModel */
-        readonly "TimelineConfigModel-Input": {
-            readonly sources?: components["schemas"]["TimelineSourcesConfigModel"];
-        };
-        /** TimelineConfigModel */
-        readonly "TimelineConfigModel-Output": {
+        readonly TimelineConfigModel: {
             readonly sources?: components["schemas"]["TimelineSourcesConfigModel"];
         };
         /** TimelineSourceConfigModel */
@@ -6929,13 +6849,7 @@ export interface components {
             readonly required_config?: readonly string[];
         };
         /** ToolsConfigModel */
-        readonly "ToolsConfigModel-Input": {
-            readonly builtIn?: components["schemas"]["BuiltInToolsConfigModel"];
-            /** Skills */
-            readonly skills?: readonly string[];
-        };
-        /** ToolsConfigModel */
-        readonly "ToolsConfigModel-Output": {
+        readonly ToolsConfigModel: {
             readonly builtIn?: components["schemas"]["BuiltInToolsConfigModel"];
             /** Skills */
             readonly skills?: readonly string[];
@@ -7032,92 +6946,7 @@ export interface components {
             readonly workspace_path?: string | null;
         };
         /** UserPreferencesModel */
-        readonly "UserPreferencesModel-Input": {
-            /**
-             * Allow Ask In Background
-             * @default false
-             */
-            readonly allow_ask_in_background: boolean;
-            /**
-             * Allow Interjection
-             * @default false
-             */
-            readonly allow_interjection: boolean;
-            /**
-             * Allow Media Grounding For Conversation
-             * @default false
-             */
-            readonly allow_media_grounding_for_conversation: boolean;
-            /**
-             * Auto Start Enabled
-             * @default false
-             */
-            readonly auto_start_enabled: boolean;
-            /**
-             * Close To Tray Enabled
-             * @default true
-             */
-            readonly close_to_tray_enabled: boolean;
-            /**
-             * Conversation Rhythm Enabled
-             * @default true
-             */
-            readonly conversation_rhythm_enabled: boolean;
-            /**
-             * Conversation Rhythm Mode
-             * @default natural
-             */
-            readonly conversation_rhythm_mode: string;
-            /**
-             * Default Chat Workspace Path
-             * @default ~/.magi/chat-workspace
-             */
-            readonly default_chat_workspace_path: string | null;
-            /**
-             * First Conversation Completed
-             * @description True once the user has sent at least one message in their very first conversation after onboarding. Used to hide the quick-start chips component once it has served its purpose.
-             * @default false
-             */
-            readonly first_conversation_completed: boolean;
-            /**
-             * Language
-             * @default zh
-             */
-            readonly language: string;
-            /**
-             * Onboarding Completed
-             * @default false
-             */
-            readonly onboarding_completed: boolean;
-            /** Scenario */
-            readonly scenario?: string | null;
-            /**
-             * Skip Quit Confirmation
-             * @default false
-             */
-            readonly skip_quit_confirmation: boolean;
-            /**
-             * Start Minimized
-             * @default false
-             */
-            readonly start_minimized: boolean;
-            /**
-             * Streaming Chat Enabled
-             * @default false
-             */
-            readonly streaming_chat_enabled: boolean;
-            /**
-             * Suggestion Dismissals
-             * @description Map of dedupe_key → DismissalRecord. The signal matcher filters out any candidate whose dedupe_key appears here and whose TTL (based on kind) has not yet expired.
-             */
-            readonly suggestion_dismissals?: {
-                readonly [key: string]: components["schemas"]["DismissalRecord"];
-            };
-            /** User Mode */
-            readonly user_mode?: string | null;
-        };
-        /** UserPreferencesModel */
-        readonly "UserPreferencesModel-Output": {
+        readonly UserPreferencesModel: {
             /**
              * Allow Ask In Background
              * @default false
