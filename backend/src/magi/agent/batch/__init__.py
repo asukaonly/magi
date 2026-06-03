@@ -13,6 +13,7 @@ from .contracts import (
     ReconcileReport,
     TERMINAL_ITEM_STATUSES,
 )
+from .store import BatchStore
 
 __all__ = [
     "BatchItem",
@@ -22,4 +23,5 @@ __all__ = [
     "ItemOutcome",
     "ReconcileReport",
     "TERMINAL_ITEM_STATUSES",
+    "BatchStore",
 ]
