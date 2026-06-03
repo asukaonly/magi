@@ -252,3 +252,16 @@ async def test_list_jobs_by_status(store):
     assert [j.job_id for j in running] == [j1.job_id]
     planning = await store.list_jobs_by_status(BatchJobStatus.PLANNING)
     assert {j.job_id for j in planning} == {j2.job_id}
+
+
+@pytest.mark.asyncio
+async def test_requeue_running_forces_all_regardless_of_lease(store):
+    job = await _make_job(store)
+    await store.add_items(job.job_id, [{"path": "/a.mkv"}, {"path": "/b.mkv"}])
+    # lease with a FAR-FUTURE expiry (NOT expired) — simulates a fresh lease at crash time
+    await store.lease_next_batch(job.job_id, limit=2, lease_owner="dead", lease_ttl_ms=30*60*1000, now_ms=10**12)
+    assert len(await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)) == 2
+    n = await store.requeue_running(job.job_id)
+    assert n == 2
+    assert len(await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)) == 0
+    assert len(await store.list_by_status(job.job_id, BatchItemStatus.PENDING)) == 2

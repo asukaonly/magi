@@ -425,6 +425,24 @@ class BatchStore:
             await db.commit()
             return cur.rowcount > 0
 
+    async def requeue_running(self, job_id: str) -> int:
+        """Force ALL 'running' items back to 'pending' (clearing the lease),
+        regardless of lease expiry. Used by restart-resume: after a process
+        restart no batch runs are in-flight, so every 'running' row is an orphan
+        and must be re-driven without waiting for the lease TTL. Returns rows requeued."""
+        async with aiosqlite.connect(self._db_path) as db:
+            cur = await db.execute(
+                """
+                UPDATE batch_item
+                SET status = 'pending', lease_owner = NULL,
+                    lease_expires_at_ms = NULL, updated_at_ms = ?
+                WHERE job_id = ? AND status = 'running'
+                """,
+                (_now_ms(), job_id),
+            )
+            await db.commit()
+            return cur.rowcount
+
     async def requeue_retryable(
         self, job_id: str, max_attempts: int, *, now_ms: int | None = None
     ) -> int:

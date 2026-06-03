@@ -20,7 +20,7 @@ from .runner import (
     on_batch_run_done,
     parse_job_id_from_goal,
 )
-from .store import _now_ms, default_batch_store
+from .store import default_batch_store
 
 _DEFAULT_TOOLS = ["web-search", "web-fetch", "bash", "file_list", "file_info", "batch_item_update"]
 
@@ -64,12 +64,16 @@ class BatchDriver:
         )
 
     async def resume_running_jobs(self) -> int:
-        """Restart recovery: for every RUNNING job, reclaim orphaned leases via
-        reconcile_scan, then refill to effective_N. Returns #jobs resumed."""
+        """Restart recovery — STARTUP-ONLY (assumes no batch runs are in-flight).
+        After a restart every 'running' item is an orphan (its run died with the
+        process), so force-requeue all of them to pending — without waiting for
+        the lease TTL — then refill to effective_N. Must NOT be called while runs
+        are live, or it would re-drive items that are still being processed.
+        Returns #jobs resumed."""
         store = self._store_factory()
         jobs = await store.list_jobs_by_status(BatchJobStatus.RUNNING)
         for job in jobs:
-            await store.reconcile_scan(job.job_id, now_ms=_now_ms())
+            await store.requeue_running(job.job_id)
             await fill_to_concurrency(
                 store, job, enqueue_run=self._enqueue_run, target_n=self._effective_n(job)
             )

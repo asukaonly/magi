@@ -1,4 +1,5 @@
 import sqlite3
+import time
 
 import pytest
 
@@ -143,11 +144,24 @@ async def test_kickoff_starts_effective_n_runs(store):
 async def test_resume_running_jobs_refills(store):
     job = await _job(store, 6, batch_size=2, concurrency=2)
     await store.set_job_status(job.job_id, BatchJobStatus.RUNNING)
-    # simulate a crash mid-run: 2 items stuck 'running' with an EXPIRED lease.
-    await store.lease_next_batch(job.job_id, limit=2, lease_owner="dead", lease_ttl_ms=1, now_ms=1)
+    # simulate a crash mid-run: 2 items 'running' with a NON-expired lease
+    # (a fresh lease taken just before the crash — the realistic case). Lease at
+    # the real wall-clock now with the full TTL so the expiry is genuinely in the
+    # FUTURE relative to resume's _now_ms() — i.e. reconcile_scan would NOT reclaim
+    # it, so only the force-requeue path can re-drive these items.
+    await store.lease_next_batch(job.job_id, limit=2, lease_owner="dead",
+                                 lease_ttl_ms=30*60*1000, now_ms=int(time.time()*1000))
     mgr = _Mgr(max_concurrent=4)
     d = BatchDriver(mgr, store_factory=lambda: store)
     n = await d.resume_running_jobs()
     assert n == 1                              # one RUNNING job resumed
-    assert len(mgr.enqueued) >= 1              # refilled at least one run
-    assert len(await store.list_by_status(job.job_id, BatchItemStatus.PENDING)) <= 4
+    assert len(mgr.enqueued) >= 1              # refilled at least one run despite non-expired lease
+    # The orphaned items (their run died with the process) must be re-driven, NOT
+    # left stranded under the dead lease. With reconcile-only resume the non-expired
+    # lease is never reclaimed, so these 2 stay 'running' under lease_owner='dead'
+    # forever — this assertion catches that and only passes with force-requeue.
+    leftover_dead = [
+        i for i in await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)
+        if i.lease_owner == "dead"
+    ]
+    assert leftover_dead == []
