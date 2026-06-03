@@ -617,6 +617,16 @@ class ChatExecutionCoordinator:
             text=response_text or "",
             attachments=tuple(attachments or ()),
         )
+        # Phase H+2 diagnostic — temporary INFO log so the user can
+        # confirm attachments are flowing into the fanout (vs being
+        # dropped upstream by FC orchestrator etc.). Demote to DEBUG
+        # once stable.
+        logger.info(
+            "fanout_to_origin_channels text_len=%d attachments=%d targets=%s",
+            len(response_text or ""),
+            len(attachments or []),
+            [t.channel_type for t in targets],
+        )
         receipts = await self._delivery_router.fanout_deliver(content=content, targets=targets)
         if receipts and self._receipts_store is not None and session_id and session_run_id:
             try:
