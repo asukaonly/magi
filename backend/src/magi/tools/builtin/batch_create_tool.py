@@ -120,8 +120,8 @@ class BatchCreateTool(Tool):
             from ...agent.background.provider import resolve_background_task_manager
             from ...agent.batch.driver import BatchDriver
 
-            leased = await BatchDriver(resolve_background_task_manager()).kickoff(job.job_id)
-            kickoff = f"leased {leased}"
+            started = await BatchDriver(resolve_background_task_manager()).kickoff(job.job_id)
+            kickoff = f"started {started} runs"
         except Exception as exc:  # noqa: BLE001 - report kickoff failure, don't hide it
             kickoff = f"kickoff failed: {type(exc).__name__}: {exc}"
         return ToolResult(
