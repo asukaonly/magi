@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...runtime_defaults import DEFAULT_USER_ID
 from .models import L2Conditions, L2SemanticFrame, TimeRange
 
 
@@ -57,9 +56,22 @@ def make_self_entity(user_id: str) -> dict[str, str]:
 
 
 def make_self_entities(user_id: str) -> list[dict[str, str]]:
+    """Return the self-entity candidate list for an L2 query frame.
+
+    Phase H+2 identity layer: ingress canonicalizes user_id, so every
+    query effectively runs as the canonical local user in single-user
+    mode. We unconditionally add the ``user:self`` alias whenever
+    the primary entity isn't already that literal — the L2 prompts
+    occasionally emit ``user:self`` for facts about the speaker
+    (see prompts/__init__.py:104), and dropping that alias only
+    when ``user_id == DEFAULT_USER_ID`` made the read-side broken
+    for channel-prefixed callers (the original cross-channel bug).
+    The alias is harmless when redundant because the catalog
+    matches by entity_id; downstream queries deduplicate.
+    """
     primary = make_self_entity(user_id)
     entities = [primary]
-    if user_id == DEFAULT_USER_ID and primary["entity_id"] != "user:self":
+    if primary["entity_id"] != "user:self":
         entities.append({
             "entity_id": "user:self",
             "entity_type": "user",
