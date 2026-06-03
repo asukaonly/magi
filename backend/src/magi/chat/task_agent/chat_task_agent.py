@@ -354,12 +354,7 @@ class ChatTaskAgent(
 
     @property
     def postprocess_service(self) -> ChatPostProcessService:
-        """Expose the chat post-process service for external wiring.
-
-        Used by the background-task completion handshake so the bootstrap
-        listener can route terminal-state tasks back into the chat session
-        via :meth:`ChatPostProcessService.deliver_background_task_completion`.
-        """
+        """Expose the chat post-process service for external wiring."""
         return self._postprocess_service
 
     @staticmethod

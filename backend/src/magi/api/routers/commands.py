@@ -14,9 +14,9 @@ rather than producing a tool_result row.
 `POST /api/commands/run-skill-as-background` renders a skill and enqueues
 it as a BackgroundTask so the sub-agent runs out of band and the user's
 main chat session stays free. Used for skills marked ``context: fork``.
-The completion is delivered back via the existing
-``deliver_background_task_completion`` plumbing as a
-``background_task_completion`` chat message.
+The completion is delivered back into the originating session's chat
+transcript by the outreach completion producer (see :mod:`magi.outreach`)
+as a ``background_task_completion`` chat message.
 """
 
 from __future__ import annotations

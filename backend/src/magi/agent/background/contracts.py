@@ -97,9 +97,9 @@ class BackgroundTaskSpec:
     pending_message_id: str | None = None
     """Id of the placeholder ``background_task_pending`` chat message.
 
-    When set, ``deliver_background_task_completion`` will mark the
-    pending row replaced by the freshly written completion row, so the
-    UI displays exactly one entry for the task across its lifecycle.
+    When set, ``persist_completion_message`` will mark the pending row
+    replaced by the freshly written completion row, so the UI displays
+    exactly one entry for the task across its lifecycle.
     Only set by the ``/api/commands/run-skill-as-background`` flow
     today; legacy detach paths leave it ``None``.
     """
