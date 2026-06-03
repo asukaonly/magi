@@ -33,7 +33,7 @@ layers =
     control
     events
     config
-    scheduler | runtime_trace
+    scheduler | runtime_trace | identity
     core
 ignore_imports =
     # == Composition root (NOT debt; structural & permanent) ==================
