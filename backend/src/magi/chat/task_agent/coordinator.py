@@ -540,71 +540,97 @@ class ChatExecutionCoordinator:
             if session_id and session_run_id and self._session_run_store is not None:
                 self._session_run_store.save_run_snapshot(session_id, session_run_id, snapshot)
 
-            # Phase G: fan out the runner result to user's configured
-            # delivery channels (when wired). Phase G+3: receipts now go
-            # into a dedicated DeliveryReceiptsStore — no more snapshot
-            # stuffing — so clearing a stale snapshot can't drop retract
-            # capability.
-            if runner_result is not None and self._delivery_router is not None:
-                user_id = getattr(request.context, "user_id", "") or ""
-                # Phase G+1 / Task 9: pull stored prefs from the injected
-                # provider; let any context-supplied prefs override (so
-                # request-time overrides win on conflict).
-                user_prefs = await self._resolve_user_prefs(user_id)
-                ctx_prefs = getattr(request.context, "user_prefs", None)
-                if isinstance(ctx_prefs, dict):
-                    user_prefs = {**user_prefs, **ctx_prefs}
-                # Read the inbound channel scheme from this run's
-                # RunTrigger so resolve_delivery_targets can auto-append
-                # the originating channel. Without this, an inbound from
-                # WeChat / Telegram would only fanout to chat_sse (the
-                # default) and the external user would never hear back.
-                # Defensive chain: active_run can be None on legacy paths;
-                # trigger likewise on pre-Phase-H paths.
-                origin_channel: str | None = None
-                active_run = getattr(request.context, "active_run", None)
-                if active_run is not None:
-                    trigger = getattr(active_run, "trigger", None)
-                    if trigger is not None:
-                        origin_channel = getattr(trigger, "source_channel", None)
-                targets = resolve_delivery_targets(
-                    user_id=user_id,
-                    session_id=session_id or "",
-                    user_prefs=user_prefs,
-                    origin_channel=origin_channel,
-                )
-                if targets:
-                    # Phase A media-outbound: attachments produced by tools
-                    # (image_generation_tool, prepare_chat_attachments,
-                    # screenshot_timeline, photo_library, …) ride along
-                    # so external channels can send images/documents back,
-                    # not just the joined text. chat_sse already reads
-                    # them out of chat_messages, so nothing changes there.
-                    content = DeliveryContent(
-                        text=runner_result.response_text or "",
-                        attachments=tuple(runner_result.attachments or ()),
-                    )
-                    receipts = await self._delivery_router.fanout_deliver(
-                        content=content, targets=targets,
-                    )
-                    if receipts and self._receipts_store is not None and session_id and session_run_id:
-                        try:
-                            await self._receipts_store.save_receipts(
-                                session_id=session_id,
-                                run_id=session_run_id,
-                                revision=int(getattr(request.context, "revision", 0) or 0),
-                                receipts=receipts,
-                            )
-                        except Exception:
-                            logger.warning(
-                                "DeliveryReceiptsStore.save_receipts failed",
-                                exc_info=True,
-                            )
-
+            # Phase G: fan out the runner result to the user's configured +
+            # originating delivery channels (when wired).
             if runner_result is not None:
+                await self._fanout_to_origin_channels(
+                    request,
+                    response_text=runner_result.response_text or "",
+                    attachments=runner_result.attachments or (),
+                )
                 return runner_result
+        # Legacy handler-registry path (ORCHESTRATION_UPDATE worker results,
+        # EXPLORE_TASK_RENDER, …). These also produce a final user-facing
+        # response, so they must ALSO fan out to the originating external
+        # channel — otherwise a WeChat/Telegram turn that got offloaded to a
+        # worker subagent only reaches the message bus (desktop) and the
+        # channel user hears nothing. Gated on a real, emit-worthy response so
+        # interim worker progress (skip_emit / empty text) never spams the channel.
         handler = self._handler_registry.get(request.mode)
-        return await handler.execute(request)
+        result = await handler.execute(request)
+        if getattr(result, "response_text", "") and not getattr(result, "skip_emit", False):
+            await self._fanout_to_origin_channels(
+                request,
+                response_text=result.response_text,
+                attachments=getattr(result, "attachments", ()) or (),
+            )
+        return result
+
+    async def _fanout_to_origin_channels(
+        self,
+        request: ExecutionRequest,
+        *,
+        response_text: str,
+        attachments=(),
+    ) -> None:
+        """Deliver a final assistant response to the user's configured +
+        originating delivery channels.
+
+        Shared by the RouteDecision path (runner_result) and the legacy
+        handler-registry path (ORCHESTRATION_UPDATE / EXPLORE_TASK_RENDER) so a
+        turn that gets offloaded to a worker subagent reaches the originating
+        external channel (WeChat/Telegram), not just the message bus. No-op when
+        no DeliveryRouter is wired.
+        """
+        if self._delivery_router is None:
+            return
+        context = getattr(request, "context", None)
+        session_id = getattr(context, "session_id", "") or ""
+        session_run_id = getattr(context, "session_run_id", "") or ""
+        user_id = getattr(context, "user_id", "") or ""
+        # Phase G+1: stored prefs from the injected provider; request-time
+        # context prefs win on conflict.
+        user_prefs = await self._resolve_user_prefs(user_id)
+        ctx_prefs = getattr(context, "user_prefs", None)
+        if isinstance(ctx_prefs, dict):
+            user_prefs = {**user_prefs, **ctx_prefs}
+        # Auto-append the originating channel (from this run's RunTrigger) so an
+        # inbound from WeChat/Telegram fans back to that channel, not just the
+        # chat_sse default.
+        origin_channel: str | None = None
+        active_run = getattr(context, "active_run", None)
+        if active_run is not None:
+            trigger = getattr(active_run, "trigger", None)
+            if trigger is not None:
+                origin_channel = getattr(trigger, "source_channel", None)
+        targets = resolve_delivery_targets(
+            user_id=user_id,
+            session_id=session_id,
+            user_prefs=user_prefs,
+            origin_channel=origin_channel,
+        )
+        if not targets:
+            return
+        # Phase A media-outbound: attachments ride along so external channels
+        # can send images/documents back, not just the joined text.
+        content = DeliveryContent(
+            text=response_text or "",
+            attachments=tuple(attachments or ()),
+        )
+        receipts = await self._delivery_router.fanout_deliver(content=content, targets=targets)
+        if receipts and self._receipts_store is not None and session_id and session_run_id:
+            try:
+                await self._receipts_store.save_receipts(
+                    session_id=session_id,
+                    run_id=session_run_id,
+                    revision=int(getattr(context, "revision", 0) or 0),
+                    receipts=receipts,
+                )
+            except Exception:
+                logger.warning(
+                    "DeliveryReceiptsStore.save_receipts failed",
+                    exc_info=True,
+                )
 
     async def _resolve_user_prefs(self, user_id: str) -> dict:
         """Pull stored delivery prefs from the injected provider.
