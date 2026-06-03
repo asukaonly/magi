@@ -10,7 +10,7 @@ import json
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import aiosqlite
 
@@ -173,17 +173,19 @@ class BatchStore:
 
     # --- items ------------------------------------------------------------
 
-    async def add_items(self, job_id: str, inputs: list[dict[str, Any]]) -> int:
+    async def add_items(
+        self, job_id: str, inputs: "Iterable[dict[str, Any]]", *, chunk_size: int = 1000
+    ) -> int:
+        """Seed pending items from a (possibly lazy) iterable, committing in
+        chunks so a huge seed never builds one giant transaction. Returns total."""
         now = _now_ms()
-        rows = [
-            (
-                job_id, uuid.uuid4().hex, json.dumps(inp),
-                BatchItemStatus.PENDING.value, 0, None, None, None, None,
-                None, None, now,
-            )
-            for inp in inputs
-        ]
-        async with aiosqlite.connect(self._db_path) as db:
+        total = 0
+        chunk: list[tuple] = []
+
+        async def _flush(db) -> None:
+            nonlocal total, chunk
+            if not chunk:
+                return
             await db.executemany(
                 """
                 INSERT INTO batch_item (
@@ -192,10 +194,23 @@ class BatchStore:
                     lease_expires_at_ms, updated_at_ms
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
-                rows,
+                chunk,
             )
             await db.commit()
-        return len(rows)
+            total += len(chunk)
+            chunk = []
+
+        async with aiosqlite.connect(self._db_path) as db:
+            for inp in inputs:
+                chunk.append((
+                    job_id, uuid.uuid4().hex, json.dumps(inp),
+                    BatchItemStatus.PENDING.value, 0, None, None, None, None,
+                    None, None, now,
+                ))
+                if len(chunk) >= chunk_size:
+                    await _flush(db)
+            await _flush(db)
+        return total
 
     async def get_item(self, job_id: str, item_id: str) -> BatchItem | None:
         async with aiosqlite.connect(self._db_path) as db:
