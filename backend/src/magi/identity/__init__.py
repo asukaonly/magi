@@ -11,7 +11,7 @@ alone.
 from __future__ import annotations
 
 from .bindings_store import IdentityBinding, IdentityBindingsStore
-from .defaults import CANONICAL_LOCAL_USER
+from .defaults import CANONICAL_LOCAL_USER, canonicalize_user_id
 from .resolver import BindingTableResolver, IdentityResolver, LocalUserResolver
 from .types import ExternalIdentity, MagiUserID
 
@@ -25,4 +25,5 @@ __all__ = [
     "IdentityResolver",
     "LocalUserResolver",
     "MagiUserID",
+    "canonicalize_user_id",
 ]

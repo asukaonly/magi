@@ -7,7 +7,8 @@ from typing import Optional
 from ..core.logger import get_logger
 from ..events.backend import MessageBusBackend
 from ..events.events import Event, EventTypes
-from ..runtime_defaults import DEFAULT_RUNTIME_NAMESPACE, DEFAULT_USER_ID
+from ..identity import canonicalize_user_id as _canonicalize_user_id
+from ..runtime_defaults import DEFAULT_RUNTIME_NAMESPACE
 from .contracts import SensorEvent
 
 logger = get_logger(__name__)
@@ -72,7 +73,14 @@ class SensorHub:
             payload={
                 "content": content,
                 "attachments": list(attachments),
-                "user_id": str(data.get("user_id", DEFAULT_USER_ID)),
+                # Phase H+2 identity layer ingress #3: canonicalize the
+                # user_id from the bus payload so any channel-prefixed
+                # leaker (legacy fact, stale producer) gets collapsed to
+                # the canonical MagiUserID before reaching memory L1.
+                # Today this is mostly a no-op (session_mapper hands
+                # canonical values upstream), but the assertion makes
+                # the invariant explicit at the awareness boundary.
+                "user_id": str(_canonicalize_user_id(data.get("user_id"))),
                 "runtime_namespace": str(
                     data.get("runtime_namespace")
                     or (data.get("metadata") or {}).get("runtime_namespace")

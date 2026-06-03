@@ -29,6 +29,7 @@ from magi.identity import (
     IdentityBindingsStore,
     LocalUserResolver,
     MagiUserID,
+    canonicalize_user_id,
 )
 
 
@@ -86,6 +87,38 @@ def test_external_identity_equality_is_value_based():
     assert hash(a) == hash(b)
     assert a != c
     assert {a, b, c} == {a, c}  # b dedups against a
+
+
+# === canonicalize_user_id helper (ingress defense) =======================
+
+
+def test_canonicalize_user_id_none_or_empty_returns_canonical():
+    """Missing user_id at ingress collapses to canonical local user.
+    Matches the legacy ``DEFAULT_USER_ID`` fallback semantics."""
+    assert canonicalize_user_id(None) == CANONICAL_LOCAL_USER
+    assert canonicalize_user_id("") == CANONICAL_LOCAL_USER
+    assert canonicalize_user_id("   ") == CANONICAL_LOCAL_USER
+
+
+def test_canonicalize_user_id_channel_prefix_collapses():
+    """Channel-prefixed user_ids (legacy stale data flowing past
+    session_mapper) collapse to canonical — the same behavior the L2
+    entity helper was doing locally."""
+    assert canonicalize_user_id("channel_weixin_o9cq") == CANONICAL_LOCAL_USER
+    assert canonicalize_user_id("channel_telegram_42") == CANONICAL_LOCAL_USER
+
+
+def test_canonicalize_user_id_canonical_passes_through():
+    """Canonical inputs are returned unchanged (single-user mode)."""
+    assert canonicalize_user_id("local_user") == CANONICAL_LOCAL_USER
+    assert canonicalize_user_id(str(CANONICAL_LOCAL_USER)) == CANONICAL_LOCAL_USER
+
+
+def test_canonicalize_user_id_non_default_honored_in_single_user():
+    """Non-default, non-channel-prefix value is honored (single-user
+    mode trusts the caller). Multi-user mode would route through
+    the resolver instead."""
+    assert canonicalize_user_id("alice") == "alice"
 
 
 # === IdentityBindingsStore CRUD ===========================================
