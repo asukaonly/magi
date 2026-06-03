@@ -3555,34 +3555,22 @@ export interface components {
         };
         /** Body_inspect_plugin_upload_api_plugins_install_upload_inspect_post */
         readonly Body_inspect_plugin_upload_api_plugins_install_upload_inspect_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             readonly file: string;
         };
         /** Body_install_plugin_from_upload_api_plugins_install_upload_post */
         readonly Body_install_plugin_from_upload_api_plugins_install_upload_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             readonly file: string;
         };
         /** Body_start_plugin_upload_install_job_api_plugins_install_upload_jobs_post */
         readonly Body_start_plugin_upload_install_job_api_plugins_install_upload_jobs_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             readonly file: string;
         };
         /** Body_upload_chat_attachment_api_messages_session__session_id__attachments_post */
         readonly Body_upload_chat_attachment_api_messages_session__session_id__attachments_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             readonly file: string;
             /** Turn Id */
             readonly turn_id: string;
@@ -3594,18 +3582,12 @@ export interface components {
         };
         /** Body_upload_manual_entry_asset_api_memory_manual_entries_assets_post */
         readonly Body_upload_manual_entry_asset_api_memory_manual_entries_assets_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             readonly file: string;
         };
         /** Body_upload_personality_avatar_api_personalities_avatar_upload_post */
         readonly Body_upload_personality_avatar_api_personalities_avatar_upload_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             readonly file: string;
         };
         /** BootstrapConfigModel */
@@ -7315,6 +7297,10 @@ export interface components {
         };
         /** ValidationError */
         readonly ValidationError: {
+            /** Context */
+            readonly ctx?: Record<string, never>;
+            /** Input */
+            readonly input?: unknown;
             /** Location */
             readonly loc: readonly (string | number)[];
             /** Message */
