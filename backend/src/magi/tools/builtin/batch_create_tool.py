@@ -62,6 +62,14 @@ class BatchCreateTool(Tool):
                     name="title", type=ParameterType.STRING, required=False, default="Batch job",
                     description="Human-readable job title.",
                 ),
+                ToolParameter(
+                    name="concurrency", type=ParameterType.INTEGER, required=False, default=3,
+                    description=(
+                        "How many items to process in parallel (independent background "
+                        "runs). Default 3; capped by the global background concurrency, "
+                        "always leaving one slot for other tasks."
+                    ),
+                ),
             ],
         )
 
@@ -99,6 +107,7 @@ class BatchCreateTool(Tool):
             handler_ref=handler_ref,
             handler_config=handler_config,
             seed_spec=seed_spec,
+            concurrency=int(parameters.get("concurrency") or 3),
         )
         # inputs is a lazy iterator; add_items consumes it and returns the count.
         total_items = await store.add_items(job.job_id, inputs)
