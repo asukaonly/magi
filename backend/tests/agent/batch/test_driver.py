@@ -57,13 +57,15 @@ async def test_kickoff_builds_correct_spec(store):
     enqueued = []
 
     class FakeManager:
+        max_concurrent = 4
+
         async def enqueue(self, spec):
             enqueued.append(spec)
 
     driver = BatchDriver(FakeManager(), store_factory=lambda: store)
     n = await driver.kickoff(job.job_id)
 
-    assert n == 2
+    assert n == 1  # default concurrency=1 → effective_N = min(1, 4-1) = 1 run
     assert len(enqueued) == 1
     spec = enqueued[0]
     assert "PROMPT-X" in spec.goal                      # handler prompt injected
@@ -79,6 +81,8 @@ async def test_on_terminal_drives_chain_to_done(store):
 
     class FakeManager:
         """Simulate the runtime: each enqueue runs (writes done) then fires the listener."""
+        max_concurrent = 4
+
         def __init__(self):
             self.driver = None
 
@@ -106,3 +110,44 @@ async def test_on_terminal_ignores_non_batch_run(store):
     driver = BatchDriver(None, store_factory=lambda: store)
     # a background run that isn't a batch (no job_id marker) must be a safe no-op
     await driver.on_terminal(_FakeTask("just a regular background task goal"))
+
+
+class _Mgr:
+    def __init__(self, max_concurrent=4):
+        self.max_concurrent = max_concurrent
+        self.enqueued = []
+    async def enqueue(self, spec):
+        self.enqueued.append(spec)
+
+
+@pytest.mark.asyncio
+async def test_effective_n_reserves_one_slot(store):
+    job = await _job(store, 1, concurrency=10)
+    d = BatchDriver(_Mgr(max_concurrent=4), store_factory=lambda: store)
+    assert d._effective_n(job) == 3           # min(10, 4-1)
+    d2 = BatchDriver(_Mgr(max_concurrent=1), store_factory=lambda: store)
+    assert d2._effective_n(job) == 1          # max(1, min(10, 0))
+
+
+@pytest.mark.asyncio
+async def test_kickoff_starts_effective_n_runs(store):
+    job = await _job(store, 20, batch_size=2, concurrency=3)
+    mgr = _Mgr(max_concurrent=4)
+    d = BatchDriver(mgr, store_factory=lambda: store)
+    started = await d.kickoff(job.job_id)
+    assert started == 3                        # effective_N = min(3, 3)
+    assert len(mgr.enqueued) == 3
+
+
+@pytest.mark.asyncio
+async def test_resume_running_jobs_refills(store):
+    job = await _job(store, 6, batch_size=2, concurrency=2)
+    await store.set_job_status(job.job_id, BatchJobStatus.RUNNING)
+    # simulate a crash mid-run: 2 items stuck 'running' with an EXPIRED lease.
+    await store.lease_next_batch(job.job_id, limit=2, lease_owner="dead", lease_ttl_ms=1, now_ms=1)
+    mgr = _Mgr(max_concurrent=4)
+    d = BatchDriver(mgr, store_factory=lambda: store)
+    n = await d.resume_running_jobs()
+    assert n == 1                              # one RUNNING job resumed
+    assert len(mgr.enqueued) >= 1              # refilled at least one run
+    assert len(await store.list_by_status(job.job_id, BatchItemStatus.PENDING)) <= 4
