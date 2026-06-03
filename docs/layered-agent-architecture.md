@@ -63,6 +63,7 @@ Primary packages:
 - `core/`
 - `scheduler/`
 - `runtime_trace/`
+- `identity/`
 - selected infrastructure helpers in `bootstrap/exports.py`
 
 Notes:
@@ -71,6 +72,7 @@ Notes:
 - bootstrap order and ownership layer are not the same thing
 - `runtime_trace/` stores execution observability data; it is not durable memory and does not participate in L7 recall
 - workspace storage is an infrastructure facade: `core` owns workspace identity, path safety, generated directory creation, and state manifests; upper layers receive scoped paths instead of constructing `<workspace>/.magi` paths directly
+- `identity/` owns the canonical user-id authority (`MagiUserID`, `IdentityResolver`, the `user_identity_bindings` table). Every upper-layer ingress site (channels dispatcher, api dispatch, sensor_hub, session_mapper) canonicalizes external identifiers through it before downstream stores see them; see [Identity Architecture](./identity-architecture.md) for the boundary contract
 
 ### L2. Configuration
 

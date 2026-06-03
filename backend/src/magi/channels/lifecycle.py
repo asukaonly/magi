@@ -84,7 +84,17 @@ class ChannelsModule(LifecycleModule):
         from pathlib import Path
         Path(channels_db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        session_mapper = ChannelSessionMapper(db_path=channels_db_path, chat_store=chat_store)
+        # Identity layer (L1): pull the active resolver off the bootstrap
+        # context. IdentityModule initialized earlier in the lifecycle
+        # (infrastructure phase) so it's always present in production;
+        # tests / partial bootstraps may omit it, in which case the
+        # mapper falls back to CANONICAL_LOCAL_USER (single-user default).
+        identity_resolver = getattr(self._context.identity, "resolver", None)
+        session_mapper = ChannelSessionMapper(
+            db_path=channels_db_path,
+            chat_store=chat_store,
+            identity_resolver=identity_resolver,
+        )
         await session_mapper.initialize()
 
         from .receipts_store import DeliveryReceiptsStore

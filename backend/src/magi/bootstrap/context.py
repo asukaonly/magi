@@ -202,6 +202,20 @@ class ChannelsBootstrapState:
 
 
 @dataclass
+class IdentityBootstrapState:
+    """L1 Identity Layer state slice.
+
+    Exposes the active resolver + store for the four ingress sites
+    (channels dispatcher, api dispatch, sensor_hub, session_mapper)
+    to pull at module-init time.
+    """
+
+    store: Any | None = None
+    resolver: Any | None = None
+    module: Any | None = None
+
+
+@dataclass
 class RuntimeBootstrapContext:
     """Slice-based bootstrap context shared across layer lifecycle modules.
 
@@ -226,3 +240,4 @@ class RuntimeBootstrapContext:
     runtime_trace: RuntimeTraceBootstrapState = field(default_factory=RuntimeTraceBootstrapState)
     maintenance: MaintenanceBootstrapState = field(default_factory=MaintenanceBootstrapState)
     channels: ChannelsBootstrapState = field(default_factory=ChannelsBootstrapState)
+    identity: IdentityBootstrapState = field(default_factory=IdentityBootstrapState)

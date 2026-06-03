@@ -21,6 +21,11 @@ def collect_context_bundle(
     pronoun_bindings: list[dict[str, Any]] = []
     text = str(event.content or "")
     if "我" in text:
+        # Phase H+2 identity layer: ingress canonicalizes ``event.user_id``
+        # so it is always populated (CANONICAL_LOCAL_USER at minimum).
+        # The ``"user:self"`` fallback below is defensive only — kept
+        # for any caller constructing a MemoryEvent outside the
+        # production ingress path (older tests, ad-hoc replay tools).
         pronoun_bindings.append(
             {
                 "surface": "我",

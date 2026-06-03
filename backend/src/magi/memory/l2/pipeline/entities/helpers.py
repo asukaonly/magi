@@ -197,8 +197,14 @@ class L2EntityResolutionHelperMixin:
             raw = str(event.user_id).strip()
             if not raw:
                 return None
-            # Channel-scoped author ids (e.g. "channel_weixin_xxx") collapse to the
-            # canonical local user so snapshots/assertions don't fragment per channel.
+            # Phase H+2 identity layer: ingress now canonicalizes user_id
+            # before it reaches L1/L2 (see docs/identity-architecture.md).
+            # The ``startswith("channel_")`` branch below is therefore
+            # unreachable in healthy state — kept as a defensive
+            # belt-and-suspenders for legacy ``channel_*`` rows that
+            # haven't been touched by the data-migration script yet
+            # (Phase 1). ``"self"`` literal stays because the L2 prompt
+            # explicitly emits it (see prompts/__init__.py:104, 282, 428).
             if raw == "self" or raw.startswith("channel_"):
                 return "user:local_user"
             return f"user:{raw}"
