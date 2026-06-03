@@ -227,7 +227,7 @@ class IdentityResolver(Protocol):
     def canonical_local(self) -> MagiUserID: ...
 ```
 
-Single-user implementation (Phase 1 default):
+Single-user implementation (default):
 
 ```python
 class LocalUserResolver(IdentityResolver):
@@ -254,12 +254,12 @@ all callers see one interface.
 `str`) and a type-checker handle. Adoption follows the
 **BASELINE + RATCHET** pattern already used by `.importlinter`:
 
-- Phase 1–2: declare the type, use it inside `magi/identity/`
+- Phase 2 (shipped): declare the type, use it inside `magi/identity/`
   exclusively. Outside callers still pass `str`; no signature
   changes. This is the "relaxed" path — defense relies on ingress
   discipline, not the type system.
-- Phase 3 onward: ratchet `MagiUserID` outward, starting at the
-  ingress edges (`channels/dispatcher.py`,
+- Phase 3 (separate future PR): ratchet `MagiUserID` outward,
+  starting at the ingress edges (`channels/dispatcher.py`,
   `api/services/message_dispatch_service.py`,
   `awareness/sensor_hub.py`) and growing inward toward storage
   call sites. Each PR shrinks the `str` perimeter, identical to how
@@ -323,12 +323,24 @@ existing code becomes redundant or simplifies:
 
 ## 8. Migration Plan
 
-Three phases, each independently mergeable and reversible.
+Originally proposed as three independently mergeable phases (data
+migration → code wiring → type ratchet). The shipped rollout
+landed Phase 2 and Phase 3 only — Phase 1 was intentionally skipped
+because this codebase had not launched at the time of the rollout
+and carried no production data to migrate.
 
-### 8.1 Phase 1 — Data migration (one-shot SQL)
+### 8.1 Phase 1 — Data migration (one-shot SQL) — **NOT SHIPPED**
 
-A migration script (`scripts/migrations/2026-06-identity-collapse.py`)
-that, against an existing instance:
+The original draft included a script
+(`scripts/migrations/2026-06-identity-collapse.py`) that would have
+SQL-collapsed every legacy `channel_*`-prefixed `user_id` row across
+all stores. The draft was authored, smoke-tested against a
+pre-launch dev instance, and then deliberately removed before merge
+because the project had no production data to migrate.
+
+If this design ever ships to a deployment that DOES have legacy
+`channel_*`-prefixed rows, the migration shape is preserved here for
+reference:
 
 ```sql
 -- Memory partition
@@ -357,15 +369,9 @@ UPDATE runtime_notifications SET user_id = 'local_user' WHERE user_id LIKE 'chan
 UPDATE user_notifications    SET user_id = 'local_user' WHERE user_id = 'default_user';
 ```
 
-Also drops the L2 entity-vector partition keyed on user_id and
-rebuilds; `l1_event_vec_*` is a vec0 virtual table whose
-`partition key` is `user_id`, so collapsing user_id requires
-re-embedding. The script invokes the existing embedding rebuild job
-(`l2_projection_jobs` / `embedding_rebuild_jobs`).
-
-After Phase 1, the database is clean even if no code changes ship.
-A fresh write from weixin still produces `channel_weixin_*` until
-Phase 2 lands; the next migration run will collapse it again.
+A migration that ships would additionally trigger an L1 vec0
+partition rebuild (`l1_event_vec_*` uses `user_id` as its partition
+key, so collapsing the column doesn't relocate vectors automatically).
 
 ### 8.2 Phase 2 — Code wiring
 
@@ -387,8 +393,9 @@ In dependency order:
 Each step is a separate commit. Regression suite stays green
 throughout because `LocalUserResolver` is behavior-equivalent to
 "always return `local_user`" — which matches what the system already
-does for desktop, and which matches what Phase 1 forced for
-historic external rows.
+does for desktop. (For deployments with legacy data, what Phase 1
+would have done by SQL is what Phase 2 now does for every
+inbound: collapse to canonical at ingress.)
 
 ### 8.3 Phase 3 — Type discipline ratchet
 
@@ -421,9 +428,10 @@ Three tiers:
   row has `user_id = 'local_user'`. This is the user-visible win:
   cross-channel memory recall works.
 
-The Phase 1 data migration ships with a self-check script that
-verifies the post-migration row counts match the pre-migration sum
-(no rows lost, only re-keyed).
+If Phase 1 is ever revived (deployment with legacy data), the
+script should ship with a self-check that verifies the
+post-migration row counts match the pre-migration sum (no rows
+lost, only re-keyed).
 
 ## 10. Open Questions
 
@@ -435,8 +443,9 @@ verifies the post-migration row counts match the pre-migration sum
 - **L2 entity rebuild scope**: the `user:channel_*` nodes in
   `entity_catalog` that were created before the L2 helper
   normalization landed — do those need a cleanup pass to merge
-  into `user:local_user`? Likely yes; Phase 1 should include an
-  audit query and a targeted UPDATE.
+  into `user:local_user`? On a deployment with legacy data, yes —
+  a revived Phase 1 should include an audit query and a targeted
+  UPDATE. On this codebase (pre-launch, no legacy data), N/A.
 - **Background task ownership**: `background_tasks.user_id` is
   currently empty in the surveyed instance, but the column exists.
   When a tool spawns a background job on behalf of a weixin user,
