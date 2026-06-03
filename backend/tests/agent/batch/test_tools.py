@@ -128,3 +128,26 @@ async def test_batch_review_approve_and_skip(store):
     assert r1.data["applied"] is True and r2.data["applied"] is True
     assert (await store.get_item(job.job_id, leased[0].item_id)).status == BatchItemStatus.PENDING
     assert (await store.get_item(job.job_id, leased[1].item_id)).status == BatchItemStatus.SKIPPED
+
+
+@pytest.mark.asyncio
+async def test_batch_create_inline_handler_prompt(store, tmp_path):
+    (tmp_path / "a.mkv").write_text("")
+    tool = batch_create_tool.BatchCreateTool()
+    res = await tool.execute(
+        {"handler_prompt": "Rename each file to 'Title (Year)'.",
+         "seed_spec": {"source": "fs", "root": str(tmp_path), "patterns": ["*.mkv"]}},
+        _ctx(user_id="local_user"),
+    )
+    assert res.success
+    job = await store.get_job(res.data["job_id"])
+    assert job.handler_ref == "inline"
+    assert job.handler_config.get("prompt") == "Rename each file to 'Title (Year)'."
+
+
+@pytest.mark.asyncio
+async def test_batch_create_requires_handler(store):
+    tool = batch_create_tool.BatchCreateTool()
+    res = await tool.execute({"seed_spec": {"source": "fs", "root": "/tmp", "patterns": ["*.x"]}}, _ctx())
+    assert not res.success
+    assert res.error_code == "INVALID_PARAMETERS"
