@@ -132,7 +132,13 @@ class PermissionGateway:
         ]
         | None = None,
         prompter: PermissionPrompter | None = None,
-        prompt_timeout_seconds: float = 120.0,
+        # Phase H+2: default bumped 120 → 300 to accommodate external
+        # channel response latency. WeChat / Telegram users may be away
+        # from their device for minutes; 5 min keeps the prompt
+        # reachable without hanging the run indefinitely. Desktop users
+        # were never near the 120s ceiling either, so this is strictly
+        # a wider window with no regression.
+        prompt_timeout_seconds: float = 300.0,
         plan_mode_guard: Callable[[str | None, str], bool] | None = None,
     ) -> None:
         self._classifier = classifier

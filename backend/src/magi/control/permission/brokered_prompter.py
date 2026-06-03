@@ -140,10 +140,31 @@ class BrokeredPermissionPrompter:
         broker: InteractionBroker,
         registry: PendingPermissionRegistry,
         notify_callback: Any | None = None,
+        fanout_callback: Any | None = None,
     ) -> None:
         self._broker = broker
         self._registry = registry
         self._notify = notify_callback
+        #: Async callable ``(PermissionRequest) -> Awaitable[None]`` that
+        #: fans out the prompt to every channel that opted into control
+        #: requests (Phase H+2). Optional: when None, only the
+        #: ``notify_callback`` path (desktop / runtime_notifications)
+        #: fires, which is the pre-H+2 behavior. Late-binding via
+        #: :meth:`bind_fanout_callback` lets a later-initializing
+        #: bootstrap module (ChannelsModule, which needs the channel
+        #: registry that doesn't exist at ControlPlane init time) wire
+        #: this in without a hard dependency cycle.
+        self._fanout = fanout_callback
+
+    def bind_fanout_callback(self, fanout_callback: Any) -> None:
+        """Late-bind the fanout callback after construction.
+
+        Used by ChannelsModule.init() which runs after ControlPlaneModule
+        (so the prompter exists) and after the channel registry is built
+        (so we can enumerate opted-in channels). Idempotent — overwrites
+        any prior binding. Pass ``None`` to disable fanout (used by tests
+        that exercise the notify-only path)."""
+        self._fanout = fanout_callback
 
     async def __call__(
         self,
@@ -164,6 +185,19 @@ class BrokeredPermissionPrompter:
             except Exception:
                 logger.warning(
                     "permission_prompter.notify_failed",
+                    request_id=request.request_id,
+                    exc_info=True,
+                )
+        if self._fanout is not None:
+            try:
+                await _maybe_await(self._fanout(request))
+            except Exception:
+                # Same best-effort policy as notify_callback: a fanout
+                # failure must not block the broker.wait — the desktop
+                # path still works, and a partial fanout is better than
+                # a stuck run.
+                logger.warning(
+                    "permission_prompter.fanout_failed",
                     request_id=request.request_id,
                     exc_info=True,
                 )

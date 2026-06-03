@@ -202,6 +202,16 @@ class ChannelsBootstrapState:
 
 
 @dataclass
+class ControlPlaneBootstrapState:
+    """Control-plane state slice — exposes ControlPlaneModule so later-
+    initializing modules (ChannelsModule for the Phase H+2 control
+    fanout binding) can reach the prompter without a hard module
+    dependency."""
+
+    module: Any | None = None
+
+
+@dataclass
 class IdentityBootstrapState:
     """L1 Identity Layer state slice.
 
@@ -240,4 +250,5 @@ class RuntimeBootstrapContext:
     runtime_trace: RuntimeTraceBootstrapState = field(default_factory=RuntimeTraceBootstrapState)
     maintenance: MaintenanceBootstrapState = field(default_factory=MaintenanceBootstrapState)
     channels: ChannelsBootstrapState = field(default_factory=ChannelsBootstrapState)
+    control_plane: ControlPlaneBootstrapState = field(default_factory=ControlPlaneBootstrapState)
     identity: IdentityBootstrapState = field(default_factory=IdentityBootstrapState)
