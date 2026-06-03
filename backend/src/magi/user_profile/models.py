@@ -6,7 +6,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-DEFAULT_USER_ID = "local_user"
+# Re-export from the identity layer so this module isn't a second
+# source of truth for the canonical user-id value. The identity
+# layer is the authority; see ``docs/identity-architecture.md``.
+from ..identity.defaults import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
+
 PROFILE_ENTITY_TYPE = "user"
 
 PROFILE_ASSERTION_FAMILIES = (
