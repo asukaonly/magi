@@ -100,7 +100,8 @@ class BatchCreateTool(Tool):
             handler_config=handler_config,
             seed_spec=seed_spec,
         )
-        await store.add_items(job.job_id, inputs)
+        # inputs is a lazy iterator; add_items consumes it and returns the count.
+        total_items = await store.add_items(job.job_id, inputs)
         await store.set_job_status(job.job_id, BatchJobStatus.RUNNING)
 
         # W1: fire the first batch through the real BackgroundManager. Surface
@@ -116,5 +117,5 @@ class BatchCreateTool(Tool):
             kickoff = f"kickoff failed: {type(exc).__name__}: {exc}"
         return ToolResult(
             success=True,
-            data={"job_id": job.job_id, "total_items": len(inputs), "kickoff": kickoff},
+            data={"job_id": job.job_id, "total_items": total_items, "kickoff": kickoff},
         )
