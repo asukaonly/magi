@@ -380,6 +380,21 @@ class BatchStore:
             await db.commit()
             return cur.rowcount > 0
 
+    async def requeue_retryable(
+        self, job_id: str, max_attempts: int, *, now_ms: int | None = None
+    ) -> int:
+        """Failed items still under the attempt limit go back to pending."""
+        now = now_ms if now_ms is not None else _now_ms()
+        async with aiosqlite.connect(self._db_path) as db:
+            cur = await db.execute(
+                "UPDATE batch_item SET status = 'pending', lease_owner = NULL, "
+                "lease_expires_at_ms = NULL, updated_at_ms = ? "
+                "WHERE job_id = ? AND status = 'failed' AND attempts < ?",
+                (now, job_id, max_attempts),
+            )
+            await db.commit()
+            return cur.rowcount
+
 
 def default_batch_store() -> BatchStore:
     """Construct a BatchStore against the runtime batch DB (schema built by
