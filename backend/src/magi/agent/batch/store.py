@@ -33,6 +33,24 @@ def _loads(blob: str | None) -> Any:
     return json.loads(blob) if blob else None
 
 
+def _normalize_result(result: Any) -> "dict[str, Any] | None":
+    """Persist ``result`` as a dict so downstream readers (dedup, reporting) can
+    rely on ``.get()``. The agent fills this freeform via batch_item_update and
+    isn't always consistent: usually a dict, but sometimes a JSON-encoded string
+    or plain text. Parse a JSON object when we got one; otherwise wrap the scalar
+    so a stray string never becomes a double-encoded blob that breaks readers."""
+    if result is None or isinstance(result, dict):
+        return result
+    if isinstance(result, str):
+        try:
+            parsed = json.loads(result)
+        except (ValueError, TypeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            return parsed
+    return {"value": result}
+
+
 def _row_to_job(row: aiosqlite.Row) -> BatchJob:
     return BatchJob(
         job_id=row["job_id"],
@@ -269,7 +287,7 @@ class BatchStore:
                     """,
                     (
                         oc.status.value,
-                        json.dumps(oc.result) if oc.result is not None else None,
+                        json.dumps(_normalize_result(oc.result)) if oc.result is not None else None,
                         oc.review_reason,
                         oc.error,
                         now,
@@ -341,7 +359,9 @@ class BatchStore:
             by_key: dict[str, str] = {}
             conflicts: list[tuple[str, str]] = []
             for row in await cur.fetchall():
-                result = _loads(row["result"]) or {}
+                result = _loads(row["result"])
+                if not isinstance(result, dict):
+                    continue  # tolerate legacy double-encoded / scalar results
                 key = result.get("dedup_key")
                 if not key:
                     continue

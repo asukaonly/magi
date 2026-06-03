@@ -1,12 +1,22 @@
 """Map terminal BackgroundTask -> OutreachIntent and submit to OutreachService.
 
 Registered as a BackgroundTaskManager listener (replaces the desktop-only
-completion handshake). Exceptions are swallowed (listener isolation)."""
+completion handshake). Exceptions are swallowed (listener isolation).
+
+Batch-orchestrator runs get special handling (W3 dedup): a batch job is many
+self-enqueued background runs, so notifying per run would spam the user. We stay
+QUIET while the job still has pending/running items, and emit ONE job-level
+report when the final batch leaves nothing pending/running. This is decided here
+(not in the driver) so it doesn't depend on listener ordering — the producer
+just reads the manifest.
+"""
 from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
 from ...agent.background import BackgroundTask, BackgroundTaskStatus, BackgroundTaskTriggerSource
+from ...agent.batch.runner import parse_job_id_from_goal
+from ...agent.batch.store import default_batch_store
 from ...agent.trace import now_wall_ms
 from ...core.logger import get_logger
 from ..contracts import OutreachIntent, OutreachKind, Urgency
@@ -60,10 +70,52 @@ def task_to_intent(task: BackgroundTask) -> OutreachIntent | None:
     )
 
 
+async def batch_job_intent(task: BackgroundTask, job_id: str) -> OutreachIntent | None:
+    """Job-level notification for a batch run. Returns None for intermediate
+    batches (job still has pending/running items) so only ONE report fires when
+    the job is fully drained."""
+    store = default_batch_store()
+    counts = await store.status_counts(job_id)
+    if counts.get("pending", 0) + counts.get("running", 0) > 0:
+        return None  # mid-job — more batches coming; stay quiet
+    job = await store.get_job(job_id)
+    if job is None:
+        return None
+
+    done = counts.get("done", 0)
+    review = counts.get("needs_review", 0)
+    failed = counts.get("failed", 0)
+    skipped = counts.get("skipped", 0)
+    total = done + review + failed + skipped
+    facts = f"{done}/{total} done"
+    if review:
+        facts += f", {review} need review"
+    if failed:
+        facts += f", {failed} failed"
+    if skipped:
+        facts += f", {skipped} skipped"
+
+    kind = OutreachKind.TASK_COMPLETED if failed == 0 else OutreachKind.TASK_FAILED
+    spec = task.spec
+    return OutreachIntent(
+        kind=kind,
+        user_id=(str(spec.user_id or "").strip() or job.owner),
+        origin_session_id=((str(spec.session_id or "").strip() or job.origin_session_id) or None),
+        title=job.title,
+        facts=facts,
+        correlation_id=job_id,
+        completed_at_ms=now_wall_ms(),
+        pending_message_id=None,
+        urgency=Urgency.NORMAL,
+        payload={"batch_job_id": job_id, "counts": counts},
+    )
+
+
 def build_background_completion_producer(service: Any) -> Callable[[BackgroundTask], Awaitable[None]]:
     async def _on_complete(task: BackgroundTask) -> None:
         try:
-            intent = task_to_intent(task)
+            job_id = parse_job_id_from_goal(getattr(task.spec, "goal", "") or "")
+            intent = await batch_job_intent(task, job_id) if job_id else task_to_intent(task)
             if intent is None:
                 return
             await service.submit(intent)

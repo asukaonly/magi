@@ -198,3 +198,26 @@ async def test_reconcile_scan_incomplete_when_pending(store):
     rep = await store.reconcile_scan(job.job_id, now_ms=10)
     assert rep.complete is False
     assert rep.counts.get("pending") == 1
+
+
+@pytest.mark.asyncio
+async def test_result_normalized_when_agent_sends_string(store):
+    """Regression: the agent fills ``result`` freeform via batch_item_update and
+    isn't always consistent — a JSON-encoded string or plain text must be stored
+    as a dict, never a double-encoded blob that crashes reconcile_scan's dedup
+    scan (AttributeError: 'str' object has no attribute 'get').
+    """
+    job = await _make_job(store)
+    await store.add_items(job.job_id, [{"path": "/a.mkv"}, {"path": "/b.mkv"}])
+    leased = await store.lease_next_batch(job.job_id, limit=2, lease_owner="A", lease_ttl_ms=1, now_ms=1)
+    await store.update_items(job.job_id, [
+        ItemOutcome(item_id=leased[0].item_id, status=BatchItemStatus.DONE, result='{"new_name": "X.mkv"}'),
+        ItemOutcome(item_id=leased[1].item_id, status=BatchItemStatus.DONE, result="cannot identify"),
+    ])
+    a = await store.get_item(job.job_id, leased[0].item_id)
+    b = await store.get_item(job.job_id, leased[1].item_id)
+    assert a.result == {"new_name": "X.mkv"}          # JSON string parsed into a dict
+    assert b.result == {"value": "cannot identify"}   # plain scalar wrapped
+    rep = await store.reconcile_scan(job.job_id, now_ms=10)  # must not raise
+    assert rep.complete is True
+    assert rep.counts.get("done") == 2

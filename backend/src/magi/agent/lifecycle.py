@@ -89,6 +89,14 @@ class AgentRuntimeModule(LifecycleModule):
         self._background_wiring = background_wiring
         self._context.agent_runtime.background_task_manager = background_wiring.manager
 
+        # Batch orchestrator (W2): drive manifest jobs via the same manager —
+        # each finished background run fires this listener, which continues the
+        # batch (next slice) or finalizes it. Non-batch runs are ignored.
+        from .batch.driver import BatchDriver
+        background_wiring.manager.add_listener(
+            BatchDriver(background_wiring.manager).on_terminal
+        )
+
         task_agent_manager = TaskAgentManager(
             create_chat_agent=self._create_chat_agent_factory(
                 llm_adapter=llm_adapter,

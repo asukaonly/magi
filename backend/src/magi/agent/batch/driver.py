@@ -1,0 +1,63 @@
+"""BatchDriver — production wiring: drive batch jobs via the real BackgroundManager.
+
+Turns the engine's injected seams (``enqueue_run`` / ``on_batch_run_done``) into
+real bounded background agent runs. ``on_terminal`` is registered as a
+``BackgroundTaskManager`` terminal listener at bootstrap; ``kickoff`` is called by
+``batch_create`` to fire the first batch. task-agnostic — it only reads
+``job.handler_ref`` / ``job.handler_config`` and the opaque item inputs.
+
+The manager is injected (not imported) so this stays unit-testable with a fake.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from ..background import BackgroundTaskSpec, BackgroundTaskTriggerSource
+from .runner import (
+    build_batch_goal,
+    kickoff_next_batch,
+    on_batch_run_done,
+    parse_job_id_from_goal,
+)
+from .store import default_batch_store
+
+_DEFAULT_TOOLS = ["web-search", "web-fetch", "bash", "file_list", "file_info", "batch_item_update"]
+
+
+class BatchDriver:
+    """Wraps the runtime BackgroundTaskManager to drive manifest batch jobs."""
+
+    def __init__(self, manager: Any, *, store_factory: Any = default_batch_store) -> None:
+        self._manager = manager
+        self._store_factory = store_factory
+
+    async def _enqueue_run(self, job: Any, items: Any) -> None:
+        prompt = job.handler_config.get("prompt") or f"Use skill '{job.handler_ref}' to process each item."
+        tools = list(job.handler_config.get("tools") or _DEFAULT_TOOLS)
+        if "batch_item_update" not in tools:
+            tools.append("batch_item_update")
+        spec = BackgroundTaskSpec(
+            user_id=job.owner,
+            session_id=job.origin_session_id,
+            origin_turn_id=job.origin_turn_id,
+            title=f"[batch:{job.job_id}] {job.title}",
+            goal=build_batch_goal(prompt, job, items),
+            selected_tools=tools,
+            trigger_source=BackgroundTaskTriggerSource.RULE,
+        )
+        await self._manager.enqueue(spec)
+
+    async def kickoff(self, job_id: str) -> int:
+        """Lease + enqueue the first batch. Returns #items leased (0 = nothing)."""
+        store = self._store_factory()
+        job = await store.get_job(job_id)
+        if job is None:
+            return 0
+        return await kickoff_next_batch(store, job, enqueue_run=self._enqueue_run)
+
+    async def on_terminal(self, task: Any) -> None:
+        """BackgroundManager terminal listener: continue the chain or finalize."""
+        goal = getattr(getattr(task, "spec", None), "goal", "") or ""
+        job_id = parse_job_id_from_goal(goal)
+        if job_id:
+            await on_batch_run_done(self._store_factory(), job_id, enqueue_run=self._enqueue_run)

@@ -38,10 +38,18 @@ def build_batch_goal(handler_prompt: str, job: BatchJob, items: "list[BatchItem]
     return (
         f"{handler_prompt}\n\n"
         f"{_GOAL_JOB_MARKER}: {job.job_id}\n"
-        f"Process each of the following {len(items)} items. As you finish them, "
-        f'call batch_item_update(job_id="{job.job_id}", updates=[{{"item_id": ..., '
-        f'"status": "done|failed|needs_review|skipped", "result": {{...}}, '
-        f'"review_reason": ..., "error": ...}}, ...]) to write the outcomes back.\n'
+        f"Process each of the following {len(items)} items, then report every "
+        f'outcome by calling batch_item_update(job_id="{job.job_id}", updates=[...]). '
+        f"Each update is {{item_id, status, result?, review_reason?, error?}}.\n"
+        f"`status` MUST be exactly one of:\n"
+        f"  done         — you completed it confidently (put your output in result).\n"
+        f"  needs_review — you are NOT confident (ambiguous, can't find it, doesn't "
+        f"look like a valid target). IMPORTANT: needs_review is a STATUS you REPORT — "
+        f"do NOT rename/relabel/alter the item itself and do NOT guess; leave the "
+        f"underlying item untouched and explain in review_reason. A human decides later.\n"
+        f"  failed       — you tried but it errored (put the error in error).\n"
+        f"  skipped      — intentionally skipped / not applicable.\n"
+        f"Choose done vs needs_review honestly: prefer needs_review over guessing.\n"
         f"Items:\n{json.dumps(payload, ensure_ascii=False)}"
     )
 

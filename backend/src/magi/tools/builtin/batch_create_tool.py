@@ -102,7 +102,19 @@ class BatchCreateTool(Tool):
         )
         await store.add_items(job.job_id, inputs)
         await store.set_job_status(job.job_id, BatchJobStatus.RUNNING)
+
+        # W1: fire the first batch through the real BackgroundManager. Surface
+        # the outcome in the result so failures are visible (not silently swallowed).
+        kickoff = "skipped"
+        try:
+            from ...agent.background.provider import resolve_background_task_manager
+            from ...agent.batch.driver import BatchDriver
+
+            leased = await BatchDriver(resolve_background_task_manager()).kickoff(job.job_id)
+            kickoff = f"leased {leased}"
+        except Exception as exc:  # noqa: BLE001 - report kickoff failure, don't hide it
+            kickoff = f"kickoff failed: {type(exc).__name__}: {exc}"
         return ToolResult(
             success=True,
-            data={"job_id": job.job_id, "total_items": len(inputs)},
+            data={"job_id": job.job_id, "total_items": len(inputs), "kickoff": kickoff},
         )
