@@ -39,7 +39,6 @@ export function useAvailability(pluginIds?: string[]): UseAvailabilityResult {
     } finally {
       if (!cancelled.current) setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey]);
 
   useEffect(() => {

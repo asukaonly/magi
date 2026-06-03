@@ -141,6 +141,51 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/channels/bindings": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List Bindings
+         * @description List every (channel, external_user) binding + its auto-approve
+         *     flag. De-duplicates across multiple chats for the same external
+         *     user — auto-approve is keyed by (channel_type, external_user_id)
+         *     so a user with two Telegram chats shows up once.
+         */
+        readonly get: operations["list_bindings_api_channels_bindings_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/channels/bindings/{channel_type}/{external_user_id}/auto-approve": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        /**
+         * Set Auto Approve
+         * @description Flip the auto-approve toggle for one binding. Idempotent —
+         *     setting the same value twice still bumps updated_at_ms for
+         *     audit. Returns the resulting state.
+         */
+        readonly put: operations["set_auto_approve_api_channels_bindings__channel_type___external_user_id__auto_approve_put"];
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/chat/preview": {
         readonly parameters: {
             readonly query?: never;
@@ -2601,6 +2646,27 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/plugins/install/upload/inspect": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Inspect Plugin Upload
+         * @description Return declared capabilities + metadata of an uploaded archive WITHOUT
+         *     installing it — drives the pre-install consent step for sideload.
+         */
+        readonly post: operations["inspect_plugin_upload_api_plugins_install_upload_inspect_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/plugins/install/upload/jobs": {
         readonly parameters: {
             readonly query?: never;
@@ -3487,6 +3553,14 @@ export interface components {
              */
             readonly auto_detect_long_task: boolean;
         };
+        /** Body_inspect_plugin_upload_api_plugins_install_upload_inspect_post */
+        readonly Body_inspect_plugin_upload_api_plugins_install_upload_inspect_post: {
+            /**
+             * File
+             * Format: binary
+             */
+            readonly file: string;
+        };
         /** Body_install_plugin_from_upload_api_plugins_install_upload_post */
         readonly Body_install_plugin_from_upload_api_plugins_install_upload_post: {
             /**
@@ -3757,6 +3831,8 @@ export interface components {
             /** Dedupe Key */
             readonly dedupe_key: string;
             readonly kind: components["schemas"]["DismissalKind"];
+            /** Title */
+            readonly title?: string | null;
         };
         /** DismissResponse */
         readonly DismissResponse: {
@@ -3775,6 +3851,8 @@ export interface components {
              */
             readonly dismissed_at: string;
             readonly kind: components["schemas"]["DismissalKind"];
+            /** Title */
+            readonly title?: string | null;
         };
         /**
          * DismissalKind
@@ -3792,6 +3870,8 @@ export interface components {
              */
             readonly dismissed_at: string;
             readonly kind: components["schemas"]["DismissalKind"];
+            /** Title */
+            readonly title?: string | null;
         };
         /**
          * DownloadStatusResponse
@@ -6410,7 +6490,7 @@ export interface components {
          * @description Supported scheduler target families.
          * @enum {string}
          */
-        readonly ScheduledTargetType: "sensor_sync" | "memory_l2_maintenance" | "memory_l3_summary" | "memory_l4_maintenance" | "user_agent_task" | "timeline_diary_narrative" | "timeline_standout_rescore" | "timeline_mood_aggregate" | "timeline_representative_asset" | "location_ipgeo_poll" | "location_wifi_poll";
+        readonly ScheduledTargetType: "sensor_sync" | "memory_l2_maintenance" | "memory_l3_summary" | "memory_l4_maintenance" | "user_agent_task" | "timeline_diary_narrative" | "timeline_standout_rescore" | "timeline_mood_aggregate" | "timeline_representative_asset" | "location_ipgeo_poll" | "location_wifi_poll" | "outreach_outbox_drain";
         /** SeedPreviewResponse */
         readonly SeedPreviewResponse: {
             /** Data */
@@ -7295,6 +7375,40 @@ export interface components {
              */
             readonly answer: string;
         };
+        /** _BindingView */
+        readonly _BindingView: {
+            /**
+             * Auto Approve
+             * @default false
+             */
+            readonly auto_approve: boolean;
+            /** Channel Type */
+            readonly channel_type: string;
+            /**
+             * Display Name
+             * @default
+             */
+            readonly display_name: string;
+            /** External User Id */
+            readonly external_user_id: string;
+            /**
+             * Last Active At Ms
+             * @default 0
+             */
+            readonly last_active_at_ms: number;
+            /** Magi Session Id */
+            readonly magi_session_id: string;
+            /**
+             * Updated At Ms
+             * @default 0
+             */
+            readonly updated_at_ms: number;
+        };
+        /** _BindingsListResponse */
+        readonly _BindingsListResponse: {
+            /** Bindings */
+            readonly bindings?: readonly components["schemas"]["_BindingView"][];
+        };
         /** _PatchSettingsBody */
         readonly _PatchSettingsBody: {
             /**
@@ -7348,6 +7462,22 @@ export interface components {
             readonly permission_mode?: components["schemas"]["PermissionMode"] | null;
             /** Plan Approval Required */
             readonly plan_approval_required?: boolean | null;
+        };
+        /** _SetAutoApproveRequest */
+        readonly _SetAutoApproveRequest: {
+            /** Enabled */
+            readonly enabled: boolean;
+        };
+        /** _SetAutoApproveResponse */
+        readonly _SetAutoApproveResponse: {
+            /** Auto Approve */
+            readonly auto_approve: boolean;
+            /** Channel Type */
+            readonly channel_type: string;
+            /** External User Id */
+            readonly external_user_id: string;
+            /** Updated At Ms */
+            readonly updated_at_ms: number;
         };
         /** _SettingsUpdate */
         readonly _SettingsUpdate: {
@@ -7596,6 +7726,62 @@ export interface operations {
                     readonly "application/json": {
                         readonly [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly list_bindings_api_channels_bindings_get: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["_BindingsListResponse"];
+                };
+            };
+        };
+    };
+    readonly set_auto_approve_api_channels_bindings__channel_type___external_user_id__auto_approve_put: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly channel_type: string;
+                readonly external_user_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["_SetAutoApproveRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["_SetAutoApproveResponse"];
                 };
             };
             /** @description Validation Error */
@@ -12029,6 +12215,39 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["PluginPackageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly inspect_plugin_upload_api_plugins_install_upload_inspect_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "multipart/form-data": components["schemas"]["Body_inspect_plugin_upload_api_plugins_install_upload_inspect_post"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["PluginManifestResponse"];
                 };
             };
             /** @description Validation Error */

@@ -11,7 +11,7 @@ export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHON
 
 TYPE_GATE_DIRS=(
   magi/agent/execution/function_calling
-  magi/agent/task_agents/chat/postprocess
+  magi/chat/task_agent/postprocess
   magi/agent/workers
   magi/llm/provider_bridge
   magi/llm/parsers

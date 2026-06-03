@@ -513,6 +513,11 @@
       "owner_file": "backend/src/magi/api/routers/messages.py"
     },
     {
+      "prefix": "/api/channels",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/channels_bindings.py"
+    },
+    {
       "prefix": "/api/notifications",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/api/routers/notifications_routes.py"
