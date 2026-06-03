@@ -380,6 +380,24 @@ class PermissionGateway:
 
         return await self._finalise_user_response(request, response, session_id)
 
+    def bind_auto_approve(
+        self,
+        *,
+        binding_settings_store: Any,
+        binding_origin_resolver: Callable[
+            [str | None], "Awaitable[tuple[str, str] | None]"
+        ],
+    ) -> None:
+        """Late-bind the auto-approve dependencies after construction.
+
+        Used by ChannelsModule which runs AFTER ControlPlaneModule
+        (so the gateway exists) and after the channel session_mapper
+        is built (so we can wire a real origin resolver). Either dep
+        can be None to disable the bypass without touching the
+        constructor. Idempotent — overwrites any prior binding."""
+        self._binding_settings_store = binding_settings_store
+        self._binding_origin_resolver = binding_origin_resolver
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
