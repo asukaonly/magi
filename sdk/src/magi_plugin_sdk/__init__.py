@@ -17,6 +17,7 @@ Magi backend is installed):
 Both resolve to the same classes at runtime.
 """
 from .base import Plugin
+from .control import ControlRequest
 from .delivery import DeliveryContent, DeliveryReceipt
 from .channels import (
     Channel,
@@ -109,6 +110,8 @@ __all__ = [
     # Delivery types (Phase G)
     "DeliveryContent",
     "DeliveryReceipt",
+    # Control-plane types (Phase H+2 — approval fanout)
+    "ControlRequest",
     # Channels
     "Channel",
     "ChannelConfig",
