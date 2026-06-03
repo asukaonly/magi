@@ -216,6 +216,30 @@ class BrokeredPermissionPrompter:
             raise
         finally:
             await self._registry.remove(request.request_id)
+            # Phase H+2: push a "resolved" event so connected clients
+            # (desktop modal, other channels' inline prompts) can
+            # immediately clear their UI instead of waiting for the
+            # next 5-second poll cycle. Reuses the same notify_callback
+            # transport as the "requested" event. Best-effort: failure
+            # here must not affect the broker.wait result (which is
+            # already returned at this point).
+            if self._notify is not None:
+                try:
+                    await _maybe_await(self._notify(
+                        "control.permission.resolved",
+                        {
+                            "request_id": request.request_id,
+                            "short_id": request.short_id,
+                            "session_id": request.session_id,
+                            "tool_name": request.tool_name,
+                        },
+                    ))
+                except Exception:
+                    logger.warning(
+                        "permission_prompter.notify_resolved_failed",
+                        request_id=request.request_id,
+                        exc_info=True,
+                    )
 
         return _coerce_response(response)
 

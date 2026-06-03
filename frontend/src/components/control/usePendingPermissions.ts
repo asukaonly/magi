@@ -74,6 +74,14 @@ export function usePendingPermissions({
     onPermissionRequested: () => {
       void refresh();
     },
+    // Phase H+2: when a permission is resolved (by ANY surface —
+    // desktop modal click, WeChat /approve slash command, Telegram
+    // button tap), backend pushes ``control.permission.resolved``.
+    // Immediate refresh clears the modal without waiting for the
+    // 5-second poll.
+    onPermissionResolved: () => {
+      void refresh();
+    },
   });
 
   return { items, loading, error, refresh };

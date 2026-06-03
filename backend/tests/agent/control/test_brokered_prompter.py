@@ -172,10 +172,15 @@ async def test_prompter_invokes_notify_callback() -> None:
     asyncio.create_task(resolver())
     await prompter(req, timeout_seconds=2.0)
 
-    assert len(seen) == 1
+    # Phase H+2: notify fires on both ``requested`` and
+    # ``resolved`` — see brokered_prompter.py finally block.
+    assert len(seen) == 2
     event, payload = seen[0]
     assert event == "control.permission.requested"
     assert payload["request_id"] == "req-e"
     assert payload["tool_name"] == "bash"
     assert payload["timeout_seconds"] == 2.0
     assert payload["expires_at_ms"] == int((req.created_at + 2.0) * 1000)
+    resolved_event, resolved_payload = seen[1]
+    assert resolved_event == "control.permission.resolved"
+    assert resolved_payload["request_id"] == "req-e"

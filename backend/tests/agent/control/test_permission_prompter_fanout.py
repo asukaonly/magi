@@ -96,8 +96,16 @@ async def test_no_fanout_callback_no_fanout() -> None:
     resolver = asyncio.create_task(_make_allowed(broker, req.request_id))
     await prompter(req, timeout_seconds=2.0)
     await resolver
-    assert len(notified) == 1
+    # Phase H+2: notify fires on BOTH ``requested`` (on prompt) AND
+    # ``resolved`` (after broker.wait returns). The resolved event
+    # lets connected UI surfaces (desktop modal, other channels'
+    # inline prompts) clear their state immediately instead of
+    # waiting for poll-based reconciliation.
+    assert len(notified) == 2
     assert notified[0][0] == "control.permission.requested"
+    assert notified[1][0] == "control.permission.resolved"
+    assert notified[1][1]["request_id"] == req.request_id
+    assert notified[1][1]["short_id"] == req.short_id
 
 
 @pytest.mark.asyncio

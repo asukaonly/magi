@@ -42,6 +42,7 @@ const BRIDGE_EVENTS = [
   // Control-plane channels (forwarded by the Rust bridge with `.` → `:` swap;
   // see backend/src/magi/agent/control/common/events.py).
   'control:permission:requested',
+  'control:permission:resolved',
   'control:ask:requested',
   'control:todo:updated',
   'control:plan:updated',
