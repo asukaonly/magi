@@ -496,6 +496,18 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                     status="completed",
                     content=step_outcome.content,
                     tool_failures=list(state.tool_failures),
+                    # Pre-existing bug fix: state.chat_attachments
+                    # accumulates tool-emitted attachments (image_gen,
+                    # prepare_chat_attachments, …) across the FC loop,
+                    # but the completed outcome wasn't forwarding them
+                    # to the coordinator. Desktop still saw images
+                    # because the chat UI reads chat_messages.payload_json
+                    # directly; external channels (WeChat, Telegram)
+                    # got the text body but no image because their
+                    # deliver() path only sees DeliveryContent.attachments,
+                    # which is sourced from this field.
+                    attachments=list(state.chat_attachments),
+                    message_payload=dict(state.message_payload or {}),
                     iterations=step_outcome.iteration,
                 )
             if step_outcome.status == "cancelled":
