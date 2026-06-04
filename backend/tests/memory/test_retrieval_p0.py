@@ -301,16 +301,16 @@ class TestL1HandlerEntityExpansion:
         handler = L1Handler(store)
         conds = L1Conditions(content_query="test query", limit=5)
 
-        async def _bm25(q, limit, *, user_id=None):
+        async def _bm25(q, limit, *, user_id=None, l1_retrieval_scopes=None):
             return ["e1", "e2"]
 
-        async def _vector(q, limit, *, user_id=None):
+        async def _vector(q, limit, *, user_id=None, l1_retrieval_scopes=None):
             return ["e3"]
 
-        async def _keyword(c, limit, *, session_id=None, user_id=None):
+        async def _keyword(c, limit, *, session_id=None, user_id=None, l1_retrieval_scopes=None):
             return []
 
-        async def _fetch(*, event_ids, conditions, time_range, session_id, user_id):
+        async def _fetch(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
             return [{"event_id": eid, "content": "c", "timestamp": 1000.0} for eid in event_ids]
 
         monkeypatch.setattr(handler, "_bm25_path", _bm25)
@@ -333,18 +333,18 @@ class TestL1HandlerEntityExpansion:
         handler = L1Handler(store)
         conds = L1Conditions(content_query="test", limit=10)
 
-        async def _bm25(q, limit, *, user_id=None):
+        async def _bm25(q, limit, *, user_id=None, l1_retrieval_scopes=None):
             return ["e1"]
 
-        async def _vector(q, limit, *, user_id=None):
+        async def _vector(q, limit, *, user_id=None, l1_retrieval_scopes=None):
             return []
 
-        async def _keyword(c, limit, *, session_id=None, user_id=None):
+        async def _keyword(c, limit, *, session_id=None, user_id=None, l1_retrieval_scopes=None):
             return []
 
         store.expand_by_entities.return_value = ["e2"]
 
-        async def _fetch(*, event_ids, conditions, time_range, session_id, user_id):
+        async def _fetch(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
             return [{"event_id": eid, "content": "c", "timestamp": 1000.0} for eid in event_ids]
 
         monkeypatch.setattr(handler, "_bm25_path", _bm25)
@@ -377,18 +377,18 @@ class TestL1HandlerEntityExpansion:
         handler = L1Handler(store)
         conds = L1Conditions(content_query="test", limit=5)
 
-        async def _bm25(q, limit, *, user_id=None):
+        async def _bm25(q, limit, *, user_id=None, l1_retrieval_scopes=None):
             return ["e1"]
 
-        async def _vector(q, limit, *, user_id=None):
+        async def _vector(q, limit, *, user_id=None, l1_retrieval_scopes=None):
             return []
 
-        async def _keyword(c, limit, *, session_id=None, user_id=None):
+        async def _keyword(c, limit, *, session_id=None, user_id=None, l1_retrieval_scopes=None):
             return []
 
         store.expand_by_entities.side_effect = RuntimeError("DB error")
 
-        async def _fetch(*, event_ids, conditions, time_range, session_id, user_id):
+        async def _fetch(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
             return [{"event_id": eid, "content": "c", "timestamp": 1000.0} for eid in event_ids]
 
         monkeypatch.setattr(handler, "_bm25_path", _bm25)

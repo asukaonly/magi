@@ -44,6 +44,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
     assert [module.name for module in modules] == [
         "subprocess_orphan_cleanup",
         "runtime_core_dependencies",
+        "runtime_identity",
         "runtime_configuration",
         "runtime_command_queue",
         "runtime_message_bus",
@@ -85,6 +86,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_timeline_schedulers",
         "runtime_other_dependencies",
         "runtime_channels",
+        "runtime_outreach",
     ]
 
 
