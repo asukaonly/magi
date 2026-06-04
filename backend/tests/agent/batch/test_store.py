@@ -265,3 +265,19 @@ async def test_requeue_running_forces_all_regardless_of_lease(store):
     assert n == 2
     assert len(await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)) == 0
     assert len(await store.list_by_status(job.job_id, BatchItemStatus.PENDING)) == 2
+
+
+@pytest.mark.asyncio
+async def test_store_connections_use_wal_and_busy_timeout(store):
+    # Any store op routes through _connect, which puts the db in WAL mode
+    # (persistent, db-file level) and sets a busy_timeout on the connection.
+    await _make_job(store)
+    import aiosqlite
+    # WAL is persistent: a fresh external connection observes it.
+    async with aiosqlite.connect(store._db_path) as probe:
+        mode = (await (await probe.execute("PRAGMA journal_mode")).fetchone())[0]
+    assert mode.lower() == "wal"
+    # busy_timeout is connection-scoped: assert _connect sets it on its own conns.
+    async with store._connect() as db:
+        timeout = (await (await db.execute("PRAGMA busy_timeout")).fetchone())[0]
+    assert timeout == 5000
