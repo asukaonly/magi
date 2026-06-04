@@ -348,9 +348,12 @@ class ChatTaskAgent(
             )
         self._last_batch_facts: list[FactRecord] = []
 
-        # Keep these aliases so existing read paths and tests see the same underlying stores.
+        # Keep this alias so existing read paths and tests see the same underlying store.
         self._conversation_history = self._history_service._conversation_history
-        self._tool_interactions = self._history_service._tool_interactions
+        # Per-session recent-tool-call view; the chat agent (prompt assembly)
+        # and postprocess (tool-event sink) both depend on this view
+        # directly rather than going through ChatHistoryService.
+        self._tool_state_view = self._history_service.tool_state_view
 
     @property
     def postprocess_service(self) -> ChatPostProcessService:
@@ -640,10 +643,10 @@ class ChatTaskAgent(
             active_persona_id=active_persona_id,
         )
         history = history_context.messages
-        recent_tool_errors = self._history_service.get_recent_tool_errors(
+        recent_tool_errors = self._tool_state_view.recent_errors(
             self._history_service.history_key(classified.user_id, session_id)
         )
-        recent_tool_state = self._history_service.get_recent_tool_state(
+        recent_tool_state = self._tool_state_view.recent_state(
             self._history_service.history_key(classified.user_id, session_id)
         )
         active_orchestrations = await self._orchestration_store.list_orchestrations(

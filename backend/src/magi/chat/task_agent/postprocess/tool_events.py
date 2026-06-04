@@ -18,6 +18,11 @@ from .constants import (
 class _ToolEventPostprocessHostProtocol(Protocol):
     _agent_id: str
     _history_service: Any
+    # Per-session recent-tool-call view. Sourced from
+    # ``ChatHistoryService.tool_state_view`` and aliased onto the chat
+    # agent so postprocess can record tool events without going through
+    # ChatHistoryService as a middleman.
+    _tool_state_view: Any
     _unified_memory: Any
     _get_event_emitter: Callable[[], Any]
 
@@ -52,7 +57,7 @@ class ChatPostprocessToolEventMixin:
         turn_id = str(payload.get("turn_id") or "").strip() or None
         raw_result_data = payload.get("data")
         result_data = cast(dict[str, Any], raw_result_data) if isinstance(raw_result_data, dict) else {}
-        host._history_service.store_tool_interaction(
+        host._tool_state_view.record(
             history_key,
             {
                 "timestamp": time.time(),

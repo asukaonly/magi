@@ -1,7 +1,6 @@
 """History caches and explicit session validation for chat task agents."""
 from __future__ import annotations
 
-import json
 import inspect
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,22 +14,14 @@ from magi.llm.provider_bridge import LLMProviderBridge
 from magi.utils.runtime import get_runtime_paths
 from magi.agent.trace import now_wall_ms
 
+from .tool_state_view import ChatToolStateView
+
 logger = get_logger(__name__)
 
 FACT_EVENTS_TABLE = "fact_events"
 SUMMARY_KIND_PERSONA_BOUNDARY = "persona_boundary"
 _PERSONA_BOUNDARY_OUTPUT_RESERVE = 4096
 _PERSONA_BOUNDARY_CONTENT_LIMIT = 2400
-_TOOL_STATE_HANDLE_FIELDS = (
-    "attachment_id",
-    "asset_ref_id",
-    "event_id",
-    "entity_id",
-    "task_id",
-    "worker_id",
-    "source_item_id",
-    "message_id",
-)
 _SESSION_ATTACHMENT_MANIFEST_LIMIT = 40
 
 
@@ -95,8 +86,15 @@ class ChatHistoryService:
         self._history_cache_max_sessions = history_cache_max_sessions
         self._history_fetch_limit = history_fetch_limit
         self._conversation_history: dict[str, CachedConversationHistory] = {}
-        self._tool_interactions: dict[str, list[dict[str, Any]]] = {}
         self._history_cache_order: list[str] = []
+        # Recent tool interaction view used during prompt assembly.
+        # Source of truth lives in ``runtime_trace``; this is a per-session
+        # in-memory read view. Exposed as ``tool_state_view`` so the
+        # chat task agent can pass it directly to postprocess + prompt
+        # assembly without going through this class.
+        self._tool_state_view = ChatToolStateView(
+            runtime_trace_db_path=self._runtime_trace_db_path,
+        )
         self._chat_store = chat_store
         self._chat_read_service_factory = chat_read_service_factory
         self._scenario_llm_pool = scenario_llm_pool
@@ -243,80 +241,12 @@ class ChatHistoryService:
         self._update_lru_cache(history_key)
         # Phase F dual-write: PAUSED — see append_user_message above for why.
 
-    def store_tool_interaction(self, history_key: str, record: dict[str, Any]) -> None:
-        records = self._tool_interactions.setdefault(history_key, [])
-        records.append(record)
-        if len(records) > 100:
-            self._tool_interactions[history_key] = records[-100:]
-        self._update_lru_cache(history_key)
-
-    def get_recent_tool_errors(self, history_key: str, limit: int = 3) -> list[dict[str, Any]]:
-        records = self._tool_interactions.get(history_key, [])
-        results: list[dict[str, Any]] = []
-        for item in reversed(records):
-            if str(item.get("status") or "") != "error":
-                continue
-            result_data = item.get("result_data")
-            config_path = None
-            next_action = None
-            if isinstance(result_data, dict):
-                raw_path = result_data.get("config_path")
-                if raw_path is not None:
-                    config_path = str(raw_path).strip() or None
-                raw_action = result_data.get("next_action")
-                if raw_action is not None:
-                    next_action = str(raw_action).strip() or None
-            results.append(
-                {
-                    "tool_name": str(item.get("tool_name") or "unknown"),
-                    "error_code": str(item.get("error_code") or "UNKNOWN"),
-                    "error_message": str(item.get("error_message") or ""),
-                    "config_path": config_path,
-                    "next_action": next_action,
-                }
-            )
-            if len(results) >= max(1, limit):
-                break
-        return results
-
-    def get_recent_tool_state(self, history_key: str, limit: int = 4) -> list[dict[str, Any]]:
-        records = self._tool_interactions.get(history_key, [])
-        results: list[dict[str, Any]] = []
-        for item in reversed(records):
-            if not isinstance(item, dict):
-                continue
-            tool_name = str(item.get("tool_name") or "").strip()
-            if not tool_name:
-                continue
-            status = str(item.get("status") or "unknown").strip() or "unknown"
-            result_summary = str(item.get("result_summary") or "").strip()
-            result_data = item.get("result_data") if isinstance(item.get("result_data"), dict) else {}
-            state: dict[str, Any] = {
-                "tool_name": tool_name,
-                "status": status,
-            }
-            turn_id = str(item.get("turn_id") or "").strip()
-            if turn_id:
-                state["turn_id"] = turn_id
-            execution_time_ms = self._normalize_execution_time_ms(item.get("execution_time_ms"))
-            if execution_time_ms is not None:
-                state["execution_time_ms"] = execution_time_ms
-            if result_summary:
-                state["outcome"] = result_summary[:160]
-            if status != "success":
-                error_code = str(item.get("error_code") or "").strip()
-                error_message = str(item.get("error_message") or "").strip()
-                if error_code:
-                    state["error_code"] = error_code
-                if error_message:
-                    state["error_message"] = error_message[:160]
-            handles = self._extract_reusable_handles(result_data)
-            if handles:
-                state["handles"] = handles
-            results.append(state)
-            if len(results) >= max(1, limit):
-                break
-        return results
+    @property
+    def tool_state_view(self) -> ChatToolStateView:
+        """Per-session recent-tool-call view shared with postprocess + prompt
+        assembly. Callers should depend on this directly rather than going
+        through ChatHistoryService."""
+        return self._tool_state_view
 
     def get_conversation_history(self, user_id: str, session_id: str) -> list[dict[str, Any]]:
         active_session = self.require_session_id(user_id, session_id)
@@ -334,7 +264,7 @@ class ChatHistoryService:
         key = self.history_key(user_id, active_session)
         current_version = self._conversation_history.get(key).version if key in self._conversation_history else 0
         self._conversation_history[key] = CachedConversationHistory(version=current_version, messages=[])
-        self._tool_interactions[key] = []
+        self._tool_state_view.clear(key)
 
     def _update_lru_cache(self, history_key: str) -> None:
         if history_key in self._history_cache_order:
@@ -343,7 +273,7 @@ class ChatHistoryService:
         while len(self._history_cache_order) > self._history_cache_max_sessions:
             oldest_key = self._history_cache_order.pop(0)
             self._conversation_history.pop(oldest_key, None)
-            self._tool_interactions.pop(oldest_key, None)
+            self._tool_state_view.evict(oldest_key)
             logger.debug("Evicted history cache | key=%s", oldest_key)
 
     @staticmethod
@@ -748,111 +678,10 @@ Rules:
                 if content:
                     history.append({"role": "assistant", "content": str(content)})
 
-        self._restore_tool_interactions_from_trace()
-
-    def _restore_tool_interactions_from_trace(self) -> None:
-        try:
-            if not self._runtime_trace_db_path.exists():
-                return
-            conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write", use_row_factory=False)
-            cur = conn.cursor()
-            cur.execute(
-                """
-                SELECT
-                    trace_turns.user_id,
-                    trace_turns.session_id,
-                    trace_tools.turn_id,
-                    trace_tools.tool_name,
-                    trace_tools.error_code,
-                    trace_tools.error_message,
-                    trace_tools.result_preview,
-                    trace_tools.arguments_json,
-                    trace_tools.execution_time_ms,
-                    trace_tools.success
-                FROM trace_tools
-                JOIN trace_turns ON trace_turns.trace_id = trace_tools.trace_id
-                ORDER BY trace_turns.updated_at_ms ASC
-                LIMIT 5000
-                """
-            )
-            rows = cur.fetchall()
-            conn.close()
-        except Exception:
-            logger.warning("Failed to restore tool interactions from runtime trace store")
-            return
-
-        for user_id, raw_session_id, turn_id, tool_name, error_code, error_message, result_preview, arguments_json, execution_time_ms, success in rows:
-            if not user_id:
-                continue
-            session_id = self.require_session_id(str(user_id), raw_session_id)
-            key = self.history_key(str(user_id), session_id)
-            result_data = {}
-            try:
-                parsed = json.loads(str(arguments_json or ""))
-                if isinstance(parsed, dict):
-                    result_data = parsed
-            except Exception:
-                result_data = {}
-            self.store_tool_interaction(
-                key,
-                {
-                    "timestamp": execution_time_ms,
-                    "intent": "unknown",
-                    "tool_name": str(tool_name or "unknown"),
-                    "status": "success" if bool(success) else "error",
-                    "error_code": str(error_code or ""),
-                    "error_message": str(error_message or ""),
-                    "result_summary": str(result_preview or ""),
-                    "result_data": result_data,
-                    "execution_time_ms": self._normalize_execution_time_ms(execution_time_ms),
-                    "turn_id": turn_id,
-                },
-            )
-
-    @staticmethod
-    def _normalize_execution_time_ms(value: Any) -> int | None:
-        try:
-            if value is None or value == "":
-                return None
-            normalized = int(round(float(value)))
-        except (TypeError, ValueError):
-            return None
-        return max(0, normalized)
-
-    @staticmethod
-    def _extract_reusable_handles(result_data: dict[str, Any]) -> list[str]:
-        handles: list[str] = []
-
-        def _visit(value: Any, *, depth: int) -> None:
-            if depth > 3:
-                return
-            if isinstance(value, dict):
-                for field_name in _TOOL_STATE_HANDLE_FIELDS:
-                    nested_value = value.get(field_name)
-                    if nested_value is None:
-                        continue
-                    text = str(nested_value).strip()
-                    if text:
-                        handles.append(f"{field_name}:{text}")
-                for nested in value.values():
-                    _visit(nested, depth=depth + 1)
-                return
-            if isinstance(value, list):
-                for item in value[:3]:
-                    _visit(item, depth=depth + 1)
-
-        _visit(result_data, depth=0)
-
-        deduped: list[str] = []
-        seen: set[str] = set()
-        for handle in handles:
-            if handle in seen:
-                continue
-            seen.add(handle)
-            deduped.append(handle)
-            if len(deduped) >= 6:
-                break
-        return deduped
+        self._tool_state_view.restore_from_trace(
+            require_session_id=self.require_session_id,
+            build_history_key=self.history_key,
+        )
 
     @staticmethod
     def _user_id_from_history_key(history_key: str) -> str:
