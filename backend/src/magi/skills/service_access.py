@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from ..config import get_config
+from .tool_registry_port import ToolRegistryPort
 
 logger = logging.getLogger(__name__)
 
@@ -34,16 +35,18 @@ def get_enabled_skill_names() -> set[str]:
     return _get_enabled_skill_names()
 
 
-def register_enabled_skills(skills: dict[str, Any]) -> dict[str, Any]:
+def register_enabled_skills(skills: dict[str, Any], *, tool_registry: ToolRegistryPort) -> dict[str, Any]:
     """Register only enabled skills into the shared tool registry."""
 
-    return register_enabled_skills_with_indexer(skills=skills, skill_indexer=None)
+    return register_enabled_skills_with_indexer(
+        skills=skills, skill_indexer=None, tool_registry=tool_registry
+    )
 
 
-def register_enabled_skills_with_indexer(*, skills: dict[str, Any], skill_indexer: Any) -> dict[str, Any]:
+def register_enabled_skills_with_indexer(
+    *, skills: dict[str, Any], skill_indexer: Any, tool_registry: ToolRegistryPort
+) -> dict[str, Any]:
     """Register only enabled skills into the shared tool registry."""
-
-    from ..tools.registry import tool_registry
 
     enabled_skills = _get_enabled_skill_names()
     filtered_skills = (
@@ -63,7 +66,12 @@ def register_enabled_skills_with_indexer(*, skills: dict[str, Any], skill_indexe
     return filtered_skills
 
 
-def build_skills_runtime(llm_adapter=None, permission_gateway_provider=None) -> SkillsRuntimeBindings:
+def build_skills_runtime(
+    llm_adapter=None,
+    permission_gateway_provider=None,
+    *,
+    tool_registry: ToolRegistryPort,
+) -> SkillsRuntimeBindings:
     """Build shared skills runtime services without storing module-level globals."""
 
     from .runner import SkillRunner
@@ -76,10 +84,13 @@ def build_skills_runtime(llm_adapter=None, permission_gateway_provider=None) -> 
         skill_loader,
         llm_adapter,
         permission_gateway_provider=permission_gateway_provider,
+        tool_registry=tool_registry,
     )
 
     skills = skill_indexer.scan_all()
-    registered_skills = register_enabled_skills_with_indexer(skills=skills, skill_indexer=skill_indexer)
+    registered_skills = register_enabled_skills_with_indexer(
+        skills=skills, skill_indexer=skill_indexer, tool_registry=tool_registry
+    )
     logger.info(
         "Skills module initialized | indexed=%s registered=%s",
         len(skills),

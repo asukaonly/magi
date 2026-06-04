@@ -65,7 +65,16 @@ class _FakePromptService:
         return list(history)
 
 
-class _FakeHistoryService:
+class _FakeToolStateView:
+    def record(self, history_key: str, record: dict) -> None:
+        _ = (history_key, record)
+
+
+class _FakeContextAssembler:
+    # postprocess_service aliases context_assembler.tool_state_view onto
+    # its own _tool_state_view; the fake must expose the same attribute.
+    tool_state_view = _FakeToolStateView()
+
     def append_user_message(self, history_key: str, content: str) -> None:
         _ = (history_key, content)
 
@@ -134,7 +143,7 @@ def test_chat_planning_service_context_targets_session_chat_agent() -> None:
         runtime_key="chat:user-1",
         context_service=SimpleNamespace(),
         prompt_service=SimpleNamespace(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         tool_registry=ToolRegistry(),
         parent_task_agent_type="chat",
     )
@@ -153,7 +162,7 @@ def test_chat_planning_service_context_uses_explicit_workspace_root() -> None:
         runtime_key="chat:user-1",
         context_service=SimpleNamespace(),
         prompt_service=SimpleNamespace(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         tool_registry=ToolRegistry(),
         parent_task_agent_type="chat",
     )
@@ -241,7 +250,7 @@ async def test_chat_planning_service_plan_worker_targets_session_chat_agent_in_p
         runtime_key="chat:user-1",
         context_service=SimpleNamespace(),
         prompt_service=SimpleNamespace(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         tool_registry=registry,  # type: ignore[arg-type]
         parent_task_agent_type="chat",
     )
@@ -290,7 +299,7 @@ async def test_chat_planning_service_plan_worker_uses_explicit_workspace_root() 
         runtime_key="chat:user-1",
         context_service=SimpleNamespace(),
         prompt_service=SimpleNamespace(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         tool_registry=registry,  # type: ignore[arg-type]
         parent_task_agent_type="chat",
     )
@@ -313,7 +322,7 @@ def test_chat_planning_service_generic_fallback_and_leaf_prompt_emphasize_anchor
         runtime_key="chat:user-1",
         context_service=SimpleNamespace(),
         prompt_service=SimpleNamespace(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         tool_registry=_registry_with_file_tools(),
         parent_task_agent_type="chat",
     )
@@ -363,7 +372,7 @@ async def test_chat_planning_service_mixed_evidence_prompt_preserves_external_le
         runtime_key="chat:user-1",
         context_service=SimpleNamespace(),
         prompt_service=_FakePromptService(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         tool_registry=_registry_with_file_tools(),
         parent_task_agent_type="chat",
     )
@@ -412,7 +421,7 @@ async def test_chat_planning_service_routes_local_travel_subtasks_to_general_wor
         runtime_key="chat:user-1",
         context_service=SimpleNamespace(),
         prompt_service=_FakePromptService(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         tool_registry=_registry_with_file_tools(),
         parent_task_agent_type="chat",
     )
@@ -608,7 +617,7 @@ async def test_start_explore_task_agent_routes_upstream_to_chat_session() -> Non
         planning_service=SimpleNamespace(),
         function_calling_orchestrator=SimpleNamespace(),
         task_orchestrator=SimpleNamespace(),
-        history_service=_FakeHistoryService(),
+        context_assembler=_FakeContextAssembler(),
         agent_id="chat:user-1",
         get_task_agent_manager=lambda: manager,
     )

@@ -2,7 +2,7 @@
 
 ChatStoreModule.init() must wire up the ChatRunConsumedEventsStore alongside
 the ChatStore and expose a ready-to-use ConversationLog so downstream
-consumers (ChatTaskAgent → ChatHistoryService) can resolve it via the
+consumers (ChatTaskAgent → ChatContextAssembler) can resolve it via the
 runtime bootstrap context.
 
 Mirrors the pattern from

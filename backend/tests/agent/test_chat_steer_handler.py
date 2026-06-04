@@ -191,7 +191,7 @@ def _make_handler(
         planning_service=SimpleNamespace(),
         function_calling_orchestrator=orchestrator,
         task_orchestrator=SimpleNamespace(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         agent_id="s-chat",
         get_task_agent_manager=lambda: None,
         session_run_coordinator=coordinator,
@@ -368,7 +368,7 @@ async def test_no_steer_drain_when_coordinator_is_absent() -> None:
             )
         ),
         task_orchestrator=SimpleNamespace(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         agent_id="s-chat",
         get_task_agent_manager=lambda: None,
         session_run_coordinator=None,

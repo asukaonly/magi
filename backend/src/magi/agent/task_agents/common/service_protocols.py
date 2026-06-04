@@ -104,7 +104,7 @@ class HistoryServiceProtocol(Protocol):
 
     The explore route helper (``start_explore_task_agent``) appends the user's
     message after dispatching an explore task. That is the only history-service
-    method the ring-2 handler code touches; ``ChatHistoryService`` matches this
+    method the ring-2 handler code touches; ``ChatContextAssembler`` matches this
     signature structurally.
     """
 

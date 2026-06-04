@@ -11,7 +11,7 @@ from dependency_injector import containers, providers
 
 if TYPE_CHECKING:
     from ..agent.runtime import AgentRuntime
-    from ..api.services.chat_trace.read_service import ChatTraceReadService
+    from ..runtime_trace.chat_trace.read_service import ChatTraceReadService
     from ..bootstrap.context import RuntimeBootstrapContext
     from ..bootstrap.lifecycle import ModuleLifecycleOrchestrator
     from ..chat import ChatProjector, ChatReadService, ChatStore
@@ -35,7 +35,7 @@ def _create_chat_read_service():
 
 def _create_chat_trace_read_service():
     """Factory function for ChatTraceReadService."""
-    from ..api.services.chat_trace.read_service import ChatTraceReadService
+    from ..runtime_trace.chat_trace.read_service import ChatTraceReadService
     return ChatTraceReadService()
 
 

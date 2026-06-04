@@ -58,7 +58,7 @@ class ChatHandlerDependencies:
     # Ring-2 protocols (see common.service_protocols): the generic handlers
     # only touch a small, stable surface of these collaborators, so the bundle
     # is typed against the protocol rather than the concrete chat service. The
-    # concrete ``ChatPromptService`` / ``ChatHistoryService`` still satisfy
+    # concrete ``ChatPromptService`` / ``ChatContextAssembler`` still satisfy
     # these structurally and are passed unchanged at construction sites.
     prompt_service: PromptServiceProtocol
     # Not touched by ring-2 handler code (only carried for other consumers);
@@ -66,7 +66,7 @@ class ChatHandlerDependencies:
     planning_service: Any
     function_calling_orchestrator: any
     task_orchestrator: TaskOrchestrator
-    history_service: HistoryServiceProtocol
+    context_assembler: HistoryServiceProtocol
     agent_id: str
     get_task_agent_manager: callable
     # Resolves managed attachment payloads for a turn. Chat wires a

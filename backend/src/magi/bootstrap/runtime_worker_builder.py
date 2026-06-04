@@ -67,6 +67,7 @@ from ..timeline.lifecycle import (
     TimelineSchedulersModule,
     TimelineSubscriberModule,
 )
+from ..tools import tool_registry
 from ..tools.lifecycle import ToolsModule
 
 
@@ -203,7 +204,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         # the registry by the time ToolsModule configures it.
         RuntimeFirstPartyToolsModule(),
         ToolsModule(context),
-        SkillsModule(context),
+        SkillsModule(context, tool_registry=tool_registry),
         MCPModule(context),
         PersonalityModule(context),
         SensorModule(context),

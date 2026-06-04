@@ -147,7 +147,7 @@ def _make_handler(
         planning_service=SimpleNamespace(),
         function_calling_orchestrator=orchestrator or _FakeOrchestrator(),
         task_orchestrator=SimpleNamespace(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         agent_id="chat:u1",
         get_task_agent_manager=lambda: None,
         session_run_coordinator=None,

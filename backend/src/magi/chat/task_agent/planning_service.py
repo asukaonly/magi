@@ -18,7 +18,7 @@ from magi.agent.execution.tool_invocation_service import (
 )
 from magi.agent.orchestration import PlannedSubtask, SubtaskPlan, TaskOrchestrationState
 from magi.agent.task_agents.common import OrchestrationPlan
-from .history_service import ChatHistoryService
+from .context_assembler import ChatContextAssembler
 from .planning_prompts import ChatPlanningPromptMixin
 from .prompt_service import ChatPromptService
 
@@ -40,7 +40,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
         runtime_key: str,
         context_service: ContextAssemblyService,
         prompt_service: ChatPromptService,
-        history_service: ChatHistoryService,
+        context_assembler: ChatContextAssembler,
         tool_registry: ToolRegistry,
         parent_task_agent_type: str,
         tool_hint_resolver: ToolHintResolver | None = None,
@@ -49,7 +49,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
         self._runtime_key = runtime_key
         self._context_service = context_service
         self._prompt_service = prompt_service
-        self._history_service = history_service
+        self._context_assembler = context_assembler
         self._tool_registry = tool_registry
         self._parent_task_agent_type = parent_task_agent_type
         self._tool_hint_resolver = tool_hint_resolver or ToolHintResolver(tool_registry)
@@ -120,7 +120,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
     async def aggregate_orchestration(self, state: TaskOrchestrationState) -> str:
         state.metadata["aggregation_streamed"] = False
         payload = self._prompt_service.build_aggregation_payload(state)
-        history = await self._history_service.get_or_load_history(state.user_id, state.session_id)
+        history = await self._context_assembler.get_or_load_history(state.user_id, state.session_id)
         filtered_history = self._prompt_service.filter_history_for_aggregation(history)
         system_prompt = await self._context_service.build_system_prompt(
             user_id=state.user_id,

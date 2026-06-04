@@ -27,10 +27,34 @@ from magi.personality.interaction_analyzer import DEFAULT_ANALYSIS
 from magi.runtime_trace.store import RuntimeTraceStore
 
 
-class _FakeHistoryService:
+class _FakeToolStateView:
+    """Test stand-in for ChatToolStateView; only ``record`` is needed
+    because the postprocess service forwards through ``host._tool_state_view.record``."""
+
+    def __init__(self) -> None:
+        self.records: list[dict] = []
+
+    def record(self, history_key: str, record: dict) -> None:
+        self.records.append({"history_key": history_key, **record})
+
+
+class _FakeContextAssembler:
     def __init__(self) -> None:
         self.history: list[dict] = []
-        self.tool_records: list[dict] = []
+        # Step 1 of the ChatHistoryService decomposition moved tool-call
+        # tracking into a separate ChatToolStateView. The postprocess
+        # service aliases ``context_assembler.tool_state_view`` onto its
+        # own ``_tool_state_view`` so the mixin can call
+        # ``host._tool_state_view.record(...)`` directly; this fake must
+        # expose the same attribute. Tests that previously asserted on
+        # ``tool_records`` should look at ``tool_state_view.records``.
+        self.tool_state_view = _FakeToolStateView()
+
+    @property
+    def tool_records(self) -> list[dict]:
+        """Back-compat alias so existing tests that read ``tool_records``
+        keep working without per-test edits."""
+        return self.tool_state_view.records
 
     def require_session_id(self, user_id: str, session_id: str | None = None) -> str:
         return session_id or "generated-session"
@@ -43,9 +67,6 @@ class _FakeHistoryService:
 
     def append_assistant_message(self, history_key: str, response_text: str) -> None:
         self.history.append({"history_key": history_key, "role": "assistant", "content": response_text})
-
-    def store_tool_interaction(self, history_key: str, record: dict) -> None:
-        self.tool_records.append({"history_key": history_key, **record})
 
 
 class _FakeEventEmitter:
@@ -222,7 +243,7 @@ async def test_memory_updates_do_not_pass_stp_rules_after_response(monkeypatch) 
     memory = _RecordingPersonalityMemory()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -267,7 +288,7 @@ async def test_memory_updates_skip_stp_rules_outside_direct_chat_scope(monkeypat
     memory = _RecordingPersonalityMemory()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -563,7 +584,7 @@ async def test_handle_worker_result_persists_reply_anchor_to_original_message(
 
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -742,7 +763,7 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -786,7 +807,7 @@ async def test_record_tool_interaction_projects_memory_query_tactic_into_l0(tmp_
     await l0_store.initialize()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -819,10 +840,10 @@ async def test_record_tool_interaction_projects_memory_query_tactic_into_l0(tmp_
 
 @pytest.mark.asyncio
 async def test_record_tool_interaction_uses_historical_recall_summary_for_recent_tool_state() -> None:
-    history_service = _FakeHistoryService()
+    context_assembler = _FakeContextAssembler()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=history_service,  # type: ignore[arg-type]
+        context_assembler=context_assembler,  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -847,7 +868,7 @@ async def test_record_tool_interaction_uses_historical_recall_summary_for_recent
         }
     )
 
-    assert history_service.tool_records[0]["result_summary"] == "2022年9月2号傍晚在杭州拍了一张照片。"
+    assert context_assembler.tool_records[0]["result_summary"] == "2022年9月2号傍晚在杭州拍了一张照片。"
 
 
 @pytest.mark.asyncio
@@ -857,7 +878,7 @@ async def test_record_intent_resolution_stops_emitting_runtime_trace_events(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -915,7 +936,7 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1012,7 +1033,7 @@ async def test_record_tool_selection_updates_structured_intent_trace_payload(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1101,7 +1122,7 @@ async def test_record_intent_resolution_commits_interim_turn_state_before_notifi
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1205,7 +1226,7 @@ async def test_record_intent_resolution_commits_reaction_turn_state_before_notif
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1304,7 +1325,7 @@ async def test_record_tool_loop_fact_stops_persisting_llm_trace_rows(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1347,7 +1368,7 @@ async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat
     manager = _RecordingTaskAgentManager()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: manager,
         get_sensor_hub=lambda: None,
@@ -1385,7 +1406,7 @@ async def test_record_tool_loop_fact_projects_replan_tactic_into_l0(tmp_path) ->
     await l0_store.initialize()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1425,7 +1446,7 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1553,7 +1574,7 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
     runtime = _FakeRuntime()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=runtime.get_sensor_hub,
@@ -1618,7 +1639,7 @@ async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1698,7 +1719,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
     completed_runs: list[tuple[str, str, int]] = []
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1806,7 +1827,7 @@ async def test_handle_commits_final_chat_message_before_notification(
     chat_projector = _FakeChatProjector()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1910,7 +1931,7 @@ async def test_handle_suppresses_final_response_when_session_run_is_cancelling(
     completed_runs: list[tuple[str, str, int]] = []
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2002,7 +2023,7 @@ async def test_handle_maps_reaction_only_turn_to_user_label(
     chat_projector = _FakeChatProjector()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2119,7 +2140,7 @@ async def test_handle_completes_none_surface_turn_without_final_message(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2204,7 +2225,7 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2319,7 +2340,7 @@ async def test_handle_records_task_reflection_for_explore_completion() -> None:
     )
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2397,7 +2418,7 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
     unified_memory = _FakeUnifiedMemory(events=[{"event_id": "evt-1"}])
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2500,7 +2521,7 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
     action_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2593,7 +2614,7 @@ async def test_drain_deferred_turns_callback_invoked_on_finalize() -> None:
 
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2635,7 +2656,7 @@ async def test_drain_deferred_turns_callback_invoked_on_finalize() -> None:
 async def test_drain_deferred_turns_callback_absent_is_noop() -> None:
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2678,7 +2699,7 @@ async def test_drain_deferred_turns_swallows_callback_exception() -> None:
 
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,

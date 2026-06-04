@@ -26,7 +26,8 @@ layers =
     context
     awareness
     personality
-    tools | skills
+    tools
+    skills
     memory
     llm
     plugins
@@ -45,10 +46,11 @@ ignore_imports =
     #
     # == KNOWN DEBT BASELINE (frozen 2026-05-31; ratchet down, never up) ======
     # Buckets: tools/skills->agent (33), agent->chat/channels/transport (24),
-    # L13 api/chat/channels siblings (15), L7 tools<->skills siblings (9),
-    # runtime_trace->events (7), awareness->timeline (0; retired — timeline now
-    # subscribes down to sensor events instead of awareness feeding up),
-    # other (~23).
+    # L13 api/chat/channels siblings (15), runtime_trace->events (7),
+    # awareness->timeline (0; retired — timeline now subscribes down to sensor
+    # events instead of awareness feeding up), other (~23). (The L7 tools<->skills
+    # sibling cycle was broken: `tools` is now ordered above `skills` and the
+    # `skills -> tools.registry` arms were inverted via ToolRegistryPort.)
     magi.agent.lifecycle -> magi.transport.chat_events
     # ChatExecutionCoordinator RELOCATED from magi.agent.task_agents.chat.coordinator
     # to magi.chat.task_agent.coordinator (P2 Task 6, chat-driver descent). The old
@@ -85,14 +87,6 @@ ignore_imports =
     # edge (chat now owns transcript projection). Net debt shrank: three
     # control->chat/transport edges were removed and only this one added.
     magi.chat.control_transcript_subscriber -> magi.transport.chat_events
-    magi.chat.read_service -> magi.api.services.chat_trace.read_service
-    # RELOCATED from magi.agent.task_agents.chat_task_agent (P2 Task 3) when
-    # ChatTaskAgent moved into the chat layer; still a chat->api cross-sibling
-    # edge, just moved with the module.
-    magi.chat.task_agent.chat_task_agent -> magi.api.services.chat_trace.read_service
-    # RELOCATED from magi.agent.task_agents.chat.postprocess_service (P2 Task 2);
-    # still a chat->api cross-sibling edge, just moved with the module.
-    magi.chat.task_agent.postprocess_service -> magi.api.services.chat_trace.read_service
     magi.core.runtime_operational_gc -> magi.config.models
     magi.memory.event_translation -> magi.awareness.sensor_memory_projection
     magi.memory.portrait.factory -> magi.api.routers.memory.dependencies
@@ -108,17 +102,8 @@ ignore_imports =
     magi.runtime_trace.subscribers.runtime_trace_subscriber -> magi.events.payload_helpers
     magi.runtime_trace.writer -> magi.events.domain_payloads
     magi.skills.lifecycle -> magi.agent.control.permission.provider
-    magi.skills.service_access -> magi.tools.registry
     magi.skills.subagent -> magi.agent.execution.function_calling
-    magi.skills.subagent -> magi.tools.registry
-    magi.tools -> magi.skills.indexer
-    magi.tools -> magi.skills.loader
-    magi.tools -> magi.skills.runner
-    magi.tools -> magi.skills.schema
     magi.tools.context_decider_prompt -> magi.agent.message_utils
-    magi.tools.registry -> magi.skills.schema
-    magi.tools.registry_lookup -> magi.skills.schema
-    magi.tools.registry_skills -> magi.skills.schema
 
 [importlinter:contract:plugin-isolation]
 name = Plugin implementations depend on SDK only, never host layers

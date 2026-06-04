@@ -35,7 +35,7 @@ class ChatStoreModule(LifecycleModule):
         await store.initialize()
         self._context.chat.store = store
         # Phase F: build the ConversationLog alongside the ChatStore so
-        # downstream consumers (ChatTaskAgent → ChatHistoryService) can
+        # downstream consumers (ChatTaskAgent → ChatContextAssembler) can
         # reach it through ``ctx.chat.module._conversation_log``. The
         # consumed-events store shares the chat DB file because the
         # chat-domain Alembic migration owns the

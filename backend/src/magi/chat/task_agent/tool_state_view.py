@@ -177,9 +177,9 @@ class ChatToolStateView:
 
         Called once at chat agent startup. ``require_session_id`` and
         ``build_history_key`` are passed in rather than imported so this
-        module does not depend on ChatHistoryService's helpers (and so
+        module does not depend on ChatContextAssembler's helpers (and so
         the keying convention stays a single source of truth on
-        ChatHistoryService).
+        ChatContextAssembler).
         """
         try:
             if not self._runtime_trace_db_path.exists():
