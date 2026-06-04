@@ -20,7 +20,7 @@ import json
 import uuid
 from typing import Awaitable, Callable
 
-from .contracts import BatchItem, BatchItemStatus, BatchJob, BatchJobStatus
+from .contracts import BatchItem, BatchJob, BatchJobStatus
 from .store import BatchStore, _now_ms
 
 # Seam: enqueue ONE bounded background agent run for this batch of items.
@@ -85,6 +85,27 @@ async def kickoff_next_batch(
     return len(leased)
 
 
+async def fill_to_concurrency(
+    store: BatchStore,
+    job: BatchJob,
+    *,
+    enqueue_run: EnqueueRun,
+    target_n: int,
+    now_fn: Callable[[], int] | None = None,
+) -> int:
+    """Start up to ``target_n`` runs (one leased batch each), stopping early when
+    nothing is left to lease. Returns the number of runs started. Used by
+    kickoff/resume (in-flight assumed 0); steady-state replenishment is the
+    single-lease path inside ``on_batch_run_done``."""
+    started = 0
+    for _ in range(target_n):
+        leased = await kickoff_next_batch(store, job, enqueue_run=enqueue_run, now_fn=now_fn)
+        if leased == 0:
+            break
+        started += 1
+    return started
+
+
 async def on_batch_run_done(
     store: BatchStore,
     job_id: str,
@@ -92,25 +113,24 @@ async def on_batch_run_done(
     enqueue_run: EnqueueRun,
     now_fn: Callable[[], int] | None = None,
 ) -> str:
-    """Terminal-listener logic for a finished batch run. Either continues
-    (kick off the next batch) or finalizes (requeue retryable + reconcile).
-    Returns a short status string for observability/tests."""
+    """Terminal-listener logic for a finished batch run. Replenish (lease-driven)
+    or finalize. Returns a short status string for observability/tests."""
     now = now_fn() if now_fn is not None else _now_ms()
     job = await store.get_job(job_id)
     if job is None:
         return "unknown_job"
 
-    pending = await store.list_by_status(job_id, BatchItemStatus.PENDING)
-    if pending:
-        await kickoff_next_batch(store, job, enqueue_run=enqueue_run, now_fn=now_fn)
+    # Replenish: the lease CAS itself drives the decision, avoiding the
+    # list-pending/lease TOCTOU under concurrency. leased>0 => one run enqueued.
+    if await kickoff_next_batch(store, job, enqueue_run=enqueue_run, now_fn=now_fn):
         return "continued"
 
-    # No pending left: requeue retryable failures, maybe one more lap.
+    # Nothing to lease: requeue retryable failures, try once more.
     await store.requeue_retryable(job_id, job.max_attempts, now_ms=now)
-    if await store.list_by_status(job_id, BatchItemStatus.PENDING):
-        await kickoff_next_batch(store, job, enqueue_run=enqueue_run, now_fn=now_fn)
+    if await kickoff_next_batch(store, job, enqueue_run=enqueue_run, now_fn=now_fn):
         return "retrying"
 
+    # Truly drained: reconcile + finalize (idempotent under concurrent finishers).
     report = await store.reconcile_scan(job_id, now_ms=now)
     if report.complete and not report.conflicts:
         await store.set_job_status(job_id, BatchJobStatus.DONE)

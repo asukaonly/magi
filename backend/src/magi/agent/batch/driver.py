@@ -13,9 +13,10 @@ from __future__ import annotations
 from typing import Any
 
 from ..background import BackgroundTaskSpec, BackgroundTaskTriggerSource
+from .contracts import BatchJobStatus
 from .runner import (
     build_batch_goal,
-    kickoff_next_batch,
+    fill_to_concurrency,
     on_batch_run_done,
     parse_job_id_from_goal,
 )
@@ -47,13 +48,36 @@ class BatchDriver:
         )
         await self._manager.enqueue(spec)
 
+    def _effective_n(self, job: Any) -> int:
+        """Batch's in-flight cap: honor job.concurrency, never exceed the global
+        pool minus one reserved slot, but always allow at least 1."""
+        return max(1, min(job.concurrency, self._manager.max_concurrent - 1))
+
     async def kickoff(self, job_id: str) -> int:
-        """Lease + enqueue the first batch. Returns #items leased (0 = nothing)."""
+        """Lease + enqueue up to effective_N runs. Returns #runs started."""
         store = self._store_factory()
         job = await store.get_job(job_id)
         if job is None:
             return 0
-        return await kickoff_next_batch(store, job, enqueue_run=self._enqueue_run)
+        return await fill_to_concurrency(
+            store, job, enqueue_run=self._enqueue_run, target_n=self._effective_n(job)
+        )
+
+    async def resume_running_jobs(self) -> int:
+        """Restart recovery — STARTUP-ONLY (assumes no batch runs are in-flight).
+        After a restart every 'running' item is an orphan (its run died with the
+        process), so force-requeue all of them to pending — without waiting for
+        the lease TTL — then refill to effective_N. Must NOT be called while runs
+        are live, or it would re-drive items that are still being processed.
+        Returns #jobs resumed."""
+        store = self._store_factory()
+        jobs = await store.list_jobs_by_status(BatchJobStatus.RUNNING)
+        for job in jobs:
+            await store.requeue_running(job.job_id)
+            await fill_to_concurrency(
+                store, job, enqueue_run=self._enqueue_run, target_n=self._effective_n(job)
+            )
+        return len(jobs)
 
     async def on_terminal(self, task: Any) -> None:
         """BackgroundManager terminal listener: continue the chain or finalize."""

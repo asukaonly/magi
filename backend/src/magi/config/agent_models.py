@@ -64,7 +64,7 @@ class BackgroundTasksSettings(BaseModel):
     """
 
     enabled: bool = Field(default=True, description="Feature flag; default on.")
-    max_concurrent: int = Field(default=2, ge=1, description="Hard cap on simultaneously running tasks.")
+    max_concurrent: int = Field(default=4, ge=1, description="Hard cap on simultaneously running tasks.")
     queue_when_full: bool = Field(
         default=True,
         description="Queue tasks when at cap; when false, falls back to foreground.",

@@ -10,7 +10,7 @@ import json
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import aiosqlite
 
@@ -163,6 +163,16 @@ class BatchStore:
             row = await cur.fetchone()
             return _row_to_job(row) if row else None
 
+    async def list_jobs_by_status(self, status: BatchJobStatus) -> "list[BatchJob]":
+        """All jobs in a given status, oldest first. Used by restart-resume."""
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                "SELECT * FROM batch_job WHERE status = ? ORDER BY created_at_ms",
+                (status.value,),
+            )
+            return [_row_to_job(r) for r in await cur.fetchall()]
+
     async def set_job_status(self, job_id: str, status: BatchJobStatus) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
@@ -173,17 +183,19 @@ class BatchStore:
 
     # --- items ------------------------------------------------------------
 
-    async def add_items(self, job_id: str, inputs: list[dict[str, Any]]) -> int:
+    async def add_items(
+        self, job_id: str, inputs: "Iterable[dict[str, Any]]", *, chunk_size: int = 1000
+    ) -> int:
+        """Seed pending items from a (possibly lazy) iterable, committing in
+        chunks so a huge seed never builds one giant transaction. Returns total."""
         now = _now_ms()
-        rows = [
-            (
-                job_id, uuid.uuid4().hex, json.dumps(inp),
-                BatchItemStatus.PENDING.value, 0, None, None, None, None,
-                None, None, now,
-            )
-            for inp in inputs
-        ]
-        async with aiosqlite.connect(self._db_path) as db:
+        total = 0
+        chunk: list[tuple] = []
+
+        async def _flush(db) -> None:
+            nonlocal total, chunk
+            if not chunk:
+                return
             await db.executemany(
                 """
                 INSERT INTO batch_item (
@@ -192,10 +204,23 @@ class BatchStore:
                     lease_expires_at_ms, updated_at_ms
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
-                rows,
+                chunk,
             )
             await db.commit()
-        return len(rows)
+            total += len(chunk)
+            chunk = []
+
+        async with aiosqlite.connect(self._db_path) as db:
+            for inp in inputs:
+                chunk.append((
+                    job_id, uuid.uuid4().hex, json.dumps(inp),
+                    BatchItemStatus.PENDING.value, 0, None, None, None, None,
+                    None, None, now,
+                ))
+                if len(chunk) >= chunk_size:
+                    await _flush(db)
+            await _flush(db)
+        return total
 
     async def get_item(self, job_id: str, item_id: str) -> BatchItem | None:
         async with aiosqlite.connect(self._db_path) as db:
@@ -399,6 +424,24 @@ class BatchStore:
             )
             await db.commit()
             return cur.rowcount > 0
+
+    async def requeue_running(self, job_id: str) -> int:
+        """Force ALL 'running' items back to 'pending' (clearing the lease),
+        regardless of lease expiry. Used by restart-resume: after a process
+        restart no batch runs are in-flight, so every 'running' row is an orphan
+        and must be re-driven without waiting for the lease TTL. Returns rows requeued."""
+        async with aiosqlite.connect(self._db_path) as db:
+            cur = await db.execute(
+                """
+                UPDATE batch_item
+                SET status = 'pending', lease_owner = NULL,
+                    lease_expires_at_ms = NULL, updated_at_ms = ?
+                WHERE job_id = ? AND status = 'running'
+                """,
+                (_now_ms(), job_id),
+            )
+            await db.commit()
+            return cur.rowcount
 
     async def requeue_retryable(
         self, job_id: str, max_attempts: int, *, now_ms: int | None = None

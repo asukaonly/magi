@@ -102,6 +102,11 @@ class BackgroundTaskManager:
         """Expose the underlying persistence store for read-only queries."""
         return self._store
 
+    @property
+    def max_concurrent(self) -> int:
+        """Hard cap on simultaneously running background tasks (read-only)."""
+        return self._max_concurrent
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
