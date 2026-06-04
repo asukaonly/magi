@@ -221,3 +221,63 @@ async def test_result_normalized_when_agent_sends_string(store):
     rep = await store.reconcile_scan(job.job_id, now_ms=10)  # must not raise
     assert rep.complete is True
     assert rep.counts.get("done") == 2
+
+
+@pytest.mark.asyncio
+async def test_add_items_accepts_iterable_and_chunks(store):
+    job = await _make_job(store)
+
+    def gen():  # a lazy generator, not a list — must be accepted
+        for i in range(5):
+            yield {"path": f"/{i}.mkv"}
+
+    total = await store.add_items(job.job_id, gen(), chunk_size=2)
+    assert total == 5
+    items = await store.list_by_status(job.job_id, BatchItemStatus.PENDING)
+    assert len(items) == 5
+
+
+@pytest.mark.asyncio
+async def test_add_items_empty_iterable(store):
+    job = await _make_job(store)
+    assert await store.add_items(job.job_id, iter([])) == 0
+
+
+@pytest.mark.asyncio
+async def test_list_jobs_by_status(store):
+    j1 = await _make_job(store)
+    j2 = await _make_job(store)
+    await store.set_job_status(j1.job_id, BatchJobStatus.RUNNING)
+    running = await store.list_jobs_by_status(BatchJobStatus.RUNNING)
+    assert [j.job_id for j in running] == [j1.job_id]
+    planning = await store.list_jobs_by_status(BatchJobStatus.PLANNING)
+    assert {j.job_id for j in planning} == {j2.job_id}
+
+
+@pytest.mark.asyncio
+async def test_requeue_running_forces_all_regardless_of_lease(store):
+    job = await _make_job(store)
+    await store.add_items(job.job_id, [{"path": "/a.mkv"}, {"path": "/b.mkv"}])
+    # lease with a FAR-FUTURE expiry (NOT expired) — simulates a fresh lease at crash time
+    await store.lease_next_batch(job.job_id, limit=2, lease_owner="dead", lease_ttl_ms=30*60*1000, now_ms=10**12)
+    assert len(await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)) == 2
+    n = await store.requeue_running(job.job_id)
+    assert n == 2
+    assert len(await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)) == 0
+    assert len(await store.list_by_status(job.job_id, BatchItemStatus.PENDING)) == 2
+
+
+@pytest.mark.asyncio
+async def test_store_connections_use_wal_and_busy_timeout(store):
+    # Any store op routes through _connect, which puts the db in WAL mode
+    # (persistent, db-file level) and sets a busy_timeout on the connection.
+    await _make_job(store)
+    import aiosqlite
+    # WAL is persistent: a fresh external connection observes it.
+    async with aiosqlite.connect(store._db_path) as probe:
+        mode = (await (await probe.execute("PRAGMA journal_mode")).fetchone())[0]
+    assert mode.lower() == "wal"
+    # busy_timeout is connection-scoped: assert _connect sets it on its own conns.
+    async with store._connect() as db:
+        timeout = (await (await db.execute("PRAGMA busy_timeout")).fetchone())[0]
+    assert timeout == 5000

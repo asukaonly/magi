@@ -5,6 +5,7 @@ import pytest
 from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, ItemOutcome
 from magi.agent.batch.runner import (
     build_batch_goal,
+    fill_to_concurrency,
     kickoff_next_batch,
     on_batch_run_done,
     parse_job_id_from_goal,
@@ -131,3 +132,63 @@ async def test_on_done_needs_review_blocks_done(store):
     await kickoff_next_batch(store, job, enqueue_run=enqueue_run)
     assert seen["status"] == "needs_review"
     assert (await store.get_job(job.job_id)).status != BatchJobStatus.DONE
+
+
+# --- Task 5: fill_to_concurrency + lease-driven on_batch_run_done ----------
+# (reuses the `store` fixture and `_job` helper above)
+
+
+@pytest.mark.asyncio
+async def test_fill_to_concurrency_starts_target_runs(store):
+    job = await _job(store, 10, batch_size=2)
+    runs = []
+
+    async def enqueue(j, items):
+        runs.append(items)
+
+    started = await fill_to_concurrency(store, job, enqueue_run=enqueue, target_n=3)
+    assert started == 3
+    assert len(runs) == 3
+    assert len(await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)) == 6  # 3*2
+
+
+@pytest.mark.asyncio
+async def test_fill_stops_when_pending_exhausted(store):
+    job = await _job(store, 3, batch_size=2)  # only 2 batches worth
+    runs = []
+
+    async def enqueue(j, items):
+        runs.append(items)
+
+    started = await fill_to_concurrency(store, job, enqueue_run=enqueue, target_n=5)
+    assert started == 2  # 2 + 1, then nothing left
+
+
+@pytest.mark.asyncio
+async def test_on_done_continues_via_lease(store):
+    job = await _job(store, 4, batch_size=2)
+    enq = []
+
+    async def enqueue(j, items):
+        enq.append(items)
+
+    status = await on_batch_run_done(store, job.job_id, enqueue_run=enqueue)
+    assert status == "continued"
+    assert len(enq) == 1  # leased the next batch, enqueued one run
+
+
+@pytest.mark.asyncio
+async def test_on_done_finalizes_when_all_done(store):
+    job = await _job(store, 2, batch_size=2)
+    leased = await store.lease_next_batch(
+        job.job_id, limit=2, lease_owner="A", lease_ttl_ms=1000, now_ms=1
+    )
+    await store.update_items(job.job_id, [
+        ItemOutcome(item_id=i.item_id, status=BatchItemStatus.DONE) for i in leased
+    ])
+
+    async def enqueue(j, items):
+        raise AssertionError("should not enqueue")
+
+    status = await on_batch_run_done(store, job.job_id, enqueue_run=enqueue, now_fn=lambda: 9999)
+    assert status == "done"

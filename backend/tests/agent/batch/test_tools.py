@@ -4,7 +4,7 @@ import pytest
 
 from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, ItemOutcome
 from magi.agent.batch.store import BatchStore
-from magi.tools.builtin import (
+from magi.agent.batch.tools import (
     batch_create_tool,
     batch_item_update_tool,
     batch_review_tool,
@@ -151,3 +151,34 @@ async def test_batch_create_requires_handler(store):
     res = await tool.execute({"seed_spec": {"source": "fs", "root": "/tmp", "patterns": ["*.x"]}}, _ctx())
     assert not res.success
     assert res.error_code == "INVALID_PARAMETERS"
+
+
+@pytest.mark.asyncio
+async def test_batch_create_concurrency_reaches_job(store, tmp_path):
+    (tmp_path / "a.mkv").write_text("")
+    (tmp_path / "b.mkv").write_text("")
+    tool = batch_create_tool.BatchCreateTool()
+    res = await tool.execute(
+        {"handler_prompt": "Look up each movie and rename it.",
+         "seed_spec": {"source": "fs", "root": str(tmp_path), "patterns": ["*.mkv"]},
+         "concurrency": 5, "title": "movies"},
+        _ctx(user_id="local_user"),
+    )
+    assert res.success
+    assert res.data["total_items"] == 2
+    job = await store.get_job(res.data["job_id"])
+    assert job.concurrency == 5
+
+
+@pytest.mark.asyncio
+async def test_batch_create_concurrency_defaults_to_3(store, tmp_path):
+    (tmp_path / "a.mkv").write_text("")
+    tool = batch_create_tool.BatchCreateTool()
+    res = await tool.execute(
+        {"handler_prompt": "Rename each file.",
+         "seed_spec": {"source": "fs", "root": str(tmp_path), "patterns": ["*.mkv"]}},
+        _ctx(user_id="local_user"),
+    )
+    assert res.success
+    job = await store.get_job(res.data["job_id"])
+    assert job.concurrency == 3

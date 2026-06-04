@@ -35,10 +35,11 @@ def register_runtime_tools(registry) -> tuple[str, ...]:
     """
     # Imported lazily so this composition-root module does not pull the agent
     # layer in at import time before the runtime is being assembled.
+    from ..agent.batch.tools import BATCH_TOOL_CLASSES
     from ..agent.runtime_tools import AGENT_RUNTIME_TOOL_CLASSES
 
     registered: list[str] = []
-    for tool_class in AGENT_RUNTIME_TOOL_CLASSES:
+    for tool_class in (*AGENT_RUNTIME_TOOL_CLASSES, *BATCH_TOOL_CLASSES):
         registry.register(tool_class)
         registered.append(tool_class().get_schema().name)
     return tuple(registered)

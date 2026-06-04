@@ -159,6 +159,14 @@ class AgentRuntimeModule(LifecycleModule):
 
         background_wiring.manager.add_listener(broadcast_background_task_state_changed)
         await background_wiring.manager.start()
+
+        # Batch restart-recovery: pick up RUNNING batch jobs left by a previous
+        # process (manager._running is empty after restart) and refill their runs.
+        from .batch.driver import BatchDriver
+        resumed = await BatchDriver(background_wiring.manager).resume_running_jobs()
+        if resumed:
+            logger.info("batch jobs resumed after restart", count=resumed)
+
         await background_wiring.retention_gc.start()
 
         logger.info(

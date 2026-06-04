@@ -10,6 +10,12 @@ sub-agent spawning).
 
 from __future__ import annotations
 
+from magi.agent.batch.tools import (
+    BATCH_TOOL_CLASSES,
+    BatchCreateTool,
+    BatchItemUpdateTool,
+    BatchReviewTool,
+)
 from magi.agent.runtime_tools import AGENT_RUNTIME_TOOL_CLASSES, AgentTool
 from magi.bootstrap.runtime_tools import register_runtime_tools
 from magi.tools.registry import ToolRegistry
@@ -38,3 +44,36 @@ def test_agent_runtime_tool_classes_contains_agent_tool() -> None:
 def test_agent_tool_schema_name_is_agent() -> None:
     """Guard the registered name the rest of the runtime looks up."""
     assert AgentTool().get_schema().name == "agent"
+
+
+def test_registrar_registers_batch_tools_into_fresh_registry() -> None:
+    """Issue #11: batch tools moved out of the core-tools plugin scope into
+    ``magi.agent.batch.tools`` (L12 runtime-control) and are host-registered
+    from the composition root. This proves the relocation did NOT de-register
+    them — the key risk of the move.
+    """
+    registry = ToolRegistry()
+
+    for name in ("batch_create", "batch_item_update", "batch_review"):
+        assert registry.get_tool(name) is None
+
+    registered = register_runtime_tools(registry)
+
+    for name, cls in (
+        ("batch_create", BatchCreateTool),
+        ("batch_item_update", BatchItemUpdateTool),
+        ("batch_review", BatchReviewTool),
+    ):
+        assert name in registered
+        tool = registry.get_tool(name)
+        assert tool is not None
+        assert isinstance(tool, cls)
+
+
+def test_batch_tool_classes_export() -> None:
+    """The batch runtime-tool export the registrar iterates includes all three."""
+    assert BATCH_TOOL_CLASSES == (
+        BatchCreateTool,
+        BatchItemUpdateTool,
+        BatchReviewTool,
+    )

@@ -69,9 +69,9 @@ async def test_e2e_movie_rename_drives_to_completion(store, tmp_path):
     (movies / "Matrix.1999.BluRay.REMUX.mkv").write_text("v")
     (movies / "mystery.clip.mkv").write_text("v")  # not in catalog -> needs_review
 
-    # seed manifest from the fs enumerator
+    # seed manifest from the fs enumerator (now a lazy iterator: materialize once)
     seed = {"source": "fs", "root": str(movies), "patterns": ["*.mkv"]}
-    inputs = enumerate_seed(seed)
+    inputs = list(enumerate_seed(seed))
     assert len(inputs) == 3
     job = await store.create_job(
         title="movies", owner="local_user", origin_session_id="s", origin_turn_id="u",

@@ -3,9 +3,13 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ...agent.batch import BatchItemStatus, ItemOutcome
-from ...agent.batch.store import default_batch_store
-from ..schema import (
+from .. import BatchItemStatus, ItemOutcome
+from ..store import default_batch_store
+
+# agent.batch.tools is host runtime-control code (L12). Import the Tool base +
+# schema helpers straight from the SDK (downward, legal), mirroring how
+# magi.agent.runtime_tools.agent_tool imports its contracts.
+from magi_plugin_sdk import (
     ParameterType,
     Tool,
     ToolErrorCode,

@@ -9,8 +9,9 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import aiosqlite
 
@@ -97,6 +98,20 @@ class BatchStore:
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         self._initialized = True
 
+    @asynccontextmanager
+    async def _connect(self):
+        """One connection per call, configured for concurrent access: WAL journal
+        so readers never block the writer (persistent once set, idempotent to
+        re-assert), plus a busy_timeout so a concurrent writer waits for the lock
+        instead of immediately raising 'database is locked'."""
+        db = await aiosqlite.connect(self._db_path)
+        try:
+            await db.execute("PRAGMA journal_mode=WAL")
+            await db.execute("PRAGMA busy_timeout=5000")
+            yield db
+        finally:
+            await db.close()
+
     # --- jobs -------------------------------------------------------------
 
     async def create_job(
@@ -132,7 +147,7 @@ class BatchStore:
             created_at_ms=now,
             updated_at_ms=now,
         )
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 INSERT INTO batch_job (
@@ -155,7 +170,7 @@ class BatchStore:
         return job
 
     async def get_job(self, job_id: str) -> BatchJob | None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             cur = await db.execute(
                 "SELECT * FROM batch_job WHERE job_id = ?", (job_id,)
@@ -163,8 +178,18 @@ class BatchStore:
             row = await cur.fetchone()
             return _row_to_job(row) if row else None
 
+    async def list_jobs_by_status(self, status: BatchJobStatus) -> "list[BatchJob]":
+        """All jobs in a given status, oldest first. Used by restart-resume."""
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                "SELECT * FROM batch_job WHERE status = ? ORDER BY created_at_ms",
+                (status.value,),
+            )
+            return [_row_to_job(r) for r in await cur.fetchall()]
+
     async def set_job_status(self, job_id: str, status: BatchJobStatus) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "UPDATE batch_job SET status = ?, updated_at_ms = ? WHERE job_id = ?",
                 (status.value, _now_ms(), job_id),
@@ -173,17 +198,19 @@ class BatchStore:
 
     # --- items ------------------------------------------------------------
 
-    async def add_items(self, job_id: str, inputs: list[dict[str, Any]]) -> int:
+    async def add_items(
+        self, job_id: str, inputs: "Iterable[dict[str, Any]]", *, chunk_size: int = 1000
+    ) -> int:
+        """Seed pending items from a (possibly lazy) iterable, committing in
+        chunks so a huge seed never builds one giant transaction. Returns total."""
         now = _now_ms()
-        rows = [
-            (
-                job_id, uuid.uuid4().hex, json.dumps(inp),
-                BatchItemStatus.PENDING.value, 0, None, None, None, None,
-                None, None, now,
-            )
-            for inp in inputs
-        ]
-        async with aiosqlite.connect(self._db_path) as db:
+        total = 0
+        chunk: list[tuple] = []
+
+        async def _flush(db) -> None:
+            nonlocal total, chunk
+            if not chunk:
+                return
             await db.executemany(
                 """
                 INSERT INTO batch_item (
@@ -192,13 +219,26 @@ class BatchStore:
                     lease_expires_at_ms, updated_at_ms
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
-                rows,
+                chunk,
             )
             await db.commit()
-        return len(rows)
+            total += len(chunk)
+            chunk = []
+
+        async with self._connect() as db:
+            for inp in inputs:
+                chunk.append((
+                    job_id, uuid.uuid4().hex, json.dumps(inp),
+                    BatchItemStatus.PENDING.value, 0, None, None, None, None,
+                    None, None, now,
+                ))
+                if len(chunk) >= chunk_size:
+                    await _flush(db)
+            await _flush(db)
+        return total
 
     async def get_item(self, job_id: str, item_id: str) -> BatchItem | None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             cur = await db.execute(
                 "SELECT * FROM batch_item WHERE job_id = ? AND item_id = ?",
@@ -210,7 +250,7 @@ class BatchStore:
     async def list_by_status(
         self, job_id: str, status: BatchItemStatus
     ) -> list[BatchItem]:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             cur = await db.execute(
                 "SELECT * FROM batch_item WHERE job_id = ? AND status = ? ORDER BY item_id",
@@ -236,7 +276,7 @@ class BatchStore:
         """
         now = now_ms if now_ms is not None else _now_ms()
         expires = now + lease_ttl_ms
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             await db.execute(
@@ -275,7 +315,7 @@ class BatchStore:
         """
         now = now_ms if now_ms is not None else _now_ms()
         applied = 0
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             for oc in outcomes:
                 cur = await db.execute(
                     """
@@ -302,7 +342,7 @@ class BatchStore:
     # --- counts / reconcile ----------------------------------------------
 
     async def status_counts(self, job_id: str) -> dict[str, int]:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             cur = await db.execute(
                 "SELECT status, COUNT(*) FROM batch_item WHERE job_id = ? GROUP BY status",
                 (job_id,),
@@ -310,7 +350,7 @@ class BatchStore:
             return {status: count for status, count in await cur.fetchall()}
 
     async def reclaim_expired_leases(self, job_id: str, *, now_ms: int) -> int:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             cur = await db.execute(
                 """
                 UPDATE batch_item
@@ -350,7 +390,7 @@ class BatchStore:
         )
 
     async def _dedup_conflicts(self, job_id: str) -> list[tuple[str, str]]:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             cur = await db.execute(
                 "SELECT item_id, result FROM batch_item WHERE job_id = ? AND status = 'done'",
@@ -391,7 +431,7 @@ class BatchStore:
             else BatchItemStatus.PENDING.value
         )
         payload = json.dumps({"decision": decision, "data": data})
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             cur = await db.execute(
                 "UPDATE batch_item SET status = ?, review_decision = ?, updated_at_ms = ? "
                 "WHERE job_id = ? AND item_id = ? AND status = 'needs_review'",
@@ -400,12 +440,30 @@ class BatchStore:
             await db.commit()
             return cur.rowcount > 0
 
+    async def requeue_running(self, job_id: str) -> int:
+        """Force ALL 'running' items back to 'pending' (clearing the lease),
+        regardless of lease expiry. Used by restart-resume: after a process
+        restart no batch runs are in-flight, so every 'running' row is an orphan
+        and must be re-driven without waiting for the lease TTL. Returns rows requeued."""
+        async with self._connect() as db:
+            cur = await db.execute(
+                """
+                UPDATE batch_item
+                SET status = 'pending', lease_owner = NULL,
+                    lease_expires_at_ms = NULL, updated_at_ms = ?
+                WHERE job_id = ? AND status = 'running'
+                """,
+                (_now_ms(), job_id),
+            )
+            await db.commit()
+            return cur.rowcount
+
     async def requeue_retryable(
         self, job_id: str, max_attempts: int, *, now_ms: int | None = None
     ) -> int:
         """Failed items still under the attempt limit go back to pending."""
         now = now_ms if now_ms is not None else _now_ms()
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             cur = await db.execute(
                 "UPDATE batch_item SET status = 'pending', lease_owner = NULL, "
                 "lease_expires_at_ms = NULL, updated_at_ms = ? "

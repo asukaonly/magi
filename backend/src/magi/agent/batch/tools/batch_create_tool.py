@@ -3,10 +3,14 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ...agent.batch import BatchJobStatus
-from ...agent.batch.enumerator import enumerate_seed
-from ...agent.batch.store import default_batch_store
-from ..schema import (
+from .. import BatchJobStatus
+from ..enumerator import enumerate_seed
+from ..store import default_batch_store
+
+# agent.batch.tools is host runtime-control code (L12). Import the Tool base +
+# schema helpers straight from the SDK (downward, legal), mirroring how
+# magi.agent.runtime_tools.agent_tool imports its contracts.
+from magi_plugin_sdk import (
     ParameterType,
     Tool,
     ToolErrorCode,
@@ -62,6 +66,14 @@ class BatchCreateTool(Tool):
                     name="title", type=ParameterType.STRING, required=False, default="Batch job",
                     description="Human-readable job title.",
                 ),
+                ToolParameter(
+                    name="concurrency", type=ParameterType.INTEGER, required=False, default=3,
+                    description=(
+                        "How many items to process in parallel (independent background "
+                        "runs). Default 3; capped by the global background concurrency, "
+                        "always leaving one slot for other tasks."
+                    ),
+                ),
             ],
         )
 
@@ -99,22 +111,24 @@ class BatchCreateTool(Tool):
             handler_ref=handler_ref,
             handler_config=handler_config,
             seed_spec=seed_spec,
+            concurrency=int(parameters.get("concurrency") or 3),
         )
-        await store.add_items(job.job_id, inputs)
+        # inputs is a lazy iterator; add_items consumes it and returns the count.
+        total_items = await store.add_items(job.job_id, inputs)
         await store.set_job_status(job.job_id, BatchJobStatus.RUNNING)
 
         # W1: fire the first batch through the real BackgroundManager. Surface
         # the outcome in the result so failures are visible (not silently swallowed).
         kickoff = "skipped"
         try:
-            from ...agent.background.provider import resolve_background_task_manager
-            from ...agent.batch.driver import BatchDriver
+            from ...background.provider import resolve_background_task_manager
+            from ..driver import BatchDriver
 
-            leased = await BatchDriver(resolve_background_task_manager()).kickoff(job.job_id)
-            kickoff = f"leased {leased}"
+            started = await BatchDriver(resolve_background_task_manager()).kickoff(job.job_id)
+            kickoff = f"started {started} runs"
         except Exception as exc:  # noqa: BLE001 - report kickoff failure, don't hide it
             kickoff = f"kickoff failed: {type(exc).__name__}: {exc}"
         return ToolResult(
             success=True,
-            data={"job_id": job.job_id, "total_items": len(inputs), "kickoff": kickoff},
+            data={"job_id": job.job_id, "total_items": total_items, "kickoff": kickoff},
         )
