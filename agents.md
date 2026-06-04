@@ -377,6 +377,26 @@ git commit -m "fix: handle timeout in worker execution"
 git push
 ```
 
+### Releasing a version
+
+Use the automated script — do **not** hand-edit version files or create tags manually:
+
+```bash
+scripts/bump-release.sh <major|minor|patch>   # e.g. patch: 0.1.14 -> 0.1.15
+```
+
+It reads the current version from `VERSION`, bumps the requested part, syncs **all**
+metadata via `scripts/release-version.py sync` (VERSION, Cargo.lock, frontend
+`package.json`/lock, `tauri.conf.json`, `src-tauri/Cargo.toml`, `backend/pyproject.toml`),
+runs an environment-independent sanity check, pushes the branch, then **gates on the
+remote `ci.yml` run** (`gh run watch`) and only creates + pushes the `v<version>` tag
+once CI is green. The tag triggers `release.yml` (desktop bundle builds).
+
+Remote CI is the source of truth because the full CI (FastAPI http tests + api-types
+codegen) is sensitive to the exact `fastapi`/`pydantic` versions pinned in
+`backend/pyproject.toml`; a local dev env that lags those versions fails spuriously.
+Requires: clean working tree, a checked-out branch, and authenticated `gh`.
+
 ---
 
 ## 10) Branching
