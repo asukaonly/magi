@@ -33,7 +33,7 @@ from .postprocess.trace import ChatPostprocessTraceMixin
 from .session_run_coordinator import TurnSupersession
 
 if TYPE_CHECKING:
-    from magi.api.services.chat_trace.read_service import ChatTraceReadService
+    from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
 
 logger = get_logger(__name__)
 

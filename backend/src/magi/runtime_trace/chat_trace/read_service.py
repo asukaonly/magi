@@ -5,8 +5,8 @@ import asyncio
 from pathlib import Path
 from typing import Any, Optional
 
-from ....core.logger import get_logger
-from ....utils.runtime import get_runtime_paths
+from ...core.logger import get_logger
+from ...utils.runtime import get_runtime_paths
 from .constants import (
     TRACE_NODE_EVENT_TYPES,
 )

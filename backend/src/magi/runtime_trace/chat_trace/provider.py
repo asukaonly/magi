@@ -9,6 +9,6 @@ if TYPE_CHECKING:
 
 def get_chat_trace_read_service() -> "ChatTraceReadService":
     """Return the container-owned ChatTraceReadService singleton."""
-    from ....core.container import get_container
+    from ...core.container import get_container
 
     return get_container().chat_trace_read_service()

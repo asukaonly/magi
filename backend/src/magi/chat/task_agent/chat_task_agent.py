@@ -231,7 +231,7 @@ class ChatTaskAgent(
             control_session_store_provider=control_session_store_provider,
         )
         # Initialize trace read service for enriching AI_RESPONSE events
-        from magi.api.services.chat_trace.read_service import ChatTraceReadService
+        from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
 
         try:
             trace_read_service = ChatTraceReadService()
