@@ -1,13 +1,27 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from magi.awareness.ingestion_gateway import SensorIngestionGateway
+from magi.awareness.kg_write_queue import KnowledgeGraphWriteQueue
 from magi.awareness.sensor_base import SensorBase
-from magi.awareness.sensor_output import ContentBlock, SensorMemoryPolicy, SensorOutput, SensorOutputMetadata
+from magi.awareness.sensor_output import (
+    ActivityFacet,
+    ContentBlock,
+    SensorActivity,
+    SensorMemoryPolicy,
+    SensorNarration,
+    SensorOutput,
+    SensorOutputMetadata,
+)
 from magi.config import AppConfig
+from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.memory.event_contracts import MemoryEvent
+from magi.memory.subscribers.memory_ingestion_subscriber import MemoryIngestionSubscriber
 from magi.timeline.handler import build_timeline_handler
+from magi.timeline.subscribers.kg_subscriber import KGSubscriber
 
 
 class _FakeL1Store:
@@ -44,12 +58,24 @@ class _FakePhotoLibrarySensor(SensorBase):
 
     async def build_output(self, payload):
         source_item_id = str(payload["source_item_id"])
+        summary = str(payload["summary"])
         return self._build_output(
             source_item_id=source_item_id,
-            title=str(payload["title"]),
-            summary=str(payload["summary"]),
+            activity=SensorActivity(
+                source=ActivityFacet(
+                    code="photo_library",
+                    i18n_key="activity.source.photo_library",
+                    fallback="Photo Library",
+                ),
+                action=ActivityFacet(
+                    code="capture",
+                    i18n_key="activity.action.capture",
+                    fallback="Captured",
+                ),
+            ),
+            narration=SensorNarration(body=summary, title=str(payload["title"])),
             occurred_at=float(payload["timestamp"]),
-            content_blocks=[ContentBlock(kind="text", value=str(payload["summary"]))],
+            content_blocks=[ContentBlock(kind="text", value=summary)],
             tags=["photo_library"],
             domain_payload={"retention_mode": "retain_raw", "path": str(payload.get("path") or "")},
         )
@@ -79,11 +105,27 @@ class _FakePluginManager:
 
 @pytest.mark.asyncio
 async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_graph_edges() -> None:
+    """The timeline handler routes a photo_library payload through the
+    SensorIngestionGateway publisher; independent subscribers (memory + KG)
+    consume the published SensorEventEmitted and project the canonical
+    MemoryEvent and user graph edge.
+
+    The gateway is now a thin publisher (``SensorIngestionGateway(event_bus=…)``);
+    persistence side-effects live in subscribers, so the test wires the two
+    relevant subscribers and drives the in-memory bus end to end.
+    """
     memory = _FakeUnifiedMemory()
-    gateway = SensorIngestionGateway(
-        unified_memory=memory,
-        timeline_adapter=None,
-    )
+    bus = InMemoryMessageBusBackend()
+    await bus.start()
+
+    memory_sub = MemoryIngestionSubscriber(event_bus=bus, unified_memory=memory)
+    await memory_sub.start()
+
+    kg_writer = KnowledgeGraphWriteQueue(unified_memory=memory)
+    kg_sub = KGSubscriber(event_bus=bus, kg_writer=kg_writer)
+    await kg_sub.start()
+
+    gateway = SensorIngestionGateway(event_bus=bus)
     handler = build_timeline_handler(
         AppConfig(),
         memory,
@@ -92,27 +134,37 @@ async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_gr
         ingestion_gateway=gateway,
     )
 
-    result = await handler(
-        {
-            "target_task_agent_id": "timeline-main",
-            "source_type": "photo_library",
-            "source_item_id": "photo-1",
-            "path": "/tmp/photos/asuka.jpg",
-            "title": "Asuka photo",
-            "summary": "I still like Asuka best.",
-            "timestamp": 1710000000.0,
-            "relation_candidates": [
-                {
-                    "subject_id": "user:self",
-                    "subject_type": "user",
-                    "predicate": "LIKES",
-                    "object_id": "person:asuka",
-                    "object_type": "person",
-                    "confidence": 0.91,
-                }
-            ],
-        }
-    )
+    try:
+        result = await handler(
+            {
+                "target_task_agent_id": "timeline-main",
+                "source_type": "photo_library",
+                "source_item_id": "photo-1",
+                "path": "/tmp/photos/asuka.jpg",
+                "title": "Asuka photo",
+                "summary": "I still like Asuka best.",
+                "timestamp": 1710000000.0,
+                "relation_candidates": [
+                    {
+                        "subject_id": "user:self",
+                        "subject_type": "user",
+                        "predicate": "LIKES",
+                        "object_id": "person:asuka",
+                        "object_type": "person",
+                        "confidence": 0.91,
+                    }
+                ],
+            }
+        )
+
+        # Let the bus fan out, then await all inflight subscriber work.
+        await asyncio.sleep(0.05)
+        await memory_sub.drain()
+        await kg_sub.drain()
+    finally:
+        await kg_sub.stop()
+        await memory_sub.stop()
+        await bus.stop()
 
     assert result["handled"] is True
     assert result["source_type"] == "photo_library"
@@ -122,6 +174,10 @@ async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_gr
     assert result["event_id"] == stored.event_id
     assert stored.idempotency_key == "photo-1"
     assert stored.source == "photo_library"
-    assert stored.content == "I still like Asuka best."
+    # build_sensor_projection composes content as "<activity display prefix>
+    # <narration body>", so the persisted L1 content carries the activity
+    # prefix in front of the narration body.
+    assert stored.content == "Photo Library Captured I still like Asuka best."
+    assert "I still like Asuka best." in stored.content
     assert len(memory.edges) == 1
     assert memory.edges[0]["predicate"] == "LIKES"

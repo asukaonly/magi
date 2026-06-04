@@ -276,6 +276,11 @@ async def test_get_conversation_history_uses_async_read_service(monkeypatch: pyt
                 )
             ]
 
+        async def aget_session_summary(self, user_id: str, session_id: str):
+            assert user_id == "u1"
+            assert session_id == "s1"
+            return None
+
     monkeypatch.setattr(messages_router, "get_chat_read_service", lambda: _AsyncOnlyReadService())
 
     response = await messages_router.get_conversation_history(user_id="u1", session_id="s1")
