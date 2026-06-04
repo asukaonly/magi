@@ -24,6 +24,7 @@ from magi.tools.schema import ToolExecutionContext
 from magi.tools.tool_advisory_reranker import ToolAdvisoryReranker
 from magi.tools.tool_hint_resolver import ToolHintResolver
 from magi.bootstrap.tool_capabilities import build_tool_capabilities
+from magi.chat.task_agent.execution_shape import derive_execution_shape
 from magi.agent.task_agents.common import (
     ExecutionMode,
     ExecutionHandlerRegistry,
@@ -341,33 +342,24 @@ class ChatExecutionCoordinator:
                 tool_names=selected_tools,
             )
 
-        # === Single source of truth for the per-turn dispatch ===
-        # Both axes (request shape via execution_mode AND node selection via
-        # GraphBuilder→graph_shape) must agree, otherwise we land in cases
-        # like graph_shape='reply' + FunctionCallingRequest → ReplyNode →
-        # DirectLLMHandler.execute() → AttributeError on .messages.
+        # === Single source of truth for the per-turn dispatch (ADR-0005) ===
+        # The execution shape is DERIVED from semantic signals, never an
+        # independent LLM field that could contradict the tool list. This is
+        # what makes "the router selected a tool but it got dropped" impossible:
+        # a turn that selected tools derives to tool_loop, full stop.
         #
-        # Algorithm: compute an effective_graph_shape that folds in the two
-        # overrides (image attachments → reply; force_direct_external on
-        # plan_fanout → tool_loop or reply), derive execution_mode 1:1 from
-        # that, then rewrite ``decision`` so downstream consumers (GraphBuilder,
-        # IntentDecision.route_decision) see the same coerced value.
-        if has_image_attachments:
-            effective_graph_shape: str = "reply"
-        elif decision.graph_shape == "plan_fanout" and force_direct_external:
-            effective_graph_shape = "tool_loop" if selected_tools else "reply"
-        elif decision.graph_shape == "tool_loop" and not selected_tools:
-            # Empty tools + tool_loop has nothing to loop over; downgrade.
-            effective_graph_shape = "reply"
-        else:
-            effective_graph_shape = decision.graph_shape
-
-        if effective_graph_shape == "reply":
-            # Tools are meaningless without a tool loop — the model can't
-            # invoke them in a single-shot reply. Drop them so they don't
-            # accidentally pull execution_mode back to FUNCTION_CALLING via
-            # any future code path.
-            selected_tools = []
+        # needs_orchestration folds in the force_direct_external override — the
+        # router may say plan_fanout, but a bounded external request is demoted
+        # to a plain tool loop. (P1 will let the router emit needs_orchestration
+        # directly instead of inferring it from the legacy graph_shape.)
+        needs_orchestration = (
+            decision.graph_shape == "plan_fanout" and not force_direct_external
+        )
+        effective_graph_shape = derive_execution_shape(
+            has_image_attachments=has_image_attachments,
+            needs_orchestration=needs_orchestration,
+            has_tools=bool(selected_tools),
+        )
 
         if effective_graph_shape != decision.graph_shape:
             decision = dataclasses.replace(decision, graph_shape=effective_graph_shape)
