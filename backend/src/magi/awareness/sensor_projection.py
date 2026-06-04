@@ -6,7 +6,6 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from ..timeline.contracts import TimelineContentBlock, TimelineEvent
 from .sensor_base import SensorBase
 from .sensor_output import ActivityFacet, SensorOutput, SensorOutputMetadata
 
@@ -106,45 +105,6 @@ def build_sensor_projection(
     )
 
 
-def build_sensor_timeline_event(
-    event_id: str,
-    output: SensorOutput,
-    projection: SensorProjection,
-    metadata: SensorOutputMetadata | None = None,
-) -> TimelineEvent:
-    """Build the timeline read model from a host-rendered sensor projection."""
-    extra_entities = metadata.entities if metadata else []
-    extra_tags = metadata.tags if metadata else []
-
-    return TimelineEvent(
-        event_id=event_id,
-        source_type=output.source_type,
-        source_item_id=output.source_item_id,
-        occurred_at=output.occurred_at,
-        captured_at=output.captured_at,
-        title=projection.title,
-        summary=projection.summary,
-        retention_mode=output.domain_payload.get("retention_mode", "analyze_only"),
-        raw_payload_ref=output.raw_payload_ref,
-        content_blocks=[
-            TimelineContentBlock(
-                kind=block.kind,
-                value=block.value,
-                mime_type=block.mime_type,
-            )
-            for block in output.content_blocks
-        ],
-        entities=output.entities + extra_entities,
-        tags=list(dict.fromkeys(output.tags + extra_tags)),
-        privacy_labels=output.domain_payload.get("privacy_labels", []),
-        processing_status={
-            "stored": True,
-            "analyzed": bool(metadata and (metadata.relation_candidates or metadata.fact_hints)),
-        },
-        provenance=output.provenance,
-    )
-
-
 def _validate_output_contract(output: SensorOutput) -> None:
     for facet_name, facet in (("source", output.activity.source), ("action", output.activity.action)):
         if not str(facet.code or "").strip():
@@ -224,5 +184,4 @@ def _normalize_retrieval_terms(values: list[str] | None) -> list[str]:
 __all__ = [
     "SensorProjection",
     "build_sensor_projection",
-    "build_sensor_timeline_event",
 ]

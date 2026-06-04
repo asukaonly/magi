@@ -21,12 +21,10 @@ from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModul
 from ..chat import get_chat_read_service
 from ..chat.task_agent.factory import create_chat_agent_factory
 from ..awareness.lifecycle import (
-    KGSubscriberModule,
     SensorModule,
     SensorScheduleRegistrationModule,
     SensorStateUpdateSubscriberModule,
     SensorSyncExecutorModule,
-    TimelineSubscriberModule,
 )
 from ..channels.lifecycle import ChannelsModule
 from ..outreach.lifecycle import OutreachModule
@@ -63,7 +61,12 @@ from ..scheduler.lifecycle import SchedulerModule
 from ..hooks.lifecycle import HooksModule
 from ..skills.lifecycle import SkillsModule
 from ..timeline.handler import build_timeline_handler
-from ..timeline.lifecycle import TimelineModule, TimelineSchedulersModule
+from ..timeline.lifecycle import (
+    KGSubscriberModule,
+    TimelineModule,
+    TimelineSchedulersModule,
+    TimelineSubscriberModule,
+)
 from ..tools.lifecycle import ToolsModule
 
 
