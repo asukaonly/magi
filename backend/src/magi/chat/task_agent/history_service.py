@@ -78,7 +78,6 @@ class ChatHistoryService:
         scenario_llm_pool: Any | None = None,
         llm_adapter: Any | None = None,
         persona_boundary_summary_generator: PersonaBoundarySummaryGenerator | None = None,
-        conversation_log: Any | None = None,
     ) -> None:
         runtime_paths = get_runtime_paths()
         self._l1_db_path = l1_db_path
@@ -100,10 +99,6 @@ class ChatHistoryService:
         self._scenario_llm_pool = scenario_llm_pool
         self._llm_adapter = llm_adapter
         self._persona_boundary_summary_generator = persona_boundary_summary_generator
-        # Phase F: optional typed-event view over the chat transcript. None
-        # in test paths / pre-bootstrap; Task 8 will gate behavior on
-        # presence rather than read-modify-write the legacy cache.
-        self._conversation_log = conversation_log
 
     async def get_or_load_history(
         self,
@@ -206,6 +201,14 @@ class ChatHistoryService:
         return cached.messages
 
     def append_user_message(self, history_key: str, user_message: str) -> None:
+        """Push a user message onto the in-memory LLM-prompt cache.
+
+        Does *not* persist to chat_messages — the durable write happens
+        elsewhere (dispatcher for user messages; ChatOutcomeWriter for
+        assistant replies; ControlTranscriptSubscriber for plan/todo/ask
+        control state). This call only keeps the prompt cache hot so the
+        next LLM turn does not need to re-query the DB.
+        """
         if not user_message:
             return
         cached = self._conversation_history.setdefault(
@@ -217,20 +220,13 @@ class ChatHistoryService:
             return
         history.append({"role": "user", "content": user_message})
         self._update_lru_cache(history_key)
-        # Phase F dual-write: PAUSED. The ConversationLog implementation writes
-        # to the same chat_messages table that ChatOutcomeWriter (segmented /
-        # final / interim) also writes to, producing duplicate rows that the
-        # chat UI renders as ghost bubbles next to the real assistant message.
-        # Reintroduce when ConversationLog gets its own event-only table that
-        # doesn't compete with chat_messages — tracked for the cross-run
-        # retract follow-up (Phase F+1).
-        # if self._conversation_log is not None:
-        #     self._fire_and_forget_log_append(
-        #         history_key=history_key, event_type="user_message",
-        #         actor=self._user_id_from_history_key(history_key), text=user_message,
-        #     )
 
     def append_assistant_message(self, history_key: str, response_text: str) -> None:
+        """Push an assistant reply onto the in-memory LLM-prompt cache.
+
+        Cache-only (see :py:meth:`append_user_message` for the durable
+        write path).
+        """
         if not response_text:
             return
         cached = self._conversation_history.setdefault(
@@ -239,7 +235,6 @@ class ChatHistoryService:
         )
         cached.messages.append({"role": "assistant", "content": response_text})
         self._update_lru_cache(history_key)
-        # Phase F dual-write: PAUSED — see append_user_message above for why.
 
     @property
     def tool_state_view(self) -> ChatToolStateView:
@@ -683,64 +678,3 @@ Rules:
             build_history_key=self.history_key,
         )
 
-    @staticmethod
-    def _user_id_from_history_key(history_key: str) -> str:
-        """history_key format is ``user_id::session_id``."""
-        parts = history_key.split("::", 1)
-        return parts[0] if parts else ""
-
-    @staticmethod
-    def _session_id_from_history_key(history_key: str) -> str:
-        parts = history_key.split("::", 1)
-        return parts[1] if len(parts) > 1 else ""
-
-    def _fire_and_forget_log_append(
-        self,
-        *,
-        history_key: str,
-        event_type: str,
-        actor: str,
-        text: str,
-    ) -> None:
-        """Schedule an async append to ConversationLog without blocking the
-        caller. Errors are logged and swallowed — a failed dual-write must
-        never break the in-memory cache mutation that already happened."""
-        log = self._conversation_log
-        if log is None:
-            return
-        import asyncio as _asyncio
-        import time as _time
-        import uuid as _uuid
-
-        from magi_plugin_sdk.conversation import ContentBlock, ConversationEvent
-
-        session_id = self._session_id_from_history_key(history_key)
-        if not session_id:
-            return
-        try:
-            event = ConversationEvent(
-                event_id=_uuid.uuid4().hex,
-                event_type=event_type,
-                timestamp_ms=int(_time.time() * 1000),
-                actor=actor,
-                content=[ContentBlock(kind="text", text=text)],
-            )
-        except Exception:
-            logger.warning(
-                "ConversationLog dual-write: event construction failed", exc_info=True
-            )
-            return
-        try:
-            loop = _asyncio.get_event_loop()
-        except RuntimeError:
-            # No event loop bound to this thread — skip silently (sync init path).
-            return
-        if not loop.is_running():
-            # Sync context (e.g. test setup outside pytest-asyncio) — skip.
-            return
-        try:
-            loop.create_task(log.append(event, session_id=session_id))
-        except Exception:
-            logger.warning(
-                "ConversationLog dual-write: scheduling failed", exc_info=True
-            )

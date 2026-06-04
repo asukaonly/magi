@@ -192,7 +192,6 @@ class ChatTaskAgent(
             chat_read_service_factory=self._chat_read_service_factory,
             scenario_llm_pool=llm_pool,
             llm_adapter=llm_adapter,
-            conversation_log=self._conversation_log_resolver(),
         )
         self._fact_classifier = ChatFactClassifier()
         self._prompt_service = ChatPromptService(
