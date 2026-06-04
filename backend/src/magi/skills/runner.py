@@ -17,6 +17,7 @@ from ..utils.runtime import get_default_chat_workspace_path
 from .schema import SkillContent, SkillResult
 from .loader import SkillLoader
 from .subagent import create_skill_subagent
+from .tool_registry_port import ToolRegistryPort
 from ..llm.base import LLMAdapter
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ class SkillRunner:
         loader: Optional[SkillLoader] = None,
         llm_adapter: Optional[LLMAdapter] = None,
         permission_gateway_provider: Callable[[], Any] | None = None,
+        tool_registry: ToolRegistryPort | None = None,
     ):
         """
         Initialize the skill runner.
@@ -45,10 +47,14 @@ class SkillRunner:
         Args:
             loader: SkillLoader for loading skill content
             llm_adapter: LLM adapter for sub-agent execution
+            tool_registry: The shared tool registry injected by the
+                composition root; threaded to sub-agents so they can
+                expose the registered tools.
         """
         self.loader = loader
         self.llm = llm_adapter
         self.permission_gateway_provider = permission_gateway_provider
+        self._tool_registry = tool_registry
 
     async def execute(
         self,
@@ -255,6 +261,7 @@ class SkillRunner:
             skill=skill,
             llm_adapter=self.llm,
             permission_gateway_provider=self.permission_gateway_provider,
+            tool_registry=self._tool_registry,
         )
         user_message = context.get("user_message", "")
 

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 
 from .schema import SkillContent, SkillResult
+from .tool_registry_port import ToolRegistryPort
 from magi_plugin_sdk.turn import UserTurnInput
 from ..utils.runtime import get_default_chat_workspace_path
 from ..llm.base import LLMAdapter
@@ -24,7 +25,6 @@ from ..config.constants import DEFAULT_SKILL_MAX_TOKENS
 
 if TYPE_CHECKING:
     from ..agent.execution.function_calling import FunctionCallingOrchestrator
-    from ..tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -56,12 +56,6 @@ _fork_depth: _contextvars.ContextVar[int] = _contextvars.ContextVar(
 
 class SkillForkDepthExceeded(RuntimeError):
     """Raised when a fork-mode skill recurses past ``MAX_FORK_DEPTH``."""
-
-
-def _get_tool_registry():
-    """Lazy import to avoid circular dependency."""
-    from ..tools.registry import tool_registry
-    return tool_registry
 
 
 def _get_function_calling_orchestrator(
@@ -99,6 +93,7 @@ class SkillSubagent:
         llm_adapter: LLMAdapter,
         allowed_tools: Optional[List[str]] = None,
         permission_gateway_provider: Callable[[], Any] | None = None,
+        tool_registry: ToolRegistryPort | None = None,
     ):
         """
         Initialize the skill subagent.
@@ -107,11 +102,15 @@ class SkillSubagent:
             skill: The skill content to execute
             llm_adapter: LLM adapter for model calls
             allowed_tools: List of allowed tool names (None = all tools allowed)
+            tool_registry: The shared tool registry (injected by the
+                composition root). When ``None`` the subagent exposes no
+                tools — equivalent to an empty registry.
         """
         self.skill = skill
         self.llm = llm_adapter
         self.allowed_tools: Optional[Set[str]] = set(allowed_tools) if allowed_tools else None
         self.permission_gateway_provider = permission_gateway_provider
+        self._tool_registry = tool_registry
         self.subagent_id = f"skill-{skill.name}-{uuid.uuid4().hex[:8]}"
 
         # Create restricted tool registry view
@@ -138,7 +137,9 @@ class SkillSubagent:
 
         ``self.allowed_tools`` is retained for telemetry / logging only.
         """
-        return _get_tool_registry().list_tools()
+        if self._tool_registry is None:
+            return []
+        return self._tool_registry.list_tools()
 
     async def execute(
         self,
@@ -276,10 +277,9 @@ class SkillSubagent:
         """
         # Lazy init function calling orchestrator
         if self._function_calling_orchestrator is None:
-            registry = _get_tool_registry()
             self._function_calling_orchestrator = _get_function_calling_orchestrator(
                 llm_adapter=self.llm,
-                tool_registry=registry,
+                tool_registry=self._tool_registry,
                 skill_runner=None,
                 tool_result_callback=None,
                 permission_gateway_provider=self.permission_gateway_provider,
@@ -453,6 +453,7 @@ def create_skill_subagent(
     skill: SkillContent,
     llm_adapter: LLMAdapter,
     permission_gateway_provider: Callable[[], Any] | None = None,
+    tool_registry: ToolRegistryPort | None = None,
 ) -> SkillSubagent:
     """
     Factory function to create a SkillSubagent.
@@ -460,6 +461,7 @@ def create_skill_subagent(
     Args:
         skill: The skill content
         llm_adapter: LLM adapter
+        tool_registry: The shared tool registry, injected by the caller.
 
     Returns:
         Configured SkillSubagent instance
@@ -470,4 +472,5 @@ def create_skill_subagent(
         llm_adapter=llm_adapter,
         allowed_tools=allowed_tools,
         permission_gateway_provider=permission_gateway_provider,
+        tool_registry=tool_registry,
     )
