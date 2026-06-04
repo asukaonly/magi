@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from pathlib import Path
 from typing import Any, Dict, Tuple
@@ -157,10 +158,27 @@ class ConfigLoaderFileOpsMixin:
         backend logs. Callers must convert enums to their ``.value``
         (or use ``pydantic.BaseModel.model_dump(mode="json")``) BEFORE
         passing data here — ``safe_dump`` will raise loudly otherwise.
+
+        The write is atomic and serialize-first: the payload is fully
+        rendered to a string before the destination is touched, then
+        staged in a sibling temp file and ``os.replace``-d into place.
+        So a ``safe_dump`` failure (the "raise loudly" case above) or a
+        crash mid-write can never leave a truncated or empty config
+        behind — the previous file survives intact.
         """
+        text = yaml.safe_dump(
+            data, default_flow_style=False, allow_unicode=True, sort_keys=False
+        )
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'w', encoding='utf-8') as f:
-            yaml.safe_dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        tmp_path = path.with_name(f"{path.name}.tmp")
+        try:
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     def _load_yaml(self) -> Dict[str, Any]:
         """Load and parse YAML configuration file."""
