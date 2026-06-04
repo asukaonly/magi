@@ -22,7 +22,7 @@ from magi.agent.task_agents.common import (
     IncomingFactKind,
 )
 from magi.agent.task_agents.handlers.contracts import ChatParseOutcome, ChatRuntimeContext
-from .history_service import ChatHistoryService
+from .context_assembler import ChatContextAssembler
 from .postprocess.components import ChatOutcomeWriter, ChatRuntimeNotifier
 from .postprocess.intent import ChatPostprocessIntentMixin
 from .postprocess.memory import ChatPostprocessMemoryMixin
@@ -51,7 +51,7 @@ class ChatPostProcessService:
         self,
         *,
         agent_id: str,
-        history_service: ChatHistoryService,
+        context_assembler: ChatContextAssembler,
         get_event_emitter: Callable[[], Any],
         get_task_agent_manager: Callable[[], Any | None],
         get_sensor_hub: Callable[[], Any | None],
@@ -71,7 +71,12 @@ class ChatPostProcessService:
         event_bus: Any | None = None,
     ) -> None:
         self._agent_id = agent_id
-        self._history_service = history_service
+        self._context_assembler = context_assembler
+        # Per-session recent-tool-call view, aliased onto the service so
+        # ChatPostprocessToolEventMixin can call ``host._tool_state_view.record``
+        # without going through ChatContextAssembler as a middleman. Parallels
+        # the alias on ChatTaskAgent.
+        self._tool_state_view = context_assembler.tool_state_view
         self._get_event_emitter = get_event_emitter
         self._get_task_agent_manager = get_task_agent_manager
         self._get_sensor_hub = get_sensor_hub
@@ -221,9 +226,9 @@ class ChatPostProcessService:
         history_stored = False
         user_message = result.root_user_message or context.latest_user_message
         if latest_fact.event_type == EventTypes.USER_MESSAGE and user_message:
-            self._history_service.append_user_message(context.history_key, user_message)
+            self._context_assembler.append_user_message(context.history_key, user_message)
             history_stored = True
-        self._history_service.append_assistant_message(context.history_key, response_text)
+        self._context_assembler.append_assistant_message(context.history_key, response_text)
         history_stored = True
 
         # Schedule memory/reflection updates as a background task so they do not

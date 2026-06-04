@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from magi.chat.task_agent.history_service import ChatHistoryService
+from magi.chat.task_agent.context_assembler import ChatContextAssembler
 from magi.chat.read.models import ChatDisplayMessage
 
 
 def test_session_attachment_manifest_keeps_attachment_ids_visible() -> None:
-    manifest = ChatHistoryService._build_session_attachment_manifest(
+    manifest = ChatContextAssembler._build_session_attachment_manifest(
         [
             ChatDisplayMessage(
                 role="user",
@@ -35,7 +35,7 @@ def test_session_attachment_manifest_keeps_attachment_ids_visible() -> None:
     assert "chars=14355" in manifest
     assert "turn_id=turn-1" in manifest
 
-    summary = ChatHistoryService._combine_session_summaries(None, None, manifest)
+    summary = ChatContextAssembler._combine_session_summaries(None, None, manifest)
 
     assert summary is not None
     assert "# Session Attachment References" in summary
@@ -61,7 +61,7 @@ def test_session_attachment_manifest_keeps_newest_references() -> None:
         for index in range(42)
     ]
 
-    manifest = ChatHistoryService._build_session_attachment_manifest(messages)
+    manifest = ChatContextAssembler._build_session_attachment_manifest(messages)
 
     assert manifest is not None
     assert "- attachment_id=att-0;" not in manifest

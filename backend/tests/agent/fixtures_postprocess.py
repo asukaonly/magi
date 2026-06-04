@@ -121,9 +121,22 @@ class _CapturingEventEmitter:
         pass
 
 
-class _FakeHistoryService:
+class _FakeToolStateView:
+    """Minimal stand-in for ChatToolStateView; postprocess_service aliases
+    ``context_assembler.tool_state_view`` onto ``_tool_state_view``."""
+
+    def record(self, history_key: str, record: dict[str, Any]) -> None:
+        pass
+
+
+class _FakeContextAssembler:
+    tool_state_view = _FakeToolStateView()
+
     def history_key(self, user_id: str, session_id: str) -> str:
         return f"history:{session_id}"
+
+    def require_session_id(self, user_id: str, session_id: Any) -> str:
+        return str(session_id or "")
 
     def append_user_message(self, history_key: str, user_message: str) -> None:
         pass
@@ -147,7 +160,7 @@ def build_postprocess_with_capture() -> tuple[Any, list[dict[str, Any]]]:
 
     service = ChatPostProcessService(
         agent_id="chat:test-agent",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,

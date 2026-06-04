@@ -73,7 +73,7 @@ async def start_explore_task_agent(
             turn_id=payload.turn_id,
             ux_plan=_serialize_ux_plan(request.intent),
         )
-    deps.history_service.append_user_message(
+    deps.context_assembler.append_user_message(
         request.context.history_key,
         request.context.latest_user_message,
     )

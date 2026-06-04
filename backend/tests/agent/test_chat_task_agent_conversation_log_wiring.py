@@ -1,9 +1,15 @@
-"""ChatTaskAgent threads ConversationLog into ChatHistoryService (Phase F, Task 7).
+"""ChatTaskAgent threads ConversationLog into the two legitimate consumers
+(the chat execution coordinator and the session-run coordinator) and tolerates
+a missing log when the runtime container is not initialized.
 
-Mirrors the shape of ``test_chat_task_agent_receipts_store_wiring.py``: the
-agent exposes a ``conversation_log_resolver`` kwarg, falls back to a static
-helper that reads the runtime container, and forwards the resolved log into
-``ChatHistoryService`` so future Task 8 wiring can consume typed events.
+Originally Phase F also routed the log into ``ChatContextAssembler`` so a
+dual-write could mirror the cache mutations into the typed event log; that
+path was PAUSED (ConversationLog collided with ChatOutcomeWriter writing
+to the same chat_messages table, producing duplicate UI rows) and the
+audit that followed concluded ConversationLog is in fact a
+retract-business store, not a generic conversation history API. The
+dual-write fields and the tests covering them were removed; the
+remaining wiring covered here is the part that is actually in use.
 """
 from __future__ import annotations
 
@@ -29,20 +35,8 @@ class _StubConversationLog:
         return None
 
 
-def test_chat_task_agent_passes_conversation_log_to_history_service() -> None:
-    stub = _StubConversationLog()
-    agent = ChatTaskAgent(
-        agent_id="u-chat",
-        llm_adapter=_FakeLLMAdapter(),
-        channel_registry_resolver=lambda: None,
-        receipts_store_resolver=lambda: None,
-        conversation_log_resolver=lambda: stub,
-    )
-    assert agent._history_service._conversation_log is stub
-
-
 def test_chat_task_agent_passes_conversation_log_to_coordinator() -> None:
-    """Phase F Task 10: the coordinator receives the same log so it can
+    """Phase F Task 10: the coordinator receives the log so it can
     call ``record_consumed`` per turn."""
     stub = _StubConversationLog()
     agent = ChatTaskAgent(
@@ -56,7 +50,7 @@ def test_chat_task_agent_passes_conversation_log_to_coordinator() -> None:
 
 
 def test_chat_task_agent_passes_conversation_log_to_session_run_coordinator() -> None:
-    """Phase F Task 11: SessionRunCoordinator receives the same log so
+    """Phase F Task 11: SessionRunCoordinator receives the log so
     ``request_message_retract`` can append redaction events + find
     dependent runs."""
     stub = _StubConversationLog()
@@ -70,22 +64,14 @@ def test_chat_task_agent_passes_conversation_log_to_session_run_coordinator() ->
     assert agent._session_run_coordinator._conversation_log is stub
 
 
-def test_chat_task_agent_handles_missing_conversation_log() -> None:
-    """Default resolver returns None when container unavailable."""
-    agent = ChatTaskAgent(
-        agent_id="u-chat",
-        llm_adapter=_FakeLLMAdapter(),
-        channel_registry_resolver=lambda: None,
-        receipts_store_resolver=lambda: None,
-        conversation_log_resolver=lambda: None,
-    )
-    assert agent._history_service._conversation_log is None
-
-
 def test_chat_task_agent_default_resolver_no_container_does_not_crash() -> None:
     """Without an explicit resolver, ChatTaskAgent must still construct
-    cleanly when the container isn't initialized (test/early-bootstrap paths)."""
+    cleanly when the container isn't initialized (test/early-bootstrap paths).
+
+    The downstream coordinators still receive whatever the resolver returned
+    (None for the bare-object placeholder used in tests); they tolerate this
+    and degrade gracefully.
+    """
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
-    # In tests the runtime_bootstrap_context provider returns a bare ``object``
-    # placeholder, so the helper must return None — not crash.
-    assert agent._history_service._conversation_log is None
+    assert agent._coordinator._conversation_log is None
+    assert agent._session_run_coordinator._conversation_log is None

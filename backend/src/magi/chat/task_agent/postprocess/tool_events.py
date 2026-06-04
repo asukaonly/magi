@@ -17,11 +17,11 @@ from .constants import (
 
 class _ToolEventPostprocessHostProtocol(Protocol):
     _agent_id: str
-    _history_service: Any
+    _context_assembler: Any
     # Per-session recent-tool-call view. Sourced from
-    # ``ChatHistoryService.tool_state_view`` and aliased onto the chat
+    # ``ChatContextAssembler.tool_state_view`` and aliased onto the chat
     # agent so postprocess can record tool events without going through
-    # ChatHistoryService as a middleman.
+    # ChatContextAssembler as a middleman.
     _tool_state_view: Any
     _unified_memory: Any
     _get_event_emitter: Callable[[], Any]
@@ -52,8 +52,8 @@ class ChatPostprocessToolEventMixin:
     async def record_tool_interaction(self, payload: dict[str, Any]) -> None:
         host = cast(_ToolEventPostprocessHostProtocol, self)
         user_id = str(payload.get("user_id") or host._agent_id)
-        session_id = host._history_service.require_session_id(user_id, payload.get("session_id"))
-        history_key = host._history_service.history_key(user_id, session_id)
+        session_id = host._context_assembler.require_session_id(user_id, payload.get("session_id"))
+        history_key = host._context_assembler.history_key(user_id, session_id)
         turn_id = str(payload.get("turn_id") or "").strip() or None
         raw_result_data = payload.get("data")
         result_data = cast(dict[str, Any], raw_result_data) if isinstance(raw_result_data, dict) else {}
@@ -155,7 +155,7 @@ class ChatPostprocessToolEventMixin:
     async def record_tool_loop_fact(self, payload: dict[str, Any]) -> None:
         host = cast(_ToolEventPostprocessHostProtocol, self)
         user_id = str(payload.get("user_id") or host._agent_id)
-        session_id = host._history_service.require_session_id(user_id, payload.get("session_id"))
+        session_id = host._context_assembler.require_session_id(user_id, payload.get("session_id"))
         stage = str(payload.get("stage") or "unknown")
         turn_id = str(payload.get("turn_id") or "").strip() or None
         if stage == "iteration_all_tools_failed" and bool(payload.get("replan_allowed")):

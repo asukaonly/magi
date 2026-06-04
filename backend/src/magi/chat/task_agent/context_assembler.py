@@ -63,7 +63,7 @@ class CachedConversationHistory:
     loaded_at_ms: int = 0
 
 
-class ChatHistoryService:
+class ChatContextAssembler:
     """Owns history caches and lazy history loading for explicit sessions."""
 
     def __init__(
@@ -240,7 +240,7 @@ class ChatHistoryService:
     def tool_state_view(self) -> ChatToolStateView:
         """Per-session recent-tool-call view shared with postprocess + prompt
         assembly. Callers should depend on this directly rather than going
-        through ChatHistoryService."""
+        through ChatContextAssembler."""
         return self._tool_state_view
 
     def get_conversation_history(self, user_id: str, session_id: str) -> list[dict[str, Any]]:
@@ -435,7 +435,7 @@ class ChatHistoryService:
     def _find_persona_boundary_index(history: list[Any], active_persona_id: str) -> int | None:
         saw_current_segment = False
         for index in range(len(history) - 1, -1, -1):
-            persona_id = ChatHistoryService._message_persona_id(history[index])
+            persona_id = ChatContextAssembler._message_persona_id(history[index])
             if persona_id == active_persona_id:
                 saw_current_segment = True
                 continue
@@ -445,7 +445,7 @@ class ChatHistoryService:
                 return index + 1
         if not saw_current_segment and any(
             persona_id and persona_id != active_persona_id
-            for persona_id in (ChatHistoryService._message_persona_id(item) for item in history)
+            for persona_id in (ChatContextAssembler._message_persona_id(item) for item in history)
         ):
             return len(history)
         return None
@@ -454,7 +454,7 @@ class ChatHistoryService:
     def _history_has_foreign_persona(history: list[Any], active_persona_id: str) -> bool:
         return any(
             persona_id and persona_id != active_persona_id
-            for persona_id in (ChatHistoryService._message_persona_id(item) for item in history)
+            for persona_id in (ChatContextAssembler._message_persona_id(item) for item in history)
         )
 
     @staticmethod
@@ -468,10 +468,10 @@ class ChatHistoryService:
                 content = content[:_PERSONA_BOUNDARY_CONTENT_LIMIT].rstrip() + "\n... [truncated]"
             messages.append(
                 PersonaBoundarySummaryMessage(
-                    message_id=ChatHistoryService._message_id(item),
+                    message_id=ChatContextAssembler._message_id(item),
                     role=str(getattr(item, "role", "") or "unknown").strip() or "unknown",
                     content=content,
-                    persona_id=ChatHistoryService._message_persona_id(item),
+                    persona_id=ChatContextAssembler._message_persona_id(item),
                     message_kind=str(getattr(item, "message_kind", "") or "").strip() or None,
                 )
             )
@@ -499,7 +499,7 @@ Rules:
                 "Remove persona voice and preserve only task/content continuity.",
                 "",
                 "# Older Transcript Range",
-                ChatHistoryService._render_persona_boundary_messages(summary_input.messages),
+                ChatContextAssembler._render_persona_boundary_messages(summary_input.messages),
                 "",
                 "Return the neutral continuity summary only.",
             ]
@@ -602,7 +602,7 @@ Rules:
 
     @staticmethod
     def _message_persona_id(item: Any) -> str | None:
-        return ChatHistoryService._normalize_persona_id(getattr(item, "persona_id", None))
+        return ChatContextAssembler._normalize_persona_id(getattr(item, "persona_id", None))
 
     @staticmethod
     def _message_id(item: Any) -> str | None:
