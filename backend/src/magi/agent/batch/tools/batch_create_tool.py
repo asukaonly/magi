@@ -3,10 +3,14 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ...agent.batch import BatchJobStatus
-from ...agent.batch.enumerator import enumerate_seed
-from ...agent.batch.store import default_batch_store
-from ..schema import (
+from .. import BatchJobStatus
+from ..enumerator import enumerate_seed
+from ..store import default_batch_store
+
+# agent.batch.tools is host runtime-control code (L12). Import the Tool base +
+# schema helpers straight from the SDK (downward, legal), mirroring how
+# magi.agent.runtime_tools.agent_tool imports its contracts.
+from magi_plugin_sdk import (
     ParameterType,
     Tool,
     ToolErrorCode,
@@ -117,8 +121,8 @@ class BatchCreateTool(Tool):
         # the outcome in the result so failures are visible (not silently swallowed).
         kickoff = "skipped"
         try:
-            from ...agent.background.provider import resolve_background_task_manager
-            from ...agent.batch.driver import BatchDriver
+            from ...background.provider import resolve_background_task_manager
+            from ..driver import BatchDriver
 
             started = await BatchDriver(resolve_background_task_manager()).kickoff(job.job_id)
             kickoff = f"started {started} runs"

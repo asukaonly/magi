@@ -4,7 +4,7 @@ import pytest
 
 from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, ItemOutcome
 from magi.agent.batch.store import BatchStore
-from magi.tools.builtin import (
+from magi.agent.batch.tools import (
     batch_create_tool,
     batch_item_update_tool,
     batch_review_tool,
