@@ -6,7 +6,7 @@ import json
 import os
 from typing import Any
 
-from ....chat.workspace import get_default_chat_workspace_path
+from ....utils.runtime import get_default_chat_workspace_path
 
 
 def _resolve_default_chat_workspace_path() -> str:

@@ -13,7 +13,7 @@ import os
 import time
 from typing import Any, Callable, Dict, List, Optional, Set
 
-from ..chat.workspace import get_default_chat_workspace_path
+from ..utils.runtime import get_default_chat_workspace_path
 from .schema import SkillContent, SkillResult
 from .loader import SkillLoader
 from .subagent import create_skill_subagent

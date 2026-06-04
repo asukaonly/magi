@@ -7,7 +7,7 @@ import platform
 from datetime import datetime
 from typing import Any, List, Optional, Protocol, cast
 
-from ...chat.workspace import get_default_chat_workspace_path
+from ...utils.runtime import get_default_chat_workspace_path
 from ...i18n import llm_language_label
 
 

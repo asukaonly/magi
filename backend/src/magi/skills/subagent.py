@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 
 from .schema import SkillContent, SkillResult
 from magi_plugin_sdk.turn import UserTurnInput
-from ..chat.workspace import get_default_chat_workspace_path
+from ..utils.runtime import get_default_chat_workspace_path
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
 from ..config.constants import DEFAULT_SKILL_MAX_TOKENS

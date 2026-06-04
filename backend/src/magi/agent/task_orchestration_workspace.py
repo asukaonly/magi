@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from ..chat.workspace import get_default_chat_workspace_path
+from ..utils.runtime import get_default_chat_workspace_path
 from ..core.logger import get_logger
 from ..tools.schema import ToolExecutionContext
 from ..utils.packaged_paths import get_repo_root
