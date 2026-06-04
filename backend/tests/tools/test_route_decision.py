@@ -18,16 +18,10 @@ def test_route_decision_constructs_with_required_fields_only() -> None:
     assert decision.complexity == "simple"
     # Defaults
     assert decision.tools == []
-    assert decision.capabilities == []
-    assert decision.needs_workspace is False
-    assert decision.needs_external is False
     assert decision.may_write is False
-    assert decision.risky_tools == []
-    assert decision.background_hint == "foreground"
-    assert decision.effort == "low"
-    assert decision.confidence == 0.0
     assert decision.reasoning == ""
     assert decision.thinking_depth == ThinkingDepth.NONE
+    assert decision.memory_route == "none"
 
 
 def test_route_decision_construct_with_all_fields() -> None:
@@ -36,18 +30,10 @@ def test_route_decision_construct_with_all_fields() -> None:
         graph_shape="plan_fanout",
         complexity="large",
         tools=["grep", "file_edit"],
-        capabilities=["workspace_read", "workspace_write"],
-        needs_workspace=True,
-        needs_external=False,
         may_write=True,
-        risky_tools=["file_edit"],
-        background_hint="background_ok",
-        effort="high",
-        confidence=0.92,
         reasoning="Major refactor needing decomposition.",
         thinking_depth=ThinkingDepth.HIGH,
         memory_route="recall",
-        memory_layer="L3",
         register="focused",
         active_trigger_ids=("code_review",),
         situation_strength="strong",
@@ -82,22 +68,6 @@ def test_route_decision_rejects_invalid_graph_shape() -> None:
 def test_route_decision_rejects_invalid_complexity() -> None:
     with pytest.raises(ValueError, match="complexity"):
         RouteDecision(profile="chat", graph_shape="reply", complexity="impossible")
-
-
-def test_route_decision_rejects_invalid_background_hint() -> None:
-    with pytest.raises(ValueError, match="background_hint"):
-        RouteDecision(
-            profile="chat", graph_shape="reply", complexity="simple",
-            background_hint="invalid",
-        )
-
-
-def test_route_decision_rejects_invalid_effort() -> None:
-    with pytest.raises(ValueError, match="effort"):
-        RouteDecision(
-            profile="chat", graph_shape="reply", complexity="simple",
-            effort="absurd",
-        )
 
 
 def test_route_decision_accepts_all_profile_values() -> None:
@@ -153,7 +123,6 @@ def test_legacy_strategy_dict_for_explore() -> None:
 
     decision = RouteDecision(
         profile="explore", graph_shape="plan_fanout", complexity="medium",
-        needs_workspace=True,
     )
     legacy = decision.to_legacy_strategy_dict()
     assert legacy["mode"] == "decompose"

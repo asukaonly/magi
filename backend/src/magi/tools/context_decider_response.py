@@ -15,9 +15,7 @@ from typing import Any
 from ..config.models import ThinkingDepth
 from .context_routing import RouteDecision
 from .context_routing.route_decision import (
-    BACKGROUND_HINT_VALUES,
     COMPLEXITY_VALUES,
-    EFFORT_VALUES,
     GRAPH_SHAPE_VALUES,
     PROFILE_VALUES,
 )
@@ -106,25 +104,15 @@ class ContextDeciderResponseMixin:
             return _fallback_route_decision("Response is not a JSON object")
 
         try:
-            confidence_raw = data.get("confidence", 0.0)
-            confidence = float(confidence_raw) if isinstance(confidence_raw, (int, float)) else 0.0
             return RouteDecision(
                 profile=_safe_get_literal(data, "profile", PROFILE_VALUES, "chat"),
                 graph_shape=_safe_get_literal(data, "graph_shape", GRAPH_SHAPE_VALUES, "reply"),
                 complexity=_safe_get_literal(data, "complexity", COMPLEXITY_VALUES, "simple"),
                 tools=_safe_get_list_str(data, "tools")[: self.max_tools],
-                capabilities=_safe_get_list_str(data, "capabilities"),
-                risky_tools=_safe_get_list_str(data, "risky_tools"),
-                needs_workspace=_safe_get_bool(data, "needs_workspace"),
-                needs_external=_safe_get_bool(data, "needs_external"),
                 may_write=_safe_get_bool(data, "may_write"),
-                background_hint=_safe_get_literal(data, "background_hint", BACKGROUND_HINT_VALUES, "foreground"),
-                effort=_safe_get_literal(data, "effort", EFFORT_VALUES, "low"),
-                confidence=confidence,
                 reasoning=str(data.get("reasoning") or ""),
                 thinking_depth=_safe_get_thinking_depth(data),
                 memory_route=str(data.get("memory_route") or "none"),
-                memory_layer=str(data.get("memory_layer")) if data.get("memory_layer") else None,
                 register=str(data.get("register")) if data.get("register") else None,
                 active_trigger_ids=_safe_get_tuple_str(data, "active_trigger_ids"),
                 situation_strength=str(data.get("situation_strength") or "ordinary"),

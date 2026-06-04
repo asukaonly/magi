@@ -51,7 +51,6 @@ def test_parse_response_returns_route_decision_for_valid_strict_json() -> None:
     assert isinstance(result, RouteDecision)
     assert result.profile == "chat"
     assert result.graph_shape == "reply"
-    assert result.confidence == 0.85
     assert result.reasoning == "Simple conversational request."
 
 

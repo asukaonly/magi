@@ -39,7 +39,6 @@ def test_route_decision_default_leaf_type_for_coding_profile() -> None:
 def test_route_decision_default_leaf_type_for_explore_profile() -> None:
     d = RouteDecision(
         profile="explore", graph_shape="plan_fanout", complexity="medium",
-        needs_workspace=True,
     )
     assert d.to_legacy_strategy_dict()["default_leaf_type"] == "CodeExplore"
 
