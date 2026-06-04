@@ -31,9 +31,10 @@ layers =
     llm
     plugins
     control
+    runtime_trace
     events
     config
-    scheduler | runtime_trace | identity
+    scheduler | identity
     core
 ignore_imports =
     # == Composition root (NOT debt; structural & permanent) ==================
@@ -102,13 +103,6 @@ ignore_imports =
     magi.plugins.installation -> magi.awareness.scheduler_contrib
     magi.plugins.manager -> magi.awareness.scheduler_contrib
     magi.plugins.manager -> magi.tools.registry
-    magi.runtime_trace.lifecycle -> magi.events.tracing
-    magi.runtime_trace.span_publisher -> magi.events.domain_payloads
-    magi.runtime_trace.span_publisher -> magi.events.events
-    magi.runtime_trace.subscribers.runtime_trace_subscriber -> magi.events.domain_payloads
-    magi.runtime_trace.subscribers.runtime_trace_subscriber -> magi.events.events
-    magi.runtime_trace.subscribers.runtime_trace_subscriber -> magi.events.payload_helpers
-    magi.runtime_trace.writer -> magi.events.domain_payloads
     magi.skills.lifecycle -> magi.agent.control.permission.provider
     magi.skills.service_access -> magi.tools.registry
     magi.skills.subagent -> magi.agent.execution.function_calling
