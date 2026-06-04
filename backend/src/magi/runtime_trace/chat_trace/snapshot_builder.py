@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
-from ....core.logger import get_logger
+from ...core.logger import get_logger
 from .constants import MAX_PLAN_PREVIEW_STEPS
 from .models import (
     ExecutionPlanStepSummary,

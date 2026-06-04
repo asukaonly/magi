@@ -17,7 +17,7 @@ from magi.chat.read_service import (
     ChatSessionRenameResult,
     ChatSessionSummary,
 )
-from magi.api.services.chat_trace.read_service import ChatTraceReadService
+from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
 
 FACT_EVENTS_TABLE = "fact_events"
 CHAT_SESSIONS_TABLE = "chat_sessions"

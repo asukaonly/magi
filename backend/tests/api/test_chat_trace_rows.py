@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from magi.api.services.chat_trace.builders.rows import build_trace_row_node
+from magi.runtime_trace.chat_trace.builders.rows import build_trace_row_node
 
 
 def test_intent_resolution_node_includes_embedded_llm_trace_metadata() -> None:

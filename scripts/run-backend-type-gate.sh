@@ -40,7 +40,7 @@ TYPE_GATE_DIRS=(
   magi/memory/l4/retrieval
   magi/memory/l4/storage
   magi/memory/l4/traces
-  magi/api/services/chat_trace/builders
+  magi/runtime_trace/chat_trace/builders
   magi/chat/read
   magi/chat/storage
 )

@@ -413,7 +413,7 @@ def get_chat_read_service() -> ChatReadService:
 
 def get_chat_trace_read_service() -> Any:
     """Get the shared ChatTraceReadService instance."""
-    from ..api.services.chat_trace.read_service import (
+    from ..runtime_trace.chat_trace.read_service import (
         get_chat_trace_read_service as _get_chat_trace_read_service,
     )
 

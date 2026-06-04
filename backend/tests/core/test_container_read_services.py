@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from magi.api.services.chat_trace.read_service import get_chat_trace_read_service
+from magi.runtime_trace.chat_trace.read_service import get_chat_trace_read_service
 from magi.chat.read_service import get_chat_read_service
 from magi.core.container import init_container
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional, Protocol, cast
 
-from ....core.sqlite import connect_sqlite
+from ...core.sqlite import connect_sqlite
 
 
 class _TraceRuntimeRowsHost(Protocol):
