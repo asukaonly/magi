@@ -2300,3 +2300,101 @@ async def test_execute_context_user_prefs_wins_over_provider():
     assert len(sse.delivered) == 1
     assert len(slack.delivered) == 1
     assert len(telegram.delivered) == 0
+
+
+@pytest.mark.asyncio
+async def test_coordinator_maybe_orchestration_yields_tool_loop() -> None:
+    """P3 (ADR-0005): needs_orchestration='maybe' derives to tool_loop /
+    FUNCTION_CALLING — a loop the `agent` tool gets injected into for in-loop
+    self-escalation — NOT a pre-planned plan_fanout."""
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="simple",
+                tools=[],
+                needs_orchestration="maybe",
+                reasoning="single agent now, may fan out later",
+            )
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "do a big thing"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="do a big thing",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "tool_loop"
+    assert decision.route_decision.needs_orchestration == "maybe"
+
+
+@pytest.mark.asyncio
+async def test_coordinator_required_orchestration_yields_plan_fanout() -> None:
+    """P3 (ADR-0005): needs_orchestration='required' derives to plan_fanout /
+    ORCHESTRATION_LAUNCH (pre-planned multi-agent fanout)."""
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="large",
+                tools=[],
+                needs_orchestration="required",
+                reasoning="decomposable multi-part work",
+            )
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "decompose this"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="decompose this",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "plan_fanout"
