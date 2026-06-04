@@ -81,8 +81,9 @@ def _initialize_skills_bindings_for_configuration_mode(config: AppConfig) -> Non
 
     try:
         from ..skills.service_access import build_skills_runtime
+        from ..tools import tool_registry
 
-        bindings = build_skills_runtime(llm_adapter=None)
+        bindings = build_skills_runtime(llm_adapter=None, tool_registry=tool_registry)
         container.skill_indexer.override(providers.Object(bindings.skill_indexer))
         container.skill_loader.override(providers.Object(bindings.skill_loader))
         container.skill_runner.override(providers.Object(bindings.skill_runner))

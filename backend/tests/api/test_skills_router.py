@@ -81,7 +81,7 @@ def _bind_skills_runtime(container, bindings) -> None:
 def test_build_skills_runtime_registers_only_enabled_skills(isolated_skills_state) -> None:
     _, container = isolated_skills_state
 
-    bindings = skills_runtime_service.build_skills_runtime(llm_adapter=None)
+    bindings = skills_runtime_service.build_skills_runtime(llm_adapter=None, tool_registry=tool_registry)
     _bind_skills_runtime(container, bindings)
 
     assert set(tool_registry.get_skill_names()) == {"enabled-skill"}
