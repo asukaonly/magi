@@ -47,8 +47,9 @@ ignore_imports =
     # == KNOWN DEBT BASELINE (frozen 2026-05-31; ratchet down, never up) ======
     # Buckets: tools/skills->agent (33), agent->chat/channels/transport (24),
     # L13 api/chat/channels siblings (15), runtime_trace->events (7),
-    # awareness->timeline (4), other (~23). (The L7 tools<->skills sibling
-    # cycle was broken: `tools` is now ordered above `skills` and the
+    # awareness->timeline (0; retired — timeline now subscribes down to sensor
+    # events instead of awareness feeding up), other (~23). (The L7 tools<->skills
+    # sibling cycle was broken: `tools` is now ordered above `skills` and the
     # `skills -> tools.registry` arms were inverted via ToolRegistryPort.)
     magi.agent.lifecycle -> magi.transport.chat_events
     # ChatExecutionCoordinator RELOCATED from magi.agent.task_agents.chat.coordinator
@@ -77,10 +78,6 @@ ignore_imports =
     magi.api.services.personality_bootstrap_messages -> magi.chat.contracts
     magi.api.services.personality_bootstrap_messages -> magi.chat.provider
     magi.api.services.personality_bootstrap_messages -> magi.transport.chat_events
-    magi.awareness.lifecycle -> magi.timeline.adapter
-    magi.awareness.sensor_projection -> magi.timeline.contracts
-    magi.awareness.subscribers.kg_subscriber -> magi.timeline.insight_pipeline
-    magi.awareness.subscribers.timeline_subscriber -> magi.timeline.contracts
     magi.channels.attachments -> magi.chat.attachment_storage
     magi.channels.dispatcher -> magi.api.services.message_dispatch_service
     magi.channels.session_mapper -> magi.chat

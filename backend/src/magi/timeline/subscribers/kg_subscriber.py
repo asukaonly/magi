@@ -7,7 +7,7 @@ from magi.awareness.kg_write_queue import KnowledgeGraphEdgeWrite
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SensorEventEmitted
 from magi.events.payload_helpers import expect_payload, PayloadTypeError
-from magi.timeline.insight_pipeline import ALLOWED_EDGE_TYPES
+from ..insight_pipeline import ALLOWED_EDGE_TYPES
 
 logger = logging.getLogger(__name__)
 

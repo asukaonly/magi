@@ -26,11 +26,11 @@ from magi.awareness.sensor_output import (
     SensorOutput,
 )
 from magi.awareness.sensor_state import SensorStateWriteQueue
-from magi.awareness.subscribers.kg_subscriber import KGSubscriber
 from magi.awareness.subscribers.sensor_state_update_subscriber import (
     SensorStateUpdateSubscriber,
 )
-from magi.awareness.subscribers.timeline_subscriber import TimelineSubscriber
+from magi.timeline.subscribers.kg_subscriber import KGSubscriber
+from magi.timeline.subscribers.timeline_subscriber import TimelineSubscriber
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.memory import UnifiedMemoryStore
 from magi.memory.subscribers.memory_ingestion_subscriber import (

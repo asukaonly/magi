@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
+from ..awareness.kg_write_queue import KnowledgeGraphWriteQueue
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
+from .adapter import TimelineAdapter
 from .service import TimelineService
 
 if TYPE_CHECKING:
@@ -210,3 +212,58 @@ class TimelineSchedulersModule(LifecycleModule):
                     "Failed to unregister contrib %s: %s", type(contrib).__name__, exc
                 )
         self._contribs = []
+
+
+class TimelineSubscriberModule(LifecycleModule):
+    """Wire TimelineSubscriber to the runtime event bus."""
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(
+            name="runtime_timeline_subscriber",
+            dependencies=("runtime_message_bus", "runtime_timeline"),
+        )
+        self._context = context
+        self._subscriber: Any = None
+
+    async def init(self) -> None:
+        from .subscribers.timeline_subscriber import TimelineSubscriber
+        bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        timeline = self._context.timeline.timeline_service
+        if timeline is None:
+            logger.info("Timeline service not available; TimelineSubscriber idle")
+            return
+        adapter = TimelineAdapter(timeline)
+        self._subscriber = TimelineSubscriber(event_bus=bus, timeline_adapter=adapter)
+        await self._subscriber.start()
+        logger.info("TimelineSubscriber started")
+
+    async def shutdown(self) -> None:
+        if self._subscriber is not None:
+            await self._subscriber.stop()
+            self._subscriber = None
+
+
+class KGSubscriberModule(LifecycleModule):
+    """Wire KGSubscriber to the runtime event bus."""
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(
+            name="runtime_kg_subscriber",
+            dependencies=("runtime_message_bus", "runtime_memory"),
+        )
+        self._context = context
+        self._subscriber: Any = None
+
+    async def init(self) -> None:
+        from .subscribers.kg_subscriber import KGSubscriber
+        bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
+        writer = KnowledgeGraphWriteQueue(unified_memory=unified_memory)
+        self._subscriber = KGSubscriber(event_bus=bus, kg_writer=writer)
+        await self._subscriber.start()
+        logger.info("KGSubscriber started")
+
+    async def shutdown(self) -> None:
+        if self._subscriber is not None:
+            await self._subscriber.stop()
+            self._subscriber = None

@@ -15,7 +15,8 @@ from magi.awareness.sensor_output import (
     SensorOutput,
     SensorOutputMetadata,
 )
-from magi.awareness.sensor_projection import build_sensor_projection, build_sensor_timeline_event
+from magi.awareness.sensor_projection import build_sensor_projection
+from magi.timeline.sensor_projection import build_sensor_timeline_event
 from magi.timeline.adapter import TimelineAdapter
 from magi.timeline.contracts import TimelineEvent
 
