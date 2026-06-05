@@ -1,6 +1,7 @@
 import type { Components } from 'react-markdown';
 
 import { openExternalUrl } from '@/runtime/desktop';
+import { CodeBlock } from './code-block';
 
 /**
  * Shared react-markdown component map used by every markdown surface in the app.
@@ -10,26 +11,56 @@ import { openExternalUrl } from '@/runtime/desktop';
  * - ``compact`` — secondary surfaces (cards, drawers, status panels): tighter
  *   spacing and a smaller code scale.
  *
- * Code blocks render as a soft light panel (``bg-muted/50``) on both densities
- * so they stay consistent with the surrounding UI instead of inverting to a
- * dark terminal block.
+ * Fenced code blocks render through {@link CodeBlock} — a light panel with a
+ * thin header (language label + copy button) — instead of the chat bubble's old
+ * inverted dark/terminal block. Inline code stays a small light pill.
  */
 export type MarkdownDensity = 'comfortable' | 'compact';
 
-// Build a fenced/inline code renderer. ``react-markdown`` uses the same ``code``
-// element for both; a fenced block carries a language ``className`` (or spans
-// multiple lines), in which case it sits inside a styled ``pre`` and only needs
-// to inherit the monospace scale — the visible panel comes from ``pre``.
-function makeCodeComponent(blockClassName: string, inlineClassName: string): Components['code'] {
-  return ({ className, children }) => {
-    const content = String(children ?? '').replace(/\n$/, '');
-    const isBlockCode = Boolean(className) || content.includes('\n');
-    if (isBlockCode) {
-      return <code className={blockClassName}>{children}</code>;
-    }
-    return <code className={inlineClassName}>{children}</code>;
-  };
+// ---- fenced-code extraction -------------------------------------------------
+
+function normalizeClassList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map(String);
+  }
+  if (typeof value === 'string') {
+    return value.split(/\s+/).filter(Boolean);
+  }
+  return [];
 }
+
+function collectText(node: unknown): string {
+  if (!node || typeof node !== 'object') {
+    return '';
+  }
+  const n = node as { type?: string; value?: string; children?: unknown[] };
+  if (n.type === 'text' && typeof n.value === 'string') {
+    return n.value;
+  }
+  if (Array.isArray(n.children)) {
+    return n.children.map(collectText).join('');
+  }
+  return '';
+}
+
+// react-markdown hands the ``pre`` renderer the hast node for the fence; the raw
+// text and language live on its child ``code`` element. Reading them from the
+// node (rather than from rendered children) means single-line, no-language
+// fences are still treated as blocks — and lets CodeBlock own the panel.
+function extractFencedCode(node: unknown): { code: string; language?: string } {
+  const root = node as { children?: unknown[] } | undefined;
+  const codeEl = root?.children?.find((child) => {
+    const c = child as { type?: string; tagName?: string };
+    return c?.type === 'element' && c?.tagName === 'code';
+  }) as { properties?: { className?: unknown }; children?: unknown[] } | undefined;
+  const language = normalizeClassList(codeEl?.properties?.className)
+    .map((cls) => /^language-(.+)$/.exec(cls)?.[1])
+    .find((lang): lang is string => Boolean(lang));
+  const code = collectText({ children: codeEl?.children }).replace(/\n$/, '');
+  return { code, language };
+}
+
+// ---- component maps ---------------------------------------------------------
 
 // Elements whose styling is identical across surfaces — defined once.
 const structuralComponents: Components = {
@@ -82,35 +113,37 @@ const structuralComponents: Components = {
   ),
 };
 
-// Text-flow elements whose type scale / spacing differ per density.
+// Text-flow elements whose type scale / spacing differ per density. Fenced
+// blocks are rendered by ``pre`` (via CodeBlock) reading the hast node, so the
+// ``code`` renderer below only ever styles genuine inline code.
 const comfortableTextComponents: Components = {
   p: ({ children }) => <p className="mb-3 whitespace-pre-wrap text-sm leading-7 text-foreground last:mb-0">{children}</p>,
   ul: ({ children }) => <ul className="mb-3 list-disc space-y-2 pl-5 text-sm leading-7 text-foreground marker:text-muted-foreground">{children}</ul>,
   ol: ({ children, start }) => <ol start={start} className="mb-3 list-decimal space-y-2 pl-5 text-sm leading-7 text-foreground marker:text-muted-foreground">{children}</ol>,
-  code: makeCodeComponent(
-    'font-mono text-[13px] leading-7 text-inherit',
-    'rounded-md border border-border/60 bg-background/90 px-1.5 py-0.5 font-mono text-[0.84em] text-foreground shadow-sm',
-  ),
-  pre: ({ children }) => (
-    <pre className="mb-3 overflow-x-auto rounded-2xl border border-border/60 bg-muted/50 px-4 py-4 text-[13px] leading-7 text-foreground shadow-sm">
+  code: ({ children }) => (
+    <code className="rounded-md border border-border/60 bg-background/90 px-1.5 py-0.5 font-mono text-[0.84em] text-foreground shadow-sm">
       {children}
-    </pre>
+    </code>
   ),
+  pre: ({ node }) => {
+    const { code, language } = extractFencedCode(node);
+    return <CodeBlock code={code} language={language} density="comfortable" />;
+  },
 };
 
 const compactTextComponents: Components = {
   p: ({ children }) => <p className="m-0 whitespace-pre-wrap leading-6 last:mb-0">{children}</p>,
   ul: ({ children }) => <ul className="my-1 list-disc space-y-1 pl-5 leading-6 marker:text-muted-foreground">{children}</ul>,
   ol: ({ children, start }) => <ol start={start} className="my-1 list-decimal space-y-1 pl-5 leading-6 marker:text-muted-foreground">{children}</ol>,
-  code: makeCodeComponent(
-    'font-mono text-inherit',
-    'rounded border border-border/60 bg-muted/60 px-1 py-0.5 font-mono text-[0.9em] text-foreground',
-  ),
-  pre: ({ children }) => (
-    <pre className="my-2 max-h-64 overflow-auto rounded-lg border border-border/60 bg-muted/50 p-3 font-mono text-xs leading-5 text-foreground">
+  code: ({ children }) => (
+    <code className="rounded border border-border/60 bg-muted/60 px-1 py-0.5 font-mono text-[0.9em] text-foreground">
       {children}
-    </pre>
+    </code>
   ),
+  pre: ({ node }) => {
+    const { code, language } = extractFencedCode(node);
+    return <CodeBlock code={code} language={language} density="compact" />;
+  },
 };
 
 export function createMarkdownComponents(density: MarkdownDensity = 'comfortable'): Components {
