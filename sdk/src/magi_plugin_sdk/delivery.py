@@ -76,6 +76,12 @@ class DeliveryChunk:
     is_final: bool
     seq: int
     turn_id: str | None = None
+    # Phase G+1 convergence: a full stream-event dict (tool_call / reasoning /
+    # status / text_flush / text_delta ...) so streaming channels can carry
+    # every stream-event kind, not just text_delta. ``None`` → the channel
+    # falls back to the legacy ``{"kind": "text_delta", "text": text}`` shape.
+    event: dict[str, Any] | None = None
+    persona_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,12 +97,34 @@ class DeliveryContent:
     text: str
     attachments: tuple[dict[str, Any], ...] = ()
     formatting: Literal["markdown", "plaintext", "blocks", "html"] = "markdown"
+    # Phase G+1 convergence fields. Default ``None`` → channels that don't
+    # supply them omit them from the wire payload (zero behavior change). These
+    # let ChatSseChannel carry the full ``agent_response`` payload that
+    # ChatRuntimeNotifier.emit_agent_response used to own.
+    turn_id: str | None = None
+    message_id: str | None = None
+    message_kind: str | None = None
+    persona_id: str | None = None
+    trace_summary: dict[str, Any] | None = None
+    trace_available: bool = False
+    ux_plan: dict[str, Any] | None = None
+    message_payload: dict[str, Any] | None = None
+    orchestration_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "text": self.text,
             "attachments": [dict(a) for a in self.attachments],
             "formatting": self.formatting,
+            "turn_id": self.turn_id,
+            "message_id": self.message_id,
+            "message_kind": self.message_kind,
+            "persona_id": self.persona_id,
+            "trace_summary": self.trace_summary,
+            "trace_available": self.trace_available,
+            "ux_plan": self.ux_plan,
+            "message_payload": self.message_payload,
+            "orchestration_id": self.orchestration_id,
         }
 
     @classmethod
@@ -105,6 +133,15 @@ class DeliveryContent:
             text=str(payload.get("text") or ""),
             attachments=tuple(dict(a) for a in (payload.get("attachments") or ())),
             formatting=payload.get("formatting") or "markdown",
+            turn_id=payload.get("turn_id"),
+            message_id=payload.get("message_id"),
+            message_kind=payload.get("message_kind"),
+            persona_id=payload.get("persona_id"),
+            trace_summary=payload.get("trace_summary"),
+            trace_available=bool(payload.get("trace_available")),
+            ux_plan=payload.get("ux_plan"),
+            message_payload=payload.get("message_payload"),
+            orchestration_id=payload.get("orchestration_id"),
         )
 
 
