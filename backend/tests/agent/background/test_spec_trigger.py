@@ -1,6 +1,8 @@
 """BackgroundTaskSpec carries a RunTrigger (ADR-0004 P3, additive)."""
 from __future__ import annotations
 
+import pytest
+
 from magi_plugin_sdk.run_trigger import RunRequest, RunTrigger
 
 from magi.agent.background.contracts import BackgroundTaskSpec, BackgroundTaskTriggerSource
@@ -76,6 +78,72 @@ def test_as_run_request_projects_spec() -> None:
     assert req.session_id == "s1"
     assert req.input == {"goal": "do the thing"}
     assert req.bounds == {"max_iterations": 7, "timeout_seconds": 900}
+
+
+@pytest.mark.parametrize(
+    "trigger_type,expected",
+    [
+        # A user request — direct chat or steered/retracted — folds to USER.
+        ("user_message", BackgroundTaskTriggerSource.USER),
+        ("user_steer", BackgroundTaskTriggerSource.USER),
+        ("user_retract", BackgroundTaskTriggerSource.USER),
+        # External channel (iMessage/weixin/slack) is still a user; the channel
+        # itself lives on trigger.source_channel, not in this coarse enum.
+        ("external_inbound", BackgroundTaskTriggerSource.USER),
+        ("scheduled", BackgroundTaskTriggerSource.SCHEDULE),
+        # A resume of an already-detached run keeps the historical MANUAL bucket.
+        ("background_resume", BackgroundTaskTriggerSource.MANUAL),
+        # Machine-originated runs have no dedicated bucket → neutral RULE.
+        ("sensor_event", BackgroundTaskTriggerSource.RULE),
+        ("agent_self", BackgroundTaskTriggerSource.RULE),
+        ("child_run_completed", BackgroundTaskTriggerSource.RULE),
+        ("batch", BackgroundTaskTriggerSource.RULE),
+    ],
+)
+def test_from_trigger_maps_trigger_type_to_source(
+    trigger_type: str, expected: BackgroundTaskTriggerSource
+) -> None:
+    trigger = RunTrigger(
+        trigger_type=trigger_type,
+        source_channel=None,
+        requester="u1",
+        priority="foreground",
+    )
+    assert BackgroundTaskTriggerSource.from_trigger(trigger) is expected
+
+
+def test_from_trigger_covers_every_run_trigger_type() -> None:
+    # Guard: if a new trigger_type is added to the SDK, this fails until the
+    # mapping is updated — so coverage of RUN_TRIGGER_TYPES never silently rots.
+    from magi_plugin_sdk.run_trigger import RUN_TRIGGER_TYPES
+
+    for trigger_type in RUN_TRIGGER_TYPES:
+        trigger = RunTrigger(
+            trigger_type=trigger_type,
+            source_channel=None,
+            requester="u1",
+            priority="foreground",
+        )
+        # Every known type resolves to a concrete bucket without raising.
+        assert isinstance(
+            BackgroundTaskTriggerSource.from_trigger(trigger),
+            BackgroundTaskTriggerSource,
+        )
+
+
+def test_from_trigger_unknown_type_degrades_to_rule() -> None:
+    # RunTrigger itself rejects unknown types, but from_trigger is duck-typed
+    # and must degrade a future/foreign trigger object to RULE, never raise.
+    from types import SimpleNamespace
+
+    fake = SimpleNamespace(trigger_type="some_future_type")
+    assert BackgroundTaskTriggerSource.from_trigger(fake) is BackgroundTaskTriggerSource.RULE
+
+
+def test_from_trigger_none_defaults_to_manual() -> None:
+    # A run predating trigger propagation (no trigger) keeps the legacy detach
+    # default of MANUAL.
+    assert BackgroundTaskTriggerSource.from_trigger(None) is BackgroundTaskTriggerSource.MANUAL
 
 
 def test_as_run_request_falls_back_to_background_resume_trigger() -> None:

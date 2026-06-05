@@ -58,6 +58,44 @@ class BackgroundTaskTriggerSource(str, Enum):
     RULE = "rule"                  # dispatcher rule fast-path match
     SCHEDULE = "schedule"          # scheduler-created agent task
 
+    @classmethod
+    def from_trigger(
+        cls, trigger: "RunTrigger | None"
+    ) -> "BackgroundTaskTriggerSource":
+        """Derive the coarse launch-source enum from a unified ``RunTrigger``.
+
+        ADR-0004 P3 makes ``RunTrigger`` the source of truth for run
+        provenance; this folds its ``trigger_type`` down to the legacy
+        auditing enum so a background task launched from a detaching chat run
+        keeps its origin in metrics instead of being blanket-tagged. The rich
+        provenance (e.g. the external channel) still lives on the ``trigger``
+        itself — this is only the coarse bucket.
+
+        A ``None`` trigger (a run predating trigger propagation) yields
+        ``MANUAL`` — the historical detach default. Unknown / future trigger
+        types degrade to ``RULE`` rather than raising.
+        """
+        if trigger is None:
+            return cls.MANUAL
+        return _TRIGGER_SOURCE_BY_TRIGGER_TYPE.get(trigger.trigger_type, cls.RULE)
+
+
+# trigger_type → coarse BackgroundTaskTriggerSource. Defined at module level
+# (resolved at call time by ``from_trigger``) so the mapping table is visible
+# and testable on its own. Trigger types absent here fall through to ``RULE``.
+_TRIGGER_SOURCE_BY_TRIGGER_TYPE: dict[str, BackgroundTaskTriggerSource] = {
+    "user_message": BackgroundTaskTriggerSource.USER,
+    "user_steer": BackgroundTaskTriggerSource.USER,
+    "user_retract": BackgroundTaskTriggerSource.USER,
+    "external_inbound": BackgroundTaskTriggerSource.USER,
+    "scheduled": BackgroundTaskTriggerSource.SCHEDULE,
+    "background_resume": BackgroundTaskTriggerSource.MANUAL,
+    "sensor_event": BackgroundTaskTriggerSource.RULE,
+    "agent_self": BackgroundTaskTriggerSource.RULE,
+    "child_run_completed": BackgroundTaskTriggerSource.RULE,
+    "batch": BackgroundTaskTriggerSource.RULE,
+}
+
 
 @dataclass(slots=True)
 class BackgroundTaskSpec:
