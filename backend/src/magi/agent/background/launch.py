@@ -39,6 +39,8 @@ from .executor import BackgroundTaskRunFn, BackgroundTaskRunResult
 from .manager import BackgroundTaskManager
 
 if TYPE_CHECKING:
+    from magi_plugin_sdk.run_trigger import RunTrigger
+
     from ..task_agents.common.contracts import (
         ExecutionRequest,
         ExecutionResult,
@@ -85,6 +87,7 @@ def build_spec_from_request(
     request: "ExecutionRequest",
     *,
     trigger_source: BackgroundTaskTriggerSource,
+    trigger: "RunTrigger | None" = None,
     timeout_seconds: int | None = 1800,
     max_iterations: int = 50,
     initial_messages: list[dict[str, Any]] | None = None,
@@ -117,6 +120,7 @@ def build_spec_from_request(
         selected_tools=list(request.tool_selection.tools or []),
         workspace_path=workspace_path,
         trigger_source=trigger_source,
+        trigger=trigger,
         timeout_seconds=timeout_seconds,
         max_iterations=max_iterations,
         initial_messages=(
@@ -158,6 +162,7 @@ class BackgroundLaunchService:
         request: "ExecutionRequest",
         *,
         trigger_source: BackgroundTaskTriggerSource,
+        trigger: "RunTrigger | None" = None,
         timeout_seconds: int | None = 1800,
         max_iterations: int = 50,
         initial_messages: list[dict[str, Any]] | None = None,
@@ -170,6 +175,7 @@ class BackgroundLaunchService:
         spec = build_spec_from_request(
             request,
             trigger_source=trigger_source,
+            trigger=trigger,
             timeout_seconds=timeout_seconds,
             max_iterations=max_iterations,
             initial_messages=initial_messages,
