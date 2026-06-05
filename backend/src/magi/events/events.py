@@ -189,10 +189,6 @@ class EventTypes:
     SPAN_COMPLETED = "SpanCompleted"
     SKILL_INVOCATION_COMPLETED = "SkillInvocationCompleted"
 
-    # Run lifecycle events (Phase A run control)
-    RUN_RETRACTED = "run.retracted"
-    RUN_SUSPENDED = "run.suspended"
-
     # Control-plane state-change events (Control-Plane Extraction Phase 1).
     # Emitted by control-actuator tools; consumed by a chat-side subscriber
     # which owns transcript projection. This inverts the former direct
