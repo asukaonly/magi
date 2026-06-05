@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS l0_execution_runs (
     cancel_reason TEXT,
     cancel_requested_by TEXT,
     cancel_anchor_turn_id TEXT,
+    trigger_json TEXT,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
