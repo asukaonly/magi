@@ -1,11 +1,12 @@
 """Session-scoped execution coordination for chat task-agent turns."""
 from __future__ import annotations
 
-from magi_plugin_sdk.run_trigger import IncomingEvent, RunTrigger
+from magi_plugin_sdk.run_trigger import IncomingEvent
 
 from magi.control.run_control import DetachSignal, RetractRequested
 from magi.agent.runtime.contracts import FactRecord
 from magi.core.logger import get_logger
+from magi.agent.run_triggers import build_user_message_trigger, is_external_source
 from magi.agent.task_agents.common import IncomingFactKind, TaskFactPayload, UserMessagePayload
 from .fact_classifier import ClassifiedFact
 from .interruption_classifier import (
@@ -24,26 +25,10 @@ logger = get_logger(__name__)
 
 _CHECKPOINT_EVENT_TYPES = {"CHAT_TOOL_LOOP_STEP"}
 
-# Phase H+1: sources that originate from MAGI-native surfaces (chat HTTP
-# /chat router, the chat UI's SSE stream, etc.) keep the legacy
-# ``user_message`` trigger. Every other source (telegram, weixin, slack,
-# ...) flips the resulting ``RunTrigger`` to ``external_inbound`` and
-# additionally produces an ``IncomingEvent(external_inbound)`` when the
-# message lands on an already-active run.
-_MAGI_NATIVE_SOURCES = frozenset({"api", "magi-chat", "chat_sse"})
-
-
-def _is_external_source(source: str | None) -> bool:
-    """Phase H+1: classify a dispatcher ``source`` string.
-
-    Treats empty/whitespace as native (matches the legacy default in
-    :class:`UserMessagePayload`). Case-insensitive comparison so plugins
-    using ``"Telegram"`` etc. still classify correctly.
-    """
-    normalized = (source or "api").strip().lower()
-    if not normalized:
-        return False
-    return normalized not in _MAGI_NATIVE_SOURCES
+# Phase H+1 / ADR-0004 P3: source→RunTrigger classification moved to the
+# trigger seam (``magi.agent.run_triggers``: build_user_message_trigger /
+# is_external_source). External sources additionally produce an
+# ``IncomingEvent(external_inbound)`` when landing on an already-active run.
 
 
 class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
@@ -484,43 +469,6 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         )
 
     @staticmethod
-    def _user_message_trigger(
-        *,
-        payload: UserMessagePayload,
-        turn_id: str | None,
-    ) -> RunTrigger:
-        """Phase H+1: build a source-aware ``RunTrigger`` for a fresh run.
-
-        - HTTP /chat & chat UI (``source`` in :data:`_MAGI_NATIVE_SOURCES`)
-          → ``trigger_type="user_message"`` with ``source_channel="chat_sse"``
-          (preserves the Phase H Task 6 behavior).
-        - Any other source (``telegram``, ``weixin``, ``slack``, ...) →
-          ``trigger_type="external_inbound"`` with ``source_channel`` set
-          to the dispatcher source string so downstream consumers can
-          reason about provenance.
-
-        Used at the ``create_active_run`` call sites inside
-        :meth:`handle_user_turn` / :meth:`ahandle_user_turn`.
-        """
-        if _is_external_source(payload.source):
-            return RunTrigger(
-                trigger_type="external_inbound",
-                source_channel=payload.source.strip().lower(),
-                requester=payload.user_id,
-                priority="foreground",
-                correlation=[turn_id] if turn_id else [],
-                payload={"content": payload.content} if payload.content else {},
-            )
-        return RunTrigger(
-            trigger_type="user_message",
-            source_channel="chat_sse",
-            requester=payload.user_id,
-            priority="foreground",
-            correlation=[turn_id] if turn_id else [],
-            payload={"content": payload.content} if payload.content else {},
-        )
-
-    @staticmethod
     def _build_external_inbound_event(
         *,
         payload: UserMessagePayload,
@@ -562,7 +510,12 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 payload.session_id,
                 root_turn_id=turn_id,
                 root_user_message=payload.content,
-                trigger=self._user_message_trigger(payload=payload, turn_id=turn_id),
+                trigger=build_user_message_trigger(
+                    source=payload.source,
+                    requester=payload.user_id,
+                    content=payload.content,
+                    turn_id=turn_id,
+                ),
             )
             return SessionFactDecision(
                 active_run=active_run,
@@ -611,7 +564,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         # active run ALSO append a typed IncomingEvent. The legacy
         # ``pending_turns`` queue is kept for backward compat (session
         # turn queue already merges both queues since Phase H Task 4).
-        if active_run is not None and _is_external_source(payload.source):
+        if active_run is not None and is_external_source(payload.source):
             active_run.pending_events.append(
                 self._build_external_inbound_event(
                     payload=payload,
@@ -649,7 +602,12 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 payload.session_id,
                 root_turn_id=turn_id,
                 root_user_message=payload.content,
-                trigger=self._user_message_trigger(payload=payload, turn_id=turn_id),
+                trigger=build_user_message_trigger(
+                    source=payload.source,
+                    requester=payload.user_id,
+                    content=payload.content,
+                    turn_id=turn_id,
+                ),
             )
             return SessionFactDecision(
                 active_run=active_run,
@@ -698,7 +656,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             superseded_turns = []
         # Phase H+1: see ``handle_user_turn`` — mirror the IncomingEvent
         # emission on the async path so both routes behave identically.
-        if active_run is not None and _is_external_source(payload.source):
+        if active_run is not None and is_external_source(payload.source):
             active_run.pending_events.append(
                 self._build_external_inbound_event(
                     payload=payload,
