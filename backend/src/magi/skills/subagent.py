@@ -295,22 +295,26 @@ class SkillSubagent:
             )
             full_system_prompt = full_system_prompt + tool_notice
 
-        # Execute with tools
-        result = await self._function_calling_orchestrator.execute_with_tools(
-            turn=UserTurnInput(
-                text=user_message,
-                attachments=[],
+        # Execute with tools via the engine front door (ADR-0004 P4).
+        from ..agent.execution.function_calling.run_input import EngineRunInput
+
+        result = await self._function_calling_orchestrator.run(
+            EngineRunInput.headless(
+                turn=UserTurnInput(
+                    text=user_message,
+                    attachments=[],
+                    user_id=context.get("user_id", "subagent"),
+                    session_id=self.subagent_id,
+                ),
+                system_prompt=full_system_prompt,
+                selected_tools=self._available_tools,
                 user_id=context.get("user_id", "subagent"),
                 session_id=self.subagent_id,
-            ),
-            system_prompt=full_system_prompt,
-            selected_tools=self._available_tools,
-            user_id=context.get("user_id", "subagent"),
-            session_id=self.subagent_id,
-            conversation_history=[],
-            disable_thinking=True,
-            intent="skill_execution",
-            execution_workspace=self._resolve_workspace(context),
+                conversation_history=[],
+                disable_thinking=True,
+                intent="skill_execution",
+                execution_workspace=self._resolve_workspace(context),
+            )
         )
 
         if not result.succeeded:

@@ -12,6 +12,7 @@ from ...agent.orchestration import WorkerResult, get_orchestration_store
 from ...config.models import ThinkingDepth
 from ...core.logger import get_logger
 from ...agent.execution.function_calling import FunctionCallingOrchestrator
+from ...agent.execution.function_calling.run_input import EngineRunInput
 from ...agent.turn_input import UserTurnInput
 from ...runtime_trace import RuntimeTraceStore
 from ...llm.streaming_events import stream_source
@@ -160,38 +161,40 @@ class WorkerAgentManager(
                 permission_gateway_provider=self._permission_gateway_provider,
             )
             async with stream_source("worker"):
-                outcome = await executor.execute_with_tools(
-                    turn=UserTurnInput(
-                        text=run_state.prompt,
-                        attachments=[],
+                outcome = await executor.run(
+                    EngineRunInput.headless(
+                        turn=UserTurnInput(
+                            text=run_state.prompt,
+                            attachments=[],
+                            user_id=run_state.user_id,
+                            session_id=run_state.session_id or run_state.worker_id,
+                        ),
+                        system_prompt=worker_system_prompt,
+                        selected_tools=selected_tools,
                         user_id=run_state.user_id,
                         session_id=run_state.session_id or run_state.worker_id,
-                    ),
-                    system_prompt=worker_system_prompt,
-                    selected_tools=selected_tools,
-                    user_id=run_state.user_id,
-                    session_id=run_state.session_id or run_state.worker_id,
-                    turn_id=run_state.turn_id,
-                    conversation_history=[],
-                    max_iterations=max_iterations,
-                    thinking_depth=(
-                        ThinkingDepth.HIGH
-                        if run_state.subagent_type == self.TYPE_PLAN
-                        else ThinkingDepth.NONE
-                    ),
-                    intent=(
-                        "worker_explore"
-                        if run_state.subagent_type == self.TYPE_EXPLORE
-                        else f"worker_{run_state.subagent_type.lower()}"
-                    ),
-                    execution_agent_id=run_state.worker_id,
-                    execution_workspace=execution_workspace,
-                    llm_timeout_seconds=(
-                        180.0 if run_state.subagent_type == self.TYPE_PLAN else None
-                    ),
-                    final_response_json_mode=True,
-                    cancel_token=run_state.cancel_token,
-                    ephemeral_context=run_state.parent_context_summary,
+                        turn_id=run_state.turn_id,
+                        conversation_history=[],
+                        max_iterations=max_iterations,
+                        thinking_depth=(
+                            ThinkingDepth.HIGH
+                            if run_state.subagent_type == self.TYPE_PLAN
+                            else ThinkingDepth.NONE
+                        ),
+                        intent=(
+                            "worker_explore"
+                            if run_state.subagent_type == self.TYPE_EXPLORE
+                            else f"worker_{run_state.subagent_type.lower()}"
+                        ),
+                        execution_agent_id=run_state.worker_id,
+                        execution_workspace=execution_workspace,
+                        llm_timeout_seconds=(
+                            180.0 if run_state.subagent_type == self.TYPE_PLAN else None
+                        ),
+                        final_response_json_mode=True,
+                        cancel_token=run_state.cancel_token,
+                        ephemeral_context=run_state.parent_context_summary,
+                    )
                 )
             run_state.completed_at = time.time()
             run_state.updated_at = run_state.completed_at

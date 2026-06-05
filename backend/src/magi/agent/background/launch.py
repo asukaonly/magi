@@ -30,6 +30,7 @@ import structlog
 
 from ..cancel import CancelToken
 from ..turn_input import UserTurnInput
+from ..execution.function_calling.run_input import EngineRunInput
 from .contracts import (
     BackgroundTask,
     BackgroundTaskSpec,
@@ -257,26 +258,25 @@ def build_background_run_fn(
         else:
             user_message = spec.goal
             conversation_history = []
-        outcome = await function_calling_orchestrator.execute_with_tools(
-            turn=UserTurnInput(
-                text=user_message,
-                attachments=[],
+        outcome = await function_calling_orchestrator.run(
+            EngineRunInput.headless(
+                turn=UserTurnInput(
+                    text=user_message,
+                    attachments=[],
+                    user_id=spec.user_id,
+                    session_id=spec.session_id or None,
+                ),
+                selected_tools=list(spec.selected_tools),
                 user_id=spec.user_id,
                 session_id=spec.session_id or None,
-            ),
-            system_prompt="",
-            selected_tools=list(spec.selected_tools),
-            user_id=spec.user_id,
-            session_id=spec.session_id or None,
-            session_run_id=None,
-            session_run_revision=0,
-            turn_id=spec.origin_turn_id or None,
-            conversation_history=conversation_history,
-            max_iterations=spec.max_iterations,
-            intent=intent_label,
-            execution_agent_id=execution_agent_id,
-            execution_workspace=spec.workspace_path,
-            cancel_token=cancel_token,
+                turn_id=spec.origin_turn_id or None,
+                conversation_history=conversation_history,
+                max_iterations=spec.max_iterations,
+                intent=intent_label,
+                execution_agent_id=execution_agent_id,
+                execution_workspace=spec.workspace_path,
+                cancel_token=cancel_token,
+            )
         )
         summary = (outcome.content or "").strip()
         return BackgroundTaskRunResult(
