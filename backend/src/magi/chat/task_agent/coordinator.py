@@ -348,16 +348,21 @@ class ChatExecutionCoordinator:
         # what makes "the router selected a tool but it got dropped" impossible:
         # a turn that selected tools derives to tool_loop, full stop.
         #
-        # needs_orchestration folds in the force_direct_external override — the
-        # router may say plan_fanout, but a bounded external request is demoted
-        # to a plain tool loop. (P1 will let the router emit needs_orchestration
-        # directly instead of inferring it from the legacy graph_shape.)
-        needs_orchestration = (
-            decision.graph_shape == "plan_fanout" and not force_direct_external
-        )
+        # P3: the router emits a three-state needs_orchestration. A bounded
+        # external request (force_direct_external) demotes a "required" fanout
+        # down to a plain tool loop ("none"); "maybe" is preserved so the model
+        # can self-escalate in-loop via the injected `agent` tool.
+        orchestration = decision.needs_orchestration
+        # Backward-compat: a decision that only set graph_shape="plan_fanout"
+        # (older callers / direct construction that predate needs_orchestration)
+        # maps to "required".
+        if orchestration == "none" and decision.graph_shape == "plan_fanout":
+            orchestration = "required"
+        if force_direct_external and orchestration == "required":
+            orchestration = "none"
         effective_graph_shape = derive_execution_shape(
             has_image_attachments=has_image_attachments,
-            needs_orchestration=needs_orchestration,
+            orchestration=orchestration,
             has_tools=bool(selected_tools),
         )
 

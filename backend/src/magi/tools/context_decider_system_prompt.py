@@ -152,6 +152,7 @@ fields (intent, orchestration_strategy, etc.) remain for backward compatibility.
   "complexity": "simple" | "medium" | "large",
   "tools": [<tool_name>, ...],
   "may_write": <boolean>,
+  "needs_orchestration": "none" | "maybe" | "required",
   "reasoning": "<short string, 1-2 sentences>",
   "thinking_depth": "none" | "low" | "medium" | "high" | "max",
   "memory_route": "<existing memory_route value>",
@@ -170,6 +171,11 @@ Routing principles for the new fields:
 - complexity = "simple" for ≤1 LLM call; "medium" for 1-5 turns; "large" for >5 turns.
 - may_write = true ONLY when the user explicitly asks to create, modify, delete, or
   patch files / resources. Reading code or running read-only tools is NOT may_write.
+- needs_orchestration = "required" only when the task clearly needs several
+  sub-agents working in parallel up front (decomposable multi-part work);
+  "maybe" when a single agent should start but may need to fan out to workers
+  partway through (the `agent` tool will be made available in the loop so it can
+  self-escalate); "none" for ordinary single-agent turns. Default to "none".
 
 Persona, memory, and tool selection fields keep their existing semantics from
 the previous schema — see the rules above. The new top-level fields (profile,

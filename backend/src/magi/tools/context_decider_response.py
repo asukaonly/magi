@@ -17,6 +17,7 @@ from .context_routing import RouteDecision
 from .context_routing.route_decision import (
     COMPLEXITY_VALUES,
     GRAPH_SHAPE_VALUES,
+    NEEDS_ORCHESTRATION_VALUES,
     PROFILE_VALUES,
 )
 
@@ -113,6 +114,14 @@ class ContextDeciderResponseMixin:
                 reasoning=str(data.get("reasoning") or ""),
                 thinking_depth=_safe_get_thinking_depth(data),
                 memory_route=str(data.get("memory_route") or "none"),
+                needs_orchestration=(
+                    data["needs_orchestration"]
+                    if isinstance(data.get("needs_orchestration"), str)
+                    and data.get("needs_orchestration") in NEEDS_ORCHESTRATION_VALUES
+                    # Backward-compat: infer from the legacy graph_shape when the
+                    # router hasn't emitted the explicit three-state field yet.
+                    else ("required" if data.get("graph_shape") == "plan_fanout" else "none")
+                ),
                 register=str(data.get("register")) if data.get("register") else None,
                 active_trigger_ids=_safe_get_tuple_str(data, "active_trigger_ids"),
                 situation_strength=str(data.get("situation_strength") or "ordinary"),
