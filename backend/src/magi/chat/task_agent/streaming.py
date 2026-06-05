@@ -21,9 +21,17 @@ def format_llm_error(exc: Exception) -> str:
 
 
 class ChatStreamingMixin:
-    """Runtime notifier integration for streaming chat responses."""
+    """Canonical chunk write path for streaming chat responses.
+
+    Phase G+1 Step 2: every LLM stream event is routed onto
+    ``coordinator.dispatch_stream_chunk`` -> ``ChatSseChannel.deliver_chunk``,
+    carrying the full event so all kinds (text_delta / reasoning / status /
+    text_flush / tool_call) are delivered — not the legacy
+    ``ChatRuntimeNotifier.emit_stream_event`` path.
+    """
 
     _postprocess_service: Any
+    _coordinator: Any
 
     async def _emit_stream_event(
         self,
@@ -33,13 +41,23 @@ class ChatStreamingMixin:
         session_id: str,
         turn_id: str | None,
         persona_id: str | None = None,
+        seq: int = 0,
     ) -> None:
-        """Forward an LLM stream event to the runtime notifier wire."""
-        await self._postprocess_service._runtime_notifier.emit_stream_event(
-            event=event,
-            user_id=user_id,
+        """Route one LLM stream event onto the canonical chunk path.
+
+        ``text`` mirrors the event's text so text-only/legacy channels keep
+        working; ``event`` carries the full wire payload so streaming channels
+        render every event kind. ``is_final`` stays ``False`` — the stream's
+        boundary chunk is dispatched separately by the handler.
+        """
+        await self._coordinator.dispatch_stream_chunk(
             session_id=session_id,
+            user_id=user_id,
             turn_id=turn_id,
+            text=event.text or "",
+            is_final=False,
+            seq=seq,
+            event=event,
             persona_id=persona_id,
         )
 
@@ -52,15 +70,19 @@ class ChatStreamingMixin:
         persona_id: str | None = None,
     ):
         agent = self
+        seq = 0
 
         async def sink(event: LLMStreamEvent) -> None:
+            nonlocal seq
             await agent._emit_stream_event(
                 event=event,
                 user_id=user_id,
                 session_id=session_id,
                 turn_id=turn_id,
                 persona_id=persona_id,
+                seq=seq,
             )
+            seq += 1
 
         return sink
 
@@ -76,6 +98,7 @@ class ChatStreamingMixin:
             session_id=context.session_id,
             turn_id=turn_id,
             persona_id=getattr(context, "active_persona_id", None),
+            seq=0,
         )
         await self._emit_stream_event(
             event=LLMStreamEvent(kind="text_flush"),
@@ -83,4 +106,5 @@ class ChatStreamingMixin:
             session_id=context.session_id,
             turn_id=turn_id,
             persona_id=getattr(context, "active_persona_id", None),
+            seq=1,
         )

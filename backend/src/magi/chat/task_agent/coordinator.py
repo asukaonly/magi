@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable, Dict, List
 from magi.agent.message_utils import build_recent_messages
 from magi.config.models import ThinkingDepth
 from magi.core.logger import get_logger
+from magi.llm.streaming_events import LLMStreamEvent
 from magi.personality.active_persona import get_current_personality_config
 from magi.personality.persona_routing_brief import build_persona_routing_brief
 from magi.personality.turn_planner import PersonaRoutingHint
@@ -670,6 +671,8 @@ class ChatExecutionCoordinator:
         is_final: bool,
         seq: int,
         turn_id: str | None = None,
+        event: LLMStreamEvent | None = None,
+        persona_id: str | None = None,
     ) -> None:
         """Stream one chunk to every configured channel for this user/session.
 
@@ -699,6 +702,14 @@ class ChatExecutionCoordinator:
             chunk=DeliveryChunk(
                 text=text, is_final=is_final, seq=seq,
                 turn_id=turn_id,
+                # Phase G+1 Step 2: carry the full stream-event dict so
+                # ChatSseChannel.deliver_chunk can serialize every kind
+                # (tool_call / reasoning / status / text_flush / text_delta),
+                # not just the legacy text_delta fallback. ``None`` keeps the
+                # legacy shape for callers that don't supply an event (e.g. the
+                # handler's final boundary chunk).
+                event=event.to_wire_dict() if event is not None else None,
+                persona_id=persona_id,
             ),
             targets=targets,
         )
