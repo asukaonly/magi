@@ -123,9 +123,17 @@ class FunctionCallingRuntimeControlMixin:
         trigger_source = _BACKGROUND_TRIGGER_SOURCE_BY_DECISION.get(
             decision.source, BackgroundTaskTriggerSource.RULE
         )
+        # ADR-0004 P3: forward the run's RunTrigger for origin-channel provenance
+        # (so an auto-dispatched task can be delivered back to its source), but
+        # keep the decision-derived trigger_source — the dispatch decision
+        # (planner / classifier / rule) is more informative here than the coarse
+        # bucket derived from the trigger.
+        run_trigger = self._resolve_run_trigger(
+            str(getattr(request.context, "session_id", "") or "").strip()
+        )
         try:
             return await launch_service.enqueue_from_request(
-                request, trigger_source=trigger_source
+                request, trigger_source=trigger_source, trigger=run_trigger
             )
         except Exception as exc:  # noqa: BLE001 - degrade safe to foreground
             logger.warning(
