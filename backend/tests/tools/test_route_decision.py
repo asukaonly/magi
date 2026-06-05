@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from magi.config.models import ThinkingDepth
-from magi.tools.context_routing.route_decision import RouteDecision
+from magi.tools.context_routing.route_decision import PersonaRouting, RouteDecision
 
 
 def test_route_decision_constructs_with_required_fields_only() -> None:
@@ -34,10 +34,12 @@ def test_route_decision_construct_with_all_fields() -> None:
         reasoning="Major refactor needing decomposition.",
         thinking_depth=ThinkingDepth.HIGH,
         memory_route="recall",
-        register="focused",
-        active_trigger_ids=("code_review",),
-        situation_strength="strong",
-        quiet_hour_hints=("deep_work",),
+        persona=PersonaRouting(
+            register="focused",
+            active_trigger_ids=("code_review",),
+            situation_strength="strong",
+            quiet_hour_hints=("deep_work",),
+        ),
     )
     assert decision.tools == ["grep", "file_edit"]
     assert decision.may_write is True
@@ -45,6 +47,21 @@ def test_route_decision_construct_with_all_fields() -> None:
     assert decision.memory_route == "recall"
     assert decision.register == "focused"
     assert decision.active_trigger_ids == ("code_review",)
+
+
+def test_persona_fields_grouped_under_persona_subobject() -> None:
+    """ADR-0005: persona fields live under a nested PersonaRouting sub-object;
+    flat @property accessors remain as a transition shim for existing readers."""
+    persona = PersonaRouting(register="task", active_trigger_ids=("x",))
+    decision = RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple", persona=persona
+    )
+    assert decision.persona is persona
+    assert decision.persona.register == "task"
+    # flat shim still works for existing readers
+    assert decision.register == "task"
+    assert decision.active_trigger_ids == ("x",)
+    assert decision.situation_strength == "ordinary"
 
 
 def test_route_decision_is_frozen() -> None:
