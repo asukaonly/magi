@@ -289,7 +289,7 @@ export function PersonaPreviewChat({
   }, [customDescription, generating, i18n.language, llmConfig]);
 
   return (
-    <div className="grid h-full grid-cols-[200px_1fr] gap-4">
+    <div className="grid h-full min-h-0 grid-cols-[200px_1fr] gap-4">
       {/* Left: avatar rail — clicking selects the persona (the active one is
           confirmed by the footer "Next" button). */}
       <div className="flex flex-col gap-2 overflow-y-auto border-r border-border/55 pr-2">
@@ -339,7 +339,7 @@ export function PersonaPreviewChat({
 
       {/* Right: either the preview chat or the custom-persona composer. */}
       {mode === 'create' ? (
-        <div className="flex flex-col gap-3">
+        <div className="flex min-h-0 flex-col gap-3">
           <div className="flex-1 overflow-y-auto rounded-lg border border-border/55 bg-background p-4">
             <h3 className="text-sm font-medium text-foreground">{t('personaPreview.createCustomTitle')}</h3>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -412,7 +412,7 @@ export function PersonaPreviewChat({
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="flex min-h-0 flex-col gap-3">
           {/* Mirrors the real chat surface: bg-background scroll area with
               bg-card bubbles, so the preview reads like the app you're about
               to enter. */}
