@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from magi_plugin_sdk.run_trigger import RunTrigger
+
 from ..background import BackgroundTaskSpec, BackgroundTaskTriggerSource
 from .contracts import BatchJobStatus
 from .runner import (
@@ -45,6 +47,14 @@ class BatchDriver:
             goal=build_batch_goal(prompt, job, items),
             selected_tools=tools,
             trigger_source=BackgroundTaskTriggerSource.RULE,
+            trigger=RunTrigger(
+                trigger_type="batch",
+                source_channel="batch",
+                requester=job.owner,
+                priority="background",
+                correlation=[job.job_id],
+                payload={},
+            ),
         )
         await self._manager.enqueue(spec)
 

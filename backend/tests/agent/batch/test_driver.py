@@ -73,6 +73,11 @@ async def test_kickoff_builds_correct_spec(store):
     assert job.job_id in spec.goal                       # job_id marker for the listener
     assert "batch_item_update" in spec.selected_tools    # write-back tool present
     assert spec.user_id == "alice"                       # identity from job
+    # ADR-0004 P3: batch also speaks RunTrigger (additive).
+    assert spec.trigger is not None
+    assert spec.trigger.trigger_type == "batch"
+    assert spec.trigger.requester == "alice"
+    assert spec.trigger.correlation == [job.job_id]
     assert len(await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)) == 2
 
 

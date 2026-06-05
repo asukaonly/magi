@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from time import time
 from typing import Any
+
+from magi_plugin_sdk.run_trigger import RunTrigger
 from uuid import uuid4
 
 
@@ -73,6 +75,10 @@ class BackgroundTaskSpec:
     selected_tools: list[str] = field(default_factory=list)
     workspace_path: str | None = None
     trigger_source: BackgroundTaskTriggerSource = BackgroundTaskTriggerSource.RULE
+    # ADR-0004 P3: unified RunTrigger provenance carried alongside the legacy
+    # trigger_source enum (additive). PR-3 will fold trigger_source into this so
+    # chat / scheduler / batch all describe their run the same way.
+    trigger: RunTrigger | None = None
     priority: int = 0
     max_iterations: int = 50
     timeout_seconds: int | None = 1800
@@ -114,6 +120,7 @@ class BackgroundTaskSpec:
             "selected_tools": list(self.selected_tools),
             "workspace_path": self.workspace_path,
             "trigger_source": self.trigger_source.value,
+            "trigger": self.trigger.to_dict() if self.trigger else None,
             "priority": int(self.priority),
             "max_iterations": int(self.max_iterations),
             "timeout_seconds": (
@@ -148,6 +155,11 @@ class BackgroundTaskSpec:
             ),
             trigger_source=BackgroundTaskTriggerSource(
                 str(data.get("trigger_source") or BackgroundTaskTriggerSource.RULE.value)
+            ),
+            trigger=(
+                RunTrigger.from_dict(data["trigger"])
+                if data.get("trigger") is not None
+                else None
             ),
             priority=int(data.get("priority") or 0),
             max_iterations=int(data.get("max_iterations") or 20),
