@@ -130,6 +130,23 @@ class ChatSseChannel(Channel):
             }
             if content.attachments:
                 payload["attachments"] = [dict(a) for a in content.attachments]
+            # Phase G+1 convergence: carry the richer agent_response fields when
+            # supplied (omitted when None → zero change for legacy callers).
+            for _key in (
+                "turn_id",
+                "message_id",
+                "message_kind",
+                "persona_id",
+                "trace_summary",
+                "ux_plan",
+                "message_payload",
+                "orchestration_id",
+            ):
+                _value = getattr(content, _key)
+                if _value is not None:
+                    payload[_key] = _value
+            if content.trace_available:
+                payload["trace_available"] = True
             await self._trace_store.append_notification(
                 RuntimeNotificationRecord(
                     notification_id=0,
@@ -190,11 +207,20 @@ class ChatSseChannel(Channel):
                 "user_id": target.magi_user_id,
                 "session_id": session_id,
                 "turn_id": turn_id,
-                "event": {"kind": "text_delta", "text": chunk.text},
+                # Phase G+1 convergence: forward the full stream-event dict when
+                # the handler supplies one; otherwise keep the legacy
+                # text_delta shape so existing callers are unchanged.
+                "event": (
+                    chunk.event
+                    if chunk.event is not None
+                    else {"kind": "text_delta", "text": chunk.text}
+                ),
                 "is_final": bool(chunk.is_final),
                 "seq": int(chunk.seq),
                 "timestamp": time.time(),
             }
+            if chunk.persona_id is not None:
+                payload["persona_id"] = chunk.persona_id
             await self._trace_store.append_notification(
                 RuntimeNotificationRecord(
                     notification_id=0,

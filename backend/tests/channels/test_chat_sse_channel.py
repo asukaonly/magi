@@ -275,3 +275,120 @@ async def test_deliver_returns_receipt_with_scheme_channel_id_and_magi_session_i
     assert receipt.channel_id == "chat_sse"  # scheme only
     assert receipt.magi_session_id == "s-123"  # new field carries the session
     assert receipt.external_message_id is None
+
+
+# ---------------------------------------------------------------------------
+# Phase G+1 Step 1: DeliveryContent/DeliveryChunk carry the richer
+# agent_response fields so ChatSseChannel can become the single canonical
+# writer (replacing ChatRuntimeNotifier). Fields default to None → omitted,
+# so existing callers see zero behavior change.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_deliver_carries_convergence_fields_when_supplied(
+    stub_trace_store: _StubTraceStore,
+) -> None:
+    """When DeliveryContent supplies the richer fields, deliver() writes them
+    into the agent_response payload."""
+    ch = ChatSseChannel(trace_store=stub_trace_store)
+    target = ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id="s1",
+        magi_user_id="u1",
+    )
+    content = DeliveryContent(
+        text="full reply",
+        turn_id="t1",
+        message_id="m1",
+        message_kind="assistant",
+        persona_id="p1",
+        trace_summary={"nodes": 3},
+        trace_available=True,
+        ux_plan={"shape": "reply"},
+        orchestration_id="orc1",
+    )
+
+    await ch.deliver(target, content)
+
+    payload = json.loads(stub_trace_store.records[0].payload_json)
+    assert payload["turn_id"] == "t1"
+    assert payload["message_id"] == "m1"
+    assert payload["message_kind"] == "assistant"
+    assert payload["persona_id"] == "p1"
+    assert payload["trace_summary"] == {"nodes": 3}
+    assert payload["trace_available"] is True
+    assert payload["ux_plan"] == {"shape": "reply"}
+    assert payload["orchestration_id"] == "orc1"
+    # base fields unchanged
+    assert payload["content"] == "full reply"
+    assert payload["is_final"] is True
+
+
+@pytest.mark.asyncio
+async def test_deliver_omits_convergence_fields_when_not_supplied(
+    stub_trace_store: _StubTraceStore,
+) -> None:
+    """Zero-behavior-change guard: a plain DeliveryContent (no convergence
+    fields) produces exactly the legacy agent_response payload keys."""
+    ch = ChatSseChannel(trace_store=stub_trace_store)
+    target = ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id="s1",
+        magi_user_id="u1",
+    )
+
+    await ch.deliver(target, DeliveryContent(text="plain"))
+
+    payload = json.loads(stub_trace_store.records[0].payload_json)
+    assert set(payload.keys()) == {"user_id", "session_id", "content", "is_final", "timestamp"}
+
+
+@pytest.mark.asyncio
+async def test_deliver_chunk_carries_full_event_when_supplied(
+    stub_trace_store: _StubTraceStore,
+) -> None:
+    """When DeliveryChunk supplies a full event dict (e.g. a tool_call event),
+    deliver_chunk forwards it verbatim instead of forcing the hardcoded
+    text_delta shape."""
+    ch = ChatSseChannel(trace_store=stub_trace_store)
+    target = ChannelTarget(
+        channel_type="chat_sse",
+        external_chat_id="",
+        magi_session_id="s1",
+        magi_user_id="u1",
+    )
+    chunk = DeliveryChunk(
+        text="",
+        is_final=False,
+        seq=2,
+        turn_id="t1",
+        event={"kind": "tool_call_start", "tool_name": "search"},
+        persona_id="p1",
+    )
+
+    await ch.deliver_chunk(target, chunk)
+
+    payload = json.loads(stub_trace_store.records[0].payload_json)
+    assert payload["event"]["kind"] == "tool_call_start"
+    assert payload["event"]["tool_name"] == "search"
+    assert payload["turn_id"] == "t1"
+    assert payload["persona_id"] == "p1"
+
+
+def test_delivery_content_round_trips_convergence_fields() -> None:
+    """DeliveryContent.to_dict/from_dict preserves the new convergence fields."""
+    content = DeliveryContent(
+        text="x",
+        turn_id="t1",
+        message_id="m1",
+        trace_available=True,
+        ux_plan={"a": 1},
+    )
+    restored = DeliveryContent.from_dict(content.to_dict())
+    assert restored.turn_id == "t1"
+    assert restored.message_id == "m1"
+    assert restored.trace_available is True
+    assert restored.ux_plan == {"a": 1}
