@@ -19,6 +19,7 @@ from .context_routing.route_decision import (
     GRAPH_SHAPE_VALUES,
     NEEDS_ORCHESTRATION_VALUES,
     PROFILE_VALUES,
+    PersonaRouting,
 )
 
 logger = logging.getLogger(__name__)
@@ -122,10 +123,12 @@ class ContextDeciderResponseMixin:
                     # router hasn't emitted the explicit three-state field yet.
                     else ("required" if data.get("graph_shape") == "plan_fanout" else "none")
                 ),
-                register=str(data.get("register")) if data.get("register") else None,
-                active_trigger_ids=_safe_get_tuple_str(data, "active_trigger_ids"),
-                situation_strength=str(data.get("situation_strength") or "ordinary"),
-                quiet_hour_hints=_safe_get_tuple_str(data, "quiet_hour_hints"),
+                persona=PersonaRouting(
+                    register=str(data.get("register")) if data.get("register") else None,
+                    active_trigger_ids=_safe_get_tuple_str(data, "active_trigger_ids"),
+                    situation_strength=str(data.get("situation_strength") or "ordinary"),
+                    quiet_hour_hints=_safe_get_tuple_str(data, "quiet_hour_hints"),
+                ),
             )
         except (ValueError, TypeError) as exc:
             logger.warning(f"[ContextDecider] RouteDecision construction failed: {exc}")

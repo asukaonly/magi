@@ -16,6 +16,7 @@ from .route_decision import (
     COMPLEXITY_VALUES,
     GRAPH_SHAPE_VALUES,
     PROFILE_VALUES,
+    PersonaRouting,
     RouteDecision,
 )
 
@@ -26,6 +27,7 @@ __all__ = [
     "MEMORY_RETRIEVAL_TRIGGERS_BY_CATEGORY",
     "MemoryGuidance",
     "PROFILE_VALUES",
+    "PersonaRouting",
     "RouteDecision",
     "apply_memory_guidance",
     "evaluate_memory_need",

@@ -6,21 +6,21 @@ free-form dict.
 
 Design notes
 ------------
-* ``frozen=True`` prevents post-routing mutation. Consumers that need to
-  override a field (e.g., the chat coordinator rewriting graph_shape to the
-  derived execution shape) construct a new RouteDecision via
-  ``dataclasses.replace(...)`` rather than mutating in place.
+* ``frozen=True`` prevents post-routing mutation. Mutate via
+  ``dataclasses.replace(...)``.
 
-* Validation runs in ``__post_init__`` so invalid enum values fail loudly at
-  construction time rather than at consumer-side dict lookup.
+* Validation runs in ``__post_init__``.
 
-* P1 (ADR-0005) removed fields the router emitted but no consumer read.
-  ``complexity`` is retained; difficulty is carried by ``thinking_depth``.
+* P1 (ADR-0005) removed dead fields; ``complexity`` is retained.
 
-* P3 (ADR-0005) adds ``needs_orchestration`` (three-state) so the router can
-  ask for pre-planned fanout ("required"), permit in-loop self-escalation via
-  the ``agent`` tool ("maybe"), or neither ("none"). It supersedes inferring
-  orchestration from ``graph_shape == "plan_fanout"``.
+* P3 (ADR-0005) added the three-state ``needs_orchestration``.
+
+* Persona-routing fields are grouped under a nested ``persona``
+  (:class:`PersonaRouting`) sub-object so persona routing can be split out
+  of the router later without touching the rest of RouteDecision. Flat
+  ``@property`` accessors (``register`` etc.) are kept as a transition shim so
+  existing readers keep working; they can be dropped once persona routing is
+  fully extracted.
 """
 from __future__ import annotations
 
@@ -41,6 +41,20 @@ NEEDS_ORCHESTRATION_VALUES: frozenset[str] = frozenset({"none", "maybe", "requir
 
 
 @dataclass(slots=True, frozen=True)
+class PersonaRouting:
+    """Persona-routing fields produced by the router LLM, grouped (ADR-0005).
+
+    Isolated into its own object so persona routing can be extracted from the
+    router later as a unit.
+    """
+
+    register: str | None = None
+    active_trigger_ids: tuple[str, ...] = ()
+    situation_strength: str = "ordinary"
+    quiet_hour_hints: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class RouteDecision:
     """Strict-typed router LLM output.
 
@@ -71,14 +85,30 @@ class RouteDecision:
     # === Memory routing (rule-derived by apply_memory_guidance) ===
     memory_route: str = "none"
 
-    # === Persona routing (preserved from ContextDecision) ===
-    register: str | None = None
-    active_trigger_ids: tuple[str, ...] = ()
-    situation_strength: str = "ordinary"
-    quiet_hour_hints: tuple[str, ...] = ()
+    # === Persona routing (grouped sub-object; ADR-0005) ===
+    persona: PersonaRouting = field(default_factory=PersonaRouting)
 
     # === Observability ===
     llm_trace: dict[str, Any] = field(default_factory=dict)
+
+    # --- Backward-compatible flat accessors (transition shim) ---
+    # Persona fields now live under ``persona``; these proxies keep existing
+    # readers (``_build_persona_routing_hint``, tests) working unchanged.
+    @property
+    def register(self) -> str | None:
+        return self.persona.register
+
+    @property
+    def active_trigger_ids(self) -> tuple[str, ...]:
+        return self.persona.active_trigger_ids
+
+    @property
+    def situation_strength(self) -> str:
+        return self.persona.situation_strength
+
+    @property
+    def quiet_hour_hints(self) -> tuple[str, ...]:
+        return self.persona.quiet_hour_hints
 
     def __post_init__(self) -> None:
         if self.profile not in PROFILE_VALUES:
@@ -129,6 +159,7 @@ class RouteDecision:
 
 __all__ = [
     "RouteDecision",
+    "PersonaRouting",
     "PROFILE_VALUES",
     "GRAPH_SHAPE_VALUES",
     "COMPLEXITY_VALUES",
