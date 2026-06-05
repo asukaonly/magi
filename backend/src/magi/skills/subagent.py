@@ -295,8 +295,11 @@ class SkillSubagent:
             )
             full_system_prompt = full_system_prompt + tool_notice
 
-        # Execute with tools via the engine front door (ADR-0004 P4).
-        from ..agent.execution.function_calling.run_input import EngineRunInput
+        # Execute with tools via the engine front door (ADR-0004 P4). Import via
+        # the function_calling package facade (not the .run_input submodule) to
+        # match the existing skills.subagent -> agent.execution.function_calling
+        # import-contract allowance (.importlinter).
+        from ..agent.execution.function_calling import EngineRunInput
 
         result = await self._function_calling_orchestrator.run(
             EngineRunInput.headless(
