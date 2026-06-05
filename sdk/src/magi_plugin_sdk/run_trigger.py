@@ -15,6 +15,7 @@ RUN_TRIGGER_TYPES = frozenset({
     "agent_self",            # agent's own callback / follow-up
     "child_run_completed",   # child run finished, parent should aggregate
     "background_resume",     # background executor resuming a detached run
+    "batch",                 # batch driver launching a per-item run
 })
 
 RUN_TRIGGER_PRIORITIES = frozenset({"foreground", "background", "deferred"})

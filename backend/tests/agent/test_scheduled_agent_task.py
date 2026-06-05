@@ -62,6 +62,12 @@ def test_build_background_spec_from_schedule() -> None:
     assert spec.timeout_seconds == 900
     assert spec.max_iterations == 12
     assert spec.trigger_source is BackgroundTaskTriggerSource.SCHEDULE
+    # ADR-0004 P3: scheduler also speaks RunTrigger (additive, alongside the
+    # legacy trigger_source enum).
+    assert spec.trigger is not None
+    assert spec.trigger.trigger_type == "scheduled"
+    assert spec.trigger.requester == "user-1"
+    assert spec.trigger.correlation == ["agent-task:test"]
 
 
 @pytest.mark.asyncio
