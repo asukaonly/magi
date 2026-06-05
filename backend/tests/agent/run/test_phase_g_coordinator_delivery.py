@@ -21,9 +21,14 @@ def test_coordinator_execute_calls_fanout_deliver_on_completion() -> None:
     from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator.execute)
-    assert "fanout_deliver" in src or "_delivery_router" in src, (
-        "execute() must invoke the delivery router after run completes"
-    )
+    # Delivery was refactored into the ``_fanout_to_origin_channels`` helper,
+    # which constructs targets and calls ``self._delivery_router.fanout_deliver``;
+    # execute() invokes that helper after the node sequence completes.
+    assert (
+        "fanout_deliver" in src
+        or "_delivery_router" in src
+        or "_fanout_to_origin_channels" in src
+    ), "execute() must invoke the delivery router after run completes"
 
 
 def test_session_run_coordinator_request_retract_calls_fanout_retract() -> None:

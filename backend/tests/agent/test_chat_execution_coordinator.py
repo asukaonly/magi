@@ -955,6 +955,60 @@ async def test_coordinator_forces_direct_llm_for_image_attachments() -> None:
 
 
 @pytest.mark.asyncio
+async def test_coordinator_keeps_tools_when_router_says_reply_but_selects_tools() -> None:
+    """Regression (ADR-0005): the router can emit graph_shape='reply' while
+    still selecting a tool (e.g. memory_query). The tool must NOT be dropped —
+    execution shape is derived from the tool list, so this becomes a
+    tool_loop / FUNCTION_CALLING rather than a tool-less DIRECT_LLM reply."""
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="simple",
+                tools=["memory_query"],
+                reasoning="recall browsing history",
+            )
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "user_id": "u-chat",
+            "session_id": "s-chat",
+            "content": "我最近2天在用chrome看什么来着",
+        },
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="我最近2天在用chrome看什么来着",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert "memory_query" in decision.tools
+    assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "tool_loop"
+
+
+@pytest.mark.asyncio
 async def test_coordinator_injects_tool_advisory_into_decision_context() -> None:
     """Advisory provider should populate ContextDeciderContext.tool_advisory."""
     fake_advisories = [
@@ -1267,17 +1321,16 @@ async def test_coordinator_does_not_inject_fallback_tools_for_chat() -> None:
 
 
 @pytest.mark.asyncio
-async def test_coordinator_reply_shape_drops_tools_to_avoid_request_handler_mismatch() -> None:
-    """Regression for the dispatch-axis split introduced in Phase C.
+async def test_coordinator_derives_consistent_shape_and_mode_for_reply_with_tools() -> None:
+    """ADR-0005: graph_shape and execution_mode must stay on a single mode so
+    the GraphBuilder's node and the request shape never mismatch (a ReplyNode
+    receiving a FunctionCallingRequest crashes with 'no attribute messages').
 
-    If the router emits graph_shape='reply' but also non-empty tools, the
-    coordinator must NOT build a FunctionCallingRequest — the GraphBuilder
-    will pick ReplyNode (which delegates to DirectLLMHandler, requiring a
-    DirectLLMRequest with .messages). The two axes (request shape +
-    node selection) must agree on a single mode.
-
-    Failure mode before the fix: '[error] FunctionCallingRequest object has
-    no attribute messages' bubbled up through NodeSequenceRunner.
+    Pre-ADR-0005 this was enforced by DROPPING tools when the router said
+    'reply'. Now the shape is DERIVED from the tools instead: a router that
+    opines 'reply' yet selects a tool yields tool_loop + FUNCTION_CALLING, with
+    decision.graph_shape rewritten to match. The two axes are sourced from the
+    same derivation and cannot disagree — and the tool is preserved, not lost.
     """
     decider = _FakeContextDecider(
         RouteDecision(
@@ -1321,13 +1374,12 @@ async def test_coordinator_reply_shape_drops_tools_to_avoid_request_handler_mism
 
     decision = await coordinator.match_intent(context)
 
-    # graph_shape='reply' must map to DIRECT_LLM (so build_request returns
-    # DirectLLMRequest), and tools must be dropped (so they can't sneak the
-    # mode to FUNCTION_CALLING).
-    assert decision.execution_mode == ExecutionMode.DIRECT_LLM
-    assert decision.tools == []
+    # Tools present → shape derives to tool_loop, mode to FUNCTION_CALLING, and
+    # decision.graph_shape is rewritten to match. Two axes agree; tool survives.
+    assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
+    assert "web-search" in decision.tools
     assert decision.route_decision is not None
-    assert decision.route_decision.graph_shape == "reply"
+    assert decision.route_decision.graph_shape == "tool_loop"
 
 
 # ---------------------------------------------------------------------------
@@ -2248,3 +2300,101 @@ async def test_execute_context_user_prefs_wins_over_provider():
     assert len(sse.delivered) == 1
     assert len(slack.delivered) == 1
     assert len(telegram.delivered) == 0
+
+
+@pytest.mark.asyncio
+async def test_coordinator_maybe_orchestration_yields_tool_loop() -> None:
+    """P3 (ADR-0005): needs_orchestration='maybe' derives to tool_loop /
+    FUNCTION_CALLING — a loop the `agent` tool gets injected into for in-loop
+    self-escalation — NOT a pre-planned plan_fanout."""
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="simple",
+                tools=[],
+                needs_orchestration="maybe",
+                reasoning="single agent now, may fan out later",
+            )
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "do a big thing"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="do a big thing",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "tool_loop"
+    assert decision.route_decision.needs_orchestration == "maybe"
+
+
+@pytest.mark.asyncio
+async def test_coordinator_required_orchestration_yields_plan_fanout() -> None:
+    """P3 (ADR-0005): needs_orchestration='required' derives to plan_fanout /
+    ORCHESTRATION_LAUNCH (pre-planned multi-agent fanout)."""
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="large",
+                tools=[],
+                needs_orchestration="required",
+                reasoning="decomposable multi-part work",
+            )
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "decompose this"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="decompose this",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "plan_fanout"

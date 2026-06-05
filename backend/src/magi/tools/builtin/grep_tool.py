@@ -473,11 +473,20 @@ class GrepTool(Tool):
         ]
         if ignore_case:
             argv.append("--ignore-case")
-        if not recursive and os.path.isdir(search_path):
+        search_is_dir = os.path.isdir(search_path)
+        # When searching a directory, run ripgrep with cwd=search_path and a
+        # relative "." target so path-bearing globs (e.g. "src/**/*.py") anchor
+        # to the search root. Passing an absolute search path makes ripgrep match
+        # globs against the full absolute path, so a relative glob never hits.
+        run_cwd: str | None = None
+        if not recursive and search_is_dir:
             argv.extend(["--max-depth", "1"])
-        if os.path.isdir(search_path):
+        if search_is_dir:
             argv.extend(_ripgrep_glob_args(file_pattern, exclude_patterns))
-        argv.extend([pattern, search_path])
+            run_cwd = search_path
+            argv.extend([pattern, "."])
+        else:
+            argv.extend([pattern, search_path])
 
         matches: list[dict[str, Any]] = []
         matched_files: set[str] = set()
@@ -489,6 +498,7 @@ class GrepTool(Tool):
                 *argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=run_cwd,
             )
         except (FileNotFoundError, OSError):
             return None
@@ -530,6 +540,10 @@ class GrepTool(Tool):
                 line_number = int(data.get("line_number") or 0)
                 if not path_text or line_number <= 0:
                     continue
+                # ripgrep emits paths relative to run_cwd when set; resolve them
+                # back to absolute so callers always receive absolute file paths.
+                if run_cwd is not None and not os.path.isabs(path_text):
+                    path_text = os.path.join(run_cwd, path_text)
                 normalized_path = os.path.normpath(path_text)
                 matched_files.add(normalized_path)
                 matches.append(

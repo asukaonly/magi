@@ -193,7 +193,15 @@ class ContextDecider(
             )
 
     def _get_available_tools(self) -> list[dict[str, Any]]:
-        """Get list of available tools with metadata"""
+        """Get list of available CAPABILITY tools with metadata.
+
+        Resident runtime-control / system tools (ADR-0005 §4) are excluded:
+        they are always available to the main LLM's tool loop, so the router
+        must not spend prompt budget reasoning about whether to select them.
+        """
+        from magi.tools.system_tools import resolve_resident_system_tools
+
+        resident = set(resolve_resident_system_tools(self.tool_registry))
         tools_info = self.tool_registry.get_all_tools_info()
         return [
             {
@@ -202,7 +210,7 @@ class ContextDecider(
                 "type": tool.get("type", "tool"),
             }
             for tool in tools_info
-            if tool.get("type") != "skill"
+            if tool.get("type") != "skill" and tool.get("name") not in resident
         ]
 
     def _build_prompt(

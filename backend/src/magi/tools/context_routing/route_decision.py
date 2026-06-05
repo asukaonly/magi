@@ -1,30 +1,26 @@
 """RouteDecision: strict typed schema for the chat router LLM output.
 
-Replaces ``ContextDecision`` + ``OrchestrationPlan`` + the keyword
-normalization in ``orchestration.py``. The router LLM emits a JSON
-object matching this schema; downstream consumers receive a typed
-``RouteDecision`` rather than unpacking a free-form dict.
+The router LLM emits a JSON object matching this schema; downstream
+consumers receive a typed ``RouteDecision`` rather than unpacking a
+free-form dict.
 
 Design notes
 ------------
-* This is a SUPERSET of the design-doc spec. In addition to the
-  spec-required fields (``profile``, ``graph_shape``, ``complexity``,
-  etc.), the dataclass carries persona-routing + memory-routing fields
-  that previously lived on ``ContextDecision``. Those fields are
-  produced by the same LLM call; removing them would require
-  re-architecting persona routing, which is out of Phase B scope.
+* ``frozen=True`` prevents post-routing mutation. Mutate via
+  ``dataclasses.replace(...)``.
 
-* ``frozen=True`` prevents post-routing mutation. Consumers that need
-  to override a field (e.g., the chat coordinator suppressing tools
-  when image attachments are present) construct a new RouteDecision via
-  ``dataclasses.replace(...)`` rather than mutating in place.
+* Validation runs in ``__post_init__``.
 
-* Validation runs in ``__post_init__`` so invalid values fail loudly at
-  construction time rather than at consumer-side dict lookup.
+* P1 (ADR-0005) removed dead fields; ``complexity`` is retained.
 
-* The ``to_legacy_strategy_dict()`` adapter exists ONLY for the Phase B
-  migration window — once every consumer has migrated to read
-  ``RouteDecision`` directly, this method is deleted in Phase C.
+* P3 (ADR-0005) added the three-state ``needs_orchestration``.
+
+* Persona-routing fields are grouped under a nested ``persona``
+  (:class:`PersonaRouting`) sub-object so persona routing can be split out
+  of the router later without touching the rest of RouteDecision. Flat
+  ``@property`` accessors (``register`` etc.) are kept as a transition shim so
+  existing readers keep working; they can be dropped once persona routing is
+  fully extracted.
 """
 from __future__ import annotations
 
@@ -41,55 +37,78 @@ GRAPH_SHAPE_VALUES: frozenset[str] = frozenset(
     {"reply", "tool_loop", "plan_fanout"}
 )
 COMPLEXITY_VALUES: frozenset[str] = frozenset({"simple", "medium", "large"})
-BACKGROUND_HINT_VALUES: frozenset[str] = frozenset(
-    {"foreground", "background_ok", "background_preferred"}
-)
-EFFORT_VALUES: frozenset[str] = frozenset(
-    {"none", "low", "medium", "high", "max"}
-)
+NEEDS_ORCHESTRATION_VALUES: frozenset[str] = frozenset({"none", "maybe", "required"})
 
 
 @dataclass(slots=True, frozen=True)
+class PersonaRouting:
+    """Persona-routing fields produced by the router LLM, grouped (ADR-0005).
+
+    Isolated into its own object so persona routing can be extracted from the
+    router later as a unit.
+    """
+
+    register: str | None = None
+    active_trigger_ids: tuple[str, ...] = ()
+    situation_strength: str = "ordinary"
+    quiet_hour_hints: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class RouteDecision:
     """Strict-typed router LLM output.
 
-    All fields are validated in ``__post_init__``. Construct directly
-    or via ``RouteDecision.parse_llm_json(...)`` (defined in the
-    parser module). Mutate via ``dataclasses.replace(decision, ...)``.
+    Enum fields are validated in ``__post_init__``. Mutate via
+    ``dataclasses.replace(decision, ...)``.
     """
 
-    # === Core routing (design-doc spec) ===
+    # === Core routing ===
     profile: Literal["chat", "research", "explore", "coding", "media", "system"]
     graph_shape: Literal["reply", "tool_loop", "plan_fanout"]
     complexity: Literal["simple", "medium", "large"]
 
     # === Tool routing ===
     tools: list[str] = field(default_factory=list)
-    capabilities: list[str] = field(default_factory=list)
-    risky_tools: list[str] = field(default_factory=list)
-    needs_workspace: bool = False
-    needs_external: bool = False
     may_write: bool = False
 
+    # === Orchestration routing (ADR-0005 P3) ===
+    # none     = single-agent (tools/reply).
+    # maybe    = single-agent tool loop that ALSO gets an injected `agent` tool,
+    #            so the model can self-escalate to workers mid-loop.
+    # required = pre-planned multi-agent fanout (plan_fanout).
+    needs_orchestration: Literal["none", "maybe", "required"] = "none"
+
     # === Execution hints ===
-    background_hint: Literal["foreground", "background_ok", "background_preferred"] = "foreground"
-    effort: Literal["none", "low", "medium", "high", "max"] = "low"
-    confidence: float = 0.0
     reasoning: str = ""
     thinking_depth: ThinkingDepth = ThinkingDepth.NONE
 
-    # === Memory routing (preserved from ContextDecision) ===
+    # === Memory routing (rule-derived by apply_memory_guidance) ===
     memory_route: str = "none"
-    memory_layer: str | None = None
 
-    # === Persona routing (preserved from ContextDecision) ===
-    register: str | None = None
-    active_trigger_ids: tuple[str, ...] = ()
-    situation_strength: str = "ordinary"
-    quiet_hour_hints: tuple[str, ...] = ()
+    # === Persona routing (grouped sub-object; ADR-0005) ===
+    persona: PersonaRouting = field(default_factory=PersonaRouting)
 
     # === Observability ===
     llm_trace: dict[str, Any] = field(default_factory=dict)
+
+    # --- Backward-compatible flat accessors (transition shim) ---
+    # Persona fields now live under ``persona``; these proxies keep existing
+    # readers (``_build_persona_routing_hint``, tests) working unchanged.
+    @property
+    def register(self) -> str | None:
+        return self.persona.register
+
+    @property
+    def active_trigger_ids(self) -> tuple[str, ...]:
+        return self.persona.active_trigger_ids
+
+    @property
+    def situation_strength(self) -> str:
+        return self.persona.situation_strength
+
+    @property
+    def quiet_hour_hints(self) -> tuple[str, ...]:
+        return self.persona.quiet_hour_hints
 
     def __post_init__(self) -> None:
         if self.profile not in PROFILE_VALUES:
@@ -107,15 +126,10 @@ class RouteDecision:
                 f"RouteDecision.complexity must be one of {sorted(COMPLEXITY_VALUES)}, "
                 f"got {self.complexity!r}"
             )
-        if self.background_hint not in BACKGROUND_HINT_VALUES:
+        if self.needs_orchestration not in NEEDS_ORCHESTRATION_VALUES:
             raise ValueError(
-                f"RouteDecision.background_hint must be one of {sorted(BACKGROUND_HINT_VALUES)}, "
-                f"got {self.background_hint!r}"
-            )
-        if self.effort not in EFFORT_VALUES:
-            raise ValueError(
-                f"RouteDecision.effort must be one of {sorted(EFFORT_VALUES)}, "
-                f"got {self.effort!r}"
+                f"RouteDecision.needs_orchestration must be one of "
+                f"{sorted(NEEDS_ORCHESTRATION_VALUES)}, got {self.needs_orchestration!r}"
             )
 
     def to_legacy_strategy_dict(self) -> dict[str, Any]:
@@ -123,8 +137,7 @@ class RouteDecision:
 
         Consumers reading the legacy ``orchestration_strategy: dict``
         (mode / planner / default_leaf_type / allow_parallel) can call
-        this method to get a compatible view. Deleted in Task 11 after
-        every consumer migrates.
+        this method to get a compatible view.
         """
         if self.graph_shape == "plan_fanout":
             mode = "decompose"
@@ -146,9 +159,9 @@ class RouteDecision:
 
 __all__ = [
     "RouteDecision",
+    "PersonaRouting",
     "PROFILE_VALUES",
     "GRAPH_SHAPE_VALUES",
     "COMPLEXITY_VALUES",
-    "BACKGROUND_HINT_VALUES",
-    "EFFORT_VALUES",
+    "NEEDS_ORCHESTRATION_VALUES",
 ]

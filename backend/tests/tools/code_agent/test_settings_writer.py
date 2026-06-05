@@ -50,7 +50,7 @@ def test_write_user_settings_unknown_adapter_falls_back_via_loader(
     workspace = isolated_magi_home / "ws"
     workspace.mkdir()
     s = load_settings(workspace_root=workspace)
-    assert s.default_adapter == "claude_code"
+    assert s.default_adapter == "auto"
 
 
 def test_write_project_settings_lives_under_workspace_magi(

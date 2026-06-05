@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from magi.config.models import ThinkingDepth
-from magi.tools.context_routing import RouteDecision
+from magi.tools.context_routing import PersonaRouting, RouteDecision
 
 
 def test_route_decision_to_legacy_strategy_for_each_graph_shape() -> None:
@@ -39,7 +39,6 @@ def test_route_decision_default_leaf_type_for_coding_profile() -> None:
 def test_route_decision_default_leaf_type_for_explore_profile() -> None:
     d = RouteDecision(
         profile="explore", graph_shape="plan_fanout", complexity="medium",
-        needs_workspace=True,
     )
     assert d.to_legacy_strategy_dict()["default_leaf_type"] == "CodeExplore"
 
@@ -60,10 +59,12 @@ def test_route_decision_with_persona_routing_fields_preserved() -> None:
         profile="chat",
         graph_shape="reply",
         complexity="simple",
-        register="focused",
-        active_trigger_ids=("work_mode",),
-        situation_strength="strong",
-        quiet_hour_hints=("deep_work",),
+        persona=PersonaRouting(
+            register="focused",
+            active_trigger_ids=("work_mode",),
+            situation_strength="strong",
+            quiet_hour_hints=("deep_work",),
+        ),
     )
     assert d.register == "focused"
     assert d.active_trigger_ids == ("work_mode",)

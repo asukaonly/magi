@@ -184,6 +184,33 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         )
         if attachment_guidance_block:
             system_prompt = f"{system_prompt}\n\n{attachment_guidance_block}"
+        # ADR-0005 §4: runtime-control / system tools are RESIDENT on the main
+        # loop. The router only filters capability tools (and never sees these);
+        # they are appended here — AFTER the execution shape was derived from the
+        # capability tools — so they let the model switch its own state (plan
+        # mode, ask-user, detach, tool discovery) mid-loop without ever turning a
+        # reply into a tool_loop.
+        from magi.tools.system_tools import resolve_resident_system_tools
+
+        _orchestrator = getattr(self._deps, "function_calling_orchestrator", None)
+        _registry = getattr(_orchestrator, "tool_registry", None)
+        if _registry is not None:
+            for _resident_tool in resolve_resident_system_tools(_registry):
+                if _resident_tool not in selected_tools:
+                    selected_tools.append(_resident_tool)
+        # P3 (ADR-0005): when the router permits in-loop escalation
+        # (needs_orchestration == "maybe"), expose the `agent` tool so the model
+        # can fan out to workers on its own, mid-loop — instead of orchestration
+        # being decided only up front. Conditional (not resident) so ordinary
+        # tool loops don't carry fanout power they shouldn't.
+        _route = getattr(request.intent, "route_decision", None)
+        if (
+            _registry is not None
+            and getattr(_route, "needs_orchestration", "none") == "maybe"
+            and "agent" not in selected_tools
+            and "agent" in set(_registry.list_tools())
+        ):
+            selected_tools.append("agent")
         return FunctionCallingRequest(
             mode=request.mode,
             context=request.context,

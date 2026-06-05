@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from magi.config.models import ThinkingDepth
-from magi.tools.context_routing.route_decision import RouteDecision
+from magi.tools.context_routing.route_decision import PersonaRouting, RouteDecision
 
 
 def test_route_decision_constructs_with_required_fields_only() -> None:
@@ -18,16 +18,10 @@ def test_route_decision_constructs_with_required_fields_only() -> None:
     assert decision.complexity == "simple"
     # Defaults
     assert decision.tools == []
-    assert decision.capabilities == []
-    assert decision.needs_workspace is False
-    assert decision.needs_external is False
     assert decision.may_write is False
-    assert decision.risky_tools == []
-    assert decision.background_hint == "foreground"
-    assert decision.effort == "low"
-    assert decision.confidence == 0.0
     assert decision.reasoning == ""
     assert decision.thinking_depth == ThinkingDepth.NONE
+    assert decision.memory_route == "none"
 
 
 def test_route_decision_construct_with_all_fields() -> None:
@@ -36,22 +30,16 @@ def test_route_decision_construct_with_all_fields() -> None:
         graph_shape="plan_fanout",
         complexity="large",
         tools=["grep", "file_edit"],
-        capabilities=["workspace_read", "workspace_write"],
-        needs_workspace=True,
-        needs_external=False,
         may_write=True,
-        risky_tools=["file_edit"],
-        background_hint="background_ok",
-        effort="high",
-        confidence=0.92,
         reasoning="Major refactor needing decomposition.",
         thinking_depth=ThinkingDepth.HIGH,
         memory_route="recall",
-        memory_layer="L3",
-        register="focused",
-        active_trigger_ids=("code_review",),
-        situation_strength="strong",
-        quiet_hour_hints=("deep_work",),
+        persona=PersonaRouting(
+            register="focused",
+            active_trigger_ids=("code_review",),
+            situation_strength="strong",
+            quiet_hour_hints=("deep_work",),
+        ),
     )
     assert decision.tools == ["grep", "file_edit"]
     assert decision.may_write is True
@@ -59,6 +47,21 @@ def test_route_decision_construct_with_all_fields() -> None:
     assert decision.memory_route == "recall"
     assert decision.register == "focused"
     assert decision.active_trigger_ids == ("code_review",)
+
+
+def test_persona_fields_grouped_under_persona_subobject() -> None:
+    """ADR-0005: persona fields live under a nested PersonaRouting sub-object;
+    flat @property accessors remain as a transition shim for existing readers."""
+    persona = PersonaRouting(register="task", active_trigger_ids=("x",))
+    decision = RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple", persona=persona
+    )
+    assert decision.persona is persona
+    assert decision.persona.register == "task"
+    # flat shim still works for existing readers
+    assert decision.register == "task"
+    assert decision.active_trigger_ids == ("x",)
+    assert decision.situation_strength == "ordinary"
 
 
 def test_route_decision_is_frozen() -> None:
@@ -82,22 +85,6 @@ def test_route_decision_rejects_invalid_graph_shape() -> None:
 def test_route_decision_rejects_invalid_complexity() -> None:
     with pytest.raises(ValueError, match="complexity"):
         RouteDecision(profile="chat", graph_shape="reply", complexity="impossible")
-
-
-def test_route_decision_rejects_invalid_background_hint() -> None:
-    with pytest.raises(ValueError, match="background_hint"):
-        RouteDecision(
-            profile="chat", graph_shape="reply", complexity="simple",
-            background_hint="invalid",
-        )
-
-
-def test_route_decision_rejects_invalid_effort() -> None:
-    with pytest.raises(ValueError, match="effort"):
-        RouteDecision(
-            profile="chat", graph_shape="reply", complexity="simple",
-            effort="absurd",
-        )
 
 
 def test_route_decision_accepts_all_profile_values() -> None:
@@ -153,7 +140,6 @@ def test_legacy_strategy_dict_for_explore() -> None:
 
     decision = RouteDecision(
         profile="explore", graph_shape="plan_fanout", complexity="medium",
-        needs_workspace=True,
     )
     legacy = decision.to_legacy_strategy_dict()
     assert legacy["mode"] == "decompose"

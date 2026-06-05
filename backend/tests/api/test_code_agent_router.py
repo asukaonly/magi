@@ -45,7 +45,7 @@ def test_get_settings_returns_defaults(client: TestClient, tmp_path: Path) -> No
     res = client.get("/api/code_agent/settings", params={"workspace": str(workspace)})
     assert res.status_code == 200
     settings = res.json()["settings"]
-    assert settings["default_adapter"] == "claude_code"
+    assert settings["default_adapter"] == "auto"
     assert settings["enabled"] is True
 
 
