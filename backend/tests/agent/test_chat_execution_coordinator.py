@@ -9,6 +9,7 @@ from magi.chat.task_agent.fact_classifier import ChatFactClassifier, IncomingFac
 from magi.agent.runtime.contracts import FactRecord
 from magi.config.models import ThinkingDepth
 from magi.events.events import EventTypes
+from magi.llm.streaming_events import LLMStreamEvent
 from magi.tools.builtin.file_read_tool import FileReadTool
 from magi.tools.builtin.glob_tool import GlobTool
 from magi.tools.builtin.grep_tool import GrepTool
@@ -1471,6 +1472,51 @@ async def test_dispatch_stream_chunk_noop_when_session_id_empty():
         is_final=False, seq=0,
     )
     assert len(rec.chunks) == 0
+
+
+@pytest.mark.asyncio
+async def test_dispatch_stream_chunk_carries_event_and_persona_on_delivery_chunk():
+    """Phase G+1 Step 2: when dispatch_stream_chunk is handed a full
+    LLMStreamEvent, the DeliveryChunk must carry ``event.to_wire_dict()`` and
+    ``persona_id`` so ChatSseChannel.deliver_chunk can forward EVERY
+    stream-event kind (tool_call / reasoning / status / text_flush), not just
+    the legacy text_delta shape."""
+    class _RecordingChunkChannel:
+        channel_type = "chat_sse"
+        supports_streaming = True
+        def __init__(self): self.chunks = []
+        async def deliver_chunk(self, target, chunk):
+            self.chunks.append((target, chunk))
+    class _Registry:
+        def __init__(self, ch): self._ch = ch
+        def get(self, k): return self._ch if k == "chat_sse" else None
+    rec = _RecordingChunkChannel()
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=_Registry(rec),
+    )
+    event = LLMStreamEvent(
+        kind="tool_call_start", tool_call_id="tc1", tool_name="web-search",
+    )
+    await coordinator.dispatch_stream_chunk(
+        session_id="s1", user_id="u1", text="", is_final=False, seq=0,
+        turn_id="t1", event=event, persona_id="p1",
+    )
+    assert len(rec.chunks) == 1
+    _, chunk = rec.chunks[0]
+    assert chunk.event == {
+        "kind": "tool_call_start",
+        "tool_call_id": "tc1",
+        "tool_name": "web-search",
+    }
+    assert chunk.persona_id == "p1"
+    assert chunk.turn_id == "t1"
 
 
 # ---------------------------------------------------------------------------
