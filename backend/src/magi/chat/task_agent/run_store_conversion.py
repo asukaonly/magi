@@ -14,7 +14,6 @@ class SessionRunConversionMixin:
     """Convert L0 execution-state payloads to chat run contracts."""
 
     _l0_store: Any
-    _run_triggers: "dict[tuple[str, str], RunTrigger]"
 
     def _get_run(self, session_id: str) -> ActiveRun | None:
         state = self._l0_store.get_execution_state_sync(session_id)
@@ -22,10 +21,14 @@ class SessionRunConversionMixin:
         if not isinstance(run, dict):
             return None
         run_id = str(run["run_id"])
-        # Phase H: overlay the in-memory typed trigger if recorded for
-        # this (session, run). Background-restored runs lack one and
-        # surface ``trigger=None``.
-        trigger = self._run_triggers.get((session_id, run_id))
+        # ADR-0004 P3: the typed trigger is persisted with the run in L0,
+        # so it survives restart / background restore (no side-table).
+        trigger_dict = run.get("trigger")
+        trigger = (
+            RunTrigger.from_dict(trigger_dict)
+            if isinstance(trigger_dict, dict)
+            else None
+        )
         return ActiveRun(
             session_id=str(run["session_id"]),
             run_id=run_id,

@@ -27,7 +27,6 @@ class SessionRunLifecycleMixin:
     _l0_store: Any
     _run_controls: "dict[tuple[str, str], RunControl]"
     _run_snapshots: "dict[tuple[str, str], RunSnapshot]"
-    _run_triggers: "dict[tuple[str, str], RunTrigger]"
 
     def create_active_run(
         self,
@@ -43,8 +42,9 @@ class SessionRunLifecycleMixin:
         Phase H: an optional typed ``trigger`` describes what initiated
         the run (e.g., ``RunTrigger(trigger_type="user_message", ...)``
         for a fresh chat turn). It is held in-memory on the store and
-        overlaid onto subsequent ``get_active_run`` reads. L0 does not
-        yet persist this; resumed background runs default to ``None``.
+        overlaid onto subsequent ``get_active_run`` reads. ADR-0004 P3: the
+        trigger is now persisted with the run in L0 (via ``trigger_dict``),
+        so it lives and dies with the run — no separate side-table.
         """
         with self._lock:
             self._l0_store.clear_execution_state_sync(session_id)
@@ -57,16 +57,8 @@ class SessionRunLifecycleMixin:
                 root_turn_id=root_turn_id,
                 root_user_message=root_user_message,
                 response_anchor_turn_id=root_turn_id,
+                trigger_dict=trigger.to_dict() if trigger is not None else None,
             )
-            # Phase H: drop any stale trigger from a prior run on this
-            # session, then record the new one if supplied.
-            self._run_triggers = {
-                key: value
-                for key, value in self._run_triggers.items()
-                if key[0] != session_id
-            }
-            if trigger is not None:
-                self._run_triggers[(session_id, run_identifier)] = trigger
             self._push_root_goal(
                 session_id=session_id,
                 run_id=run_identifier,
@@ -176,8 +168,6 @@ class SessionRunLifecycleMixin:
                 return False
             self._complete_root_goal(session_id=session_id, active_run=active_run)
             self._l0_store.clear_execution_state_sync(session_id)
-            # Phase H: drop the in-memory trigger for the completed run.
-            self._run_triggers.pop((session_id, active_run.run_id), None)
             logger.info(
                 "Chat session run completed",
                 session_id=session_id,

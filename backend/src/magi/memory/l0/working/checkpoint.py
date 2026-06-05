@@ -148,8 +148,9 @@ class L0CheckpointMixin:
                     INSERT INTO l0_execution_runs(
                         session_id, run_id, status, revision, root_turn_id,
                         root_user_message, response_anchor_turn_id, cancel_requested_at,
-                        cancel_reason, cancel_requested_by, cancel_anchor_turn_id, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        cancel_reason, cancel_requested_by, cancel_anchor_turn_id,
+                        trigger_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         session_id,
@@ -163,6 +164,11 @@ class L0CheckpointMixin:
                         execution_run.get("cancel_reason"),
                         execution_run.get("cancel_requested_by"),
                         execution_run.get("cancel_anchor_turn_id"),
+                        (
+                            encode_json(execution_run["trigger"])
+                            if execution_run.get("trigger") is not None
+                            else None
+                        ),
                         float(execution_run["created_at"]),
                         float(execution_run["updated_at"]),
                     ),
