@@ -18,6 +18,7 @@ from magi.control.run_control import (
     null_run_control,
 )
 from ....agent.turn_input import UserTurnInput
+from ....agent.execution.function_calling import EngineRunInput
 from ....context.service import ContextAssemblyService
 from ....context.scenarios import Scenario
 from ..common import (
@@ -269,8 +270,8 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             control = _ctx_control if _ctx_control is not None else null_run_control()
             control.cancel_token = cancel_token
             route_decision = getattr(request.intent, "route_decision", None)
-            execution_outcome = (
-                await self._deps.function_calling_orchestrator.execute_with_tools(
+            execution_outcome = await self._deps.function_calling_orchestrator.run(
+                EngineRunInput(
                     turn=UserTurnInput(
                         text=request.context.latest_user_message,
                         attachments=resolve_effective_turn_attachments(
