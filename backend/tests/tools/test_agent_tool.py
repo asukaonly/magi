@@ -88,6 +88,9 @@ class _FakeFunctionCallingOrchestrator:
         self.last_max_iterations = None
         self.last_cancel_token = None
 
+    async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
+        return await self.execute_with_tools(**run_input.to_execute_kwargs())
+
     async def execute_with_tools(
         self,
         turn,
@@ -776,6 +779,9 @@ async def test_empty_worker_result_is_marked_failed(monkeypatch):
         def __init__(self, *args, **kwargs):
             _ = (args, kwargs)
 
+        async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
+            return await self.execute_with_tools(**run_input.to_execute_kwargs())
+
         async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs
             return ExecutionOutcome(
@@ -822,6 +828,9 @@ async def test_invalid_json_worker_result_is_marked_failed(monkeypatch):
     class _InvalidJsonExecutor:
         def __init__(self, *args, **kwargs):
             _ = (args, kwargs)
+
+        async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
+            return await self.execute_with_tools(**run_input.to_execute_kwargs())
 
         async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs
@@ -874,6 +883,9 @@ async def test_embedded_json_worker_result_is_accepted(monkeypatch):
     class _EmbeddedJsonExecutor:
         def __init__(self, *args, **kwargs):
             _ = (args, kwargs)
+
+        async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
+            return await self.execute_with_tools(**run_input.to_execute_kwargs())
 
         async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs
@@ -939,6 +951,9 @@ async def test_structured_failed_worker_result_is_not_marked_completed(monkeypat
     class _StructuredFailureExecutor:
         def __init__(self, *args, **kwargs):
             _ = (args, kwargs)
+
+        async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
+            return await self.execute_with_tools(**run_input.to_execute_kwargs())
 
         async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs

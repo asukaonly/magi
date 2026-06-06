@@ -48,6 +48,7 @@ from .types import ExecutionOutcome
 if TYPE_CHECKING:
     from ....tools.registry import ToolRegistry
     from ....tools.context_routing import RouteDecision
+    from .run_input import EngineRunInput
 
 logger = logging.getLogger(__name__)
 
@@ -399,6 +400,20 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 control=effective,
                 route_decision=route_decision,
             )
+
+    async def run(self, run_input: "EngineRunInput") -> ExecutionOutcome:
+        """Engine front door (ADR-0004 P4): run one bounded LLM↔tool run from a
+        single typed :class:`EngineRunInput`.
+
+        A pure adapter over :meth:`execute_with_tools` — it forwards every field
+        verbatim (the parity test in
+        ``tests/agent/execution/test_engine_run_input.py`` guarantees the field
+        set always matches the method signature), so behavior and call-kwarg
+        expectations are unchanged. New surfaces should build an
+        ``EngineRunInput`` (or ``EngineRunInput.headless(...)``) and call this
+        instead of hand-wiring the keyword arguments.
+        """
+        return await self.execute_with_tools(**run_input.to_execute_kwargs())
 
     async def _execute_with_tools_impl(
         self,

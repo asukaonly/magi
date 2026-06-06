@@ -46,6 +46,9 @@ async def test_skill_subagent_passes_workspace_to_function_calling(
             recorded.update(kwargs)
             return SimpleNamespace(succeeded=True, content="done", failure_reason=None)
 
+        async def run(self, run_input):  # engine front door → forwards (ADR-0004 P4)
+            return await self.execute_with_tools(**run_input.to_execute_kwargs())
+
     monkeypatch.setattr(
         subagent_module,
         "_get_function_calling_orchestrator",

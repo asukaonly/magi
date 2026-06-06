@@ -318,6 +318,9 @@ class _RecordingOrchestrator:
         self.calls.append(kwargs)
         return self._outcome
 
+    async def run(self, run_input: Any) -> ExecutionOutcome:  # engine front door (ADR-0004 P4)
+        return await self.execute_with_tools(**run_input.to_execute_kwargs())
+
 
 @pytest.mark.asyncio
 async def test_run_fn_wraps_execute_with_tools_outcome() -> None:

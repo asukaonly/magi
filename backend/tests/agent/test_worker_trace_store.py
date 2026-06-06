@@ -201,6 +201,9 @@ async def test_worker_run_marks_stream_events_as_worker_source(monkeypatch: pyte
         def __init__(self, *args, **kwargs) -> None:
             pass
 
+        async def run(self, run_input) -> ExecutionOutcome:  # engine front door (ADR-0004 P4)
+            return await self.execute_with_tools(**run_input.to_execute_kwargs())
+
         async def execute_with_tools(self, **kwargs) -> ExecutionOutcome:
             await emit_stream_event(LLMStreamEvent(kind="text_delta", text="worker json leak"))
             await emit_stream_event(
