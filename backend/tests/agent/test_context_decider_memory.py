@@ -6,6 +6,26 @@ from unittest.mock import MagicMock, AsyncMock
 from magi.tools.context_decider_context import ContextDeciderContext
 
 
+def _category_aware_list_tools(all_tools: list[str]):
+    """Mock ``ToolRegistry.list_tools`` that honors the ``category`` kwarg.
+
+    The real registry returns only the requested category; in particular
+    ``list_tools(category="control")`` returns just control tools. None of the
+    capability tools used in these tests (memory_query / web_search / ...) are
+    control tools, so the control query must return [].
+
+    A bare ``list_tools.return_value = [...]`` instead returns the SAME list for
+    every call (MagicMock ignores kwargs), which makes ``_get_available_tools``
+    (via ``resolve_resident_system_tools``) wrongly treat those capability tools
+    as resident/control and filter them out — so the memory_query safety net
+    can never fire. This helper reproduces the real category filtering.
+    """
+    def _list(category: str | None = None, **_kw):
+        return [] if category else list(all_tools)
+
+    return _list
+
+
 class TestContextDeciderMemoryGuidance:
     """Tests for memory retrieval guidance in ContextDecider."""
 
@@ -66,7 +86,7 @@ class TestContextDeciderMemoryGuidance:
         tool_registry.get_all_tools_info.return_value = [
             {"name": "memory_query", "description": "Retrieve historical event memory", "type": "tool"},
         ]
-        tool_registry.list_tools.return_value = ["memory_query"]
+        tool_registry.list_tools.side_effect = _category_aware_list_tools(["memory_query"])
         tool_registry.is_skill.return_value = False
 
         llm_adapter = MagicMock()
@@ -105,7 +125,7 @@ class TestContextDeciderMemoryGuidance:
         tool_registry.get_all_tools_info.return_value = [
             {"name": "memory_query", "description": "Retrieve historical event memory", "type": "tool"},
         ]
-        tool_registry.list_tools.return_value = ["memory_query"]
+        tool_registry.list_tools.side_effect = _category_aware_list_tools(["memory_query"])
         tool_registry.is_skill.return_value = False
 
         llm_adapter = MagicMock()
@@ -144,7 +164,7 @@ class TestContextDeciderMemoryGuidance:
         tool_registry.get_all_tools_info.return_value = [
             {"name": "web_search", "description": "Search the web", "type": "tool"},
         ]
-        tool_registry.list_tools.return_value = ["web_search"]
+        tool_registry.list_tools.side_effect = _category_aware_list_tools(["web_search"])
         tool_registry.is_skill.return_value = False
 
         llm_adapter = MagicMock()
@@ -183,7 +203,7 @@ class TestContextDeciderMemoryGuidance:
         tool_registry.get_all_tools_info.return_value = [
             {"name": "memory_query", "description": "Retrieve historical event memory", "type": "tool"},
         ]
-        tool_registry.list_tools.return_value = ["memory_query"]
+        tool_registry.list_tools.side_effect = _category_aware_list_tools(["memory_query"])
         tool_registry.is_skill.return_value = False
 
         llm_adapter = MagicMock()
@@ -222,7 +242,7 @@ class TestContextDeciderMemoryGuidance:
         tool_registry.get_all_tools_info.return_value = [
             {"name": "memory_query", "description": "Retrieve historical event memory", "type": "tool"},
         ]
-        tool_registry.list_tools.return_value = ["memory_query"]
+        tool_registry.list_tools.side_effect = _category_aware_list_tools(["memory_query"])
         tool_registry.is_skill.return_value = False
 
         llm_adapter = MagicMock()
@@ -261,7 +281,7 @@ class TestContextDeciderMemoryGuidance:
         tool_registry.get_all_tools_info.return_value = [
             {"name": "memory_query", "description": "Retrieve historical event memory", "type": "tool"},
         ]
-        tool_registry.list_tools.return_value = ["memory_query"]
+        tool_registry.list_tools.side_effect = _category_aware_list_tools(["memory_query"])
         tool_registry.is_skill.return_value = False
 
         llm_adapter = MagicMock()
@@ -301,7 +321,9 @@ class TestContextDeciderMemoryGuidance:
             {"name": "memory_query", "description": "Retrieve historical event memory", "type": "tool"},
             {"name": "photo_library_resolve_photo_refs", "description": "Resolve recalled photo assets to local file paths", "type": "tool"},
         ]
-        tool_registry.list_tools.return_value = ["memory_query", "photo_library_resolve_photo_refs"]
+        tool_registry.list_tools.side_effect = _category_aware_list_tools(
+            ["memory_query", "photo_library_resolve_photo_refs"]
+        )
         tool_registry.is_skill.return_value = False
 
         llm_adapter = MagicMock()
