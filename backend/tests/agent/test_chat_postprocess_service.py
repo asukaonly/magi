@@ -2735,3 +2735,206 @@ async def test_drain_deferred_turns_swallows_callback_exception() -> None:
     # Exception is logged as a warning but not re-raised.
     await service._drain_deferred_user_turns(context)
 
+
+# ---------------------------------------------------------------------------
+# P3 Step 3: non-streamed agent_response converges onto ChatSseChannel.deliver
+# via the injected ``deliver_final_response`` seam (rich DeliveryContent).
+# ---------------------------------------------------------------------------
+
+
+def _plain_non_streamed_context_and_result(*, turn_id: str = "turn-1"):
+    latest_fact = FactRecord(
+        agent_id="chat:local_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "hello",
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": turn_id,
+        },
+        agent_type="chat",
+        agent_instance_id="local_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        session_run_id="run-1",
+        session_run_revision=0,
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="hello",
+            turn_id=turn_id,
+        ),
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="final answer",
+        correlation_id="corr-1",
+        turn_id=turn_id,
+        ux_plan={
+            "assistant_surface_mode": "final_only",
+            "thinking_indicator": "hidden",
+            "trace_display_mode": "none",
+            "allow_trace_collapse": False,
+        },
+    )
+    return context, result
+
+
+@pytest.mark.asyncio
+async def test_handle_routes_plain_non_streamed_agent_response_through_delivery_seam(
+    runtime_trace_store: RuntimeTraceStore,
+    trace_event_bus,
+) -> None:
+    """When a ``deliver_final_response`` seam is wired, a plain non-streamed
+    turn routes its agent_response through the channel deliver seam carrying
+    the FULL payload, and the legacy notifier writes NO agent_response row."""
+    seam_calls: list[dict] = []
+
+    async def _fake_seam(context, *, content):
+        seam_calls.append({"context": context, "content": content})
+        return []
+
+    event_emitter = _FakeEventEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: event_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        max_fact_memory=10,
+        event_bus=trace_event_bus,
+        deliver_final_response=_fake_seam,
+    )
+    context, result = _plain_non_streamed_context_and_result()
+
+    await service.handle(context, result)
+    await trace_event_bus.drain()
+
+    # Seam called exactly once with the full rich DeliveryContent.
+    assert len(seam_calls) == 1, seam_calls
+    content = seam_calls[0]["content"]
+    assert content.text == "final answer"
+    assert content.turn_id == "turn-1"
+    assert content.ux_plan == result.ux_plan
+    # orchestration_id rides along (None here, but the field is populated path).
+    assert hasattr(content, "message_id")
+    assert hasattr(content, "trace_summary")
+
+    # The legacy notifier must NOT have written an agent_response row.
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
+    channels = [n.channel for n in notifications]
+    assert "agent_response" not in channels, channels
+
+
+@pytest.mark.asyncio
+async def test_handle_falls_back_to_notifier_when_no_delivery_seam(
+    runtime_trace_store: RuntimeTraceStore,
+    trace_event_bus,
+) -> None:
+    """With no seam wired (deliver_final_response=None), a plain non-streamed
+    turn still writes the rich agent_response row via the legacy notifier."""
+    event_emitter = _FakeEventEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: event_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        max_fact_memory=10,
+        event_bus=trace_event_bus,
+    )
+    context, result = _plain_non_streamed_context_and_result()
+
+    await service.handle(context, result)
+    await trace_event_bus.drain()
+
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
+    channels = [n.channel for n in notifications]
+    assert "agent_response" in channels, channels
+
+
+@pytest.mark.asyncio
+async def test_handle_streamed_does_not_call_delivery_seam(
+    runtime_trace_store: RuntimeTraceStore,
+    chat_store: ChatStore,
+) -> None:
+    """Streamed turns keep their current behavior: no agent_response and no
+    seam call — they rely on chunks + chat_message_upserted + execution_control."""
+    seam_calls: list[dict] = []
+
+    async def _fake_seam(context, *, content):
+        seam_calls.append({"context": context, "content": content})
+        return []
+
+    class _FakeDisplayMessage:
+        def to_dict(self):
+            return {
+                "message_id": "msg-streamed",
+                "turn_id": "turn-streamed",
+                "role": "assistant",
+                "content": "Why did the chicken cross the road?",
+                "attachments": [],
+            }
+
+    class _FakeSessionSummary:
+        def to_dict(self):
+            return {"session_id": "session-1", "title": "New Chat"}
+
+    class _FakeReadService:
+        async def aget_display_message(self, user_id, session_id, message_id):
+            return _FakeDisplayMessage()
+
+        async def aget_session_summary(self, user_id, session_id):
+            return _FakeSessionSummary()
+
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        chat_store=chat_store,
+        chat_read_service_factory=lambda: _FakeReadService(),
+        max_fact_memory=10,
+        deliver_final_response=_fake_seam,
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="local_user",
+        turn_id="turn-streamed",
+        message_text="Tell me a joke.",
+        created_at_ms=1710000000000,
+    )
+    context, result = _plain_non_streamed_context_and_result(turn_id="turn-streamed")
+    result.response_text = "Why did the chicken cross the road?"
+    result.streamed = True
+
+    await service.handle(context, result)
+
+    # Streamed turn must NOT call the deliver seam (no agent_response).
+    assert seam_calls == []
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
+    channels = [n.channel for n in notifications]
+    assert "agent_response" not in channels, channels
+    assert "execution_control" in channels, channels
+

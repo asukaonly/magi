@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Callable, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, TYPE_CHECKING
+
+from magi_plugin_sdk.delivery import DeliveryContent
 
 from magi.core.logger import get_logger
 from magi.agent.runtime.contracts import FactRecord
@@ -69,6 +71,7 @@ class ChatPostProcessService:
         response_rhythm_planner: Any | None = None,
         transcript_summarizer: Any | None = None,
         event_bus: Any | None = None,
+        deliver_final_response: Callable[..., Awaitable[list]] | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._context_assembler = context_assembler
@@ -107,6 +110,11 @@ class ChatPostProcessService:
         self._drain_deferred_turns = drain_deferred_turns
         self._response_rhythm_planner = response_rhythm_planner
         self._transcript_summarizer = transcript_summarizer
+        # P3 Step 3: when wired (chat_sse registered), the plain non-streamed
+        # agent_response is delivered via ChatSseChannel.deliver through this
+        # seam (coordinator.deliver_final_chat_response) carrying the full rich
+        # DeliveryContent. ``None`` → legacy notifier.emit_agent_response path.
+        self._deliver_final_response = deliver_final_response
         # Track in-flight background memory-update tasks so they are not
         # garbage collected mid-flight. Entries remove themselves on done.
         self._background_tasks: set[asyncio.Task[Any]] = set()
@@ -401,21 +409,40 @@ class ChatPostProcessService:
             )
 
         if not getattr(result, "streamed", False):
-            await self._emit_agent_response_notification(
-                user_id=context.user_id,
-                session_id=context.session_id,
-                turn_id=turn_id,
-                response_text=notification_response_text,
-                attachments=list(getattr(result, "attachments", []) or []),
-                message_payload=dict(getattr(result, "message_payload", {}) or {}),
-                orchestration_id=result.orchestration_id,
-                trace_summary=trace_summary,
-                trace_available=trace_available,
-                ux_plan=result.ux_plan,
-                message_id=notification_message_id,
-                message_kind=notification_message_kind,
-                persona_id=notification_persona_id,
-            )
+            # P3 Step 3: route the non-streamed agent_response through the
+            # ChatSseChannel.deliver seam (sole writer, full rich payload) when
+            # wired; otherwise fall back to the legacy notifier write.
+            if self._deliver_final_response is not None:
+                content = DeliveryContent(
+                    text=notification_response_text,
+                    attachments=tuple(getattr(result, "attachments", []) or []),
+                    turn_id=turn_id,
+                    message_id=notification_message_id,
+                    message_kind=notification_message_kind,
+                    persona_id=str(notification_persona_id or "").strip() or None,
+                    trace_summary=trace_summary,
+                    trace_available=trace_available,
+                    ux_plan=result.ux_plan,
+                    message_payload=dict(getattr(result, "message_payload", {}) or {}),
+                    orchestration_id=result.orchestration_id,
+                )
+                await self._deliver_final_response(context, content=content)
+            else:
+                await self._emit_agent_response_notification(
+                    user_id=context.user_id,
+                    session_id=context.session_id,
+                    turn_id=turn_id,
+                    response_text=notification_response_text,
+                    attachments=list(getattr(result, "attachments", []) or []),
+                    message_payload=dict(getattr(result, "message_payload", {}) or {}),
+                    orchestration_id=result.orchestration_id,
+                    trace_summary=trace_summary,
+                    trace_available=trace_available,
+                    ux_plan=result.ux_plan,
+                    message_id=notification_message_id,
+                    message_kind=notification_message_kind,
+                    persona_id=notification_persona_id,
+                )
         else:
             # Streaming turns skip agent_response; emit a completion control event so the
             # frontend knows the turn is done and can unlock the input.

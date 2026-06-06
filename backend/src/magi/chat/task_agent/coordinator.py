@@ -8,6 +8,7 @@ import os
 import platform
 import random
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Dict, List
 
 from magi.agent.message_utils import build_recent_messages
@@ -541,10 +542,14 @@ class ChatExecutionCoordinator:
             # Phase G: fan out the runner result to the user's configured +
             # originating delivery channels (when wired).
             if runner_result is not None:
+                # P3 Step 3: execute()-time fanout serves EXTERNAL channels only;
+                # the chat_sse agent_response is produced by the postprocess seam
+                # (deliver_final_chat_response) with the full rich payload.
                 await self._fanout_to_origin_channels(
                     request,
                     response_text=runner_result.response_text or "",
                     attachments=runner_result.attachments or (),
+                    exclude_chat_sse=True,
                 )
                 return runner_result
         # Legacy handler-registry path (ORCHESTRATION_UPDATE worker results,
@@ -557,10 +562,13 @@ class ChatExecutionCoordinator:
         handler = self._handler_registry.get(request.mode)
         result = await handler.execute(request)
         if getattr(result, "response_text", "") and not getattr(result, "skip_emit", False):
+            # P3 Step 3: external channels only (chat_sse rich agent_response
+            # comes from the postprocess seam).
             await self._fanout_to_origin_channels(
                 request,
                 response_text=result.response_text,
                 attachments=getattr(result, "attachments", ()) or (),
+                exclude_chat_sse=True,
             )
         return result
 
@@ -570,7 +578,10 @@ class ChatExecutionCoordinator:
         *,
         response_text: str,
         attachments=(),
-    ) -> None:
+        content: DeliveryContent | None = None,
+        exclude_chat_sse: bool = False,
+        chat_sse_only: bool = False,
+    ) -> list:
         """Deliver a final assistant response to the user's configured +
         originating delivery channels.
 
@@ -579,9 +590,19 @@ class ChatExecutionCoordinator:
         turn that gets offloaded to a worker subagent reaches the originating
         external channel (WeChat/Telegram), not just the message bus. No-op when
         no DeliveryRouter is wired.
+
+        P3 Step 3: the chat_sse ``agent_response`` and the external-channel
+        delivery are split into two mutually-exclusive passes:
+        - ``exclude_chat_sse=True`` (execute()-time fanout) → external channels
+          only, for all turns; the bare text is delivered.
+        - ``chat_sse_only=True`` (postprocess seam) → chat_sse only, carrying a
+          pre-built rich ``DeliveryContent`` (turn_id/message_id/trace_summary/…).
+        ``content`` overrides the default bare-text DeliveryContent when supplied.
+        Returns the DeliveryReceipts so callers can chain if needed (receipts are
+        also persisted here as before).
         """
         if self._delivery_router is None:
-            return
+            return []
         context = getattr(request, "context", None)
         session_id = getattr(context, "session_id", "") or ""
         session_run_id = getattr(context, "session_run_id", "") or ""
@@ -607,11 +628,17 @@ class ChatExecutionCoordinator:
             user_prefs=user_prefs,
             origin_channel=origin_channel,
         )
+        # P3 Step 3: restrict the target set to the half this pass owns.
+        if exclude_chat_sse:
+            targets = [t for t in targets if t.channel_type != "chat_sse"]
+        if chat_sse_only:
+            targets = [t for t in targets if t.channel_type == "chat_sse"]
         if not targets:
-            return
+            return []
         # Phase A media-outbound: attachments ride along so external channels
-        # can send images/documents back, not just the joined text.
-        content = DeliveryContent(
+        # can send images/documents back, not just the joined text. When a
+        # pre-built rich content is supplied (postprocess seam), use it verbatim.
+        delivery_content = content if content is not None else DeliveryContent(
             text=response_text or "",
             attachments=tuple(attachments or ()),
         )
@@ -621,11 +648,13 @@ class ChatExecutionCoordinator:
         # once stable.
         logger.info(
             "fanout_to_origin_channels text_len=%d attachments=%d targets=%s",
-            len(response_text or ""),
-            len(attachments or []),
+            len(delivery_content.text or ""),
+            len(delivery_content.attachments or ()),
             [t.channel_type for t in targets],
         )
-        receipts = await self._delivery_router.fanout_deliver(content=content, targets=targets)
+        receipts = await self._delivery_router.fanout_deliver(
+            content=delivery_content, targets=targets
+        )
         if receipts and self._receipts_store is not None and session_id and session_run_id:
             try:
                 await self._receipts_store.save_receipts(
@@ -639,6 +668,35 @@ class ChatExecutionCoordinator:
                     "DeliveryReceiptsStore.save_receipts failed",
                     exc_info=True,
                 )
+        return receipts
+
+    async def deliver_final_chat_response(
+        self,
+        context,
+        *,
+        content: DeliveryContent,
+    ) -> list:
+        """P3 Step 3: sole writer of the rich non-streamed chat_sse
+        ``agent_response``. Invoked from postprocess (where message_id /
+        trace_summary / ux_plan are finally known) with a fully-populated
+        ``DeliveryContent``. Reuses the fanout target/prefs/origin/receipts
+        machinery but restricts delivery to chat_sse — external channels are
+        served by the execute()-time fanout (``exclude_chat_sse=True``), so no
+        channel is double-served. No-op when no DeliveryRouter is wired.
+
+        ``context`` is the postprocess ``ChatRuntimeContext``; the fanout helper
+        only reads ``request.context``, so a thin shim is sufficient.
+        """
+        if self._delivery_router is None:
+            return []
+        request = SimpleNamespace(context=context)
+        return await self._fanout_to_origin_channels(
+            request,
+            response_text=content.text,
+            attachments=content.attachments,
+            content=content,
+            chat_sse_only=True,
+        )
 
     async def _resolve_user_prefs(self, user_id: str) -> dict:
         """Pull stored delivery prefs from the injected provider.

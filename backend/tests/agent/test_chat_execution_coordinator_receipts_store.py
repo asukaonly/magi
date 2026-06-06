@@ -155,11 +155,24 @@ async def _two_channel_prefs(_user_id: str) -> dict:
 
 @pytest.mark.asyncio
 async def test_execute_writes_receipts_to_store_not_snapshot():
-    """The coordinator must call receipts_store.save_receipts after fanout,
-    and the snapshot's node_states must NOT carry 'delivery_receipts'."""
+    """The coordinator must call receipts_store.save_receipts after the
+    execute()-time fanout, and the snapshot's node_states must NOT carry
+    'delivery_receipts'. P3 Step 3: execute()-time fanout serves EXTERNAL
+    channels only (chat_sse goes via the postprocess seam), so this asserts
+    the external (telegram) receipt is persisted."""
     sse = _RecordingSseChannel()
+
+    class _TgChannel(_RecordingSseChannel):
+        @property
+        def channel_type(self) -> str:
+            return "telegram"
+
+    tg = _TgChannel()
     receipts_store = _RecordingReceiptsStore()
     session_run_store = SessionRunStore()
+
+    async def _prefs(_user_id: str) -> dict:
+        return {"delivery_channels": ["chat_sse", "telegram"]}
 
     decider = _FakeContextDecider(
         RouteDecision(
@@ -175,8 +188,8 @@ async def test_execute_writes_receipts_to_store_not_snapshot():
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
         session_run_store=session_run_store,
-        channel_registry=_StubRegistry({"chat_sse": sse}),
-        user_prefs_provider=_two_channel_prefs,
+        channel_registry=_StubRegistry({"chat_sse": sse, "telegram": tg}),
+        user_prefs_provider=_prefs,
         receipts_store=receipts_store,
     )
 
@@ -221,6 +234,10 @@ async def test_execute_writes_receipts_to_store_not_snapshot():
 
     await coordinator.execute(request)
 
+    # execute()-time fanout excludes chat_sse; only the external telegram
+    # channel is served here.
+    assert sse.delivers == []
+    assert len(tg.delivers) == 1
     # Receipts went to the store, not the snapshot.
     assert len(receipts_store.saves) == 1
     sid, rid, rev, receipts = receipts_store.saves[0]
