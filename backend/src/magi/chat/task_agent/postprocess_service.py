@@ -110,10 +110,11 @@ class ChatPostProcessService:
         self._drain_deferred_turns = drain_deferred_turns
         self._response_rhythm_planner = response_rhythm_planner
         self._transcript_summarizer = transcript_summarizer
-        # P3 Step 3: when wired (chat_sse registered), the plain non-streamed
-        # agent_response is delivered via ChatSseChannel.deliver through this
-        # seam (coordinator.deliver_final_chat_response) carrying the full rich
-        # DeliveryContent. ``None`` → legacy notifier.emit_agent_response path.
+        # P3: the agent_response (plain non-streamed + each conversation-rhythm
+        # segment) is delivered via ChatSseChannel.deliver through this seam
+        # (coordinator.deliver_final_chat_response), carrying the full rich
+        # DeliveryContent. ``None`` → no chat_sse seam wired, so no agent_response
+        # row is written (production always wires it when chat_sse is registered).
         self._deliver_final_response = deliver_final_response
         # Track in-flight background memory-update tasks so they are not
         # garbage collected mid-flight. Entries remove themselves on done.
@@ -409,40 +410,23 @@ class ChatPostProcessService:
             )
 
         if not getattr(result, "streamed", False):
-            # P3 Step 3: route the non-streamed agent_response through the
-            # ChatSseChannel.deliver seam (sole writer, full rich payload) when
-            # wired; otherwise fall back to the legacy notifier write.
-            if self._deliver_final_response is not None:
-                content = DeliveryContent(
-                    text=notification_response_text,
-                    attachments=tuple(getattr(result, "attachments", []) or []),
-                    turn_id=turn_id,
-                    message_id=notification_message_id,
-                    message_kind=notification_message_kind,
-                    persona_id=str(notification_persona_id or "").strip() or None,
-                    trace_summary=trace_summary,
-                    trace_available=trace_available,
-                    ux_plan=result.ux_plan,
-                    message_payload=dict(getattr(result, "message_payload", {}) or {}),
-                    orchestration_id=result.orchestration_id,
-                )
-                await self._deliver_final_response(context, content=content)
-            else:
-                await self._emit_agent_response_notification(
-                    user_id=context.user_id,
-                    session_id=context.session_id,
-                    turn_id=turn_id,
-                    response_text=notification_response_text,
-                    attachments=list(getattr(result, "attachments", []) or []),
-                    message_payload=dict(getattr(result, "message_payload", {}) or {}),
-                    orchestration_id=result.orchestration_id,
-                    trace_summary=trace_summary,
-                    trace_available=trace_available,
-                    ux_plan=result.ux_plan,
-                    message_id=notification_message_id,
-                    message_kind=notification_message_kind,
-                    persona_id=notification_persona_id,
-                )
+            # P3 Step 5: ChatSseChannel.deliver (via the seam) is the SOLE writer
+            # of the non-streamed agent_response, carrying the full rich payload.
+            # No-op when no chat_sse seam is wired.
+            await self._deliver_agent_response(
+                context=context,
+                turn_id=turn_id,
+                response_text=notification_response_text,
+                attachments=list(getattr(result, "attachments", []) or []),
+                message_payload=dict(getattr(result, "message_payload", {}) or {}),
+                orchestration_id=result.orchestration_id,
+                trace_summary=trace_summary,
+                trace_available=trace_available,
+                ux_plan=result.ux_plan,
+                message_id=notification_message_id,
+                message_kind=notification_message_kind,
+                persona_id=notification_persona_id,
+            )
         else:
             # Streaming turns skip agent_response; emit a completion control event so the
             # frontend knows the turn is done and can unlock the input.
@@ -514,6 +498,43 @@ class ChatPostProcessService:
             logger.debug("Conversation rhythm planning failed", error=str(exc))
             return None
 
+    async def _deliver_agent_response(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        turn_id: str | None,
+        response_text: str,
+        attachments: list[dict[str, Any]] | None,
+        message_payload: dict[str, Any] | None,
+        orchestration_id: str | None,
+        trace_summary: dict[str, Any] | None,
+        trace_available: bool,
+        ux_plan: dict[str, Any] | None,
+        message_id: str | None,
+        message_kind: str | None,
+        persona_id: str | None,
+    ) -> None:
+        """P3 Step 5: deliver one ``agent_response`` via the ChatSseChannel seam
+        (sole writer), carrying the full rich payload. Shared by the plain
+        non-streamed branch and the segmented (conversation-rhythm) loop. No-op
+        when no chat_sse seam is wired (e.g. channel registry without chat_sse)."""
+        if self._deliver_final_response is None:
+            return
+        content = DeliveryContent(
+            text=response_text,
+            attachments=tuple(attachments or ()),
+            turn_id=turn_id,
+            message_id=message_id,
+            message_kind=message_kind,
+            persona_id=str(persona_id or "").strip() or None,
+            trace_summary=trace_summary,
+            trace_available=trace_available,
+            ux_plan=ux_plan,
+            message_payload=dict(message_payload or {}),
+            orchestration_id=orchestration_id,
+        )
+        await self._deliver_final_response(context, content=content)
+
     async def _emit_segmented_agent_response_notifications(
         self,
         *,
@@ -535,9 +556,8 @@ class ChatPostProcessService:
                 if delay_ms > 0:
                     await asyncio.sleep(delay_ms / 1000.0)
             segment_payload = self._parse_message_payload(message.payload_json)
-            await self._emit_agent_response_notification(
-                user_id=context.user_id,
-                session_id=context.session_id,
+            await self._deliver_agent_response(
+                context=context,
                 turn_id=turn_id,
                 response_text=str(message.content_text or ""),
                 attachments=attachments if index == total - 1 else [],

@@ -26,8 +26,8 @@ class ChatStreamingMixin:
     Phase G+1 Step 2: every LLM stream event is routed onto
     ``coordinator.dispatch_stream_chunk`` -> ``ChatSseChannel.deliver_chunk``,
     carrying the full event so all kinds (text_delta / reasoning / status /
-    text_flush / tool_call) are delivered — not the legacy
-    ``ChatRuntimeNotifier.emit_stream_event`` path.
+    text_flush / tool_call) are delivered. The channel is the sole writer of
+    ``agent_response_chunk`` rows; there is no legacy notifier path.
     """
 
     _postprocess_service: Any

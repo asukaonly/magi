@@ -27,6 +27,30 @@ from magi.personality.interaction_analyzer import DEFAULT_ANALYSIS
 from magi.runtime_trace.store import RuntimeTraceStore
 
 
+def _chat_sse_seam(runtime_trace_store: RuntimeTraceStore):
+    """P3 Step 5 test helper: the production agent_response delivery seam,
+    backed by the REAL ChatSseChannel. ChatSseChannel.deliver appends the
+    ``agent_response`` RuntimeNotificationRecord (same payload the legacy
+    notifier used to write), so tests that assert on that notification row keep
+    working now that the notifier path is gone — the channel is the sole writer.
+    """
+    from magi.channels.chat_sse_channel import ChatSseChannel
+    from magi_plugin_sdk.channels import ChannelTarget
+
+    channel = ChatSseChannel(trace_store=runtime_trace_store)
+
+    async def _seam(context, *, content):
+        target = ChannelTarget(
+            channel_type="chat_sse",
+            external_chat_id="",
+            magi_session_id=getattr(context, "session_id", "") or "",
+            magi_user_id=getattr(context, "user_id", "") or "",
+        )
+        return [await channel.deliver(target, content)]
+
+    return _seam
+
+
 class _FakeToolStateView:
     """Test stand-in for ChatToolStateView; only ``record`` is needed
     because the postprocess service forwards through ``host._tool_state_view.record``."""
@@ -656,18 +680,9 @@ async def test_runtime_notifier_appends_response_and_trace_notifications(
         chat_read_service_factory=lambda: None,
     )
 
-    await notifier.emit_agent_response(
-        user_id="local_user",
-        session_id="session-1",
-        turn_id="turn-1",
-        response_text="done",
-        orchestration_id="orch-1",
-        trace_summary={"headline": "done"},
-        trace_available=True,
-        ux_plan={"assistant_surface_mode": "final_only"},
-        message_id="msg-1",
-        message_kind="assistant_final",
-    )
+    # P3 Step 5: the notifier's legacy agent_response writer was removed (the
+    # agent_response is now written solely by ChatSseChannel.deliver). The
+    # notifier still owns trace_update + execution_control.
     await notifier.emit_trace_update(
         user_id="local_user",
         session_id="session-1",
@@ -686,7 +701,6 @@ async def test_runtime_notifier_appends_response_and_trace_notifications(
 
     notifications = await runtime_trace_store.list_notifications(after_id=0)
     assert [notification.channel for notification in notifications] == [
-        "agent_response",
         "trace_update",
         "execution_control",
     ]
@@ -1729,6 +1743,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
         ),
         max_fact_memory=10,
         event_bus=trace_event_bus,
+        deliver_final_response=_chat_sse_seam(runtime_trace_store),
     )
     latest_fact = FactRecord(
         agent_id="chat:local_user",
@@ -1835,6 +1850,7 @@ async def test_handle_commits_final_chat_message_before_notification(
         chat_store=chat_store,
         chat_projector=chat_projector,
         max_fact_memory=10,
+        deliver_final_response=_chat_sse_seam(runtime_trace_store),
     )
     latest_fact = FactRecord(
         agent_id="chat:local_user",
@@ -1895,14 +1911,14 @@ async def test_handle_commits_final_chat_message_before_notification(
     )
 
     seen_kinds_at_notify: list[str] = []
-    original_emit = service._emit_agent_response_notification
+    original_deliver = service._deliver_agent_response
 
-    async def _wrapped_emit_agent_response_notification(**kwargs):  # type: ignore[no-untyped-def]
+    async def _wrapped_deliver_agent_response(**kwargs):  # type: ignore[no-untyped-def]
         messages = await chat_store.list_messages(session_id="session-1")
         seen_kinds_at_notify.extend(message.message_kind for message in messages)
-        await original_emit(**kwargs)
+        await original_deliver(**kwargs)
 
-    service._emit_agent_response_notification = _wrapped_emit_agent_response_notification  # type: ignore[method-assign]
+    service._deliver_agent_response = _wrapped_deliver_agent_response  # type: ignore[method-assign]
 
     await service.handle(context, result)
 
@@ -2031,6 +2047,7 @@ async def test_handle_maps_reaction_only_turn_to_user_label(
         chat_store=chat_store,
         chat_projector=chat_projector,
         max_fact_memory=10,
+        deliver_final_response=_chat_sse_seam(runtime_trace_store),
     )
     latest_fact = FactRecord(
         agent_id="chat:local_user",
@@ -2845,12 +2862,14 @@ async def test_handle_routes_plain_non_streamed_agent_response_through_delivery_
 
 
 @pytest.mark.asyncio
-async def test_handle_falls_back_to_notifier_when_no_delivery_seam(
+async def test_handle_writes_no_agent_response_without_delivery_seam(
     runtime_trace_store: RuntimeTraceStore,
     trace_event_bus,
 ) -> None:
-    """With no seam wired (deliver_final_response=None), a plain non-streamed
-    turn still writes the rich agent_response row via the legacy notifier."""
+    """P3 Step 5: the legacy notifier agent_response fallback is removed —
+    ChatSseChannel.deliver (the seam) is the sole writer. With no seam wired,
+    a plain non-streamed turn writes NO agent_response row (and does not crash);
+    in production the seam is always wired when chat_sse is registered."""
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
@@ -2869,7 +2888,7 @@ async def test_handle_falls_back_to_notifier_when_no_delivery_seam(
 
     notifications = await runtime_trace_store.list_notifications(after_id=0)
     channels = [n.channel for n in notifications]
-    assert "agent_response" in channels, channels
+    assert "agent_response" not in channels, channels
 
 
 @pytest.mark.asyncio
@@ -2937,4 +2956,89 @@ async def test_handle_streamed_does_not_call_delivery_seam(
     channels = [n.channel for n in notifications]
     assert "agent_response" not in channels, channels
     assert "execution_control" in channels, channels
+
+
+@pytest.mark.asyncio
+async def test_segmented_agent_response_routes_each_segment_through_seam(
+    runtime_trace_store: RuntimeTraceStore,
+) -> None:
+    """P3 Step 5: segmented (conversation-rhythm) turns route EACH segment
+    through the ChatSseChannel deliver seam (sole writer), not the legacy
+    notifier. One seam call per segment, carrying that segment's content +
+    message_id; no ``agent_response`` row written via the notifier."""
+    from types import SimpleNamespace
+
+    seam_calls: list[Any] = []
+
+    async def _fake_seam(context, *, content):
+        seam_calls.append(content)
+        return []
+
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        max_fact_memory=10,
+        deliver_final_response=_fake_seam,
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="explain rhythm",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="part one part two",
+        turn_id="turn-seg",
+        ux_plan={"assistant_surface_mode": "final_only"},
+        attachments=[],
+    )
+    messages = [
+        SimpleNamespace(
+            content_text="part one", message_id="m0",
+            message_kind="assistant_rhythm_segment", persona_id="p1",
+            payload_json=None,
+        ),
+        SimpleNamespace(
+            content_text="part two", message_id="m1",
+            message_kind="assistant_rhythm_segment", persona_id="p1",
+            payload_json=None,
+        ),
+    ]
+    response_plan = SimpleNamespace(
+        segments=[SimpleNamespace(delay_ms=0), SimpleNamespace(delay_ms=0)]
+    )
+
+    await service._emit_segmented_agent_response_notifications(
+        context=context,
+        result=result,
+        turn_id="turn-seg",
+        response_plan=response_plan,
+        messages=messages,
+        trace_summary=None,
+        trace_available=False,
+    )
+
+    # One seam delivery per segment, in order, carrying per-segment identity.
+    assert len(seam_calls) == 2
+    assert [c.text for c in seam_calls] == ["part one", "part two"]
+    assert [c.message_id for c in seam_calls] == ["m0", "m1"]
+    assert all(c.turn_id == "turn-seg" for c in seam_calls)
+    # No notifier agent_response rows written.
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
+    assert [n.channel for n in notifications] == []
 

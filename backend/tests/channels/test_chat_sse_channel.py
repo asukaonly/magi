@@ -108,7 +108,7 @@ async def test_deliver_chunk_appends_agent_response_chunk_record(
     stub_trace_store: _StubTraceStore,
 ) -> None:
     """deliver_chunk writes an agent_response_chunk RuntimeNotificationRecord
-    whose payload mirrors ChatRuntimeNotifier.emit_stream_event."""
+    carrying the stream event in ``payload.event`` (channel is the sole writer)."""
     ch = ChatSseChannel(trace_store=stub_trace_store)
     target = ChannelTarget(
         channel_type="chat_sse",
