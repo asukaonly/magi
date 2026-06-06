@@ -47,7 +47,7 @@ def resolve_delivery_targets(
     ``origin_channel``: when non-empty, the channel SCHEME that
     triggered this run (sourced from ``RunTrigger.source_channel`` at
     the coordinator's fanout call site — set to ``"weixin"`` /
-    ``"telegram"`` / ``"chat_sse"`` by ``SessionRunCoordinator._user_message_trigger``).
+    ``"telegram"`` / ``"chat_sse"`` by ``agent/run_triggers.py:build_user_message_trigger``).
     It's appended to the target list unless an equal-scheme target is
     already present, so a reply to an inbound WeChat / Telegram / etc.
     message goes back to that channel even when the user hasn't

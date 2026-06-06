@@ -79,4 +79,4 @@ Grounding P1 against the code refined the Engine/Driver picture into **three con
 3. [x] P3: trigger seam — `RunTrigger` lifted to `agent/run_triggers.py`, built per source, persisted in L0, propagated to background specs at detach + auto-dispatch (PRs #31/#34/#35/#36). `RunRequest` projection exists but is not yet consumed (waits on the registry).
 4. [x] P4 (engine front door): single typed `orchestrator.run(EngineRunInput)`; all four call sites (chat/background/worker/subagent) unified, parity-locked (PRs #38/#39).
 5. [ ] P4 (driver registry) — **DEFERRED (YAGNI)**: revisit when a second real driver (voice / heavier scheduled-agent) needs polymorphic dispatch. Timeline-driver relocation rides along.
-6. [ ] Update `layered-agent-architecture.md` with the Engine/Driver/Trigger model as each stage lands.
+6. [x] Update `layered-agent-architecture.md` with the Engine/Driver/Trigger model — L12 "three rings" now records the trigger seam (P3) + engine front door (P4) + the deferred driver registry.
