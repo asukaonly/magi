@@ -13,39 +13,6 @@ class ChatPostprocessTraceNotificationMixin:
     _runtime_notifier: Any
     _trace_read_service: Any
 
-    async def _emit_agent_response_notification(
-        self,
-        *,
-        user_id: str,
-        session_id: str,
-        turn_id: str | None,
-        response_text: str,
-        attachments: list[dict[str, Any]] | None,
-        message_payload: dict[str, Any] | None,
-        orchestration_id: str | None,
-        trace_summary: dict[str, Any] | None,
-        trace_available: bool,
-        ux_plan: dict[str, Any] | None,
-        message_id: str | None,
-        message_kind: str | None,
-        persona_id: str | None = None,
-    ) -> None:
-        await self._runtime_notifier.emit_agent_response(
-            user_id=user_id,
-            session_id=session_id,
-            turn_id=turn_id,
-            response_text=response_text,
-            attachments=attachments,
-            message_payload=message_payload,
-            orchestration_id=orchestration_id,
-            trace_summary=trace_summary,
-            trace_available=trace_available,
-            ux_plan=ux_plan,
-            message_id=message_id,
-            message_kind=message_kind,
-            persona_id=persona_id,
-        )
-
     async def _emit_turn_ux_plan_notification(
         self,
         *,

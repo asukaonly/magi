@@ -6,9 +6,8 @@ Phase G+1: the chat UI's SSE bus is the ``runtime_trace_store`` notification
 table — chat frontends poll it for ``agent_response`` (final assembled reply)
 and ``agent_response_chunk`` (streaming text deltas) records. When a
 ``trace_store`` is wired into this channel, ``deliver``/``deliver_chunk``
-append rows directly there, mirroring the schema produced by
-``ChatRuntimeNotifier.emit_agent_response`` / ``emit_stream_event`` in
-``magi.chat.task_agent.postprocess.notifications``.
+append the ``agent_response`` / ``agent_response_chunk`` rows directly there.
+Since the P3 convergence, this channel is the sole writer of those rows.
 
 Backward compat: the legacy ``emit_to_chat`` callable still works when
 ``trace_store=None``. Both may be set independently.
@@ -58,9 +57,9 @@ class ChatSseChannel(Channel):
     ``emit_to_chat`` callable.
 
     Chunk-record schema decision: ONE record per ``deliver_chunk`` call,
-    with ``payload.is_final`` carrying the boundary. The ``event.kind`` is
-    always ``text_delta`` (matching ``ChatRuntimeNotifier.emit_stream_event``
-    which wraps an ``LLMStreamEvent.to_wire_dict``). The finish boundary is
+    with ``payload.is_final`` carrying the boundary. ``payload.event`` is the
+    full ``LLMStreamEvent.to_wire_dict`` (falling back to a ``text_delta`` shape
+    when the chunk carries no event). The finish boundary is
     conveyed solely by ``is_final=True`` on the payload — no separate
     ``finish`` record. This keeps the record count == chunk count, which
     simplifies cursor/consumer logic and matches the existing wire format
@@ -187,10 +186,10 @@ class ChatSseChannel(Channel):
         """Stream one delivery fragment.
 
         When ``trace_store`` is wired, appends an ``agent_response_chunk``
-        ``RuntimeNotificationRecord`` whose payload mirrors
-        ``ChatRuntimeNotifier.emit_stream_event``: ``event = {"kind":
-        "text_delta", "text": chunk.text}``, with the streaming boundary
-        carried by ``payload.is_final = chunk.is_final``.
+        ``RuntimeNotificationRecord`` whose payload carries the full
+        ``event`` wire-dict (or the legacy ``{"kind": "text_delta", "text":
+        chunk.text}`` fallback when the chunk has no event), with the streaming
+        boundary carried by ``payload.is_final = chunk.is_final``.
 
         When no trace_store but an emit callable is set, falls back to a
         synthesized ``_emit(session_id, {"text", "is_final"})`` call so

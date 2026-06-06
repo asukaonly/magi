@@ -334,20 +334,16 @@ class ChatTaskAgent(
         # fanout. Handlers already constructed above retain ``self._deps``
         # by reference, so mutating the dataclass here updates them in place.
         handler_deps.coordinator = self._coordinator
-        # Phase G+1: when the channel registry is wired and chat_sse is
-        # registered, ChatSseChannel.deliver_chunk is the canonical writer
-        # of agent_response_chunk rows -- silence the legacy notifier path
-        # so the session-keyed chat UI poller does not render every chunk
-        # twice.
+        # Phase G+1 convergence: when the channel registry is wired and chat_sse
+        # is registered, ChatSseChannel.deliver/deliver_chunk are the canonical
+        # writers of agent_response / agent_response_chunk rows. Wire the
+        # non-streamed agent_response delivery seam so postprocess routes the
+        # full rich payload through ChatSseChannel.deliver (P3 Step 3); the chunk
+        # path is already driven by ChatExecutionCoordinator.dispatch_stream_chunk
+        # (P3 Step 2).
         if _channel_registry is not None and self._chat_sse_channel_registered(
             _channel_registry
         ):
-            self._postprocess_service._runtime_notifier.set_delivery_router_active(
-                True
-            )
-            # P3 Step 3: route the non-streamed agent_response through
-            # ChatSseChannel.deliver (sole writer, full rich payload) instead of
-            # the legacy notifier.emit_agent_response path.
             self._postprocess_service._deliver_final_response = (
                 self._coordinator.deliver_final_chat_response
             )

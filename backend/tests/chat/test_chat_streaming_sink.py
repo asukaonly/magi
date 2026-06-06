@@ -5,7 +5,7 @@ The chat streaming sink (``ChatStreamingMixin._emit_stream_event`` /
 ``coordinator.dispatch_stream_chunk`` — carrying the full ``LLMStreamEvent``
 so ChatSseChannel.deliver_chunk can serialize every kind (tool_call /
 reasoning / status / text_flush / text_delta) — rather than the legacy
-``ChatRuntimeNotifier.emit_stream_event`` path.
+notifier write path (removed in P3 Step 5).
 """
 from __future__ import annotations
 
