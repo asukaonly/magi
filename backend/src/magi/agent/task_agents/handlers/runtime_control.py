@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ....agent.background.contracts import BackgroundTaskTriggerSource
 from ....agent.background.dispatcher import (
@@ -21,6 +21,9 @@ from ....config.loader import get_config
 from ....core.logger import get_logger
 from ..common import ExecutionResult, FunctionCallingExecutionResult, FunctionCallingRequest
 from .handler_helpers import serialize_ux_plan as _serialize_ux_plan
+
+if TYPE_CHECKING:
+    from magi_plugin_sdk.run_trigger import RunTrigger
 
 logger = get_logger(__name__)
 
@@ -120,9 +123,17 @@ class FunctionCallingRuntimeControlMixin:
         trigger_source = _BACKGROUND_TRIGGER_SOURCE_BY_DECISION.get(
             decision.source, BackgroundTaskTriggerSource.RULE
         )
+        # ADR-0004 P3: forward the run's RunTrigger for origin-channel provenance
+        # (so an auto-dispatched task can be delivered back to its source), but
+        # keep the decision-derived trigger_source — the dispatch decision
+        # (planner / classifier / rule) is more informative here than the coarse
+        # bucket derived from the trigger.
+        run_trigger = self._resolve_run_trigger(
+            str(getattr(request.context, "session_id", "") or "").strip()
+        )
         try:
             return await launch_service.enqueue_from_request(
-                request, trigger_source=trigger_source
+                request, trigger_source=trigger_source, trigger=run_trigger
             )
         except Exception as exc:  # noqa: BLE001 - degrade safe to foreground
             logger.warning(
@@ -242,10 +253,18 @@ class FunctionCallingRuntimeControlMixin:
                 initial_messages = [
                     dict(msg) for msg in raw_messages if isinstance(msg, dict)
                 ]
+        # ADR-0004 P3: the detaching run carries a typed RunTrigger describing
+        # its origin (e.g. weixin/iMessage). Hand it to the background spec so a
+        # completed task can be delivered back to that channel, and derive the
+        # coarse trigger_source from it instead of the blanket MANUAL.
+        run_trigger = self._resolve_run_trigger(
+            str(getattr(request.context, "session_id", "") or "").strip()
+        )
         try:
             return await launch_service.enqueue_from_request(
                 request,
-                trigger_source=BackgroundTaskTriggerSource.MANUAL,
+                trigger_source=BackgroundTaskTriggerSource.from_trigger(run_trigger),
+                trigger=run_trigger,
                 initial_messages=initial_messages,
             )
         except Exception as exc:  # noqa: BLE001 - degrade safe: surface detach
@@ -256,6 +275,33 @@ class FunctionCallingRuntimeControlMixin:
                 exc,
             )
             return None
+
+    def _resolve_run_trigger(self, session_id: str) -> "RunTrigger | None":
+        """Best-effort fetch of the active run's origin ``RunTrigger``.
+
+        Returns ``None`` when no coordinator is wired, no active run exists, or
+        the run predates trigger propagation — letting callers fall back to
+        legacy behavior. ``getattr``-defensive so test deps that omit the
+        coordinator do not raise, and never lets a provenance lookup break the
+        detach hand-off.
+        """
+        if not session_id:
+            return None
+        coordinator = getattr(self._deps, "session_run_coordinator", None)
+        get_active_run = getattr(coordinator, "get_active_run", None)
+        if not callable(get_active_run):
+            return None
+        try:
+            active_run = get_active_run(session_id)
+        except Exception as exc:  # noqa: BLE001 - provenance is best-effort
+            logger.warning(
+                "active-run trigger lookup failed; detaching without trigger | "
+                "session_id=%s error=%s",
+                session_id,
+                exc,
+            )
+            return None
+        return getattr(active_run, "trigger", None)
 
     def _build_cancel_token(
         self, request: FunctionCallingRequest

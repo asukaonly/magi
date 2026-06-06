@@ -41,6 +41,7 @@ class L0ExecutionStateMixin:
         cancel_reason: Optional[str] = None,
         cancel_requested_by: Optional[str] = None,
         cancel_anchor_turn_id: Optional[str] = None,
+        trigger_dict: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Upsert the active execution run for a session."""
         host = self._l0_execution_host()
@@ -57,6 +58,7 @@ class L0ExecutionStateMixin:
             cancel_reason=cancel_reason,
             cancel_requested_by=cancel_requested_by,
             cancel_anchor_turn_id=cancel_anchor_turn_id,
+            trigger_dict=trigger_dict,
         )
 
     async def append_execution_pending_turn(
@@ -121,6 +123,7 @@ class L0ExecutionStateMixin:
         cancel_reason: Optional[str] = None,
         cancel_requested_by: Optional[str] = None,
         cancel_anchor_turn_id: Optional[str] = None,
+        trigger_dict: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Synchronously upsert the active execution run for a session."""
         host = self._l0_execution_host()
@@ -170,6 +173,14 @@ class L0ExecutionStateMixin:
                     if existing and existing.get("cancel_anchor_turn_id") is not None
                     else None
                 )
+            ),
+            # ADR-0004 P3: persist the typed RunTrigger with the run. Falls
+            # back to the existing value so a later upsert that does not pass
+            # trigger_dict (cancel / steer / bump_revision) does not wipe it.
+            "trigger": (
+                dict(trigger_dict)
+                if trigger_dict is not None
+                else (existing.get("trigger") if existing else None)
             ),
             "created_at": float(existing["created_at"]) if existing else now,
             "updated_at": now,

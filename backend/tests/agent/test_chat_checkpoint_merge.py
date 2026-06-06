@@ -45,6 +45,9 @@ class _FakeOrchestrator:
         state.iteration = outcome.iteration
         return outcome
 
+    async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
+        return await self.execute_with_tools(**run_input.to_execute_kwargs())
+
     async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
         self.execute_with_tools_calls.append(dict(kwargs))
         return SimpleNamespace(

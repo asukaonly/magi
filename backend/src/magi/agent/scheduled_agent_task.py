@@ -10,6 +10,8 @@ from ..scheduler.contracts import (
     ScheduledTargetType,
 )
 from ..scheduler.service import SchedulerService
+from magi_plugin_sdk.run_trigger import RunTrigger
+
 from .background.contracts import BackgroundTaskSpec, BackgroundTaskTriggerSource
 
 
@@ -34,8 +36,9 @@ def build_background_spec_from_schedule(context: ScheduledExecutionContext) -> B
     prompt = _as_string(payload.get("prompt") or payload.get("message") or payload.get("goal"))
     if not prompt:
         raise ValueError("scheduled agent task is missing prompt")
+    user_id = _as_string(payload.get("user_id"), "local_user")
     return BackgroundTaskSpec(
-        user_id=_as_string(payload.get("user_id"), "local_user"),
+        user_id=user_id,
         session_id=_as_string(payload.get("session_id")),
         origin_turn_id=context.schedule.schedule_id,
         title=_as_string(payload.get("title") or context.schedule.metadata.get("display_name"), prompt.splitlines()[0][:80]),
@@ -43,6 +46,14 @@ def build_background_spec_from_schedule(context: ScheduledExecutionContext) -> B
         selected_tools=_as_string_list(payload.get("selected_tools") or payload.get("tools_allow")),
         workspace_path=_as_string(payload.get("workspace_path")) or None,
         trigger_source=BackgroundTaskTriggerSource.SCHEDULE,
+        trigger=RunTrigger(
+            trigger_type="scheduled",
+            source_channel="scheduler",
+            requester=user_id,
+            priority="background",
+            correlation=[context.schedule.schedule_id],
+            payload={},
+        ),
         max_iterations=int(payload.get("max_iterations") or 50),
         timeout_seconds=(
             int(payload["timeout_seconds"])

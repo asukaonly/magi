@@ -146,57 +146,36 @@ describe('conversation store', () => {
     }));
   });
 
-  it('skips bubble projection for lossy channel-delivery agent_response (no turn_id / no message_id)', () => {
-    // Phase G ``ChatSseChannel.deliver`` writes ``agent_response`` rows that
-    // carry only ``content`` + ``is_final`` — no turn_id, no message_id —
-    // because ``DeliveryContent`` doesn't propagate those. The persisted
-    // bubble arrives via a separate ``chat_message_upserted`` event. If we
-    // *also* project this lossy emission, ``applyAgentResponse``'s
-    // no-turnId fallback inserts a duplicate bubble next to the streaming
-    // one, producing the ghost the user sees after streaming ends.
-    const store = useConversationStore.getState();
-
-    // Seed the timeline with a finished streaming bubble for turn-a — what
-    // the user sees right before the duplicate would normally appear.
-    store.appendStreamTextDelta({
-      sessionId: 'session-a',
-      turnId: 'turn-a',
-      personaId: 'persona-seven',
-      textDelta: 'streamed reply',
-    });
-    store.appendStreamTextFlush({
-      sessionId: 'session-a',
-      turnId: 'turn-a',
-      personaId: 'persona-seven',
-    });
-    const beforeCount =
-      useConversationStore.getState().messagesBySession['session-a']?.length || 0;
-    expect(beforeCount).toBe(1);
-
-    // Apply the lossy channel-delivery agent_response — content only.
+  it('projects channel-delivery agent_response unconditionally (no lossy-delivery skip)', () => {
+    // P3 Step 4: the lossy-channel-delivery special-case is removed. After
+    // Steps 2-3 the channel-delivered ``agent_response`` always carries
+    // ``turn_id`` (non-streamed) or is not sent at all (streamed turns finalize
+    // via ``chat_message_upserted``), so the read side projects on ``session_id``
+    // alone. A payload is therefore no longer silently skipped — it produces an
+    // assistant bubble through the unconditional ``receiveAgentResponse``.
     const projected = applyRealtimeStoreProjection({
       event: 'agent_response',
       data: {
-        session_id: 'session-a',
-        content: 'streamed reply',
+        session_id: 'session-channel',
+        content: 'channel reply',
         is_final: true,
         timestamp: Date.now() / 1000,
-        // intentionally no turn_id / no message_id
+        // no turn_id / no message_id — previously skipped, now projected.
       },
     });
 
-    // The handler still returns ``true`` (event handled) but no bubble was
-    // added — the existing streaming bubble is left untouched.
     expect(projected).toBe(true);
-    const afterMessages = useConversationStore.getState().messagesBySession['session-a'] || [];
-    expect(afterMessages.length).toBe(1);
-    expect(afterMessages[0].content).toBe('streamed reply');
+    const messages = useConversationStore.getState().messagesBySession['session-channel'] || [];
+    expect(messages.length).toBe(1);
+    expect(messages[0]).toEqual(expect.objectContaining({
+      role: 'assistant',
+      content: 'channel reply',
+    }));
   });
 
   it('still projects bubbles for richer agent_response payloads that carry turn_id or message_id', () => {
-    // When the payload carries identity (older ChatRuntimeNotifier path),
-    // we want the projection to keep working — the lossy-skip is gated
-    // strictly on BOTH ids being absent.
+    // The realistic Step-3 shape: the channel-delivered agent_response carries
+    // identity (turn_id + message_id), so the bubble projects with that identity.
     applyRealtimeStoreProjection({
       event: 'agent_response',
       data: {

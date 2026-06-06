@@ -152,12 +152,13 @@ class DirectLLMHandler(BaseExecutionHandler):
         if streaming_enabled:
             chunks: list[str] = []
             abort_reason: str | None = None
-            # Phase G+1: route each text_delta through
-            # coordinator.dispatch_stream_chunk so configured channels
-            # (chat SSE, telegram, etc.) receive the stream in parallel.
-            # ``seq`` is monotonic across delta + final boundary chunks.
+            # Phase G+1 Step 2: per-delta chunks are emitted by the chat
+            # streaming SINK (ChatStreamingMixin._build_stream_sink ->
+            # coordinator.dispatch_stream_chunk), fed by the provider bridge's
+            # contextvar stream. The handler only joins the deltas into
+            # response_text here and dispatches the single final boundary chunk
+            # below — dispatching per delta too would double-write each delta.
             coordinator = getattr(self._deps, "coordinator", None)
-            seq = 0
             try:
                 try:
                     async for event in self._deps.prompt_service.call_llm_stream(
@@ -169,30 +170,17 @@ class DirectLLMHandler(BaseExecutionHandler):
                     ):
                         if event.kind == "text_delta" and event.text:
                             chunks.append(event.text)
-                            if coordinator is not None:
-                                try:
-                                    await coordinator.dispatch_stream_chunk(
-                                        session_id=request.context.session_id,
-                                        user_id=request.context.user_id,
-                                        turn_id=str(turn_id or "") or None,
-                                        text=event.text,
-                                        is_final=False,
-                                        seq=seq,
-                                    )
-                                except Exception:
-                                    # Streaming dispatch errors must never
-                                    # interrupt the LLM loop — they're
-                                    # purely an additive delivery path.
-                                    pass
-                                seq += 1
                 except CancellationRaised as exc:
                     abort_reason = f"cancel:{exc.reason or 'unknown'}"
                 except RetractRaised as exc:
                     abort_reason = f"retract:{(exc.payload.reason if exc.payload else None) or 'unknown'}"
             finally:
                 # Always emit one final boundary chunk so channels can
-                # close/flush — including when the stream was cancelled
-                # or retracted mid-way.
+                # close/flush — including when the stream was cancelled or
+                # retracted mid-way. The direct streaming path emits no
+                # ``text_flush`` event of its own, so the frontend flushes off
+                # ``is_final``. No ``event`` is attached: the boundary is not a
+                # real stream-event kind.
                 if coordinator is not None:
                     try:
                         await coordinator.dispatch_stream_chunk(
@@ -201,7 +189,7 @@ class DirectLLMHandler(BaseExecutionHandler):
                             turn_id=str(turn_id or "") or None,
                             text="",
                             is_final=True,
-                            seq=seq,
+                            seq=0,
                         )
                     except Exception:
                         pass

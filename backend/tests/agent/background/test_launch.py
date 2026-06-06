@@ -18,6 +18,8 @@ from magi.agent.background.launch import (
     build_spec_from_request,
     default_ack_text,
 )
+from magi_plugin_sdk.run_trigger import RunTrigger
+
 from magi.agent.cancel import CancelToken, EventCancelToken, null_cancel_token
 from magi.agent.execution.function_calling import ExecutionOutcome
 from magi.agent.task_agents.common.contracts import (
@@ -182,6 +184,32 @@ def test_build_spec_omits_blank_workspace_path() -> None:
     assert spec.workspace_path is None
 
 
+def test_build_spec_carries_run_trigger() -> None:
+    request = _make_request()
+    trigger = RunTrigger(
+        trigger_type="external_inbound",
+        source_channel="weixin",
+        requester="u1",
+        priority="foreground",
+    )
+
+    spec = build_spec_from_request(
+        request,
+        trigger_source=BackgroundTaskTriggerSource.USER,
+        trigger=trigger,
+    )
+
+    assert spec.trigger is trigger
+    assert spec.trigger.source_channel == "weixin"
+
+
+def test_build_spec_trigger_defaults_to_none() -> None:
+    spec = build_spec_from_request(
+        _make_request(), trigger_source=BackgroundTaskTriggerSource.RULE
+    )
+    assert spec.trigger is None
+
+
 def test_build_spec_honours_timeout_and_iteration_overrides() -> None:
     request = _make_request()
 
@@ -229,6 +257,33 @@ async def test_launch_service_enqueues_task_and_returns_ack(
 
 
 @pytest.mark.asyncio
+async def test_launch_service_persists_run_trigger_on_spec(
+    manager: BackgroundTaskManager,
+) -> None:
+    service = BackgroundLaunchService(manager)
+    trigger = RunTrigger(
+        trigger_type="external_inbound",
+        source_channel="weixin",
+        requester="u1",
+        priority="foreground",
+    )
+
+    result = await service.enqueue_from_request(
+        _make_request(user_message="weixin-originated long task"),
+        trigger_source=BackgroundTaskTriggerSource.USER,
+        trigger=trigger,
+    )
+
+    stored = await manager._store.get_task(result.orchestration_id)  # type: ignore[attr-defined]
+    assert stored is not None
+    # The origin channel survives onto the persisted background spec, so the
+    # completed task can be delivered back to weixin.
+    assert stored.spec.trigger is not None
+    assert stored.spec.trigger.trigger_type == "external_inbound"
+    assert stored.spec.trigger.source_channel == "weixin"
+
+
+@pytest.mark.asyncio
 async def test_launch_service_uses_custom_ack_builder(
     manager: BackgroundTaskManager,
 ) -> None:
@@ -262,6 +317,9 @@ class _RecordingOrchestrator:
     async def execute_with_tools(self, **kwargs: Any) -> ExecutionOutcome:
         self.calls.append(kwargs)
         return self._outcome
+
+    async def run(self, run_input: Any) -> ExecutionOutcome:  # engine front door (ADR-0004 P4)
+        return await self.execute_with_tools(**run_input.to_execute_kwargs())
 
 
 @pytest.mark.asyncio

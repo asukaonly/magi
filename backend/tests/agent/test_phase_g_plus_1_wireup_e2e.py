@@ -436,14 +436,10 @@ async def test_execute_fanout_calls_deliver_on_both_channels() -> None:
     result = await coordinator.execute(request)
     assert result is canned_result
 
-    # --- chat_sse: one deliver call with the assembled text ---
-    assert len(sse.delivers) == 1
-    sse_target, sse_content = sse.delivers[0]
-    assert sse_content.text == "hello world"
-    # Phase G+2: scheme-only channel_type; per-run context on dedicated field.
-    assert sse_target.channel_type == "chat_sse"
-    assert sse_target.magi_session_id == "s1"
-    assert sse_target.magi_user_id == "u1"
+    # --- chat_sse: P3 Step 3 — execute()-time fanout excludes chat_sse; the
+    # rich chat_sse agent_response is produced by the postprocess seam
+    # (deliver_final_chat_response), not at execute() time. ---
+    assert len(sse.delivers) == 0
 
     # --- telegram: one deliver call with the assembled text ---
     assert len(tg.delivers) == 1
@@ -529,8 +525,10 @@ async def test_streaming_chunks_then_final_fanout_reaches_both_channels() -> Non
     # --- assertions: streaming-capable channel saw chunks; both got deliver ---
     # chat_sse (supports_streaming=True): 4 chunks + 1 final deliver
     assert len(sse.chunks) == 4
-    assert len(sse.delivers) == 1
-    assert sse.delivers[0][1].text == "hello world"
+    # P3 Step 3: execute()-time fanout excludes chat_sse, so the streaming
+    # channel gets chunks only (its final agent_response comes from the
+    # postprocess seam, not the execute()-time fanout).
+    assert len(sse.delivers) == 0
 
     # telegram (supports_streaming=False): NO chunks, only the assembled
     # deliver from the final fanout — no double-send.

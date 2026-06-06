@@ -15,6 +15,7 @@ RUN_TRIGGER_TYPES = frozenset({
     "agent_self",            # agent's own callback / follow-up
     "child_run_completed",   # child run finished, parent should aggregate
     "background_resume",     # background executor resuming a detached run
+    "batch",                 # batch driver launching a per-item run
 })
 
 RUN_TRIGGER_PRIORITIES = frozenset({"foreground", "background", "deferred"})
@@ -117,10 +118,50 @@ class IncomingEvent:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class RunRequest:
+    """A normalized "start a run" request — the seam between a trigger source
+    and a driver (ADR-0004 P3).
+
+    A trigger source (chat user-message, scheduler tick, batch item-queue,
+    inbound channel event) produces a ``RunRequest``; a driver consumes it to
+    start one bounded engine run. It carries the ``trigger`` (provenance: who /
+    why / which channel), the raw ``input`` to run, an optional ``session_id``,
+    and optional ``bounds`` (e.g. ``max_iterations``).
+
+    Execution specifics the driver fills in later — instructions / tool set /
+    assembled context — are deliberately NOT part of the request. The request
+    says *what to run and on whose behalf*, not *how to run it*.
+    """
+
+    trigger: RunTrigger
+    input: dict[str, Any] = field(default_factory=dict)
+    session_id: str | None = None
+    bounds: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "trigger": self.trigger.to_dict(),
+            "input": dict(self.input),
+            "session_id": self.session_id,
+            "bounds": dict(self.bounds),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "RunRequest":
+        return cls(
+            trigger=RunTrigger.from_dict(d["trigger"]),
+            input=dict(d.get("input") or {}),
+            session_id=d.get("session_id"),
+            bounds=dict(d.get("bounds") or {}),
+        )
+
+
 __all__ = [
     "RunTrigger",
     "RUN_TRIGGER_TYPES",
     "RUN_TRIGGER_PRIORITIES",
     "IncomingEvent",
     "INCOMING_EVENT_TYPES",
+    "RunRequest",
 ]

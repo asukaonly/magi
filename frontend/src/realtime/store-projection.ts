@@ -78,22 +78,16 @@ export const applyRealtimeStoreProjection = (
 
     const messageId = payload.message_id ? String(payload.message_id) : undefined;
 
-    // Phase G channel-delivery emission (ChatSseChannel.deliver) writes
-    // ``agent_response`` rows that carry ONLY ``content`` + ``is_final`` —
-    // ``DeliveryContent`` doesn't propagate turn_id or message_id, so the
-    // payload is intrinsically lossy. For those rows the persisted bubble
-    // arrives separately via ``chat_message_upserted`` (with the real
-    // message_id + turn_id), so projecting BOTH would produce a duplicate
-    // assistant bubble — the channel emission's no-turnId fallback in
-    // ``applyAgentResponse`` can only ``insertAfterTurnAnchor``, never
-    // replace the live streaming bubble. We skip the bubble projection
-    // here and let ``chat_message_upserted`` own the timeline render.
-    // Side effects (SESSION_SYNC, refreshVisibleTrace, clearPendingResponseTurn)
-    // still fire from ``useChatRealtimeEffects`` since the event itself
-    // is still subscribed.
-    const isLossyChannelDelivery = !turnId && !messageId;
-
-    if (sessionId && !isLossyChannelDelivery) {
+    // P3 Step 4: project unconditionally on ``session_id``. The Phase-G+1
+    // convergence (Steps 2-3) made ``ChatSseChannel.deliver`` the sole writer of
+    // ``agent_response``, carrying the full payload (turn_id/message_id/
+    // trace_summary/ux_plan/…) for non-streamed turns; streamed turns emit no
+    // ``agent_response`` at all (they finalize via ``chat_message_upserted``).
+    // The former lossy-channel-delivery skip — which guarded against a
+    // turn_id-less channel emission inserting a ghost bubble — is therefore
+    // obsolete: real payloads always carry turn_id, so ``receiveAgentResponse``
+    // replaces the matching bubble cleanly instead of inserting a duplicate.
+    if (sessionId) {
       conversationStore.receiveAgentResponse({
         sessionId,
         content: String(payload.content || ''),

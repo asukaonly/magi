@@ -1,8 +1,13 @@
-"""Phase G+1: DirectLLMHandler routes text_delta events through
-``coordinator.dispatch_stream_chunk`` (in addition to the legacy
-``notifier.emit_stream_event`` path). After the stream ends — normally,
-via cancellation, or via retraction — the handler must dispatch one
-final ``is_final=True`` boundary chunk so channels can flush/close.
+"""Phase G+1 Step 2: text_delta chunk write-path convergence.
+
+After Step 2, per-delta text chunks are emitted by the streaming SINK
+(``ChatStreamingMixin._build_stream_sink`` -> ``coordinator.dispatch_stream_chunk``),
+fed by the provider bridge's contextvar stream. DirectLLMHandler therefore
+must NOT dispatch a chunk per text_delta any more — doing so would double-write
+each delta. It still dispatches exactly ONE final ``is_final=True`` boundary
+chunk after the stream ends (normally, via cancellation, or via retraction) so
+channels can flush/close — the direct streaming path emits no ``text_flush``
+event of its own.
 """
 from __future__ import annotations
 
@@ -44,6 +49,8 @@ class _RecordingCoordinator:
         is_final: bool,
         seq: int,
         turn_id: str | None = None,
+        event=None,
+        persona_id: str | None = None,
     ) -> None:
         self.calls.append(
             {
@@ -53,6 +60,8 @@ class _RecordingCoordinator:
                 "is_final": is_final,
                 "seq": seq,
                 "turn_id": turn_id,
+                "event": event,
+                "persona_id": persona_id,
             }
         )
 
@@ -123,10 +132,11 @@ def _build_request() -> DirectLLMRequest:
 
 
 @pytest.mark.asyncio
-async def test_direct_handler_dispatches_text_deltas_via_coordinator() -> None:
-    """Each text_delta event becomes one coordinator.dispatch_stream_chunk
-    call with monotonic ``seq``. After the stream finishes, the handler
-    must dispatch one final ``is_final=True`` chunk."""
+async def test_direct_handler_does_not_per_delta_dispatch_only_final_boundary() -> None:
+    """Step 2: text_delta chunks now come from the streaming sink, so the
+    handler must NOT dispatch a chunk per delta (that would double-write).
+    It still joins the deltas into ``response_text`` and dispatches exactly
+    ONE final ``is_final=True`` boundary chunk."""
     coordinator = _RecordingCoordinator()
     prompt_service = _ScriptedStreamPromptService(["a", "b", "c"])
     handler = DirectLLMHandler(
@@ -138,30 +148,24 @@ async def test_direct_handler_dispatches_text_deltas_via_coordinator() -> None:
     # The handler still returns its joined response_text.
     assert result.response_text == "abc"
 
-    # 3 text_delta dispatches + 1 final boundary chunk = 4 calls total.
-    assert len(coordinator.calls) == 4, coordinator.calls
-
-    # Each delta call records the right text, is_final=False, monotonic seq.
-    for i, expected_text in enumerate(["a", "b", "c"]):
-        call = coordinator.calls[i]
-        assert call["text"] == expected_text
-        assert call["is_final"] is False
-        assert call["seq"] == i
-        assert call["session_id"] == "session-1"
-        assert call["user_id"] == "user-1"
-
-    final = coordinator.calls[-1]
+    # Only the final boundary chunk is dispatched — no per-delta chunks.
+    assert len(coordinator.calls) == 1, coordinator.calls
+    final = coordinator.calls[0]
     assert final["is_final"] is True
     assert final["text"] == ""
-    assert final["seq"] == 3
+    assert final["seq"] == 0
     assert final["session_id"] == "session-1"
     assert final["user_id"] == "user-1"
+    # The final boundary carries no full event — the frontend flushes off
+    # ``is_final`` for the direct path.
+    assert final["event"] is None
 
 
 @pytest.mark.asyncio
-async def test_direct_handler_dispatches_final_chunk_on_cancellation() -> None:
+async def test_direct_handler_dispatches_final_boundary_on_cancellation() -> None:
     """When the LLM stream raises CancellationRaised mid-way, the handler
-    still emits the final ``is_final=True`` boundary chunk."""
+    still emits exactly one final ``is_final=True`` boundary chunk (and no
+    per-delta chunks)."""
     coordinator = _RecordingCoordinator()
     # Yield "a", "b", then raise before "c".
     prompt_service = _ScriptedStreamPromptService(["a", "b", "c"], cancel_at=2)
@@ -171,21 +175,17 @@ async def test_direct_handler_dispatches_final_chunk_on_cancellation() -> None:
 
     result = await handler.execute(_build_request())
 
-    # First two deltas made it through, third did not.
+    # First two deltas made it into the joined text, third did not.
     assert result.response_text == "ab"
     assert "abort_reason" in result.llm_trace
     assert result.llm_trace["abort_reason"].startswith("cancel:")
 
-    # 2 delta dispatches + 1 final boundary chunk = 3 calls.
-    assert len(coordinator.calls) == 3, coordinator.calls
-    assert coordinator.calls[0]["text"] == "a"
-    assert coordinator.calls[0]["seq"] == 0
-    assert coordinator.calls[1]["text"] == "b"
-    assert coordinator.calls[1]["seq"] == 1
-    final = coordinator.calls[2]
+    # Only the final boundary chunk.
+    assert len(coordinator.calls) == 1, coordinator.calls
+    final = coordinator.calls[0]
     assert final["is_final"] is True
     assert final["text"] == ""
-    assert final["seq"] == 2
+    assert final["seq"] == 0
 
 
 @pytest.mark.asyncio
