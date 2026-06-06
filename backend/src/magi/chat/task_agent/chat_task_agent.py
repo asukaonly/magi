@@ -345,6 +345,12 @@ class ChatTaskAgent(
             self._postprocess_service._runtime_notifier.set_delivery_router_active(
                 True
             )
+            # P3 Step 3: route the non-streamed agent_response through
+            # ChatSseChannel.deliver (sole writer, full rich payload) instead of
+            # the legacy notifier.emit_agent_response path.
+            self._postprocess_service._deliver_final_response = (
+                self._coordinator.deliver_final_chat_response
+            )
         self._last_batch_facts: list[FactRecord] = []
 
         # Keep this alias so existing read paths and tests see the same underlying store.

@@ -1607,8 +1607,10 @@ async def test_resolve_user_prefs_swallows_provider_errors():
 
 @pytest.mark.asyncio
 async def test_execute_uses_user_prefs_provider_for_fanout_targets():
-    """When a provider is wired, execute() fans out to ALL channels the user
-    opted into via prefs (not just chat_sse)."""
+    """P3 Step 3: execute()-time fanout now serves EXTERNAL channels only
+    (exclude_chat_sse=True). The user opted into chat_sse + telegram, but the
+    chat_sse agent_response is produced later by the postprocess seam
+    (deliver_final_chat_response), so execute() delivers ONLY to telegram."""
     from magi.agent.run.snapshot import RunSnapshot
     from magi.agent.task_agents.common.contracts import (
         ExecutionRequest, ExecutionResult, ExecutionMode,
@@ -1726,11 +1728,133 @@ async def test_execute_uses_user_prefs_provider_for_fanout_targets():
     result = await coordinator.execute(request)
     assert result is canned_result
 
-    # Both channels received the delivery.
-    assert len(sse.delivered) == 1
+    # execute()-time fanout excludes chat_sse: only the external channel is served.
+    assert len(sse.delivered) == 0
     assert len(telegram.delivered) == 1
-    assert sse.delivered[0][1].text == "hello world"
     assert telegram.delivered[0][1].text == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_deliver_final_chat_response_delivers_rich_content_to_chat_sse_only():
+    """P3 Step 3: the postprocess seam delivers the rich agent_response to
+    chat_sse ONLY (chat_sse_only=True), carrying the full DeliveryContent, and
+    persists a chat_sse DeliveryReceipt. External channels are NOT re-served
+    here (execute()-time owns external delivery)."""
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
+
+    class _Rec(Channel):
+        def __init__(self, ctype):
+            self._t = ctype
+            self.received = []
+        @property
+        def channel_type(self):
+            return self._t
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.received.append(content)
+            return DeliveryReceipt(
+                channel_id=self._t, external_message_id=None,
+                delivered_at_ms=1000, magi_session_id=target.magi_session_id,
+            )
+        async def retract(self, receipt): pass
+
+    sse = _Rec("chat_sse")
+    telegram = _Rec("telegram")
+
+    class _Registry:
+        def __init__(self, m): self._m = m
+        def get(self, k): return self._m.get(k)
+
+    saved_receipts: list[dict] = []
+
+    class _RecReceiptsStore:
+        async def save_receipts(self, *, session_id, run_id, revision, receipts):
+            saved_receipts.append(
+                {"session_id": session_id, "run_id": run_id,
+                 "revision": revision, "receipts": list(receipts)}
+            )
+
+    async def _provider(user_id):
+        # Even though the user opted into telegram, the chat_sse-only seam must
+        # not re-serve it.
+        return {"delivery_channels": ["chat_sse", "telegram"]}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=_Registry({"chat_sse": sse, "telegram": telegram}),
+        user_prefs_provider=_provider,
+        receipts_store=_RecReceiptsStore(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-1",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-1", "session_id": "s-1", "content": "hi"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-1",
+        agent_type="chat",
+        runtime_key="chat:u-1",
+        user_id="u-1",
+        session_id="s-1",
+        history_key="u-1::s-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="hi",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-1"),
+        session_run_id="run-1",
+    )
+    content = DeliveryContent(
+        text="final answer",
+        turn_id="t-1",
+        message_id="m-1",
+        message_kind="assistant_final",
+        persona_id="p-1",
+        trace_summary={"turn_id": "t-1"},
+        trace_available=True,
+        ux_plan={"assistant_surface_mode": "final_only"},
+        message_payload={"k": "v"},
+        orchestration_id="o-1",
+    )
+
+    receipts = await coordinator.deliver_final_chat_response(context, content=content)
+
+    # chat_sse only — telegram NOT re-served by the postprocess seam.
+    assert len(sse.received) == 1
+    assert len(telegram.received) == 0
+    delivered = sse.received[0]
+    assert delivered.text == "final answer"
+    assert delivered.turn_id == "t-1"
+    assert delivered.message_id == "m-1"
+    assert delivered.message_kind == "assistant_final"
+    assert delivered.persona_id == "p-1"
+    assert delivered.trace_summary == {"turn_id": "t-1"}
+    assert delivered.trace_available is True
+    assert delivered.ux_plan == {"assistant_surface_mode": "final_only"}
+    assert delivered.message_payload == {"k": "v"}
+    assert delivered.orchestration_id == "o-1"
+
+    # A chat_sse receipt was returned and persisted.
+    assert len(receipts) == 1
+    assert receipts[0].channel_id == "chat_sse"
+    assert len(saved_receipts) == 1
+    assert saved_receipts[0]["session_id"] == "s-1"
+    assert saved_receipts[0]["run_id"] == "run-1"
 
 
 @pytest.mark.asyncio
@@ -1848,9 +1972,10 @@ async def test_execute_swallows_user_prefs_provider_errors_and_uses_default_targ
     result = await coordinator.execute(request)
     assert result is canned_result
 
-    # Default fallback: chat_sse only.
-    assert len(sse.delivered) == 1
-    assert sse.delivered[0][1].text == "fallback ok"
+    # The provider error is swallowed and execute() completes (result above).
+    # P3 Step 3: the default target (chat_sse) is excluded from execute()-time
+    # fanout, so no external delivery happens for a chat_sse-only default.
+    assert len(sse.delivered) == 0
 
 
 @pytest.mark.asyncio
@@ -1891,13 +2016,20 @@ async def test_execute_passes_runner_attachments_through_to_delivery_content():
             )
         async def retract(self, receipt): pass
 
-    sse = _Capture("chat_sse")
+    # P3 Step 3: execute()-time fanout serves EXTERNAL channels only, so this
+    # attachment-passthrough assertion now targets an external (telegram)
+    # channel. The chat_sse rich delivery (also carrying attachments) flows via
+    # the postprocess seam, covered by deliver_final_chat_response tests.
+    tg = _Capture("telegram")
 
     class _Registry:
         def __init__(self, m): self._m = m
         def get(self, k): return self._m.get(k)
 
-    registry = _Registry({"chat_sse": sse})
+    registry = _Registry({"telegram": tg})
+
+    async def _provider(user_id):
+        return {"delivery_channels": ["telegram"]}
 
     decider = _FakeContextDecider(RouteDecision(
         profile="chat", graph_shape="reply", complexity="simple",
@@ -1908,6 +2040,7 @@ async def test_execute_passes_runner_attachments_through_to_delivery_content():
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
         channel_registry=registry,
+        user_prefs_provider=_provider,
     )
 
     image_attachment = {
@@ -1988,8 +2121,8 @@ async def test_execute_passes_runner_attachments_through_to_delivery_content():
 
     await coordinator.execute(request)
 
-    assert len(sse.received) == 1
-    delivered = sse.received[0]
+    assert len(tg.received) == 1
+    delivered = tg.received[0]
     # Text is unchanged.
     assert delivered.text == "here's what you asked for"
     # Attachments arrived intact, in order, as a tuple of dicts.
@@ -2015,23 +2148,28 @@ async def test_execute_passes_empty_attachments_when_runner_has_none():
     from magi.tools.context_routing import RouteDecision
     from magi.agent.task_agents.handlers.contracts import IntentDecision
 
+    # P3 Step 3: execute()-time fanout serves EXTERNAL channels, so this
+    # empty-attachments assertion targets a telegram channel.
     class _Capture(Channel):
         def __init__(self): self.received = []
         @property
-        def channel_type(self): return "chat_sse"
+        def channel_type(self): return "telegram"
         async def start(self): return None
         async def stop(self): return None
         async def send_message(self, target, content): return None
         async def send_typing_indicator(self, target): return None
         async def deliver(self, target, content):
             self.received.append(content)
-            return DeliveryReceipt(channel_id="chat_sse", external_message_id="x", delivered_at_ms=1)
+            return DeliveryReceipt(channel_id="telegram", external_message_id="x", delivered_at_ms=1)
         async def retract(self, receipt): pass
 
     sse = _Capture()
 
     class _Registry:
-        def get(self, k): return sse if k == "chat_sse" else None
+        def get(self, k): return sse if k == "telegram" else None
+
+    async def _prov(user_id):
+        return {"delivery_channels": ["telegram"]}
 
     decider = _FakeContextDecider(RouteDecision(
         profile="chat", graph_shape="reply", complexity="simple", tools=[], reasoning="",
@@ -2041,6 +2179,7 @@ async def test_execute_passes_empty_attachments_when_runner_has_none():
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
         channel_registry=_Registry(),
+        user_prefs_provider=_prov,
     )
     canned_result = ExecutionResult(
         mode=ExecutionMode.DIRECT_LLM,
@@ -2227,10 +2366,12 @@ async def test_execute_routes_reply_back_to_origin_channel_from_run_trigger():
     assert result is canned_result
 
     # The fix: weixin received the reply because the run's trigger
-    # carried source_channel="weixin". chat_sse also fired (the default).
+    # carried source_channel="weixin".
     assert len(weixin.delivered) == 1, "WeChat channel should have received the reply"
     assert weixin.delivered[0][1].text == "reply for weixin"
-    assert len(sse.delivered) == 1, "chat_sse default delivery should still fire"
+    # P3 Step 3: execute()-time fanout excludes chat_sse (its rich agent_response
+    # is produced by the postprocess seam), so chat_sse does NOT fire here.
+    assert len(sse.delivered) == 0
 
 
 @pytest.mark.asyncio
@@ -2343,7 +2484,9 @@ async def test_execute_context_user_prefs_wins_over_provider():
     await coordinator.execute(request)
 
     # Context's chat_sse + slack should have been used, not provider's telegram.
-    assert len(sse.delivered) == 1
+    # P3 Step 3: execute()-time fanout excludes chat_sse, so only the external
+    # slack target fires here (chat_sse rich agent_response comes via the seam).
+    assert len(sse.delivered) == 0
     assert len(slack.delivered) == 1
     assert len(telegram.delivered) == 0
 
