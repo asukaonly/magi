@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils';
  */
 const PARAM_HINTS_BY_TARGET: Record<string, string> = {
   timeline_diary_narrative:
-    '{"days": 7}  // 回填过去 7 天的日记（默认 1）',
+    '{"days": 7}  // backfill the past 7 days of diary (default 1)',
 };
 
 export interface ScheduleRunButtonProps {
@@ -110,8 +110,8 @@ export const ScheduleRunButton: React.FC<ScheduleRunButtonProps> = ({
               className, type). */}
           <button
             type="button"
-            aria-label={t('tasks.scheduled.actions.run', { defaultValue: '运行' })}
-            title={t('tasks.scheduled.actions.run', { defaultValue: '运行' })}
+            aria-label={t('tasks.scheduled.actions.run', { defaultValue: 'Run' })}
+            title={t('tasks.scheduled.actions.run', { defaultValue: 'Run' })}
             className={cn(
               buttonVariants({ variant: 'outline', size: 'icon' }),
               'h-8 w-8 shrink-0',
@@ -151,7 +151,7 @@ export const ScheduleRunButton: React.FC<ScheduleRunButtonProps> = ({
             )}
           >
             <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
-            {t('tasks.scheduled.actions.runWithParamsOpen', { defaultValue: '带参运行…' })}
+            {t('tasks.scheduled.actions.runWithParamsOpen', { defaultValue: 'Run with params…' })}
           </button>
         </PopoverContent>
       </Popover>
@@ -160,11 +160,11 @@ export const ScheduleRunButton: React.FC<ScheduleRunButtonProps> = ({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {t('tasks.scheduled.actions.runWithParams', { defaultValue: '带参运行' })}
+              {t('tasks.scheduled.actions.runWithParams', { defaultValue: 'Run with params' })}
             </DialogTitle>
             <DialogDescription>
               {t('tasks.scheduled.fields.overrideParamsHint', {
-                defaultValue: '只影响这一次执行；下次定时触发时仍用原参数。',
+                defaultValue: 'Affects this run only; the next scheduled trigger still uses the original params.',
               })}
             </DialogDescription>
           </DialogHeader>
@@ -190,10 +190,10 @@ export const ScheduleRunButton: React.FC<ScheduleRunButtonProps> = ({
           </div>
           <DialogFooter>
             <Button variant="ghost" size="sm" onClick={() => setDialogOpen(false)}>
-              {t('tasks.scheduled.actions.cancel', { defaultValue: '取消' })}
+              {t('tasks.scheduled.actions.cancel', { defaultValue: 'Cancel' })}
             </Button>
             <Button variant="default" size="sm" onClick={handleRunWithParams}>
-              {t('tasks.scheduled.actions.runWithParams', { defaultValue: '带参运行' })}
+              {t('tasks.scheduled.actions.runWithParams', { defaultValue: 'Run with params' })}
             </Button>
           </DialogFooter>
         </DialogContent>

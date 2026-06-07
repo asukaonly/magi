@@ -65,8 +65,8 @@ const ReconsolidateEpisodes = () => {
       <div className="flex items-center gap-3">
         <Button onClick={() => void handleClick()} disabled={busy}>
           {busy
-            ? t('memory.governance.reconsolidateBusy', { defaultValue: '整理中...' })
-            : t('memory.governance.reconsolidateRun', { defaultValue: '立即整理' })}
+            ? t('memory.governance.reconsolidateBusy', { defaultValue: 'Organizing…' })
+            : t('memory.governance.reconsolidateRun', { defaultValue: 'Organize now' })}
         </Button>
         {result ? (
           <span className="text-xs text-[hsl(var(--memory-muted))]">
@@ -74,7 +74,7 @@ const ReconsolidateEpisodes = () => {
               promoted: result.promoted,
               standouts: result.standouts,
               summaries: result.summaries_generated,
-              defaultValue: '升级 {{promoted}} · 标志 {{standouts}} · 新章节 {{summaries}}',
+              defaultValue: 'Promoted {{promoted}} · Standouts {{standouts}} · New chapters {{summaries}}',
             })}
           </span>
         ) : null}
@@ -94,7 +94,7 @@ export const MemoryGovernancePage = () => {
           {t('memory.governance.sections.forget')}
         </h2>
         <p className="mt-1 text-sm text-[hsl(var(--memory-body))]">
-          {t('memory.governance.forgetBody', { defaultValue: '从这里删除某个实体、某段时间或某个章节的记忆。' })}
+          {t('memory.governance.forgetBody', { defaultValue: 'Delete memories about an entity, a time range, or a chapter from here.' })}
         </p>
         <ForgetCenter />
       </section>
@@ -104,17 +104,17 @@ export const MemoryGovernancePage = () => {
           {t('memory.governance.sections.privacy')}
         </h2>
         <p className="mt-1 text-sm text-[hsl(var(--memory-body))]">
-          {t('memory.governance.privacyBody', { defaultValue: '查看每个来源当前的隐私范围。修改在「设置」里完成。' })}
+          {t('memory.governance.privacyBody', { defaultValue: 'Review the current privacy scope for each source. Make changes in Settings.' })}
         </p>
       </section>
 
       <section className={`${MEMORY_SECTION_CARD_CLASS} mt-4`}>
         <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
-          {t('memory.governance.reconsolidateTitle', { defaultValue: '整理章节' })}
+          {t('memory.governance.reconsolidateTitle', { defaultValue: 'Organize chapters' })}
         </h2>
         <p className="mt-1 text-sm text-[hsl(var(--memory-body))]">
           {t('memory.governance.reconsolidateBody', {
-            defaultValue: '让 Magi 把最近形成的活动片段升级成章节，并给它们起标题。',
+            defaultValue: 'Let Magi promote recent activity into chapters and give them titles.',
           })}
         </p>
         <ReconsolidateEpisodes />

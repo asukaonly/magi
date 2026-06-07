@@ -52,7 +52,7 @@ export const Slice: React.FC<SliceProps> = ({
       <div className="flex items-center gap-1.5">
         <button
           type="button"
-          aria-label={t("timeline.immersive.heartLabel", { defaultValue: "想常回来" })}
+          aria-label={t("timeline.immersive.heartLabel", { defaultValue: "Worth coming back to" })}
           data-pinned={isPinned ? "true" : "false"}
           disabled={pendingAction === "pin"}
           onClick={() => onTogglePinned(episodeId, !isPinned)}
@@ -71,7 +71,7 @@ export const Slice: React.FC<SliceProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              aria-label={t("timeline.immersive.moreLabel", { defaultValue: "更多" })}
+              aria-label={t("timeline.immersive.moreLabel", { defaultValue: "More" })}
               className="text-muted-foreground/40 opacity-0 group-hover:opacity-100"
             >
               ⋯
@@ -85,7 +85,7 @@ export const Slice: React.FC<SliceProps> = ({
                 void onHide(episodeId);
               }}
             >
-              {t("timeline.immersive.hideMemoryLabel", { defaultValue: "不算这天的样子" })}
+              {t("timeline.immersive.hideMemoryLabel", { defaultValue: "Do not count toward this day" })}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

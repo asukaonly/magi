@@ -24,16 +24,17 @@ export interface BucketDefinition {
   startHour: number;
   /** Exclusive upper bound (local hour 1–24). */
   endHour: number;
-  /** zh-CN label. UI may i18n-lookup an override. */
+  /** English fallback label. The UI looks up `timeline.immersive.bucket.<id>`
+   *  for the localized text and uses this only when the key is missing. */
   label: string;
 }
 
 /** Canonical bucket definitions, ordered chronologically. */
 export const BUCKET_DEFS: readonly BucketDefinition[] = [
-  { id: "deep_night", startHour: 0, endHour: 5, label: "深夜" },
-  { id: "morning", startHour: 5, endHour: 12, label: "上午" },
-  { id: "afternoon", startHour: 12, endHour: 18, label: "下午" },
-  { id: "evening", startHour: 18, endHour: 24, label: "晚上" },
+  { id: "deep_night", startHour: 0, endHour: 5, label: "Late night" },
+  { id: "morning", startHour: 5, endHour: 12, label: "Morning" },
+  { id: "afternoon", startHour: 12, endHour: 18, label: "Afternoon" },
+  { id: "evening", startHour: 18, endHour: 24, label: "Evening" },
 ] as const;
 
 export interface SourceGroup {
@@ -161,8 +162,6 @@ export interface DayRollup {
   isoDate: string;
   /** Unix seconds at local midnight of this day. */
   dayStart: number;
-  /** Weekday label (zh-CN: 一二三四五六日). */
-  weekdayLabel: string;
   /** Total seconds of activity on this day. */
   totalDurationSeconds: number;
   /** Top-N source types by total duration, with their sum. */
@@ -170,8 +169,6 @@ export interface DayRollup {
   /** Underlying cluster items for this day (for click-through). */
   items: TimelineClusterBlock[];
 }
-
-const WEEKDAY_LABELS_ZH = ["日", "一", "二", "三", "四", "五", "六"] as const;
 
 /** ISO day key in local time for use as Map key. */
 function localIsoDate(date: Date): string {
@@ -199,7 +196,6 @@ export function groupClustersIntoWeekDays(
     days.push({
       isoDate: localIsoDate(dayDate),
       dayStart: Math.floor(dayDate.getTime() / 1000),
-      weekdayLabel: `周${WEEKDAY_LABELS_ZH[dayDate.getDay()]}`,
       totalDurationSeconds: 0,
       topSources: [],
       items: [],

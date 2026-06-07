@@ -98,36 +98,45 @@ const ChromeBrandIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-/** zh-CN display label for a source_type. */
-export function labelForSource(sourceType: string): string {
+/**
+ * Display label for a source_type. Pass `t` (from useTranslation) to get the
+ * localized label; without it, falls back to the English text. Brand names
+ * (Chrome, Git, Claude) are identical across locales and skip i18n.
+ */
+export function labelForSource(
+  sourceType: string,
+  t?: (key: string, opts?: Record<string, unknown>) => string,
+): string {
   const key = sourceType.toLowerCase().replace(/-/g, "_");
-  const labels: Record<string, string> = {
-    manual_entry: "你的记录",
-    chrome_history: "Chrome",
-    chrome: "Chrome",
-    screen_time: "屏幕",
-    screen: "屏幕",
-    chat: "聊天",
-    chat_message: "聊天",
+  const labels: Record<string, { i18nKey?: string; text: string }> = {
+    manual_entry: { i18nKey: "timeline.source.manualEntry", text: "Your notes" },
+    chrome_history: { text: "Chrome" },
+    chrome: { text: "Chrome" },
+    screen_time: { i18nKey: "timeline.source.screen", text: "Screen" },
+    screen: { i18nKey: "timeline.source.screen", text: "Screen" },
+    chat: { i18nKey: "timeline.source.chat", text: "Chat" },
+    chat_message: { i18nKey: "timeline.source.chat", text: "Chat" },
     // chat_projector is the memory-layer source for projected chat turns —
-    // surface it as plain "聊天", same as the chat sensor, not the raw id.
-    chat_projector: "聊天",
-    calendar: "日历",
-    calendar_plugin: "日历",
-    netease_music: "音乐",
-    music: "音乐",
-    system_media: "音乐",
-    git_activity: "Git",
-    git: "Git",
-    terminal_history: "终端",
-    terminal: "终端",
-    photo_library: "相册",
-    photo: "相册",
-    apple_health: "健康",
-    health: "健康",
-    claude: "Claude",
-    ai_assistant: "AI",
-    memory: "记忆",
+    // surface it as plain "Chat", same as the chat sensor, not the raw id.
+    chat_projector: { i18nKey: "timeline.source.chat", text: "Chat" },
+    calendar: { i18nKey: "timeline.source.calendar", text: "Calendar" },
+    calendar_plugin: { i18nKey: "timeline.source.calendar", text: "Calendar" },
+    netease_music: { i18nKey: "timeline.source.music", text: "Music" },
+    music: { i18nKey: "timeline.source.music", text: "Music" },
+    system_media: { i18nKey: "timeline.source.music", text: "Music" },
+    git_activity: { text: "Git" },
+    git: { text: "Git" },
+    terminal_history: { i18nKey: "timeline.source.terminal", text: "Terminal" },
+    terminal: { i18nKey: "timeline.source.terminal", text: "Terminal" },
+    photo_library: { i18nKey: "timeline.source.photo", text: "Photos" },
+    photo: { i18nKey: "timeline.source.photo", text: "Photos" },
+    apple_health: { i18nKey: "timeline.source.health", text: "Health" },
+    health: { i18nKey: "timeline.source.health", text: "Health" },
+    claude: { text: "Claude" },
+    ai_assistant: { text: "AI" },
+    memory: { i18nKey: "timeline.source.memory", text: "Memory" },
   };
-  return labels[key] ?? sourceType;
+  const entry = labels[key];
+  if (!entry) return sourceType;
+  return entry.i18nKey && t ? t(entry.i18nKey, { defaultValue: entry.text }) : entry.text;
 }

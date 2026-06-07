@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import type { TimelineClusterBlock } from "@/api/modules/timeline";
 import { cn } from "@/lib/utils";
@@ -57,6 +58,7 @@ const DayCard: React.FC<{
   isToday: boolean;
   onSelect: () => void;
 }> = ({ day, isToday, onSelect }) => {
+  const { i18n } = useTranslation();
   const hasActivity = day.items.length > 0;
   const dateNumber = new Date(day.dayStart * 1000).getDate();
 
@@ -78,7 +80,7 @@ const DayCard: React.FC<{
             isToday ? "font-semibold text-foreground" : "text-muted-foreground",
           )}
         >
-          {day.weekdayLabel}
+          {new Date(day.dayStart * 1000).toLocaleDateString(i18n.language, { weekday: "short" })}
         </span>
         <span
           className={cn(

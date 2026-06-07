@@ -59,12 +59,12 @@ export const ScheduleInfoDrawer: React.FC<ScheduleInfoDrawerProps> = ({
                 </div>
                 <div>
                   <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('tasks.scheduled.fields.status', { defaultValue: '状态' })}
+                    {t('tasks.scheduled.fields.status', { defaultValue: 'Status' })}
                   </dt>
                   <dd className="mt-1 text-foreground">
                     {schedule.enabled
-                      ? t('tasks.scheduled.status.enabled', { defaultValue: '已启用' })
-                      : t('tasks.scheduled.status.disabled', { defaultValue: '已禁用' })}
+                      ? t('tasks.scheduled.status.enabled', { defaultValue: 'Enabled' })
+                      : t('tasks.scheduled.status.disabled', { defaultValue: 'Disabled' })}
                   </dd>
                 </div>
                 {schedule.target_state?.last_error ? (

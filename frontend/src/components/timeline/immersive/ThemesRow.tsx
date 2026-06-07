@@ -17,7 +17,7 @@ export const ThemesRow: React.FC<ThemesRowProps> = ({ themes, maxThemes = 4 }) =
   return (
     <div className="flex flex-wrap items-baseline gap-3 px-10 pt-5 pb-1">
       <span className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-        {t("timeline.immersive.themesLabel", { defaultValue: "你那时关心的" })}
+        {t("timeline.immersive.themesLabel", { defaultValue: "What you cared about then" })}
       </span>
       {visible.map((theme) => (
         <span

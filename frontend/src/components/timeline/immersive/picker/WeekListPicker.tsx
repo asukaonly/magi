@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -37,12 +38,10 @@ function getISOWeek(date: Date): { year: number; week: number } {
   return { year: d.getUTCFullYear(), week };
 }
 
-/** Sundays end the week; build "5月11–17日" or "4月27日 – 5月3日" depending on month crossing. */
-function formatWeekRange(start: Date, end: Date): string {
-  if (start.getMonth() === end.getMonth()) {
-    return `${start.getMonth() + 1}月${start.getDate()}–${end.getDate()}日`;
-  }
-  return `${start.getMonth() + 1}月${start.getDate()}日 – ${end.getMonth() + 1}月${end.getDate()}日`;
+/** Locale-aware Monday→Sunday range label, e.g. "May 11 – May 17" / "5月11日 – 5月17日". */
+function formatWeekRange(start: Date, end: Date, locale: string): string {
+  const fmt = (d: Date) => d.toLocaleDateString(locale, { month: "short", day: "numeric" });
+  return `${fmt(start)} – ${fmt(end)}`;
 }
 
 /** All week-start (Monday) Dates that overlap with the given month. */
@@ -72,6 +71,7 @@ export const WeekListPicker: React.FC<WeekListPickerProps> = ({
   selectedWeekStart,
   onSelectWeek,
 }) => {
+  const { i18n } = useTranslation();
   const selectedStart = startOfISOWeek(new Date(selectedWeekStart * 1000));
   const [viewYear, setViewYear] = useState<number>(selectedStart.getFullYear());
   const [viewMonth, setViewMonth] = useState<number>(selectedStart.getMonth() + 1);
@@ -112,7 +112,10 @@ export const WeekListPicker: React.FC<WeekListPickerProps> = ({
           <ChevronLeft className="h-4 w-4" />
         </button>
         <div className="text-sm font-medium">
-          {viewYear} 年 {viewMonth} 月
+          {new Date(viewYear, viewMonth - 1, 1).toLocaleDateString(i18n.language, {
+            year: "numeric",
+            month: "long",
+          })}
         </div>
         <button
           type="button"
@@ -148,7 +151,7 @@ export const WeekListPicker: React.FC<WeekListPickerProps> = ({
                   : "text-foreground hover:bg-foreground/5",
               )}
             >
-              <span>{formatWeekRange(weekStart, weekEnd)}</span>
+              <span>{formatWeekRange(weekStart, weekEnd, i18n.language)}</span>
               {isCurrentWeek && !isSelected && (
                 <span
                   className="h-1 w-1 rounded-full bg-foreground/80"

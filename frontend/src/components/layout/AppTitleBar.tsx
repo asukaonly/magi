@@ -15,9 +15,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { MonthGridPicker } from '@/components/timeline/immersive/picker/MonthGridPicker';
 import { WeekListPicker } from '@/components/timeline/immersive/picker/WeekListPicker';
 
-const SCALE_LABEL: Record<string, string> = { month: "月", week: "周", day: "日", hour: "时" };
-
-
 const TimelineTitleBarSlot: React.FC = () => {
   const { t } = useTranslation('app');
   const panel = useChatShellStore((s) => s.timelinePanel);
@@ -25,7 +22,7 @@ const TimelineTitleBarSlot: React.FC = () => {
   return (
     <div className="flex h-full flex-1 items-center gap-3 px-3 text-xs">
       <span className="text-sm font-semibold text-foreground">
-        {t('timeline.title', { defaultValue: '时间线' })}
+        {t('timeline.title', { defaultValue: 'Timeline' })}
       </span>
       <div className="flex-1" />
       {/* Scale tab group */}
@@ -44,7 +41,7 @@ const TimelineTitleBarSlot: React.FC = () => {
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            {SCALE_LABEL[s]}
+            {t(`timeline.scale.${s}`)}
           </button>
         ))}
       </div>
@@ -110,7 +107,7 @@ const TimelineTitleBarSlot: React.FC = () => {
                 {panel.scale === "hour" ? (
                   <div className="border-t border-border px-3 py-2">
                     <div className="mb-1.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-                      时
+                      {t('timeline.hourPicker.label', { defaultValue: 'Hour' })}
                     </div>
                     <div className="grid grid-cols-6 gap-1">
                       {Array.from({ length: 24 }, (_, i) => i).map((h) => {
@@ -167,7 +164,7 @@ const TimelineTitleBarSlot: React.FC = () => {
           if (e.key === 'Enter') panel.onSubmitQuery?.();
         }}
         onMouseDown={(e) => e.stopPropagation()}
-        placeholder={t('timeline.searchPlaceholder', { defaultValue: '筛选当前时段' })}
+        placeholder={t('timeline.searchPlaceholder', { defaultValue: 'Filter this period' })}
         className="h-6 w-40 rounded-md border border-border bg-background px-2 text-xs"
       />
     </div>

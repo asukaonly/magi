@@ -54,6 +54,6 @@ describe("StandoutList", () => {
 
   it("renders the empty-state placeholder when items is empty", () => {
     render(<StandoutList items={[]} onSelectEpisode={vi.fn()} />);
-    expect(screen.getByText(/再陪你几天/)).toBeInTheDocument();
+    expect(screen.getByText(/Give it a few more days/)).toBeInTheDocument();
   });
 });

@@ -59,15 +59,6 @@ const MOOD_EMOJI: Record<MoodValence, string> = {
   tense: '😣',
 };
 
-/** Hover/title hint per pill so the meaning isn't completely emoji-bound. */
-const MOOD_HINT: Record<MoodValence, string> = {
-  warm: '舒适 / 放松',
-  bright: '开朗 / 明亮',
-  neutral: '一般',
-  cool: '低落 / 收敛',
-  tense: '紧张 / 压力',
-};
-
 const MAX_UPLOAD_MB = 10;
 const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 
@@ -79,11 +70,11 @@ type TimeShift =
   | { kind: 'custom'; eventAt: number };
 
 const TIME_SHIFT_PRESETS: Array<{ id: TimeShift['kind']; labelKey: string; defaultLabel: string }> = [
-  { id: 'now', labelKey: 'timeline.manualEntry.timeShift.now', defaultLabel: '刚才' },
-  { id: 'minus-hour', labelKey: 'timeline.manualEntry.timeShift.hourAgo', defaultLabel: '1 小时前' },
-  { id: 'this-morning', labelKey: 'timeline.manualEntry.timeShift.thisMorning', defaultLabel: '今早' },
-  { id: 'last-night', labelKey: 'timeline.manualEntry.timeShift.lastNight', defaultLabel: '昨晚' },
-  { id: 'custom', labelKey: 'timeline.manualEntry.timeShift.custom', defaultLabel: '自定义…' },
+  { id: 'now', labelKey: 'timeline.manualEntry.timeShift.now', defaultLabel: 'Just now' },
+  { id: 'minus-hour', labelKey: 'timeline.manualEntry.timeShift.hourAgo', defaultLabel: '1 hour ago' },
+  { id: 'this-morning', labelKey: 'timeline.manualEntry.timeShift.thisMorning', defaultLabel: 'This morning' },
+  { id: 'last-night', labelKey: 'timeline.manualEntry.timeShift.lastNight', defaultLabel: 'Last night' },
+  { id: 'custom', labelKey: 'timeline.manualEntry.timeShift.custom', defaultLabel: 'Custom…' },
 ];
 
 function shiftToEventAt(shift: TimeShift, anchor: Date = new Date()): number {
@@ -226,7 +217,8 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     if (file.size > MAX_UPLOAD_BYTES) {
       toast.error(
         t('timeline.manualEntry.errors.imageTooLarge', {
-          defaultValue: `图片超过 ${MAX_UPLOAD_MB}MB 上限`,
+          max: MAX_UPLOAD_MB,
+          defaultValue: `Image exceeds the ${MAX_UPLOAD_MB}MB limit`,
         }),
       );
       return;
@@ -254,7 +246,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
       );
       toast.error(
         t('timeline.manualEntry.errors.uploadFailed', {
-          defaultValue: '图片上传失败',
+          defaultValue: 'Image upload failed',
           message: err?.message,
         }),
       );
@@ -332,14 +324,14 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         result = await manualEntriesApi.create(payload);
       }
       toast.success(
-        t('timeline.manualEntry.savedToast', { defaultValue: '已记录' }),
+        t('timeline.manualEntry.savedToast', { defaultValue: 'Saved' }),
       );
       onSaved?.(result);
       onClose();
     } catch (err: any) {
       toast.error(
         t('timeline.manualEntry.errors.saveFailed', {
-          defaultValue: '保存失败',
+          defaultValue: 'Save failed',
           message: err?.message,
         }),
       );
@@ -416,9 +408,9 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
             className="flex h-7 items-center gap-1 rounded-md border border-border/60 px-2.5 hover:bg-foreground/[0.03]"
             title={
               mood
-                ? `${mood} · ${MOOD_HINT[mood]}`
+                ? `${mood} · ${t(`timeline.manualEntry.mood.${mood}`)}`
                 : t('timeline.manualEntry.moodPlaceholderHint', {
-                    defaultValue: '选一个心情',
+                    defaultValue: 'Pick a mood',
                   })
             }
           >
@@ -430,7 +422,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               <>
                 <span className="opacity-60" aria-hidden="true">🙂</span>
                 <span>
-                  {t('timeline.manualEntry.moodPlaceholder', { defaultValue: '心情' })}
+                  {t('timeline.manualEntry.moodPlaceholder', { defaultValue: 'Mood' })}
                 </span>
               </>
             )}
@@ -458,7 +450,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                   }}
                   aria-label={m}
                   aria-pressed={isSelected ? 'true' : 'false'}
-                  title={`${m} · ${MOOD_HINT[m]}`}
+                  title={`${m} · ${t(`timeline.manualEntry.mood.${m}`)}`}
                   className={cn(
                     'flex h-9 w-9 items-center justify-center rounded-md text-xl leading-none transition-all',
                     isSelected
@@ -530,7 +522,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                   : 'text-foreground/80 hover:bg-foreground/5',
               )}
             >
-              {t('timeline.manualEntry.timeShift.custom', { defaultValue: '自定义…' })}
+              {t('timeline.manualEntry.timeShift.custom', { defaultValue: 'Custom…' })}
             </button>
           </div>
           {timeShift.kind === 'custom' ? (
@@ -550,7 +542,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               />
               <div className="border-t border-border px-3 py-2">
                 <div className="mb-1.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-                  {t('timeline.manualEntry.hour', { defaultValue: '时' })}
+                  {t('timeline.manualEntry.hour', { defaultValue: 'h' })}
                 </div>
                 <div className="grid grid-cols-6 gap-1">
                   {Array.from({ length: 24 }, (_, i) => i).map((h) => {
@@ -578,7 +570,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                   })}
                 </div>
                 <div className="mb-1.5 mt-2.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-                  {t('timeline.manualEntry.minute', { defaultValue: '分' })}
+                  {t('timeline.manualEntry.minute', { defaultValue: 'm' })}
                 </div>
                 <div className="grid grid-cols-4 gap-1">
                   {[0, 15, 30, 45].map((mm) => {
@@ -619,7 +611,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           autoFocus
           defaultValue={location ?? ''}
           placeholder={t('timeline.manualEntry.locationPrompt', {
-            defaultValue: '输入地点',
+            defaultValue: 'Enter a place',
           })}
           onBlur={(e) => {
             const v = e.target.value.trim();
@@ -644,7 +636,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
             type="button"
             onClick={() => setEditingLocation(true)}
             className="hover:underline"
-            title={t('timeline.manualEntry.editLocation', { defaultValue: '修改地点' })}
+            title={t('timeline.manualEntry.editLocation', { defaultValue: 'Edit place' })}
           >
             {location}
           </button>
@@ -664,7 +656,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           className="flex h-7 items-center gap-1 rounded-md border border-dashed border-border/60 px-2.5 text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground"
         >
           <MapPin className="h-3 w-3" />
-          {t('timeline.manualEntry.addLocation', { defaultValue: '加地点' })}
+          {t('timeline.manualEntry.addLocation', { defaultValue: 'Add place' })}
         </button>
       )}
 
@@ -673,7 +665,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         <span
           className="flex h-7 items-center gap-1 rounded-md border border-border/60 px-2.5"
           title={t('timeline.manualEntry.weatherTitle', {
-            defaultValue: '自动获取的天气',
+            defaultValue: 'Auto-fetched weather',
           })}
         >
           <span aria-hidden="true">{weatherEmoji(weather.code)}</span>
@@ -738,7 +730,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
             <div
               role="tablist"
               aria-label={t('timeline.manualEntry.modeToggleAria', {
-                defaultValue: '编辑模式',
+                defaultValue: 'Edit mode',
               })}
               className="flex shrink-0 items-center rounded-md border border-border/60 bg-muted/30 p-0.5 text-[11px]"
             >
@@ -758,7 +750,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 )}
               >
                 <Pencil className="h-3 w-3" />
-                {t('timeline.manualEntry.modeQuick', { defaultValue: '简单' })}
+                {t('timeline.manualEntry.modeQuick', { defaultValue: 'Quick' })}
               </button>
               <button
                 type="button"
@@ -773,15 +765,15 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 )}
               >
                 <FileText className="h-3 w-3" />
-                {t('timeline.manualEntry.modeLong', { defaultValue: '长文' })}
+                {t('timeline.manualEntry.modeLong', { defaultValue: 'Long' })}
               </button>
             </div>
             <DialogTitle className="text-base font-medium">
               {existingEntry
-                ? t('timeline.manualEntry.editTitle', { defaultValue: '编辑记录' })
+                ? t('timeline.manualEntry.editTitle', { defaultValue: 'Edit note' })
                 : mode === 'long'
-                ? t('timeline.manualEntry.createLongTitle', { defaultValue: '写一篇…' })
-                : t('timeline.manualEntry.createTitle', { defaultValue: '写下…' })}
+                ? t('timeline.manualEntry.createLongTitle', { defaultValue: 'Write a piece…' })
+                : t('timeline.manualEntry.createTitle', { defaultValue: 'Write something…' })}
             </DialogTitle>
           </div>
         </DialogHeader>
@@ -807,7 +799,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               onPasteImages={(files) => files.forEach((f) => void uploadFile(f))}
               onSubmitShortcut={() => void handleSave()}
               placeholder={t('timeline.manualEntry.placeholderLong', {
-                defaultValue: '写下…（⌘+V 粘贴图片，⌘+Enter 保存）',
+                defaultValue: 'Write something… (⌘+V to paste an image, ⌘+Enter to save)',
               })}
               autoFocus
               // Generous writing surface — ~14 rows at 24px line-height.
@@ -823,7 +815,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               onPaste={handleQuickTextareaPaste}
               onKeyDown={handleQuickTextareaKeyDown}
               placeholder={t('timeline.manualEntry.placeholder', {
-                defaultValue: '写下…（⌘+V 粘贴图片，⌘+Enter 保存）',
+                defaultValue: 'Write something… (⌘+V to paste an image, ⌘+Enter to save)',
               })}
               autoFocus
               className="min-h-[96px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm leading-6"
@@ -857,7 +849,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                   <button
                     type="button"
                     onClick={() => removeAttachment(a.draftId)}
-                    title={t('timeline.manualEntry.removeImage', { defaultValue: '移除' })}
+                    title={t('timeline.manualEntry.removeImage', { defaultValue: 'Remove' })}
                     className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
                   >
                     <X className="h-3 w-3" />
@@ -868,7 +860,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="flex h-16 w-16 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground hover:bg-foreground/[0.03]"
-                title={t('timeline.manualEntry.addImage', { defaultValue: '添加图片' })}
+                title={t('timeline.manualEntry.addImage', { defaultValue: 'Add image' })}
               >
                 <Image className="h-5 w-5" />
               </button>
@@ -887,13 +879,13 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           {/* Footer */}
           <div className="flex items-center justify-end gap-2 border-t border-border/40 pt-3">
             <Button variant="ghost" size="sm" onClick={onClose} disabled={saving}>
-              {t('timeline.manualEntry.cancel', { defaultValue: '取消' })}
+              {t('timeline.manualEntry.cancel', { defaultValue: 'Cancel' })}
             </Button>
             <Button variant="default" size="sm" disabled={!canSave} onClick={handleSave}>
               {saving ? (
                 <LoadingSpinner className="mr-1.5 h-3.5 w-3.5" />
               ) : null}
-              {t('timeline.manualEntry.save', { defaultValue: '保存' })}
+              {t('timeline.manualEntry.save', { defaultValue: 'Save' })}
             </Button>
           </div>
         </div>

@@ -27,7 +27,7 @@ describe("Slice", () => {
     const toggle = vi.fn();
     render(<Slice {...baseProps} onTogglePinned={toggle} />);
 
-    const heart = screen.getByRole("button", { name: /想常回来|喜欢|♡/i });
+    const heart = screen.getByRole("button", { name: /Worth coming back to|♡/i });
     await user.click(heart);
     expect(toggle).toHaveBeenCalledWith("ep-x", true);
   });
@@ -37,7 +37,7 @@ describe("Slice", () => {
     const toggle = vi.fn();
     render(<Slice {...baseProps} isPinned onTogglePinned={toggle} />);
 
-    const heart = screen.getByRole("button", { name: /想常回来|喜欢|♡/i });
+    const heart = screen.getByRole("button", { name: /Worth coming back to|♡/i });
     expect(heart).toHaveAttribute("data-pinned", "true");
 
     await user.click(heart);
@@ -51,7 +51,7 @@ describe("Slice", () => {
 
     const menuButton = screen.getByRole("button", { name: /more|更多|⋯/i });
     await user.click(menuButton);
-    const hideItem = await screen.findByText(/不算这天的样子/);
+    const hideItem = await screen.findByText(/Do not count toward this day/);
     await user.click(hideItem);
 
     expect(hide).toHaveBeenCalledWith("ep-x");

@@ -25,7 +25,7 @@ const formatEntityList = (ids: string[] | null | undefined, limit: number = 3): 
   const labels = ids
     .slice(0, limit)
     .map((id) => id.split(':').slice(-1)[0]);
-  const extra = ids.length > limit ? ' 等' : '';
+  const extra = ids.length > limit ? '…' : '';
   return labels.join(' · ') + extra;
 };
 
@@ -33,9 +33,13 @@ const buildFallbackTitle = (
   episode: L2EpisodeWithSummary,
   typeLabel: string,
   range: string,
+  t: (key: string, opts?: Record<string, unknown>) => string,
 ): string => {
   const entities = formatEntityList(episode.primary_entity_ids);
-  const count = `${episode.source_event_count ?? 0} 件事`;
+  const count = t('memory.episodes.eventCount', {
+    count: episode.source_event_count ?? 0,
+    defaultValue: '{{count}} events',
+  });
   const parts = [typeLabel, range, entities, count].filter(Boolean);
   return parts.join(' · ');
 };
@@ -49,7 +53,7 @@ export const EpisodeRow = ({ episode, onTogglePin, onRename, onAnnotate, onForge
   // Title priority: user_label > L3 summary label > derived structured title
   const title = episode.user_label
     || epSummary?.label
-    || buildFallbackTitle(episode, typeLabel, range);
+    || buildFallbackTitle(episode, typeLabel, range, t);
 
   // Body priority: L3 summary content > nothing (just show meta line)
   const body = epSummary?.content ?? '';
@@ -63,7 +67,7 @@ export const EpisodeRow = ({ episode, onTogglePin, onRename, onAnnotate, onForge
             <p className="mt-1 text-sm leading-5 text-[hsl(var(--memory-body))]">{body}</p>
           ) : (
             <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
-              {range || t('memory.episodes.awaitingLabel', { defaultValue: '等 Magi 起草标题...' })}
+              {range || t('memory.episodes.awaitingLabel', { defaultValue: 'Waiting for Magi to draft a title…' })}
             </div>
           )}
           {body && range ? (

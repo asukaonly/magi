@@ -13,10 +13,10 @@ export const PeriodCardEmpty: React.FC<PeriodCardEmptyProps> = ({ scale, dateLab
   const emptyMessage =
     scale === "month"
       ? t("timeline.immersive.emptyMonth", {
-          defaultValue: "月度回顾需要几周时间慢慢长出来。先从日开始翻？",
+          defaultValue: "A monthly review needs a few weeks to grow. Start with a day?",
         })
       : t("timeline.immersive.emptyDay", {
-          defaultValue: "再陪你几天，这页就会写满你的样子。",
+          defaultValue: "Give it a few more days and this page will fill in with you.",
         });
 
   return (

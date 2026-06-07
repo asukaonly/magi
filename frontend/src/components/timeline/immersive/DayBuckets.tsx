@@ -100,7 +100,7 @@ export const DayBuckets: React.FC<DayBucketsProps> = ({
   if (visibleBuckets.length === 0) {
     return (
       <div className="px-10 py-10 text-center text-sm text-muted-foreground">
-        {t("timeline.immersive.dayEmpty", { defaultValue: "这一天没什么动静。" })}
+        {t("timeline.immersive.dayEmpty", { defaultValue: "Nothing much this day." })}
       </div>
     );
   }
@@ -181,10 +181,10 @@ const ManualEntryGroup: React.FC<{
       <div className="mb-1.5 flex items-center gap-1.5">
         <Feather className="h-3.5 w-3.5 text-[#c9a878]" />
         <span className="text-[12px] font-medium text-foreground">
-          {t("timeline.manualEntry.groupLabel", { defaultValue: "你的记录" })}
+          {t("timeline.manualEntry.groupLabel", { defaultValue: "Your notes" })}
         </span>
         <span className="font-mono text-[11px] text-muted-foreground/50">
-          · {entries.length} 条
+          · {t('timeline.manualEntry.entryCount', { count: entries.length, defaultValue: '{{count}} entries' })}
         </span>
       </div>
       <ul className="ml-5 flex flex-col gap-2">
@@ -271,7 +271,7 @@ const ManualEntryRow: React.FC<{
                   type="button"
                   onClick={() => setPreviewIdx(i)}
                   className="h-14 w-14 overflow-hidden rounded border border-border/60 hover:border-foreground/40"
-                  aria-label={t("timeline.manualEntry.openImage", { defaultValue: "查看图片" })}
+                  aria-label={t("timeline.manualEntry.openImage", { defaultValue: "View image" })}
                 >
                   <img src={url} alt="" className="h-full w-full object-cover" loading="lazy" />
                 </button>
@@ -290,25 +290,25 @@ const ManualEntryRow: React.FC<{
               type="button"
               onClick={() => onEdit(entry)}
               className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-              aria-label={t("timeline.manualEntry.editAction", { defaultValue: "编辑" })}
+              aria-label={t("timeline.manualEntry.editAction", { defaultValue: "Edit" })}
             >
               <Pencil className="h-3 w-3" />
-              {t("timeline.manualEntry.editAction", { defaultValue: "编辑" })}
+              {t("timeline.manualEntry.editAction", { defaultValue: "Edit" })}
             </button>
           ) : null}
           {onDelete ? (
             <button
               type="button"
               onClick={() => {
-                if (window.confirm(t("timeline.manualEntry.confirmDelete", { defaultValue: "删除这条记录？" }))) {
+                if (window.confirm(t("timeline.manualEntry.confirmDelete", { defaultValue: "Delete this note?" }))) {
                   onDelete(entry.entry_id);
                 }
               }}
               className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-red-500"
-              aria-label={t("timeline.manualEntry.deleteAction", { defaultValue: "删除" })}
+              aria-label={t("timeline.manualEntry.deleteAction", { defaultValue: "Delete" })}
             >
               <Trash2 className="h-3 w-3" />
-              {t("timeline.manualEntry.deleteAction", { defaultValue: "删除" })}
+              {t("timeline.manualEntry.deleteAction", { defaultValue: "Delete" })}
             </button>
           ) : null}
         </div>
@@ -354,7 +354,8 @@ function isPlaceholderText(value: string | null | undefined): boolean {
 }
 
 const SourceGroupBlock: React.FC<{ group: SourceGroup }> = ({ group }) => {
-  const label = labelForSource(group.sourceType);
+  const { t } = useTranslation("app");
+  const label = labelForSource(group.sourceType, t);
   return (
     <div>
       <div className="mb-1.5 flex items-center gap-1.5">
@@ -365,7 +366,7 @@ const SourceGroupBlock: React.FC<{ group: SourceGroup }> = ({ group }) => {
         </span>
         {group.itemCount > 1 && (
           <span className="font-mono text-[11px] text-muted-foreground/50">
-            · {group.itemCount} 次
+            · {t('timeline.immersive.occurrenceCount', { count: group.itemCount, defaultValue: '{{count}} times' })}
           </span>
         )}
       </div>

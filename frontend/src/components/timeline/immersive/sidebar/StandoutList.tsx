@@ -14,12 +14,12 @@ export const StandoutList: React.FC<StandoutListProps> = ({ items, onSelectEpiso
   return (
     <div className="border-t border-border/30 px-4 py-4">
       <div className="mb-3 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-        {t("timeline.immersive.standoutLabel", { defaultValue: "值得回来的" })}
+        {t("timeline.immersive.standoutLabel", { defaultValue: "Worth returning to" })}
       </div>
       {items.length === 0 ? (
         <p className="text-[12px] italic text-muted-foreground/70 leading-relaxed">
           {t("timeline.immersive.standoutEmpty", {
-            defaultValue: "再陪你几天，这里会出现更多值得回来的瞬间。",
+            defaultValue: "Give it a few more days and more moments worth returning to will show up here.",
           })}
         </p>
       ) : (
@@ -34,7 +34,7 @@ export const StandoutList: React.FC<StandoutListProps> = ({ items, onSelectEpiso
                 {item.source === "user" && (
                   <span className="mr-1 text-[#b87a78]">♡</span>
                 )}
-                {item.title || t("timeline.immersive.untitledMoment", { defaultValue: "未命名" })}
+                {item.title || t("timeline.immersive.untitledMoment", { defaultValue: "Untitled" })}
                 <span className="mt-0.5 block text-[10px] text-muted-foreground">
                   {item.date}
                 </span>

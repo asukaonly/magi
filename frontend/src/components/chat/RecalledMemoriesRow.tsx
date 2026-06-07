@@ -86,7 +86,7 @@ export const RecalledMemoriesRow = ({ memories }: RecalledMemoriesRowProps) => {
           <Brain className="h-3 w-3" aria-hidden="true" />
           <span>
             {t('chat.recalledMemories.summary', {
-              defaultValue: '调用了 {{count}} 条记忆',
+              defaultValue: 'Recalled {{count}} memories',
               count: memories.length,
             })}
           </span>
@@ -141,7 +141,7 @@ export const RecalledMemoriesRow = ({ memories }: RecalledMemoriesRowProps) => {
                   <span aria-hidden="true">·</span>
                   <span>
                     {t('chat.recalledMemories.confidence', {
-                      defaultValue: '置信度 {{value}}',
+                      defaultValue: 'Confidence {{value}}',
                       value: expandedMemory.confidence.toFixed(2),
                     })}
                   </span>
@@ -151,7 +151,7 @@ export const RecalledMemoriesRow = ({ memories }: RecalledMemoriesRowProps) => {
             <button
               type="button"
               onClick={() => setExpandedIndex(null)}
-              aria-label={t('chat.recalledMemories.close', { defaultValue: '收起记忆详情' })}
+              aria-label={t('chat.recalledMemories.close', { defaultValue: 'Collapse memory details' })}
               className="shrink-0 rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground/90"
             >
               <X className="h-3 w-3" aria-hidden="true" />

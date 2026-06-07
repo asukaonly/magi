@@ -29,7 +29,7 @@ export const HourDetail: React.FC<HourDetailProps> = ({ viewport }) => {
   if (clusters.length === 0 && rawEvents.length === 0) {
     return (
       <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
-        {t("timeline.immersive.hourEmpty", { defaultValue: "这个小时没什么动静。" })}
+        {t("timeline.immersive.hourEmpty", { defaultValue: "Nothing much this hour." })}
       </div>
     );
   }

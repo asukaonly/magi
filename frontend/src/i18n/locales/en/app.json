@@ -37,7 +37,12 @@
     }
   },
   "common": {
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "cancel": "Cancel",
+    "save": "Save",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyCode": "Copy code"
   },
   "notifications": {
     "bellAria": "Notifications",
@@ -202,7 +207,8 @@
       },
       "status": {
         "running": "Running",
-        "disabled": "Disabled"
+        "disabled": "Disabled",
+        "enabled": "Enabled"
       },
       "systemJobs": {
         "fallbackDescription": "Internal maintenance job scheduled by the system.",
@@ -288,7 +294,9 @@
         "cronConfig": "Cron Config",
         "displayName": "Name",
         "displayNamePlaceholder": "e.g. Daily summary",
-        "lastError": "Last error"
+        "lastError": "Last error",
+        "status": "Status",
+        "overrideParamsHint": "Affects this run only; the next scheduled trigger still uses the original params."
       },
       "actions": {
         "runNow": "Run Now",
@@ -305,7 +313,11 @@
         "save": "Save",
         "cancelEdit": "Cancel",
         "create": "New schedule",
-        "viewBackgroundTask": "View background task"
+        "viewBackgroundTask": "View background task",
+        "run": "Run",
+        "runWithParamsOpen": "Run with params…",
+        "runWithParams": "Run with params",
+        "cancel": "Cancel"
       },
       "edit": {
         "title": "Edit Schedule"
@@ -536,6 +548,109 @@
       "loadFailed": "Failed to load timeline: {{message}}",
       "detailFailed": "Failed to load timeline context: {{message}}",
       "feedbackFailed": "Failed to save timeline feedback: {{message}}"
+    },
+    "immersive": {
+      "hideConfirm": "Hidden",
+      "hourEmpty": "Nothing much this hour.",
+      "dayEmpty": "Nothing much this day.",
+      "emptyMonth": "A monthly review needs a few weeks to grow. Start with a day?",
+      "emptyDay": "Give it a few more days and this page will fill in with you.",
+      "heartLabel": "Worth coming back to",
+      "moreLabel": "More",
+      "hideMemoryLabel": "Do not count toward this day",
+      "themesLabel": "What you cared about then",
+      "standoutLabel": "Worth returning to",
+      "standoutEmpty": "Give it a few more days and more moments worth returning to will show up here.",
+      "untitledMoment": "Untitled",
+      "occurrenceCount": "{{count}} times",
+      "bucket": {
+        "deep_night": "Late night",
+        "morning": "Morning",
+        "afternoon": "Afternoon",
+        "evening": "Evening"
+      }
+    },
+    "manualEntry": {
+      "deletedToast": "Deleted",
+      "errors": {
+        "deleteFailed": "Delete failed",
+        "imageTooLarge": "Image exceeds the {{max}}MB limit",
+        "uploadFailed": "Image upload failed",
+        "saveFailed": "Save failed"
+      },
+      "openButton": "Add a note (n)",
+      "groupLabel": "Your notes",
+      "openImage": "View image",
+      "editAction": "Edit",
+      "confirmDelete": "Delete this note?",
+      "deleteAction": "Delete",
+      "savedToast": "Saved",
+      "moodPlaceholderHint": "Pick a mood",
+      "moodPlaceholder": "Mood",
+      "timeShift": {
+        "custom": "Custom…",
+        "now": "Just now",
+        "hourAgo": "1 hour ago",
+        "thisMorning": "This morning",
+        "lastNight": "Last night"
+      },
+      "hour": "h",
+      "minute": "m",
+      "locationPrompt": "Enter a place",
+      "editLocation": "Edit place",
+      "addLocation": "Add place",
+      "weatherTitle": "Auto-fetched weather",
+      "modeToggleAria": "Edit mode",
+      "modeQuick": "Quick",
+      "modeLong": "Long",
+      "editTitle": "Edit note",
+      "createLongTitle": "Write a piece…",
+      "createTitle": "Write something…",
+      "placeholderLong": "Write something… (⌘+V to paste an image, ⌘+Enter to save)",
+      "placeholder": "Write something… (⌘+V to paste an image, ⌘+Enter to save)",
+      "removeImage": "Remove",
+      "addImage": "Add image",
+      "cancel": "Cancel",
+      "save": "Save",
+      "mood": {
+        "warm": "Cozy / relaxed",
+        "bright": "Cheerful / bright",
+        "neutral": "Neutral",
+        "cool": "Low / withdrawn",
+        "tense": "Tense / stressed"
+      },
+      "entryCount": "{{count}} entries",
+      "editor": {
+        "bold": "Bold (⌘B)",
+        "italic": "Italic (⌘I)",
+        "strike": "Strikethrough",
+        "inlineCode": "Inline code",
+        "link": "Link",
+        "apply": "Apply",
+        "removeLink": "Remove link",
+        "remove": "Remove",
+        "h2": "Heading 2",
+        "h3": "Heading 3",
+        "bulletList": "Bullet list",
+        "orderedList": "Numbered list",
+        "quote": "Quote",
+        "divider": "Divider"
+      }
+    },
+    "searchPlaceholder": "Filter this period",
+    "hourPicker": {
+      "label": "Hour"
+    },
+    "source": {
+      "manualEntry": "Your notes",
+      "screen": "Screen",
+      "chat": "Chat",
+      "calendar": "Calendar",
+      "music": "Music",
+      "terminal": "Terminal",
+      "photo": "Photos",
+      "health": "Health",
+      "memory": "Memory"
     }
   },
   "dashboard": {
@@ -2147,29 +2262,69 @@
         "channel": "Channel"
       },
       "consent": {
-        "title": { "install": "Install \"{{name}}\"?", "update": "Update \"{{name}}\"?", "sideload": "Install \"{{name}}\" from file?" },
+        "title": {
+          "install": "Install \"{{name}}\"?",
+          "update": "Update \"{{name}}\"?",
+          "sideload": "Install \"{{name}}\" from file?"
+        },
         "lede": "This plugin declares it will access:",
         "ledeEmpty": "This plugin declares no special system permissions or data access.",
         "updateNewLede": "This update adds the following access:",
         "groupSystem": "System permissions",
         "groupData": "Data & network access",
         "optionalTag": "optional",
-        "confirm": { "install": "Install", "update": "Update" },
+        "confirm": {
+          "install": "Install",
+          "update": "Update"
+        },
         "cancel": "Cancel",
         "thirdParty": "Third-party plugin"
       },
       "capability": {
-        "screen_recording": { "label": "Screen recording", "desc": "Capture images of your screen" },
-        "accessibility": { "label": "Accessibility", "desc": "Read the active window and UI" },
-        "calendar": { "label": "Calendar", "desc": "Read your calendar and reminders" },
-        "photos": { "label": "Photos", "desc": "Access your photo library" },
-        "contacts": { "label": "Contacts", "desc": "Read your contacts" },
-        "system_media": { "label": "System media", "desc": "Read media playback info" },
-        "filesystem_read": { "label": "Read files", "desc": "Read files on your computer" },
-        "filesystem_write": { "label": "Write files", "desc": "Write files on your computer" },
-        "network": { "label": "Network", "desc": "Connect to the internet" },
-        "subprocess": { "label": "Run programs", "desc": "Run other programs on your computer" },
-        "unknown": { "label": "Other access", "desc": "An access type this version of Magi doesn't recognize" }
+        "screen_recording": {
+          "label": "Screen recording",
+          "desc": "Capture images of your screen"
+        },
+        "accessibility": {
+          "label": "Accessibility",
+          "desc": "Read the active window and UI"
+        },
+        "calendar": {
+          "label": "Calendar",
+          "desc": "Read your calendar and reminders"
+        },
+        "photos": {
+          "label": "Photos",
+          "desc": "Access your photo library"
+        },
+        "contacts": {
+          "label": "Contacts",
+          "desc": "Read your contacts"
+        },
+        "system_media": {
+          "label": "System media",
+          "desc": "Read media playback info"
+        },
+        "filesystem_read": {
+          "label": "Read files",
+          "desc": "Read files on your computer"
+        },
+        "filesystem_write": {
+          "label": "Write files",
+          "desc": "Write files on your computer"
+        },
+        "network": {
+          "label": "Network",
+          "desc": "Connect to the internet"
+        },
+        "subprocess": {
+          "label": "Run programs",
+          "desc": "Run other programs on your computer"
+        },
+        "unknown": {
+          "label": "Other access",
+          "desc": "An access type this version of Magi doesn't recognize"
+        }
       }
     },
     "pluginInstallProgress": {
@@ -2299,7 +2454,8 @@
         "annotate": "Annotate",
         "forget": "Forget"
       },
-      "awaitingLabel": "Waiting for Magi to draft a title..."
+      "awaitingLabel": "Waiting for Magi to draft a title...",
+      "eventCount": "{{count}} events"
     },
     "portrait": {
       "title": "About you",

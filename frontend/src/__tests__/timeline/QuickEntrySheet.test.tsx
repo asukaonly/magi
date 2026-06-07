@@ -116,24 +116,24 @@ beforeEach(() => {
 describe("QuickEntrySheet", () => {
   it("disables save when body is empty and no attachments", () => {
     render(<QuickEntrySheet open onClose={() => {}} />);
-    const saveBtn = screen.getByRole("button", { name: "保存" });
+    const saveBtn = screen.getByRole("button", { name: "Save" });
     expect(saveBtn).toBeDisabled();
   });
 
   it("enables save once body has content", async () => {
     const user = userEvent.setup();
     render(<QuickEntrySheet open onClose={() => {}} />);
-    const textarea = screen.getByPlaceholderText(/写下/);
+    const textarea = screen.getByPlaceholderText(/Write/);
     await user.type(textarea, "今天还行");
-    expect(screen.getByRole("button", { name: "保存" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled();
   });
 
   it("calls manualEntriesApi.create with the entered body on save (quick mode = default)", async () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
     render(<QuickEntrySheet open onClose={() => {}} onSaved={onSaved} />);
-    await user.type(screen.getByPlaceholderText(/写下/), "一念之间");
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.type(screen.getByPlaceholderText(/Write/), "一念之间");
+    await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(createMock).toHaveBeenCalled());
     const payload = createMock.mock.calls[0][0];
     expect(payload.body).toBe("一念之间");
@@ -151,15 +151,15 @@ describe("QuickEntrySheet", () => {
     render(<QuickEntrySheet open onClose={() => {}} onSaved={onSaved} />);
 
     // Type in quick mode first, then upgrade via the segmented toggle.
-    await user.type(screen.getByPlaceholderText(/写下/), "一念之间");
-    await user.click(screen.getByRole("tab", { name: "长文" }));
+    await user.type(screen.getByPlaceholderText(/Write/), "一念之间");
+    await user.click(screen.getByRole("tab", { name: "Long" }));
 
     // After promotion, the mock RichTextEditor (textarea-shim) is mounted;
     // its onChange wraps the body into a ProseMirror doc on the next keystroke.
     // Add a trailing space so the editor emits an update for the existing text.
-    await user.type(screen.getByPlaceholderText(/写下/), " ");
+    await user.type(screen.getByPlaceholderText(/Write/), " ");
 
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(createMock).toHaveBeenCalled());
     const payload = createMock.mock.calls[0][0];
     expect(payload.body).toContain("一念之间");
@@ -176,15 +176,15 @@ describe("QuickEntrySheet", () => {
     // Mood is now a popover-driven chip — open it first, then the
     // 5-emoji palette becomes interactive. The trigger button shows
     // "心情" placeholder text when no mood is selected.
-    await user.click(screen.getByRole("button", { name: /心情/ }));
+    await user.click(screen.getByRole("button", { name: /Mood/ }));
     const warmPill = screen.getByRole("button", { name: "warm" });
     expect(warmPill).toHaveAttribute("aria-pressed", "false");
     await user.click(warmPill);
     // Verify the selection landed by saving and inspecting payload.mood.
     // (We don't try to re-open the popover and re-read aria-pressed —
     // that's fragile in jsdom with Radix Portal'd content.)
-    await user.type(screen.getByPlaceholderText(/写下/), "x");
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.type(screen.getByPlaceholderText(/Write/), "x");
+    await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(createMock).toHaveBeenCalled());
     expect(createMock.mock.calls[0][0].mood).toBe("warm");
   });
@@ -192,7 +192,7 @@ describe("QuickEntrySheet", () => {
   it("Cmd+Enter inside the textarea triggers save", async () => {
     const user = userEvent.setup();
     render(<QuickEntrySheet open onClose={() => {}} />);
-    const textarea = screen.getByPlaceholderText(/写下/);
+    const textarea = screen.getByPlaceholderText(/Write/);
     await user.type(textarea, "test");
     fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
     await waitFor(() => expect(createMock).toHaveBeenCalled());
@@ -224,7 +224,7 @@ describe("QuickEntrySheet", () => {
       />
     );
     // Title attribute uniquely identifies the chip — assert the chip is in DOM.
-    const chip = screen.getByTitle("自动获取的天气");
+    const chip = screen.getByTitle("Auto-fetched weather");
     expect(chip).toBeTruthy();
     // The temperature is rounded for display
     expect(chip.textContent).toContain("15°");
@@ -291,10 +291,10 @@ describe("QuickEntrySheet", () => {
         }}
       />
     );
-    const textarea = screen.getByPlaceholderText(/写下/);
+    const textarea = screen.getByPlaceholderText(/Write/);
     await user.clear(textarea);
     await user.type(textarea, "改动后");
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(updateMock).toHaveBeenCalledWith(
       "me-existing",
       expect.objectContaining({ body: "改动后" }),

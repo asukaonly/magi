@@ -133,10 +133,10 @@ export const MemoryEpisodesPage = () => {
           )}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDialogState(null)}>
-              {t('common.cancel', { defaultValue: '取消' })}
+              {t('common.cancel', { defaultValue: 'Cancel' })}
             </Button>
             <Button onClick={() => void handleDialogSave()}>
-              {t('common.save', { defaultValue: '保存' })}
+              {t('common.save', { defaultValue: 'Save' })}
             </Button>
           </DialogFooter>
         </DialogContent>

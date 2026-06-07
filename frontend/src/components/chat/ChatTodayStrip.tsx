@@ -122,7 +122,7 @@ export const ChatTodayStrip = () => {
       title={
         summary
           ? t('chat.today.tooltip', {
-              defaultValue: '今日感知 · 共 {{total}} 条来自 {{count}} 个来源',
+              defaultValue: 'Today’s signals · {{total}} from {{count}} sources',
               total: totalCount,
               count: labeledEntries.length,
             })
@@ -130,7 +130,7 @@ export const ChatTodayStrip = () => {
       }
     >
       <span className="inline-flex shrink-0 items-center gap-1.5 font-medium text-foreground/85">
-        <span>{t('chat.today.label', { defaultValue: '今日' })}</span>
+        <span>{t('chat.today.label', { defaultValue: 'Today' })}</span>
         {weekday ? (
           <>
             <span className="text-muted-foreground/65" aria-hidden="true">·</span>
@@ -142,14 +142,14 @@ export const ChatTodayStrip = () => {
       {showInitialLoading ? (
         <span className="inline-flex items-center gap-1.5 text-muted-foreground/70">
           <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-          <span>{t('chat.today.loading', { defaultValue: '正在汇总今日感知…' })}</span>
+          <span>{t('chat.today.loading', { defaultValue: 'Summarizing today’s signals…' })}</span>
         </span>
       ) : null}
 
       {showEmpty && !error ? (
         <span className="inline-flex items-center gap-1 text-muted-foreground/65">
           <span aria-hidden="true">·</span>
-          <span>{t('chat.today.idle', { defaultValue: '今天还没有传感器数据' })}</span>
+          <span>{t('chat.today.idle', { defaultValue: 'No sensor data yet today' })}</span>
         </span>
       ) : null}
 
@@ -158,10 +158,10 @@ export const ChatTodayStrip = () => {
           type="button"
           onClick={refresh}
           className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-destructive transition-colors hover:bg-destructive/10"
-          aria-label={t('chat.today.retry', { defaultValue: '重新加载今日感知' })}
+          aria-label={t('chat.today.retry', { defaultValue: 'Reload today’s signals' })}
         >
           <RefreshCw className="h-3 w-3" aria-hidden="true" />
-          <span>{t('chat.today.retry', { defaultValue: '重新加载' })}</span>
+          <span>{t('chat.today.retry', { defaultValue: 'Reload' })}</span>
         </button>
       ) : null}
 

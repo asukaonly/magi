@@ -123,7 +123,7 @@ describe('ScheduleConfigPage', () => {
     // a direct click no longer fires the run. Step through both clicks.
     // The trigger button's aria-label uses defaultValue ('运行') so the
     // test i18n mock (which returns defaultValue ?? key) resolves to '运行'.
-    await user.click(await screen.findByRole('button', { name: '运行' }));
+    await user.click(await screen.findByRole('button', { name: 'Run' }));
     await user.click(await screen.findByText('tasks.scheduled.actions.runNow'));
     await waitFor(() => {
       // No params provided through the menu path → second arg is undefined.

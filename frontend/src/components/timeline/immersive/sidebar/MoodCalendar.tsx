@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { TimelineMoodCalendarDay } from "@/api/modules/timeline";
 import { cn } from "@/lib/utils";
@@ -30,12 +31,6 @@ const VALENCE_BG: Record<string, string> = {
   tense: "bg-[#b87a78]",
 };
 
-const WEEKDAY_HEADERS = ["一", "二", "三", "四", "五", "六", "日"] as const;
-const MONTH_LABELS_ZH = [
-  "一月", "二月", "三月", "四月", "五月", "六月",
-  "七月", "八月", "九月", "十月", "十一月", "十二月",
-];
-
 function isoDate(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
@@ -65,6 +60,12 @@ export const MoodCalendar: React.FC<MoodCalendarProps> = ({
   selectedRangeEnd,
   onSelectDate,
 }) => {
+  const { i18n } = useTranslation();
+  // Monday-first short weekday initials in the active locale (2024-01-01 is a Monday).
+  const weekdayHeaders = useMemo(() => {
+    const fmt = new Intl.DateTimeFormat(i18n.language, { weekday: "narrow" });
+    return Array.from({ length: 7 }, (_, i) => fmt.format(new Date(2024, 0, 1 + i)));
+  }, [i18n.language]);
   const [year, monthNum] = month.split("-").map(Number);
   const firstOfMonth = new Date(year, monthNum - 1, 1);
   const daysInMonth = new Date(year, monthNum, 0).getDate();
@@ -124,11 +125,14 @@ export const MoodCalendar: React.FC<MoodCalendarProps> = ({
   return (
     <div className="px-4 py-4">
       <div className="mb-2.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-        {year} 年 {MONTH_LABELS_ZH[monthNum - 1]}
+        {new Date(year, monthNum - 1, 1).toLocaleDateString(i18n.language, {
+          year: "numeric",
+          month: "long",
+        })}
       </div>
       <div role="row" className="mb-1.5 grid grid-cols-7 gap-1 text-[9px] text-muted-foreground/80">
-        {WEEKDAY_HEADERS.map((label) => (
-          <span key={label} role="columnheader" className="text-center">
+        {weekdayHeaders.map((label, i) => (
+          <span key={i} role="columnheader" className="text-center">
             {label}
           </span>
         ))}

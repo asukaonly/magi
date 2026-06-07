@@ -253,7 +253,7 @@ export const TimelinePage: React.FC = () => {
       });
       await loadSidebar();
       toast.success(
-        t("timeline.immersive.hideConfirm", { defaultValue: "已隐藏" })
+        t("timeline.immersive.hideConfirm", { defaultValue: "Hidden" })
       );
     } catch (error: any) {
       toast.error(
@@ -424,13 +424,13 @@ export const TimelinePage: React.FC = () => {
   const handleDeleteEntry = useCallback(async (entryId: string) => {
     try {
       await manualEntriesApi.remove(entryId);
-      toast.success(t('timeline.manualEntry.deletedToast', { defaultValue: '已删除' }));
+      toast.success(t('timeline.manualEntry.deletedToast', { defaultValue: 'Deleted' }));
       await loadManualEntries();
       await loadViewport();
     } catch (err: any) {
       toast.error(
         t('timeline.manualEntry.errors.deleteFailed', {
-          defaultValue: '删除失败',
+          defaultValue: 'Delete failed',
           message: err?.message,
         }),
       );
@@ -447,7 +447,7 @@ export const TimelinePage: React.FC = () => {
         {loading && !viewport ? (
           <div className="flex h-full w-full items-center justify-center gap-2 text-sm text-muted-foreground">
             <LoadingSpinner className="h-4 w-4" />
-            {t("timeline.loading", { defaultValue: "加载中" })}
+            {t("timeline.loading", { defaultValue: "Loading" })}
           </div>
         ) : viewport ? (
           scale === "hour" ? (
@@ -475,8 +475,8 @@ export const TimelinePage: React.FC = () => {
         <button
           type="button"
           onClick={() => setEntrySheetOpen(true)}
-          title={t('timeline.manualEntry.openButton', { defaultValue: '记一笔 (n)' })}
-          aria-label={t('timeline.manualEntry.openButton', { defaultValue: '记一笔' })}
+          title={t('timeline.manualEntry.openButton', { defaultValue: 'Add a note (n)' })}
+          aria-label={t('timeline.manualEntry.openButton', { defaultValue: 'Add a note' })}
           className={cn(
             'absolute bottom-6 right-6 z-20 flex h-12 w-12 items-center justify-center rounded-full',
             'bg-foreground text-background shadow-lg',

@@ -23,7 +23,7 @@ function makeViewport(clusters: TimelineClusterBlock[] = []): TimelineViewportRe
 describe("HourDetail", () => {
   it("renders an empty state when there are no clusters or events", () => {
     render(<HourDetail viewport={makeViewport([])} />);
-    expect(screen.getByText(/这个小时|动静|empty/i)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing much this hour|empty/i)).toBeInTheDocument();
   });
 
   it("renders one row per cluster with time and label", () => {

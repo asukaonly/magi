@@ -31,6 +31,8 @@ import {
   Link as LinkIcon,
 } from 'lucide-react';
 
+import { useTranslation } from 'react-i18next';
+
 import { cn } from '@/lib/utils';
 import {
   Popover,
@@ -204,6 +206,7 @@ const Toolbar: React.FC<{
   editor: ReturnType<typeof useEditor>;
   onApplyLink: (url: string) => void;
 }> = ({ editor, onApplyLink }) => {
+  const { t } = useTranslation('app');
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkDraft, setLinkDraft] = useState('');
 
@@ -222,28 +225,28 @@ const Toolbar: React.FC<{
       <Btn
         active={editor.isActive('bold')}
         onClick={() => editor.chain().focus().toggleBold().run()}
-        title="粗体 (⌘B)"
+        title={t('timeline.manualEntry.editor.bold', { defaultValue: 'Bold (⌘B)' })}
       >
         <Bold className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={editor.isActive('italic')}
         onClick={() => editor.chain().focus().toggleItalic().run()}
-        title="斜体 (⌘I)"
+        title={t('timeline.manualEntry.editor.italic', { defaultValue: 'Italic (⌘I)' })}
       >
         <Italic className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={editor.isActive('strike')}
         onClick={() => editor.chain().focus().toggleStrike().run()}
-        title="删除线"
+        title={t('timeline.manualEntry.editor.strike', { defaultValue: 'Strikethrough' })}
       >
         <Strikethrough className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={editor.isActive('code')}
         onClick={() => editor.chain().focus().toggleCode().run()}
-        title="行内代码"
+        title={t('timeline.manualEntry.editor.inlineCode', { defaultValue: 'Inline code' })}
       >
         <Code className="h-3.5 w-3.5" />
       </Btn>
@@ -256,8 +259,8 @@ const Toolbar: React.FC<{
           <button
             type="button"
             onClick={openLinkPopover}
-            title="链接"
-            aria-label="链接"
+            title={t('timeline.manualEntry.editor.link', { defaultValue: 'Link' })}
+            aria-label={t('timeline.manualEntry.editor.link', { defaultValue: 'Link' })}
             aria-pressed={editor.isActive('link')}
             className={cn(
               'flex h-6 w-6 items-center justify-center rounded text-xs transition-colors',
@@ -301,7 +304,7 @@ const Toolbar: React.FC<{
             }}
             className="h-7 rounded bg-foreground px-2 text-xs text-background hover:opacity-90"
           >
-            应用
+            {t('timeline.manualEntry.editor.apply', { defaultValue: 'Apply' })}
           </button>
           {editor.isActive('link') ? (
             <button
@@ -310,10 +313,10 @@ const Toolbar: React.FC<{
                 onApplyLink('');
                 setLinkOpen(false);
               }}
-              title="移除链接"
+              title={t('timeline.manualEntry.editor.removeLink', { defaultValue: 'Remove link' })}
               className="h-7 rounded px-2 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
             >
-              移除
+              {t('timeline.manualEntry.editor.remove', { defaultValue: 'Remove' })}
             </button>
           ) : null}
         </PopoverContent>
@@ -324,14 +327,14 @@ const Toolbar: React.FC<{
       <Btn
         active={editor.isActive('heading', { level: 2 })}
         onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-        title="二级标题"
+        title={t('timeline.manualEntry.editor.h2', { defaultValue: 'Heading 2' })}
       >
         <Heading2 className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={editor.isActive('heading', { level: 3 })}
         onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-        title="三级标题"
+        title={t('timeline.manualEntry.editor.h3', { defaultValue: 'Heading 3' })}
       >
         <Heading3 className="h-3.5 w-3.5" />
       </Btn>
@@ -341,28 +344,28 @@ const Toolbar: React.FC<{
       <Btn
         active={editor.isActive('bulletList')}
         onClick={() => editor.chain().focus().toggleBulletList().run()}
-        title="无序列表"
+        title={t('timeline.manualEntry.editor.bulletList', { defaultValue: 'Bullet list' })}
       >
         <List className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={editor.isActive('orderedList')}
         onClick={() => editor.chain().focus().toggleOrderedList().run()}
-        title="有序列表"
+        title={t('timeline.manualEntry.editor.orderedList', { defaultValue: 'Numbered list' })}
       >
         <ListOrdered className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={editor.isActive('blockquote')}
         onClick={() => editor.chain().focus().toggleBlockquote().run()}
-        title="引用"
+        title={t('timeline.manualEntry.editor.quote', { defaultValue: 'Quote' })}
       >
         <Quote className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={false}
         onClick={() => editor.chain().focus().setHorizontalRule().run()}
-        title="分割线"
+        title={t('timeline.manualEntry.editor.divider', { defaultValue: 'Divider' })}
       >
         <Minus className="h-3.5 w-3.5" />
       </Btn>

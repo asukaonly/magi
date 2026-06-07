@@ -113,6 +113,6 @@ describe("PeriodCard", () => {
       />
     );
 
-    expect(screen.getByText(/再陪你几天/)).toBeInTheDocument();
+    expect(screen.getByText(/Give it a few more days/)).toBeInTheDocument();
   });
 });

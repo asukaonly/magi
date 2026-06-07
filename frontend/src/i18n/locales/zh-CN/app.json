@@ -37,7 +37,12 @@
     }
   },
   "common": {
-    "loading": "加载中..."
+    "loading": "加载中...",
+    "cancel": "取消",
+    "save": "保存",
+    "copy": "复制",
+    "copied": "已复制",
+    "copyCode": "复制代码"
   },
   "notifications": {
     "bellAria": "通知",
@@ -202,7 +207,8 @@
       },
       "status": {
         "running": "运行中",
-        "disabled": "已禁用"
+        "disabled": "已禁用",
+        "enabled": "已启用"
       },
       "systemJobs": {
         "fallbackDescription": "由系统自动调度的内部维护作业。",
@@ -288,7 +294,9 @@
         "cronConfig": "Cron 配置",
         "displayName": "名称",
         "displayNamePlaceholder": "例如：每天早上的日报",
-        "lastError": "上次错误"
+        "lastError": "上次错误",
+        "status": "状态",
+        "overrideParamsHint": "只影响这一次执行；下次定时触发时仍用原参数。"
       },
       "actions": {
         "runNow": "立即执行",
@@ -305,7 +313,11 @@
         "save": "保存",
         "cancelEdit": "取消",
         "create": "新建调度任务",
-        "viewBackgroundTask": "查看后台任务"
+        "viewBackgroundTask": "查看后台任务",
+        "run": "运行",
+        "runWithParamsOpen": "带参运行…",
+        "runWithParams": "带参运行",
+        "cancel": "取消"
       },
       "edit": {
         "title": "编辑调度"
@@ -549,7 +561,97 @@
       "hideConfirm": "已隐藏",
       "hourEmpty": "这个小时没什么动静。",
       "emptyDay": "再陪你几天，这页就会写满你的样子。",
-      "emptyMonth": "月度回顾需要几周时间慢慢长出来。先从日开始翻？"
+      "emptyMonth": "月度回顾需要几周时间慢慢长出来。先从日开始翻？",
+      "dayEmpty": "这一天没什么动静。",
+      "occurrenceCount": "{{count}} 次",
+      "bucket": {
+        "deep_night": "深夜",
+        "morning": "上午",
+        "afternoon": "下午",
+        "evening": "晚上"
+      }
+    },
+    "manualEntry": {
+      "deletedToast": "已删除",
+      "errors": {
+        "deleteFailed": "删除失败",
+        "imageTooLarge": "图片超过 {{max}}MB 上限",
+        "uploadFailed": "图片上传失败",
+        "saveFailed": "保存失败"
+      },
+      "openButton": "记一笔 (n)",
+      "groupLabel": "你的记录",
+      "openImage": "查看图片",
+      "editAction": "编辑",
+      "confirmDelete": "删除这条记录？",
+      "deleteAction": "删除",
+      "savedToast": "已记录",
+      "moodPlaceholderHint": "选一个心情",
+      "moodPlaceholder": "心情",
+      "timeShift": {
+        "custom": "自定义…",
+        "now": "刚才",
+        "hourAgo": "1 小时前",
+        "thisMorning": "今早",
+        "lastNight": "昨晚"
+      },
+      "hour": "时",
+      "minute": "分",
+      "locationPrompt": "输入地点",
+      "editLocation": "修改地点",
+      "addLocation": "加地点",
+      "weatherTitle": "自动获取的天气",
+      "modeToggleAria": "编辑模式",
+      "modeQuick": "简单",
+      "modeLong": "长文",
+      "editTitle": "编辑记录",
+      "createLongTitle": "写一篇…",
+      "createTitle": "写下…",
+      "placeholderLong": "写下…（⌘+V 粘贴图片，⌘+Enter 保存）",
+      "placeholder": "写下…（⌘+V 粘贴图片，⌘+Enter 保存）",
+      "removeImage": "移除",
+      "addImage": "添加图片",
+      "cancel": "取消",
+      "save": "保存",
+      "mood": {
+        "warm": "舒适 / 放松",
+        "bright": "开朗 / 明亮",
+        "neutral": "一般",
+        "cool": "低落 / 收敛",
+        "tense": "紧张 / 压力"
+      },
+      "entryCount": "{{count}} 条",
+      "editor": {
+        "bold": "粗体 (⌘B)",
+        "italic": "斜体 (⌘I)",
+        "strike": "删除线",
+        "inlineCode": "行内代码",
+        "link": "链接",
+        "apply": "应用",
+        "removeLink": "移除链接",
+        "remove": "移除",
+        "h2": "二级标题",
+        "h3": "三级标题",
+        "bulletList": "无序列表",
+        "orderedList": "有序列表",
+        "quote": "引用",
+        "divider": "分割线"
+      }
+    },
+    "searchPlaceholder": "筛选当前时段",
+    "hourPicker": {
+      "label": "时"
+    },
+    "source": {
+      "manualEntry": "你的记录",
+      "screen": "屏幕",
+      "chat": "聊天",
+      "calendar": "日历",
+      "music": "音乐",
+      "terminal": "终端",
+      "photo": "相册",
+      "health": "健康",
+      "memory": "记忆"
     }
   },
   "dashboard": {
@@ -2160,29 +2262,69 @@
         "channel": "消息渠道"
       },
       "consent": {
-        "title": { "install": "安装「{{name}}」?", "update": "更新「{{name}}」?", "sideload": "从文件安装「{{name}}」?" },
+        "title": {
+          "install": "安装「{{name}}」?",
+          "update": "更新「{{name}}」?",
+          "sideload": "从文件安装「{{name}}」?"
+        },
         "lede": "此插件声明将访问:",
         "ledeEmpty": "此插件未声明需要特殊系统权限或数据访问。",
         "updateNewLede": "本次更新新增了以下访问:",
         "groupSystem": "系统权限",
         "groupData": "数据与网络访问",
         "optionalTag": "可选",
-        "confirm": { "install": "安装", "update": "更新" },
+        "confirm": {
+          "install": "安装",
+          "update": "更新"
+        },
         "cancel": "取消",
         "thirdParty": "第三方插件"
       },
       "capability": {
-        "screen_recording": { "label": "屏幕录制", "desc": "截取你的屏幕画面" },
-        "accessibility": { "label": "辅助功能", "desc": "读取活动窗口与界面" },
-        "calendar": { "label": "日历", "desc": "读取你的日历与提醒事项" },
-        "photos": { "label": "照片", "desc": "访问你的照片库" },
-        "contacts": { "label": "通讯录", "desc": "读取你的通讯录" },
-        "system_media": { "label": "系统媒体", "desc": "读取媒体播放信息" },
-        "filesystem_read": { "label": "读取文件", "desc": "读取你电脑上的文件" },
-        "filesystem_write": { "label": "写入文件", "desc": "在你电脑上写入文件" },
-        "network": { "label": "联网", "desc": "连接互联网" },
-        "subprocess": { "label": "运行程序", "desc": "在你电脑上运行其它程序" },
-        "unknown": { "label": "其它访问", "desc": "当前版本 Magi 不识别的访问类型" }
+        "screen_recording": {
+          "label": "屏幕录制",
+          "desc": "截取你的屏幕画面"
+        },
+        "accessibility": {
+          "label": "辅助功能",
+          "desc": "读取活动窗口与界面"
+        },
+        "calendar": {
+          "label": "日历",
+          "desc": "读取你的日历与提醒事项"
+        },
+        "photos": {
+          "label": "照片",
+          "desc": "访问你的照片库"
+        },
+        "contacts": {
+          "label": "通讯录",
+          "desc": "读取你的通讯录"
+        },
+        "system_media": {
+          "label": "系统媒体",
+          "desc": "读取媒体播放信息"
+        },
+        "filesystem_read": {
+          "label": "读取文件",
+          "desc": "读取你电脑上的文件"
+        },
+        "filesystem_write": {
+          "label": "写入文件",
+          "desc": "在你电脑上写入文件"
+        },
+        "network": {
+          "label": "联网",
+          "desc": "连接互联网"
+        },
+        "subprocess": {
+          "label": "运行程序",
+          "desc": "在你电脑上运行其它程序"
+        },
+        "unknown": {
+          "label": "其它访问",
+          "desc": "当前版本 Magi 不识别的访问类型"
+        }
       }
     },
     "pluginInstallProgress": {
@@ -2312,7 +2454,8 @@
         "annotate": "备注",
         "forget": "遗忘"
       },
-      "awaitingLabel": "等 Magi 起草标题..."
+      "awaitingLabel": "等 Magi 起草标题...",
+      "eventCount": "{{count}} 件事"
     },
     "portrait": {
       "title": "关于你",

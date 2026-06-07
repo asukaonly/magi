@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,7 @@ export const MonthGridPicker: React.FC<MonthGridPickerProps> = ({
   selectedMonth,
   onSelectMonth,
 }) => {
+  const { i18n } = useTranslation();
   // Parse "YYYY-MM" defensively — fall back to the current year if malformed.
   const parsed = (() => {
     const [y, m] = selectedMonth.split("-").map(Number);
@@ -50,7 +52,9 @@ export const MonthGridPicker: React.FC<MonthGridPickerProps> = ({
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <div className="text-sm font-medium">{viewYear} 年</div>
+        <div className="text-sm font-medium">
+          {new Date(viewYear, 0, 1).toLocaleDateString(i18n.language, { year: "numeric" })}
+        </div>
         <button
           type="button"
           onClick={() => setViewYear((y) => y + 1)}
@@ -83,7 +87,7 @@ export const MonthGridPicker: React.FC<MonthGridPickerProps> = ({
                   : "text-foreground hover:bg-foreground/5",
               )}
             >
-              {m} 月
+              {new Date(viewYear, m - 1, 1).toLocaleDateString(i18n.language, { month: "short" })}
               {isToday && !isSelected && (
                 <span
                   className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-foreground/80"

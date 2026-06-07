@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Check, Copy } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -24,6 +25,7 @@ const COPIED_RESET_MS = 1500;
  * button never triggers the surrounding chat message's selection / context menu.
  */
 export function CodeBlock({ code, language, density = 'comfortable' }: CodeBlockProps) {
+  const { t } = useTranslation('app');
   const [copied, setCopied] = useState(false);
   const compact = density === 'compact';
 
@@ -59,11 +61,11 @@ export function CodeBlock({ code, language, density = 'comfortable' }: CodeBlock
         <button
           type="button"
           onClick={handleCopy}
-          aria-label={copied ? '已复制' : '复制代码'}
+          aria-label={copied ? t('common.copied', { defaultValue: 'Copied' }) : t('common.copyCode', { defaultValue: 'Copy code' })}
           className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          {copied ? '已复制' : '复制'}
+          {copied ? t('common.copied', { defaultValue: 'Copied' }) : t('common.copy', { defaultValue: 'Copy' })}
         </button>
       </div>
       <pre
