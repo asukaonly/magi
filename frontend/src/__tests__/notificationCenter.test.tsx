@@ -5,6 +5,7 @@ import { NotificationCenter } from '@/components/notifications/NotificationCente
 import * as api from '@/api/modules/notifications';
 import * as suggestionsApi from '@/api/modules/systemSuggestions';
 import { sensorsApi } from '@/api/modules/sensors';
+import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 
 // `t` is mocked to echo the key, so composed titles render as their key
 // (e.g. 'notifications.suggestionTitle'). Rows are selected by test id.
@@ -13,6 +14,7 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k, 
 describe('NotificationCenter', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    usePluginInstallPanelStore.getState().closePanel();
     vi.spyOn(api, 'listNotifications').mockResolvedValue({
       items: [{ id: 1, kind: 'suggestion', dedupe_key: 'browser_history', title: '看浏览历史', body: '看浏览历史',
         payload: { plugin_ids: ['chrome-history'], installable_plugin_ids: [] }, status: 'unread', created_at_ms: 1, read_at_ms: null }],
@@ -59,12 +61,18 @@ describe('NotificationCenter', () => {
     await waitFor(() => expect(api.dismissNotification).toHaveBeenCalledWith(1));
   });
 
-  it('expanding a suggestion shows a connect button that opens activation', async () => {
+  it('connect button opens the shared install panel (with an onDone to mark acted)', async () => {
     render(<NotificationCenter />);
     const row = await screen.findByTestId('notification-row');
     await userEvent.click(within(row).getByText('notifications.suggestionTitle'));
     await userEvent.click(await screen.findByTestId('notification-connect-chrome-history'));
-    await waitFor(() => expect(sensorsApi.getStatus).toHaveBeenCalled());
+    await waitFor(() => {
+      const s = usePluginInstallPanelStore.getState();
+      expect(s.open).toBe(true);
+      expect(s.pluginId).toBe('chrome-history');
+      expect(s.installMode).toBe(false);
+      expect(typeof s.onDone).toBe('function');
+    });
   });
 
   it('shows dismissed footer and restores', async () => {

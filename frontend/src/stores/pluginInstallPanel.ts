@@ -17,7 +17,15 @@ interface PluginInstallPanelState {
   open: boolean;
   pluginId: string | null;
   installMode: boolean;
-  openPanel: (pluginId: string, opts?: { install?: boolean }) => void;
+  /**
+   * Optional callback fired ONCE when the connect flow reaches its `done` phase
+   * (enable + sync succeeded; memory may still be backfilling). Lets an entry
+   * point react to a *successful* connect without owning the flow — e.g. the
+   * NotificationCenter marks its suggestion acted-on only here, so a cancelled or
+   * closed panel never drops the item. Cleared on close.
+   */
+  onDone: (() => void) | null;
+  openPanel: (pluginId: string, opts?: { install?: boolean; onDone?: () => void }) => void;
   closePanel: () => void;
 }
 
@@ -25,7 +33,8 @@ export const usePluginInstallPanelStore = create<PluginInstallPanelState>((set) 
   open: false,
   pluginId: null,
   installMode: false,
+  onDone: null,
   openPanel: (pluginId, opts) =>
-    set({ open: true, pluginId, installMode: opts?.install ?? false }),
-  closePanel: () => set({ open: false, pluginId: null, installMode: false }),
+    set({ open: true, pluginId, installMode: opts?.install ?? false, onDone: opts?.onDone ?? null }),
+  closePanel: () => set({ open: false, pluginId: null, installMode: false, onDone: null }),
 }));
