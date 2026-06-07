@@ -198,6 +198,13 @@ class ThemeCardBuilder:
         ):
             if len(cards) >= MAX_THEME_CARDS:
                 break
+            # Only labels backed by real signal are themes. A label
+            # synthesized from a source id ("chat_projector" → "Chat
+            # Projector") or the "activity"/episode-type placeholder is
+            # plumbing, not a concern — skip it rather than leak it into
+            # the "你那时关心的" row.
+            if not cluster.get("label_is_themeable"):
+                continue
             title = str(cluster.get("label") or "").strip()
             if not is_acceptable_theme_title(title):
                 continue

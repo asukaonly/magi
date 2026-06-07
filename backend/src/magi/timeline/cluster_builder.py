@@ -161,9 +161,11 @@ class TimelineClusterBuilder:
         if raw_user_label:
             label_display = raw_user_label
             label_raw = raw_user_label
+            label_is_themeable = True
         elif raw_label and raw_label.lower() not in _PLACEHOLDER_EPISODE_LABELS:
             label_display = raw_label.replace("_", " ").title()
             label_raw = raw_label
+            label_is_themeable = True
         else:
             # Episode itself has no useful label. Try to derive one from
             # the events that fall in its window before settling for the
@@ -175,10 +177,14 @@ class TimelineClusterBuilder:
             if derived:
                 label_display = derived
                 label_raw = derived
+                label_is_themeable = True
             else:
                 episode_type = str(episode.get("episode_type") or "activity")
                 label_display = episode_type.replace("_", " ").title()
                 label_raw = episode_type
+                # episode_type ("session") / "activity" are placeholders,
+                # not concerns — don't let them surface as theme chips.
+                label_is_themeable = False
         summary = str(episode.get("summary") or "")
         entity_ids_raw = episode.get("primary_entity_ids") or "[]"
         if isinstance(entity_ids_raw, str):
@@ -192,6 +198,7 @@ class TimelineClusterBuilder:
             "time_end": time_end,
             "duration_seconds": max(0.0, time_end - time_start),
             "label": label_display,
+            "label_is_themeable": label_is_themeable,
             "summary": summary,
             "dominant_mode": str(episode.get("dominant_mode") or label_raw),
             "source_types": [],
@@ -240,6 +247,12 @@ class TimelineClusterBuilder:
             "time_end": float(last.get("timestamp") or 0.0),
             "duration_seconds": max(0.0, float(last.get("timestamp") or 0.0) - float(first.get("timestamp") or 0.0)),
             "label": label.replace("_", " ").title(),
+            # See `_episode_to_cluster` for the rationale. Only a label
+            # backed by real signal (here, event tags) is themeable. A label
+            # synthesized from a source id or the "activity" placeholder is
+            # plumbing — fine for internal clustering, but not "a thing the
+            # user cared about", so theme building skips it.
+            "label_is_themeable": bool(tags),
             "summary": self._resolve_summary(events),
             "dominant_mode": label,
             "source_types": source_types,

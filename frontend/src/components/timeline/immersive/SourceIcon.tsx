@@ -50,6 +50,7 @@ export const SourceIcon: React.FC<SourceIconProps> = ({ sourceType, className })
     case "chat":
     case "chat_message":
     case "message":
+    case "chat_projector":
       return <MessageCircle className={cls} aria-hidden="true" />;
     case "calendar":
     case "calendar_plugin":
@@ -108,6 +109,9 @@ export function labelForSource(sourceType: string): string {
     screen: "屏幕",
     chat: "聊天",
     chat_message: "聊天",
+    // chat_projector is the memory-layer source for projected chat turns —
+    // surface it as plain "聊天", same as the chat sensor, not the raw id.
+    chat_projector: "聊天",
     calendar: "日历",
     calendar_plugin: "日历",
     netease_music: "音乐",

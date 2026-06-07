@@ -506,3 +506,22 @@ async def test_theme_cards_entity_themes_skip_transient_clusters() -> None:
     # Tag strings ("coding", "thinking") must NOT show up — they didn't go to the catalog.
     assert "coding" not in titles
     assert "thinking" not in titles
+
+
+async def test_theme_cards_skip_non_themeable_cluster_labels() -> None:
+    """Cluster labels synthesized from a source id ("Chat Projector") or a
+    placeholder must not leak into the "你那时关心的" row; tag-derived
+    labels still surface."""
+    from magi.timeline.viewport_builder import TimelineViewportBuilder
+
+    builder = TimelineViewportBuilder(l1_store=None)  # no catalog → cluster-label fallback
+    clusters = [
+        {**_episode_cluster(block_id="cluster:0", entity_ids=[]),
+         "label": "Chat Projector", "label_is_themeable": False, "episode_id": ""},
+        {**_episode_cluster(block_id="cluster:1", entity_ids=[]),
+         "label": "Zhihu", "label_is_themeable": True, "episode_id": ""},
+    ]
+    cards = await builder._theme_card_builder.build(reflections=[], clusters=clusters, locale="zh")
+    titles = [c["title"] for c in cards]
+    assert "Chat Projector" not in titles
+    assert "Zhihu" in titles

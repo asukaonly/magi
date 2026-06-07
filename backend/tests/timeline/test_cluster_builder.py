@@ -234,3 +234,61 @@ async def test_cluster_builder_falls_back_to_episode_type_when_no_specific_tags(
         }],
     )
     assert clusters[0]["label"] == "Session"
+
+
+async def test_cluster_builder_marks_source_derived_label_non_themeable() -> None:
+    """Transient path: a chat-only group has no tags, so its label is
+    synthesized from the source id ("chat_projector" -> "Chat Projector").
+    That's plumbing, not a concern — flag it non-themeable so the themes
+    row skips it. A tag-backed label stays themeable."""
+    builder = TimelineClusterBuilder()
+
+    source_only = builder.build(
+        [{
+            "event_id": "c1", "timestamp": 100.0, "source": "chat_projector",
+            "metadata": {"timeline": {"tags": []}},
+        }],
+        scale="day",  # no episodes -> transient _build_cluster path
+    )
+    assert source_only[0]["label"] == "Chat Projector"
+    assert source_only[0]["label_is_themeable"] is False
+
+    tagged = builder.build(
+        [{
+            "event_id": "t1", "timestamp": 100.0, "source": "chat",
+            "metadata": {"timeline": {"tags": ["planning"]}},
+        }],
+        scale="day",
+    )
+    assert tagged[0]["label_is_themeable"] is True
+
+
+async def test_cluster_builder_marks_placeholder_episode_label_non_themeable() -> None:
+    """Episode path: an episode resolving to the episode_type/"activity"
+    placeholder is non-themeable; a real or event-derived label is not."""
+    builder = TimelineClusterBuilder()
+
+    placeholder = builder.build(
+        [{
+            "event_id": "e1", "timestamp": 110.0, "source": "chrome_history",
+            "metadata": {"timeline": {"tags": ["chrome_history"]}},  # no domain
+        }],
+        scale="day",
+        episodes=[{
+            "episode_id": "ep-1", "time_start": 100.0, "time_end": 200.0,
+            "label": "activity", "episode_type": "session", "source_event_count": 1,
+        }],
+    )
+    assert placeholder[0]["label"] == "Session"
+    assert placeholder[0]["label_is_themeable"] is False
+
+    derived = builder.build(
+        [_chrome_event(event_id="e1", ts=110.0, domain="openai.com")],
+        scale="day",
+        episodes=[{
+            "episode_id": "ep-2", "time_start": 100.0, "time_end": 200.0,
+            "label": "activity", "source_event_count": 1,
+        }],
+    )
+    assert derived[0]["label"] == "openai.com"
+    assert derived[0]["label_is_themeable"] is True
