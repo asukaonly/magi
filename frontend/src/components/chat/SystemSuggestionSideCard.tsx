@@ -1,7 +1,5 @@
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { usePluginActivation } from '../../hooks/usePluginActivation';
-import { PluginActivationDialog } from '../plugins/PluginActivationDialog';
+import { usePluginInstallPanelStore } from '../../stores/pluginInstallPanel';
 import type { SuggestionProposal } from '../../api/modules/systemSuggestions';
 
 /** "netease-music" → "Netease Music" — readable fallback when a plugin has no
@@ -18,14 +16,18 @@ export interface SystemSuggestionSideCardProps {
   proposal: SuggestionProposal;
   onClose: () => void;
   onDecline: (dedupeKey: string) => void;
-  onActivated: (pluginId: string) => void;
+  /**
+   * Optional. Kept for call-site compatibility, but no longer fired from here:
+   * connect now opens the shared <PluginInstallPanel>, which owns the connect
+   * flow and its own done state, so the side-card never learns of success.
+   */
+  onActivated?: (pluginId: string) => void;
 }
 
 export function SystemSuggestionSideCard({
   proposal,
   onClose,
   onDecline,
-  onActivated,
 }: SystemSuggestionSideCardProps): JSX.Element {
   const { t, i18n } = useTranslation('onboarding');
   const locale = i18n.language === 'zh-CN' || i18n.language === 'zh' ? 'zh' : 'en';
@@ -34,16 +36,12 @@ export function SystemSuggestionSideCard({
   // The backend already filtered the proposal's plugins by availability, so we
   // render a row for each plugin directly (no client-side availability re-probe
   // — that probe only resolves *installed* plugins and would wrongly hide
-  // not-yet-installed suggestions). `activated` hides a row after success.
-  const [activated, setActivated] = useState<Set<string>>(new Set());
-  const visiblePluginIds = proposal.plugin_ids.filter((pid) => !activated.has(pid));
+  // not-yet-installed suggestions).
+  const visiblePluginIds = proposal.plugin_ids;
 
-  const { dialogState, installingPluginId, openDialog, closeDialog, confirm } = usePluginActivation({
-    onSuccess: (pluginId) => {
-      onActivated(pluginId);
-      setActivated((prev) => new Set(prev).add(pluginId));
-    },
-  });
+  // Connect opens the single MainLayout-mounted <PluginInstallPanel>, which owns
+  // the full honest flow (install → enable → sync → build-memory).
+  const openPanel = usePluginInstallPanelStore((s) => s.openPanel);
 
   return (
     <aside
@@ -72,12 +70,9 @@ export function SystemSuggestionSideCard({
           // humanized id as fallback.
           const name = t(`pluginNames.${pluginId}`, { defaultValue: humanizePluginId(pluginId) });
           const needsInstall = proposal.installable_plugin_ids.includes(pluginId);
-          const isInstalling = installingPluginId === pluginId;
-          const label = isInstalling
-            ? t('emptyState.installing')
-            : needsInstall
-              ? t('emptyState.installAndConnect')
-              : t('emptyState.connect');
+          const label = needsInstall
+            ? t('emptyState.installAndConnect')
+            : t('emptyState.connect');
           return (
             <div
               data-testid="system-suggestion-side-card-row"
@@ -90,8 +85,7 @@ export function SystemSuggestionSideCard({
               <button
                 type="button"
                 data-testid={`empty-state-connect-${pluginId}`}
-                onClick={() => { void openDialog(pluginId, { install: needsInstall }); }}
-                disabled={isInstalling}
+                onClick={() => openPanel(pluginId, { install: needsInstall })}
                 className="ml-auto shrink-0 min-w-[5.5rem] rounded-md border border-primary/40 px-3 py-1.5 text-center text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
               >
                 {label}
@@ -110,17 +104,6 @@ export function SystemSuggestionSideCard({
           {t('systemSuggestion.decline')}
         </button>
       </div>
-
-      {dialogState && (
-        <PluginActivationDialog
-          open
-          onClose={closeDialog}
-          flow={dialogState.flow}
-          initialValues={{}}
-          onConfirm={confirm}
-          pluginId={dialogState.pluginId}
-        />
-      )}
     </aside>
   );
 }

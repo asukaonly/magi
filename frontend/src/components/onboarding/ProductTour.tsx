@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { usePluginActivation } from '@/hooks/usePluginActivation';
-import { PluginActivationDialog } from '@/components/plugins/PluginActivationDialog';
+import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 import { listInstallable, type InstallableItem } from '@/api/modules/systemSuggestions';
 import { PRODUCT_TOUR_STEPS, pickZeroConfigSource } from './productTourSteps';
 
@@ -52,11 +51,10 @@ export function ProductTour({ onComplete }: ProductTourProps): JSX.Element | nul
       .catch(() => setSource(null));
   }, []);
 
-  const { dialogState, installingPluginId, openDialog, closeDialog, confirm } = usePluginActivation({
-    onSuccess: () => {
-      /* connected; let the user continue the tour */
-    },
-  });
+  // Connect opens the single MainLayout-mounted <PluginInstallPanel>, which owns
+  // the full honest flow (install → enable → sync → build-memory). The tour just
+  // triggers it and lets the user keep going.
+  const openPanel = usePluginInstallPanelStore((s) => s.openPanel);
 
   const finish = useCallback(() => {
     if (doneRef.current) return;
@@ -77,12 +75,9 @@ export function ProductTour({ onComplete }: ProductTourProps): JSX.Element | nul
     : window.innerWidth / 2 - 160;
 
   const needsInstall = source ? !source.installed : false;
-  const isInstalling = source ? installingPluginId === source.plugin_id : false;
-  const connectLabel = isInstalling
-    ? t('productTour.connecting')
-    : needsInstall
-      ? t('productTour.installAndConnect')
-      : t('productTour.connect');
+  const connectLabel = needsInstall
+    ? t('productTour.installAndConnect')
+    : t('productTour.connect');
 
   return (
     <div className="fixed inset-0 z-[60]" role="dialog" aria-label={t(step.titleKey)}>
@@ -115,10 +110,7 @@ export function ProductTour({ onComplete }: ProductTourProps): JSX.Element | nul
             <button
               type="button"
               data-testid={`tour-connect-${source.plugin_id}`}
-              disabled={isInstalling}
-              onClick={() => {
-                void openDialog(source.plugin_id, { install: needsInstall });
-              }}
+              onClick={() => openPanel(source.plugin_id, { install: needsInstall })}
               className="mt-1.5 rounded-md border border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
             >
               {connectLabel}
@@ -153,17 +145,6 @@ export function ProductTour({ onComplete }: ProductTourProps): JSX.Element | nul
           </div>
         </div>
       </div>
-
-      {dialogState ? (
-        <PluginActivationDialog
-          open
-          onClose={closeDialog}
-          flow={dialogState.flow}
-          initialValues={{}}
-          onConfirm={confirm}
-          pluginId={dialogState.pluginId}
-        />
-      ) : null}
     </div>
   );
 }

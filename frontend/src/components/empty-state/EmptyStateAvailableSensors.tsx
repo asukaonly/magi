@@ -2,14 +2,13 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useInstallableSensors } from '../../hooks/useInstallableSensors';
-import { usePluginActivation } from '../../hooks/usePluginActivation';
+import { usePluginInstallPanelStore } from '../../stores/pluginInstallPanel';
 import {
   EMPTY_STATE_PRIORITY_PLUGINS,
   getEmptyStatePluginMeta,
 } from '../../constants/emptyStatePriorities';
 import type { InstallableItem } from '../../api/modules/systemSuggestions';
 import { EmptyStateSensorCard } from './EmptyStateSensorCard';
-import { PluginActivationDialog } from '../plugins/PluginActivationDialog';
 
 /**
  * Orchestrator component for the empty-state CTA list.
@@ -23,21 +22,17 @@ import { PluginActivationDialog } from '../plugins/PluginActivationDialog';
  *   2. Render an `<EmptyStateSensorCard>` for each item that has empty-state
  *      display metadata, sorted by `EMPTY_STATE_PRIORITY_PLUGINS`. Items
  *      without metadata are silently skipped.
- *   3. On a Connect click, open `<PluginActivationDialog>` via
- *      `usePluginActivation`. For registry-only items (`installed === false`)
- *      we pass `{ install: true }` so the plugin is downloaded from the
- *      registry before the activation flow runs (install-then-activate).
- *   4. Persist activation through the same path Settings uses (handled by
- *      `usePluginActivation`):
- *        - `sensorsApi.requestAuthorization` when the flow has
- *          `authorize_on_confirm`
- *        - `pluginsApi.updateSettings` with the user-supplied field values,
- *          plus `enabled_key=true` and `configured_key=true` from the flow.
+ *   3. On a Connect click, open the single MainLayout-mounted
+ *      `<PluginInstallPanel>` via `usePluginInstallPanelStore.openPanel`. For
+ *      registry-only items (`installed === false`) we pass `{ install: true }`
+ *      so the panel downloads the plugin from the registry before the connect
+ *      flow runs (install-then-connect). The panel owns the full honest flow
+ *      (install → enable → sync → build-memory) and its own done state.
  *
  * The orchestrator is intentionally self-contained: unlike
- * `TimelineSourcesSection` it does NOT lift draft state up to a parent. The
- * empty-state surface persists immediately on confirm and then refreshes the
- * installable list so the connected row disappears from the list on success.
+ * `TimelineSourcesSection` it does NOT lift draft state up to a parent, and it
+ * no longer renders its own dialog — the shared panel handles every entry
+ * point.
  */
 
 export interface EmptyStateAvailableSensorsProps {
@@ -46,8 +41,6 @@ export interface EmptyStateAvailableSensorsProps {
    * the list. The orchestrator filters them from the rendered rows.
    */
   excludePluginIds?: string[];
-  /** Optional callback fired after a plugin is successfully activated. */
-  onActivated?: (pluginId: string) => void;
 }
 
 /**
@@ -62,18 +55,15 @@ function priorityIndex(pluginId: string): number {
 
 export function EmptyStateAvailableSensors({
   excludePluginIds,
-  onActivated,
 }: EmptyStateAvailableSensorsProps): JSX.Element | null {
   const { t } = useTranslation('onboarding');
 
-  const { items, loading, refresh } = useInstallableSensors();
+  const { items, loading } = useInstallableSensors();
 
-  const { dialogState, installingPluginId, openDialog, closeDialog, confirm } = usePluginActivation({
-    onSuccess: async (pluginId) => {
-      await refresh();
-      onActivated?.(pluginId);
-    },
-  });
+  // Connect now opens the single MainLayout-mounted <PluginInstallPanel>, which
+  // owns the full honest flow (install → enable → sync → build-memory) and its
+  // own done state. This component no longer renders its own dialog.
+  const openPanel = usePluginInstallPanelStore((s) => s.openPanel);
 
   const excluded = useMemo(
     () => new Set(excludePluginIds ?? []),
@@ -112,7 +102,6 @@ export function EmptyStateAvailableSensors({
           if (!meta) {
             return null;
           }
-          const isInstalling = installingPluginId === item.plugin_id;
           return (
             <EmptyStateSensorCard
               key={item.plugin_id}
@@ -120,33 +109,18 @@ export function EmptyStateAvailableSensors({
               titleKey={meta.titleKey}
               valueKey={meta.valueKey}
               iconId={meta.iconId}
-              disabled={isInstalling}
               connectLabelKey={
-                isInstalling
-                  ? 'emptyState.installing'
-                  : item.installed
-                    ? 'emptyState.connect'
-                    : 'emptyState.installAndConnect'
+                item.installed ? 'emptyState.connect' : 'emptyState.installAndConnect'
               }
               onConnect={(pluginId) => {
-                // Install-first for registry-only items: download from the
-                // registry before opening the activation flow.
-                void openDialog(pluginId, { install: !item.installed });
+                // Install-first for registry-only items: the panel downloads
+                // from the registry before the connect flow runs.
+                openPanel(pluginId, { install: !item.installed });
               }}
             />
           );
         })}
       </div>
-      {dialogState && (
-        <PluginActivationDialog
-          open
-          onClose={closeDialog}
-          flow={dialogState.flow}
-          initialValues={{}}
-          onConfirm={confirm}
-          pluginId={dialogState.pluginId}
-        />
-      )}
     </div>
   );
 }
