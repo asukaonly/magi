@@ -1,6 +1,10 @@
 import { useCallback, useState } from 'react';
 import { sensorsApi, type SensorSourceStatusItem } from '../api/modules/sensors';
-import { pluginsApi, type ActivationFlowSpec } from '../api/modules/plugins';
+import {
+  pluginsApi,
+  type ActivationFlowSpec,
+  type PluginInstallJobSnapshot,
+} from '../api/modules/plugins';
 
 export interface ActivationDialogState {
   pluginId: string;
@@ -26,6 +30,8 @@ export interface UsePluginActivationResult {
   dialogState: ActivationDialogState | null;
   /** Plugin id currently being downloaded from the registry (install-first), or null. */
   installingPluginId: string | null;
+  /** Latest install-job progress snapshot while an install-first flow runs, else null. */
+  installProgress: PluginInstallJobSnapshot | null;
   openDialog: (pluginId: string, opts?: OpenDialogOptions) => Promise<void>;
   closeDialog: () => void;
   confirm: (values: Record<string, unknown>) => Promise<void>;
@@ -44,17 +50,21 @@ export function usePluginActivation(
   const { onSuccess } = options;
   const [dialogState, setDialogState] = useState<ActivationDialogState | null>(null);
   const [installingPluginId, setInstallingPluginId] = useState<string | null>(null);
+  const [installProgress, setInstallProgress] = useState<PluginInstallJobSnapshot | null>(null);
 
   const openDialog = useCallback(async (pluginId: string, opts?: OpenDialogOptions) => {
     if (opts?.install) {
       setInstallingPluginId(pluginId);
       try {
-        await pluginsApi.installFromRegistryWithProgress(pluginId);
+        await pluginsApi.installFromRegistryWithProgress(pluginId, (snap) =>
+          setInstallProgress(snap),
+        );
       } catch (err) {
         console.error('failed to install plugin from registry', err);
         return;
       } finally {
         setInstallingPluginId(null);
+        setInstallProgress(null);
       }
     }
     try {
@@ -103,5 +113,5 @@ export function usePluginActivation(
     [dialogState, onSuccess],
   );
 
-  return { dialogState, installingPluginId, openDialog, closeDialog, confirm };
+  return { dialogState, installingPluginId, installProgress, openDialog, closeDialog, confirm };
 }

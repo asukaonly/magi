@@ -60,7 +60,7 @@ describe('usePluginActivation', () => {
     await act(async () => {
       await result.current.openDialog('chrome-history', { install: true });
     });
-    expect(installSpy).toHaveBeenCalledWith('chrome-history');
+    expect(installSpy).toHaveBeenCalledWith('chrome-history', expect.any(Function));
     expect(result.current.dialogState?.pluginId).toBe('chrome-history');
   });
 
@@ -74,5 +74,42 @@ describe('usePluginActivation', () => {
     });
     expect(installSpy).not.toHaveBeenCalled();
     expect(result.current.dialogState?.pluginId).toBe('chrome-history');
+  });
+
+  it('forwards onProgress into installProgress during install and clears it after', async () => {
+    const snap = {
+      job_id: 'j1',
+      operation: 'install',
+      plugin_id: 'chrome-history',
+      filename: null,
+      status: 'running',
+      stage: 'downloading',
+      progress_pct: 42,
+      message: 'downloading',
+      logs: [],
+      created_at_ms: 1,
+      updated_at_ms: 2,
+    } as any;
+    let received: unknown;
+    const installSpy = vi
+      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
+      .mockImplementation(async (_id: string, onProgress?: (s: any) => void) => {
+        received = onProgress;
+        onProgress?.(snap);
+        return {} as any;
+      });
+
+    const { result } = renderHook(() => usePluginActivation());
+    expect(result.current.installProgress).toBeNull();
+
+    await act(async () => {
+      await result.current.openDialog('chrome-history', { install: true });
+    });
+
+    // onProgress is no longer dropped: a forwarding callback reached the install job.
+    expect(installSpy).toHaveBeenCalledWith('chrome-history', expect.any(Function));
+    expect(typeof received).toBe('function');
+    // It is reset to null in the finally block once the install settles.
+    expect(result.current.installProgress).toBeNull();
   });
 });
