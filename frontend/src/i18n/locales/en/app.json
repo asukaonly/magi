@@ -2659,7 +2659,7 @@
     "search": "Search",
     "clear": "Clear",
     "sources": {
-      "chat_projector": "Chat projector",
+      "chat_projector": "Chat",
       "runtime_event_emitter": "Runtime event emitter",
       "timeline_importer": "Timeline importer",
       "manual_journal": "Manual journal",

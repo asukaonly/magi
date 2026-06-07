@@ -2672,7 +2672,7 @@
     "search": "搜索",
     "clear": "清除",
     "sources": {
-      "chat_projector": "聊天投影",
+      "chat_projector": "聊天",
       "runtime_event_emitter": "运行时事件发射器",
       "timeline_importer": "时间线导入",
       "manual_journal": "手动日志",
