@@ -7003,6 +7003,12 @@ export interface components {
              * @default false
              */
             readonly onboarding_completed: boolean;
+            /**
+             * Product Tour Completed
+             * @description True once the user has completed (or skipped) the one-time main-page product tour shown on first visit after onboarding.
+             * @default false
+             */
+            readonly product_tour_completed: boolean;
             /** Scenario */
             readonly scenario?: string | null;
             /**
