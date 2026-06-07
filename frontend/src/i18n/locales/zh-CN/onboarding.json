@@ -188,6 +188,18 @@
       "recallContact": "提醒我上次和某某聊了什么"
     }
   },
+  "pluginNames": {
+    "chrome-history": "Chrome 历史",
+    "calendar": "日历",
+    "git-activity": "Git 活动",
+    "photo-library": "照片库",
+    "netease-music": "网易云音乐",
+    "terminal-history": "终端历史",
+    "screen-time": "屏幕使用时间",
+    "steam-play-history": "Steam 游戏记录",
+    "screenshot_timeline": "截图时间线",
+    "system-media": "系统媒体"
+  },
   "emptyState": {
     "heading": "让 magi 看看你的活动",
     "connect": "启用",
