@@ -392,3 +392,47 @@ def test_classifier_keeps_chinese_statements_as_self_report(message):
         normalize_runtime_event(_build_user_message(message=message))
     )
     assert classification.evidence_class == "user_self_report", message
+
+
+# ---------------------------------------------------------------------------
+# Speech-act boundary regression net (characterizes current correct behavior)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        # --- Chinese questions (must be user_question) ---
+        ("你最近在忙什么", "user_question"),
+        ("这个多少钱啊", "user_question"),
+        ("会议改到几点", "user_question"),
+        ("为什么会这样", "user_question"),
+        ("你在哪", "user_question"),
+        ("今天会下雨吗", "user_question"),
+        # --- Chinese requests (must be user_request) ---
+        ("帮我订个会议室", "user_request"),
+        ("请把报告发我", "user_request"),
+        ("告诉我结果", "user_request"),
+        # --- Chinese statements (must stay user_self_report) ---
+        ("我今天有点累", "user_self_report"),
+        ("反正没什么大事", "user_self_report"),
+        ("我不知道为什么", "user_self_report"),
+        ("我喜欢喝咖啡", "user_self_report"),
+        ("我们怎么都行", "user_self_report"),
+        # --- English questions ---
+        ("which one is better", "user_question"),
+        ("how do I reset it", "user_question"),
+        ("is it ready?", "user_question"),
+        # --- English requests ---
+        ("please summarize this", "user_request"),
+        ("can you help me", "user_request"),
+        # --- English statements ---
+        ("I have two cats", "user_self_report"),
+        ("I really like sushi", "user_self_report"),
+    ],
+)
+def test_classifier_speech_act_boundaries(message, expected):
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(
+        normalize_runtime_event(_build_user_message(message=message))
+    )
+    assert classification.evidence_class == expected, f"{message!r} -> {classification.evidence_class}"
