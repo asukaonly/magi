@@ -72,11 +72,13 @@ def build_findings(
     explicit_chat_source = _has_explicit_chat_source(request.source_filters)
 
     candidates: list[dict[str, Any]] = []
+    projection_dropped: list[dict[str, Any]] = []
     candidates.extend(
         _project_events(
             payload.l1_events,
             mode=mode,
             explicit_chat_source=explicit_chat_source,
+            dropped_sink=projection_dropped,
         )
     )
 
@@ -119,6 +121,13 @@ def build_findings(
 
     for finding in selected:
         finding["topic"] = _derive_finding_topic(finding)
+
+    if projection_dropped:
+        payload.trace["projection_filter"] = {
+            "dropped": projection_dropped,
+            "count": len(projection_dropped),
+        }
+
     return selected, rel_dropped + asrt_dropped
 
 
@@ -494,6 +503,7 @@ def _project_events(
     *,
     mode: str = "exact_fact",
     explicit_chat_source: bool = False,
+    dropped_sink: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     for item in items:
@@ -508,6 +518,14 @@ def _project_events(
             mode=mode,
             explicit_chat_source=explicit_chat_source,
         ):
+            if dropped_sink is not None:
+                dropped_sink.append(
+                    {
+                        "event_id": item.get("event_id"),
+                        "evidence_class": _normalized(item.get("evidence_class")) or "unknown",
+                        "reason": "answer_facing_chat_artifact",
+                    }
+                )
             continue
         findings.append(
             {

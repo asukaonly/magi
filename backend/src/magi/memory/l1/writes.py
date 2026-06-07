@@ -35,6 +35,29 @@ from .embeddings.common import (
 
 logger = logging.getLogger(__name__)
 
+
+def _merge_evidence_into_metadata(
+    metadata_json: dict | None, reason_code: str | None
+) -> dict | None:
+    """Embed the governance reason_code under a ``_evidence`` namespace inside
+    the event's metadata_json, preserving the event's own keys.
+
+    Returns None only when there is nothing to store (no reason_code and no
+    pre-existing metadata), so the column can stay NULL. The namespace keeps
+    governance provenance separate from the event's own metadata, and makes a
+    future migration to a dedicated column a clean double-read.
+    """
+    if not reason_code and not metadata_json:
+        return None
+    merged = dict(metadata_json or {})
+    if reason_code:
+        existing = merged.get("_evidence")
+        evidence = dict(existing) if isinstance(existing, dict) else {}
+        evidence["reason_code"] = reason_code
+        merged["_evidence"] = evidence
+    return merged
+
+
 L1_STORE_DIAGNOSTIC_EVENT_TYPES = {
     EventTypes.USER_MESSAGE,
     EventTypes.AI_RESPONSE,
@@ -108,6 +131,16 @@ class L1EventWriteMixin:
                 event.correlation_id,
             )
         evidence_values = self._resolve_event_evidence_values(event)
+        logger.debug(
+            "L1 evidence classified | event_id=%s class=%s reason=%s status=%s",
+            event.event_id,
+            evidence_values["evidence_class"],
+            evidence_values.get("reason_code"),
+            evidence_values["evidence_status"],
+        )
+        merged_metadata = _merge_evidence_into_metadata(
+            event.metadata_json, evidence_values.get("reason_code")
+        )
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
             cursor = await db.execute(
                 f"""
@@ -140,7 +173,7 @@ class L1EventWriteMixin:
                     content_type_code(event.content_type),
                     float(event.importance_score),
                     event.media_path,
-                    json.dumps(event.metadata_json) if event.metadata_json is not None else None,
+                    json.dumps(merged_metadata) if merged_metadata is not None else None,
                     None,
                     evidence_values["evidence_status"],
                     evidence_values["evidence_class"],
@@ -217,6 +250,7 @@ class L1EventWriteMixin:
                 "evidence_class": int(EvidenceClass.UNKNOWN),
                 "evidence_rule_version": EVIDENCE_RULE_VERSION,
                 "l1_retrieval_scope": int(L1RetrievalScope.NONE),
+                "reason_code": None,
             }
 
         try:
@@ -233,6 +267,7 @@ class L1EventWriteMixin:
                 "evidence_class": int(EvidenceClass.from_value(classification.evidence_class)),
                 "evidence_rule_version": EVIDENCE_RULE_VERSION,
                 "l1_retrieval_scope": int(L1RetrievalScope.NONE),
+                "reason_code": None,
             }
 
         return {
@@ -240,6 +275,7 @@ class L1EventWriteMixin:
             "evidence_class": int(EvidenceClass.from_value(classification.evidence_class)),
             "evidence_rule_version": EVIDENCE_RULE_VERSION,
             "l1_retrieval_scope": int(L1RetrievalScope.from_value(policy.l1_retrieval_scope)),
+            "reason_code": classification.reason_code,
         }
 
     async def backfill_evidence_annotations(
