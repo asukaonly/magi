@@ -332,6 +332,46 @@ class TestEvidenceClassDrivenFiltering:
 
         assert findings[0]["statement"] == "我一般下午看坤的真爱粉直播？"
 
+    def test_evidence_class_user_question_filtered_in_non_fact_like_mode(self):
+        """A user_question must be dropped even when the query routes to a
+        non-fact-like mode (episode_recall / event_stream), not just fact-like
+        modes."""
+        payload = _make_payload(
+            l1_events=[
+                {
+                    "event_id": "evt-q",
+                    "event_type": "UserMessage",
+                    "source": "chat_projector",
+                    "author_type": "user",
+                    "content_type": "text",
+                    "evidence_class": "user_question",
+                    "content": "杭州天气怎么样",
+                    "score": 0.9,
+                    "timestamp": 2.0,
+                },
+                {
+                    "event_id": "evt-obs",
+                    "event_type": "SENSOR_EVENT",
+                    "source": "chrome_history",
+                    "author_type": "external",
+                    "content_type": "observation",
+                    "evidence_class": "external_observation",
+                    "content": "Chrome 浏览 天气网 杭州 7 天预报",
+                    "score": 0.7,
+                    "timestamp": 1.0,
+                },
+            ],
+        )
+
+        findings = build_findings(
+            payload,
+            _make_query(query="杭州最近天气", mode="episode_recall"),
+        )
+
+        statements = [finding["statement"] for finding in findings]
+        assert "杭州天气怎么样" not in statements
+        assert "Chrome 浏览 天气网 杭州 7 天预报" in statements
+
     def test_evidence_class_unknown_falls_back_to_legacy_heuristic(self):
         """Rows without a usable evidence_class must still be filtered by the
         legacy author/source/content shape, otherwise unbackfilled data leaks
