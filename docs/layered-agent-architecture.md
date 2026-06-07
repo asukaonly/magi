@@ -33,6 +33,21 @@ One practical rule follows from that:
 - `core/` should stay focused on infrastructure concerns
 - runtime-domain code should prefer explicit collaborator injection over service-locator style access
 
+## Enforcement & debt status
+
+These rules are **CI-enforced**, not conventional. `backend/.importlinter` defines two contracts (a `lint-imports` gate, `2 kept, 0 broken`):
+
+- **`layers`** — the L1–L15 ordering above. Adopted as a **baseline + ratchet**: a frozen snapshot of pre-existing cross-layer imports that may only *shrink*; any *new* lower→upper import fails CI.
+- **`plugin-isolation`** — `tools/builtin` + `tools/code_agent` (capability-tool code) may import the SDK only, never host layers.
+
+Outcome of the layering cleanup (ADRs 0001–0004):
+
+- **`plugin-isolation` baseline = 0** — capability tools are fully SDK-isolated (Framework A). Runtime-control tools (`agent_tool`, batch tools, plan/todo) live in host layers and are composition-root-registered, never in the plugin surface (ADR-0002).
+- **`layers` baseline: 115 → 22.** Retired: the `agent → chat` task-agent cluster (the chat-driver descent, ADR-0003/0004 P2), `agent → timeline`, `runtime_trace → events` (layer repositioned above events), `awareness → timeline` (subscribers inverted into timeline), the `tools ↔ skills` cycle (ordered + `ToolRegistryPort`), `chat.workspace` / `chat_trace` (lowered), and the wrong-direction tail (permission-shim repoint, plus `core→config` / `memory→api` / `skills→engine` / `plugins→tools/awareness` injected, and the `message_text` util lowered).
+- **Remaining ~22 edges are intentionally left** — overwhelmingly `api/channels → chat` (the api router IS the HTTP surface over chat; channels are the delivery surface). Inverting these inherent surface→domain dependencies costs more than it returns; they are a conscious carry, not unaddressed debt. Revisit only if a concrete need (e.g. a second front end) makes the coupling bite.
+
+When adding code, keep both contracts green. A new lower→upper import is a design smell — inject the dependency from the composition root, lower a shared contract/util, or register via the origin-agnostic registry instead.
+
 ## Current Package Mapping
 
 The current codebase maps to the layered model like this.
