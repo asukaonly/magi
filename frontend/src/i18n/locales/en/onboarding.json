@@ -229,6 +229,22 @@
     "decline": "Not now",
     "fallbackHeading": "A suggestion"
   },
+  "pluginInstallPanel": {
+    "stepInstall": "Install plugin",
+    "stepEnable": "Enable data source",
+    "stepSync": "Sync history",
+    "stepMemory": "Build memory",
+    "syncedCount": "Synced {{count}} items",
+    "fieldsTitle": "First, choose what to connect",
+    "connect": "Connect",
+    "cancel": "Later",
+    "close": "Done",
+    "readyTitle": "Now I get you",
+    "backfillNote": "Your full history is still being organized in the background — we'll let you know when it's ready.",
+    "memoryReadying": "Organizing — ready soon",
+    "unsupported": "This data source can't be connected in one click yet — you can set it up in Settings.",
+    "errorRetry": "Retry"
+  },
   "llm": {
     "modelSelection": {
       "title": "Model Selection",

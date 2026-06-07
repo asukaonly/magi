@@ -230,6 +230,22 @@
     "decline": "先不用",
     "fallbackHeading": "一个建议"
   },
+  "pluginInstallPanel": {
+    "stepInstall": "安装插件",
+    "stepEnable": "启用数据源",
+    "stepSync": "同步历史数据",
+    "stepMemory": "整理记忆",
+    "syncedCount": "已同步 {{count}} 条",
+    "fieldsTitle": "连接前，先选择要接入的内容",
+    "connect": "连接",
+    "cancel": "稍后",
+    "close": "完成",
+    "readyTitle": "现在我懂你了",
+    "backfillNote": "完整历史正在后台整理中，完成后会通知你",
+    "memoryReadying": "整理中，稍后就绪",
+    "unsupported": "该数据源暂不支持一键连接，可在设置中配置",
+    "errorRetry": "重试"
+  },
   "llm": {
     "modelSelection": {
       "title": "模型选择",
