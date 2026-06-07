@@ -16,6 +16,8 @@ import { PortraitFloater } from '@/components/chat/portrait/PortraitFloater';
 import { PermissionModalHost, AskDialog } from '@/components/control';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { ChatWorkspaceProvider } from '@/stores/chat-workspace-context';
+import { ProductTour } from '@/components/onboarding/ProductTour';
+import { useProductTourFlag } from '@/hooks/useProductTourFlag';
 
 const PageContentErrorFallback = () => {
   const { t } = useTranslation('app');
@@ -104,6 +106,7 @@ const MainLayout: React.FC = () => {
   const viewportIsNarrow = useChatShellStore((state) => state.viewportIsNarrow);
   const portraitRailOpen = useChatShellStore((state) => state.portraitRailOpen);
   const currentSessionId = useConversationStore((state) => state.currentSessionId);
+  const { completed: tourCompleted, loaded: tourLoaded, markCompleted: markTour } = useProductTourFlag();
   useBackendHealth();
 
   useEffect(() => {
@@ -171,6 +174,10 @@ const MainLayout: React.FC = () => {
         {/* Control-plane hosts mirror pending interactions into the active chat. */}
         <PermissionModalHost sessionId={currentSessionId} intervalMs={0} />
         <AskDialog sessionId={currentSessionId} intervalMs={0} />
+      </ErrorBoundary>
+      {/* One-time post-onboarding product tour. Best-effort: never blocks chat. */}
+      <ErrorBoundary resetKey={String(tourCompleted)} fallback={null}>
+        {tourLoaded && !tourCompleted ? <ProductTour onComplete={() => void markTour()} /> : null}
       </ErrorBoundary>
     </AppShellProviders>
   );
