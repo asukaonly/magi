@@ -187,6 +187,18 @@
       "recallContact": "Remind me what I told you about Alex"
     }
   },
+  "pluginNames": {
+    "chrome-history": "Chrome history",
+    "calendar": "Calendar",
+    "git-activity": "Git activity",
+    "photo-library": "Photo library",
+    "netease-music": "NetEase Music",
+    "terminal-history": "Terminal history",
+    "screen-time": "Screen Time",
+    "steam-play-history": "Steam play history",
+    "screenshot_timeline": "Screenshot timeline",
+    "system-media": "System media"
+  },
   "emptyState": {
     "heading": "Let me see your activity",
     "connect": "Enable",

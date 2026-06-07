@@ -1,10 +1,18 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePluginActivation } from '../../hooks/usePluginActivation';
-import { EmptyStateSensorCard } from '../empty-state/EmptyStateSensorCard';
 import { PluginActivationDialog } from '../plugins/PluginActivationDialog';
-import { getEmptyStatePluginMeta } from '../../constants/emptyStatePriorities';
 import type { SuggestionProposal } from '../../api/modules/systemSuggestions';
+
+/** "netease-music" → "Netease Music" — readable fallback when a plugin has no
+ *  localized name in the `pluginNames` i18n map. */
+function humanizePluginId(pluginId: string): string {
+  return pluginId
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join(' ');
+}
 
 export interface SystemSuggestionSideCardProps {
   proposal: SuggestionProposal;
@@ -59,27 +67,35 @@ export function SystemSuggestionSideCard({
 
       <div className="mt-3 space-y-2">
         {visiblePluginIds.map((pluginId) => {
-          const meta = getEmptyStatePluginMeta(pluginId);
-          const titleKey = meta?.titleKey ?? 'emptyState.connect';
-          const valueKey = meta?.valueKey ?? 'emptyState.connect';
+          // Name the plugin so the user knows *what* they're enabling (the old
+          // generic "启用 / 启用" said nothing). Localized via `pluginNames`,
+          // humanized id as fallback.
+          const name = t(`pluginNames.${pluginId}`, { defaultValue: humanizePluginId(pluginId) });
           const needsInstall = proposal.installable_plugin_ids.includes(pluginId);
           const isInstalling = installingPluginId === pluginId;
+          const label = isInstalling
+            ? t('emptyState.installing')
+            : needsInstall
+              ? t('emptyState.installAndConnect')
+              : t('emptyState.connect');
           return (
-            <div data-testid="system-suggestion-side-card-row" key={pluginId}>
-              <EmptyStateSensorCard
-                pluginId={pluginId}
-                titleKey={titleKey}
-                valueKey={valueKey}
+            <div
+              data-testid="system-suggestion-side-card-row"
+              key={pluginId}
+              className="flex items-center gap-3"
+            >
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+                {name}
+              </span>
+              <button
+                type="button"
+                data-testid={`empty-state-connect-${pluginId}`}
+                onClick={() => { void openDialog(pluginId, { install: needsInstall }); }}
                 disabled={isInstalling}
-                connectLabelKey={
-                  isInstalling
-                    ? 'emptyState.installing'
-                    : needsInstall
-                      ? 'emptyState.installAndConnect'
-                      : 'emptyState.connect'
-                }
-                onConnect={(pid) => { void openDialog(pid, { install: needsInstall }); }}
-              />
+                className="ml-auto shrink-0 min-w-[5.5rem] rounded-md border border-primary/40 px-3 py-1.5 text-center text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
+              >
+                {label}
+              </button>
             </div>
           );
         })}
