@@ -6,11 +6,28 @@ import { personasApi, type PersonaSummary } from '@/api/modules/personas';
 import { DEFAULT_USER_ID } from '@/constants';
 import { APP_EVENTS } from '@/constants/events';
 import { normalizeHistoryMessages, type ChatTimelineMessage } from '@/domain/chat/state';
+import { useProductTourFlag } from '@/hooks/useProductTourFlag';
 import { useConversationStore } from '@/stores';
 
 const USER_ID = DEFAULT_USER_ID;
 const BOOTSTRAP_PENDING_TURN_ID = 'bootstrap-init-pending';
 const BOOTSTRAP_PENDING_MESSAGE_ID = 'bootstrap-init-pending';
+
+/**
+ * Pure gate deciding whether the persona's bootstrap opening may fire yet.
+ *
+ * The opening is deferred until the one-time product tour is resolved: we hold
+ * it while the tour state is still loading and while the tour is pending, and
+ * only release it once the tour is loaded AND completed (or skipped). Extracted
+ * as a pure helper so the gate is unit-testable independently of the hook.
+ */
+export function shouldFireBootstrap(args: {
+  needsBootstrap: boolean;
+  tourLoaded: boolean;
+  tourCompleted: boolean;
+}): boolean {
+  return args.needsBootstrap && args.tourLoaded && args.tourCompleted;
+}
 
 type UseChatSessionLifecycleOptions = {
   currentSessionId: string | null;
@@ -60,6 +77,10 @@ export function useChatSessionLifecycle({
   const [coreModelSupportsVision, setCoreModelSupportsVision] = useState(false);
   const [allowInterjection, setAllowInterjection] = useState(true);
   const bootstrappedSessionIdRef = useRef<string | null>(null);
+  // Defer the persona's bootstrap opening until the one-time product tour is
+  // resolved. When the tour completes, the flag flips and the firing effect
+  // below re-runs (re-fetching the greeting), releasing the held opening.
+  const { completed: tourCompleted, loaded: tourLoaded } = useProductTourFlag();
 
   useEffect(() => {
     let cancelled = false;
@@ -147,8 +168,12 @@ export function useChatSessionLifecycle({
       setAiName(data.name || 'AI');
       setAiAvatar(data.avatar || '');
 
-      const shouldInitBootstrap = Boolean(data.needs_bootstrap_init ?? data.needs_bootstrap);
-      if (!shouldInitBootstrap || !currentSessionId || bootstrappedSessionIdRef.current === currentSessionId) {
+      const needsBootstrap = Boolean(data.needs_bootstrap_init ?? data.needs_bootstrap);
+      if (
+        !shouldFireBootstrap({ needsBootstrap, tourLoaded, tourCompleted })
+        || !currentSessionId
+        || bootstrappedSessionIdRef.current === currentSessionId
+      ) {
         return;
       }
 
@@ -178,7 +203,7 @@ export function useChatSessionLifecycle({
     } catch {
       // Non-critical — keep default AI name.
     }
-  }, [currentSessionId, removeMessage, requestHistory, translate, upsertMessage]);
+  }, [currentSessionId, removeMessage, requestHistory, translate, tourCompleted, tourLoaded, upsertMessage]);
 
   const requestHistoryRef = useRef(requestHistory);
   const loadPersonalityRef = useRef(loadPersonality);
@@ -199,6 +224,17 @@ export function useChatSessionLifecycle({
     void requestHistoryRef.current(currentSessionId);
     void loadPersonalityRef.current();
   }, [currentSessionId]);
+
+  // Re-evaluate the (deferred) bootstrap opening when the product tour resolves.
+  // The greeting is re-fetched inside loadPersonality, so needs_bootstrap is
+  // available again at this point; shouldFireBootstrap then releases the opening.
+  useEffect(() => {
+    if (!currentSessionId) {
+      return;
+    }
+
+    void loadPersonalityRef.current();
+  }, [currentSessionId, tourCompleted, tourLoaded]);
 
   useEffect(() => {
     const handleMemoryCleared = () => {
