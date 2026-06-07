@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
-from ..agent.control.permission.provider import get_permission_gateway
+from ..control.permission.provider import get_permission_gateway
 from .service_access import build_skills_runtime
 from .tool_registry_port import ToolRegistryPort
 

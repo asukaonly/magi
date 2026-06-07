@@ -8,7 +8,6 @@ from typing import Any
 
 import aiosqlite
 
-from ..config.models import LifecycleSettings
 from ..utils.runtime import RuntimePaths, get_runtime_paths
 from .logger import get_logger
 from .sqlite import sqlite_connection_async
@@ -62,7 +61,9 @@ class RuntimeOperationalGC:
     def __init__(
         self,
         *,
-        lifecycle: LifecycleSettings,
+        lifecycle: Any,  # config.models.LifecycleSettings, injected by the
+        # composition root (bootstrap/maintenance.py). Typed Any so this L1
+        # core module does not import the higher config layer.
         runtime_paths: RuntimePaths | None = None,
         now: Callable[[], float] | None = None,
     ) -> None:
