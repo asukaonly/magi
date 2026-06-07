@@ -4,9 +4,10 @@
     "back": "上一步",
     "skip": "跳过",
     "done": "完成",
-    "connect": "连接",
+    "connect": "启用",
     "installAndConnect": "安装并启用",
     "connecting": "连接中…",
+    "recommend": "推荐：{{plugin}}",
     "chat": {
       "title": "和我聊天",
       "body": "在这里和你的人格对话。"

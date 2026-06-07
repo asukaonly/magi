@@ -1,41 +1,22 @@
-import { useCallback, useEffect, useState } from 'react';
-import { configApi } from '@/api/modules/config';
+import { useEffect } from 'react';
+import { useProductTourStore } from '@/stores/productTour';
 
-/** One-time gate for the post-onboarding product tour. Mirrors useFirstConversationFlag. */
+/**
+ * One-time gate for the post-onboarding product tour. Thin wrapper over the
+ * shared `useProductTourStore` so that completing the tour in one consumer
+ * (MainLayout) propagates to every other consumer (useChatSessionLifecycle,
+ * which releases the deferred persona opening). Returns the same shape callers
+ * already use: { completed, loaded, markCompleted }.
+ */
 export function useProductTourFlag() {
-  const [completed, setCompleted] = useState(true); // assume done until we learn otherwise (no flash)
-  const [loaded, setLoaded] = useState(false);
+  const completed = useProductTourStore((s) => s.completed);
+  const loaded = useProductTourStore((s) => s.loaded);
+  const refresh = useProductTourStore((s) => s.refresh);
+  const markCompleted = useProductTourStore((s) => s.markCompleted);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const response = await configApi.get();
-        const done = Boolean((response as any)?.data?.preferences?.product_tour_completed);
-        if (!cancelled) setCompleted(done);
-      } catch {
-        if (!cancelled) setCompleted(true); // on error, don't nag
-      } finally {
-        if (!cancelled) setLoaded(true);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  const markCompleted = useCallback(async () => {
-    setCompleted(true); // optimistic
-    try {
-      const response = await configApi.get();
-      const current = (response as any)?.data;
-      if (!current) return;
-      const next = structuredClone(current);
-      if (!next.preferences) next.preferences = {};
-      next.preferences.product_tour_completed = true;
-      await configApi.update(next);
-    } catch (err) {
-      console.warn('failed to persist product_tour_completed', err);
-    }
-  }, []);
+    if (!loaded) void refresh();
+  }, [loaded, refresh]);
 
   return { completed, loaded, markCompleted };
 }

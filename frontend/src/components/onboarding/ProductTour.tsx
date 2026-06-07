@@ -5,6 +5,16 @@ import { PluginActivationDialog } from '@/components/plugins/PluginActivationDia
 import { listInstallable, type InstallableItem } from '@/api/modules/systemSuggestions';
 import { PRODUCT_TOUR_STEPS, pickZeroConfigSource } from './productTourSteps';
 
+/** "netease-music" → "Netease Music" — readable fallback when a plugin has no
+ *  localized name in the `pluginNames` i18n map. */
+function humanizePluginId(pluginId: string): string {
+  return pluginId
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join(' ');
+}
+
 export interface ProductTourProps {
   /** Called when the tour completes OR is skipped (mark flag + fire bootstrap). */
   onComplete: () => void;
@@ -91,17 +101,29 @@ export function ProductTour({ onComplete }: ProductTourProps): JSX.Element | nul
         <h3 className="text-sm font-medium text-foreground">{t(step.titleKey)}</h3>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t(step.bodyKey)}</p>
         {step.connect && source ? (
-          <button
-            type="button"
-            data-testid={`tour-connect-${source.plugin_id}`}
-            disabled={isInstalling}
-            onClick={() => {
-              void openDialog(source.plugin_id, { install: needsInstall });
-            }}
-            className="mt-3 rounded-md border border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
-          >
-            {connectLabel}
-          </button>
+          <div className="mt-3">
+            {/* Name the plugin so the user knows WHAT they're installing (the
+                bare "安装并启用" gave no clue). Localized via pluginNames, humanized fallback. */}
+            <p className="text-xs font-medium text-foreground">
+              {t('productTour.recommend', {
+                plugin: t(`pluginNames.${source.plugin_id}`, {
+                  ns: 'onboarding',
+                  defaultValue: humanizePluginId(source.plugin_id),
+                }),
+              })}
+            </p>
+            <button
+              type="button"
+              data-testid={`tour-connect-${source.plugin_id}`}
+              disabled={isInstalling}
+              onClick={() => {
+                void openDialog(source.plugin_id, { install: needsInstall });
+              }}
+              className="mt-1.5 rounded-md border border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
+            >
+              {connectLabel}
+            </button>
+          </div>
         ) : null}
         <div className="mt-3 flex items-center justify-between">
           <button
