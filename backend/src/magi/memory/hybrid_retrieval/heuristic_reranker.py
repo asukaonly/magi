@@ -46,6 +46,29 @@ def _evidence_weight(label: str | None) -> float:
     return float(decision.evidence_weight)
 
 
+def _l1_evidence_weight(label: str | None) -> float:
+    """evidence_weight prior for L1 events.
+
+    Differs from the L2 helper: missing/unknown evidence_class returns 1.0 (no
+    penalty), so un-backfilled rows are never down-ranked. Only explicitly
+    classified rows take their policy weight. This keeps the prior a pure
+    down-weight on KNOWN low-authority evidence — zero collateral damage on
+    legacy data.
+    """
+    if not label:
+        return 1.0
+    try:
+        cls = EvidenceClass.from_value(label)
+    except ValueError:
+        return 1.0
+    # UNKNOWN is intentionally neutral (1.0). It is not in _POLICY_MATRIX today,
+    # but the explicit guard keeps that contract even if a row were ever added.
+    if cls == EvidenceClass.UNKNOWN:
+        return 1.0
+    decision = _POLICY_MATRIX.get(cls)
+    return float(decision.evidence_weight) if decision is not None else 1.0
+
+
 class HeuristicRetrievalReranker(BaseRetrievalReranker):
     """Rule-based reranker shared across memory layers."""
 
@@ -138,7 +161,7 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
             verbosity_penalty = min((len(content) - 240) / 600.0, 0.25)
         recency_bonus = _recency_bonus(item.get("timestamp"), now=getattr(self, "_rerank_now", None))
 
-        final_score = (
+        unweighted_score = (
             base_rrf_score
             + role_bias
             + token_overlap
@@ -147,6 +170,12 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
             + recency_bonus
             - verbosity_penalty
         )
+        # Evidence-class prior: down-weight KNOWN low-authority L1 events.
+        # Applied to the positive score only — a negative score is already
+        # bottom-ranked, and scaling it by a <1 weight would perversely raise
+        # it. Unknown/missing class -> weight 1.0 (see _l1_evidence_weight).
+        evidence_weight = _l1_evidence_weight(item.get("evidence_class"))
+        final_score = unweighted_score * evidence_weight if unweighted_score > 0 else unweighted_score
         trace = {
             "backend": "heuristic",
             "base_rrf_score": round(base_rrf_score, 6),
@@ -157,6 +186,8 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
             "recency_bonus": round(recency_bonus, 6),
             "verbosity_penalty": round(verbosity_penalty, 6),
             "matched_tokens": matched_tokens,
+            "evidence_weight": round(evidence_weight, 6),
+            "unweighted_score": round(unweighted_score, 6),
         }
         enriched = dict(item)
         enriched["retrieval_score"] = final_score

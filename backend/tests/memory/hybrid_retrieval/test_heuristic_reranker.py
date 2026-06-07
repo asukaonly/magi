@@ -88,3 +88,40 @@ async def test_reranker_default_weight_for_null_evidence_class():
     )
     triple_ids = [r["triple_id"] for r in ranked]
     assert triple_ids == ["declared", "null_row", "quote"]
+
+
+@pytest.mark.asyncio
+async def test_l1_evidence_weight_ranks_self_report_above_external_observation():
+    """Two L1 events with identical text/author_type/fused-score: the one with
+    user_self_report (weight=1.0) must outrank external_observation (weight=0.7)
+    via the evidence_weight prior alone — author_type is the same so role_bias
+    is not the deciding factor."""
+    config = RetrievalConfig(reranker_layers=("L1",), reranker_top_k=10)
+    reranker = HeuristicRetrievalReranker(config)
+    items = [
+        {"event_id": "obs", "content": "杭州 明天 下雨", "author_type": "user",
+         "evidence_class": "external_observation", "timestamp": 1.0},
+        {"event_id": "self", "content": "杭州 明天 下雨", "author_type": "user",
+         "evidence_class": "user_self_report", "timestamp": 1.0},
+    ]
+    fused = {"obs": 0.2, "self": 0.2}
+    ranked = await reranker.rerank(layer="L1", results=items, query="杭州 明天 下雨", fused_scores=fused)
+    assert ranked[0]["event_id"] == "self"
+    assert ranked[0]["retrieval_score"] >= ranked[1]["retrieval_score"]
+
+
+@pytest.mark.asyncio
+async def test_l1_evidence_weight_does_not_penalize_unknown_rows():
+    """Un-backfilled rows (missing/unknown evidence_class) keep weight 1.0 so they
+    are not down-ranked relative to a self-report with the same signal."""
+    config = RetrievalConfig(reranker_layers=("L1",), reranker_top_k=10)
+    reranker = HeuristicRetrievalReranker(config)
+    items = [
+        {"event_id": "legacy", "content": "杭州 下雨", "author_type": "user", "timestamp": 1.0},
+        {"event_id": "self", "content": "杭州 下雨", "author_type": "user",
+         "evidence_class": "user_self_report", "timestamp": 1.0},
+    ]
+    fused = {"legacy": 0.2, "self": 0.2}
+    ranked = await reranker.rerank(layer="L1", results=items, query="杭州 下雨", fused_scores=fused)
+    scores = {r["event_id"]: r["retrieval_score"] for r in ranked}
+    assert scores["legacy"] == pytest.approx(scores["self"])
