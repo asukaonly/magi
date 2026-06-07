@@ -20,4 +20,12 @@ describe('pluginInstallPanel store', () => {
     usePluginInstallPanelStore.getState().openPanel('calendar');
     expect(usePluginInstallPanelStore.getState().installMode).toBe(false);
   });
+
+  it('carries an onDone callback and clears it on close', () => {
+    const onDone = () => {};
+    usePluginInstallPanelStore.getState().openPanel('photo-library', { onDone });
+    expect(usePluginInstallPanelStore.getState().onDone).toBe(onDone);
+    usePluginInstallPanelStore.getState().closePanel();
+    expect(usePluginInstallPanelStore.getState().onDone).toBeNull();
+  });
 });

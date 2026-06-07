@@ -53,8 +53,9 @@ describe('PluginInstallPanel', () => {
       l2_ready: true,
     } as any);
 
+    const onDone = vi.fn();
     render(<PluginInstallPanel />);
-    usePluginInstallPanelStore.getState().openPanel('calendar');
+    usePluginInstallPanelStore.getState().openPanel('calendar', { onDone });
 
     // The flow polls /sensors/status once at SYNC_POLL_MS (1500ms) before the
     // sync step completes, so allow generous headroom over the default 5s.
@@ -70,6 +71,9 @@ describe('PluginInstallPanel', () => {
       },
       { timeout: 8000 },
     );
+
+    // onDone fires exactly once when the flow reaches `done`.
+    expect(onDone).toHaveBeenCalledTimes(1);
   }, 12000);
 
   it('shows the unsupported message when the source has no activation flow', async () => {
