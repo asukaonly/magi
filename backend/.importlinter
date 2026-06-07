@@ -90,9 +90,6 @@ ignore_imports =
     magi.chat.control_transcript_subscriber -> magi.transport.chat_events
     magi.memory.event_translation -> magi.awareness.sensor_memory_projection
     magi.memory.portrait.factory -> magi.personality.persona_repository
-    magi.plugins.installation -> magi.awareness.scheduler_contrib
-    magi.plugins.manager -> magi.awareness.scheduler_contrib
-    magi.plugins.manager -> magi.tools.registry
     magi.skills.subagent -> magi.agent.execution.function_calling
 
 [importlinter:contract:plugin-isolation]

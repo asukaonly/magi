@@ -9,6 +9,7 @@ import importlib.util
 import logging
 import secrets
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -20,8 +21,6 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from ..config import get_config, save_config
 from ..config.models import PluginSettings
-from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
-from ..tools.registry import ToolRegistry, tool_registry as shared_tool_registry
 from ..utils.packaged_paths import get_repo_root
 from .base import Plugin
 from .contracts import (
@@ -70,17 +69,24 @@ def _resolve_search_paths() -> list[Path]:
 
 def build_plugin_runtime(
     *,
-    tool_registry: ToolRegistry | None = None,
+    tool_registry: Any,
+    request_sensor_schedule_refresh: Callable[[], None],
     sensor_registry: SensorRegistry | None = None,
 ) -> PluginRuntimeBindings:
-    """Build plugin runtime services for the current runtime instance."""
+    """Build plugin runtime services for the current runtime instance.
 
-    resolved_tool_registry = tool_registry or shared_tool_registry
+    ``tool_registry`` (the shared L9 tool registry) and the
+    ``request_sensor_schedule_refresh`` callable (an L8 awareness hook) are
+    injected by the composition root so this L4 plugins module does not import
+    the higher tools / awareness layers.
+    """
+
     resolved_sensor_registry = sensor_registry or SensorRegistry()
     plugin_manager = PluginManager(
-        tool_registry=resolved_tool_registry,
+        tool_registry=tool_registry,
         sensor_registry=resolved_sensor_registry,
         search_paths=_resolve_search_paths(),
+        request_sensor_schedule_refresh=request_sensor_schedule_refresh,
     )
     plugin_manager.scan(persist_discovery=True)
     plugin_manager.activate_enabled_plugins()
@@ -96,13 +102,15 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
     def __init__(
         self,
         *,
-        tool_registry: ToolRegistry,
+        tool_registry: Any,
         sensor_registry: SensorRegistry,
         search_paths: list[Path],
+        request_sensor_schedule_refresh: Callable[[], None],
     ) -> None:
         self._tool_registry = tool_registry
         self._sensor_registry = sensor_registry
         self._search_paths = list(search_paths)
+        self._request_sensor_schedule_refresh = request_sensor_schedule_refresh
         self._package_states: dict[str, PluginPackageState] = {}
         self._plugin_instances: dict[str, Plugin] = {}
         self._registered_tools: dict[str, list[str]] = {}
@@ -212,7 +220,7 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
             self.unload_plugin(plugin_id)
         self.scan(persist_discovery=persist_discovery)
         self.activate_enabled_plugins()
-        request_sensor_schedule_refresh()
+        self._request_sensor_schedule_refresh()
         return self.list_packages()
 
     def list_packages(self) -> list[PluginPackageState]:
@@ -351,7 +359,7 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
             state.last_error = None
             state.contributions = registered_contributions
             self._plugin_instances[plugin_id] = plugin_instance
-            request_sensor_schedule_refresh()
+            self._request_sensor_schedule_refresh()
             return state
         except Exception as exc:
             state.loaded = False
@@ -458,7 +466,7 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
             state.loaded = False
             state.contributions = self._placeholder_contributions(state.manifest)
         self._purge_plugin_modules(plugin_id)
-        request_sensor_schedule_refresh()
+        self._request_sensor_schedule_refresh()
 
     def _fire_plugin_shutdown(self, plugin_id: str, instance: Any) -> None:
         """Invoke ``plugin.shutdown()`` regardless of caller sync/async context.
@@ -542,7 +550,7 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         )
         self.scan(persist_discovery=False)
         state = self.load_plugin(plugin_id)
-        request_sensor_schedule_refresh()
+        self._request_sensor_schedule_refresh()
         return state
 
     def disable_plugin(self, plugin_id: str) -> PluginPackageState:
@@ -554,7 +562,7 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         save_config({f"plugins.packages.{plugin_id}.enabled": False})
         self.scan(persist_discovery=False)
         state = self._require_package(plugin_id)
-        request_sensor_schedule_refresh()
+        self._request_sensor_schedule_refresh()
         return state
 
     def reload_plugin(self, plugin_id: str) -> PluginPackageState:
@@ -564,7 +572,7 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         self.unload_plugin(plugin_id)
         if state.enabled:
             state = self.load_plugin(plugin_id)
-        request_sensor_schedule_refresh()
+        self._request_sensor_schedule_refresh()
         return state
 
     def update_plugin_settings(self, plugin_id: str, updates: dict[str, Any]) -> PluginPackageState:
@@ -581,7 +589,7 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         state = self._require_package(plugin_id)
         if state.enabled:
             state = self.reload_plugin(plugin_id)
-        request_sensor_schedule_refresh()
+        self._request_sensor_schedule_refresh()
         return state
 
     def read_plugin_settings_resource(self, plugin_id: str, resource_name: str) -> PluginSettingsResourcePayload:

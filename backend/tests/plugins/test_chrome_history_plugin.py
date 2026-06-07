@@ -249,6 +249,7 @@ def _build_manager(monkeypatch: pytest.MonkeyPatch, config: AppConfig) -> tuple[
         tool_registry=ToolRegistry(),
         sensor_registry=sensor_registry,
         search_paths=[_plugin_root()],
+        request_sensor_schedule_refresh=lambda: None,
     )
     return manager, sensor_registry
 

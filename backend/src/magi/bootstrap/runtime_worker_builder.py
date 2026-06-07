@@ -26,6 +26,7 @@ from ..awareness.lifecycle import (
     SensorStateUpdateSubscriberModule,
     SensorSyncExecutorModule,
 )
+from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
 from ..channels.lifecycle import ChannelsModule
 from ..outreach.lifecycle import OutreachModule
 from ..chat.lifecycle import (
@@ -180,7 +181,11 @@ def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[Life
         RuntimeCommandQueueModule(context),
         MessageBusModule(context),
         ChatStoreModule(context),
-        PluginSystemModule(context),
+        PluginSystemModule(
+            context,
+            tool_registry=tool_registry,
+            request_sensor_schedule_refresh=request_sensor_schedule_refresh,
+        ),
         LLMRuntimeModule(context),
     ]
 
