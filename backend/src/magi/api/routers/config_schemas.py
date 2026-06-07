@@ -206,6 +206,13 @@ class UserPreferencesModel(BaseModel):
             "chips component once it has served its purpose."
         ),
     )
+    product_tour_completed: bool = Field(
+        default=False,
+        description=(
+            "True once the user has completed (or skipped) the one-time main-page "
+            "product tour shown on first visit after onboarding."
+        ),
+    )
     suggestion_dismissals: dict[str, DismissalRecord] = Field(
         default_factory=dict,
         description=(
