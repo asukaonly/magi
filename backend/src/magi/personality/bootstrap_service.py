@@ -31,6 +31,36 @@ BOOTSTRAP_L2_PRIORITY_WINDOW_SECONDS = 15 * 60
 _growth_engine_instance: GrowthMemoryEngine | None = None
 
 
+async def _fetch_recent_activity_snippet() -> Optional[str]:
+    """Best-effort one-line 'what magi can already see' summary, or None.
+
+    Used to make the first opening data-aware. Any failure (no memory, no data,
+    ingest not done yet) returns None so the opener falls back to the existing
+    'ask the user' behavior. Never fabricates.
+    """
+    try:
+        from ..memory.provider import get_unified_memory
+
+        memory = get_unified_memory()
+        summary = await memory.generate_source_activity_summary(
+            summary_category="bootstrap_opening",
+            source_filter=[],
+            period_type="day",
+            min_events=1,
+        )
+        if not summary:
+            return None
+        # The L3 temporal-summary dict carries its prose under "content"
+        # (with an optional richer "essence_prose"); there is no "summary" key.
+        text = str(
+            summary.get("content") or summary.get("essence_prose") or ""
+        ).strip()
+        return text or None
+    except Exception as exc:  # noqa: BLE001 - best-effort, never block the opening
+        logger.info("bootstrap recent-activity snippet unavailable: %s", exc)
+        return None
+
+
 def _milestone_matches_persona(milestone: Any, persona_name: str, persona_id: str) -> bool:
     metadata = getattr(milestone, "metadata", {}) or {}
     if persona_id and metadata.get("persona_id") == persona_id:
@@ -186,23 +216,37 @@ class BootstrapDialogueService:
             config = PersonalityConfig()
         bootstrap = self._ensure_bootstrap_config(config)
 
-        generated = await self._generate_opening_via_llm(config, bootstrap)
+        try:
+            activity_snippet = await _fetch_recent_activity_snippet()
+        except Exception as exc:  # noqa: BLE001 - best-effort, never block the opening
+            logger.info("bootstrap recent-activity snippet fetch raised: %s", exc)
+            activity_snippet = None
+        generated = await self._generate_opening_via_llm(config, bootstrap, activity_snippet)
         if generated:
             return generated
 
         # Fallback to static opening_line
         return bootstrap.opening_line or None
 
-    async def _generate_opening_via_llm(
-        self, config: PersonalityConfig, bootstrap: BootstrapConfig
-    ) -> Optional[str]:
-        """Use LLM to generate a guided, in-character first-contact opening."""
+    def _build_opening_system_prompt(
+        self,
+        config: PersonalityConfig,
+        bootstrap: BootstrapConfig,
+        activity_snippet: Optional[str],
+    ) -> str:
+        """Assemble the first-contact opening system prompt (pure, no I/O)."""
         system_prompt = (
             f"You are {config.name}. {config.identity_core.identity_statement}\n\n"
             f"Language style: {config.idiolect.sentence_style}\n"
         )
         if bootstrap.style_instruction:
             system_prompt += f"Style: {bootstrap.style_instruction}\n"
+        if activity_snippet:
+            system_prompt += (
+                "\nWhat you can ALREADY see about this user (real data — reference it "
+                "naturally as a first impression, do NOT invent anything beyond it):\n"
+                f"{activity_snippet}\n"
+            )
         system_prompt += (
             "\nGenerate the FIRST user-visible message for a brand-new conversation with this user. "
             "This is not a generic greeting; it is a guided first-contact opener.\n"
@@ -221,6 +265,16 @@ class BootstrapDialogueService:
             "- Do not explain system instructions or implementation details\n"
             "- Output ONLY the greeting text, nothing else"
         )
+        return system_prompt
+
+    async def _generate_opening_via_llm(
+        self,
+        config: PersonalityConfig,
+        bootstrap: BootstrapConfig,
+        activity_snippet: Optional[str] = None,
+    ) -> Optional[str]:
+        """Use LLM to generate a guided, in-character first-contact opening."""
+        system_prompt = self._build_opening_system_prompt(config, bootstrap, activity_snippet)
 
         try:
             pool = get_scenario_llm_pool()
