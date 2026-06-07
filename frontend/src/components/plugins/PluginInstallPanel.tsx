@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { ExtensionFieldSpec } from '@/api/modules/plugins';
@@ -70,9 +70,24 @@ export function PluginInstallPanel(): JSX.Element | null {
   const pluginId = usePluginInstallPanelStore((s) => s.pluginId);
   const installMode = usePluginInstallPanelStore((s) => s.installMode);
   const closePanel = usePluginInstallPanelStore((s) => s.closePanel);
+  const onDone = usePluginInstallPanelStore((s) => s.onDone);
 
   const flow = usePluginInstallFlow(open ? pluginId : null, installMode);
   const [values, setValues] = useState<Record<string, unknown>>({});
+  const doneFiredRef = useRef(false);
+
+  // Fire the entry point's onDone exactly once when the flow succeeds (`done`).
+  // Reset the guard when the panel closes so a later open can fire again.
+  useEffect(() => {
+    if (!open) {
+      doneFiredRef.current = false;
+      return;
+    }
+    if (flow.phase === 'done' && !doneFiredRef.current) {
+      doneFiredRef.current = true;
+      onDone?.();
+    }
+  }, [open, flow.phase, onDone]);
 
   const fieldSpecs = flow.flow?.fields ?? [];
 
