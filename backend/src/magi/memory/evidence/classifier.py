@@ -84,6 +84,7 @@ _NON_QUESTION_CONTEXT_CJK = (
     "没什么", "什么都", "啥都", "没怎么", "不怎么",
     "怎么都", "怎么也", "谁都", "谁也",
     "知道为什么", "不知道为什么", "知道怎么", "不知道怎么", "不知怎么",
+    "哪里哪里",  # modesty reply ("哪里哪里，您过奖了"), not a location question
 )
 
 # Imperative leads that mark user requests/commands rather than self-reports.

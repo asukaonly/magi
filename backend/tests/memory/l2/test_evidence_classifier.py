@@ -382,6 +382,7 @@ def test_classifier_maps_chinese_spoken_questions(message):
         "什么都行",          # "什么" inside "什么都"
         "我喜欢喝咖啡",      # plain preference statement
         "不知道怎么办",      # "怎么" inside "不知道怎么"
+        "哪里哪里，您过奖了",  # modesty reply, "哪里" inside "哪里哪里" blacklist
     ],
 )
 def test_classifier_keeps_chinese_statements_as_self_report(message):

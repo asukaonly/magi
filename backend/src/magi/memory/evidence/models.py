@@ -124,6 +124,9 @@ class AssertionScope(_LabeledIntEnum):
         }
 
 
+# NOTE: CJK spoken-question detection was strengthened in #49 without bumping
+# this version, so previously-classified rows are NOT auto-reclassified by the
+# backfill sweep. Historical re-classification is a deliberate follow-up.
 EVIDENCE_RULE_VERSION = 3
 
 

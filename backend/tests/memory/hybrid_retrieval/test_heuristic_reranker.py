@@ -111,6 +111,52 @@ async def test_l1_evidence_weight_ranks_self_report_above_external_observation()
 
 
 @pytest.mark.asyncio
+async def test_l1_p1b_user_question_zeroed_out_by_evidence_weight():
+    """P1b defence: a user_question L1 event (evidence_weight=0.0) must get
+    retrieval_score==0.0 while a co-ranked user_self_report (weight=1.0) at
+    identical signal gets a positive score and ranks above it.
+
+    Both items share author_type, content, and fused-score so that
+    evidence_class is the only differentiator. A positive fused score plus the
+    user role_bias guarantees the unweighted score is positive, meaning the
+    ×0.0 multiplication is actually doing work.
+    """
+    config = RetrievalConfig(reranker_layers=("L1",), reranker_top_k=10)
+    reranker = HeuristicRetrievalReranker(config)
+    items = [
+        {
+            "event_id": "question",
+            "content": "你最近在做什么",
+            "author_type": "user",
+            "evidence_class": "user_question",
+            "timestamp": 1.0,
+        },
+        {
+            "event_id": "self_report",
+            "content": "你最近在做什么",
+            "author_type": "user",
+            "evidence_class": "user_self_report",
+            "timestamp": 1.0,
+        },
+    ]
+    fused = {"question": 0.5, "self_report": 0.5}
+    ranked = await reranker.rerank(
+        layer="L1", results=items, query="你最近在做什么", fused_scores=fused
+    )
+    scores = {r["event_id"]: r["retrieval_score"] for r in ranked}
+
+    assert scores["question"] == pytest.approx(0.0), (
+        f"user_question should be zeroed out; got {scores['question']}"
+    )
+    assert scores["self_report"] > 0.0, (
+        f"user_self_report should have a positive score; got {scores['self_report']}"
+    )
+    assert ranked[0]["event_id"] == "self_report", (
+        "user_self_report must rank above user_question"
+    )
+
+
+@pytest.mark.asyncio
 async def test_l1_evidence_weight_does_not_penalize_unknown_rows():
     """Un-backfilled rows (missing/unknown evidence_class) keep weight 1.0 so they
     are not down-ranked relative to a self-report with the same signal."""
