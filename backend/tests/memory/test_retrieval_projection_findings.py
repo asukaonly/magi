@@ -372,6 +372,45 @@ class TestEvidenceClassDrivenFiltering:
         assert "杭州天气怎么样" not in statements
         assert "Chrome 浏览 天气网 杭州 7 天预报" in statements
 
+    def test_projection_filter_drops_are_recorded_in_trace(self):
+        """When an evidence_class gate drops an L1 candidate, build_findings
+        records it under payload.trace['projection_filter'] for observability."""
+        payload = _make_payload(
+            l1_events=[
+                {
+                    "event_id": "evt-q",
+                    "event_type": "UserMessage",
+                    "source": "chat_projector",
+                    "author_type": "user",
+                    "content_type": "text",
+                    "evidence_class": "user_question",
+                    "content": "杭州天气怎么样",
+                    "score": 0.9,
+                    "timestamp": 2.0,
+                },
+                {
+                    "event_id": "evt-obs",
+                    "event_type": "SENSOR_EVENT",
+                    "source": "chrome_history",
+                    "author_type": "external",
+                    "content_type": "observation",
+                    "evidence_class": "external_observation",
+                    "content": "Chrome 浏览 天气网 杭州 7 天预报",
+                    "score": 0.7,
+                    "timestamp": 1.0,
+                },
+            ],
+        )
+
+        build_findings(payload, _make_query(query="杭州最近天气", mode="exact_fact"))
+
+        pf = payload.trace.get("projection_filter")
+        assert pf is not None
+        dropped_ids = [d["event_id"] for d in pf["dropped"]]
+        assert "evt-q" in dropped_ids
+        assert "evt-obs" not in dropped_ids
+        assert pf["dropped"][0]["evidence_class"] == "user_question"
+
     def test_evidence_class_unknown_falls_back_to_legacy_heuristic(self):
         """Rows without a usable evidence_class must still be filtered by the
         legacy author/source/content shape, otherwise unbackfilled data leaks
