@@ -4,8 +4,14 @@ import tempfile
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
+
 from magi.api.routers import sensors as sensors_module
 from magi.api.routers.sensors import sensors_router
+from magi.db import MIGRATION_TARGETS
 from magi.i18n import language_context
 from magi.plugins import ExtensionFieldSpec
 from magi.scheduler import (
@@ -16,6 +22,24 @@ from magi.scheduler import (
     TriggerType,
 )
 from magi.scheduler.repository import ScheduleRepository
+
+_SCHEDULER_MIGRATION = next(t for t in MIGRATION_TARGETS if t.name == "scheduler")
+
+
+def _bootstrap_scheduler_schema(db_path: str) -> None:
+    """Bring a fresh scheduler SQLite file up to head via its Alembic env.
+
+    The scheduler schema is owned solely by Alembic (commit 613ef6cc removed the
+    legacy ``ensure_scheduler_schema`` no-op), so ``schedules``/``target_state``
+    only exist after the migration runs.
+    """
+    path = Path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cfg = Config()
+    cfg.set_main_option("script_location", str(_SCHEDULER_MIGRATION.script_location()))
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{path}")
+    cfg.set_main_option("version_path_separator", "os")
+    command.upgrade(cfg, "head")
 
 
 class _FakeRuntimeCommandQueue:
@@ -126,7 +150,9 @@ def _build_client(monkeypatch):
         "require_runtime_command_queue",
         lambda: queue,
     )
-    repository = ScheduleRepository(f"{runtime_base_dir}/runtime/scheduler.db")
+    scheduler_db_path = f"{runtime_base_dir}/runtime/scheduler.db"
+    repository = ScheduleRepository(scheduler_db_path)
+    _bootstrap_scheduler_schema(scheduler_db_path)
 
     async def _seed_state():
         await repository.initialize()
@@ -325,3 +351,117 @@ def test_get_sensor_today_summary_rejects_invalid_day(monkeypatch):
     response = client.get("/api/sensors/today-summary", params={"day": "not-a-date"})
 
     assert response.status_code == 422
+
+
+# ──────────────────────────────────────────────────────────────────────
+# GET /{source_name}/memory-readiness
+# ──────────────────────────────────────────────────────────────────────
+
+
+class _FakeReadinessL1:
+    """L1 stand-in whose ``summarize_event_sources`` honors ``source_filters``."""
+
+    def __init__(self, rows: list[dict]):
+        self._rows = list(rows)
+
+    async def summarize_event_sources(self, *, source_filters=None, **_):
+        if source_filters:
+            return [r for r in self._rows if r.get("source") in source_filters]
+        return list(self._rows)
+
+
+class _FakeReadinessMemory:
+    def __init__(self, *, rows, backlog_sequence, flush_result=1):
+        self.l1 = _FakeReadinessL1(rows)
+        self._backlog_seq = list(backlog_sequence)
+        self.flush_calls = 0
+        self._flush_result = flush_result
+
+    async def flush_l2_microbatches(self):
+        self.flush_calls += 1
+        return self._flush_result
+
+    async def get_l2_projection_backlog(self):
+        if len(self._backlog_seq) > 1:
+            return self._backlog_seq.pop(0)
+        return self._backlog_seq[0]
+
+
+def _bind_readiness_memory(monkeypatch, fake):
+    monkeypatch.setattr(
+        "magi.api.routers.sensors.get_unified_memory",
+        lambda: fake,
+    )
+
+
+def test_memory_readiness_ready_when_backlog_drained(monkeypatch):
+    client, _, _ = _build_client(monkeypatch)
+    fake = _FakeReadinessMemory(
+        rows=[{"source": "photo_library", "event_count": 7}],
+        backlog_sequence=[{"pending": 0, "claimed": 0}],
+    )
+    _bind_readiness_memory(monkeypatch, fake)
+
+    response = client.get(
+        "/api/sensors/photo_library/memory-readiness", params={"max_wait_ms": 2000}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source_name"] == "photo_library"
+    assert body["l1_event_count"] == 7
+    assert body["l2_ready"] is True
+    # flush is forced before polling the backlog.
+    assert fake.flush_calls == 1
+
+
+def test_memory_readiness_not_ready_on_timeout(monkeypatch):
+    client, _, _ = _build_client(monkeypatch)
+    fake = _FakeReadinessMemory(
+        rows=[{"source": "photo_library", "event_count": 3}],
+        backlog_sequence=[{"pending": 2, "claimed": 0}],
+    )
+    _bind_readiness_memory(monkeypatch, fake)
+
+    response = client.get(
+        "/api/sensors/photo_library/memory-readiness", params={"max_wait_ms": 10}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["l1_event_count"] == 3
+    assert body["l2_ready"] is False
+
+
+def test_memory_readiness_no_events_skips_flush(monkeypatch):
+    client, _, _ = _build_client(monkeypatch)
+    fake = _FakeReadinessMemory(
+        rows=[],
+        backlog_sequence=[{"pending": 0, "claimed": 0}],
+    )
+    _bind_readiness_memory(monkeypatch, fake)
+
+    response = client.get("/api/sensors/photo_library/memory-readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["l1_event_count"] == 0
+    assert body["l2_ready"] is False
+    # Nothing to flush when there are no L1 events for this source.
+    assert fake.flush_calls == 0
+
+
+def test_memory_readiness_no_memory_binding(monkeypatch):
+    client, _, _ = _build_client(monkeypatch)
+
+    monkeypatch.setattr(
+        "magi.api.routers.sensors.get_unified_memory",
+        lambda: (_ for _ in ()).throw(RuntimeError("no binding")),
+    )
+
+    response = client.get("/api/sensors/photo_library/memory-readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["l1_event_count"] == 0
+    assert body["l2_ready"] is False
