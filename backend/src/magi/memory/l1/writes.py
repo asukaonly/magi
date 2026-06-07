@@ -131,6 +131,13 @@ class L1EventWriteMixin:
                 event.correlation_id,
             )
         evidence_values = self._resolve_event_evidence_values(event)
+        logger.debug(
+            "L1 evidence classified | event_id=%s class=%s reason=%s status=%s",
+            event.event_id,
+            evidence_values["evidence_class"],
+            evidence_values.get("reason_code"),
+            evidence_values["evidence_status"],
+        )
         merged_metadata = _merge_evidence_into_metadata(
             event.metadata_json, evidence_values.get("reason_code")
         )
