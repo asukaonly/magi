@@ -1333,3 +1333,15 @@ def test_complete_onboarding_quick_mode_uses_scenario_seed_personality(
 
     assert response.status_code == 200
     assert captured["name"] == "Halberd"
+
+
+def test_user_preferences_has_product_tour_completed_default_false():
+    from magi.api.routers.config_schemas import UserPreferencesModel
+    prefs = UserPreferencesModel()
+    assert prefs.product_tour_completed is False
+
+
+def test_user_preferences_product_tour_completed_roundtrip():
+    from magi.api.routers.config_schemas import UserPreferencesModel
+    prefs = UserPreferencesModel(product_tour_completed=True)
+    assert prefs.model_dump()["product_tour_completed"] is True
