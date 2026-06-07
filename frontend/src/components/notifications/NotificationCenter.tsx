@@ -44,16 +44,11 @@ export function NotificationCenter(): JSX.Element {
     },
   });
 
-  // Human-readable plugin name: localized empty-state meta when known, else a
-  // humanized id ("netease-music" → "Netease Music"). Never a raw id/placeholder.
-  const pluginName = (pluginId: string): string => {
-    const meta = getEmptyStatePluginMeta(pluginId);
-    if (meta) {
-      const name = t(meta.titleKey, { ns: 'onboarding' });
-      if (name && name !== meta.titleKey) return name;
-    }
-    return humanizePluginId(pluginId);
-  };
+  // Human-readable plugin name: localized via the shared `pluginNames` map
+  // (onboarding ns; same source the in-chat side card uses, so naming is
+  // consistent), humanized id ("netease-music" → "Netease Music") as fallback.
+  const pluginName = (pluginId: string): string =>
+    t(`pluginNames.${pluginId}`, { ns: 'onboarding', defaultValue: humanizePluginId(pluginId) });
 
   // Short, plugin-centric collapsed title — distinct from the body so the same
   // sentence never appears twice. Replaces any placeholder rationale.
