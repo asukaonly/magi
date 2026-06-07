@@ -61,6 +61,31 @@ _QUESTION_LEAD_CJK = (
 )
 _QUESTION_TAIL_CJK = ("吗", "呢", "嘛")
 
+# Strong interrogatives that signal a question wherever they appear. Kept to
+# low-ambiguity tokens; "什么 / 哪 / 谁" are intentionally NOT here (they have
+# common non-question idioms) and are handled by the clause-end rule instead.
+_QUESTION_WORD_ANYWHERE_CJK = (
+    "怎么", "怎样", "为什么", "为何", "如何",
+    "多少", "多久", "几时", "几点", "哪里", "哪儿",
+)
+
+# Interrogatives detected ONLY at the clause end — words the anywhere-rule
+# deliberately omits (什么/哪/谁 have non-question idioms) plus 几个. Anything
+# already in _QUESTION_WORD_ANYWHERE_CJK is intentionally NOT repeated here.
+_QUESTION_TAIL_WORD_CJK = ("什么", "哪", "谁", "几个")
+
+# Trailing mood particles / punctuation stripped before the clause-end check,
+# so "...在看什么呀" still ends on the interrogative "什么".
+_TRAILING_MOOD_CHARS = "呀啊呗啦哈哦噢吧呢嘛~。.!！ "
+
+# Idioms where an interrogative token is NOT a question. First-match wins, so
+# these veto the recall-favoring rules above.
+_NON_QUESTION_CONTEXT_CJK = (
+    "没什么", "什么都", "啥都", "没怎么", "不怎么",
+    "怎么都", "怎么也", "谁都", "谁也",
+    "知道为什么", "不知道为什么", "知道怎么", "不知道怎么", "不知怎么",
+)
+
 # Imperative leads that mark user requests/commands rather than self-reports.
 _REQUEST_LEAD_LATIN = (
     "please",
@@ -310,11 +335,22 @@ def _detect_user_intent(content: str | None) -> str | None:
     if first_token in _QUESTION_LEAD_LATIN:
         return "question"
 
-    if any(head.startswith(lead) for lead in _QUESTION_LEAD_CJK):
+    is_non_question_context = any(ctx_idiom in text for ctx_idiom in _NON_QUESTION_CONTEXT_CJK)
+
+    if not is_non_question_context and any(head.startswith(lead) for lead in _QUESTION_LEAD_CJK):
         return "question"
 
     if any(text.endswith(tail) or text.endswith(tail + "。") for tail in _QUESTION_TAIL_CJK):
         return "question"
+
+    if not is_non_question_context:
+        if any(word in text for word in _QUESTION_WORD_ANYWHERE_CJK):
+            return "question"
+        tail_trimmed = text.rstrip(
+            _TRAILING_MOOD_CHARS + "".join(_QUESTION_MARK_CHARS)
+        )
+        if any(tail_trimmed.endswith(word) for word in _QUESTION_TAIL_WORD_CJK):
+            return "question"
 
     if any(head_lower.startswith(lead) for lead in _REQUEST_LEAD_LATIN):
         return "request"
