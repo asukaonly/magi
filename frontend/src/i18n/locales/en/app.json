@@ -4,9 +4,10 @@
     "back": "Back",
     "skip": "Skip",
     "done": "Done",
-    "connect": "Connect",
-    "installAndConnect": "Install & connect",
+    "connect": "Enable",
+    "installAndConnect": "Install & enable",
     "connecting": "Connecting…",
+    "recommend": "Suggested: {{plugin}}",
     "chat": {
       "title": "Chat with me",
       "body": "Talk with your persona right here."
