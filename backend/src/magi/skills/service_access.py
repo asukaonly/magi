@@ -71,8 +71,15 @@ def build_skills_runtime(
     permission_gateway_provider=None,
     *,
     tool_registry: ToolRegistryPort,
+    orchestrator_factory=None,
+    engine_run_input_factory=None,
 ) -> SkillsRuntimeBindings:
-    """Build shared skills runtime services without storing module-level globals."""
+    """Build shared skills runtime services without storing module-level globals.
+
+    ``orchestrator_factory`` / ``engine_run_input_factory`` are injected by the
+    composition root and threaded to the skill sub-agent so the skills layer
+    does not import the agent execution engine.
+    """
 
     from .runner import SkillRunner
     from .indexer import SkillIndexer
@@ -85,6 +92,8 @@ def build_skills_runtime(
         llm_adapter,
         permission_gateway_provider=permission_gateway_provider,
         tool_registry=tool_registry,
+        orchestrator_factory=orchestrator_factory,
+        engine_run_input_factory=engine_run_input_factory,
     )
 
     skills = skill_indexer.scan_all()

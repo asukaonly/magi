@@ -80,10 +80,19 @@ def _initialize_skills_bindings_for_configuration_mode(config: AppConfig) -> Non
         return
 
     try:
+        from ..agent.execution.function_calling.headless_factory import (
+            build_function_calling_orchestrator,
+            build_headless_engine_run_input,
+        )
         from ..skills.service_access import build_skills_runtime
         from ..tools import tool_registry
 
-        bindings = build_skills_runtime(llm_adapter=None, tool_registry=tool_registry)
+        bindings = build_skills_runtime(
+            llm_adapter=None,
+            tool_registry=tool_registry,
+            orchestrator_factory=build_function_calling_orchestrator,
+            engine_run_input_factory=build_headless_engine_run_input,
+        )
         container.skill_indexer.override(providers.Object(bindings.skill_indexer))
         container.skill_loader.override(providers.Object(bindings.skill_loader))
         container.skill_runner.override(providers.Object(bindings.skill_runner))
