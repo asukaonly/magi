@@ -567,12 +567,15 @@ async def test_l1_event_store_persists_metadata_json(tmp_path):
         assert fetched["id"] > 0
         assert fetched["event_type"] == "APP_USAGE_HOURLY"
         assert fetched["idempotency_key"] == "app_usage:2026-03-27T10:00:00+08:00:com.apple.Safari"
+        # _evidence is merged in at write time; original keys must be preserved and no
+        # unexpected extra keys should appear.
         assert fetched["metadata_json"] == {
             "bucket_start": "2026-03-27T10:00:00+08:00",
             "bucket_end": "2026-03-27T11:00:00+08:00",
             "bundle_id": "com.apple.Safari",
             "app_name": "Safari",
             "duration_seconds": 2280,
+            "_evidence": fetched["metadata_json"]["_evidence"],
         }
         assert restored is not None
         assert restored.metadata_json == fetched["metadata_json"]
