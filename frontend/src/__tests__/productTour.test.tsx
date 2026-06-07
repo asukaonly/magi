@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProductTour } from '@/components/onboarding/ProductTour';
 import * as ss from '@/api/modules/systemSuggestions';
+import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k, i18n: { language: 'zh-CN' } }) }));
 
@@ -17,6 +18,7 @@ function mountTargets() {
 describe('ProductTour', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    usePluginInstallPanelStore.getState().closePanel();
     document.body.innerHTML = '';
     mountTargets();
     vi.spyOn(ss, 'listInstallable').mockResolvedValue([
@@ -38,5 +40,14 @@ describe('ProductTour', () => {
     render(<ProductTour onComplete={onComplete} />);
     await userEvent.click(await screen.findByRole('button', { name: 'productTour.skip' }));
     await waitFor(() => expect(onComplete).toHaveBeenCalled());
+  });
+
+  it('connect opens the install panel install-first for an uninstalled source', async () => {
+    const openPanel = vi.spyOn(usePluginInstallPanelStore.getState(), 'openPanel');
+    render(<ProductTour onComplete={vi.fn()} />);
+    // Advance to the connect step (index 1: timeline) and click the named connect button.
+    await userEvent.click(await screen.findByRole('button', { name: 'productTour.next' }));
+    await userEvent.click(await screen.findByTestId('tour-connect-chrome-history'));
+    expect(openPanel).toHaveBeenCalledWith('chrome-history', { install: true });
   });
 });

@@ -1,18 +1,12 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { SystemSuggestionSideCard } from '../components/chat/SystemSuggestionSideCard';
-import { sensorsApi } from '../api/modules/sensors';
-import { pluginsApi } from '../api/modules/plugins';
+import { usePluginInstallPanelStore } from '../stores/pluginInstallPanel';
 import type { SuggestionProposal } from '../api/modules/systemSuggestions';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'zh-CN' } }),
-}));
-
-const mockUseAvailability = vi.fn();
-vi.mock('../hooks/useAvailability', () => ({
-  useAvailability: (...args: any[]) => mockUseAvailability(...args),
 }));
 
 const singleProposal: SuggestionProposal = {
@@ -35,15 +29,11 @@ const multiProposal: SuggestionProposal = {
 
 describe('SystemSuggestionSideCard', () => {
   beforeEach(() => {
-    mockUseAvailability.mockReset();
     vi.restoreAllMocks();
+    usePluginInstallPanelStore.getState().closePanel();
   });
 
   it('renders rationale text and a row for the single installable plugin', () => {
-    mockUseAvailability.mockReturnValue({
-      entries: [{ plugin_id: 'chrome-history', available: true, reason: 'available', detail: null, checked_at: 'now' }],
-      byId: {}, loading: false, error: null, refresh: vi.fn(),
-    });
     render(
       <SystemSuggestionSideCard
         proposal={singleProposal}
@@ -71,10 +61,6 @@ describe('SystemSuggestionSideCard', () => {
   });
 
   it('invokes onDecline when "先不用" is clicked', async () => {
-    mockUseAvailability.mockReturnValue({
-      entries: [{ plugin_id: 'chrome-history', available: true, reason: 'available', detail: null, checked_at: 'now' }],
-      byId: {}, loading: false, error: null, refresh: vi.fn(),
-    });
     const onDecline = vi.fn();
     render(
       <SystemSuggestionSideCard
@@ -91,10 +77,6 @@ describe('SystemSuggestionSideCard', () => {
   });
 
   it('invokes onClose when × header button clicked', async () => {
-    mockUseAvailability.mockReturnValue({
-      entries: [{ plugin_id: 'chrome-history', available: true, reason: 'available', detail: null, checked_at: 'now' }],
-      byId: {}, loading: false, error: null, refresh: vi.fn(),
-    });
     const onClose = vi.fn();
     render(
       <SystemSuggestionSideCard
@@ -108,26 +90,8 @@ describe('SystemSuggestionSideCard', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('opens the activation dialog when connect is clicked (no longer a no-op)', async () => {
-    mockUseAvailability.mockReturnValue({
-      entries: [{ plugin_id: 'chrome-history', available: true, reason: 'available', detail: null, checked_at: 'now' }],
-      byId: {}, loading: false, error: null, refresh: vi.fn(),
-    });
-    vi.spyOn(sensorsApi, 'getStatus').mockResolvedValue({
-      sources: [
-        {
-          plugin_id: 'chrome-history',
-          source_name: 'chrome',
-          activation_flow: {
-            enabled_key: 'enabled',
-            configured_key: 'configured',
-            authorize_on_confirm: false,
-            fields: [],
-          },
-        },
-      ],
-    } as any);
-
+  it('opens the install panel when connect is clicked (no longer a no-op)', async () => {
+    const openPanel = vi.spyOn(usePluginInstallPanelStore.getState(), 'openPanel');
     render(
       <SystemSuggestionSideCard
         proposal={singleProposal}
@@ -138,20 +102,11 @@ describe('SystemSuggestionSideCard', () => {
     );
 
     await userEvent.click(await screen.findByTestId('empty-state-connect-chrome-history'));
-    await waitFor(() => expect(sensorsApi.getStatus).toHaveBeenCalled());
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(openPanel).toHaveBeenCalledWith('chrome-history', { install: false });
   });
 
-  it('installs a not-yet-installed plugin before activating', async () => {
-    mockUseAvailability.mockReturnValue({
-      entries: [{ plugin_id: 'chrome-history', available: true, reason: 'available', detail: null, checked_at: 'now' }],
-      byId: {}, loading: false, error: null, refresh: vi.fn(),
-    });
-    vi.spyOn(sensorsApi, 'getStatus').mockResolvedValue({ sources: [] } as any);
-    const installSpy = vi
-      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
-      .mockResolvedValue({} as any);
-
+  it('opens the panel in install-mode for a not-yet-installed plugin', async () => {
+    const openPanel = vi.spyOn(usePluginInstallPanelStore.getState(), 'openPanel');
     render(
       <SystemSuggestionSideCard
         proposal={{ ...singleProposal, installable_plugin_ids: ['chrome-history'] }}
@@ -162,30 +117,6 @@ describe('SystemSuggestionSideCard', () => {
     );
 
     await userEvent.click(await screen.findByTestId('empty-state-connect-chrome-history'));
-    await waitFor(() => expect(installSpy).toHaveBeenCalledWith('chrome-history'));
-  });
-
-  it('does not install an already-installed plugin', async () => {
-    mockUseAvailability.mockReturnValue({
-      entries: [{ plugin_id: 'chrome-history', available: true, reason: 'available', detail: null, checked_at: 'now' }],
-      byId: {}, loading: false, error: null, refresh: vi.fn(),
-    });
-    vi.spyOn(sensorsApi, 'getStatus').mockResolvedValue({ sources: [] } as any);
-    const installSpy = vi
-      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
-      .mockResolvedValue({} as any);
-
-    render(
-      <SystemSuggestionSideCard
-        proposal={{ ...singleProposal, installable_plugin_ids: [] }}
-        onClose={() => {}}
-        onDecline={() => {}}
-        onActivated={() => {}}
-      />,
-    );
-
-    await userEvent.click(await screen.findByTestId('empty-state-connect-chrome-history'));
-    await waitFor(() => expect(sensorsApi.getStatus).toHaveBeenCalled());
-    expect(installSpy).not.toHaveBeenCalled();
+    expect(openPanel).toHaveBeenCalledWith('chrome-history', { install: true });
   });
 });
