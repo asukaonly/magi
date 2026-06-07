@@ -61,6 +61,7 @@ def _make_manager(search_path: Path) -> PluginManager:
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         search_paths=[search_path],
+        request_sensor_schedule_refresh=lambda: None,
     )
 
 

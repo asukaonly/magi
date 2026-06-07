@@ -21,7 +21,6 @@ import zipfile
 from packaging.markers import default_environment
 from packaging.requirements import InvalidRequirement, Requirement
 
-from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
 from ..config import save_config
 from .contracts import PluginManifest, PluginPackageState
 
@@ -561,7 +560,7 @@ class PluginInstallationMixin:
                         exc_info=True,
                     )
 
-        request_sensor_schedule_refresh()
+        self._request_sensor_schedule_refresh()
         return gc_removed
 
     def check_installed_version(self, plugin_id: str) -> str | None:

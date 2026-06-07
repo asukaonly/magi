@@ -40,6 +40,8 @@ class SkillRunner:
         llm_adapter: Optional[LLMAdapter] = None,
         permission_gateway_provider: Callable[[], Any] | None = None,
         tool_registry: ToolRegistryPort | None = None,
+        orchestrator_factory: Callable[..., Any] | None = None,
+        engine_run_input_factory: Callable[..., Any] | None = None,
     ):
         """
         Initialize the skill runner.
@@ -50,11 +52,18 @@ class SkillRunner:
             tool_registry: The shared tool registry injected by the
                 composition root; threaded to sub-agents so they can
                 expose the registered tools.
+            orchestrator_factory: Builds the function-calling orchestrator;
+                injected by the composition root and threaded to sub-agents
+                so the skills layer does not import the agent engine.
+            engine_run_input_factory: Builds the headless engine run input;
+                injected and threaded for the same reason.
         """
         self.loader = loader
         self.llm = llm_adapter
         self.permission_gateway_provider = permission_gateway_provider
         self._tool_registry = tool_registry
+        self._orchestrator_factory = orchestrator_factory
+        self._engine_run_input_factory = engine_run_input_factory
 
     async def execute(
         self,
@@ -262,6 +271,8 @@ class SkillRunner:
             llm_adapter=self.llm,
             permission_gateway_provider=self.permission_gateway_provider,
             tool_registry=self._tool_registry,
+            orchestrator_factory=self._orchestrator_factory,
+            engine_run_input_factory=self._engine_run_input_factory,
         )
         user_message = context.get("user_message", "")
 

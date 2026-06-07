@@ -17,6 +17,10 @@ from ..core.logger import get_logger
 
 logger = get_logger(__name__)
 
+from ..agent.execution.function_calling.headless_factory import (
+    build_function_calling_orchestrator,
+    build_headless_engine_run_input,
+)
 from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
 from ..chat import get_chat_read_service
 from ..chat.task_agent.factory import create_chat_agent_factory
@@ -26,6 +30,7 @@ from ..awareness.lifecycle import (
     SensorStateUpdateSubscriberModule,
     SensorSyncExecutorModule,
 )
+from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
 from ..channels.lifecycle import ChannelsModule
 from ..outreach.lifecycle import OutreachModule
 from ..chat.lifecycle import (
@@ -180,7 +185,11 @@ def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[Life
         RuntimeCommandQueueModule(context),
         MessageBusModule(context),
         ChatStoreModule(context),
-        PluginSystemModule(context),
+        PluginSystemModule(
+            context,
+            tool_registry=tool_registry,
+            request_sensor_schedule_refresh=request_sensor_schedule_refresh,
+        ),
         LLMRuntimeModule(context),
     ]
 
@@ -204,7 +213,12 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         # the registry by the time ToolsModule configures it.
         RuntimeFirstPartyToolsModule(),
         ToolsModule(context),
-        SkillsModule(context, tool_registry=tool_registry),
+        SkillsModule(
+            context,
+            tool_registry=tool_registry,
+            orchestrator_factory=build_function_calling_orchestrator,
+            engine_run_input_factory=build_headless_engine_run_input,
+        ),
         MCPModule(context),
         PersonalityModule(context),
         SensorModule(context),

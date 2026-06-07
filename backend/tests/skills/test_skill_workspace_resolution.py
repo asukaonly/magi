@@ -31,8 +31,6 @@ async def test_skill_subagent_passes_workspace_to_function_calling(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from magi.skills import subagent as subagent_module
-
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     recorded: dict[str, object] = {}
@@ -49,10 +47,8 @@ async def test_skill_subagent_passes_workspace_to_function_calling(
         async def run(self, run_input):  # engine front door → forwards (ADR-0004 P4)
             return await self.execute_with_tools(**run_input.to_execute_kwargs())
 
-    monkeypatch.setattr(
-        subagent_module,
-        "_get_function_calling_orchestrator",
-        lambda **kwargs: _FakeFunctionCallingOrchestrator(),
+    from magi.agent.execution.function_calling.headless_factory import (
+        build_headless_engine_run_input,
     )
 
     skill = SkillContent(
@@ -65,7 +61,13 @@ async def test_skill_subagent_passes_workspace_to_function_calling(
         ),
         prompt_template="Prompt",
     )
-    subagent = SkillSubagent(skill=skill, llm_adapter=object(), tool_registry=_FakeRegistry())
+    subagent = SkillSubagent(
+        skill=skill,
+        llm_adapter=object(),
+        tool_registry=_FakeRegistry(),
+        orchestrator_factory=lambda **kwargs: _FakeFunctionCallingOrchestrator(),
+        engine_run_input_factory=build_headless_engine_run_input,
+    )
 
     result = await subagent.execute(
         user_message="read the file",

@@ -88,16 +88,8 @@ ignore_imports =
     # edge (chat now owns transcript projection). Net debt shrank: three
     # control->chat/transport edges were removed and only this one added.
     magi.chat.control_transcript_subscriber -> magi.transport.chat_events
-    magi.core.runtime_operational_gc -> magi.config.models
     magi.memory.event_translation -> magi.awareness.sensor_memory_projection
-    magi.memory.portrait.factory -> magi.api.routers.memory.dependencies
     magi.memory.portrait.factory -> magi.personality.persona_repository
-    magi.plugins.installation -> magi.awareness.scheduler_contrib
-    magi.plugins.manager -> magi.awareness.scheduler_contrib
-    magi.plugins.manager -> magi.tools.registry
-    magi.skills.lifecycle -> magi.agent.control.permission.provider
-    magi.skills.subagent -> magi.agent.execution.function_calling
-    magi.tools.context_decider_prompt -> magi.agent.message_utils
 
 [importlinter:contract:plugin-isolation]
 name = Plugin implementations depend on SDK only, never host layers
