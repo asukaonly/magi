@@ -542,9 +542,10 @@ def _is_answer_facing_chat_artifact(
     """
     if explicit_chat_source:
         return False
-    if mode not in _FACT_LIKE_QUERY_MODES:
-        return False
 
+    # Explicit governance annotation is authoritative in EVERY mode. A row
+    # marked user_question / user_request / assistant_freeform is never
+    # factual recall evidence, regardless of how the query was routed.
     evidence_class = _normalized(item.get("evidence_class"))
     if evidence_class and evidence_class != "unknown":
         if evidence_class in _CONVERSATIONAL_EVIDENCE_CLASSES:
@@ -553,9 +554,12 @@ def _is_answer_facing_chat_artifact(
             return True
         return False
 
-    # Fallback: legacy chat-shape heuristic for rows without a usable
-    # evidence annotation. Kept narrow and best-effort; backfill is expected
-    # to retire this branch in steady state.
+    # Fallback heuristic for un-annotated (missing/unknown) rows stays
+    # conservative: only fire in fact-like modes, where chat noise is most
+    # harmful and a false positive is least costly.
+    if mode not in _FACT_LIKE_QUERY_MODES:
+        return False
+
     author_type = _normalized(item.get("author_type"))
     source = _normalized(item.get("source"))
     event_type = _normalized(item.get("event_type"))

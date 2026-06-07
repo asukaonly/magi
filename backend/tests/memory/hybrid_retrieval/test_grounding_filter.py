@@ -15,7 +15,7 @@ import pytest
 from magi.memory.hybrid_retrieval.grounding_filter import (
     CONTENT_CAP_CHARS,
     GroundingFilter,
-    SKIP_THRESHOLD,
+    MIN_CANDIDATES_TO_FILTER,
     _build_prompt_payload,
     _parse_keep_response,
 )
@@ -107,18 +107,18 @@ def test_parse_drops_booleans_in_keep() -> None:
 
 
 @pytest.mark.asyncio
-async def test_skips_when_candidate_count_below_threshold() -> None:
-    """Below threshold, no LLM call should happen."""
-    events = _make_events(SKIP_THRESHOLD - 1)
+async def test_skips_trivial_count_below_min_candidates() -> None:
+    """0 or 1 candidate — not worth an LLM round-trip (nothing to compare against)."""
+    events = _make_events(MIN_CANDIDATES_TO_FILTER - 1)  # 0 or 1 event
     payload = RetrievalPayload(l1_events=events)
-    bridge = _StaticBridge('{"keep": [1], "why": "x"}')  # would over-filter if called
+    bridge = _StaticBridge('{"keep": [1], "why": "x"}')  # must NOT be called
     f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
     out = await f.apply(payload, _make_request())
     # All events still present.
-    assert len(out.l1_events) == SKIP_THRESHOLD - 1
+    assert len(out.l1_events) == MIN_CANDIDATES_TO_FILTER - 1
     trace = out.trace.get("grounding_filter") or {}
     assert trace.get("applied") is False
-    assert trace.get("skipped_reason") == "below_threshold"
+    assert trace.get("skipped_reason") == "trivial_count"
 
 
 @pytest.mark.asyncio
@@ -282,7 +282,7 @@ async def test_filter_can_match_signal_buried_past_first_80_chars() -> None:
     relevant keyword lives in the middle of the OCR, not the head."""
     # Fill the first ~200 chars with chrome (sidebar menu, file
     # tabs) then drop the real content at the end.
-    events = _make_events(SKIP_THRESHOLD)  # base set
+    events = _make_events(10)  # base set of 10 events (well above MIN_CANDIDATES_TO_FILTER)
     events[2] = {
         "event_id": "ev_buried",
         "source": "screenshot_timeline",
@@ -312,3 +312,23 @@ async def test_filter_can_match_signal_buried_past_first_80_chars() -> None:
     # snippet the "猫" passage was past the cap and got dropped.
     assert len(out.l1_events) == 1
     assert out.l1_events[0]["event_id"] == "ev_buried"
+
+
+@pytest.mark.asyncio
+async def test_grounding_filter_runs_on_small_candidate_set() -> None:
+    """A low-recall set (3 candidates) must still be filtered — the exact
+    'few hits, all noise' case. Previously skipped because len < 10."""
+    bridge = _StaticBridge('{"keep": [2], "why": "only 2 (Chrome browsing) is relevant to the query"}')
+    gf = GroundingFilter(llm_bridge=bridge, timeout_seconds=3.0)
+    payload = RetrievalPayload(
+        l1_events=[
+            {"event_id": "a", "content": "杭州天气怎么样", "timestamp": 1.0},
+            {"event_id": "b", "content": "Chrome 浏览 GitHub PR #42", "timestamp": 2.0},
+            {"event_id": "c", "content": "我要怎么配", "timestamp": 3.0},
+        ]
+    )
+    request = _make_request("我chrome最近在看什么")
+    result = await gf.apply(payload, request)
+    assert result.trace["grounding_filter"]["applied"] is True
+    assert len(result.l1_events) == 1
+    assert result.l1_events[0]["event_id"] == "b"

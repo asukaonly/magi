@@ -16,7 +16,7 @@ trace (so the UI chip reflects relevant count, not raw count).
 Design contract:
 
   - This is an **optimization** layer. Any failure (timeout, malformed
-    JSON, no bridge wired up, candidates list too short to bother)
+    JSON, no bridge wired up, candidates too trivial to compare (0 or 1 events))
     degrades silently to "no filtering" — the raw payload flows
     through unchanged.
 
@@ -49,9 +49,11 @@ from .models import RetrievalPayload, RetrievalQuery
 
 logger = logging.getLogger(__name__)
 
-# Below this candidate count, skip the LLM entirely — filtering 3
-# events isn't worth the latency.
-SKIP_THRESHOLD = 10
+# Minimum candidate count worth an LLM round-trip. A single candidate has
+# nothing to filter against; 2+ can carry noise. NOTE: low-recall sets are
+# the MOST important to filter (few hits, often all noise), so unlike the
+# previous design we do NOT skip moderate counts — only the trivial 0/1 case.
+MIN_CANDIDATES_TO_FILTER = 2
 
 # Hard cap on what we'll show the grounding LLM. If retrieval somehow
 # delivers 500 candidates, we trim to top SKIP_THRESHOLD_MAX by
@@ -171,11 +173,10 @@ class GroundingFilter:
         if not self._enabled:
             return payload
         events = payload.l1_events or []
-        if len(events) < SKIP_THRESHOLD:
-            # Too few candidates to justify the LLM round-trip.
+        if len(events) < MIN_CANDIDATES_TO_FILTER:
             payload.trace["grounding_filter"] = {
                 "applied": False,
-                "skipped_reason": "below_threshold",
+                "skipped_reason": "trivial_count",
                 "input_count": len(events),
             }
             return payload
@@ -371,4 +372,4 @@ def _degraded_trace(input_count: int, *, reason: str, elapsed_ms: float) -> dict
     }
 
 
-__all__ = ["GroundingFilter", "SKIP_THRESHOLD", "SKIP_THRESHOLD_MAX"]
+__all__ = ["GroundingFilter", "MIN_CANDIDATES_TO_FILTER", "SKIP_THRESHOLD_MAX"]

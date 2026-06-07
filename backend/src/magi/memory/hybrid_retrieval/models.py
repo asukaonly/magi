@@ -233,8 +233,8 @@ class RetrievalConfig:
 
     # Post-retrieval grounding filter (LLM-as-listwise-relevance-filter).
     # Trims raw candidate set so the answer LLM doesn't waste tokens /
-    # attention on noise. Skipped when fewer than SKIP_THRESHOLD
-    # candidates are present anyway (see grounding_filter.py).
+    # attention on noise. Only skipped for trivial 0/1-candidate sets
+    # (see MIN_CANDIDATES_TO_FILTER in grounding_filter.py).
     grounding_filter_enabled: bool = True
     grounding_filter_timeout_seconds: float = 3.0
 

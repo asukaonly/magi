@@ -351,3 +351,44 @@ def test_classifier_evidence_rule_version_is_three():
     from magi.memory.evidence import EVIDENCE_RULE_VERSION
 
     assert EVIDENCE_RULE_VERSION == 3
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "杭州天气怎么样",          # interrogative at clause end, no mark
+        "我要怎么配",              # "怎么" mid-sentence
+        "我chrome最近在看什么呀",  # "什么" + trailing mood particle
+        "这个多少钱",              # "多少" anywhere
+        "你在哪",                  # "哪" at end
+        "为什么会这样",            # "为什么" lead (already covered, keep as guard)
+    ],
+)
+def test_classifier_maps_chinese_spoken_questions(message):
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(
+        normalize_runtime_event(_build_user_message(message=message))
+    )
+    assert classification.evidence_class == "user_question", message
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "我有一只猫",        # plain statement, no interrogative
+        "没什么特别的",      # "什么" inside a non-question idiom
+        "我知道为什么了",    # "为什么" inside "知道为什么"
+        "什么都行",          # "什么" inside "什么都"
+        "我喜欢喝咖啡",      # plain preference statement
+        "不知道怎么办",      # "怎么" inside "不知道怎么"
+        "哪里哪里，您过奖了",  # modesty reply, "哪里" inside "哪里哪里" blacklist
+    ],
+)
+def test_classifier_keeps_chinese_statements_as_self_report(message):
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(
+        normalize_runtime_event(_build_user_message(message=message))
+    )
+    assert classification.evidence_class == "user_self_report", message
