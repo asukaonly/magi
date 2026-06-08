@@ -13,6 +13,7 @@ from .l1.event_store import L1EventStore
 from .l2.entities.catalog import L2EntityCatalog
 from .l2.llm_service import L2LLMService
 from .l2.pipeline import L2Pipeline
+from .l2.promotion_counter import L2PromotionCounter
 from .l2.store import L2CognitionStore
 from .l3.contradiction_service import ContradictionInsightService
 from .l3.state_change_service import StateChangeService
@@ -99,6 +100,7 @@ class UnifiedMemoryStore(
         self.l1: Optional[L1EventStore] = None
         self.l2: Optional[L2CognitionStore] = None
         self.l2_entity_catalog: Optional[L2EntityCatalog] = None
+        self.l2_promotion_counter: Optional[L2PromotionCounter] = None
         self.l2_llm_service: Optional[L2LLMService] = None
         self.l2_pipeline: Optional[L2Pipeline] = None
         self._l2_batch_flush_interval_seconds = int(l2_batch_flush_interval_seconds)
@@ -139,6 +141,7 @@ class UnifiedMemoryStore(
                 memory_config_getter=memory_config_getter,
                 vector_enabled=enable_l2_vectors,
             )
+            self.l2_promotion_counter = L2PromotionCounter(db_path=shared_memory_db)
             self.l2_llm_service = L2LLMService(scenario_llm_pool)
             semantic_edge_builder: EntityScopedSemanticBuilder | None = None
             if self.l1 is not None:
@@ -159,6 +162,7 @@ class UnifiedMemoryStore(
                 conflict_arbitration_min_confidence=l2_conflict_arbitration_min_confidence,
                 semantic_edge_builder=semantic_edge_builder,
                 extraction_profile_provider=extraction_profile_provider,
+                promotion_counter=self.l2_promotion_counter,
             )
         if enable_l3:
             self.l3 = L3SummaryStore(

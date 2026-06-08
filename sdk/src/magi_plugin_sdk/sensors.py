@@ -91,6 +91,9 @@ class SensorMemoryPolicy:
     # but skips the LLM phase1/2 extraction — for high-volume / low-signal or purely
     # structured sources where the LLM adds little (e.g. git sessions).
     allow_llm_extraction: bool = True
+    # > 0 enables the P2 frequency gate: an event runs structured-only until its per-event
+    # promotion_key (emitted in metadata) has been seen this many times, then full extraction.
+    promotion_threshold: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -130,6 +130,11 @@ def build_sensor_memory_event(
     # lean; L2 treats a missing key as "extraction allowed".
     if policy_data.get("allow_llm_extraction", True) is False:
         metadata_json["allow_llm_extraction"] = False
+    # P2 frequency gate: threshold from policy; per-event promotion_key flows via
+    # domain_payload (already merged into metadata_json above). Stored only when enabled.
+    _promotion_threshold = int(policy_data.get("promotion_threshold") or 0)
+    if _promotion_threshold > 0:
+        metadata_json["promotion_threshold"] = _promotion_threshold
 
     event_type = payload.memory_event_type or "SENSOR_EVENT"
 
