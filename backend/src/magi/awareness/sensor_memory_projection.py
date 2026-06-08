@@ -135,6 +135,11 @@ def build_sensor_memory_event(
     _promotion_threshold = int(policy_data.get("promotion_threshold") or 0)
     if _promotion_threshold > 0:
         metadata_json["promotion_threshold"] = _promotion_threshold
+    # P4 escape hatch: a per-event promotion override (force_full / force_structured_only)
+    # from the sensor output. Stored only when set so resolve_llm_extraction can honor it.
+    _promotion_override = str(output.get("promotion_override") or "").strip()
+    if _promotion_override:
+        metadata_json["promotion_override"] = _promotion_override
 
     event_type = payload.memory_event_type or "SENSOR_EVENT"
 

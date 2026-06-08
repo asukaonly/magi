@@ -38,3 +38,14 @@ def test_pinned_payload_round_trips_through_dict() -> None:
     out = _minimal_output(pinned_payload="the full frozen note body")
     restored = SensorOutput.from_dict(out.to_dict())
     assert restored.pinned_payload == "the full frozen note body"
+
+
+def test_promotion_override_defaults_to_none() -> None:
+    # RFC #56 P4 escape hatch field.
+    assert _minimal_output().promotion_override is None
+
+
+def test_promotion_override_round_trips_through_dict() -> None:
+    out = _minimal_output(promotion_override="force_full")
+    restored = SensorOutput.from_dict(out.to_dict())
+    assert restored.promotion_override == "force_full"

@@ -32,17 +32,25 @@ def event_allows_llm_extraction(event: Any) -> bool:
 
 
 async def resolve_llm_extraction(event: Any, counter: Any) -> bool:
-    """Final per-event LLM-extraction decision: P1 static flag + P2 frequency gate.
+    """Final per-event LLM-extraction decision: P4 override, then P1 flag + P2 gate.
 
+    - P4: a per-event ``promotion_override`` (metadata_json) is the escape hatch —
+      ``force_full`` runs full extraction and ``force_structured_only`` skips it,
+      either way beating both P1 and P2. An unknown value is ignored.
     - P1: if ``allow_llm_extraction`` is False -> structured-only (skip LLM).
     - P2: a sensor declaring ``promotion_threshold`` (metadata_json) + a per-event
       ``promotion_key`` runs structured-only until the key has been seen >= threshold
       times, then is promoted to full extraction (and stays promoted).
     No counter or no frequency policy -> falls back to the P1 flag.
     """
+    metadata = getattr(event, "metadata_json", None) or {}
+    override = str(metadata.get("promotion_override") or "").strip()
+    if override == "force_full":
+        return True
+    if override == "force_structured_only":
+        return False
     if not event_allows_llm_extraction(event):
         return False
-    metadata = getattr(event, "metadata_json", None) or {}
     threshold = int(metadata.get("promotion_threshold") or 0)
     key = str(metadata.get("promotion_key") or "").strip()
     if threshold <= 0 or not key or counter is None:
