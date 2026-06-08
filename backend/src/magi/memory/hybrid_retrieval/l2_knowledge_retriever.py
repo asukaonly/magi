@@ -78,6 +78,16 @@ async def _structured_graph_channel(
     status_filters = ["active"]
     evidence_classes = _evidence_classes_for(plan)
 
+    # When the predicate could not be inferred AND there is no object-type
+    # constraint, the structured query degenerates to a pure subject dump
+    # (all of the subject's edges, e.g. the user's whole profile) — topically
+    # unfiltered junk. The structured channel's value is EXACT predicate/type
+    # matching; with neither, it abstains and defers semantic recall to the
+    # edge_vector channel. Local fix for RFC #65. (evidence_class is a quality
+    # filter, not a topical one, so it does NOT count as selective here.)
+    if predicates is None and not object_types:
+        return []
+
     subject_ids = plan.subject_entity_ids
     if subject_ids:
         batch_result = await store.batch_get_relationships(
