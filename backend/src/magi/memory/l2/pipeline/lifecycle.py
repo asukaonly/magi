@@ -20,6 +20,7 @@ from ..models import (
     L2PendingBatchBucket,
     ReconciledTraitOutcome,
 )
+from ..promotion_counter import L2PromotionCounter
 from ..store import L2CognitionStore
 from .staging import DEFAULT_L2_MAX_EVENTS_PER_BATCH
 
@@ -71,6 +72,7 @@ class _L2PipelineLifecycleHostProtocol(Protocol):
     _cognition_store: L2CognitionStore | None
     _l1_store: L1EventStore | None
     _entity_catalog: L2EntityCatalog | None
+    _promotion_counter: L2PromotionCounter | None
     _llm_service: L2LLMService | None
     _semantic_edge_builder: EntityScopedSemanticBuilder | None
     _state_change_callback: (
@@ -131,6 +133,7 @@ class L2PipelineLifecycleMixin:
         enable_conflict_arbitration: bool = DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION,
         conflict_arbitration_min_confidence: float = DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE,
         semantic_edge_builder: Optional[EntityScopedSemanticBuilder] = None,
+        promotion_counter: Optional[L2PromotionCounter] = None,
     ) -> None:
         if cognition_store is not None and entity_catalog is None:
             raise ValueError("entity_catalog is required when cognition_store is enabled")
@@ -142,6 +145,7 @@ class L2PipelineLifecycleMixin:
         host._entity_catalog = entity_catalog
         host._llm_service = llm_service
         host._semantic_edge_builder = semantic_edge_builder
+        host._promotion_counter = promotion_counter
         host._state_change_callback = state_change_callback
         host._active_entity_callback = active_entity_callback
         host._extraction_profile_provider = extraction_profile_provider

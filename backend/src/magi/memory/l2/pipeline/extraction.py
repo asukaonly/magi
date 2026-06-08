@@ -31,6 +31,28 @@ def event_allows_llm_extraction(event: Any) -> bool:
     return bool(metadata.get("allow_llm_extraction", True))
 
 
+async def resolve_llm_extraction(event: Any, counter: Any) -> bool:
+    """Final per-event LLM-extraction decision: P1 static flag + P2 frequency gate.
+
+    - P1: if ``allow_llm_extraction`` is False -> structured-only (skip LLM).
+    - P2: a sensor declaring ``promotion_threshold`` (metadata_json) + a per-event
+      ``promotion_key`` runs structured-only until the key has been seen >= threshold
+      times, then is promoted to full extraction (and stays promoted).
+    No counter or no frequency policy -> falls back to the P1 flag.
+    """
+    if not event_allows_llm_extraction(event):
+        return False
+    metadata = getattr(event, "metadata_json", None) or {}
+    threshold = int(metadata.get("promotion_threshold") or 0)
+    key = str(metadata.get("promotion_key") or "").strip()
+    if threshold <= 0 or not key or counter is None:
+        return True
+    source_type = str(getattr(event, "source", "") or "")
+    event_id = str(getattr(event, "event_id", "") or "")
+    _count, promoted = await counter.bump(source_type, key, event_id, threshold=threshold)
+    return bool(promoted)
+
+
 class L2PipelineExtractionMixin:
     """Run the end-to-end L2 Phase 1/Phase 2 extraction and persistence flow."""
 
@@ -188,8 +210,8 @@ class L2PipelineExtractionMixin:
             candidates=direct_write_candidates,
         )
 
-        if not event_allows_llm_extraction(stored_event):
-            # Structured-only: deterministic direct-writes are done above; skip LLM phase1/2.
+        if not await resolve_llm_extraction(stored_event, getattr(self, "_promotion_counter", None)):
+            # Structured-only (P1 opt-out or P2 below-threshold): direct-writes done above; skip LLM.
             facet_candidates = self._build_structured_facet_candidates(
                 event=stored_event,
                 evidence_event_ids=batch_event_ids,

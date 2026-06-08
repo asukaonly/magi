@@ -23,30 +23,36 @@ class L2PromotionCounter:
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
 
+    @staticmethod
+    async def _ensure(db: aiosqlite.Connection) -> None:
+        """Create tables if absent (idempotent). Called by every op so the store is
+        usable without a separate initialize() step in the host's construction flow."""
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS l2_promotion_counter (
+                source_type TEXT NOT NULL,
+                key         TEXT NOT NULL,
+                count       INTEGER NOT NULL DEFAULT 0,
+                promoted    INTEGER NOT NULL DEFAULT 0,
+                first_seen  REAL NOT NULL,
+                last_seen   REAL NOT NULL,
+                PRIMARY KEY (source_type, key)
+            )
+            """
+        )
+        # Idempotency ledger: one row per counted event. seen_at lets prune bound it.
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS l2_promotion_seen (
+                event_id TEXT PRIMARY KEY,
+                seen_at  REAL NOT NULL
+            )
+            """
+        )
+
     async def initialize(self) -> None:
         async with aiosqlite.connect(self._db_path) as db:
-            await db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS l2_promotion_counter (
-                    source_type TEXT NOT NULL,
-                    key         TEXT NOT NULL,
-                    count       INTEGER NOT NULL DEFAULT 0,
-                    promoted    INTEGER NOT NULL DEFAULT 0,
-                    first_seen  REAL NOT NULL,
-                    last_seen   REAL NOT NULL,
-                    PRIMARY KEY (source_type, key)
-                )
-                """
-            )
-            # Idempotency ledger: one row per counted event. seen_at lets prune bound it.
-            await db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS l2_promotion_seen (
-                    event_id TEXT PRIMARY KEY,
-                    seen_at  REAL NOT NULL
-                )
-                """
-            )
+            await self._ensure(db)
             await db.commit()
 
     async def bump(
@@ -65,6 +71,7 @@ class L2PromotionCounter:
         """
         stamp = time.time() if now is None else now
         async with aiosqlite.connect(self._db_path) as db:
+            await self._ensure(db)
             cur = await db.execute(
                 "SELECT count, promoted FROM l2_promotion_counter WHERE source_type = ? AND key = ?",
                 (source_type, key),
@@ -113,6 +120,7 @@ class L2PromotionCounter:
         stamp = time.time() if now is None else now
         cutoff = stamp - float(retention_seconds)
         async with aiosqlite.connect(self._db_path) as db:
+            await self._ensure(db)
             cur = await db.execute(
                 "DELETE FROM l2_promotion_counter WHERE promoted = 0 AND last_seen < ?",
                 (cutoff,),
