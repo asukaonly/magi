@@ -88,3 +88,28 @@ async def test_no_embedding_service_degrades():
     await resolve_predicates(c, embedding_service=None)
     assert c.predicates is None
     assert c.predicate_source == "keyword_fallback"
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_listening_populates_predicates_via_handler():
+    """execute() runs resolve_predicates before grounding → predicates has LISTENED."""
+    from unittest.mock import AsyncMock
+    from magi.memory.hybrid_retrieval.l2_handler import L2Handler
+
+    store = AsyncMock()
+    store.batch_get_relationships = AsyncMock(return_value={})
+    store.get_relationships = AsyncMock(return_value=[])
+    store.search_edges_by_embedding = AsyncMock(return_value=[])
+    store.list_episodes = AsyncMock(return_value=[])
+    store.search_episodes_fts = AsyncMock(return_value=[])
+
+    handler = L2Handler(store, embedding_service=_FakeEmbeddingService())
+    conditions = L2Conditions(
+        content_query="songs I'm listening to",
+        relation_intent="listening to / consuming media",
+        include_assertions=False,
+        include_tom_snapshot=False,
+    )
+    await handler.execute(conditions, user_id="u1")
+    assert conditions.predicates is not None and "LISTENED" in conditions.predicates
+    assert conditions.predicate_source == "embedding"

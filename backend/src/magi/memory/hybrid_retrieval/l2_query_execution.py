@@ -9,6 +9,7 @@ from typing import Any, Optional, cast
 from .grounding import L2GroundingPlan, build_grounding_plan
 from .l2_fusion import fuse_l2_candidates, project_candidates
 from .l2_knowledge_retriever import retrieve_knowledge
+from .predicate_resolver import resolve_predicates
 from .l2_subdomain_retrievers import (
     retrieve_assertions,
     retrieve_episodes,
@@ -41,6 +42,11 @@ class L2QueryExecutionMixin:
         host = cast(Any, self)
 
         resolved_entities = await host._resolve_entities(conditions, user_id=user_id)
+
+        await resolve_predicates(
+            conditions,
+            embedding_service=getattr(host, "_embedding_service", None),
+        )
 
         plan = build_grounding_plan(
             conditions,
