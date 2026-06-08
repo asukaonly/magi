@@ -240,17 +240,29 @@ class GroundingFilter:
         kept_events = [
             sliced[i - 1] for i in kept_indices if isinstance(i, int) and 1 <= i <= len(sliced)
         ]
-        # If the LLM keeps zero candidates, treat that as "filter was
-        # too aggressive" and fall back to raw — better to give the
-        # answer LLM noisy context than nothing at all.
         if not kept_events:
-            payload.trace["grounding_filter"] = {
-                "applied": False,
-                "skipped_reason": "empty_keep_set",
-                "input_count": len(events),
-                "elapsed_ms": round(elapsed_ms, 1),
-                "why": why or None,
-            }
+            if not kept_indices:
+                # LLM explicitly returned an empty keep set — a VALID
+                # "none of these are relevant" verdict. Trust it and drop all
+                # L1 events. (Timeout / exception / unparseable already fell
+                # back above — those are failures. An explicit empty verdict is
+                # a real judgment, so we must NOT silently restore the noise.)
+                payload.l1_events = []
+                payload.trace["grounding_filter"] = {
+                    "applied": True,
+                    "input_count": len(events),
+                    "kept_count": 0,
+                    "elapsed_ms": round(elapsed_ms, 1),
+                    "why": why or None,
+                    "all_dropped": True,
+                }
+                return payload
+            # kept_indices was non-empty but every index was out of range —
+            # the LLM hallucinated indices rather than giving a clean verdict.
+            # Treat as degraded and fall back to raw.
+            payload.trace["grounding_filter"] = _degraded_trace(
+                len(events), reason="no_valid_indices", elapsed_ms=elapsed_ms
+            )
             return payload
 
         payload.l1_events = kept_events

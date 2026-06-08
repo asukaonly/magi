@@ -152,18 +152,36 @@ async def test_out_of_range_indices_are_silently_dropped() -> None:
 
 
 @pytest.mark.asyncio
-async def test_empty_keep_set_degrades_to_raw() -> None:
-    """Filter returning empty set is treated as 'too aggressive' —
-    fall back to raw so the answer LLM has SOMETHING to work with."""
+async def test_explicit_empty_keep_clears_l1_events() -> None:
+    """LLM explicitly returns keep=[] — a VALID 'none are relevant'
+    verdict. The filter should TRUST it and clear l1_events, NOT fall
+    back to raw (which would restore the noise the LLM correctly
+    judged irrelevant)."""
     events = _make_events(20)
     payload = RetrievalPayload(l1_events=events)
-    bridge = _StaticBridge('{"keep": [], "why": "nothing matches"}')
+    bridge = _StaticBridge('{"keep": [], "why": "none relevant"}')
     f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
     out = await f.apply(payload, _make_request())
-    assert len(out.l1_events) == 20
+    assert out.l1_events == []  # LLM verdict trusted, NOT rolled back
+    trace = out.trace["grounding_filter"]
+    assert trace["applied"] is True
+    assert trace["kept_count"] == 0
+    assert trace.get("all_dropped") is True
+
+
+@pytest.mark.asyncio
+async def test_all_out_of_range_indices_fall_back_not_cleared() -> None:
+    """LLM returns non-empty keep but every index is out of range —
+    this is a hallucination, not a clean 'none relevant' verdict.
+    Should fall back to raw (NOT clear l1_events)."""
+    events = _make_events(2)
+    payload = RetrievalPayload(l1_events=events)
+    bridge = _StaticBridge('{"keep": [99], "why": "x"}')  # index past list end
+    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
+    out = await f.apply(payload, _make_request())
+    assert len(out.l1_events) == 2  # fell back, NOT cleared
     trace = out.trace["grounding_filter"]
     assert trace["applied"] is False
-    assert trace["skipped_reason"] == "empty_keep_set"
 
 
 @pytest.mark.asyncio
