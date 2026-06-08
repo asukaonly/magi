@@ -75,6 +75,36 @@ class L1EventStore(
         self._embedding_batch_size = 5
         self._embedding_batch_wait_seconds = 1.0
         self._initialized = False
+        self._pinned_payload_store: Any | None = None
+
+    async def get_pinned_payloads(self, event_ids: list[str]) -> dict[str, str]:
+        """Return ``{event_id: pinned full text}`` for events that have one (RFC #56 P3).
+
+        Reads the ``l1_event_payload`` satellite; events without a pinned payload
+        are simply absent from the result, so L2 falls back to ``content``.
+        """
+        if self._pinned_payload_store is None:
+            from .event_payload_store import L1EventPayloadStore
+
+            self._pinned_payload_store = L1EventPayloadStore(db_path=self.db_path)
+        return await self._pinned_payload_store.get_many(list(event_ids))
+
+    async def prune_pinned_payloads(
+        self, *, retention_seconds: float, now: float | None = None
+    ) -> int:
+        """Delete pinned full-text payloads older than the retention window (RFC #56 P3).
+
+        Run from L1 retention maintenance; pinned payloads are a transient
+        extraction aid (consumed by L2 shortly after ingest), so they are pruned
+        without touching the parent event. Returns the number of rows deleted.
+        """
+        if self._pinned_payload_store is None:
+            from .event_payload_store import L1EventPayloadStore
+
+            self._pinned_payload_store = L1EventPayloadStore(db_path=self.db_path)
+        return await self._pinned_payload_store.prune_stale(
+            retention_seconds=retention_seconds, now=now
+        )
 
 
 __all__ = [

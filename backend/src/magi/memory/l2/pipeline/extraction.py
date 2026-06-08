@@ -53,8 +53,40 @@ async def resolve_llm_extraction(event: Any, counter: Any) -> bool:
     return bool(promoted)
 
 
+def resolve_window_texts(events: Any, pinned_by_id: dict[str, str]) -> list[str]:
+    """Per-event window text for L2 extraction: the pinned capture-time full text
+    when present, else the lean L1 ``content`` (RFC #56 P3).
+
+    L2 reads the frozen snapshot, never the live source. An empty/missing pinned
+    value falls back to ``content`` so a blank snapshot never erases the text.
+    """
+    return [
+        (pinned_by_id.get(getattr(ev, "event_id", "") or "") or getattr(ev, "content", "") or "")
+        for ev in events
+    ]
+
+
 class L2PipelineExtractionMixin:
     """Run the end-to-end L2 Phase 1/Phase 2 extraction and persistence flow."""
+
+    async def _fetch_pinned_payloads(self: Any, event_ids: Any) -> dict[str, str]:
+        """Batch-load pinned capture-time full texts for the window (RFC #56 P3).
+
+        Asks L1 (owner of the pinned-payload satellite). Resilient to a missing
+        store/method or read error -> empty map, so extraction falls back to the
+        lean ``content``.
+        """
+        ids = [e for e in (event_ids or []) if e]
+        if not ids:
+            return {}
+        l1 = getattr(self, "_l1_store", None)
+        getter = getattr(l1, "get_pinned_payloads", None) if l1 is not None else None
+        if getter is None:
+            return {}
+        try:
+            return await getter(ids)
+        except Exception:
+            return {}
 
     async def _extract_and_persist(self: Any, job: L2BatchJob) -> dict[str, Any]:
         if self._cognition_store is None:
@@ -169,10 +201,11 @@ class L2PipelineExtractionMixin:
         )
         self_entity_id = self._resolve_self_entity_id(stored_event)
 
+        pinned_by_id = await self._fetch_pinned_payloads(batch_event_ids)
         event_window = L2EventWindow(
             event_ids=batch_event_ids,
             events=[self._serialize_event_for_batch(item[0]) for item in eligible_events],
-            texts=[item[0].content for item in eligible_events],
+            texts=resolve_window_texts([item[0] for item in eligible_events], pinned_by_id),
             context_texts=[
                 msg.get("content", "") for msg in context_messages if msg.get("content", "").strip()
             ],

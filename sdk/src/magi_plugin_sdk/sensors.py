@@ -115,6 +115,11 @@ class SensorOutput:
     narration: SensorNarration
     content_blocks: list[ContentBlock] = field(default_factory=list)
     raw_payload_ref: str | None = None
+    # Capture-time full text pinned for L2 (RFC #56 P3): obsidian note body, git
+    # commit text, etc. ``narration.body`` / ``content`` stay a lean summary;
+    # this frozen snapshot is stored in the L1 pinned-payload satellite and read
+    # by L2 at extraction time (never re-fetched from the live source).
+    pinned_payload: str | None = None
     tags: list[str] = field(default_factory=list)
     entities: list[dict[str, Any]] = field(default_factory=list)
     provenance: dict[str, Any] = field(default_factory=dict)
@@ -163,6 +168,7 @@ class SensorOutput:
             ),
             content_blocks=blocks,
             raw_payload_ref=data.get("raw_payload_ref"),
+            pinned_payload=data.get("pinned_payload"),
             tags=list(data.get("tags", [])),
             entities=list(data.get("entities", [])),
             provenance=dict(data.get("provenance", {})),
