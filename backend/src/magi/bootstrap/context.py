@@ -118,6 +118,37 @@ class MemoryBootstrapState:
 
 
 @dataclass
+class LocationBootstrapState:
+    """Location subsystem state slice — owned by LocationModule.
+
+    Built once and read by timeline (resolver for viewport, sources for the
+    pollers). The sample store is also exposed via the ``location_sample_store``
+    DI binding for the manual-entry API router.
+    """
+
+    sample_store: Any = None
+    geocode_cache: Any = None
+    resolver: Any = None
+    wifi_source: Any = None
+    ipgeo_source: Any = None
+
+
+@dataclass
+class ManualEntriesBootstrapState:
+    """Manual-entry subsystem state slice — owned by ManualEntriesModule.
+
+    A timeline-surface feature (notes added/rendered on the timeline page).
+    Built once and exposed via DI for the manual-entry API router; the asset
+    store is also injected into TimelineService for asset resolution. Memory's
+    only stake is the L1 projection, built at the API boundary from the L1 store.
+    """
+
+    store: Any = None
+    asset_store: Any = None
+    weather_fetcher: Any = None
+
+
+@dataclass
 class SkillsBootstrapState:
     """L7 shared skills runtime state slice."""
 
@@ -240,6 +271,8 @@ class RuntimeBootstrapContext:
     plugins: PluginBootstrapState = field(default_factory=PluginBootstrapState)
     llm: LLMBootstrapState = field(default_factory=LLMBootstrapState)
     memory: MemoryBootstrapState = field(default_factory=MemoryBootstrapState)
+    location: LocationBootstrapState = field(default_factory=LocationBootstrapState)
+    manual_entries: ManualEntriesBootstrapState = field(default_factory=ManualEntriesBootstrapState)
     skills: SkillsBootstrapState = field(default_factory=SkillsBootstrapState)
     hooks: HooksBootstrapState = field(default_factory=HooksBootstrapState)
     personality: PersonalityBootstrapState = field(default_factory=PersonalityBootstrapState)

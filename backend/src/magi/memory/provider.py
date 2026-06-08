@@ -10,6 +10,11 @@ if TYPE_CHECKING:
     from . import UnifiedMemoryStore
     from .hybrid_retrieval.service import HybridRetrievalService
     from .integration import MemoryIntegrationModule
+    from .manual_entries import (
+        ManualEntryAssetStore,
+        ManualEntryStore,
+        WeatherFetcher,
+    )
 
 
 def _require_memory_binding(provider_name: str) -> Any:
@@ -35,3 +40,18 @@ def get_unified_memory() -> "UnifiedMemoryStore":
 def get_hybrid_retrieval_service() -> "HybridRetrievalService":
     """Return the active hybrid retrieval service binding."""
     return cast("HybridRetrievalService", _require_memory_binding("hybrid_retrieval_service"))
+
+
+def get_manual_entry_store() -> "ManualEntryStore":
+    """Return the active manual-entry store binding."""
+    return cast("ManualEntryStore", _require_memory_binding("manual_entry_store"))
+
+
+def get_manual_entry_asset_store() -> "ManualEntryAssetStore":
+    """Return the active manual-entry asset-store binding."""
+    return cast("ManualEntryAssetStore", _require_memory_binding("manual_entry_asset_store"))
+
+
+def get_manual_entry_weather_fetcher() -> "WeatherFetcher":
+    """Return the active manual-entry weather-fetcher binding."""
+    return cast("WeatherFetcher", _require_memory_binding("manual_entry_weather_fetcher"))

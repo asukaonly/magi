@@ -44,6 +44,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
     assert [module.name for module in modules] == [
         "subprocess_orphan_cleanup",
         "runtime_core_dependencies",
+        "runtime_database_migrations",
         "runtime_identity",
         "runtime_configuration",
         "runtime_command_queue",
@@ -53,6 +54,8 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_llm",
         "runtime_memory",
         "runtime_media_registry",
+        "runtime_location",
+        "runtime_manual_entries",
         "runtime_memory_ingestion_subscriber",
         "runtime_llm_usage_subscriber",
         "runtime_chat_projector",

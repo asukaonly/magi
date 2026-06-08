@@ -14,7 +14,7 @@ import aiosqlite
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
-from magi.memory import UnifiedMemoryStore
+from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
 from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
 from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
 from magi.memory.l2.models import ReconciledTraitOutcome
@@ -463,7 +463,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             l1_db_path=str(self.base / "toggle_l1_events.db"),
             memory_db_path=str(self.base / "toggle_memory.db"),
             persist_dir=str(self.base / "toggle_memories"),
-            enable_l3_llm_summary=False,
+            tuning=MemoryStoreTuning(enable_l3_llm_summary=False),
         )
         await local_store.initialize()
 
@@ -506,7 +506,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             l1_db_path=str(self.base / "timeout_l1_events.db"),
             memory_db_path=str(self.base / "timeout_memory.db"),
             persist_dir=str(self.base / "timeout_memories"),
-            temporal_l3_llm_timeout_seconds=1.5,
+            tuning=MemoryStoreTuning(temporal_l3_llm_timeout_seconds=1.5),
         )
         await local_store.initialize()
 
@@ -520,7 +520,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             l1_db_path=str(self.base / "threshold_l1_events.db"),
             memory_db_path=str(self.base / "threshold_memory.db"),
             persist_dir=str(self.base / "threshold_memories"),
-            temporal_l3_llm_min_event_count=3,
+            tuning=MemoryStoreTuning(temporal_l3_llm_min_event_count=3),
         )
         await local_store.initialize()
 
@@ -872,8 +872,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
             enable_l0=False,
             enable_l2=False,
             enable_l4=False,
-            enable_l1_vectors=False,
-            enable_l3_vectors=False,
+            tuning=MemoryStoreTuning(enable_l1_vectors=False, enable_l3_vectors=False),
         )
         await self.store.initialize()
 

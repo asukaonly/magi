@@ -79,6 +79,11 @@ Primary packages:
 - `scheduler/`
 - `runtime_trace/`
 - `identity/`
+- `db/` — Alembic migration environments + runner for the runtime SQLite databases (owned by `DatabaseMigrationModule`, which runs migrations after `core` initializes the database files)
+- `utils/` — shared leaf helpers (runtime paths, packaged-path resolution, message text); imported across every layer, imports none
+- `hooks/` — hook registry, gateway, and shell-hook handlers; a low cross-cutting substrate consumed by `agent`/`api`/`plugins`, depending only on `core`/`config`
+- `location/` — location sample store, geocode cache, WiFi/IPGeo sources, and the read-side resolver (`LocationModule`); a low provider whose write (pollers) and read (viewport) sides are both driven by `timeline` (L13)
+- `media/` — media source registry; a low provider consumed by `timeline` (L13)
 - selected infrastructure helpers in `bootstrap/exports.py`
 
 Notes:
@@ -87,6 +92,7 @@ Notes:
 - bootstrap order and ownership layer are not the same thing
 - `runtime_trace/` stores execution observability data; it is not durable memory and does not participate in L7 recall
 - workspace storage is an infrastructure facade: `core` owns workspace identity, path safety, generated directory creation, and state manifests; upper layers receive scoped paths instead of constructing `<workspace>/.magi` paths directly
+- `db`, `location`, `media`, and `hooks` are structurally L1 (they depend only on `core`/`scheduler`/`config`) even though their *consumers* live higher — `db` is driven by the composition root, `location`/`media` feed `timeline` (L13), and `hooks` is actuated by `agent`/`api`. Layer = dependency position, not consumer position.
 - `identity/` owns the canonical user-id authority (`MagiUserID`, `IdentityResolver`, the `user_identity_bindings` table). Every upper-layer ingress site (channels dispatcher, api dispatch, sensor_hub, session_mapper) canonicalizes external identifiers through it before downstream stores see them; see [Identity Architecture](./identity-architecture.md) for the boundary contract
 
 ### L2. Configuration
@@ -102,6 +108,7 @@ Responsibilities:
 Primary packages:
 
 - `config/`
+- `i18n/` — localization string catalogs and lookup; depends only on `config`
 
 ### L3. Message Bus
 
@@ -196,6 +203,7 @@ Primary packages:
 
 - `tools/`
 - `skills/`
+- `mcp/` — MCP server bridge; registers MCP-backed tools into the shared registry. A host integration (like `plugins`/`skills`), NOT plugin-implementation code — see the "Tool sources are host integrations" note below
 
 Notes:
 
@@ -255,6 +263,7 @@ Responsibilities:
 Primary packages:
 
 - `context/`
+- `user_profile/` — user-profile read model assembled from `memory`/`identity`; consumed by `context` prompt assembly and the API
 
 Notes:
 
@@ -336,6 +345,12 @@ Primary packages:
 - `chat/`
 - `tasks/`
 - `channels/`
+- `commands/` — slash-command handlers dispatched by the API surface (uses `chat`)
+- `outreach/` — proactive-messaging orchestration over `agent`/`chat`/`channels`; the top surface orchestrator (sits above the `api` line in the contract ordering)
+- `system_suggestions/` — API-facing suggestion generation (uses `llm`)
+- `notifications/` — API-facing notification helpers
+- `availability/` — leaf availability read model exposed by the API
+- `chat_preview/` — leaf chat-preview helper exposed by the API
 
 Notes:
 
@@ -441,8 +456,8 @@ To reduce future ambiguity, prefer the following terminology:
 The current codebase maps to the layered model like this:
 
 - `bootstrap/` -> outer composition root, not a numbered layer
-- `core/`, `scheduler/`, `runtime_trace/`, parts of `utils/` -> L1 application infrastructure
-- `config/` -> L2 configuration
+- `core/`, `scheduler/`, `runtime_trace/`, `identity/`, `db/`, `utils/`, `hooks/`, `location/`, `media/` -> L1 application infrastructure
+- `config/`, `i18n/` -> L2 configuration
 - `events/` -> L3 message bus
 - `control/` (incl. `control/tools/` host runtime-control tools plan/todo) -> L4 control plane
 - `plugins/` -> L5 plugin registration
@@ -451,10 +466,10 @@ The current codebase maps to the layered model like this:
 - `tools/`, `skills/` -> L8 tools and skills (`skills/` is the host skill-execution engine; `mcp/` bridges MCP servers — both are host tool-source integrations like `plugins/`, NOT plugin-implementation code)
 - `personality/` -> L9 personality
 - `awareness/`, event emitter -> L10 sensors
-- `context/` -> L11 context
+- `context/`, `user_profile/` -> L11 context
 - `agent/` (incl. `agent/runtime_tools/` host runtime-control tool agent_tool) -> L12 agent runtime
 - `timeline/` -> L13 timeline domain
-- `api/`, `chat/`, `tasks/`, `channels/` -> L14 external services
+- `api/`, `chat/`, `tasks/`, `channels/`, `commands/`, `outreach/`, `system_suggestions/`, `notifications/`, `availability/`, `chat_preview/` -> L14 external services
 - `ipc/`, `transport/` and `crates/magi-gateway/` -> L15 connection and transport
 
 The boundary rules above should remain stable even as package internals evolve.

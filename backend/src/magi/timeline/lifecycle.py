@@ -23,14 +23,24 @@ class TimelineModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_timeline",
-            dependencies=("runtime_memory", "runtime_plugin_system", "runtime_core_dependencies"),
+            dependencies=(
+                "runtime_memory",
+                "runtime_plugin_system",
+                "runtime_core_dependencies",
+                "runtime_location",
+                "runtime_manual_entries",
+            ),
         )
         self._context = context
 
     async def init(self) -> None:
         unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
 
-        self._context.timeline.timeline_service = TimelineService(unified_memory)
+        self._context.timeline.timeline_service = TimelineService(
+            unified_memory,
+            location_resolver=self._context.location.resolver,
+            manual_entry_asset_store=self._context.manual_entries.asset_store,
+        )
         logger.info("TimelineService initialized (L12)")
 
     async def shutdown(self) -> None:
@@ -61,6 +71,7 @@ class TimelineSchedulersModule(LifecycleModule):
                 "runtime_configuration",
                 "runtime_memory",
                 "runtime_exports",
+                "runtime_location",
             ),
         )
         self._context = context
@@ -87,9 +98,6 @@ class TimelineSchedulersModule(LifecycleModule):
             IPGeoPollSchedulerContrib,
             WiFiPollSchedulerContrib,
         )
-        from ..location.sources.ipgeo import IPGeoLocationSource
-        from ..location.sources.wifi import WiFiLocationSource
-        from ..location.nominatim import NominatimClient
 
         unified = getattr(self._context.memory, "unified_memory", None)
         l1_store = getattr(unified, "l1", None) if unified else None
@@ -168,35 +176,29 @@ class TimelineSchedulersModule(LifecycleModule):
                 l2_store is not None, media_registry is not None,
             )
 
-        # 5. Location IPGeo poll (4h cadence, free-tier ipapi.co)
-        location_store = getattr(unified, "location_sample_store", None) if unified else None
-        geocode_cache = getattr(unified, "place_geocode_cache", None) if unified else None
-        if location_store is not None:
-            ipgeo_source = IPGeoLocationSource(store=location_store)
+        # 5/6. Location pollers — the WiFi/IPGeo sources are owned and built
+        # once by LocationModule (context.location); reuse them here instead of
+        # rebuilding (previously these were a second, duplicate construction).
+        loc = self._context.location
+        ipgeo_source = getattr(loc, "ipgeo_source", None)
+        wifi_source = getattr(loc, "wifi_source", None)
+        if ipgeo_source is not None:
             contrib = IPGeoPollSchedulerContrib(ipgeo_source=ipgeo_source)
             await contrib.register_schedules(scheduler_service)
             self._contribs.append(contrib)
             logger_schedulers.info("Registered LOCATION_IPGEO_POLL scheduler")
         else:
             logger_schedulers.warning(
-                "Skipping ipgeo scheduler: location_sample_store unavailable",
+                "Skipping ipgeo scheduler: location source unavailable",
             )
-
-        # 6. Location WiFi poll (10min cadence; backoff to 6h when scan
-        # consistently yields empty — typical for machines with no WiFi
-        # adapter or with permission denied).
-        if location_store is not None and geocode_cache is not None:
-            nominatim = NominatimClient(cache=geocode_cache)
-            wifi_source = WiFiLocationSource(
-                store=location_store, nominatim=nominatim,
-            )
+        if wifi_source is not None:
             contrib = WiFiPollSchedulerContrib(wifi_source=wifi_source)
             await contrib.register_schedules(scheduler_service)
             self._contribs.append(contrib)
             logger_schedulers.info("Registered LOCATION_WIFI_POLL scheduler")
         else:
             logger_schedulers.warning(
-                "Skipping wifi scheduler: stores unavailable",
+                "Skipping wifi scheduler: location source unavailable",
             )
 
     async def shutdown(self) -> None:

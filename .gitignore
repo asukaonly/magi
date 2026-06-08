@@ -114,3 +114,6 @@ backend/magi-backend.spec
 # Local worktree symlinks
 frontend/node_modules
 .venv
+
+# Brooks-Lint local run history
+.brooks-lint-history.json

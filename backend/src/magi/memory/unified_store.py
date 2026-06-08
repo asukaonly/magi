@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -33,6 +34,31 @@ if TYPE_CHECKING:
     from ..llm import ScenarioLLMPool
 
 
+@dataclass(frozen=True)
+class MemoryStoreTuning:
+    """Advanced, rarely-overridden tuning knobs for ``UnifiedMemoryStore``.
+
+    The common knobs — ``enable_l0..l4`` and ``l2_batch_flush_interval_seconds``
+    — stay as explicit constructor parameters because callers (especially tests)
+    toggle them often. These are the advanced knobs almost every caller leaves at
+    their defaults; bundling them keeps the constructor signature focused on
+    identity (paths), injected collaborators, and the common layer toggles.
+    """
+
+    enable_l1_vectors: bool = True
+    enable_l2_vectors: bool = True
+    enable_l3_vectors: bool = True
+    enable_l4_vectors: bool = True
+    enable_l3_llm_summary: bool = True
+    enable_l2_conflict_arbitration: bool = True
+    l2_conflict_arbitration_min_confidence: float = 0.85
+    async_embeddings: bool = True
+    l0_checkpoint_interval_seconds: int = 30
+    session_timeout_seconds: int = 3600
+    temporal_l3_llm_timeout_seconds: float = 3.0
+    temporal_l3_llm_min_event_count: int = 2
+
+
 class UnifiedMemoryStore(
     MemoryIngestionMixin,
     L3InsightsMixin,
@@ -56,26 +82,31 @@ class UnifiedMemoryStore(
         enable_l2: bool = True,
         enable_l3: bool = True,
         enable_l4: bool = True,
-        l0_checkpoint_interval_seconds: int = 30,
         l2_batch_flush_interval_seconds: int = 60,
-        enable_l2_conflict_arbitration: bool = True,
-        l2_conflict_arbitration_min_confidence: float = 0.85,
-        session_timeout_seconds: int = 3600,
         embedding_service: MemoryEmbeddingService | None = None,
         scenario_llm_pool: "ScenarioLLMPool | None" = None,
         memory_config_getter: Callable[[], Any] | None = None,
-        async_embeddings: bool = True,
-        enable_l1_vectors: bool = True,
-        enable_l2_vectors: bool = True,
-        enable_l3_vectors: bool = True,
-        enable_l4_vectors: bool = True,
-        enable_l3_llm_summary: bool = True,
-        temporal_l3_llm_timeout_seconds: float = 3.0,
-        temporal_l3_llm_min_event_count: int = 2,
         temporal_summary_features_builder: Callable[..., dict[str, Any]] | None = None,
         extraction_profile_provider: Callable[[], Any] | None = None,
+        tuning: "MemoryStoreTuning | None" = None,
     ) -> None:
         from ..utils.runtime import get_runtime_paths
+
+        # Advanced tuning knobs live in MemoryStoreTuning; unpack to locals so
+        # the rest of __init__ (and the layer constructors below) is unchanged.
+        tuning = tuning or MemoryStoreTuning()
+        async_embeddings = tuning.async_embeddings
+        enable_l1_vectors = tuning.enable_l1_vectors
+        enable_l2_vectors = tuning.enable_l2_vectors
+        enable_l3_vectors = tuning.enable_l3_vectors
+        enable_l4_vectors = tuning.enable_l4_vectors
+        enable_l3_llm_summary = tuning.enable_l3_llm_summary
+        enable_l2_conflict_arbitration = tuning.enable_l2_conflict_arbitration
+        l2_conflict_arbitration_min_confidence = tuning.l2_conflict_arbitration_min_confidence
+        l0_checkpoint_interval_seconds = tuning.l0_checkpoint_interval_seconds
+        session_timeout_seconds = tuning.session_timeout_seconds
+        temporal_l3_llm_timeout_seconds = tuning.temporal_l3_llm_timeout_seconds
+        temporal_l3_llm_min_event_count = tuning.temporal_l3_llm_min_event_count
 
         runtime_paths = get_runtime_paths()
         memory_dir = Path(persist_dir).expanduser() if persist_dir else runtime_paths.memory_dir
@@ -106,11 +137,6 @@ class UnifiedMemoryStore(
         self._l2_batch_flush_interval_seconds = int(l2_batch_flush_interval_seconds)
         self.l3: Optional[L3SummaryStore] = None
         self.l4: Optional[L4ProceduralMemoryStore] = None
-        # Location subsystem — both built lazily after the DB exists so the
-        # migration's location_samples table is guaranteed to be present.
-        # Setup happens at the bottom of __init__.
-        self.location_sample_store = None  # type: Optional[Any]
-        self.location_resolver = None  # type: Optional[Any]
         self._contradiction_service = ContradictionInsightService()
         self._task_reflection_service = TaskReflectionService()
         self._state_change_service = StateChangeService()
@@ -187,41 +213,16 @@ class UnifiedMemoryStore(
                 async_embeddings=async_embeddings,
             )
 
-        # Manual memory entries — user-authored notes that mirror to L1.
-        from .manual_entries import ManualEntryAssetStore, ManualEntryStore, WeatherFetcher
-        self.manual_entry_store = ManualEntryStore(db_path=shared_memory_db)
-        self.manual_entry_asset_store = ManualEntryAssetStore(
-            media_root=memory_dir.parent / "media",
-        )
-        # Weather chip — Open-Meteo HTTP client + small LRU cache. Singleton
-        # so the cache is shared across requests. Best-effort; failures
-        # return None and the entry simply has no weather attached.
-        self.manual_entry_weather_fetcher = WeatherFetcher()
-
-        # Location subsystem (separate concern, always-on — IPGeo costs
-        # nothing on machines without WiFi and is a strict-improvement over
-        # an empty place line in the Hero). WiFi is wired alongside but the
-        # scheduler auto-backoffs to 6h on adapters that can't scan, so the
-        # cost is negligible on headless / no-WiFi machines.
-        from ..location import LocationSampleStore, PlaceGeocodeCache
-        from ..location.nominatim import NominatimClient
-        from ..location.resolver import LocationResolver
-        from ..location.sources.ipgeo import IPGeoLocationSource
-        from ..location.sources.wifi import WiFiLocationSource
-        self.location_sample_store = LocationSampleStore(db_path=shared_memory_db)
-        self.place_geocode_cache = PlaceGeocodeCache(db_path=shared_memory_db)
-        nominatim_client = NominatimClient(cache=self.place_geocode_cache)
-        self.location_resolver = LocationResolver(
-            sources=[
-                WiFiLocationSource(
-                    store=self.location_sample_store, nominatim=nominatim_client,
-                ),
-                IPGeoLocationSource(store=self.location_sample_store),
-            ],
-        )
+        # NOTE: the manual-entry subsystem (store, asset store, weather fetcher)
+        # and the location subsystem (sample store, geocode cache, resolver,
+        # WiFi/IPGeo sources) are no longer built here. They are owned by
+        # ``magi.memory.manual_entries.lifecycle.ManualEntriesModule`` and
+        # ``magi.location.lifecycle.LocationModule`` respectively, and exposed
+        # via their bootstrap-context slices + DI bindings. Memory's only stake
+        # in manual entries is the L1 projection, built at the API boundary.
 
         self._initialized = False
         self._write_lock = asyncio.Lock()
 
 
-__all__ = ["UnifiedMemoryStore"]
+__all__ = ["UnifiedMemoryStore", "MemoryStoreTuning"]

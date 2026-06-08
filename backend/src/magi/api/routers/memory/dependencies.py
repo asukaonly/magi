@@ -37,6 +37,50 @@ def _resolve_unified_memory():
         return None
 
 
+def _resolve_location_sample_store():
+    override = _package_override("_resolve_location_sample_store", _resolve_location_sample_store)
+    if override is not None:
+        return override()
+    try:
+        from magi.location.provider import get_location_sample_store
+        return get_location_sample_store()
+    except RuntimeError:
+        return None
+
+
+def _resolve_manual_entry_store():
+    override = _package_override("_resolve_manual_entry_store", _resolve_manual_entry_store)
+    if override is not None:
+        return override()
+    try:
+        from magi.memory.provider import get_manual_entry_store
+        return get_manual_entry_store()
+    except RuntimeError:
+        return None
+
+
+def _resolve_manual_entry_asset_store():
+    override = _package_override("_resolve_manual_entry_asset_store", _resolve_manual_entry_asset_store)
+    if override is not None:
+        return override()
+    try:
+        from magi.memory.provider import get_manual_entry_asset_store
+        return get_manual_entry_asset_store()
+    except RuntimeError:
+        return None
+
+
+def _resolve_manual_entry_weather_fetcher():
+    override = _package_override("_resolve_manual_entry_weather_fetcher", _resolve_manual_entry_weather_fetcher)
+    if override is not None:
+        return override()
+    try:
+        from magi.memory.provider import get_manual_entry_weather_fetcher
+        return get_manual_entry_weather_fetcher()
+    except RuntimeError:
+        return None
+
+
 def _resolve_memory_integration():
     override = _package_override("_resolve_memory_integration", _resolve_memory_integration)
     if override is not None:

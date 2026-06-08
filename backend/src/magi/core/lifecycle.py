@@ -5,7 +5,6 @@ from __future__ import annotations
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext
 from ..core.logger import get_logger
-from ..db import run_upgrade_head
 from ..utils.runtime import get_runtime_paths, init_runtime_data
 from ..core.database_initializer import DatabaseInitializer, set_database_initializer
 
@@ -26,7 +25,8 @@ class CoreDependenciesModule(LifecycleModule):
 
         db_initializer = DatabaseInitializer(runtime_paths=self._context.core.runtime_paths)
         await db_initializer.initialize_all()
-        run_upgrade_head(self._context.core.runtime_paths)
+        # Alembic schema migrations are owned by db/lifecycle.py
+        # (DatabaseMigrationModule), which runs immediately after this module.
         set_database_initializer(db_initializer)
         self._context.core.db_initializer = db_initializer
         logger.info("Database initialization completed")

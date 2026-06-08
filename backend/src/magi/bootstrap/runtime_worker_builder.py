@@ -41,6 +41,7 @@ from ..chat.lifecycle import (
 from ..config.lifecycle import ConfigurationModule
 from ..context.lifecycle import ContextModule
 from ..core.lifecycle import CoreDependenciesModule
+from ..db.lifecycle import DatabaseMigrationModule
 from ..events.lifecycle import (
     MessageBusModule,
     PluginIngressProcessorModule,
@@ -49,6 +50,7 @@ from ..events.lifecycle import (
 )
 from ..identity.lifecycle import IdentityModule
 from ..llm.lifecycle import LLMRuntimeModule, LLMUsageSubscriberModule
+from ..location.lifecycle import LocationModule
 from ..mcp.lifecycle import MCPModule
 from ..memory.lifecycle import (
     L2MaintenanceScheduleRegistrationModule,
@@ -57,6 +59,7 @@ from ..memory.lifecycle import (
     MemoryIngestionSubscriberModule,
     MemoryStoreModule,
 )
+from ..memory.manual_entries.lifecycle import ManualEntriesModule
 from ..media.lifecycle import MediaRegistryModule
 from ..personality.lifecycle import PersonalityModule
 from ..plugins.lifecycle import PluginSystemModule
@@ -175,6 +178,11 @@ def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[Life
         # plugin / MCP / agent modules start spawning new ones.
         _build_subprocess_orphan_cleanup_module(context),
         CoreDependenciesModule(context),
+        # Apply Alembic schema migrations before any store opens a connection.
+        # Owned by the db package (db/lifecycle.py); depends on core deps for
+        # runtime paths + initialized db files. Splitting this out of
+        # CoreDependenciesModule removes the core -> db import cycle.
+        DatabaseMigrationModule(context),
         # L1 substrate — identity must initialize right after core so
         # runtime_paths.identity_db_path is available. Channels/api/
         # awareness modules later in the lifecycle pull the resolver
@@ -199,6 +207,8 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
     return [
         MemoryStoreModule(context, start_memory_integration=True),
         MediaRegistryModule(context),  # after memory store so unified_memory.l1 exists
+        LocationModule(context),  # owns location pipeline; reads memory.db path directly
+        ManualEntriesModule(context),  # owns manual-entry store/asset/weather construction
         MemoryIngestionSubscriberModule(context),
         LLMUsageSubscriberModule(context),
         ChatProjectorModule(context),

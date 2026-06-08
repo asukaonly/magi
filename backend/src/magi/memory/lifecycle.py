@@ -11,7 +11,7 @@ from ..llm import get_llm_usage_store
 from ..config import get_config
 from ..config.models import LLMScenario
 from ..llm.provider_bridge import LLMProviderBridge
-from . import UnifiedMemoryStore
+from . import MemoryStoreTuning, UnifiedMemoryStore
 from .embedding.embedding_service import MemoryEmbeddingService
 from .hybrid_retrieval import HybridRetrievalService
 from .hybrid_retrieval.service import build_retrieval_config_from_app_config
@@ -76,25 +76,27 @@ class MemoryStoreModule(LifecycleModule):
             embedding_service=embedding_service,
             scenario_llm_pool=scenario_llm_pool,
             memory_config_getter=lambda: get_config().agent.memory,
-            async_embeddings=memory_config.async_embeddings,
-            enable_l1_vectors=memory_config.l1.vectors_enabled and vectors_enabled,
-            enable_l2_vectors=memory_config.l2.vectors_enabled and vectors_enabled,
-            enable_l3_vectors=memory_config.l3.vectors_enabled and vectors_enabled,
-            enable_l4_vectors=memory_config.l4.vectors_enabled and vectors_enabled,
             enable_l0=memory_config.l0.enabled,
             enable_l1=memory_config.l1.enabled,
             enable_l2=memory_config.l2.enabled,
             enable_l3=memory_config.l3.enabled,
             enable_l4=memory_config.l4.enabled,
-            enable_l3_llm_summary=memory_config.l3.llm_summary_enabled,
-            temporal_l3_llm_timeout_seconds=memory_config.l3.temporal_llm_timeout_seconds,
-            temporal_l3_llm_min_event_count=memory_config.l3.temporal_llm_min_event_count,
+            l2_batch_flush_interval_seconds=memory_config.l2.batch_flush_interval_seconds,
             temporal_summary_features_builder=plugin_manager.build_temporal_summary_features,
             extraction_profile_provider=getattr(plugin_manager, "iter_extraction_profiles", lambda: []),
-            l0_checkpoint_interval_seconds=memory_config.l0.checkpoint_interval_seconds,
-            l2_batch_flush_interval_seconds=memory_config.l2.batch_flush_interval_seconds,
-            enable_l2_conflict_arbitration=memory_config.l2.conflict_arbitration_enabled,
-            l2_conflict_arbitration_min_confidence=memory_config.l2.conflict_arbitration_min_confidence,
+            tuning=MemoryStoreTuning(
+                async_embeddings=memory_config.async_embeddings,
+                enable_l1_vectors=memory_config.l1.vectors_enabled and vectors_enabled,
+                enable_l2_vectors=memory_config.l2.vectors_enabled and vectors_enabled,
+                enable_l3_vectors=memory_config.l3.vectors_enabled and vectors_enabled,
+                enable_l4_vectors=memory_config.l4.vectors_enabled and vectors_enabled,
+                enable_l3_llm_summary=memory_config.l3.llm_summary_enabled,
+                enable_l2_conflict_arbitration=memory_config.l2.conflict_arbitration_enabled,
+                l2_conflict_arbitration_min_confidence=memory_config.l2.conflict_arbitration_min_confidence,
+                l0_checkpoint_interval_seconds=memory_config.l0.checkpoint_interval_seconds,
+                temporal_l3_llm_timeout_seconds=memory_config.l3.temporal_llm_timeout_seconds,
+                temporal_l3_llm_min_event_count=memory_config.l3.temporal_llm_min_event_count,
+            ),
         )
         await self._context.memory.unified_memory.initialize()
         logger.info("UnifiedMemoryStore initialized (L0-L4)")
