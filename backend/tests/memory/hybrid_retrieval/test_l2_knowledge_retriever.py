@@ -238,3 +238,21 @@ class TestSingleEntityForwarding:
             assert call.kwargs.get("evidence_classes") == [
                 EvidenceClass.USER_SELF_REPORT.label
             ], f"place-topology recall must forward evidence_classes; got {call}"
+
+
+@pytest.mark.asyncio
+async def test_topology_channel_skipped_when_no_subject_entity_ids():
+    """_topology_channel must abstain (no store call) when the plan has no subject."""
+    from magi.memory.hybrid_retrieval.l2_knowledge_retriever import _topology_channel
+
+    store = _make_store()
+    plan = L2GroundingPlan(
+        query_kind="preference",
+        answer_kind="creator",
+        temporal_context=TemporalContext(mode="none"),
+    )
+    assert not plan.subject_entity_ids
+    result = await _topology_channel(plan, store)
+    assert result == []
+    assert store.batch_get_relationships.await_count == 0
+    assert store.get_relationships.await_count == 0
