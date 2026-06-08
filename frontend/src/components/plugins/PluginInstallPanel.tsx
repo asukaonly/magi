@@ -101,7 +101,6 @@ export function PluginInstallPanel(): JSX.Element | null {
       setValues(seedFieldValues(fieldSpecs));
     }
     // fieldSpecs identity is stable per flow fetch; key off phase + flow.flow.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, flow.phase, flow.flow]);
 
   const handleFieldChange = useCallback((key: string, nextValue: unknown) => {
