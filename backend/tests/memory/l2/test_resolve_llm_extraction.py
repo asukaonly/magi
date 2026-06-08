@@ -37,6 +37,29 @@ def test_explicit_optout_beats_frequency(tmp_path):
     assert asyncio.run(resolve_llm_extraction(_Ev(md), c)) is False
 
 
+def test_force_full_override_beats_static_optout(tmp_path):
+    # RFC #56 P4 escape hatch: a structured-only sensor force-promotes one event.
+    c = _counter(tmp_path)
+    md = {"allow_llm_extraction": False, "promotion_override": "force_full"}
+    assert asyncio.run(resolve_llm_extraction(_Ev(md), c)) is True
+
+
+def test_force_full_override_beats_frequency_gate(tmp_path):
+    c = _counter(tmp_path)
+    md = {"promotion_threshold": 5, "promotion_key": "x", "promotion_override": "force_full"}
+    assert asyncio.run(resolve_llm_extraction(_Ev(md), c)) is True  # below threshold, but forced
+
+
+def test_force_structured_only_override_beats_promotion(tmp_path):
+    c = _counter(tmp_path)
+    md = {"promotion_threshold": 1, "promotion_key": "x", "promotion_override": "force_structured_only"}
+    assert asyncio.run(resolve_llm_extraction(_Ev(md), c)) is False  # would promote, but vetoed
+
+
+def test_unknown_override_value_falls_through_to_default(tmp_path):
+    assert asyncio.run(resolve_llm_extraction(_Ev({"promotion_override": "bogus"}), None)) is True
+
+
 def test_threshold_without_key_or_counter_allows(tmp_path):
     c = _counter(tmp_path)
     # threshold set but no per-event key -> no gate, allowed

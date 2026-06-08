@@ -120,6 +120,10 @@ class SensorOutput:
     # this frozen snapshot is stored in the L1 pinned-payload satellite and read
     # by L2 at extraction time (never re-fetched from the live source).
     pinned_payload: str | None = None
+    # Per-event promotion escape hatch (RFC #56 P4): "force_full" runs full L2
+    # extraction and "force_structured_only" skips it, either way overriding the
+    # generic policy (P1 static flag) and frequency gate (P2). None -> default.
+    promotion_override: str | None = None
     tags: list[str] = field(default_factory=list)
     entities: list[dict[str, Any]] = field(default_factory=list)
     provenance: dict[str, Any] = field(default_factory=dict)
@@ -169,6 +173,7 @@ class SensorOutput:
             content_blocks=blocks,
             raw_payload_ref=data.get("raw_payload_ref"),
             pinned_payload=data.get("pinned_payload"),
+            promotion_override=data.get("promotion_override"),
             tags=list(data.get("tags", [])),
             entities=list(data.get("entities", [])),
             provenance=dict(data.get("provenance", {})),

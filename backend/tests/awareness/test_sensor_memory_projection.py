@@ -119,6 +119,20 @@ def test_build_sensor_memory_event_carries_pinned_payload_off_the_row():
     assert "pinned_payload" not in (me.metadata_json or {})
 
 
+def test_build_sensor_memory_event_threads_promotion_override():
+    # RFC #56 P4: a per-event promotion override flows into metadata_json so
+    # resolve_llm_extraction can honor it. Stored only when set (lean otherwise).
+    base = _make_payload()
+    me_default = build_sensor_memory_event(base, event_id="evt-d")
+    assert "promotion_override" not in (me_default.metadata_json or {})
+
+    out = dict(base.output_dict)
+    out["promotion_override"] = "force_full"
+    payload = _make_payload(output_dict=out, payload=dict(out))
+    me = build_sensor_memory_event(payload, event_id="evt-f")
+    assert me.metadata_json["promotion_override"] == "force_full"
+
+
 def test_build_sensor_memory_event_metadata_carries_timeline_dict():
     payload = _make_payload()
     me = build_sensor_memory_event(payload, event_id="evt-1")
