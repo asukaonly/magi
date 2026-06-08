@@ -1,4 +1,30 @@
 {
+  "productTour": {
+    "next": "Next",
+    "back": "Back",
+    "skip": "Skip",
+    "done": "Done",
+    "connect": "Enable",
+    "installAndConnect": "Install & enable",
+    "connecting": "Connecting…",
+    "recommend": "Suggested: {{plugin}}",
+    "chat": {
+      "title": "Chat with me",
+      "body": "Talk with your persona right here."
+    },
+    "timeline": {
+      "title": "Your life timeline",
+      "body": "The activity you let me see grows here. Connect a data source so I can start getting to know you."
+    },
+    "memory": {
+      "title": "What I remember",
+      "body": "Everything I remember about you lives here, and it gets better the more we talk."
+    },
+    "bell": {
+      "title": "Notifications",
+      "body": "Suggestions and task updates show up in this bell."
+    }
+  },
   "bootstrap": {
     "startupFailed": "Backend startup failed",
     "retry": "Retry",

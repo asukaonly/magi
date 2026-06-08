@@ -3182,6 +3182,27 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/sensors/{source_name}/memory-readiness": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Get Sensor Memory Readiness
+         * @description Honest readiness: count this source's L1 events, force an L2 flush, then poll
+         *     the projection backlog until it drains (or the bounded wait elapses).
+         */
+        readonly get: operations["get_sensor_memory_readiness_api_sensors__source_name__memory_readiness_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/sensors/{source_name}/sync": {
         readonly parameters: {
             readonly query?: never;
@@ -5279,6 +5300,15 @@ export interface components {
              */
             readonly vectors_enabled: boolean;
         };
+        /** MemoryReadinessResponse */
+        readonly MemoryReadinessResponse: {
+            /** L1 Event Count */
+            readonly l1_event_count: number;
+            /** L2 Ready */
+            readonly l2_ready: boolean;
+            /** Source Name */
+            readonly source_name: string;
+        };
         /** MemoryRerankerConfigModel */
         readonly MemoryRerankerConfigModel: {
             readonly cross_encoder?: components["schemas"]["CrossEncoderConfigModel"];
@@ -7008,6 +7038,12 @@ export interface components {
              * @default false
              */
             readonly onboarding_completed: boolean;
+            /**
+             * Product Tour Completed
+             * @description True once the user has completed (or skipped) the one-time main-page product tour shown on first visit after onboarding.
+             * @default false
+             */
+            readonly product_tour_completed: boolean;
             /** Scenario */
             readonly scenario?: string | null;
             /**
@@ -13070,6 +13106,40 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly get_sensor_memory_readiness_api_sensors__source_name__memory_readiness_get: {
+        readonly parameters: {
+            readonly query?: {
+                /** @description Max time to wait for the L2 projection backlog to drain before reporting not-ready. */
+                readonly max_wait_ms?: number;
+            };
+            readonly header?: never;
+            readonly path: {
+                readonly source_name: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["MemoryReadinessResponse"];
                 };
             };
             /** @description Validation Error */

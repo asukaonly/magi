@@ -1,7 +1,10 @@
 """Sensor operations API router."""
 from __future__ import annotations
 
+import asyncio
 import inspect
+import logging
+import time
 from datetime import date, datetime, time as datetime_time
 from pathlib import Path
 from typing import Any
@@ -29,6 +32,8 @@ from .plugins_common import (
 )
 
 sensors_router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 _SENSOR_INTERNAL_ERROR_MARKERS = ("<Queue at ", "MemoryEvent(", " is bound to a different event loop")
 
@@ -523,3 +528,56 @@ async def get_sensor_today_summary(
         "weekday": target_day.weekday(),
         "sources": sources,
     }
+
+
+class MemoryReadinessResponse(BaseModel):
+    source_name: str
+    l1_event_count: int
+    l2_ready: bool
+
+
+@sensors_router.get("/{source_name}/memory-readiness", response_model=MemoryReadinessResponse)
+async def get_sensor_memory_readiness(
+    source_name: str,
+    max_wait_ms: int = Query(
+        default=20000,
+        ge=0,
+        le=60000,
+        description="Max time to wait for the L2 projection backlog to drain before reporting not-ready.",
+    ),
+):
+    """Honest readiness: count this source's L1 events, force an L2 flush, then poll
+    the projection backlog until it drains (or the bounded wait elapses)."""
+    try:
+        unified_memory = get_unified_memory()
+    except RuntimeError:
+        unified_memory = None
+
+    if unified_memory is None or getattr(unified_memory, "l1", None) is None:
+        return MemoryReadinessResponse(source_name=source_name, l1_event_count=0, l2_ready=False)
+
+    rows = await unified_memory.l1.summarize_event_sources(source_filters=[source_name])
+    l1_count = sum(int((r or {}).get("event_count") or 0) for r in (rows or []))
+    if l1_count == 0:
+        return MemoryReadinessResponse(source_name=source_name, l1_event_count=0, l2_ready=False)
+
+    # Force staged L2 micro-batches into projection jobs now (don't wait the ~60s worker interval).
+    try:
+        await unified_memory.flush_l2_microbatches()
+    except Exception:  # best-effort; readiness falls back to polling
+        logger.exception("memory-readiness: L2 flush failed for %s", source_name)
+
+    deadline = time.monotonic() + (max_wait_ms / 1000.0)
+    l2_ready = False
+    while True:
+        backlog = await unified_memory.get_l2_projection_backlog()
+        pending = int((backlog or {}).get("pending", 0))
+        claimed = int((backlog or {}).get("claimed", 0))
+        if pending == 0 and claimed == 0:
+            l2_ready = True
+            break
+        if time.monotonic() >= deadline:
+            break
+        await asyncio.sleep(0.5)
+
+    return MemoryReadinessResponse(source_name=source_name, l1_event_count=l1_count, l2_ready=l2_ready)

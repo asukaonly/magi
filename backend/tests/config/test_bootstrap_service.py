@@ -433,3 +433,30 @@ class TestBootstrapL2PriorityMetadata:
             )
 
         assert metadata == {}
+
+
+def test_build_opening_system_prompt_includes_activity_snippet():
+    from magi.personality.bootstrap_service import BootstrapDialogueService
+    from magi.personality.loader import BootstrapConfig, PersonalityConfig
+    svc = BootstrapDialogueService(growth_engine=None)
+    cfg = PersonalityConfig()
+    bs = BootstrapConfig(style_instruction="warm", opening_line="", max_rounds=3)
+    with_snip = svc._build_opening_system_prompt(cfg, bs, "今天看了关于 X 的网页")
+    without = svc._build_opening_system_prompt(cfg, bs, None)
+    assert "今天看了关于 X 的网页" in with_snip
+    assert "今天看了关于 X 的网页" not in without
+    # Both still ask how to address the user (the existing behavior is preserved).
+    assert "address" in without.lower()
+
+
+@pytest.mark.asyncio
+async def test_get_opening_survives_snippet_fetch_failure(monkeypatch):
+    import magi.personality.bootstrap_service as mod
+    svc = mod.BootstrapDialogueService(growth_engine=None)
+    # snippet fetch raises -> get_opening must still return (fallback opener path)
+    async def boom():
+        raise RuntimeError("memory down")
+    monkeypatch.setattr(mod, "_fetch_recent_activity_snippet", boom)
+    # LLM pool unavailable -> falls back to static opening_line (None here) without raising
+    result = await svc.get_opening("Echo-01")
+    assert result is None or isinstance(result, str)

@@ -1,4 +1,30 @@
 {
+  "productTour": {
+    "next": "下一步",
+    "back": "上一步",
+    "skip": "跳过",
+    "done": "完成",
+    "connect": "启用",
+    "installAndConnect": "安装并启用",
+    "connecting": "连接中…",
+    "recommend": "推荐：{{plugin}}",
+    "chat": {
+      "title": "和我聊天",
+      "body": "在这里和你的人格对话。"
+    },
+    "timeline": {
+      "title": "你的生活时间线",
+      "body": "你让我看到的活动会长在这里。先连一个数据源，让我开始认识你。"
+    },
+    "memory": {
+      "title": "我记得的事",
+      "body": "关于你的记忆都在这里，越用越懂你。"
+    },
+    "bell": {
+      "title": "通知",
+      "body": "建议和任务通知都会出现在这个铃铛里。"
+    }
+  },
   "bootstrap": {
     "startupFailed": "后端启动失败",
     "retry": "重试",

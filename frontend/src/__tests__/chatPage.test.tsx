@@ -120,6 +120,13 @@ vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: convertFileSrcMock,
 }));
 
+// Persona bootstrap is gated behind the one-time product tour (shouldFireBootstrap).
+// These tests exercise bootstrap mechanics, not the tour, so treat the tour as
+// already resolved (as it is for any returning user) and let bootstrap fire.
+vi.mock('@/hooks/useProductTourFlag', () => ({
+  useProductTourFlag: () => ({ completed: true, loaded: true, markCompleted: vi.fn() }),
+}));
+
 vi.mock('@/api/modules/config', async () => {
   const actual = await vi.importActual<typeof import('@/api/modules/config')>('@/api/modules/config');
   return {

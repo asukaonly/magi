@@ -1,5 +1,9 @@
 import { api, unwrapGatewayPayload } from '../client';
+import type { components } from '../../types/api/generated';
 import type { ActivationFlowSpec, ExtensionFieldSpec, PluginSettingsUiBlockSpec } from './plugins';
+
+/** Honest memory-readiness signal for one sensor source (see backend GET /sensors/{source}/memory-readiness). */
+export type MemoryReadinessResponse = components['schemas']['MemoryReadinessResponse'];
 
 export interface SensorSourceStatusItem {
   source_name: string;
@@ -78,6 +82,17 @@ export const sensorsApi = {
     const response = await api.get<SensorTodaySummaryResponse>(
       '/sensors/today-summary',
       day ? { params: { day } } : undefined,
+    );
+    return unwrapGatewayPayload(response);
+  },
+
+  getMemoryReadiness: async (
+    sourceName: string,
+    opts?: { maxWaitMs?: number },
+  ): Promise<MemoryReadinessResponse> => {
+    const qs = opts?.maxWaitMs != null ? `?max_wait_ms=${opts.maxWaitMs}` : '';
+    const response = await api.get<MemoryReadinessResponse>(
+      `/sensors/${encodeURIComponent(sourceName)}/memory-readiness${qs}`,
     );
     return unwrapGatewayPayload(response);
   },

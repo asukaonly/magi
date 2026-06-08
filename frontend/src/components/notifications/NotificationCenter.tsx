@@ -1,10 +1,9 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useSuggestionDismissals } from '@/hooks/useSuggestionDismissals';
-import { usePluginActivation } from '@/hooks/usePluginActivation';
-import { PluginActivationDialog } from '@/components/plugins/PluginActivationDialog';
+import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 import { getEmptyStatePluginMeta } from '@/constants/emptyStatePriorities';
 import type { NotificationItem } from '@/api/modules/notifications';
 
@@ -31,18 +30,11 @@ export function NotificationCenter(): JSX.Element {
   // the "已忽略" footer after each dismiss to keep the restore list in sync.
   const onDismiss = (id: number) => { void dismiss(id).then(refreshDismissed); };
   const onDismissAll = () => { void dismissAll().then(refreshDismissed); };
-  // Notification id whose connect flow is in-flight. The server-side `action`
-  // is recorded only after activation actually succeeds (onSuccess), not when
-  // the dialog merely opens — so cancelling does not drop the item.
-  const pendingActionId = useRef<number | null>(null);
-
-  const { dialogState, installingPluginId, openDialog, closeDialog, confirm } = usePluginActivation({
-    onSuccess: () => {
-      const id = pendingActionId.current;
-      pendingActionId.current = null;
-      if (id != null) void act(id);
-    },
-  });
+  // Open the shared install panel (mounted once in MainLayout). The server-side
+  // `action` is recorded only when the panel's connect flow actually succeeds
+  // (its onDone), not when the panel merely opens — so cancelling/closing the
+  // panel never drops the suggestion item.
+  const openPanel = usePluginInstallPanelStore((s) => s.openPanel);
 
   // Human-readable plugin name: localized via the shared `pluginNames` map
   // (onboarding ns; same source the in-chat side card uses, so naming is
@@ -153,23 +145,23 @@ export function NotificationCenter(): JSX.Element {
                       <div className="flex flex-wrap gap-2">
                         {ids.map((pid) => {
                           const needsInstall = installable.includes(pid);
-                          const isInstalling = installingPluginId === pid;
-                          const base = isInstalling
-                            ? t('notifications.installing')
-                            : needsInstall
-                              ? t('notifications.installAndConnect')
-                              : t('notifications.connect');
+                          const base = needsInstall
+                            ? t('notifications.installAndConnect')
+                            : t('notifications.connect');
                           return (
                             <button
                               key={pid}
                               type="button"
                               data-testid={`notification-connect-${pid}`}
-                              disabled={isInstalling}
                               onClick={() => {
-                                pendingActionId.current = n.id;
-                                void openDialog(pid, { install: needsInstall });
+                                openPanel(pid, {
+                                  install: needsInstall,
+                                  onDone: () => {
+                                    void act(n.id);
+                                  },
+                                });
                               }}
-                              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+                              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition hover:bg-primary/90"
                             >
                               {multi ? `${base} ${pluginName(pid)}` : base}
                             </button>
@@ -209,17 +201,6 @@ export function NotificationCenter(): JSX.Element {
             </ul>
           ) : null}
         </div>
-      ) : null}
-
-      {dialogState ? (
-        <PluginActivationDialog
-          open
-          onClose={closeDialog}
-          flow={dialogState.flow}
-          initialValues={{}}
-          onConfirm={confirm}
-          pluginId={dialogState.pluginId}
-        />
       ) : null}
     </div>
   );

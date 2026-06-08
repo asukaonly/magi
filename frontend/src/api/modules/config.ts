@@ -39,6 +39,7 @@ export type LLMScenario = 'context_decider' | 'core' | 'memory_summarizer' | 'em
 export interface UserPreferences {
   onboarding_completed: boolean;
   first_conversation_completed: boolean;
+  product_tour_completed: boolean;
   user_mode: UserMode;
   scenario?: string | null;
   language: LanguageCode;
@@ -733,6 +734,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   preferences: {
     onboarding_completed: false,
     first_conversation_completed: false,
+    product_tour_completed: false,
     user_mode: null,
     scenario: null,
     language: 'zh',
