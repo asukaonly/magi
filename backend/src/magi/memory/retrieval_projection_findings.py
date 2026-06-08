@@ -8,13 +8,26 @@ selection that discarded useful cross-layer evidence.
 
 from __future__ import annotations
 
-import heapq
 from typing import Any
 
 from .entity_display import display_name_for
+from .hybrid_retrieval.mode_registry import MODE_REGISTRY
 from .hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
 from .recall_rendering import is_echo_finding
 from .retrieval_projection_summary import split_relationship_statement
+
+# Fallback per-layer quota when a mode declares none (defensive; all registry
+# modes set layer_quota in T1).
+_DEFAULT_LAYER_QUOTA: dict[str, int] = {"L1": 8, "L2": 6, "L3": 3, "L4": 2}
+# Floor so a layer that has candidates is never fully starved by a small quota.
+_LAYER_QUOTA_FLOOR = 1
+
+
+def _resolve_layer_quota(mode: str) -> dict[str, int]:
+    plan = MODE_REGISTRY.get(mode)
+    if plan is not None and plan.layer_quota:
+        return dict(plan.layer_quota)
+    return dict(_DEFAULT_LAYER_QUOTA)
 
 
 # ---------------------------------------------------------------------------
@@ -110,14 +123,30 @@ def build_findings(
         if not any(is_echo_finding(c, text) for text in echo_texts if text)
     ]
 
-    limit = max(int(request.limit or 10), 1)
+    # NOTE: request.limit is intentionally NOT a hard cap here — per-mode
+    # layer_quota governs result count. Enumerate modes (e.g. cross_session)
+    # may return more than the caller's default limit by design; downstream
+    # grounding (phase B) narrows further. The caller's `limit` now acts only
+    # as a fallback signal, not a ceiling.
+    #
+    # Per-layer quota selection (replaces cross-layer nlargest). Layers do NOT
+    # compete on a shared score — each ranks internally by its own _score
+    # (which includes mode-preference bonus and predicate bonus, computed above
+    # by _attach_score), then takes its mode-driven quota (floor so a present
+    # layer isn't starved; the quota itself is the cap so no layer hogs).
+    quota = _resolve_layer_quota(mode)
+    by_layer: dict[str, list[dict[str, Any]]] = {}
+    for c in candidates:
+        by_layer.setdefault(str(c.get("source_layer") or "L1"), []).append(c)
 
-    # heapq.nlargest is O(N log K) instead of sort's O(N log N) and skips the
-    # full materialisation of the sorted tail we then discard. Materially
-    # better only when N >> K; safe and slightly faster otherwise.
-    selected = heapq.nlargest(
-        limit, candidates, key=lambda x: float(x.get("_score", 0.0))
-    )
+    selected: list[dict[str, Any]] = []
+    quota_trace: dict[str, int] = {}
+    for layer, items in by_layer.items():
+        items.sort(key=lambda x: float(x.get("_score", 0.0)), reverse=True)
+        take = max(_LAYER_QUOTA_FLOOR, int(quota.get(layer, 0)))
+        kept = items[:take]
+        selected.extend(kept)
+        quota_trace[layer] = len(kept)
 
     for finding in selected:
         finding["topic"] = _derive_finding_topic(finding)
@@ -127,6 +156,8 @@ def build_findings(
             "dropped": projection_dropped,
             "count": len(projection_dropped),
         }
+
+    payload.trace["layer_quota"] = {"mode": mode, "kept_per_layer": quota_trace}
 
     return selected, rel_dropped + asrt_dropped
 
