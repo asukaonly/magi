@@ -77,7 +77,7 @@ def _build_client(monkeypatch):
         "PluginState",
         (),
         {
-            "manifest": type("Manifest", (), {"plugin_id": "screen-time"})(),
+            "manifest": type("Manifest", (), {"plugin_id": "screen-time", "plugin_dir": ""})(),
             "current_settings": {
                 "sensors": {
                     "screen_time": {
