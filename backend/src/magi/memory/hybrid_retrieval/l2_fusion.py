@@ -41,6 +41,7 @@ class L2Candidate:
     gate_status: str = "pass"
     gate_reason: str | None = None
     trace: dict[str, Any] = field(default_factory=dict)
+    predicate_missing_vector_relevance: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +253,7 @@ def _compute_final_score(c: L2Candidate, plan: L2GroundingPlan) -> float:
                 + 0.20 * c.object_constraint_score
                 + 0.10 * c.status_score
             )
-            c.trace["predicate_missing_vector_relevance"] = round(vector_relevance, 4)
+            c.predicate_missing_vector_relevance = round(vector_relevance, 4)
         else:
             grounding_score = (
                 0.40 * c.subject_match_score
@@ -298,6 +299,7 @@ def _build_score_trace(c: L2Candidate) -> dict[str, Any]:
         "final_score": c.final_score,
         "gate_status": c.gate_status,
         "gate_reason": c.gate_reason,
+        "predicate_missing_vector_relevance": c.predicate_missing_vector_relevance,
     }
 
 
