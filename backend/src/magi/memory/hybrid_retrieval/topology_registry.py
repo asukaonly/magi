@@ -1,16 +1,18 @@
-"""Data-driven registry for answer_kind topology dispatch.
+"""Pure data registry of answer_kind edge-fetch topologies (RFC #65).
 
-Phase 2B: replaces the if-else chains in `_topology_channel` with a single
-``TopologySpec`` per answer_kind, executed uniformly by ``_execute_topology``.
-Adding a new answer_kind requires only a registry entry, not a new handler
-function.
+Each ``TopologySpec`` entry declaratively describes what edges to fetch for an
+answer_kind.  Execution is handled by ``execute_graph_traversal`` in
+``traversal.py``; this module is intentionally free of any async/IO logic.
+
+Adding a new answer_kind requires only a new registry entry here — no new
+handler code.
 
 Each spec describes:
 - The primary edges to fetch from the user (or a constrained set of objects)
 - An optional "bridge" hop (e.g. presence → person identity, place → parent
-  place). These fields are kept on the spec so a future consumer (UI identity
-  chip, projection layer) can opt into bridge resolution; the executor itself
-  no longer performs the resolution because Phase 5's entity_catalog
+  place). These fields are retained so a future consumer (UI identity chip,
+  projection layer) can opt into bridge resolution.  The traversal executor
+  itself does not perform bridge resolution; Phase 5's ``entity_catalog``
   canonical-name resolution supersedes the previous ``_resolved_identity``
   sidecar (which had no production reader).
 """
@@ -18,7 +20,7 @@ Each spec describes:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -69,71 +71,3 @@ ANSWER_KIND_TOPOLOGIES: dict[str, TopologySpec] = {
         bridge_skip_evidence_filter=True,
     ),
 }
-
-
-async def _execute_topology(
-    *,
-    spec: TopologySpec,
-    plan: Any,  # L2GroundingPlan — typed as Any to avoid circular import
-    store: Any,
-    limit: int = 20,
-    candidate_object_ids: Optional[list[str]] = None,
-) -> list[dict[str, Any]]:
-    """Execute a topology query: primary edge fetch only.
-
-    Two modes:
-    - ``candidate_object_ids is None``: fetch user→primary via
-      ``batch_get_relationships`` with predicate/object_type filters.
-    - ``candidate_object_ids`` provided (constraint preprocessing already
-      narrowed candidates): fetch user→each candidate via per-object
-      ``get_relationships``.
-
-    Note: ``spec.bridge_predicate``/``bridge_object_types``/
-    ``bridge_skip_evidence_filter`` are retained on the registry so a
-    future consumer (UI identity chip, projection layer) can opt into
-    bridge resolution. The executor itself no longer attaches a
-    ``_resolved_identity`` sidecar — Phase 5's ``entity_catalog`` canonical
-    name resolution superseded that sidecar (no production reader existed).
-    """
-    subject_ids = list(plan.subject_entity_ids)
-    if not subject_ids:
-        return []
-
-    evidence_classes = (
-        list(plan.allowed_evidence_classes)
-        if plan.allowed_evidence_classes
-        else None
-    )
-
-    # ---- Primary edge fetch ----
-    primary_edges: list[dict[str, Any]] = []
-    if candidate_object_ids is None:
-        batch_result = await store.batch_get_relationships(
-            entity_ids=subject_ids,
-            direction="outgoing",
-            status_filters=["active"],
-            predicates=list(spec.primary_predicates),
-            object_types=list(spec.primary_object_types),
-            limit_per_entity=limit,
-            evidence_classes=evidence_classes,
-        )
-        for rels in batch_result.values():
-            primary_edges.extend(rels)
-    else:
-        for cid in candidate_object_ids[:limit]:
-            rels = await store.get_relationships(
-                subject_id=subject_ids[0],
-                object_id=cid,
-                predicates=list(spec.primary_predicates),
-                status_filters=["active"],
-                limit=5,
-                evidence_classes=evidence_classes,
-            )
-            primary_edges.extend(rels)
-
-    # Bridge resolution (PRESENCE_OF, LOCATED_IN) previously attached
-    # _resolved_identity to primary edges, but no production consumer reads
-    # that field. Phase 5 uses entity_catalog instead. The bridge config in
-    # TopologySpec is kept so a future consumer (UI identity chip, projection
-    # layer) can opt in.
-    return primary_edges
