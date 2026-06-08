@@ -138,9 +138,15 @@ class MemoryQueryTool(Tool):
                     name="query_mode",
                     type=ParameterType.STRING,
                     description=(
-                        "Optional. The system auto-detects the retrieval mode from the query "
-                        "content + conversation context. Pass a value only when overriding "
-                        "the automatic detection (rare)."
+                        "Pick the retrieval mode by the SHAPE of the answer the user wants. "
+                        "Use 'cross_session' when they want to ENUMERATE multiple facts/items "
+                        "(e.g. 'which cafes have I been to', 'list the repos I cloned'). "
+                        "'current_state' for a single current value/preference; "
+                        "'episode_recall' for a narrative of what happened in a session; "
+                        "'temporal_compare' for before/after; 'summary'/'activity_summary' for "
+                        "digests; 'strategy' for how-to/procedures; 'exact_fact' for a single "
+                        "specific fact. If unsure, omit it and the system falls back to "
+                        "heuristic detection."
                     ),
                     required=False,
                     enum=["exact_fact", "current_state", "episode_recall", "cross_session", "temporal_compare", "summary", "activity_summary", "strategy"],

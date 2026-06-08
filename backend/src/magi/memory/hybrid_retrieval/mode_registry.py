@@ -23,8 +23,10 @@ class QueryModePlan:
     l1_retrieval_scopes: list[str] | None = None
     allow_query_expansion: bool = True
     time_decay_enabled: bool = True
+    layer_quota: dict[str, int] | None = None
 
 
+# layer_quota values are tunable initial values; calibrate against real recall data.
 MODE_REGISTRY: dict[str, QueryModePlan] = {
     # Invariant: every mode reaches L1 either via ``primary_layers`` or
     # ``fallback_layers``. L1 holds the raw event stream and is the
@@ -47,6 +49,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         reducer_type="passthrough",
         allow_query_expansion=False,
         time_decay_enabled=True,
+        layer_quota={"L1": 20},
     ),
     "exact_fact": QueryModePlan(
         mode="exact_fact",
@@ -66,6 +69,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         l1_retrieval_scopes=["fact_authoritative"],
         allow_query_expansion=True,
         time_decay_enabled=False,
+        layer_quota={"L2": 8, "L1": 6, "L3": 2, "L4": 1},
     ),
     "current_state": QueryModePlan(
         mode="current_state",
@@ -85,6 +89,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         l1_retrieval_scopes=["fact_authoritative"],
         allow_query_expansion=False,
         time_decay_enabled=False,
+        layer_quota={"L2": 6, "L1": 3, "L3": 2, "L4": 1},
     ),
     "episode_recall": QueryModePlan(
         mode="episode_recall",
@@ -103,6 +108,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         reducer_type="narrative",
         allow_query_expansion=True,
         time_decay_enabled=True,
+        layer_quota={"L1": 12, "L2": 4, "L3": 2, "L4": 1},
     ),
     "cross_session": QueryModePlan(
         mode="cross_session",
@@ -121,6 +127,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         reducer_type="enumerate",
         allow_query_expansion=True,
         time_decay_enabled=False,
+        layer_quota={"L1": 12, "L2": 8, "L3": 3, "L4": 1},
     ),
     "temporal_compare": QueryModePlan(
         mode="temporal_compare",
@@ -140,6 +147,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         l1_retrieval_scopes=["fact_authoritative"],
         allow_query_expansion=False,
         time_decay_enabled=False,
+        layer_quota={"L2": 6, "L1": 6, "L3": 2, "L4": 1},
     ),
     "summary": QueryModePlan(
         mode="summary",
@@ -159,6 +167,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         l1_retrieval_scopes=["fact_authoritative"],
         allow_query_expansion=True,
         time_decay_enabled=True,
+        layer_quota={"L3": 8, "L1": 4, "L2": 2, "L4": 1},
     ),
     "strategy": QueryModePlan(
         mode="strategy",
@@ -177,6 +186,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         l1_retrieval_scopes=["fact_authoritative"],
         allow_query_expansion=True,
         time_decay_enabled=False,
+        layer_quota={"L4": 8, "L1": 3, "L2": 2, "L3": 1},
     ),
     "activity_summary": QueryModePlan(
         mode="activity_summary",
@@ -196,6 +206,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         l1_retrieval_scopes=["fact_authoritative"],
         allow_query_expansion=False,
         time_decay_enabled=True,
+        layer_quota={"L3": 8, "L1": 4, "L2": 2, "L4": 1},
     ),
 }
 
