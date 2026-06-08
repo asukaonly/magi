@@ -118,6 +118,7 @@ PREDICATE_REGISTRY: frozenset[str] = frozenset(
         "ON_PLATFORM",
         "PRESENCE_OF",
         "LOCATED_IN",
+        "REFERENCES",
     }
 )
 
@@ -338,6 +339,9 @@ FAMILY_TO_PREDICATES: dict[str, list[str]] = {
         "REBASED",
     ],
     "profile_fact": ["LIVES_IN", "WORKS_AT", "MEMBER_OF", "OWNS", "PROFICIENT_IN"],
+    # Source-declared reference edges (e.g. Obsidian wikilinks). Own family so
+    # recall expansion does not pull in unrelated activity predicates.
+    "reference": ["REFERENCES"],
 }
 
 
