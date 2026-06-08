@@ -125,6 +125,12 @@ def build_sensor_memory_event(
     owner_user_id = payload.owner_user_id or DEFAULT_USER_ID
     metadata_json["memory_owner_user_id"] = owner_user_id
 
+    # Structured-only mode: a sensor with allow_llm_extraction=False gets deterministic
+    # direct-writes but no LLM phase1/2. Stored only when disabled to keep metadata_json
+    # lean; L2 treats a missing key as "extraction allowed".
+    if policy_data.get("allow_llm_extraction", True) is False:
+        metadata_json["allow_llm_extraction"] = False
+
     event_type = payload.memory_event_type or "SENSOR_EVENT"
 
     return MemoryEvent(

@@ -136,3 +136,22 @@ def test_default_memory_event_type_when_missing():
     payload = _make_payload(memory_event_type="")
     me = build_sensor_memory_event(payload, event_id="evt-4")
     assert me.event_type == "SENSOR_EVENT"
+
+
+def test_structured_only_flag_threaded_into_metadata_when_disabled():
+    # A sensor declaring allow_llm_extraction=False (structured-only) must surface in
+    # metadata_json so L2 can do deterministic direct-writes but skip the LLM.
+    payload = _make_payload(
+        policy_dict=SensorMemoryPolicy(
+            cognition_eligible=True, allow_llm_extraction=False
+        ).to_dict(),
+    )
+    me = build_sensor_memory_event(payload, event_id="evt-so")
+    assert me.metadata_json["allow_llm_extraction"] is False
+
+
+def test_structured_only_flag_absent_by_default():
+    # Lean metadata: only stored when False. Extraction treats a missing key as True.
+    payload = _make_payload()
+    me = build_sensor_memory_event(payload, event_id="evt-def")
+    assert "allow_llm_extraction" not in (me.metadata_json or {})

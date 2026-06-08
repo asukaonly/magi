@@ -87,6 +87,10 @@ class SensorMemoryPolicy:
     importance_bias: float = 0.5
     author_type: str = "external"
     content_type: str = "observation"
+    # When False, L2 does deterministic direct-writes (entities + structured graph hints)
+    # but skips the LLM phase1/2 extraction — for high-volume / low-signal or purely
+    # structured sources where the LLM adds little (e.g. git sessions).
+    allow_llm_extraction: bool = True
 
     def to_dict(self) -> dict:
         return asdict(self)
