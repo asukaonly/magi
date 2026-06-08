@@ -21,6 +21,12 @@ if TYPE_CHECKING:
     from ..memory.integration import MemoryIntegrationModule
     from ..memory import UnifiedMemoryStore
     from ..memory.hybrid_retrieval import HybridRetrievalService
+    from ..memory.manual_entries import (
+        ManualEntryAssetStore,
+        ManualEntryStore,
+        WeatherFetcher,
+    )
+    from ..location.store import LocationSampleStore
     from ..scheduler.service import SchedulerService
     from ..plugins import PluginManager, SensorRegistry
     from ..runtime_trace import RuntimeTraceStore
@@ -64,6 +70,10 @@ class Container(containers.DeclarativeContainer):
     memory_integration: providers.Singleton[MemoryIntegrationModule] = providers.Singleton(object)
     unified_memory: providers.Singleton[UnifiedMemoryStore] = providers.Singleton(object)
     hybrid_retrieval_service: providers.Singleton[HybridRetrievalService] = providers.Singleton(object)
+    location_sample_store: providers.Singleton[LocationSampleStore] = providers.Singleton(object)
+    manual_entry_store: providers.Singleton[ManualEntryStore] = providers.Singleton(object)
+    manual_entry_asset_store: providers.Singleton[ManualEntryAssetStore] = providers.Singleton(object)
+    manual_entry_weather_fetcher: providers.Singleton[WeatherFetcher] = providers.Singleton(object)
     scheduler_service: providers.Singleton[SchedulerService] = providers.Singleton(object)
     sensor_scheduler_contrib: providers.Singleton[SensorSchedulerContrib] = providers.Singleton(object)
     scenario_llm_pool: providers.Singleton[ScenarioLLMPool] = providers.Singleton(object)

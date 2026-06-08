@@ -3,40 +3,59 @@ root_package = magi
 
 # ---------------------------------------------------------------------------
 # Layered architecture contract — enforces docs/layered-agent-architecture.md
-# (L1 lowest -> L14 highest). Upper layers may import lower; lower must NOT
+# (L1 lowest -> L15 highest). Upper layers may import lower; lower must NOT
 # import upper. Authoritative package->layer mapping lives in that doc.
+#
+# Coverage: every top-level magi.* package is enumerated in `layers` below
+# (bootstrap is the sole exception — it IS the composition root). When adding a
+# new top-level package, place it in the ordering, or CI cannot see its edges.
 #
 # Adoption model: BASELINE + RATCHET.
 #   * The ignore_imports list below is a frozen snapshot of pre-existing
-#     cross-layer imports as of 2026-05-31 (115 edges). CI is GREEN today.
+#     cross-layer imports (originally 115 edges as of 2026-05-31; ratcheted
+#     down since). CI is GREEN today.
 #   * Do NOT add new entries. Any *new* lower->upper import fails CI.
 #   * The list should only ever SHRINK. Delete an entry once the underlying
 #     import is removed; never grow it.
 # ---------------------------------------------------------------------------
 [importlinter:contract:layers]
-name = Magi L1-L14 layered architecture
+name = Magi L1-L15 layered architecture
 type = layers
 containers =
     magi
 layers =
     transport | ipc
+    outreach
+    commands
     api | chat | channels
     timeline
     agent
     context
+    user_profile
     awareness
     personality
+    system_suggestions
+    mcp
     tools
     skills
     memory
     llm
     plugins
     control
+    notifications
     runtime_trace
     events
+    i18n
     config
+    hooks
+    location
+    media
     scheduler | identity
+    db
     core
+    utils
+    availability
+    chat_preview
 ignore_imports =
     # == Composition root (NOT debt; structural & permanent) ==================
     # core.container is the DI container: wiring every layer is its purpose.

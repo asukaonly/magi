@@ -16,8 +16,10 @@ async def test_init_registers_all_contributors_when_deps_present(tmp_path):
     context.memory.unified_memory.l2 = MagicMock()
     context.memory.unified_memory.l3 = MagicMock()
     context.memory.unified_memory.memory_db_path = str(tmp_path / "memory.db")
-    context.memory.unified_memory.location_sample_store = MagicMock()
-    context.memory.unified_memory.place_geocode_cache = MagicMock()
+    # Location pollers now reuse the sources owned by LocationModule, exposed
+    # on context.location (no longer fished off unified_memory).
+    context.location.ipgeo_source = MagicMock()
+    context.location.wifi_source = MagicMock()
     context.memory.media_source_registry = MagicMock()
 
     scheduler = MagicMock()
@@ -63,8 +65,10 @@ async def test_shutdown_unregisters_all_contributors(tmp_path):
     context.memory.unified_memory.l2 = MagicMock()
     context.memory.unified_memory.l3 = MagicMock()
     context.memory.unified_memory.memory_db_path = str(tmp_path / "memory.db")
-    context.memory.unified_memory.location_sample_store = MagicMock()
-    context.memory.unified_memory.place_geocode_cache = MagicMock()
+    # Location pollers now reuse the sources owned by LocationModule, exposed
+    # on context.location (no longer fished off unified_memory).
+    context.location.ipgeo_source = MagicMock()
+    context.location.wifi_source = MagicMock()
     context.memory.media_source_registry = MagicMock()
     scheduler = MagicMock()
     scheduler.register_handler = MagicMock()

@@ -57,8 +57,9 @@ async def _resolve_photo_library_asset(asset_ref: str) -> tuple[Optional[str], O
 class TimelineService:
     """Provides timeline-oriented operations over unified memory."""
 
-    def __init__(self, unified_memory) -> None:
+    def __init__(self, unified_memory, *, location_resolver=None, manual_entry_asset_store=None) -> None:
         self._unified_memory = unified_memory
+        self._manual_entry_asset_store = manual_entry_asset_store
         self._insight_pipeline = TimelineInsightPipeline(unified_memory)
         self._viewport_builder = TimelineViewportBuilder(
             l1_store=getattr(unified_memory, "l1", None),
@@ -66,7 +67,7 @@ class TimelineService:
             l3_store=getattr(unified_memory, "l3", None),
             l4_store=getattr(unified_memory, "l4", None),
             entity_catalog=getattr(unified_memory, "l2_entity_catalog", None),
-            location_resolver=getattr(unified_memory, "location_resolver", None),
+            location_resolver=location_resolver,
         )
 
     async def upsert_event(
@@ -220,10 +221,9 @@ class TimelineService:
         scheme, _, _ = asset_ref.partition("://")
 
         if scheme == "manual-entry-asset":
-            asset_store = getattr(self._unified_memory, "manual_entry_asset_store", None)
-            if asset_store is None:
+            if self._manual_entry_asset_store is None:
                 return None
-            return asset_store.resolve(asset_ref)
+            return self._manual_entry_asset_store.resolve(asset_ref)
 
         if scheme == "photo-library":
             file_path, content_type = await _resolve_photo_library_asset(asset_ref)
