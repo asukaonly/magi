@@ -175,24 +175,30 @@ async def _topology_channel(
     *,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Handle bounded multi-hop topology patterns.
-
-    Patterns:
-    - creator: user→FOLLOWS/LIKES→presence, presence→PRESENCE_OF→person
-    - place: user→VISITED→place, place→LOCATED_IN→parent_place
-    """
-    answer_kind = plan.answer_kind
-    subject_ids = plan.subject_entity_ids
-
-    if not subject_ids:
+    """Bounded topology patterns, dispatched by answer_kind (P0: 1-hop)."""
+    if not plan.subject_entity_ids:
         return []
-
-    if answer_kind == "creator":
+    if plan.answer_kind == "creator":
         return await _topology_creator(plan, store, limit=limit)
-    if answer_kind == "place":
+    if plan.answer_kind == "place":
         return await _topology_place(plan, store, limit=limit)
-
     return []
+
+
+def _topology_traversal(plan: L2GroundingPlan, answer_kind: str, *, limit: int) -> TraversalPlan:
+    """Build a TraversalPlan from the (data-only) topology registry spec."""
+    from .topology_registry import ANSWER_KIND_TOPOLOGIES
+
+    spec = ANSWER_KIND_TOPOLOGIES[answer_kind]
+    return TraversalPlan(
+        seed_entity_ids=list(plan.subject_entity_ids),
+        subject_scope=plan.subject_scope,
+        hop1=HopSpec(
+            predicates=spec.primary_predicates,
+            object_types=spec.primary_object_types,
+        ),
+        limit=limit,
+    )
 
 
 async def _topology_creator(
@@ -201,16 +207,13 @@ async def _topology_creator(
     *,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Creator topology: user → FOLLOWS/LIKES → presence/person, resolve via PRESENCE_OF.
-
-    Delegates to ``_execute_topology`` with the registry spec.
-    """
-    from .topology_registry import ANSWER_KIND_TOPOLOGIES, _execute_topology
-    results = await _execute_topology(
-        spec=ANSWER_KIND_TOPOLOGIES["creator"],
-        plan=plan,
-        store=store,
-        limit=limit,
+    """Creator: user → FOLLOWS/LIKES/INTERESTED_IN/DISLIKES → presence/person."""
+    traversal = _topology_traversal(plan, "creator", limit=limit)
+    results = await execute_graph_traversal(
+        traversal,
+        store,
+        relation_direction="outgoing",
+        evidence_classes=_evidence_classes_for(plan),
     )
     _tag_channel(results, "topology")
     return results
@@ -222,14 +225,7 @@ async def _topology_place(
     *,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Place topology: find places within a target location.
-
-    Constraint preprocessing: extract location_constraint from plan and pre-fetch
-    candidate place IDs via LOCATED_IN. Then delegate user→candidate fetch +
-    bridge resolution to ``_execute_topology``.
-    """
-    from .topology_registry import ANSWER_KIND_TOPOLOGIES, _execute_topology
-
+    """Place: LOCATED_IN pre-filter → user→{candidate places} recall."""
     location_constraint = None
     for constraint in plan.object_constraints:
         if constraint.field in ("located_in", "location"):
@@ -238,8 +234,7 @@ async def _topology_place(
     if not location_constraint:
         return []
 
-    # Constraint pre-filter: LOCATED_IN is a geographic containment fact, not
-    # the answer edge; do NOT forward evidence_classes here.
+    # Geographic containment lookup — auxiliary, MUST NOT carry evidence_classes.
     location_rels = await store.get_relationships(
         predicates=["LOCATED_IN"],
         object_id=str(location_constraint),
@@ -250,11 +245,12 @@ async def _topology_place(
     if not candidate_ids:
         return []
 
-    results = await _execute_topology(
-        spec=ANSWER_KIND_TOPOLOGIES["place"],
-        plan=plan,
-        store=store,
-        limit=limit,
+    traversal = _topology_traversal(plan, "place", limit=limit)
+    results = await execute_graph_traversal(
+        traversal,
+        store,
+        relation_direction="outgoing",
+        evidence_classes=_evidence_classes_for(plan),
         candidate_object_ids=candidate_ids,
     )
     _tag_channel(results, "topology")
