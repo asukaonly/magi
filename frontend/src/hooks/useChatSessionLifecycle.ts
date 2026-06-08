@@ -223,17 +223,11 @@ export function useChatSessionLifecycle({
 
     void requestHistoryRef.current(currentSessionId);
     void loadPersonalityRef.current();
-  }, [currentSessionId]);
-
-  // Re-evaluate the (deferred) bootstrap opening when the product tour resolves.
-  // The greeting is re-fetched inside loadPersonality, so needs_bootstrap is
-  // available again at this point; shouldFireBootstrap then releases the opening.
-  useEffect(() => {
-    if (!currentSessionId) {
-      return;
-    }
-
-    void loadPersonalityRef.current();
+    // tourCompleted/tourLoaded are deps so this same effect also re-evaluates the
+    // *deferred* bootstrap opening once the one-time product tour resolves:
+    // loadPersonality re-fetches the greeting and shouldFireBootstrap then releases
+    // the held opening. Folding it into this effect (rather than a second one)
+    // avoids a redundant loadPersonality/getGreeting call on every session switch.
   }, [currentSessionId, tourCompleted, tourLoaded]);
 
   useEffect(() => {
