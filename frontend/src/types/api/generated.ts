@@ -5965,6 +5965,11 @@ export interface components {
             /** Contribution Types */
             readonly contribution_types?: readonly string[];
             /**
+             * Data Locality
+             * @default
+             */
+            readonly data_locality: string;
+            /**
              * Description
              * @default
              */
