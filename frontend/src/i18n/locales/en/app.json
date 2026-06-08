@@ -340,6 +340,20 @@
     }
   },
   "timeline": {
+    "immersive": {
+      "themesLabel": "What you cared about",
+      "moodCalendarLabel": "This month",
+      "standoutLabel": "Worth returning to",
+      "standoutEmpty": "Give it a few more days — moments worth returning to will show up here.",
+      "untitledMoment": "Untitled",
+      "heartLabel": "Worth coming back to",
+      "moreLabel": "More",
+      "hideMemoryLabel": "Leave out of this day",
+      "hideConfirm": "Hidden",
+      "hourEmpty": "Nothing much this hour.",
+      "emptyDay": "Give it a few more days, and this page will fill with who you are.",
+      "emptyMonth": "A monthly view takes a few weeks to take shape. Start with a day?"
+    },
     "title": "Timeline",
     "subtitle": "Review what happened over time through reflective windows, clustered periods, and self-state patterns.",
     "loading": "Loading timeline...",
