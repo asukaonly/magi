@@ -162,6 +162,7 @@ def build_sensor_memory_event(
         level=EventLevel.INFO.value,
         idempotency_key=payload.idempotency_key,
         media_path=output.get("raw_payload_ref"),
+        pinned_payload=output.get("pinned_payload"),
         metadata_json=metadata_json or None,
         causation_id=causation_id,
         trace_id=getattr(trace_context, "trace_id", None) if trace_context else None,

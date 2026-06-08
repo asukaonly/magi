@@ -26,6 +26,7 @@ from ..evidence import (
 from ..event_contracts import MemoryEvent, author_type_code, content_type_code
 from ..hybrid_retrieval.fts_utils import tokenize_for_fts
 from .chat_sessions import project_chat_event_to_session
+from .event_payload_store import L1_EVENT_PAYLOAD_TABLE
 from .embeddings.common import (
     EVENT_CHUNKS_TABLE,
     FACT_EVENTS_TABLE,
@@ -208,6 +209,16 @@ class L1EventWriteMixin:
                     time.time(),
                 ),
             )
+            # P3: pin the capture-time full text in the satellite table, keyed by
+            # the just-inserted event_id and co-transactional with the row above.
+            # Sparse — only when a sensor provided one. The row's content column
+            # stays the lean summary; L2 reads this full body at extraction.
+            if event.pinned_payload:
+                await db.execute(
+                    f"INSERT OR REPLACE INTO {L1_EVENT_PAYLOAD_TABLE}"
+                    "(event_id, content, created_at) VALUES (?, ?, ?)",
+                    (event.event_id, event.pinned_payload, float(event.created_at)),
+                )
             tokenized = tokenize_for_fts(host.get_search_text(event))
             await db.execute(
                 "DELETE FROM l1_events_fts WHERE event_id = ?",
