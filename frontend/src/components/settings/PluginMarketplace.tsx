@@ -3,6 +3,7 @@ import {
   Download,
   ExternalLink,
   Loader2,
+  Lock,
   Package,
   RefreshCw,
   Search,
@@ -344,6 +345,18 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                       {entry.official && (
                         <Badge variant="default" className="text-xs">
                           {t('settings.marketplace.badge.official')}
+                        </Badge>
+                      )}
+                      {entry.data_locality === 'local_only' && (
+                        <Badge
+                          variant="outline"
+                          className="text-xs border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+                          title={t('settings.marketplace.badge.localOnlyHint', {
+                            defaultValue: 'All data stays on this device — nothing is uploaded.',
+                          })}
+                        >
+                          <Lock className="mr-1 h-3 w-3" />
+                          {t('settings.marketplace.badge.localOnly', { defaultValue: 'Local only' })}
                         </Badge>
                       )}
                     </div>

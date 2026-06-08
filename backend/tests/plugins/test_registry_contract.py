@@ -1,4 +1,29 @@
-from magi.plugins.contracts import PluginRegistryEntry
+from magi.plugins.contracts import PluginManifest, PluginRegistryEntry
+
+
+def test_registry_entry_parses_data_locality():
+    # Privacy-transparency signal (data-locality badge): declared per plugin.
+    entry = PluginRegistryEntry.model_validate({
+        "plugin_id": "screenshot_timeline", "name": "Screenshot Timeline", "version": "0.1.0",
+        "path": "plugins/screenshot_timeline", "platforms": ["macos"],
+        "data_locality": "local_only",
+    })
+    assert entry.data_locality == "local_only"
+
+
+def test_registry_entry_data_locality_defaults_empty():
+    entry = PluginRegistryEntry.model_validate({
+        "plugin_id": "x", "name": "X", "version": "0.1.0", "path": "plugins/x", "platforms": [],
+    })
+    assert entry.data_locality == ""
+
+
+def test_manifest_parses_data_locality():
+    manifest = PluginManifest.model_validate({
+        "id": "screenshot_timeline", "name": "Screenshot Timeline", "version": "0.1.0",
+        "data_locality": "local_only",
+    })
+    assert manifest.data_locality == "local_only"
 
 
 def test_registry_entry_parses_suggestion_descriptor():

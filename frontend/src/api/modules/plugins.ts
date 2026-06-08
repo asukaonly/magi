@@ -326,6 +326,8 @@ export interface PluginRegistryEntry {
   description_i18n: Record<string, string>;
   author: string;
   official: boolean;
+  /** Privacy signal: "local_only" renders a Local-only badge; "" is unspecified. */
+  data_locality?: string;
   contribution_types: string[];
   platforms: string[];
   min_sdk_version: string;

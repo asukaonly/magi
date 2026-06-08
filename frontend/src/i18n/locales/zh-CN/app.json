@@ -2098,7 +2098,9 @@
       "noResults": "没有找到匹配的插件。",
       "badge": {
         "official": "官方",
-        "installed": "已安装"
+        "installed": "已安装",
+        "localOnly": "纯本地",
+        "localOnlyHint": "所有数据只留在本机，不上传任何地方。"
       },
       "actions": {
         "install": "安装",

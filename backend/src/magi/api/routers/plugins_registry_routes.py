@@ -75,6 +75,7 @@ async def list_registry_plugins(
                 description_i18n=entry.description_i18n,
                 author=entry.author,
                 official=entry.official,
+                data_locality=entry.data_locality,
                 contribution_types=entry.contribution_types,
                 platforms=entry.platforms,
                 min_sdk_version=entry.min_sdk_version,
