@@ -350,12 +350,12 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                       {entry.data_locality === 'local_only' && (
                         <Badge
                           variant="outline"
-                          className="text-xs border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+                          className="gap-1 border-transparent bg-emerald-500/15 text-xs text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300"
                           title={t('settings.marketplace.badge.localOnlyHint', {
                             defaultValue: 'All data stays on this device — nothing is uploaded.',
                           })}
                         >
-                          <Lock className="mr-1 h-3 w-3" />
+                          <Lock className="h-3 w-3" />
                           {t('settings.marketplace.badge.localOnly', { defaultValue: 'Local only' })}
                         </Badge>
                       )}
