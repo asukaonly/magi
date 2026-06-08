@@ -12,6 +12,7 @@ from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
 from .gateway import HookGateway
 from .registry import HookRegistry
+from .user_settings import load_user_hook_handlers
 
 logger = get_logger(__name__)
 
@@ -63,10 +64,6 @@ class HooksModule(LifecycleModule):
         Best-effort: a missing file is fine, a malformed file is logged but
         does not abort startup.
         """
-        try:
-            from ..config.user_settings import load_user_hook_handlers
-        except ImportError:
-            return
         try:
             await load_user_hook_handlers(registry)
         except Exception:
