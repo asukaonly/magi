@@ -20,6 +20,17 @@ from ..models import (
 logger = get_logger("magi.memory.l2.pipeline")
 
 
+def event_allows_llm_extraction(event: Any) -> bool:
+    """Whether an event may drive LLM phase1/2 extraction.
+
+    A sensor can set ``allow_llm_extraction=False`` (carried in ``metadata_json``) to run
+    in "structured-only" mode: deterministic direct-writes still happen, but the LLM
+    extractor is skipped. A missing key defaults to True (full extraction).
+    """
+    metadata = getattr(event, "metadata_json", None) or {}
+    return bool(metadata.get("allow_llm_extraction", True))
+
+
 class L2PipelineExtractionMixin:
     """Run the end-to-end L2 Phase 1/Phase 2 extraction and persistence flow."""
 
@@ -176,6 +187,39 @@ class L2PipelineExtractionMixin:
             event=stored_event,
             candidates=direct_write_candidates,
         )
+
+        if not event_allows_llm_extraction(stored_event):
+            # Structured-only: deterministic direct-writes are done above; skip LLM phase1/2.
+            facet_candidates = self._build_structured_facet_candidates(
+                event=stored_event,
+                evidence_event_ids=batch_event_ids,
+            )
+            facet_count = await self._upsert_entity_facets(facet_candidates)
+            logger.info(
+                "L2 structured-only mode: skipped LLM phase1/2",
+                event_id=stored_event.event_id,
+                profile_id=extraction_profile.profile_id,
+                direct_write_count=direct_write_count,
+                facet_count=facet_count,
+            )
+            return {
+                "relation_count": direct_write_count,
+                "assertion_count": 0,
+                "touched_entity_ids": [],
+                "snapshot_refresh_entity_ids": [],
+                "skipped": False,
+                "evidence_class": classification.evidence_class,
+                "profile_id": extraction_profile.profile_id,
+                "mention_count": 0,
+                "direct_write_count": direct_write_count,
+                "graph_candidate_count": 0,
+                "assertion_candidate_count": 0,
+                "rejected_graph_candidate_count": 0,
+                "rejected_assertion_candidate_count": 0,
+                "contradiction_hint_count": 0,
+                "conflict_arbitration_decision": None,
+                "structured_only": True,
+            }
 
         logger.info(
             "L2 Phase 1 extraction started",
