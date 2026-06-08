@@ -80,6 +80,7 @@ class PluginRegistryEntryResponse(BaseModel):
     description_i18n: dict[str, str] = Field(default_factory=dict)
     author: str = ""
     official: bool = False
+    data_locality: str = ""
     contribution_types: list[str] = Field(default_factory=list)
     platforms: list[str] = Field(default_factory=list)
     min_sdk_version: str = ""

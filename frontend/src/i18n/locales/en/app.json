@@ -2085,7 +2085,9 @@
       "noResults": "No plugins match your search.",
       "badge": {
         "official": "Official",
-        "installed": "Installed"
+        "installed": "Installed",
+        "localOnly": "Local only",
+        "localOnlyHint": "All data stays on this device — nothing is uploaded."
       },
       "actions": {
         "install": "Install",

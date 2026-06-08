@@ -320,6 +320,10 @@ class PluginManifest(BaseModel):
     entry_module: str = "plugin"
     entry_class: str = "Plugin"
     official: bool = False
+    data_locality: str = ""
+    """Privacy-transparency signal for the marketplace. ``"local_only"`` means the
+    plugin processes and stores everything on-device and sends nothing out; empty
+    means unspecified (no badge). Surfaced as a "Local only" badge."""
     kind: Literal["plugin", "library"] = "plugin"
     """Package kind. ``library`` means the package only ships Python modules
     consumed by other plugins via ``depends_on`` — it is not loaded as a
@@ -407,6 +411,9 @@ class PluginRegistryEntry(BaseModel):
     description_i18n: dict[str, str] = Field(default_factory=dict)
     author: str = ""
     official: bool = False
+    data_locality: str = ""
+    """Mirrors :attr:`PluginManifest.data_locality` — ``"local_only"`` renders a
+    "Local only" privacy badge in the marketplace; empty means unspecified."""
     kind: Literal["plugin", "library"] = "plugin"
     """Mirrors :attr:`PluginManifest.kind`; libraries are hidden from
     user-facing market listings and installed via dep closure only."""
