@@ -70,6 +70,7 @@ def test_grounding_plan_trace_preserves_existing_keys():
         "predicate_count",
         "allowed_evidence_classes",
         "evidence_focus_source",
+        "predicate_source",
     }
     assert set(trace.keys()) == expected_keys
     assert trace["query_kind"] == "unknown"
@@ -106,3 +107,18 @@ def test_grounding_plan_trace_evidence_focus_source_none_when_unset():
     plan = L2GroundingPlan()
     trace = _build_grounding_plan_trace(plan)
     assert trace["evidence_focus_source"] is None
+
+
+def test_grounding_plan_trace_includes_predicate_source():
+    """Trace must report which resolver path produced the predicates (RFC #65 P1)."""
+    plan = L2GroundingPlan()
+    plan.predicate_source = "embedding"
+    trace = _build_grounding_plan_trace(plan)
+    assert trace["predicate_source"] == "embedding"
+
+
+def test_grounding_plan_trace_predicate_source_none_when_unset():
+    """When no resolver has run, predicate_source is None in the trace."""
+    plan = L2GroundingPlan()
+    trace = _build_grounding_plan_trace(plan)
+    assert trace["predicate_source"] is None

@@ -168,6 +168,7 @@ def _build_grounding_plan_trace(plan: L2GroundingPlan) -> dict[str, Any]:
             else None
         ),
         "evidence_focus_source": plan.evidence_focus_source,
+        "predicate_source": plan.predicate_source,
     }
 
 
