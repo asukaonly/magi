@@ -136,6 +136,8 @@ class L2Conditions:
     entities: Optional[List[str]] = None
     subject_hint: Optional[str] = None
     predicate_family: Optional[str] = None
+    relation_intent: Optional[str] = None  # English relation phrase from LLM, for embedding predicate resolution (RFC #65 P1)
+    predicate_source: Optional[str] = None  # "explicit"|"embedding"|"llm_family"|"keyword_fallback" (RFC #65 P1)
     allowed_evidence_classes: Optional[set[str]] = None
     evidence_focus_source: Optional[str] = None  # "llm" | "rule_heuristic" | "family_fallback" | None
     entity_types: Optional[List[str]] = None
