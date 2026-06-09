@@ -69,6 +69,34 @@ async def test_file_list_truncates_when_max_entries_hit(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_file_list_attaches_batch_hint_for_many_homogeneous_files(
+    tmp_path: Path,
+) -> None:
+    for index in range(35):
+        (tmp_path / f"clip_{index}.mkv").write_text("x", encoding="utf-8")
+
+    tool = FileListTool()
+    result = await tool.execute({"path": str(tmp_path)}, _context())
+
+    assert result.success is True
+    assert "batch_hint" in result.data
+    assert "batch_create" in result.data["batch_hint"]
+    assert ".mkv" in result.data["batch_hint"]
+
+
+@pytest.mark.asyncio
+async def test_file_list_no_batch_hint_for_few_files(tmp_path: Path) -> None:
+    for index in range(3):
+        (tmp_path / f"clip_{index}.mkv").write_text("x", encoding="utf-8")
+
+    tool = FileListTool()
+    result = await tool.execute({"path": str(tmp_path)}, _context())
+
+    assert result.success is True
+    assert "batch_hint" not in result.data
+
+
+@pytest.mark.asyncio
 async def test_file_list_rejects_missing_path(tmp_path: Path) -> None:
     tool = FileListTool()
     result = await tool.execute({"path": str(tmp_path / "missing")}, _context())
