@@ -24,12 +24,20 @@ from __future__ import annotations
 
 from typing import Any
 
-# system-category tools that behave like runtime-control (change execution
-# context or discover tools) and should be resident even though they are not
-# categorised as ``control``.
+# Tools that behave like runtime-control (change execution context, discover
+# tools, or hand work off to a background orchestrator) and should be resident
+# even though they are not categorised as ``control``.
+#
+# ``batch_create`` is the entry point for the deterministic batch orchestrator:
+# it changes the execution shape by spawning long-running background runs, the
+# same way ``detach_to_background`` does. It must always be reachable by the
+# main LLM so the model can hand off a large repetitive job mid-loop instead of
+# processing items one-by-one and hitting the per-turn iteration cap — without
+# depending on the router having pre-selected it.
 _EXPLICIT_RESIDENT_TOOLS: tuple[str, ...] = (
     "detach_to_background",
     "find-relevant-tools",
+    "batch_create",
 )
 
 
