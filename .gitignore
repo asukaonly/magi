@@ -109,7 +109,7 @@ backend/magi-backend.spec
 /.magi/
 
 # Cursor
-.cursor/frontend/node_modules
+.cursor/
 
 # Local worktree symlinks
 frontend/node_modules
