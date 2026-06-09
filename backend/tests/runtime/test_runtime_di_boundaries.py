@@ -84,7 +84,10 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     assert "from ..agent import get_unified_memory" not in memory_query_tool
     assert "memory.provider" in memory_dependencies
     assert "memory.provider" in timeline_router
-    assert "memory.provider" in memory_query_tool
+    # memory_query_tool resolves memory through the capability port
+    # (context.capabilities.memory_query), not a runtime getter or
+    # memory.provider import (Phase 2 G+I: memory_query SDK port).
+    assert "context.capabilities.memory_query" in memory_query_tool
     assert "require_unified_memory" not in memory_router
     assert "require_unified_memory" not in memory_dependencies
     assert "require_unified_memory" not in timeline_router
@@ -120,9 +123,9 @@ def test_bootstrap_and_agent_exports_do_not_keep_chat_runtime_aliases() -> None:
 def test_agent_execution_package_uses_function_calling_orchestrator_name() -> None:
     execution_init = (BACKEND_SRC / "agent/execution/__init__.py").read_text(encoding="utf-8")
     function_calling_source = (BACKEND_SRC / "agent/execution/function_calling/__init__.py").read_text(encoding="utf-8")
-    chat_agent_source = (BACKEND_SRC / "agent/task_agents/chat_task_agent.py").read_text(encoding="utf-8")
+    chat_agent_source = (BACKEND_SRC / "chat/task_agent/chat_task_agent.py").read_text(encoding="utf-8")
     worker_manager_source = (BACKEND_SRC / "agent/workers/worker_manager.py").read_text(encoding="utf-8")
-    chat_handlers_source = (BACKEND_SRC / "agent/task_agents/chat/handlers.py").read_text(encoding="utf-8")
+    chat_handlers_source = (BACKEND_SRC / "agent/task_agents/handlers/handlers.py").read_text(encoding="utf-8")
     skills_subagent_source = (BACKEND_SRC / "skills/subagent.py").read_text(encoding="utf-8")
 
     assert "FunctionCallingExecutor" not in execution_init
@@ -234,7 +237,8 @@ def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
     assert "require_control_interaction_broker" not in runtime_bindings
     assert "require_pending_permission_registry" not in runtime_bindings
     assert "require_background_task_manager" not in runtime_bindings
-    assert "require_scheduler_service" not in runtime_bindings
+    # scheduler_service IS a boundary-consumed binding (schedule_tool +
+    # api/routers/schedules), so it legitimately lives here.
     assert "require_sensor_scheduler_contrib" not in runtime_bindings
     assert "require_permission_gateway" not in runtime_bindings
     assert "require_scenario_llm_pool" not in runtime_bindings
@@ -270,12 +274,12 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     awareness_lifecycle = (BACKEND_SRC / "awareness/lifecycle.py").read_text(encoding="utf-8")
     bootstrap_context = (BACKEND_SRC / "bootstrap/context.py").read_text(encoding="utf-8")
     config_lifecycle = (BACKEND_SRC / "config/lifecycle.py").read_text(encoding="utf-8")
-    chat_task_agent = (BACKEND_SRC / "agent/task_agents/chat_task_agent.py").read_text(encoding="utf-8")
+    chat_task_agent = (BACKEND_SRC / "chat/task_agent/chat_task_agent.py").read_text(encoding="utf-8")
     explore_task_agent = (BACKEND_SRC / "agent/task_agents/explore_task_agent.py").read_text(encoding="utf-8")
     timeline_task_agent = (BACKEND_SRC / "agent/task_agents/timeline_task_agent.py").read_text(encoding="utf-8")
-    postprocess_service = (BACKEND_SRC / "agent/task_agents/chat/postprocess_service.py").read_text(encoding="utf-8")
+    postprocess_service = (BACKEND_SRC / "chat/task_agent/postprocess_service.py").read_text(encoding="utf-8")
     explore_postprocess_service = (BACKEND_SRC / "agent/task_agents/explore/postprocess_service.py").read_text(encoding="utf-8")
-    chat_handlers = (BACKEND_SRC / "agent/task_agents/chat/handlers.py").read_text(encoding="utf-8")
+    chat_handlers = (BACKEND_SRC / "agent/task_agents/handlers/handlers.py").read_text(encoding="utf-8")
     worker_manager = (BACKEND_SRC / "agent/workers/worker_manager.py").read_text(encoding="utf-8")
     function_calling = (BACKEND_SRC / "agent/execution/function_calling/__init__.py").read_text(encoding="utf-8")
     task_orchestrator = (BACKEND_SRC / "agent/task_orchestrator.py").read_text(encoding="utf-8")

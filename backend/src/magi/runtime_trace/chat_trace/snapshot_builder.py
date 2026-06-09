@@ -1,0 +1,257 @@
+"""Snapshot aggregation for chat execution traces."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Optional
+
+from ...core.logger import get_logger
+from .constants import MAX_PLAN_PREVIEW_STEPS
+from .models import (
+    ExecutionPlanStepSummary,
+    ExecutionPlanSummary,
+    ExecutionTraceNode,
+    ExecutionTraceSnapshot,
+    ExecutionTraceSummary,
+)
+
+logger = get_logger(__name__)
+
+
+class TraceSnapshotBuilderMixin:
+    """Builds trace snapshots from normalized runtime trace rows."""
+
+    _orchestrations_path: Path
+
+    def _build_runtime_trace_root(
+        self,
+        *,
+        turn: dict[str, Any],
+        spans: list[dict[str, Any]],
+        llm_calls: list[dict[str, Any]],
+        tool_calls: list[dict[str, Any]],
+        intent_resolutions: list[dict[str, Any]],
+    ) -> ExecutionTraceNode:
+        raise NotImplementedError
+
+    def _reshape_orchestration_trace_root(self, root: ExecutionTraceNode) -> ExecutionTraceNode:
+        raise NotImplementedError
+
+    def _ms_to_seconds(self, value: Any) -> Optional[float]:
+        raise NotImplementedError
+
+    def _normalize_status(self, status: str) -> str:
+        raise NotImplementedError
+
+    def _is_terminal_status(self, status: str) -> bool:
+        raise NotImplementedError
+
+    def _optional_text(self, value: Any) -> Optional[str]:
+        raise NotImplementedError
+
+    def _safe_int(self, value: Any, *, default: int) -> int:
+        raise NotImplementedError
+
+    def _build_snapshot_from_trace_rows(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn: dict[str, Any],
+        spans: list[dict[str, Any]],
+        llm_calls: list[dict[str, Any]],
+        tool_calls: list[dict[str, Any]],
+        intent_resolutions: list[dict[str, Any]],
+        orchestration_state: Optional[dict[str, Any]],
+    ) -> Optional[ExecutionTraceSnapshot]:
+        turn_id = str(turn.get("turn_id") or "").strip()
+        if not turn_id:
+            return None
+        root = self._build_runtime_trace_root(
+            turn=turn,
+            spans=spans,
+            llm_calls=llm_calls,
+            tool_calls=tool_calls,
+            intent_resolutions=intent_resolutions,
+        )
+        orchestration_id = str(turn.get("orchestration_id") or "").strip() or None
+        mode = str(turn.get("mode") or self._resolve_normalized_mode(
+            root=root,
+            orchestration_id=orchestration_id,
+            orchestration_state=orchestration_state,
+        ))
+        if mode == "orchestration":
+            root = self._reshape_orchestration_trace_root(root)
+        started_at = self._ms_to_seconds(turn.get("started_at_ms"))
+        ended_at = self._ms_to_seconds(turn.get("ended_at_ms"))
+        status = self._normalize_status(str(turn.get("status") or "running"))
+        root.status = status
+        root.started_at = root.started_at if root.started_at is not None else started_at
+        root.ended_at = ended_at if self._is_terminal_status(status) else None
+        active_steps, completed_steps, failed_steps = self._count_steps(root)
+        total_input_tokens = sum(self._safe_int(lc.get("input_tokens"), default=0) for lc in llm_calls)
+        total_output_tokens = sum(self._safe_int(lc.get("output_tokens"), default=0) for lc in llm_calls)
+        total_reasoning_tokens = sum(self._safe_int(lc.get("reasoning_tokens"), default=0) for lc in llm_calls)
+        summary = ExecutionTraceSummary(
+            turn_id=turn_id,
+            mode=mode,
+            status=status,
+            headline=self._build_headline(
+                mode=mode,
+                status=status,
+                active_steps=active_steps,
+                completed_steps=completed_steps,
+                orchestration_state=orchestration_state,
+            ),
+            active_steps=active_steps,
+            completed_steps=completed_steps,
+            failed_steps=failed_steps,
+            duration_seconds=round(
+                max(0.0, (ended_at or started_at or 0.0) - (started_at or 0.0)),
+                3,
+            ),
+            trace_available=bool(root.children),
+            orchestration_id=str(turn.get("orchestration_id") or "").strip() or None,
+            plan_summary=self._build_plan_summary(orchestration_state),
+            continued_from_turn_id=self._optional_text(turn.get("continued_from_turn_id")),
+            continued_from_trace_id=self._optional_text(turn.get("continued_from_trace_id")),
+            superseded_by_turn_id=self._optional_text(turn.get("superseded_by_turn_id")),
+            supersession_reason=self._optional_text(turn.get("supersession_reason")),
+            total_input_tokens=total_input_tokens,
+            total_output_tokens=total_output_tokens,
+            total_reasoning_tokens=total_reasoning_tokens,
+        )
+        return ExecutionTraceSnapshot(
+            turn_id=turn_id,
+            user_id=user_id,
+            session_id=session_id,
+            status=status,
+            mode=mode,
+            orchestration_id=orchestration_id,
+            started_at=started_at,
+            ended_at=root.ended_at,
+            continued_from_turn_id=self._optional_text(turn.get("continued_from_turn_id")),
+            continued_from_trace_id=self._optional_text(turn.get("continued_from_trace_id")),
+            superseded_by_turn_id=self._optional_text(turn.get("superseded_by_turn_id")),
+            supersession_reason=self._optional_text(turn.get("supersession_reason")),
+            summary=summary,
+            root=root,
+        )
+
+    def _resolve_normalized_mode(
+        self,
+        *,
+        root: ExecutionTraceNode,
+        orchestration_id: Optional[str],
+        orchestration_state: Optional[dict[str, Any]],
+    ) -> str:
+        if orchestration_id or orchestration_state:
+            return "orchestration"
+        for node in self._walk_nodes(root):
+            if node.kind in {"worker", "dispatch"}:
+                return "orchestration"
+            tags = node.metadata.get("tags") if isinstance(node.metadata, dict) else {}
+            if isinstance(tags, dict) and str(tags.get("orchestration_id") or "").strip():
+                return "orchestration"
+        return "function_calling"
+
+    def _count_steps(self, root: ExecutionTraceNode) -> tuple[int, int, int]:
+        active = 0
+        completed = 0
+        failed = 0
+        for node in self._walk_nodes(root):
+            if node.kind == "planning":
+                if node.status in {"running", "pending"}:
+                    active += 1
+                continue
+            if node.kind in {"root", "parallel_group", "iteration"}:
+                continue
+            if node.status in {"running", "pending"}:
+                active += 1
+            elif node.status == "failed":
+                failed += 1
+            else:
+                completed += 1
+        return active, completed, failed
+
+    def _build_plan_summary(self, orchestration_state: Optional[dict[str, Any]]) -> Optional[ExecutionPlanSummary]:
+        if not isinstance(orchestration_state, dict):
+            return None
+        raw_subtasks = orchestration_state.get("subtasks")
+        if not isinstance(raw_subtasks, list):
+            return None
+
+        steps: list[ExecutionPlanStepSummary] = []
+        for raw_subtask in raw_subtasks:
+            if not isinstance(raw_subtask, dict):
+                continue
+            label = (
+                self._optional_text(raw_subtask.get("description"))
+                or self._optional_text(raw_subtask.get("title"))
+                or self._optional_text(raw_subtask.get("subtask_id"))
+            )
+            if label is None:
+                continue
+            steps.append(
+                ExecutionPlanStepSummary(
+                    subtask_id=self._optional_text(raw_subtask.get("subtask_id")),
+                    label=label,
+                    status=self._normalize_status(str(raw_subtask.get("status") or "pending")),
+                )
+            )
+
+        if not steps:
+            return None
+
+        preview_steps = steps[:MAX_PLAN_PREVIEW_STEPS]
+        return ExecutionPlanSummary(
+            planner=self._optional_text(orchestration_state.get("planner")),
+            parallel_mode="parallel" if bool(orchestration_state.get("allow_parallel", True)) else "sequential",
+            total_steps=len(steps),
+            remaining_steps=max(0, len(steps) - len(preview_steps)),
+            steps=preview_steps,
+        )
+
+    def _build_headline(
+        self,
+        *,
+        mode: str,
+        status: str,
+        active_steps: int,
+        completed_steps: int,
+        orchestration_state: Optional[dict[str, Any]],
+    ) -> str:
+        if status == "completed":
+            return "Tool chain completed"
+        if status == "failed":
+            return "Tool chain failed"
+        if mode == "orchestration" and completed_steps == 0:
+            subtasks = orchestration_state.get("subtasks") if isinstance(orchestration_state, dict) else None
+            if active_steps <= 1 and not subtasks:
+                return "Orchestrating tasks"
+        if active_steps > 0 or completed_steps > 0:
+            return "Running tool chain"
+        return "Thinking"
+
+    def _load_orchestration_state(self, orchestration_id: Optional[str]) -> Optional[dict[str, Any]]:
+        normalized = str(orchestration_id or "").strip()
+        if not normalized or not self._orchestrations_path.exists():
+            return None
+        try:
+            payload = json.loads(self._orchestrations_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.warning("Failed to load orchestration store for trace read: %s", exc)
+            return None
+        orchestrations = payload.get("orchestrations", {}) if isinstance(payload, dict) else {}
+        raw_state = orchestrations.get(normalized)
+        return raw_state if isinstance(raw_state, dict) else None
+
+    def _walk_nodes(self, node: ExecutionTraceNode) -> list[ExecutionTraceNode]:
+        nodes = [node]
+        for child in node.children:
+            nodes.extend(self._walk_nodes(child))
+        return nodes
+
+
+__all__ = ["TraceSnapshotBuilderMixin"]

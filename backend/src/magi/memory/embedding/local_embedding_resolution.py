@@ -1,4 +1,4 @@
-"""Local embedding model resolution helpers."""
+"""Embedding-specific resolution helpers (mixin for LocalEmbeddingManager)."""
 
 from __future__ import annotations
 
@@ -10,24 +10,6 @@ from ...config.local_embedding_registry import (
     get_local_embedding_registry,
 )
 from ...config.models import LocalEmbeddingModelSource
-
-
-def _find_onnx_model(model_dir: Path) -> Path | None:
-    """Find the best ONNX model file, checking root and onnx/ subdirectory.
-
-    Priority: model_quantized.onnx > model_int8.onnx > model.onnx > first *.onnx
-    """
-    for base in [model_dir, model_dir / "onnx"]:
-        if not base.is_dir():
-            continue
-        for name in ["model_quantized.onnx", "model_int8.onnx", "model.onnx"]:
-            candidate = base / name
-            if candidate.exists():
-                return candidate
-        fallback = sorted(base.glob("*.onnx"))
-        if fallback:
-            return fallback[0]
-    return None
 
 
 class LocalEmbeddingModelResolutionMixin:
@@ -56,4 +38,4 @@ class LocalEmbeddingModelResolutionMixin:
         return get_local_embedding_registry().get(model_id)
 
 
-__all__ = ["LocalEmbeddingModelResolutionMixin", "_find_onnx_model"]
+__all__ = ["LocalEmbeddingModelResolutionMixin"]

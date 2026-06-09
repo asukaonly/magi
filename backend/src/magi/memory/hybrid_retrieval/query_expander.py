@@ -11,40 +11,62 @@ logger = logging.getLogger(__name__)
 
 _EXPANSION_SYSTEM_PROMPT = """\
 You are a query expansion assistant for a personal memory retrieval system.
-The user's memories are stored as past conversations. A single conversation may \
-cover MULTIPLE unrelated topics, so the relevant fact is often mentioned \
-incidentally inside a conversation about something else.
 
-Given a user's memory query, generate 2 alternative search queries that target \
-DIFFERENT sub-concepts or concrete entities the user likely mentioned, so each \
-query can independently retrieve a different relevant conversation.
+⚠️ CRITICAL LANGUAGE RULE (this overrides everything else):
+   ALL expansions MUST be in the SAME language and script as the user's
+   original query. Never translate. The user's memories are indexed in the
+   language they were recorded in — a Chinese OCR or Chinese chat will not
+   match an English keyword, and vice versa. If the original is Chinese,
+   every expansion is Chinese. If English, every expansion is English. If
+   Japanese, every expansion is Japanese. No mixing, no "let's also try
+   English just in case".
+
+The user's memories live in heterogeneous stores — past conversations,
+screen-capture OCR text, browser history titles, calendar events, etc.
+A single record may cover multiple unrelated topics, so the relevant
+detail is often mentioned incidentally inside a record about something
+else.
+
+Given the user's query, generate 2 alternative search queries that target
+DIFFERENT sub-concepts or concrete entities the user likely mentioned,
+so each query can independently retrieve a different relevant record.
 
 Strategy:
-1. Decompose: break the question into distinct sub-concepts, concrete nouns, \
-   or specific entities the user would have mentioned in everyday conversation.
-2. Diversify: each query should use substantially different keywords so they \
-   hit different conversations—NOT just synonym rewording of the same phrase.
-3. Be concrete: prefer specific object names, activity verbs, or proper nouns \
-   over abstract category words.
+1. Decompose — break the question into distinct sub-concepts, concrete
+   nouns, or specific entities the user would have written / typed / had
+   on screen.
+2. Diversify — each query uses substantially different keywords so they
+   hit different records (NOT just synonym rewordings of the same phrase).
+3. Be concrete — prefer specific object names, activity verbs, or proper
+   nouns over abstract category words.
 
-Examples:
-  "How many musical instruments do I own?"
+Examples (notice every pair stays in its source language — that is the
+single most important pattern below):
+
+  English query: "How many musical instruments do I own?"
   → ["guitar playing practice", "piano keyboard lessons"]
 
-  "How many siblings do I have?"
-  → ["sister family growing up", "brother family"]
+  English query: "Can you recommend a show or movie for me tonight?"
+  → ["favorite TV series binge watching", "comedy Netflix recommendation"]
 
-  "How many hours driving to road trip destinations?"
-  → ["drove hours trip destination", "road trip car travel time"]
+  中文 query: "我最近在 chrome 里看什么书评网站"
+  → ["豆瓣 短评 书", "书评 推荐 网页"]
 
-  "Can you recommend a show or movie for me tonight?"
-  → ["favorite TV series binge watching", "comedy special Netflix recommendation"]
+  中文 query: "刚刚在群里看到的那只猫是什么梗"
+  → ["猫 睡觉 摇醒 表情包", "群聊 猫 出处"]
+
+  中文 query: "上周和小明聊到的那个项目"
+  → ["小明 项目 进展", "讨论 计划 上周"]
+
+  日本語 query: "今日のミーティングで何を話した"
+  → ["会議 議事録 決定", "同僚 議論 今日"]
 
 Return a JSON array of exactly 2 strings. Output ONLY the JSON array.
 Rules:
-- Each query should be concise (3-8 words)
-- Do NOT repeat or paraphrase the original query
-- Queries should be in the same language as the original
+- Each query is concise (3-8 tokens; Chinese 2-6 字 is fine)
+- Do NOT repeat or paraphrase the original query verbatim
+- ALL queries MUST be in the same language/script as the original — see
+  the language rule at the top; this is non-negotiable
 """
 
 
@@ -88,7 +110,15 @@ class QueryExpander:
                 "Query expansion completed elapsed_ms=%.1f query_len=%d",
                 elapsed_ms, len(query),
             )
-            return self._parse(raw)
+            expansions = self._parse(raw)
+            # Belt-and-braces: even with the prompt's same-language rule
+            # the LLM occasionally translates anyway. The user's memories
+            # are indexed in the language they were recorded in, so
+            # translated expansions match nothing (or worse — they match
+            # incidental Latin tokens like URLs / brand names in
+            # otherwise-Chinese content and skew ranking). Drop any
+            # expansion whose script class differs from the original.
+            return _drop_cross_script_expansions(query, expansions)
         except Exception:
             elapsed_ms = (time.monotonic() - t0) * 1000
             logger.warning(
@@ -134,3 +164,69 @@ class QueryExpander:
             if isinstance(item, str) and item.strip():
                 result.append(item.strip())
         return result[:2]  # Cap at 2 expansions
+
+
+# --------- script-class detection for cross-language drop ---------
+
+
+def _has_cjk(text: str) -> bool:
+    """True iff ``text`` contains any Han / Hiragana / Katakana / Hangul
+    character. Used as a coarse "is this CJK content" signal.
+
+    Block ranges:
+      CJK Unified Ideographs       U+4E00..U+9FFF
+      CJK Ext A                    U+3400..U+4DBF
+      CJK Compatibility            U+F900..U+FAFF
+      Hiragana                     U+3040..U+309F
+      Katakana                     U+30A0..U+30FF
+      Hangul Syllables             U+AC00..U+D7AF
+    """
+    for ch in text:
+        cp = ord(ch)
+        if (
+            0x4E00 <= cp <= 0x9FFF
+            or 0x3400 <= cp <= 0x4DBF
+            or 0xF900 <= cp <= 0xFAFF
+            or 0x3040 <= cp <= 0x309F
+            or 0x30A0 <= cp <= 0x30FF
+            or 0xAC00 <= cp <= 0xD7AF
+        ):
+            return True
+    return False
+
+
+def _drop_cross_script_expansions(query: str, expansions: list[str]) -> list[str]:
+    """Drop expansions whose script class doesn't match the original.
+
+    Specifically: if the original has any CJK character, drop expansions
+    that contain ZERO CJK characters (treated as accidental translation
+    into ASCII). Symmetric check for ASCII-origin queries.
+
+    Conservative: a mixed expansion (some CJK + some Latin) is KEPT,
+    because real queries about products / URLs / code names often mix
+    scripts intentionally (e.g. "claude 截图 ocr"). We only filter the
+    obvious all-translated-to-other-script case.
+    """
+    if not expansions:
+        return expansions
+    original_has_cjk = _has_cjk(query)
+    kept: list[str] = []
+    dropped: list[str] = []
+    for expansion in expansions:
+        expansion_has_cjk = _has_cjk(expansion)
+        if original_has_cjk and not expansion_has_cjk:
+            dropped.append(expansion)
+            continue
+        if (not original_has_cjk) and expansion_has_cjk:
+            # ASCII-origin query expanded into CJK — symmetric reject.
+            # User's English-language data won't be indexed under CJK
+            # tokens; this would be a bad expansion the same way.
+            dropped.append(expansion)
+            continue
+        kept.append(expansion)
+    if dropped:
+        logger.info(
+            "Query expansion dropped cross-script entries kept=%d dropped=%d",
+            len(kept), len(dropped),
+        )
+    return kept

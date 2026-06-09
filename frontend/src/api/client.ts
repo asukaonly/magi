@@ -7,7 +7,7 @@ import { getRuntimeConfig } from '@/runtime/config';
 import { useBackendHealthStore } from '@/stores/backend-health';
 
 // API response types
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   message: string;
   data?: T;
@@ -20,7 +20,7 @@ export interface ApiError {
   message: string;
   detail?: string;
   error_code?: string;
-  details?: any;
+  details?: unknown;
 }
 
 export type ApiClientErrorKind = 'http' | 'network' | 'backend-not-ready' | 'cancelled' | 'request';
@@ -290,6 +290,18 @@ const createApiClient = (): AxiosInstance => {
 
 export const apiClient = createApiClient();
 
+/**
+ * Returns the API base URL prefix that {@link apiClient} uses. Useful for
+ * code paths (e.g. streaming) that bypass axios and call `fetch` directly.
+ */
+export function resolveApiBaseUrl(): string {
+  const configured = apiClient.defaults.baseURL;
+  if (configured) {
+    return configured.replace(/\/+$/, '');
+  }
+  return getRuntimeConfig().apiBaseUrl.replace(/\/+$/, '');
+}
+
 export const configureApiClient = (options: {
   baseUrl?: string;
   sessionToken?: string;
@@ -305,23 +317,28 @@ export const configureApiClient = (options: {
   }
 };
 
-// Generic API helpers
+// Generic API helpers.
+//
+// The response type parameter defaults to `unknown` (not `any`) so callers
+// that omit the type get a value they MUST narrow before use. This is the
+// Lv1 boundary-tightening pass — every call site that previously relied on
+// `any`'s structural permissiveness now has to declare what it expects.
 export const api = {
-  get: <T = any>(url: string, paramsOrConfig?: Record<string, unknown> | ApiRequestConfig) => {
+  get: <T = unknown>(url: string, paramsOrConfig?: Record<string, unknown> | ApiRequestConfig) => {
     const config = normalizeGetConfig(paramsOrConfig);
     return apiClient.get<ApiResponse<T>>(url, config).then(unwrapApiResponse);
   },
 
-  post: <T = any>(url: string, data?: any, config?: ApiRequestConfig) =>
+  post: <T = unknown>(url: string, data?: unknown, config?: ApiRequestConfig) =>
     apiClient.post<ApiResponse<T>>(url, data, config).then(unwrapApiResponse),
 
-  put: <T = any>(url: string, data?: any, config?: ApiRequestConfig) =>
+  put: <T = unknown>(url: string, data?: unknown, config?: ApiRequestConfig) =>
     apiClient.put<ApiResponse<T>>(url, data, config).then(unwrapApiResponse),
 
-  delete: <T = any>(url: string, config?: ApiRequestConfig) =>
+  delete: <T = unknown>(url: string, config?: ApiRequestConfig) =>
     apiClient.delete<ApiResponse<T>>(url, config).then(unwrapApiResponse),
 
-  patch: <T = any>(url: string, data?: any, config?: ApiRequestConfig) =>
+  patch: <T = unknown>(url: string, data?: unknown, config?: ApiRequestConfig) =>
     apiClient.patch<ApiResponse<T>>(url, data, config).then(unwrapApiResponse),
 };
 

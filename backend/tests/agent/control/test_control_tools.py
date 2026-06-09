@@ -15,10 +15,26 @@ import pytest
 from magi.agent.control.common import InteractionBroker
 from magi.agent.control.session_store import ControlSessionStore
 from magi.core.container import get_container
+from magi.events.events import EventTypes
 from magi.tools.builtin.ask_user_question_tool import AskUserQuestionTool
-from magi.tools.builtin.plan_mode_tool import EnterPlanModeTool, ExitPlanModeTool
-from magi.tools.builtin.todo_write_tool import TodoWriteTool
+from magi.control.tools import EnterPlanModeTool, ExitPlanModeTool, TodoWriteTool
+from magi.bootstrap.tool_capabilities import _HostInteractionPort
 from magi.tools.schema import ToolExecutionContext
+from magi_plugin_sdk.capabilities import ToolCapabilities
+
+
+class _RecordingBus:
+    """Capture control state-change events published by the actuator tools."""
+
+    def __init__(self) -> None:
+        self.events: list = []
+
+    async def publish(self, event) -> bool:
+        self.events.append(event)
+        return True
+
+    def types(self) -> list[str]:
+        return [e.type for e in self.events]
 
 
 @contextlib.contextmanager
@@ -40,6 +56,9 @@ def _ctx(session_id: str = "sid", intent: str = "chat") -> ToolExecutionContext:
         env_vars={"session_id": session_id, "intent": intent},
         permissions=[],
         enabled_features=[],
+        # ask_user_question routes through the SDK InteractionPort; the host
+        # adapter resolves the overridden control bindings installed below.
+        capabilities=ToolCapabilities(interaction=_HostInteractionPort()),
     )
 
 
@@ -224,7 +243,6 @@ async def test_ask_user_question_suspends_and_resumes_background_task() -> None:
     with _override(
         control_session_store=store,
         control_interaction_broker=broker,
-        background_task_manager=manager,
     ):
         tool = AskUserQuestionTool()
         ctx = ToolExecutionContext(
@@ -232,6 +250,9 @@ async def test_ask_user_question_suspends_and_resumes_background_task() -> None:
             env_vars={"session_id": "sid-F", "intent": "background"},
             permissions=[],
             enabled_features=["allow_ask_in_background"],
+            capabilities=ToolCapabilities(
+                background=manager, interaction=_HostInteractionPort()
+            ),
         )
 
         async def answer_later() -> None:
@@ -281,7 +302,6 @@ async def test_ask_user_question_resumes_background_on_timeout() -> None:
     with _override(
         control_session_store=store,
         control_interaction_broker=broker,
-        background_task_manager=manager,
     ):
         tool = AskUserQuestionTool()
         ctx = ToolExecutionContext(
@@ -289,6 +309,9 @@ async def test_ask_user_question_resumes_background_on_timeout() -> None:
             env_vars={"session_id": "sid-G", "intent": "background"},
             permissions=[],
             enabled_features=["allow_ask_in_background"],
+            capabilities=ToolCapabilities(
+                background=manager, interaction=_HostInteractionPort()
+            ),
         )
         result = await tool.execute(
             {"question": "Continue?", "timeout_seconds": 1}, ctx
@@ -298,3 +321,91 @@ async def test_ask_user_question_resumes_background_on_timeout() -> None:
             ("suspend", "bg_77"),
             ("resume", "bg_77"),
         ]
+
+
+# ---------------------------------------------------------------------------
+# Control-Plane Extraction Phase 1: tools publish control state-change events
+# (consumed by the chat-side ControlTranscriptSubscriber) instead of calling
+# the former ``persist_*`` helpers directly.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enter_plan_mode_publishes_plan_state_event() -> None:
+    store = ControlSessionStore()
+    bus = _RecordingBus()
+    with _override(control_session_store=store, message_bus=bus):
+        result = await EnterPlanModeTool().execute({}, _ctx("sid-A"))
+        assert result.success
+    plan_events = [e for e in bus.events if e.type == EventTypes.CONTROL_PLAN_STATE_CHANGED]
+    assert len(plan_events) == 1
+    payload = plan_events[0].data
+    assert payload.session_id == "sid-A"
+    assert payload.state["active"] is True
+
+
+@pytest.mark.asyncio
+async def test_exit_plan_mode_publishes_plan_state_event() -> None:
+    store = ControlSessionStore()
+    bus = _RecordingBus()
+    with _override(control_session_store=store, message_bus=bus):
+        result = await ExitPlanModeTool().execute({"plan": "step 1\nstep 2"}, _ctx("sid-A"))
+        assert result.success
+    plan_events = [e for e in bus.events if e.type == EventTypes.CONTROL_PLAN_STATE_CHANGED]
+    assert len(plan_events) == 1
+    assert plan_events[0].data.state["active"] is False
+
+
+@pytest.mark.asyncio
+async def test_todo_write_publishes_todo_state_event() -> None:
+    store = ControlSessionStore()
+    bus = _RecordingBus()
+    with _override(control_session_store=store, message_bus=bus):
+        result = await TodoWriteTool().execute(
+            {"items": [{"title": "a"}, {"title": "b", "status": "in_progress"}]},
+            _ctx("sid-B"),
+        )
+        assert result.success
+    todo_events = [e for e in bus.events if e.type == EventTypes.CONTROL_TODO_STATE_CHANGED]
+    assert len(todo_events) == 1
+    payload = todo_events[0].data
+    assert payload.session_id == "sid-B"
+    assert [item["content"] for item in payload.items] == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_ask_user_question_publishes_ask_events() -> None:
+    store = ControlSessionStore()
+    broker = InteractionBroker()
+    bus = _RecordingBus()
+    with _override(
+        control_session_store=store,
+        control_interaction_broker=broker,
+        message_bus=bus,
+    ):
+        tool = AskUserQuestionTool()
+
+        async def answer_later() -> None:
+            for _ in range(50):
+                ask = store.ask_state("sid-C")
+                if ask is not None:
+                    await broker.resolve(
+                        interaction_id=ask.request_id, kind="ask", response="yes"
+                    )
+                    return
+                await asyncio.sleep(0.01)
+
+        answerer = asyncio.create_task(answer_later())
+        result = await tool.execute(
+            {"question": "Proceed?", "options": ["yes", "no"], "timeout_seconds": 5},
+            _ctx("sid-C"),
+        )
+        await answerer
+        assert result.success
+
+    types = bus.types()
+    # Opening publishes a request event; answering publishes an answered event.
+    assert EventTypes.CONTROL_ASK_REQUESTED in types
+    assert EventTypes.CONTROL_ASK_ANSWERED in types
+    answered = [e for e in bus.events if e.type == EventTypes.CONTROL_ASK_ANSWERED]
+    assert answered[-1].data.answer == "yes"

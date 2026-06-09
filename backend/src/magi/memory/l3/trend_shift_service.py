@@ -6,11 +6,10 @@ import hashlib
 import json
 
 from ..l2.models import ReconciledTraitOutcome
+from .insight_renderer import render_insight_content
 from .insight_utils import (
-    compact_values,
     decode_value,
     trait_group,
-    trait_label,
     wants_zh,
 )
 from .models import L3Candidate, TrendShiftPacket
@@ -48,7 +47,13 @@ class TrendShiftService:
         if not normalized_outcomes or not source_event_ids:
             return None
 
-        content = self._render_content(packet, normalized_outcomes)
+        content = render_insight_content(
+            insight_kind="trend_shift",
+            outcomes=normalized_outcomes,
+            user_lang_zh=wants_zh(),
+        )
+        if content is None:
+            return None
         return L3Candidate(
             summary_type="insight",
             summary_category="trend_shift",
@@ -106,27 +111,3 @@ class TrendShiftService:
             return False
         return stability_kind not in _VOLATILE_STABILITY_KINDS
 
-    def _render_content(
-        self,
-        packet: TrendShiftPacket,
-        outcomes: list[ReconciledTraitOutcome],
-    ) -> str:
-        zh = wants_zh()
-        fragments: list[str] = []
-        for outcome in outcomes[:3]:
-            readable_trait = trait_label(str(outcome.trait_name), zh=zh)
-            readable_value = compact_values([decode_value(str(outcome.winning_value))], zh=zh)
-            hours = float(outcome.time_span_hours)
-            evidence_count = len(outcome.evidence_event_ids)
-            if zh:
-                fragments.append(
-                    f"过去约 {hours:.1f} 小时里，{readable_trait}持续偏向 {readable_value}（{evidence_count} 条证据）"
-                )
-            else:
-                fragments.append(
-                    f"{readable_trait} stayed aligned with {readable_value} across {hours:.1f} hours from {evidence_count} evidence events"
-                )
-        joined = "；".join(fragments) if zh else "; ".join(fragments)
-        if zh:
-            return f"长期趋势：{joined}。"
-        return f"Longer-span trend signal for {packet.entity_id}: {joined}."

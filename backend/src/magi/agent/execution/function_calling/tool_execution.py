@@ -6,10 +6,14 @@ import getpass
 import logging
 import os
 import time
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ...cancel import CancelToken, null_cancel_token
 from .types import ToolCall, ToolCallResult
+from magi.bootstrap.tool_capabilities import build_tool_capabilities
+
+if TYPE_CHECKING:
+    from ....tools.context_routing import RouteDecision
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +142,7 @@ class _FunctionCallingToolExecutionHostProtocol(Protocol):
         self,
         arguments: dict[str, Any],
         orchestration_strategy: dict[str, Any] | None,
+        route_decision: "RouteDecision | None" = None,
     ) -> dict[str, Any]: ...
 
     def _resolve_permission_gateway(self) -> Any: ...
@@ -181,6 +186,7 @@ class FunctionCallingToolExecutionMixin:
         iteration: int | None = None,
         cancel_token: CancelToken | None = None,
         recent_messages: list[dict[str, Any]] | None = None,
+        route_decision: "RouteDecision | None" = None,
     ) -> ToolCallResult:
         """Execute a single tool call."""
         host = cast(_FunctionCallingToolExecutionHostProtocol, self)
@@ -297,12 +303,14 @@ class FunctionCallingToolExecutionMixin:
                 },
                 permissions=permissions,
                 cancellation=token,
+                capabilities=build_tool_capabilities(),
             )
 
             if tool_name == "agent":
                 arguments = host._normalize_agent_launch_arguments(
                     arguments=arguments,
                     orchestration_strategy=orchestration_strategy,
+                    route_decision=route_decision,
                 )
 
             gateway = host._resolve_permission_gateway()

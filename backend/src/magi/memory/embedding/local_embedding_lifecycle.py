@@ -34,11 +34,16 @@ class LocalEmbeddingLifecycleMixin:
                 "Embedding model directory not found. Please download the model first."
             )
 
-        from . import local_embedding_manager as facade
+        from ..onnx_variants import resolve_variant_path
 
-        model_path = facade._find_onnx_model(model_dir)
+        meta = self._get_preset_meta()
+        variant_override = getattr(self._config, "variant", None)
+        model_path = resolve_variant_path(model_dir, meta, override=variant_override)
         if model_path is None:
-            raise FileNotFoundError(f"No ONNX model found in {model_dir}")
+            raise FileNotFoundError(
+                f"No ONNX model found in {model_dir}. "
+                f"If you changed the variant override, download it first."
+            )
 
         tokenizer_path = model_dir / "tokenizer.json"
         if not tokenizer_path.exists():
@@ -48,7 +53,6 @@ class LocalEmbeddingLifecycleMixin:
         if config_path.exists():
             self._model_config = json.loads(config_path.read_text(encoding="utf-8"))
 
-        meta = self._get_preset_meta()
         if meta:
             self._pooling = meta.pooling
             self._normalize = meta.normalize

@@ -99,6 +99,13 @@ def row_to_execution_run(row: aiosqlite.Row) -> dict[str, Any]:
             if row["cancel_anchor_turn_id"] is not None
             else None
         ),
+        # ADR-0004 P3: typed RunTrigger persisted with the run. ``row.keys()``
+        # guard tolerates an old DB whose migration hasn't added the column yet.
+        "trigger": (
+            json.loads(row["trigger_json"])
+            if ("trigger_json" in row.keys() and row["trigger_json"])
+            else None
+        ),
         "created_at": float(row["created_at"]),
         "updated_at": float(row["updated_at"]),
     }

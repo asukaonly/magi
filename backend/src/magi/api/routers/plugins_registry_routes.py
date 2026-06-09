@@ -28,13 +28,22 @@ async def list_registry_plugins(
             "installed automatically as dependencies, not by user choice)."
         ),
     ),
+    refresh: bool = Query(
+        default=False,
+        description=(
+            "Bypass the registry client's in-memory TTL cache and re-fetch "
+            "the index from the remote source. Wired to the marketplace "
+            "'refresh' button so a freshly published version shows up "
+            "immediately instead of after the cache expires."
+        ),
+    ),
 ):
     """List all available plugins from the remote registry."""
     legacy = legacy_plugins_module()
     manager = legacy._try_plugin_manager()
     registry = legacy._get_registry_client()
     try:
-        index = await registry.fetch_index()
+        index = await registry.fetch_index(force=refresh)
     except Exception as exc:
         legacy.logger.exception("Failed to fetch plugin registry")
         raise HTTPException(
@@ -66,6 +75,7 @@ async def list_registry_plugins(
                 description_i18n=entry.description_i18n,
                 author=entry.author,
                 official=entry.official,
+                data_locality=entry.data_locality,
                 contribution_types=entry.contribution_types,
                 platforms=entry.platforms,
                 min_sdk_version=entry.min_sdk_version,
@@ -75,6 +85,7 @@ async def list_registry_plugins(
                 installed=installed,
                 installed_version=installed_version,
                 update_available=update_available,
+                capabilities=entry.capabilities,
             )
         )
     return PluginRegistryResponse(plugins=result, registry_version=index.registry_version)
@@ -149,6 +160,15 @@ async def update_plugin(plugin_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
+    from ...config import save_config
+
+    save_config(
+        {
+            f"plugins.packages.{plugin_id}.consented_capabilities": [
+                c.model_dump() for c in entry.capabilities
+            ]
+        }
+    )
     return legacy._serialize_package(new_state)
 
 

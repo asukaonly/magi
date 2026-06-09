@@ -1,0 +1,185 @@
+"""Runtime notification (and heartbeat) persistence."""
+
+from __future__ import annotations
+
+from typing import Any, Awaitable, Callable, TypeVar
+
+import aiosqlite
+
+from ..core.sqlite import sqlite_connection_async
+from .contracts import RuntimeHeartbeatRecord, RuntimeNotificationRecord
+
+T = TypeVar("T")
+
+
+class RuntimeNotificationPersistenceMixin:
+    """Persist runtime_notifications rows (the primary IPC bus to the Rust
+    notification bridge) and the related runtime_heartbeats row that the
+    bridge / metrics endpoints inspect for worker liveness.
+
+    Notifications dominate (append, list, latest-id); heartbeat upsert and
+    read live alongside because they share the same underlying connection
+    and hot-write profile.
+    """
+
+    db_path: str
+
+    async def initialize(self) -> None:
+        raise NotImplementedError
+
+    async def _execute_hot_write(
+        self,
+        *,
+        operation: str,
+        write: Callable[[aiosqlite.Connection], Awaitable[T]],
+    ) -> T:
+        raise NotImplementedError
+
+    async def _fetchone(self, sql: str, params: tuple[Any, ...]) -> aiosqlite.Row | None:
+        raise NotImplementedError
+
+    def _row_to_record(self, record_type: type[T], row: aiosqlite.Row | None) -> T | None:
+        raise NotImplementedError
+
+    @staticmethod
+    def _now_ms() -> int:
+        raise NotImplementedError
+
+    async def append_notification(self, record: RuntimeNotificationRecord) -> int:
+        await self.initialize()
+        return await self._execute_hot_write(
+            operation="append_notification",
+            write=lambda db: self._insert_notification(db, record),
+        )
+
+    async def _insert_notification(
+        self,
+        db: aiosqlite.Connection,
+        record: RuntimeNotificationRecord,
+    ) -> int:
+        cursor = await db.execute(
+            """
+            INSERT INTO runtime_notifications (
+                channel,
+                user_id,
+                session_id,
+                turn_id,
+                run_id,
+                run_revision,
+                payload_json,
+                created_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.channel,
+                record.user_id,
+                record.session_id,
+                record.turn_id,
+                record.run_id,
+                record.run_revision,
+                record.payload_json,
+                record.created_at_ms or self._now_ms(),
+            ),
+        )
+        return int(cursor.lastrowid)
+
+    async def list_notifications(
+        self, *, after_id: int, limit: int = 50
+    ) -> list[RuntimeNotificationRecord]:
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                """
+                SELECT *
+                FROM runtime_notifications
+                WHERE notification_id > ?
+                ORDER BY notification_id ASC
+                LIMIT ?
+                """,
+                (int(after_id), int(limit)),
+            )
+            rows = await cursor.fetchall()
+        return [
+            RuntimeNotificationRecord(
+                notification_id=int(row["notification_id"]),
+                channel=str(row["channel"]),
+                user_id=str(row["user_id"]),
+                session_id=str(row["session_id"]),
+                turn_id=str(row["turn_id"]) if row["turn_id"] is not None else None,
+                run_id=str(row["run_id"]) if row["run_id"] is not None else None,
+                run_revision=int(row["run_revision"] or 0),
+                payload_json=str(row["payload_json"]),
+                created_at_ms=int(row["created_at_ms"] or 0),
+            )
+            for row in rows
+        ]
+
+    async def get_latest_notification_id(self) -> int:
+        await self.initialize()
+        row = await self._fetchone(
+            "SELECT MAX(notification_id) AS notification_id FROM runtime_notifications",
+            (),
+        )
+        if row is None:
+            return 0
+        return int(row["notification_id"] or 0)
+
+    async def upsert_runtime_heartbeat(self, record: RuntimeHeartbeatRecord) -> None:
+        await self.initialize()
+        await self._execute_hot_write(
+            operation="upsert_runtime_heartbeat",
+            write=lambda db: self._write_runtime_heartbeat(db, record),
+        )
+
+    async def _write_runtime_heartbeat(
+        self,
+        db: aiosqlite.Connection,
+        record: RuntimeHeartbeatRecord,
+    ) -> None:
+        await db.execute(
+            """
+            INSERT INTO runtime_heartbeats (
+                role,
+                instance_id,
+                pid,
+                started_at_ms,
+                last_seen_at_ms,
+                status,
+                queue_backlog,
+                active_turns,
+                active_workers,
+                last_error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(role) DO UPDATE SET
+                instance_id = excluded.instance_id,
+                pid = excluded.pid,
+                started_at_ms = excluded.started_at_ms,
+                last_seen_at_ms = excluded.last_seen_at_ms,
+                status = excluded.status,
+                queue_backlog = excluded.queue_backlog,
+                active_turns = excluded.active_turns,
+                active_workers = excluded.active_workers,
+                last_error = excluded.last_error
+            """,
+            (
+                record.role,
+                record.instance_id,
+                int(record.pid),
+                int(record.started_at_ms),
+                int(record.last_seen_at_ms or self._now_ms()),
+                record.status,
+                int(record.queue_backlog),
+                int(record.active_turns),
+                int(record.active_workers),
+                record.last_error,
+            ),
+        )
+
+    async def get_runtime_heartbeat(self, *, role: str) -> RuntimeHeartbeatRecord | None:
+        await self.initialize()
+        row = await self._fetchone(
+            "SELECT * FROM runtime_heartbeats WHERE role = ?",
+            (role,),
+        )
+        return self._row_to_record(RuntimeHeartbeatRecord, row)

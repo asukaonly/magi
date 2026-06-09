@@ -7,7 +7,7 @@ import os
 
 import pytest
 
-from magi.config.user_settings import load_user_hook_handlers
+from magi.hooks.user_settings import load_user_hook_handlers
 from magi.hooks.registry import HookRegistry
 
 

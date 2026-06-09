@@ -16,10 +16,11 @@ from magi.agent.orchestration import (
     TaskOrchestrationState,
     WorkerResult,
 )
-from magi.agent.task_agents.chat.history_service import ChatHistoryService
-from magi.agent.task_agents.chat import ExecutionMode, ExecutionRequest, IntentDecision, OrchestrationPlan, ToolSelection
-from magi.agent.task_agents.chat import planning_service as planning_service_module
-from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
+from magi.chat.task_agent.context_assembler import ChatContextAssembler
+from magi.agent.task_agents.handlers import ExecutionMode, ExecutionRequest, IntentDecision, OrchestrationPlan, ToolSelection
+from magi.chat.task_agent import planning_service as planning_service_module
+from magi.tools.context_routing import RouteDecision
+from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.agent.task_agents.explore_task_agent import EXPLORE_TASK_COMPLETED
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.runtime.types import TaskAgentType
@@ -51,15 +52,15 @@ async def test_chat_task_agent_requires_explicit_session_id_for_user_messages() 
 
 
 @pytest.mark.asyncio
-async def test_chat_history_service_uses_explicit_session_pairs_without_state_file(tmp_path: Path) -> None:
+async def test_chat_context_assembler_uses_explicit_session_pairs_without_state_file(tmp_path: Path, runtime_paths_with_schema) -> None:
     from magi.chat.read_service import ChatReadService
 
     isolated_read_service = ChatReadService()
-    isolated_read_service._chat_db_path = tmp_path / "chat.db"
+    isolated_read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
     isolated_read_service._l1_db_path = tmp_path / "l1.sqlite3"
     isolated_read_service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
 
-    service = ChatHistoryService(
+    service = ChatContextAssembler(
         l1_db_path=tmp_path / "l1.sqlite3",
         runtime_trace_db_path=tmp_path / "runtime_trace.sqlite3",
         chat_read_service_factory=lambda: isolated_read_service,
@@ -80,8 +81,8 @@ async def test_chat_history_service_uses_explicit_session_pairs_without_state_fi
 
 
 @pytest.mark.asyncio
-async def test_chat_history_service_reloads_cache_when_history_version_changes(tmp_path: Path) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_context_assembler_reloads_cache_when_history_version_changes(tmp_path: Path, runtime_paths_with_schema) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",
@@ -91,7 +92,7 @@ async def test_chat_history_service_reloads_cache_when_history_version_changes(t
         created_at_ms=100,
     )
 
-    service = ChatHistoryService(
+    service = ChatContextAssembler(
         l1_db_path=tmp_path / "l1.sqlite3",
         runtime_trace_db_path=tmp_path / "runtime_trace.sqlite3",
         chat_store=chat_store,
@@ -118,8 +119,8 @@ async def test_chat_history_service_reloads_cache_when_history_version_changes(t
 
 
 @pytest.mark.asyncio
-async def test_chat_history_service_loads_active_summary_context_and_tail(tmp_path: Path) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_context_assembler_loads_active_summary_context_and_tail(tmp_path: Path, runtime_paths_with_schema) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",
@@ -170,11 +171,11 @@ async def test_chat_history_service_loads_active_summary_context_and_tail(tmp_pa
     from magi.chat.read_service import ChatReadService
 
     isolated_read_service = ChatReadService()
-    isolated_read_service._chat_db_path = tmp_path / "chat.db"
+    isolated_read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
     isolated_read_service._l1_db_path = tmp_path / "l1.sqlite3"
     isolated_read_service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
 
-    service = ChatHistoryService(
+    service = ChatContextAssembler(
         l1_db_path=tmp_path / "l1.sqlite3",
         runtime_trace_db_path=tmp_path / "runtime_trace.sqlite3",
         chat_store=chat_store,
@@ -184,7 +185,14 @@ async def test_chat_history_service_loads_active_summary_context_and_tail(tmp_pa
     history_context = await service.get_or_load_history_context("u-chat", "s-chat")
 
     assert history_context.session_origin == "Started with build system debugging."
-    assert history_context.session_summary == "The first turn established the original topic."
+    # commit b357735a (persona boundary summaries) wraps the active
+    # token-budget summary in a "# Rolling Token-Budget Summary" markdown
+    # section so it can be combined with persona-boundary / attachment
+    # manifest sections in the prompt.
+    assert history_context.session_summary == (
+        "# Rolling Token-Budget Summary\n"
+        "The first turn established the original topic."
+    )
     assert history_context.messages == [
         {"role": "user", "content": "tail starts here"},
         {"role": "user", "content": "latest tail"},
@@ -192,8 +200,8 @@ async def test_chat_history_service_loads_active_summary_context_and_tail(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_chat_history_service_summarizes_previous_persona_segment(tmp_path: Path) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_context_assembler_summarizes_previous_persona_segment(tmp_path: Path, runtime_paths_with_schema) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",
@@ -234,7 +242,7 @@ async def test_chat_history_service_summarizes_previous_persona_segment(tmp_path
     from magi.chat.read_service import ChatReadService
 
     isolated_read_service = ChatReadService()
-    isolated_read_service._chat_db_path = tmp_path / "chat.db"
+    isolated_read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
     isolated_read_service._l1_db_path = tmp_path / "l1.sqlite3"
     isolated_read_service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
 
@@ -244,7 +252,7 @@ async def test_chat_history_service_summarizes_previous_persona_segment(tmp_path
         calls.append(summary_input)
         return "Neutral continuity from the previous persona segment."
 
-    service = ChatHistoryService(
+    service = ChatContextAssembler(
         l1_db_path=tmp_path / "l1.sqlite3",
         runtime_trace_db_path=tmp_path / "runtime_trace.sqlite3",
         chat_store=chat_store,
@@ -286,8 +294,8 @@ async def test_chat_history_service_summarizes_previous_persona_segment(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_chat_history_service_retries_reload_after_transient_read_failure(tmp_path: Path) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_context_assembler_retries_reload_after_transient_read_failure(tmp_path: Path, runtime_paths_with_schema) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",
@@ -300,7 +308,7 @@ async def test_chat_history_service_retries_reload_after_transient_read_failure(
     from magi.chat.read_service import ChatReadService
 
     real_read_service = ChatReadService()
-    real_read_service._chat_db_path = tmp_path / "chat.db"
+    real_read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
     real_read_service._l1_db_path = tmp_path / "l1.sqlite3"
     real_read_service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
 
@@ -319,7 +327,7 @@ async def test_chat_history_service_retries_reload_after_transient_read_failure(
             )
 
     flaky_read_service = _FlakyReadService()
-    service = ChatHistoryService(
+    service = ChatContextAssembler(
         l1_db_path=tmp_path / "l1.sqlite3",
         runtime_trace_db_path=tmp_path / "runtime_trace.sqlite3",
         chat_store=chat_store,
@@ -333,8 +341,14 @@ async def test_chat_history_service_retries_reload_after_transient_read_failure(
     assert second_history == [{"role": "user", "content": "hello"}]
 
 
-def test_chat_history_service_extracts_asset_ref_handles_from_tool_state() -> None:
-    handles = ChatHistoryService._extract_reusable_handles(
+def test_chat_tool_state_view_extracts_asset_ref_handles_from_tool_state() -> None:
+    # The handle extractor moved with the rest of the tool-call state view
+    # (chat domain Step 1 of the ChatHistoryService decomposition). It is
+    # a module-level helper inside ``tool_state_view``, not a static method
+    # on the assembler.
+    from magi.chat.task_agent.tool_state_view import _extract_reusable_handles
+
+    handles = _extract_reusable_handles(
         {
             "historical_recall": {
                 "asset_refs": [
@@ -352,8 +366,8 @@ def test_chat_history_service_extracts_asset_ref_handles_from_tool_state() -> No
 
 
 @pytest.mark.asyncio
-async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path, runtime_paths_with_schema) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     original_user_message = await chat_store.create_user_turn(
         session_id="s-chat",
@@ -486,8 +500,8 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_chat_task_agent_falls_back_to_recent_photo_context_without_explicit_reply(tmp_path: Path) -> None:
-    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_chat_task_agent_falls_back_to_recent_photo_context_without_explicit_reply(tmp_path: Path, runtime_paths_with_schema) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",
@@ -665,11 +679,10 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
             intent="repo_analysis",
             difficulty="normal",
             execution_mode=ExecutionMode.ORCHESTRATION_LAUNCH,
-            orchestration_plan=OrchestrationPlan(
-                mode="decompose",
-                planner="task_agent",
-                default_leaf_type="general-purpose",
-                allow_parallel=True,
+            route_decision=RouteDecision(
+                profile="research",
+                graph_shape="plan_fanout",
+                complexity="large",
             ),
         ),
         tool_selection=ToolSelection(),
@@ -734,9 +747,9 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
 async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog(monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     history_key = "u-chat::s-chat"
-    agent._history_service.append_user_message(history_key, "看下代码架构")
-    agent._history_service.append_user_message(history_key, "搞错了，不用做了")
-    agent._history_service.append_assistant_message(history_key, "[Worker:abc] Started (Explore)")
+    agent._context_assembler.append_user_message(history_key, "看下代码架构")
+    agent._context_assembler.append_user_message(history_key, "搞错了，不用做了")
+    agent._context_assembler.append_assistant_message(history_key, "[Worker:abc] Started (Explore)")
 
     calls: dict[str, object] = {}
 
@@ -847,7 +860,7 @@ async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog
 @pytest.mark.asyncio
 async def test_aggregate_orchestration_uses_fast_failure_status_when_all_subtasks_fail(monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
-    agent._history_service.append_user_message("u-chat::s-chat", "帮我安排杭州行程")
+    agent._context_assembler.append_user_message("u-chat::s-chat", "帮我安排杭州行程")
     calls: dict[str, object] = {}
 
     async def _fake_build_system_prompt(  # type: ignore[no-untyped-def]
@@ -951,7 +964,7 @@ async def test_chat_task_agent_routes_large_explore_to_explore_task_agent(monkey
     )
     merged = await agent.merge_facts([user_fact])
     context = await agent.build_context(merged)
-    agent._history_service.append_user_message("u-chat::s-chat", "看下代码架构")
+    agent._context_assembler.append_user_message("u-chat::s-chat", "看下代码架构")
     request = ExecutionRequest(
         mode=ExecutionMode.ORCHESTRATION_LAUNCH,
         context=context,
@@ -959,12 +972,10 @@ async def test_chat_task_agent_routes_large_explore_to_explore_task_agent(monkey
             intent="repo_analysis",
             difficulty="normal",
             execution_mode=ExecutionMode.ORCHESTRATION_LAUNCH,
-            orchestration_plan=OrchestrationPlan(
-                mode="decompose",
-                planner="task_agent",
-                default_leaf_type="CodeExplore",
-                allow_parallel=True,
-                route_to_explore_task_agent=True,
+            route_decision=RouteDecision(
+                profile="explore",
+                graph_shape="plan_fanout",
+                complexity="large",
             ),
         ),
         tool_selection=ToolSelection(),
@@ -1072,8 +1083,8 @@ async def test_chat_planning_service_uses_json_mode_and_extended_timeout(monkeyp
 @pytest.mark.asyncio
 async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
-    agent._history_service.append_user_message("u-chat::s-chat", "看下代码架构")
-    agent._history_service.append_assistant_message("u-chat::s-chat", "好的，我先拆分下。")
+    agent._context_assembler.append_user_message("u-chat::s-chat", "看下代码架构")
+    agent._context_assembler.append_assistant_message("u-chat::s-chat", "好的，我先拆分下。")
     calls = {}
 
     async def _fake_build_system_prompt(  # type: ignore[no-untyped-def]
@@ -1087,7 +1098,10 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         recent_tool_errors=None,
         include_tool_catalog=True,
         persona_id=None,
+        persona_routing_hint=None,
+        **kwargs,
     ):
+        _ = (tools, recent_tool_errors, persona_routing_hint, kwargs)
         calls["build_system_prompt"] = {
             "scenario": scenario,
             "user_id": user_id,
@@ -1160,7 +1174,7 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
 
 
 def test_chat_prompt_service_formats_dense_explore_render_text() -> None:
-    from magi.agent.task_agents.chat.prompt_service import ChatPromptService
+    from magi.chat.task_agent.prompt_service import ChatPromptService
 
     service = ChatPromptService(
         llm_adapter=_FakeLLMAdapter(),
@@ -1175,7 +1189,7 @@ def test_chat_prompt_service_formats_dense_explore_render_text() -> None:
 
 
 def test_chat_prompt_service_unwraps_markdown_fenced_explore_response() -> None:
-    from magi.agent.task_agents.chat.prompt_service import ChatPromptService
+    from magi.chat.task_agent.prompt_service import ChatPromptService
 
     service = ChatPromptService(
         llm_adapter=_FakeLLMAdapter(),

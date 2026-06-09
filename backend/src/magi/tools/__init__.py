@@ -17,7 +17,8 @@ from .schema import (
 )
 from .registry import ToolRegistry, tool_registry
 from .tool_hint_resolver import ToolHintResolver
-from .context_decider import ContextDecider, ContextDecision
+from .context_decider import ContextDecider
+from .context_routing import RouteDecision
 from .recommender import ToolRecommender, ScenarioType
 from .planner import ExecutionPlanner, ExecutionPlan, PlanNode, TaskStatus
 from .version_manager import ToolVersionManager, ToolVersion, VersionCompatibility
@@ -40,7 +41,6 @@ from .builtin.web_search_tool import WebSearchTool
 from .builtin.web_fetch_tool import WebFetchTool
 from .builtin.weather_tool import WeatherTool
 from .builtin.system_settings_tool import SystemSettingsTool
-from .builtin.agent_tool import AgentTool
 from .builtin.memory_query_tool import MemoryQueryTool
 from .builtin.schedule_tool import ScheduleTool
 from .builtin.prepare_chat_attachments_tool import PrepareChatAttachmentsTool
@@ -70,7 +70,7 @@ __all__ = [
 
     # Context Decider (replaces old ToolSelector)
     "ContextDecider",
-    "ContextDecision",
+    "RouteDecision",
 
     # Recommendation engine
     "ToolRecommender",
@@ -109,7 +109,6 @@ __all__ = [
     "SkillsCreatorTool",
     "WeatherTool",
     "SystemSettingsTool",
-    "AgentTool",
     "MemoryQueryTool",
     "ScheduleTool",
     "PrepareChatAttachmentsTool",

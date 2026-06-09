@@ -25,22 +25,12 @@ class L3Handler(RRFSearchHandler):
         conditions: L3Conditions,
         time_range: Optional[TimeRange] = None,
     ) -> List[Dict[str, Any]]:
-        """Query L3 using BM25 + vector + keyword, fused via RRF.
-
-        ``summary_type`` is still applied as a hard filter — types are a
-        narrow controlled vocabulary the host owns and a wrong value
-        almost certainly means the caller asked for a different store
-        shape. ``summary_category`` is applied as a *soft* preference:
-        the chat LLM may pick an imperfect category for a query, so we
-        retrieve broadly and then boost matching items during reranking.
-        This keeps recall intact when the LLM mis-classifies.
-        """
+        """Query L3 using BM25 + vector + keyword, fused via RRF."""
         if not conditions.content_query:
             return []
         summary_type = conditions.summary_types[0] if conditions.summary_types else None
         summary_category = conditions.summary_categories[0] if conditions.summary_categories else None
         cfg = self._config
-
         fetch_k = max(conditions.limit * cfg.rrf_over_fetch_multiplier, cfg.rrf_over_fetch_minimum)
         adjuster: Optional[Callable[[List[Dict[str, Any]], Dict[str, float]], Dict[str, float]]] = None
         fetch_k_multiplier = 1.0
@@ -66,14 +56,7 @@ class L3Handler(RRFSearchHandler):
         requested_category: str,
         boost_factor: float,
     ) -> Callable[[List[Dict[str, Any]], Dict[str, float]], Dict[str, float]]:
-        """Return an adjuster that multiplies fused score for category matches.
-
-        Why not pre-filter? When the chat LLM mis-classifies (e.g. picks
-        ``browser_activity`` for a gaming query), a hard WHERE filter
-        zeros out the entire L3 path and forces a noisier L1 fallback.
-        A multiplicative boost keeps every candidate visible to the
-        reranker while still moving correct-category matches up.
-        """
+        """Return an adjuster that multiplies fused score for category matches."""
 
         target = str(requested_category)
         scale = max(boost_factor, 1.0)

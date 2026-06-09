@@ -15,12 +15,14 @@ from magi.runtime_trace.store import RuntimeTraceStore
 from magi.runtime_trace.subscribers.runtime_trace_subscriber import (
     RuntimeTraceSubscriber,
 )
-from magi.tools.builtin.agent_tool import AgentTool, WorkerRunState
+from magi.agent.runtime_tools import AgentTool, WorkerRunState
 
 
 @pytest.fixture
-async def runtime_trace_store(tmp_path: Path):
-    store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+async def runtime_trace_store(runtime_paths_with_schema):
+    store = RuntimeTraceStore(
+        db_path=str(runtime_paths_with_schema.runtime_trace_db_path)
+    )
     await store.initialize()
     try:
         yield store
@@ -198,6 +200,9 @@ async def test_worker_run_marks_stream_events_as_worker_source(monkeypatch: pyte
     class FakeFunctionCallingOrchestrator:
         def __init__(self, *args, **kwargs) -> None:
             pass
+
+        async def run(self, run_input) -> ExecutionOutcome:  # engine front door (ADR-0004 P4)
+            return await self.execute_with_tools(**run_input.to_execute_kwargs())
 
         async def execute_with_tools(self, **kwargs) -> ExecutionOutcome:
             await emit_stream_event(LLMStreamEvent(kind="text_delta", text="worker json leak"))

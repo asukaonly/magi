@@ -12,6 +12,7 @@ from ...config.models import (
     LLMModelMetadataOverrideSettings,
     LLMSelectionLimitsSettings,
 )
+from ...system_suggestions.contracts import DismissalRecord
 from .personality_config_schemas import PersonalityConfigModel as FullPersonalityConfigModel
 
 
@@ -197,6 +198,29 @@ class MemoryConfigModel(BaseModel):
 
 class UserPreferencesModel(BaseModel):
     onboarding_completed: bool = Field(default=False)
+    first_conversation_completed: bool = Field(
+        default=False,
+        description=(
+            "True once the user has sent at least one message in their very "
+            "first conversation after onboarding. Used to hide the quick-start "
+            "chips component once it has served its purpose."
+        ),
+    )
+    product_tour_completed: bool = Field(
+        default=False,
+        description=(
+            "True once the user has completed (or skipped) the one-time main-page "
+            "product tour shown on first visit after onboarding."
+        ),
+    )
+    suggestion_dismissals: dict[str, DismissalRecord] = Field(
+        default_factory=dict,
+        description=(
+            "Map of dedupe_key → DismissalRecord. The signal matcher filters "
+            "out any candidate whose dedupe_key appears here and whose TTL "
+            "(based on kind) has not yet expired."
+        ),
+    )
     user_mode: Optional[str] = Field(default=None)
     scenario: Optional[str] = Field(default=None)
     language: str = Field(default="zh")

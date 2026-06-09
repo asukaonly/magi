@@ -62,12 +62,12 @@ export function useManagedEmbeddingModels({
     return () => clearInterval(interval);
   }, [downloadFailedMessage, downloadingModelId, refreshPresetModels]);
 
-  const handleDownloadModel = useCallback(async (modelId: string) => {
+  const handleDownloadModel = useCallback(async (modelId: string, variant?: string | null) => {
     setDownloadingModelId(modelId);
     setDownloadProgress(0);
     setDownloadError(null);
     try {
-      await localEmbeddingApi.downloadModel(modelId);
+      await localEmbeddingApi.downloadModel(modelId, variant);
     } catch {
       setDownloadingModelId(null);
       setDownloadProgress(null);

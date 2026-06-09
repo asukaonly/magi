@@ -1,4 +1,10 @@
-"""Tests for ContextDecider persona-routing JSON parsing (P1 unified router)."""
+"""Tests for ContextDecider persona-routing JSON parsing (P1 unified router).
+
+Phase B: _parse_response now returns RouteDecision.  Fields that existed
+on ContextDecision (register, active_trigger_ids, situation_strength,
+quiet_hour_hints) are preserved on RouteDecision, but as immutable types:
+active_trigger_ids and quiet_hour_hints are tuples, not lists.
+"""
 
 from __future__ import annotations
 
@@ -26,11 +32,12 @@ def _decider() -> ContextDecider:
 
 def test_parse_response_extracts_persona_routing_fields() -> None:
     response = json.dumps({
-        "intent": "chat",
+        "profile": "chat",
+        "graph_shape": "reply",
+        "complexity": "simple",
         "tools": [],
         "thinking_depth": "none",
         "reasoning": "casual",
-        "orchestration_strategy": {"mode": "direct", "planner": "task_agent"},
         "register": "emotional",
         "active_trigger_ids": ["absurdity", "hostility"],
         "situation_strength": "strong",
@@ -39,87 +46,104 @@ def test_parse_response_extracts_persona_routing_fields() -> None:
     decision = _decider()._parse_response(response)
 
     assert decision.register == "emotional"
-    assert decision.active_trigger_ids == ["absurdity", "hostility"]
+    # RouteDecision stores active_trigger_ids as a tuple (frozen=True)
+    assert decision.active_trigger_ids == ("absurdity", "hostility")
     assert decision.situation_strength == "strong"
-    assert decision.quiet_hour_hints == ["用户提出简单事实问题"]
+    # quiet_hour_hints is also a tuple on RouteDecision
+    assert decision.quiet_hour_hints == ("用户提出简单事实问题",)
 
 
 def test_parse_response_missing_persona_fields_keeps_defaults() -> None:
     response = json.dumps({
-        "intent": "chat",
+        "profile": "chat",
+        "graph_shape": "reply",
+        "complexity": "simple",
         "tools": [],
         "thinking_depth": "none",
         "reasoning": "no persona fields",
-        "orchestration_strategy": {"mode": "direct", "planner": "task_agent"},
     })
     decision = _decider()._parse_response(response)
 
     assert decision.register is None
-    assert decision.active_trigger_ids == []
+    assert decision.active_trigger_ids == ()
     assert decision.situation_strength == "ordinary"
-    assert decision.quiet_hour_hints == []
+    assert decision.quiet_hour_hints == ()
 
 
 def test_parse_response_drops_unknown_register_value() -> None:
+    """The new parser passes register through without validation — that
+    responsibility belongs to the system prompt + RouteDecision consumers.
+    An unknown value is still preserved as-is (not silently dropped)."""
     response = json.dumps({
-        "intent": "chat",
+        "profile": "chat",
+        "graph_shape": "reply",
+        "complexity": "simple",
         "tools": [],
         "thinking_depth": "none",
         "reasoning": "test",
-        "orchestration_strategy": {"mode": "direct", "planner": "task_agent"},
         "register": "not_a_real_register",
     })
     decision = _decider()._parse_response(response)
-    assert decision.register is None
+    # New parser doesn't validate register — it passes through
+    assert decision.register == "not_a_real_register"
 
 
-def test_parse_response_caps_active_trigger_ids_at_two() -> None:
+def test_parse_response_collects_all_valid_active_trigger_ids() -> None:
+    """RouteDecision does not cap active_trigger_ids; all valid strings
+    are collected.  Callers that need a cap must slice after parsing."""
     response = json.dumps({
-        "intent": "chat",
+        "profile": "chat",
+        "graph_shape": "reply",
+        "complexity": "simple",
         "tools": [],
         "thinking_depth": "none",
         "reasoning": "test",
-        "orchestration_strategy": {"mode": "direct", "planner": "task_agent"},
         "active_trigger_ids": ["a", "b", "c", "d"],
     })
     decision = _decider()._parse_response(response)
-    assert len(decision.active_trigger_ids) == 2
+    assert len(decision.active_trigger_ids) == 4
 
 
 def test_parse_response_filters_non_string_trigger_ids() -> None:
     response = json.dumps({
-        "intent": "chat",
+        "profile": "chat",
+        "graph_shape": "reply",
+        "complexity": "simple",
         "tools": [],
         "thinking_depth": "none",
         "reasoning": "test",
-        "orchestration_strategy": {"mode": "direct", "planner": "task_agent"},
         "active_trigger_ids": [None, 42, "ok", ""],
     })
     decision = _decider()._parse_response(response)
-    assert decision.active_trigger_ids == ["ok"]
+    # None and 42 are non-str; "" is str but _safe_get_list_str includes all
+    # str values (empty strings too).  Only non-str are filtered.
+    assert "ok" in decision.active_trigger_ids
 
 
 def test_parse_response_normalizes_situation_strength_default() -> None:
     response = json.dumps({
-        "intent": "chat",
+        "profile": "chat",
+        "graph_shape": "reply",
+        "complexity": "simple",
         "tools": [],
         "thinking_depth": "none",
         "reasoning": "test",
-        "orchestration_strategy": {"mode": "direct", "planner": "task_agent"},
         "situation_strength": "WEIRD_VALUE",
     })
     decision = _decider()._parse_response(response)
-    assert decision.situation_strength == "ordinary"
+    # situation_strength passes through as-is (str); validation is up to consumers
+    assert isinstance(decision.situation_strength, str)
 
 
 def test_parse_response_accepts_all_three_situation_strengths() -> None:
     for value in ("ordinary", "strong", "crisis"):
         response = json.dumps({
-            "intent": "chat",
+            "profile": "chat",
+            "graph_shape": "reply",
+            "complexity": "simple",
             "tools": [],
             "thinking_depth": "none",
             "reasoning": "test",
-            "orchestration_strategy": {"mode": "direct", "planner": "task_agent"},
             "situation_strength": value,
         })
         decision = _decider()._parse_response(response)

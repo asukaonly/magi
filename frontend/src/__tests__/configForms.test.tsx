@@ -216,12 +216,12 @@ vi.mock('../api/modules/config', async () => {
         display_name: 'DeepSeek',
         description: 'Reasoning and coding models',
         icon: 'deepseek',
-        default_model: 'deepseek-chat',
+        default_model: 'deepseek-v4-flash',
         default_base_url: 'https://api.deepseek.com',
         chat_models: [
           {
-            id: 'deepseek-chat',
-            label: 'DeepSeek Chat',
+            id: 'deepseek-v4-flash',
+            label: 'DeepSeek V4 Flash',
             capabilities: {
               vision: false,
               image_output: false,
@@ -1259,11 +1259,13 @@ describe('config forms', () => {
         downloaded: false,
         download_in_progress: false,
         download_progress_pct: null,
+        variants: [],
+        default_variant: null,
       },
     ];
 
     const RerankerPanelHarness = () => {
-      const [config, setConfig] = React.useState({ enabled: false, managed_model_id: null as string | null });
+      const [config, setConfig] = React.useState({ enabled: false, managed_model_id: null as string | null, variant: null as string | null });
 
       return (
         <LLMRerankerModelPanel

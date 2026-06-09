@@ -4,6 +4,7 @@ import { projectChatTimelineRow, type TurnExecutionControlState } from '@/domain
 import type { ChatTimelineMessage, ChatTimelineReplyPreview, NormalizedExecutionTraceSummary } from '@/domain/chat/state';
 import type { LabelPopoverState, MessageContextMenuState } from '@/hooks/useChatMessageOverlays';
 import { ChatMessageContextMenuOverlay } from './ChatMessageContextMenuOverlay';
+import { PendingAssistantBubble } from './PendingAssistantBubble';
 import { StatusTimelineRow } from './StatusTimelineRow';
 import type {
   TimelineAssistantIdentity,
@@ -46,6 +47,13 @@ type ChatTimelinePaneProps = {
   messageContextMenuRef: RefObject<HTMLDivElement>;
   messagesEndRef?: RefObject<HTMLDivElement>;
   timelineRef: RefObject<HTMLDivElement>;
+  /**
+   * True while a turn is in flight — set after the user sends and cleared when
+   * the assistant turn completes. Used to decide whether to render the
+   * PendingAssistantBubble (only shows when waiting AND no assistant row
+   * has appeared yet for the latest turn — see ``showPendingBubble`` below).
+   */
+  waitingForReply: boolean;
   onSetReplyTarget: (reply: ChatTimelineReplyPreview | null) => void;
   onOpenImagePreview: (payload: { name: string; url: string }) => void;
   onOpenTraceDrawer: (turnId: string) => void;
@@ -81,6 +89,7 @@ export const ChatTimelinePane = ({
   messageContextMenuRef,
   messagesEndRef,
   timelineRef,
+  waitingForReply,
   onSetReplyTarget,
   onOpenImagePreview,
   onOpenTraceDrawer,
@@ -164,6 +173,32 @@ export const ChatTimelinePane = ({
 
     return [...regular, ...tailPlaceholders];
   }, [cancellingTurnIds, detachingTurnIds, executionControlByTurnId, finalizedTurnIds, messages, summaries]);
+  /**
+   * Show the typing-indicator bubble only when a turn is genuinely in flight
+   * AND no assistant row has materialised yet for that turn. The bubble
+   * disappears as soon as the first ``chat_message_upserted`` lands and the
+   * assistant message row joins ``messages`` — at that point the streaming
+   * bubble takes over the visual job. We scan the tail of ``messages`` so we
+   * cheaply distinguish "user just sent, waiting on LLM" from "assistant
+   * already streaming/finalised". Runtime-status rows are ignored: their
+   * presence doesn't mean a real reply has started.
+   */
+  const showPendingBubble = useMemo(() => {
+    if (!waitingForReply) {
+      return false;
+    }
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      if (msg.role === 'assistant') {
+        return false;
+      }
+      if (msg.role === 'user') {
+        return true;
+      }
+    }
+    return false;
+  }, [messages, waitingForReply]);
+
   const transcriptInteractions: TranscriptTimelineInteractions = {
     currentSessionId,
     labelPopoverState,
@@ -212,6 +247,14 @@ export const ChatTimelinePane = ({
           />
         );
       })}
+
+      {showPendingBubble && (
+        <PendingAssistantBubble
+          assistantName={assistantName}
+          assistantAvatar={assistantAvatar}
+          shouldReduceMotion={shouldReduceMotion}
+        />
+      )}
 
       <div ref={messagesEndRef} />
     </div>

@@ -14,9 +14,9 @@ rather than producing a tool_result row.
 `POST /api/commands/run-skill-as-background` renders a skill and enqueues
 it as a BackgroundTask so the sub-agent runs out of band and the user's
 main chat session stays free. Used for skills marked ``context: fork``.
-The completion is delivered back via the existing
-``deliver_background_task_completion`` plumbing as a
-``background_task_completion`` chat message.
+The completion is delivered back into the originating session's chat
+transcript by the outreach completion producer (see :mod:`magi.outreach`)
+as a ``background_task_completion`` chat message.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from ...agent.background.contracts import (
     BackgroundTaskTriggerSource,
 )
 from ...agent.background.provider import resolve_background_task_manager
-from ...agent.control.permission.provider import get_permission_gateway
+from ...control.permission.provider import get_permission_gateway
 from ...chat import ChatMessageRecord
 from ...chat.provider import get_chat_store
 from ...commands import CommandRunner
@@ -134,7 +134,7 @@ def _resolve_notifier():
     and bootstrap edge cases work without it.
     """
     try:
-        from ...agent.task_agents.chat.postprocess.notifications import (
+        from ...chat.task_agent.postprocess.notifications import (
             ChatRuntimeNotifier,
         )
     except Exception:

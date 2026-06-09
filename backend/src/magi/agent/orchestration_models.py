@@ -300,6 +300,7 @@ class OrchestrationExecutionResult:
     message_started_at: Optional[float] = None
     turn_id: Optional[str] = None
     streamed: bool = False
+    retracted: bool = False
 
 
 def _as_dict_list(value: Any) -> List[Dict[str, Any]]:

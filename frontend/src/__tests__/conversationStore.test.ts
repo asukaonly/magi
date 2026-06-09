@@ -146,6 +146,57 @@ describe('conversation store', () => {
     }));
   });
 
+  it('projects channel-delivery agent_response unconditionally (no lossy-delivery skip)', () => {
+    // P3 Step 4: the lossy-channel-delivery special-case is removed. After
+    // Steps 2-3 the channel-delivered ``agent_response`` always carries
+    // ``turn_id`` (non-streamed) or is not sent at all (streamed turns finalize
+    // via ``chat_message_upserted``), so the read side projects on ``session_id``
+    // alone. A payload is therefore no longer silently skipped — it produces an
+    // assistant bubble through the unconditional ``receiveAgentResponse``.
+    const projected = applyRealtimeStoreProjection({
+      event: 'agent_response',
+      data: {
+        session_id: 'session-channel',
+        content: 'channel reply',
+        is_final: true,
+        timestamp: Date.now() / 1000,
+        // no turn_id / no message_id — previously skipped, now projected.
+      },
+    });
+
+    expect(projected).toBe(true);
+    const messages = useConversationStore.getState().messagesBySession['session-channel'] || [];
+    expect(messages.length).toBe(1);
+    expect(messages[0]).toEqual(expect.objectContaining({
+      role: 'assistant',
+      content: 'channel reply',
+    }));
+  });
+
+  it('still projects bubbles for richer agent_response payloads that carry turn_id or message_id', () => {
+    // The realistic Step-3 shape: the channel-delivered agent_response carries
+    // identity (turn_id + message_id), so the bubble projects with that identity.
+    applyRealtimeStoreProjection({
+      event: 'agent_response',
+      data: {
+        session_id: 'session-a',
+        content: 'rich reply',
+        timestamp: Date.now() / 1000,
+        turn_id: 'turn-a',
+        message_id: 'msg-a',
+        message_kind: 'assistant_final',
+      },
+    });
+
+    const message = useConversationStore.getState().messagesBySession['session-a']?.[0];
+    expect(message).toEqual(expect.objectContaining({
+      role: 'assistant',
+      content: 'rich reply',
+      messageId: 'msg-a',
+      turnId: 'turn-a',
+    }));
+  });
+
   it('accepts trace update invalidations without summaries', () => {
     const projected = applyRealtimeStoreProjection({
       event: 'execution_trace_update',

@@ -11,32 +11,46 @@ from .exports import RuntimeExportsModule
 from .control_plane import ControlPlaneModule
 from .lifecycle import LifecycleModule
 from .maintenance import OtherDependenciesModule
+from .runtime_tools import RuntimeFirstPartyToolsModule
 
 from ..core.logger import get_logger
 
 logger = get_logger(__name__)
 
+from ..agent.execution.function_calling.headless_factory import (
+    build_function_calling_orchestrator,
+    build_headless_engine_run_input,
+)
 from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
+from ..chat import get_chat_read_service
+from ..chat.task_agent.factory import create_chat_agent_factory
 from ..awareness.lifecycle import (
-    KGSubscriberModule,
     SensorModule,
     SensorScheduleRegistrationModule,
     SensorStateUpdateSubscriberModule,
     SensorSyncExecutorModule,
-    TimelineSubscriberModule,
 )
+from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
 from ..channels.lifecycle import ChannelsModule
-from ..chat.lifecycle import ChatProjectorModule, ChatStoreModule
+from ..outreach.lifecycle import OutreachModule
+from ..chat.lifecycle import (
+    ChatProjectorModule,
+    ChatStoreModule,
+    ControlTranscriptSubscriberModule,
+)
 from ..config.lifecycle import ConfigurationModule
 from ..context.lifecycle import ContextModule
 from ..core.lifecycle import CoreDependenciesModule
+from ..db.lifecycle import DatabaseMigrationModule
 from ..events.lifecycle import (
     MessageBusModule,
     PluginIngressProcessorModule,
     RuntimeCommandProcessorModule,
     RuntimeCommandQueueModule,
 )
+from ..identity.lifecycle import IdentityModule
 from ..llm.lifecycle import LLMRuntimeModule, LLMUsageSubscriberModule
+from ..location.lifecycle import LocationModule
 from ..mcp.lifecycle import MCPModule
 from ..memory.lifecycle import (
     L2MaintenanceScheduleRegistrationModule,
@@ -45,6 +59,7 @@ from ..memory.lifecycle import (
     MemoryIngestionSubscriberModule,
     MemoryStoreModule,
 )
+from ..memory.manual_entries.lifecycle import ManualEntriesModule
 from ..media.lifecycle import MediaRegistryModule
 from ..personality.lifecycle import PersonalityModule
 from ..plugins.lifecycle import PluginSystemModule
@@ -53,7 +68,14 @@ from ..runtime_trace.lifecycle import RuntimeTraceSubscriberModule
 from ..scheduler.lifecycle import SchedulerModule
 from ..hooks.lifecycle import HooksModule
 from ..skills.lifecycle import SkillsModule
-from ..timeline.lifecycle import TimelineModule, TimelineSchedulersModule
+from ..timeline.handler import build_timeline_handler
+from ..timeline.lifecycle import (
+    KGSubscriberModule,
+    TimelineModule,
+    TimelineSchedulersModule,
+    TimelineSubscriberModule,
+)
+from ..tools import tool_registry
 from ..tools.lifecycle import ToolsModule
 
 
@@ -156,11 +178,26 @@ def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[Life
         # plugin / MCP / agent modules start spawning new ones.
         _build_subprocess_orphan_cleanup_module(context),
         CoreDependenciesModule(context),
+        # Apply Alembic schema migrations before any store opens a connection.
+        # Owned by the db package (db/lifecycle.py); depends on core deps for
+        # runtime paths + initialized db files. Splitting this out of
+        # CoreDependenciesModule removes the core -> db import cycle.
+        DatabaseMigrationModule(context),
+        # L1 substrate — identity must initialize right after core so
+        # runtime_paths.identity_db_path is available. Channels/api/
+        # awareness modules later in the lifecycle pull the resolver
+        # off the bootstrap context (no hard dependency edge — identity
+        # is L1, everything imports down to it).
+        IdentityModule(context),
         ConfigurationModule(context),
         RuntimeCommandQueueModule(context),
         MessageBusModule(context),
         ChatStoreModule(context),
-        PluginSystemModule(context),
+        PluginSystemModule(
+            context,
+            tool_registry=tool_registry,
+            request_sensor_schedule_refresh=request_sensor_schedule_refresh,
+        ),
         LLMRuntimeModule(context),
     ]
 
@@ -170,19 +207,38 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
     return [
         MemoryStoreModule(context, start_memory_integration=True),
         MediaRegistryModule(context),  # after memory store so unified_memory.l1 exists
+        LocationModule(context),  # owns location pipeline; reads memory.db path directly
+        ManualEntriesModule(context),  # owns manual-entry store/asset/weather construction
         MemoryIngestionSubscriberModule(context),
         LLMUsageSubscriberModule(context),
         ChatProjectorModule(context),
+        ControlTranscriptSubscriberModule(context),
         _build_runtime_trace_module(context),
         RuntimeTraceSubscriberModule(context),
         HooksModule(context),
+        # Host-register first-party runtime tools (e.g. the sub-agent-spawning
+        # `agent` tool, which lives at L12 in magi.agent.runtime_tools and so
+        # cannot be registered by the L8 core-tools plugin). Declared before
+        # ToolsModule and depended on by it, so the `agent` tool is present in
+        # the registry by the time ToolsModule configures it.
+        RuntimeFirstPartyToolsModule(),
         ToolsModule(context),
-        SkillsModule(context),
+        SkillsModule(
+            context,
+            tool_registry=tool_registry,
+            orchestrator_factory=build_function_calling_orchestrator,
+            engine_run_input_factory=build_headless_engine_run_input,
+        ),
         MCPModule(context),
         PersonalityModule(context),
         SensorModule(context),
         ContextModule(context),
-        AgentRuntimeModule(context),
+        AgentRuntimeModule(
+            context,
+            create_chat_agent_factory=create_chat_agent_factory,
+            chat_read_service_factory=get_chat_read_service,
+            build_timeline_handler=build_timeline_handler,
+        ),
     ]
 
 
@@ -213,6 +269,7 @@ def _build_exports_and_maintenance_modules(context: RuntimeBootstrapContext) -> 
         TimelineSchedulersModule(context),  # NEW
         OtherDependenciesModule(context),
         ChannelsModule(context),
+        OutreachModule(context),
     ]
 
 

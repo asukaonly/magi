@@ -28,11 +28,12 @@ from magi_plugin_sdk.tools import (
     ToolResult,
 )
 
-from ..agent.control.permission.contracts import ToolOrigin
+from ..control.permission.contracts import ToolOrigin
 from ..chat.contracts import ChatMessageRecord
 from ..chat.provider import get_chat_store
 from ..tools.registry import ToolRegistry
 from .resolver import UserInvocableResolver, get_default_resolver
+from magi.bootstrap.tool_capabilities import build_tool_capabilities
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +167,7 @@ class CommandRunner:
             env_vars={"role": "user"},
             permissions=permissions,
             enabled_features=[],
+            capabilities=build_tool_capabilities(),
         )
 
         started = time.monotonic()

@@ -54,11 +54,16 @@ def test_build_tools_parameter_includes_array_items_schema_for_openai_tools() ->
     tools = orchestrator._build_tools_parameter(["memory_query"])
 
     assert tools[0]["function"]["name"] == "memory_query"
-    sources_schema = tools[0]["function"]["parameters"]["properties"]["sources"]
-    assert sources_schema["type"] == "array"
-    assert sources_schema["items"] == {"type": "string"}
-    assert isinstance(sources_schema.get("description"), str)
-    assert sources_schema["description"]
+    # ``summary_categories`` is one of the array-typed parameters MemoryQueryTool
+    # still exposes — verify the OpenAI schema includes a string-typed `items`
+    # entry plus a non-empty description.
+    summary_categories_schema = tools[0]["function"]["parameters"]["properties"][
+        "summary_categories"
+    ]
+    assert summary_categories_schema["type"] == "array"
+    assert summary_categories_schema["items"] == {"type": "string"}
+    assert isinstance(summary_categories_schema.get("description"), str)
+    assert summary_categories_schema["description"]
 
 
 def test_build_step_state_tracks_selected_tool_names() -> None:

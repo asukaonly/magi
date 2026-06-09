@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import enum
 from pathlib import Path
 from typing import Any, Dict
 
+import pytest
 import yaml
 
 from magi.config.loader import ConfigLoader
@@ -432,3 +434,32 @@ def test_loader_reload_re_runs_ensure(tmp_path: Path, monkeypatch) -> None:
 
     assert ensure_calls == 1
     assert reloaded is loader._config
+
+
+def test_write_yaml_file_preserves_original_when_serialization_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A serialization failure must not truncate or wipe the existing file.
+
+    Regression: ``_write_yaml_file`` used ``open(path, 'w')`` (which truncates
+    immediately) and then streamed ``safe_dump`` into it. When the payload held
+    a value ``safe_dump`` could not represent (e.g. an enum smuggled in via a
+    ``model_dump()`` without ``mode="json"``), it raised mid-write and left the
+    real config file truncated to a few bytes. The write must be atomic: on
+    failure the original contents survive untouched.
+    """
+    _patch_config_paths(monkeypatch, tmp_path)
+    loader = ConfigLoader()
+
+    target = tmp_path / "config" / "agent.yaml"
+    loader._write_yaml_file(target, {"keep": "me", "count": 1})
+    original = target.read_text(encoding="utf-8")
+    assert original  # sanity: the good file is non-empty
+
+    class _Unrepresentable(enum.Enum):
+        VALUE = "value"
+
+    with pytest.raises(Exception):
+        loader._write_yaml_file(target, {"poisoned": _Unrepresentable.VALUE})
+
+    assert target.read_text(encoding="utf-8") == original

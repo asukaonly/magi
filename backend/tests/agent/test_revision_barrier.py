@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from magi.agent.runtime.contracts import FactRecord
-from magi.agent.task_agents.chat.fact_classifier import ChatFactClassifier
-from magi.agent.task_agents.chat.session_run_coordinator import SessionRunCoordinator
+from magi.chat.task_agent.fact_classifier import ChatFactClassifier
+from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.agent.task_agents.common import ExecutionResult, ExploreTaskCompletedPayload, IncomingFactKind, UserMessagePayload
 from magi.agent.task_agents.explore.constants import EXPLORE_TASK_COMPLETED
 from magi.agent.task_agents.explore.contracts import ExploreRuntimeContext
@@ -127,7 +127,10 @@ def test_session_run_coordinator_records_stale_result_and_drops_it_from_planning
         UserMessagePayload(
             user_id="user-1",
             session_id="session-1",
-            content="Stop and change the goal to the frontend flow.",
+            # Strict cancel phrase — InterruptionClassifier requires the full
+            # normalized message to match a canonical phrase (see
+            # interruption_phrases.yaml). Longer sentences defer instead.
+            content="Stop.",
             turn_id="turn-2",
         )
     )

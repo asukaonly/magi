@@ -6,13 +6,13 @@ import pytest
 from types import SimpleNamespace
 
 from magi.chat import ChatStore
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
-from magi.agent.task_agents.chat.postprocess.components import (
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
+from magi.chat.task_agent.postprocess.components import (
     ChatOutcomeWriter,
     ChatRuntimeNotifier,
 )
-from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
-from magi.agent.task_agents.chat.session_run_coordinator import TurnSupersession
+from magi.chat.task_agent.postprocess_service import ChatPostProcessService
+from magi.chat.task_agent.session_run_coordinator import TurnSupersession
 from magi.agent.task_agents.common import (
     AssistantResponsePlan,
     AssistantResponseSegment,
@@ -27,10 +27,58 @@ from magi.personality.interaction_analyzer import DEFAULT_ANALYSIS
 from magi.runtime_trace.store import RuntimeTraceStore
 
 
-class _FakeHistoryService:
+def _chat_sse_seam(runtime_trace_store: RuntimeTraceStore):
+    """P3 Step 5 test helper: the production agent_response delivery seam,
+    backed by the REAL ChatSseChannel. ChatSseChannel.deliver appends the
+    ``agent_response`` RuntimeNotificationRecord (same payload the legacy
+    notifier used to write), so tests that assert on that notification row keep
+    working now that the notifier path is gone — the channel is the sole writer.
+    """
+    from magi.channels.chat_sse_channel import ChatSseChannel
+    from magi_plugin_sdk.channels import ChannelTarget
+
+    channel = ChatSseChannel(trace_store=runtime_trace_store)
+
+    async def _seam(context, *, content):
+        target = ChannelTarget(
+            channel_type="chat_sse",
+            external_chat_id="",
+            magi_session_id=getattr(context, "session_id", "") or "",
+            magi_user_id=getattr(context, "user_id", "") or "",
+        )
+        return [await channel.deliver(target, content)]
+
+    return _seam
+
+
+class _FakeToolStateView:
+    """Test stand-in for ChatToolStateView; only ``record`` is needed
+    because the postprocess service forwards through ``host._tool_state_view.record``."""
+
+    def __init__(self) -> None:
+        self.records: list[dict] = []
+
+    def record(self, history_key: str, record: dict) -> None:
+        self.records.append({"history_key": history_key, **record})
+
+
+class _FakeContextAssembler:
     def __init__(self) -> None:
         self.history: list[dict] = []
-        self.tool_records: list[dict] = []
+        # Step 1 of the ChatHistoryService decomposition moved tool-call
+        # tracking into a separate ChatToolStateView. The postprocess
+        # service aliases ``context_assembler.tool_state_view`` onto its
+        # own ``_tool_state_view`` so the mixin can call
+        # ``host._tool_state_view.record(...)`` directly; this fake must
+        # expose the same attribute. Tests that previously asserted on
+        # ``tool_records`` should look at ``tool_state_view.records``.
+        self.tool_state_view = _FakeToolStateView()
+
+    @property
+    def tool_records(self) -> list[dict]:
+        """Back-compat alias so existing tests that read ``tool_records``
+        keep working without per-test edits."""
+        return self.tool_state_view.records
 
     def require_session_id(self, user_id: str, session_id: str | None = None) -> str:
         return session_id or "generated-session"
@@ -43,9 +91,6 @@ class _FakeHistoryService:
 
     def append_assistant_message(self, history_key: str, response_text: str) -> None:
         self.history.append({"history_key": history_key, "role": "assistant", "content": response_text})
-
-    def store_tool_interaction(self, history_key: str, record: dict) -> None:
-        self.tool_records.append({"history_key": history_key, **record})
 
 
 class _FakeEventEmitter:
@@ -200,7 +245,7 @@ class _FakeChatProjector:
 
 @pytest.mark.asyncio
 async def test_memory_updates_do_not_pass_stp_rules_after_response(monkeypatch) -> None:
-    import magi.agent.task_agents.chat.postprocess.memory as postprocess_module
+    import magi.chat.task_agent.postprocess.memory as postprocess_module
 
     analysis_calls: list[dict[str, object]] = []
 
@@ -222,7 +267,7 @@ async def test_memory_updates_do_not_pass_stp_rules_after_response(monkeypatch) 
     memory = _RecordingPersonalityMemory()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -245,7 +290,7 @@ async def test_memory_updates_do_not_pass_stp_rules_after_response(monkeypatch) 
 
 @pytest.mark.asyncio
 async def test_memory_updates_skip_stp_rules_outside_direct_chat_scope(monkeypatch) -> None:
-    import magi.agent.task_agents.chat.postprocess.memory as postprocess_module
+    import magi.chat.task_agent.postprocess.memory as postprocess_module
 
     analysis_calls: list[dict[str, object]] = []
 
@@ -267,7 +312,7 @@ async def test_memory_updates_skip_stp_rules_outside_direct_chat_scope(monkeypat
     memory = _RecordingPersonalityMemory()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -563,7 +608,7 @@ async def test_handle_worker_result_persists_reply_anchor_to_original_message(
 
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -635,18 +680,9 @@ async def test_runtime_notifier_appends_response_and_trace_notifications(
         chat_read_service_factory=lambda: None,
     )
 
-    await notifier.emit_agent_response(
-        user_id="local_user",
-        session_id="session-1",
-        turn_id="turn-1",
-        response_text="done",
-        orchestration_id="orch-1",
-        trace_summary={"headline": "done"},
-        trace_available=True,
-        ux_plan={"assistant_surface_mode": "final_only"},
-        message_id="msg-1",
-        message_kind="assistant_final",
-    )
+    # P3 Step 5: the notifier's legacy agent_response writer was removed (the
+    # agent_response is now written solely by ChatSseChannel.deliver). The
+    # notifier still owns trace_update + execution_control.
     await notifier.emit_trace_update(
         user_id="local_user",
         session_id="session-1",
@@ -665,15 +701,16 @@ async def test_runtime_notifier_appends_response_and_trace_notifications(
 
     notifications = await runtime_trace_store.list_notifications(after_id=0)
     assert [notification.channel for notification in notifications] == [
-        "agent_response",
         "trace_update",
         "execution_control",
     ]
 
 
 @pytest.fixture
-async def runtime_trace_store(tmp_path):
-    store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+async def runtime_trace_store(runtime_paths_with_schema):
+    store = RuntimeTraceStore(
+        db_path=str(runtime_paths_with_schema.runtime_trace_db_path)
+    )
     await store.initialize()
     try:
         yield store
@@ -724,8 +761,10 @@ async def trace_event_bus(runtime_trace_store):
 
 
 @pytest.fixture
-async def chat_store(tmp_path):
-    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def chat_store(runtime_paths_with_schema):
+    store = ChatStore(
+        db_path=str(runtime_paths_with_schema.chat_db_path)
+    )
     await store.initialize()
     try:
         yield store
@@ -738,7 +777,7 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -782,7 +821,7 @@ async def test_record_tool_interaction_projects_memory_query_tactic_into_l0(tmp_
     await l0_store.initialize()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -815,10 +854,10 @@ async def test_record_tool_interaction_projects_memory_query_tactic_into_l0(tmp_
 
 @pytest.mark.asyncio
 async def test_record_tool_interaction_uses_historical_recall_summary_for_recent_tool_state() -> None:
-    history_service = _FakeHistoryService()
+    context_assembler = _FakeContextAssembler()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=history_service,  # type: ignore[arg-type]
+        context_assembler=context_assembler,  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -843,7 +882,7 @@ async def test_record_tool_interaction_uses_historical_recall_summary_for_recent
         }
     )
 
-    assert history_service.tool_records[0]["result_summary"] == "2022年9月2号傍晚在杭州拍了一张照片。"
+    assert context_assembler.tool_records[0]["result_summary"] == "2022年9月2号傍晚在杭州拍了一张照片。"
 
 
 @pytest.mark.asyncio
@@ -853,7 +892,7 @@ async def test_record_intent_resolution_stops_emitting_runtime_trace_events(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -911,7 +950,7 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -981,6 +1020,19 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
         "selected_tools": [],
         "task_hint": {},
         "recommended_tools": [],
+        # commit efc3161b (align runtime trace flow) added the optional
+        # llm_trace payload to the persisted selected_tools_json so the
+        # frontend can render provider/model/token details inline.
+        "llm_trace": {
+            "provider": "openai",
+            "model": "gpt-4.1-mini",
+            "input_tokens": 48,
+            "output_tokens": 12,
+            "total_tokens": 60,
+            "reasoning_tokens": 0,
+            "thinking_enabled": False,
+            "duration_ms": 310,
+        },
     }
     assert len(notifications) == 1
     assert notifications[0].channel == "turn_ux_plan"
@@ -995,7 +1047,7 @@ async def test_record_tool_selection_updates_structured_intent_trace_payload(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1084,7 +1136,7 @@ async def test_record_intent_resolution_commits_interim_turn_state_before_notifi
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1188,7 +1240,7 @@ async def test_record_intent_resolution_commits_reaction_turn_state_before_notif
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1287,7 +1339,7 @@ async def test_record_tool_loop_fact_stops_persisting_llm_trace_rows(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1330,7 +1382,7 @@ async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat
     manager = _RecordingTaskAgentManager()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: manager,
         get_sensor_hub=lambda: None,
@@ -1368,7 +1420,7 @@ async def test_record_tool_loop_fact_projects_replan_tactic_into_l0(tmp_path) ->
     await l0_store.initialize()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1408,7 +1460,7 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1536,7 +1588,7 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
     runtime = _FakeRuntime()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=runtime.get_sensor_hub,
@@ -1601,7 +1653,7 @@ async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1681,7 +1733,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
     completed_runs: list[tuple[str, str, int]] = []
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1691,6 +1743,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
         ),
         max_fact_memory=10,
         event_bus=trace_event_bus,
+        deliver_final_response=_chat_sse_seam(runtime_trace_store),
     )
     latest_fact = FactRecord(
         agent_id="chat:local_user",
@@ -1789,7 +1842,7 @@ async def test_handle_commits_final_chat_message_before_notification(
     chat_projector = _FakeChatProjector()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1797,6 +1850,7 @@ async def test_handle_commits_final_chat_message_before_notification(
         chat_store=chat_store,
         chat_projector=chat_projector,
         max_fact_memory=10,
+        deliver_final_response=_chat_sse_seam(runtime_trace_store),
     )
     latest_fact = FactRecord(
         agent_id="chat:local_user",
@@ -1857,14 +1911,14 @@ async def test_handle_commits_final_chat_message_before_notification(
     )
 
     seen_kinds_at_notify: list[str] = []
-    original_emit = service._emit_agent_response_notification
+    original_deliver = service._deliver_agent_response
 
-    async def _wrapped_emit_agent_response_notification(**kwargs):  # type: ignore[no-untyped-def]
+    async def _wrapped_deliver_agent_response(**kwargs):  # type: ignore[no-untyped-def]
         messages = await chat_store.list_messages(session_id="session-1")
         seen_kinds_at_notify.extend(message.message_kind for message in messages)
-        await original_emit(**kwargs)
+        await original_deliver(**kwargs)
 
-    service._emit_agent_response_notification = _wrapped_emit_agent_response_notification  # type: ignore[method-assign]
+    service._deliver_agent_response = _wrapped_deliver_agent_response  # type: ignore[method-assign]
 
     await service.handle(context, result)
 
@@ -1893,7 +1947,7 @@ async def test_handle_suppresses_final_response_when_session_run_is_cancelling(
     completed_runs: list[tuple[str, str, int]] = []
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1985,7 +2039,7 @@ async def test_handle_maps_reaction_only_turn_to_user_label(
     chat_projector = _FakeChatProjector()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -1993,6 +2047,7 @@ async def test_handle_maps_reaction_only_turn_to_user_label(
         chat_store=chat_store,
         chat_projector=chat_projector,
         max_fact_memory=10,
+        deliver_final_response=_chat_sse_seam(runtime_trace_store),
     )
     latest_fact = FactRecord(
         agent_id="chat:local_user",
@@ -2102,7 +2157,7 @@ async def test_handle_completes_none_surface_turn_without_final_message(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2187,7 +2242,7 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
     event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2302,7 +2357,7 @@ async def test_handle_records_task_reflection_for_explore_completion() -> None:
     )
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2380,7 +2435,7 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
     unified_memory = _FakeUnifiedMemory(events=[{"event_id": "evt-1"}])
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2483,7 +2538,7 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
     action_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2576,7 +2631,7 @@ async def test_drain_deferred_turns_callback_invoked_on_finalize() -> None:
 
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2618,7 +2673,7 @@ async def test_drain_deferred_turns_callback_invoked_on_finalize() -> None:
 async def test_drain_deferred_turns_callback_absent_is_noop() -> None:
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2661,7 +2716,7 @@ async def test_drain_deferred_turns_swallows_callback_exception() -> None:
 
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -2696,4 +2751,294 @@ async def test_drain_deferred_turns_swallows_callback_exception() -> None:
 
     # Exception is logged as a warning but not re-raised.
     await service._drain_deferred_user_turns(context)
+
+
+# ---------------------------------------------------------------------------
+# P3 Step 3: non-streamed agent_response converges onto ChatSseChannel.deliver
+# via the injected ``deliver_final_response`` seam (rich DeliveryContent).
+# ---------------------------------------------------------------------------
+
+
+def _plain_non_streamed_context_and_result(*, turn_id: str = "turn-1"):
+    latest_fact = FactRecord(
+        agent_id="chat:local_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "hello",
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": turn_id,
+        },
+        agent_type="chat",
+        agent_instance_id="local_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        session_run_id="run-1",
+        session_run_revision=0,
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="hello",
+            turn_id=turn_id,
+        ),
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="final answer",
+        correlation_id="corr-1",
+        turn_id=turn_id,
+        ux_plan={
+            "assistant_surface_mode": "final_only",
+            "thinking_indicator": "hidden",
+            "trace_display_mode": "none",
+            "allow_trace_collapse": False,
+        },
+    )
+    return context, result
+
+
+@pytest.mark.asyncio
+async def test_handle_routes_plain_non_streamed_agent_response_through_delivery_seam(
+    runtime_trace_store: RuntimeTraceStore,
+    trace_event_bus,
+) -> None:
+    """When a ``deliver_final_response`` seam is wired, a plain non-streamed
+    turn routes its agent_response through the channel deliver seam carrying
+    the FULL payload, and the legacy notifier writes NO agent_response row."""
+    seam_calls: list[dict] = []
+
+    async def _fake_seam(context, *, content):
+        seam_calls.append({"context": context, "content": content})
+        return []
+
+    event_emitter = _FakeEventEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: event_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        max_fact_memory=10,
+        event_bus=trace_event_bus,
+        deliver_final_response=_fake_seam,
+    )
+    context, result = _plain_non_streamed_context_and_result()
+
+    await service.handle(context, result)
+    await trace_event_bus.drain()
+
+    # Seam called exactly once with the full rich DeliveryContent.
+    assert len(seam_calls) == 1, seam_calls
+    content = seam_calls[0]["content"]
+    assert content.text == "final answer"
+    assert content.turn_id == "turn-1"
+    assert content.ux_plan == result.ux_plan
+    # orchestration_id rides along (None here, but the field is populated path).
+    assert hasattr(content, "message_id")
+    assert hasattr(content, "trace_summary")
+
+    # The legacy notifier must NOT have written an agent_response row.
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
+    channels = [n.channel for n in notifications]
+    assert "agent_response" not in channels, channels
+
+
+@pytest.mark.asyncio
+async def test_handle_writes_no_agent_response_without_delivery_seam(
+    runtime_trace_store: RuntimeTraceStore,
+    trace_event_bus,
+) -> None:
+    """P3 Step 5: the legacy notifier agent_response fallback is removed —
+    ChatSseChannel.deliver (the seam) is the sole writer. With no seam wired,
+    a plain non-streamed turn writes NO agent_response row (and does not crash);
+    in production the seam is always wired when chat_sse is registered."""
+    event_emitter = _FakeEventEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: event_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        max_fact_memory=10,
+        event_bus=trace_event_bus,
+    )
+    context, result = _plain_non_streamed_context_and_result()
+
+    await service.handle(context, result)
+    await trace_event_bus.drain()
+
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
+    channels = [n.channel for n in notifications]
+    assert "agent_response" not in channels, channels
+
+
+@pytest.mark.asyncio
+async def test_handle_streamed_does_not_call_delivery_seam(
+    runtime_trace_store: RuntimeTraceStore,
+    chat_store: ChatStore,
+) -> None:
+    """Streamed turns keep their current behavior: no agent_response and no
+    seam call — they rely on chunks + chat_message_upserted + execution_control."""
+    seam_calls: list[dict] = []
+
+    async def _fake_seam(context, *, content):
+        seam_calls.append({"context": context, "content": content})
+        return []
+
+    class _FakeDisplayMessage:
+        def to_dict(self):
+            return {
+                "message_id": "msg-streamed",
+                "turn_id": "turn-streamed",
+                "role": "assistant",
+                "content": "Why did the chicken cross the road?",
+                "attachments": [],
+            }
+
+    class _FakeSessionSummary:
+        def to_dict(self):
+            return {"session_id": "session-1", "title": "New Chat"}
+
+    class _FakeReadService:
+        async def aget_display_message(self, user_id, session_id, message_id):
+            return _FakeDisplayMessage()
+
+        async def aget_session_summary(self, user_id, session_id):
+            return _FakeSessionSummary()
+
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        chat_store=chat_store,
+        chat_read_service_factory=lambda: _FakeReadService(),
+        max_fact_memory=10,
+        deliver_final_response=_fake_seam,
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="local_user",
+        turn_id="turn-streamed",
+        message_text="Tell me a joke.",
+        created_at_ms=1710000000000,
+    )
+    context, result = _plain_non_streamed_context_and_result(turn_id="turn-streamed")
+    result.response_text = "Why did the chicken cross the road?"
+    result.streamed = True
+
+    await service.handle(context, result)
+
+    # Streamed turn must NOT call the deliver seam (no agent_response).
+    assert seam_calls == []
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
+    channels = [n.channel for n in notifications]
+    assert "agent_response" not in channels, channels
+    assert "execution_control" in channels, channels
+
+
+@pytest.mark.asyncio
+async def test_segmented_agent_response_routes_each_segment_through_seam(
+    runtime_trace_store: RuntimeTraceStore,
+) -> None:
+    """P3 Step 5: segmented (conversation-rhythm) turns route EACH segment
+    through the ChatSseChannel deliver seam (sole writer), not the legacy
+    notifier. One seam call per segment, carrying that segment's content +
+    message_id; no ``agent_response`` row written via the notifier."""
+    from types import SimpleNamespace
+
+    seam_calls: list[Any] = []
+
+    async def _fake_seam(context, *, content):
+        seam_calls.append(content)
+        return []
+
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        max_fact_memory=10,
+        deliver_final_response=_fake_seam,
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="explain rhythm",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="part one part two",
+        turn_id="turn-seg",
+        ux_plan={"assistant_surface_mode": "final_only"},
+        attachments=[],
+    )
+    messages = [
+        SimpleNamespace(
+            content_text="part one", message_id="m0",
+            message_kind="assistant_rhythm_segment", persona_id="p1",
+            payload_json=None,
+        ),
+        SimpleNamespace(
+            content_text="part two", message_id="m1",
+            message_kind="assistant_rhythm_segment", persona_id="p1",
+            payload_json=None,
+        ),
+    ]
+    response_plan = SimpleNamespace(
+        segments=[SimpleNamespace(delay_ms=0), SimpleNamespace(delay_ms=0)]
+    )
+
+    await service._emit_segmented_agent_response_notifications(
+        context=context,
+        result=result,
+        turn_id="turn-seg",
+        response_plan=response_plan,
+        messages=messages,
+        trace_summary=None,
+        trace_available=False,
+    )
+
+    # One seam delivery per segment, in order, carrying per-segment identity.
+    assert len(seam_calls) == 2
+    assert [c.text for c in seam_calls] == ["part one", "part two"]
+    assert [c.message_id for c in seam_calls] == ["m0", "m1"]
+    assert all(c.turn_id == "turn-seg" for c in seam_calls)
+    # No notifier agent_response rows written.
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
+    assert [n.channel for n in notifications] == []
 

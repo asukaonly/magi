@@ -390,6 +390,18 @@ _SPECS: list[PredicateSpec] = [
         natural_labels={"en": "plans to", "zh": "计划"},
         embedding_text="plans to, intends to, will",
     ),
+    PredicateSpec(
+        canonical="REFERENCES",
+        family="reference",
+        synonym_group="reference",
+        aliases=(),
+        subject_types=(),
+        object_types=(),
+        answer_kinds=("topic", "concept", "person", "software", "media"),
+        direction_hint="outgoing",
+        natural_labels={"en": "references", "zh": "引用"},
+        embedding_text="references, links to, cites, refers to",
+    ),
 ]
 
 # ---------------------------------------------------------------------------

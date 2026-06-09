@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock
 
-from magi.agent.task_agents.chat import (
+from magi.agent.task_agents.handlers import (
     ChatRuntimeContext,
     ExecutionMode,
     GenericFactPayload,
@@ -12,7 +12,7 @@ from magi.agent.task_agents.chat import (
     OrchestrationPlan,
     ToolSelection,
 )
-from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
+from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.context.contracts import PromptPackage
 
 
@@ -60,7 +60,6 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             difficulty="normal",
             execution_mode=ExecutionMode.FUNCTION_CALLING,
             tools=["weather"],
-            orchestration_plan=OrchestrationPlan(),
         )
         tool_result = ToolSelection(tools=["weather"], reasoning="weather lookup")
 
@@ -77,6 +76,7 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             recent_tool_errors=[],
             workspace_path=None,
             persona_id=None,
+            persona_routing_hint=None,
         )
         self.assertEqual(llm_params.system_prompt, "owned-by-context-layer")
 
@@ -113,7 +113,6 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             difficulty="normal",
             execution_mode=ExecutionMode.FUNCTION_CALLING,
             tools=["weather", "memory_query"],
-            orchestration_plan=OrchestrationPlan(),
             memory_route="explicit_query",
         )
         tool_result = ToolSelection(tools=["weather", "memory_query"], reasoning="history lookup")

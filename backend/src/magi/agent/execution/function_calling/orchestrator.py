@@ -10,14 +10,19 @@ from ....llm.base import LLMAdapter
 from ....llm.provider_bridge import LLMProviderBridge, _coerce_thinking_depth
 from ....llm.streaming_events import LLMStreamEvent, emit_stream_event, get_stream_sink
 from ....runtime_trace import RuntimeTraceStore
-from ...cancel import CancelToken, null_cancel_token
+from ...cancel import CancelToken
 from ...message_utils import append_latest_user_message
+from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
 from ...turn_input import UserTurnInput
 from ...run_control import (
     DetachSignal,
     OrchestratorSnapshot,
+    RetractSignal,
+    RunControl,
     SteerInbox,
+    SuspendSignal,
     bind_detach_signal,
+    null_run_control,
 )
 from ..context_compactor import ContextCompactor
 from .failures import FunctionCallingFailureMixin
@@ -42,6 +47,8 @@ from .types import ExecutionOutcome
 
 if TYPE_CHECKING:
     from ....tools.registry import ToolRegistry
+    from ....tools.context_routing import RouteDecision
+    from .run_input import EngineRunInput
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +117,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         context_window: int | None = None,
         permission_gateway: Any = None,
         permission_gateway_provider: Callable[[], Any] | None = None,
+        attachment_resolver: AttachmentResolverPort | None = None,
     ):
         """
         Initialize the executor.
@@ -132,6 +140,11 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         self.runtime_trace_store = runtime_trace_store
         self.permission_gateway = permission_gateway
         self._permission_gateway_provider = permission_gateway_provider
+        # Resolves managed attachment payloads at message-build time. Chat
+        # wires a chat-backed resolver; non-chat callers (workers, sub-agents,
+        # background tasks) leave this as a null resolver, preserving their
+        # current behavior of never touching a chat read service.
+        self._attachment_resolver = attachment_resolver or NullAttachmentResolver()
         self._operations = _FunctionCallingOperations(self)
         self.step_executor = FunctionCallingStepExecutor(self)
         self._current_messages: List[Dict[str, Any]] = []
@@ -168,6 +181,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         messages = append_latest_user_message(
             conversation_history,
             turn,
+            resolver=self._attachment_resolver,
             session_summary=session_summary,
             session_origin=session_origin,
             reply_context=reply_context,
@@ -300,6 +314,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                     user_id=user_id,
                     session_id=session_id,
                 ),
+                resolver=self._attachment_resolver,
                 history_limit=max(len(messages), 1) + 1,
             ),
         )
@@ -341,9 +356,24 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         cancel_token: CancelToken | None = None,
         steer_inbox: SteerInbox | None = None,
         detach_signal: DetachSignal | None = None,
+        control: RunControl | None = None,
+        route_decision: "RouteDecision | None" = None,
     ) -> ExecutionOutcome:
-        """Execute with continuous tool calling."""
-        with bind_detach_signal(detach_signal):
+        """Execute with continuous tool calling.
+
+        Either pass a ``control`` bundle (preferred) or the legacy trio of
+        ``cancel_token`` / ``steer_inbox`` / ``detach_signal`` kwargs.  When
+        ``control`` is supplied it takes precedence and the legacy kwargs are
+        ignored; when only legacy kwargs are supplied they are folded into a
+        fresh :func:`null_run_control` bundle via :meth:`_resolve_control`.
+        """
+        effective = self._resolve_control(
+            control=control,
+            cancel_token=cancel_token,
+            steer_inbox=steer_inbox,
+            detach_signal=detach_signal,
+        )
+        with bind_detach_signal(effective.detach_signal):
             return await self._execute_with_tools_impl(
                 turn=turn,
                 system_prompt=system_prompt,
@@ -367,10 +397,23 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 thinking_depth=thinking_depth,
                 disable_thinking=disable_thinking,
                 final_response_json_mode=final_response_json_mode,
-                cancel_token=cancel_token,
-                steer_inbox=steer_inbox,
-                detach_signal=detach_signal,
+                control=effective,
+                route_decision=route_decision,
             )
+
+    async def run(self, run_input: "EngineRunInput") -> ExecutionOutcome:
+        """Engine front door (ADR-0004 P4): run one bounded LLM↔tool run from a
+        single typed :class:`EngineRunInput`.
+
+        A pure adapter over :meth:`execute_with_tools` — it forwards every field
+        verbatim (the parity test in
+        ``tests/agent/execution/test_engine_run_input.py`` guarantees the field
+        set always matches the method signature), so behavior and call-kwarg
+        expectations are unchanged. New surfaces should build an
+        ``EngineRunInput`` (or ``EngineRunInput.headless(...)``) and call this
+        instead of hand-wiring the keyword arguments.
+        """
+        return await self.execute_with_tools(**run_input.to_execute_kwargs())
 
     async def _execute_with_tools_impl(
         self,
@@ -397,11 +440,9 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         thinking_depth: Optional[ThinkingDepth],
         disable_thinking: bool,
         final_response_json_mode: bool,
-        cancel_token: CancelToken | None,
-        steer_inbox: SteerInbox | None,
-        detach_signal: DetachSignal | None,
+        control: RunControl,
+        route_decision: "RouteDecision | None" = None,
     ) -> ExecutionOutcome:
-        token = cancel_token if cancel_token is not None else null_cancel_token()
         state = self.build_step_state(
             turn=turn,
             system_prompt=system_prompt,
@@ -415,16 +456,28 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         self._current_messages = state.messages
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         while state.iteration < max_iterations:
-            if await token.is_cancelled():
+            # Poll signals in priority order:
+            #   cancel  → stop immediately, no snapshot needed
+            #   retract → stop + snapshot for DeliveryRouter rollback
+            #   suspend → stop + snapshot for in-place resume
+            #   steer   → drain follow-ups before next LLM call
+            #   detach  → hand off to background worker with snapshot
+            if await control.cancel_token.is_cancelled():
                 return ExecutionOutcome(
                     status="cancelled",
                     content="",
                     iterations=state.iteration,
                 )
-            if steer_inbox is not None:
-                await self.apply_steer_messages(state, steer_inbox)
-            if detach_signal is not None and detach_signal.is_requested():
-                return self._build_detached_outcome(state, detach_signal)
+            if control.retract_signal.is_requested():
+                return self._build_retracted_outcome(state, control.retract_signal)
+            if control.suspend_signal.is_requested():
+                return self._build_suspended_outcome(state, control.suspend_signal)
+            # Drain steer messages before checking detach so a steer that
+            # arrived in the same tick is appended to state.messages before
+            # the snapshot is taken.
+            await self.apply_steer_messages(state, control.steer_inbox)
+            if control.detach_signal.is_requested():
+                return self._build_detached_outcome(state, control.detach_signal)
             step_outcome = await self.step_executor.execute_step(
                 state=state,
                 user_message=turn.text,
@@ -439,8 +492,14 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 execution_workspace=execution_workspace,
                 orchestration_strategy=orchestration_strategy,
                 llm_timeout_seconds=llm_timeout_seconds,
-                cancel_token=token,
+                cancel_token=control.cancel_token,
+                control=control,
+                route_decision=route_decision,
             )
+            if step_outcome.status == "aborted":
+                # CancellationRaised/RetractRaised was caught by step_executor.
+                # Loop back so the top-of-loop signal poll returns the right outcome.
+                continue
             if step_outcome.status == "continue":
                 if get_stream_sink() is not None:
                     await emit_stream_event(LLMStreamEvent(kind="text_flush"))
@@ -452,6 +511,18 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                     status="completed",
                     content=step_outcome.content,
                     tool_failures=list(state.tool_failures),
+                    # Pre-existing bug fix: state.chat_attachments
+                    # accumulates tool-emitted attachments (image_gen,
+                    # prepare_chat_attachments, …) across the FC loop,
+                    # but the completed outcome wasn't forwarding them
+                    # to the coordinator. Desktop still saw images
+                    # because the chat UI reads chat_messages.payload_json
+                    # directly; external channels (WeChat, Telegram)
+                    # got the text body but no image because their
+                    # deliver() path only sees DeliveryContent.attachments,
+                    # which is sourced from this field.
+                    attachments=list(state.chat_attachments),
+                    message_payload=dict(state.message_payload or {}),
                     iterations=step_outcome.iteration,
                 )
             if step_outcome.status == "cancelled":
@@ -486,7 +557,8 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 orchestration_strategy=orchestration_strategy,
                 llm_timeout_seconds=llm_timeout_seconds,
                 final_response_json_mode=final_response_json_mode,
-                cancel_token=token,
+                cancel_token=control.cancel_token,
+                control=control,
             ),
         )
 
@@ -569,6 +641,94 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             iterations=state.iteration,
             snapshot=snapshot,
         )
+
+    def _build_retracted_outcome(
+        self,
+        state: FunctionCallingStepState,
+        retract_signal: RetractSignal,
+    ) -> ExecutionOutcome:
+        """Assemble the ``retracted`` :class:`ExecutionOutcome` at a boundary.
+
+        The snapshot is preserved so the DeliveryRouter can roll back any
+        partial output that was streamed to the channel before the retract
+        signal was observed.
+        """
+        payload = retract_signal.payload
+        reason = payload.reason if payload is not None else "user_retract"
+        note = payload.note if payload is not None else ""
+        snapshot = OrchestratorSnapshot(
+            messages=[dict(msg) for msg in state.messages],
+            iterations=state.iteration,
+            reason=reason,
+            note=note,
+        )
+        logger.info(
+            "[FunctionCalling] Retract signal observed at iteration=%s reason=%s",
+            state.iteration,
+            reason,
+        )
+        return ExecutionOutcome(
+            status="retracted",
+            content="",
+            iterations=state.iteration,
+            snapshot=snapshot,
+        )
+
+    def _build_suspended_outcome(
+        self,
+        state: FunctionCallingStepState,
+        suspend_signal: SuspendSignal,
+    ) -> ExecutionOutcome:
+        """Assemble the ``suspended`` :class:`ExecutionOutcome` at a boundary.
+
+        The snapshot is preserved so the kernel can persist in-progress state
+        and the user can reattach to resume from the same point (Task 8+).
+        """
+        payload = suspend_signal.payload
+        reason = payload.reason if payload is not None else "window_closed"
+        note = payload.note if payload is not None else ""
+        snapshot = OrchestratorSnapshot(
+            messages=[dict(msg) for msg in state.messages],
+            iterations=state.iteration,
+            reason=reason,
+            note=note,
+        )
+        logger.info(
+            "[FunctionCalling] Suspend signal observed at iteration=%s reason=%s",
+            state.iteration,
+            reason,
+        )
+        return ExecutionOutcome(
+            status="suspended",
+            content="",
+            iterations=state.iteration,
+            snapshot=snapshot,
+        )
+
+    @staticmethod
+    def _resolve_control(
+        *,
+        control: RunControl | None,
+        cancel_token: CancelToken | None,
+        steer_inbox: SteerInbox | None,
+        detach_signal: DetachSignal | None,
+    ) -> RunControl:
+        """Bridge the legacy 3-kwarg API to the new :class:`RunControl` bundle.
+
+        If ``control`` is supplied, use it directly (legacy kwargs are
+        ignored — the bundle is canonical). Otherwise, build a fresh
+        :func:`null_run_control` and overlay any non-None legacy kwargs.
+        """
+        if control is not None:
+            return control
+        bundle = null_run_control()
+        if cancel_token is not None:
+            bundle.cancel_token = cancel_token
+        if steer_inbox is not None:
+            bundle.steer_inbox = steer_inbox
+        if detach_signal is not None:
+            bundle.detach_signal = detach_signal
+        return bundle
 
     def _build_tools_parameter(self, selected_tools: List[str]) -> List[Dict]:
         return build_tools_parameter(self.tool_registry, selected_tools)

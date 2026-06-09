@@ -10,7 +10,7 @@ from magi.events.tracing import drain_pending
 @pytest.mark.asyncio
 async def test_planning_lazy_service_publishes():
     """Smoke: ChatPlanningService lazy _tool_invocation_service builds and publishes."""
-    from magi.agent.task_agents.chat.planning_service import ChatPlanningService
+    from magi.chat.task_agent.planning_service import ChatPlanningService
 
     host = ChatPlanningService.__new__(ChatPlanningService)
     registry = MagicMock()

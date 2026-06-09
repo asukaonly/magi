@@ -149,6 +149,7 @@ class UnifiedMemoryMaintenanceMixin:
             "archived_events": 0,
             "archived_summaries": 0,
             "deleted_summaries": 0,
+            "pruned_pinned_payloads": 0,
         }
         cutoff = time.time() - (max(int(older_than_days), 0) * 86400)
         should_archive = str(history_behavior).lower() == "archive"
@@ -171,6 +172,13 @@ class UnifiedMemoryMaintenanceMixin:
                     removed["archived_events"] += 1
                 if await self.l1.mark_deleted(event_id):
                     removed["deleted_events"] += 1
+        if self.l1 is not None:
+            # P3: drop pinned capture-time full-text payloads past the retention
+            # window. They are a transient L2-extraction aid (consumed shortly
+            # after ingest), so they need not outlive the same cutoff.
+            removed["pruned_pinned_payloads"] = await self.l1.prune_pinned_payloads(
+                retention_seconds=max(int(older_than_days), 0) * 86400,
+            )
         if self.l3 is not None:
             expired_summaries = await self.l3.list_summaries_older_than(
                 older_than=cutoff,

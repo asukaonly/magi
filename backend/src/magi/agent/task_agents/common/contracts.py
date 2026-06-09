@@ -7,6 +7,7 @@ from typing import Any, Optional, TypeAlias
 
 from ....agent.runtime.contracts import FactRecord
 from ....config.models import ThinkingDepth
+from ....tools.context_routing import RouteDecision
 from ...orchestration import WorkerResult
 
 
@@ -69,7 +70,14 @@ class GenericFactPayload:
 
 @dataclass(slots=True)
 class UserMessagePayload:
-    """Typed payload for direct user-message facts."""
+    """Typed payload for direct user-message facts.
+
+    Phase H+1: ``source`` carries the dispatcher channel name
+    (``"api"`` for HTTP /chat, ``"telegram"`` / ``"weixin"`` for plugins,
+    etc.) so :class:`SessionRunCoordinator` can tag the resulting
+    :class:`RunTrigger` accordingly. Defaults to ``"api"`` for backward
+    compatibility with legacy payloads that pre-date this field.
+    """
 
     user_id: str
     session_id: str
@@ -78,6 +86,7 @@ class UserMessagePayload:
     workspace_path: Optional[str] = None
     turn_id: Optional[str] = None
     reply_to_message_id: Optional[str] = None
+    source: str = "api"
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -85,6 +94,7 @@ class UserMessagePayload:
             "session_id": self.session_id,
             "content": self.content,
             "attachments": list(self.attachments),
+            "source": self.source,
         }
         if self.workspace_path is not None:
             payload["workspace_path"] = self.workspace_path
@@ -97,6 +107,7 @@ class UserMessagePayload:
     @classmethod
     def from_dict(cls, payload: dict[str, Any], *, fallback_user_id: str) -> "UserMessagePayload":
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        raw_source = payload.get("source")
         return cls(
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),
@@ -108,6 +119,7 @@ class UserMessagePayload:
                 _optional_string(payload.get("reply_to_message_id"))
                 or _optional_string(metadata.get("reply_to_message_id"))
             ),
+            source=str(raw_source) if raw_source else "api",
         )
 
 
@@ -327,7 +339,7 @@ class BaseIntentDecision:
     intent: str
     execution_mode: ExecutionMode
     reasoning: str = ""
-    orchestration_plan: Optional[OrchestrationPlan] = None
+    route_decision: RouteDecision | None = None
 
 
 @dataclass(slots=True)

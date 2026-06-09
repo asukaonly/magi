@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import gzip
 import logging
 import os
 from pathlib import Path
@@ -20,7 +21,6 @@ import zipfile
 from packaging.markers import default_environment
 from packaging.requirements import InvalidRequirement, Requirement
 
-from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
 from ..config import save_config
 from .contracts import PluginManifest, PluginPackageState
 
@@ -28,6 +28,16 @@ logger = logging.getLogger(__name__)
 InstallProgressReporter = Callable[[str, str, float | None], None]
 PLUGIN_DEPENDENCY_PYTHON_ENV = "MAGI_PLUGIN_PYTHON"
 BACKEND_PYTHON_ENV = "MAGI_BACKEND_PYTHON"
+ALLOW_UNLOCKED_DEPS_ENV = "MAGI_ALLOW_UNLOCKED_PLUGIN_DEPS"
+
+
+def _developer_mode_allows_unlocked() -> bool:
+    return os.environ.get(ALLOW_UNLOCKED_DEPS_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _report_install_progress(
@@ -148,7 +158,7 @@ def _resolve_dependency_python_executable() -> str:
 
 
 def _build_dependency_install_command(
-    dependencies: list[str],
+    lock_path: Path,
     deps_dir: Path,
     *,
     quiet: bool,
@@ -162,11 +172,78 @@ def _build_dependency_install_command(
         str(deps_dir),
         "--no-user",
         "--disable-pip-version-check",
-        *dependencies,
+        "--require-hashes",
+        "-r",
+        str(lock_path),
     ]
     if quiet:
+        cmd.insert(cmd.index("--require-hashes"), "--quiet")
+    return cmd
+
+
+def _build_loose_dependency_install_command(
+    dependencies: list[str],
+    deps_dir: Path,
+    *,
+    quiet: bool,
+) -> list[str]:
+    """Unverified, range-based install. Developer-mode fallback only."""
+    cmd = [
+        _resolve_dependency_python_executable(),
+        "-m",
+        "pip",
+        "install",
+        "--target",
+        str(deps_dir),
+        "--no-user",
+        "--disable-pip-version-check",
+        *dependencies,
+    ]
+    if quiet and dependencies:
         cmd.insert(-len(dependencies), "--quiet")
     return cmd
+
+
+class InvalidPluginArchiveError(ValueError):
+    """Raised when an uploaded archive is unsupported, corrupt/truncated, or
+    contains unsafe paths. A ``ValueError`` subclass so existing generic
+    handlers still map it to HTTP 400; routes catch it specifically to return a
+    localized "not a valid archive" message instead of the raw English detail."""
+
+
+class UnlockedDependencyError(RuntimeError):
+    """Raised when a plugin declares dependencies but ships no requirements.lock."""
+
+
+def _resolve_lock_or_policy(
+    dependencies: list[str],
+    plugin_dir: Path,
+    *,
+    allow_unlocked: bool,
+) -> Path | list[str] | None:
+    """Decide how to install a plugin's dependencies.
+
+    Returns:
+      - None       when the plugin declares no dependencies.
+      - Path       to requirements.lock when present (hash-enforced install).
+      - list[str]  the raw dependency list when no lock exists AND developer
+                   mode permits an unverified loose install.
+
+    Raises UnlockedDependencyError when deps are declared, no lock exists, and
+    developer mode is off (the default, secure path).
+    """
+    if not dependencies:
+        return None
+    lock_path = plugin_dir / "requirements.lock"
+    if lock_path.exists():
+        return lock_path
+    if allow_unlocked:
+        return dependencies
+    raise UnlockedDependencyError(
+        "This plugin declares dependencies but ships no integrity-locked "
+        "requirements.lock. Refusing to install unverified dependencies. "
+        "Set MAGI_ALLOW_UNLOCKED_PLUGIN_DEPS=1 to override (developer mode)."
+    )
 
 
 def replace_plugin_directory(
@@ -331,6 +408,18 @@ class PluginInstallationMixin:
         _report_install_progress(progress_reporter, "completed", "Plugin package installed", 100.0)
         return state
 
+    def inspect_plugin_archive(self, archive_path: Path) -> PluginManifest:
+        """Extract + read plugin.toml from an archive WITHOUT installing or
+        persisting anything. Used to surface declared capabilities for the
+        pre-install consent step (sideload)."""
+        with tempfile.TemporaryDirectory(prefix="magi-plugin-inspect-") as tmp:
+            tmp_path = Path(tmp)
+            self._extract_archive(archive_path, tmp_path)
+            manifest_file = self._find_manifest_in_tree(tmp_path)
+            if manifest_file is None:
+                raise ValueError("Archive does not contain a plugin.toml")
+            return self._load_manifest(manifest_file, source="external")
+
     def install_plugin_from_directory(
         self,
         source_dir: Path,
@@ -471,7 +560,7 @@ class PluginInstallationMixin:
                         exc_info=True,
                     )
 
-        request_sensor_schedule_refresh()
+        self._request_sensor_schedule_refresh()
         return gc_removed
 
     def check_installed_version(self, plugin_id: str) -> str | None:
@@ -487,29 +576,43 @@ class PluginInstallationMixin:
 
     @staticmethod
     def _extract_archive(archive_path: Path, dest: Path) -> None:
-        """Extract a .tar.gz or .zip archive into *dest*."""
+        """Extract a .tar.gz or .zip archive into *dest*.
+
+        Raises :class:`InvalidPluginArchiveError` (a ``ValueError`` subclass)
+        for an unsupported, corrupt/truncated, or path-unsafe archive. The
+        low-level corrupt-archive errors (``tarfile.ReadError``,
+        ``gzip.BadGzipFile``, ``zipfile.BadZipFile``, truncation ``EOFError``)
+        are re-raised as :class:`InvalidPluginArchiveError` so upload routes can
+        return a clean, localized HTTP 400 instead of an unhandled 500.
+        """
         name = archive_path.name.lower()
         if name.endswith(".tar.gz") or name.endswith(".tgz"):
-            with tarfile.open(archive_path, "r:gz") as tf:
-                for member in tf.getmembers():
-                    if member.name.startswith("/") or ".." in member.name.split("/"):
-                        raise ValueError(f"Unsafe path in archive: {member.name}")
-                tf.extractall(dest)
+            try:
+                with tarfile.open(archive_path, "r:gz") as tf:
+                    for member in tf.getmembers():
+                        if member.name.startswith("/") or ".." in member.name.split("/"):
+                            raise InvalidPluginArchiveError(f"Unsafe path in archive: {member.name}")
+                    tf.extractall(dest)
+            except (tarfile.TarError, gzip.BadGzipFile, EOFError) as exc:
+                raise InvalidPluginArchiveError(f"Not a valid .tar.gz archive: {exc}") from exc
         elif name.endswith(".zip"):
-            with zipfile.ZipFile(archive_path, "r") as zf:
-                for info in zf.infolist():
-                    if info.filename.startswith("/") or ".." in info.filename.split("/"):
-                        raise ValueError(f"Unsafe path in archive: {info.filename}")
-                    extracted_str = zf.extract(info, dest)
-                    if not info.is_dir():
-                        # zipfile.extract drops Unix permissions even when the
-                        # archive was created on Unix. Recover the mode from
-                        # external_attr's upper 16 bits (per PKZIP spec).
-                        mode = (info.external_attr >> 16) & 0o777
-                        if mode:
-                            Path(extracted_str).chmod(mode)
+            try:
+                with zipfile.ZipFile(archive_path, "r") as zf:
+                    for info in zf.infolist():
+                        if info.filename.startswith("/") or ".." in info.filename.split("/"):
+                            raise InvalidPluginArchiveError(f"Unsafe path in archive: {info.filename}")
+                        extracted_str = zf.extract(info, dest)
+                        if not info.is_dir():
+                            # zipfile.extract drops Unix permissions even when the
+                            # archive was created on Unix. Recover the mode from
+                            # external_attr's upper 16 bits (per PKZIP spec).
+                            mode = (info.external_attr >> 16) & 0o777
+                            if mode:
+                                Path(extracted_str).chmod(mode)
+            except zipfile.BadZipFile as exc:
+                raise InvalidPluginArchiveError(f"Not a valid .zip archive: {exc}") from exc
         else:
-            raise ValueError(f"Unsupported archive format: {archive_path.name}")
+            raise InvalidPluginArchiveError(f"Unsupported archive format: {archive_path.name}")
 
     @staticmethod
     def _find_manifest_in_tree(root: Path) -> Path | None:
@@ -531,24 +634,18 @@ class PluginInstallationMixin:
         *,
         progress_reporter: InstallProgressReporter | None = None,
     ) -> None:
-        """Install plugin dependencies into a local .deps/ directory."""
-        installable_dependencies, skipped_dependencies = _filter_installable_dependencies(
-            dependencies
+        """Install plugin dependencies into a local .deps/ directory.
+
+        Hash-enforced from requirements.lock by default; falls back to a loose,
+        unverified install only in developer mode (see _resolve_lock_or_policy).
+        """
+        allow_unlocked = _developer_mode_allows_unlocked()
+        resolved = _resolve_lock_or_policy(
+            dependencies, plugin_dir, allow_unlocked=allow_unlocked
         )
-        if skipped_dependencies:
+        if resolved is None:
             logger.info(
-                "Skipping plugin dependencies for current environment",
-                extra={"deps": skipped_dependencies, "target": str(plugin_dir)},
-            )
-            _report_install_progress(
-                progress_reporter,
-                "dependencies",
-                f"Skipping dependencies for current environment: {', '.join(skipped_dependencies)}",
-                56.0,
-            )
-        if not installable_dependencies:
-            logger.info(
-                "No plugin dependencies need installation for current environment",
+                "No plugin dependencies need installation",
                 extra={"target": str(plugin_dir)},
             )
             _report_install_progress(
@@ -561,29 +658,41 @@ class PluginInstallationMixin:
 
         deps_dir = plugin_dir / ".deps"
         deps_dir.mkdir(exist_ok=True)
-        try:
+
+        if isinstance(resolved, Path):
             cmd = _build_dependency_install_command(
-                installable_dependencies,
-                deps_dir,
-                quiet=progress_reporter is None,
+                resolved, deps_dir, quiet=progress_reporter is None
             )
-        except RuntimeError as exc:
-            _report_install_progress(progress_reporter, "dependencies", str(exc), 56.0)
-            raise
-        logger.info(
-            "Installing plugin dependencies",
-            extra={
-                "deps": installable_dependencies,
-                "target": str(deps_dir),
-                "python": cmd[0],
-            },
-        )
-        _report_install_progress(
-            progress_reporter,
-            "dependencies",
-            f"Installing plugin dependencies: {', '.join(installable_dependencies)}",
-            56.0,
-        )
+            install_label = f"Installing locked plugin dependencies from {resolved.name}"
+        else:
+            logger.warning(
+                "Installing UNVERIFIED plugin dependencies (developer mode; no "
+                "requirements.lock). This bypasses supply-chain integrity checks.",
+                extra={"deps": resolved, "target": str(deps_dir)},
+            )
+            installable, skipped = _filter_installable_dependencies(resolved)
+            if skipped:
+                logger.info(
+                    "Skipping plugin dependencies for current environment",
+                    extra={"deps": skipped, "target": str(deps_dir)},
+                )
+            if not installable:
+                _report_install_progress(
+                    progress_reporter,
+                    "dependencies",
+                    "No plugin dependencies need installation",
+                    82.0,
+                )
+                return
+            cmd = _build_loose_dependency_install_command(
+                installable, deps_dir, quiet=progress_reporter is None
+            )
+            install_label = (
+                f"Installing UNVERIFIED plugin dependencies: {', '.join(installable)}"
+            )
+
+        logger.info(install_label, extra={"target": str(deps_dir), "python": cmd[0]})
+        _report_install_progress(progress_reporter, "dependencies", install_label, 56.0)
         try:
             if progress_reporter is None:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -592,33 +701,24 @@ class PluginInstallationMixin:
         except subprocess.TimeoutExpired as exc:
             logger.exception(
                 "Plugin dependency installation timed out",
-                extra={"deps": installable_dependencies, "target": str(deps_dir)},
+                extra={"target": str(deps_dir)},
             )
             raise RuntimeError(
-                f"Timed out installing plugin dependencies after {exc.timeout} seconds: "
-                f"{', '.join(installable_dependencies)}"
+                f"Timed out installing plugin dependencies after {exc.timeout} seconds"
             ) from exc
         if result.returncode != 0:
             stderr = result.stderr.strip()
             logger.error(
                 "Plugin dependency installation failed",
                 extra={
-                    "deps": installable_dependencies,
                     "target": str(deps_dir),
                     "returncode": result.returncode,
                     "stderr": stderr,
                 },
             )
-            raise RuntimeError(f"Failed to install plugin dependencies: {stderr}")
-        logger.info(
-            "Installed plugin dependencies",
-            extra={"deps": installable_dependencies, "target": str(deps_dir)},
-        )
+            raise RuntimeError(f"Plugin dependency installation failed: {stderr}")
         _report_install_progress(
-            progress_reporter,
-            "dependencies",
-            "Installed plugin dependencies",
-            82.0,
+            progress_reporter, "dependencies", "Installed plugin dependencies", 82.0
         )
 
 

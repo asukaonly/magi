@@ -62,6 +62,7 @@ class L2GroundingPlan:
     confidence: float = 0.5
     allowed_evidence_classes: Optional[set[str]] = None
     evidence_focus_source: Optional[str] = None  # "llm" | "rule_heuristic" | "family_fallback" | None
+    predicate_source: Optional[str] = None  # "explicit"|"embedding"|"llm_family"|"keyword_fallback" (RFC #65 P1)
 
     @property
     def expanded_predicates(self) -> list[str]:
@@ -126,6 +127,7 @@ def build_grounding_plan(
     plan.confidence = _compute_plan_confidence(plan)
     plan.allowed_evidence_classes = conditions.allowed_evidence_classes
     plan.evidence_focus_source = conditions.evidence_focus_source
+    plan.predicate_source = conditions.predicate_source
 
     return plan
 

@@ -11,17 +11,36 @@ import aiosqlite
 
 from ..chat import ChatSessionRecord, ChatStore
 from ..core.logger import get_logger
+from ..identity import CANONICAL_LOCAL_USER, ExternalIdentity, IdentityResolver
 from .contracts import ChannelSessionMapping
 
 logger = get_logger(__name__)
 
 
 class ChannelSessionMapper:
-    """Maps (channel_type, external_chat_id) ↔ Magi session_id."""
+    """Maps (channel_type, external_chat_id) ↔ Magi session_id.
 
-    def __init__(self, *, db_path: str, chat_store: ChatStore) -> None:
+    Ingress site #1 for identity canonicalization
+    (``docs/identity-architecture.md`` §6.5). When ``resolver`` is
+    supplied, ``resolve_or_create`` calls ``resolver.resolve()`` to
+    canonicalize the external user identity into a ``MagiUserID``
+    before stamping it onto ``magi_user_id``. Without a resolver
+    (legacy callers / tests), the synthesized
+    ``channel_{channel_type}_{external_user_id}`` value is replaced
+    with ``CANONICAL_LOCAL_USER`` — the single-user assumption that
+    already holds everywhere else in the codebase.
+    """
+
+    def __init__(
+        self,
+        *,
+        db_path: str,
+        chat_store: ChatStore,
+        identity_resolver: IdentityResolver | None = None,
+    ) -> None:
         self._db_path = str(Path(db_path).expanduser())
         self._chat_store = chat_store
+        self._identity_resolver = identity_resolver
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -54,7 +73,23 @@ class ChannelSessionMapper:
                 metadata_json=existing.metadata_json,
             )
 
-        magi_user_id = f"channel_{channel_type}_{external_user_id}"
+        # Phase H+2 identity layer: external_user_id flows through the
+        # IdentityResolver so the magi_user_id column stores the
+        # canonical MagiUserID, never the raw external id. Legacy
+        # callers without a resolver still get the canonical default
+        # (single-user assumption); the old f"channel_{type}_{ext}"
+        # synthesis is gone.
+        if self._identity_resolver is not None:
+            magi_user_id = str(
+                await self._identity_resolver.resolve(
+                    ExternalIdentity(
+                        channel_type=channel_type,
+                        external_user_id=external_user_id,
+                    )
+                )
+            )
+        else:
+            magi_user_id = str(CANONICAL_LOCAL_USER)
         session_id = f"chsess_{uuid.uuid4().hex[:12]}"
         now_ms = int(time.time() * 1000)
         title = display_name or f"{channel_type.capitalize()}: {external_chat_id}"
@@ -119,6 +154,20 @@ class ChannelSessionMapper:
             if row is None:
                 return None
             return self._row_to_mapping(row)
+
+    async def list_all(self) -> list[ChannelSessionMapping]:
+        """Return every (channel, chat) → session mapping known to
+        the host. Used by the channels-bindings API to render the
+        full list of connected accounts (and their per-binding
+        auto-approve toggles)."""
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT * FROM channel_session_mappings "
+                "ORDER BY last_active_at_ms DESC"
+            )
+            rows = await cursor.fetchall()
+            return [self._row_to_mapping(row) for row in rows]
 
     async def lookup_by_session(
         self,

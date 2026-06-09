@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, status
 
 from ... import i18n as core_i18n
+from ...config import get_config
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshChannelsCommand
@@ -73,8 +74,14 @@ async def list_plugins(
     include_libraries = "libraries" in include_set
     if not include_libraries:
         packages = [p for p in packages if p.manifest.kind != "library"]
+    # Read config.plugins.packages ONCE and thread it through the projection
+    # so serializing M plugins does one config read (glob + stat) not M.
+    config_packages = get_config().plugins.packages
     return PluginsListResponse(
-        plugins=[legacy._serialize_package(item) for item in packages],
+        plugins=[
+            legacy._serialize_package(item, packages=config_packages)
+            for item in packages
+        ],
         total=len(packages),
     )
 
@@ -84,8 +91,12 @@ async def rescan_plugins():
     legacy = legacy_plugins_module()
     manager = legacy.resolve_plugin_manager()
     packages = manager.rescan_runtime()
+    config_packages = get_config().plugins.packages
     return PluginsListResponse(
-        plugins=[legacy._serialize_package(item) for item in packages],
+        plugins=[
+            legacy._serialize_package(item, packages=config_packages)
+            for item in packages
+        ],
         total=len(packages),
     )
 

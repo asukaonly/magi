@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from contextlib import contextmanager
 from typing import Any
@@ -34,6 +35,38 @@ TEMPORAL_CATEGORIES = ["day", "week", "month", "quarter", "year"]
 # pending-first reordering can pull older insights ahead of newer temporal
 # rows, so the visible window's top entries may live deeper in either feed.
 _INTERLEAVE_HEADROOM = 50
+
+# Detects schema identifiers that should never reach the user.
+# Patterns like "state.sleep_quality", "engagement.gaming_focus" — lowercase
+# letters separated by '.', optionally with underscores.
+# Doesn't use \b because Chinese chars are word chars in Python 3 unicode regex,
+# so a Chinese-letter / english-letter boundary doesn't trigger \b.
+_TRAIT_LEAK_PATTERN = re.compile(r"(?<![a-zA-Z0-9])([a-z][a-z_]*\.[a-z][a-z_]+)(?![a-zA-Z0-9])")
+
+# Safe-extension suffixes — file paths and URLs are not leak candidates.
+_SAFE_EXTENSIONS = {
+    "com", "org", "net", "io", "cn", "jp", "ai", "co", "dev", "app",
+    "py", "ts", "tsx", "js", "jsx", "md", "html", "css", "json", "yaml", "yml",
+    "sh", "txt", "log", "csv",
+}
+
+
+def _is_legible_insight_content(content: str) -> bool:
+    """Return False when the content contains raw trait_name schema leakage.
+
+    Used as a last-mile safety net against legacy L3 insight rows generated
+    before the renderer chokepoint was in place.
+    """
+    matches = _TRAIT_LEAK_PATTERN.findall(content or "")
+    if not matches:
+        return True
+    for match in matches:
+        suffix = match.rsplit(".", 1)[-1]
+        if suffix in _SAFE_EXTENSIONS:
+            continue
+        return False
+    return True
+
 
 _memory_override: Any = None
 
@@ -152,6 +185,14 @@ def build_router() -> APIRouter:
         )
 
         combined = [_row_to_story_item(r) for r in [*insights, *temporal]]
+
+        # Hide insight cards whose content still contains raw trait_name
+        # schema identifiers (legacy data predating the renderer chokepoint).
+        combined = [
+            item for item in combined
+            if item["summary_type"] != "insight"
+            or _is_legible_insight_content(item["content"])
+        ]
 
         # Hide state_change insights whose salience window has passed.
         # Other insight categories (trend_shift, milestone_review, ...) and

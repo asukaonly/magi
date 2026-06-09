@@ -361,6 +361,7 @@
       "not_found": "Plugin not found",
       "filename_required": "Filename required",
       "archive_extension_invalid": "Archive must be .tar.gz, .tgz, or .zip",
+      "archive_invalid": "The uploaded file is not a valid plugin archive",
       "not_found_in_registry": "Plugin not found in registry",
       "registry_unreachable": "Unable to reach plugin registry",
       "cannot_update_builtin": "Cannot update builtin plugins",

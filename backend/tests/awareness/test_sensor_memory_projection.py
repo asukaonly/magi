@@ -95,6 +95,44 @@ def test_build_sensor_memory_event_carries_envelope_id():
     assert me.idempotency_key == "sensor:screen_time:win-app-foo-1234:1700.0"
 
 
+def test_build_sensor_memory_event_carries_pinned_payload_off_the_row():
+    # RFC #56 P3: a sensor pins the capture-time full text; it must reach the
+    # MemoryEvent as a transient field (-> L1 satellite) WITHOUT bloating the
+    # persisted row (content stays the lean summary; metadata_json excludes it).
+    out = {
+        "source_type": "obsidian_vault",
+        "source_item_id": "note-1",
+        "occurred_at": 1700.0,
+        "captured_at": 1700.5,
+        "domain_payload": {},
+        "raw_payload_ref": None,
+        "pinned_payload": "the full frozen note body, much longer than the summary",
+        "provenance": {},
+        "tags": [],
+        "entities": [],
+        "content_blocks": [],
+    }
+    payload = _make_payload(output_dict=out, payload=dict(out))
+    me = build_sensor_memory_event(payload, event_id="evt-9")
+    assert me.pinned_payload == "the full frozen note body, much longer than the summary"
+    assert me.content == "Used Chrome on Mac"  # lean summary, not the full body
+    assert "pinned_payload" not in (me.metadata_json or {})
+
+
+def test_build_sensor_memory_event_threads_promotion_override():
+    # RFC #56 P4: a per-event promotion override flows into metadata_json so
+    # resolve_llm_extraction can honor it. Stored only when set (lean otherwise).
+    base = _make_payload()
+    me_default = build_sensor_memory_event(base, event_id="evt-d")
+    assert "promotion_override" not in (me_default.metadata_json or {})
+
+    out = dict(base.output_dict)
+    out["promotion_override"] = "force_full"
+    payload = _make_payload(output_dict=out, payload=dict(out))
+    me = build_sensor_memory_event(payload, event_id="evt-f")
+    assert me.metadata_json["promotion_override"] == "force_full"
+
+
 def test_build_sensor_memory_event_metadata_carries_timeline_dict():
     payload = _make_payload()
     me = build_sensor_memory_event(payload, event_id="evt-1")
@@ -136,3 +174,22 @@ def test_default_memory_event_type_when_missing():
     payload = _make_payload(memory_event_type="")
     me = build_sensor_memory_event(payload, event_id="evt-4")
     assert me.event_type == "SENSOR_EVENT"
+
+
+def test_structured_only_flag_threaded_into_metadata_when_disabled():
+    # A sensor declaring allow_llm_extraction=False (structured-only) must surface in
+    # metadata_json so L2 can do deterministic direct-writes but skip the LLM.
+    payload = _make_payload(
+        policy_dict=SensorMemoryPolicy(
+            cognition_eligible=True, allow_llm_extraction=False
+        ).to_dict(),
+    )
+    me = build_sensor_memory_event(payload, event_id="evt-so")
+    assert me.metadata_json["allow_llm_extraction"] is False
+
+
+def test_structured_only_flag_absent_by_default():
+    # Lean metadata: only stored when False. Extraction treats a missing key as True.
+    payload = _make_payload()
+    me = build_sensor_memory_event(payload, event_id="evt-def")
+    assert "allow_llm_extraction" not in (me.metadata_json or {})

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 from magi.awareness.kg_write_queue import KnowledgeGraphEdgeWrite
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SensorEventEmitted, TaskContext
-from magi.awareness.subscribers.kg_subscriber import KGSubscriber
+from magi.timeline.subscribers.kg_subscriber import KGSubscriber
 
 
 def _make_payload_with_relations(candidates, whitelist):

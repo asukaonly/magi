@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.task_agents.chat.transcript_summarizer import (
+from magi.chat.task_agent.transcript_summarizer import (
     ChatTranscriptSummarizer,
     TranscriptSummaryInput,
 )
@@ -43,8 +43,8 @@ async def _append_assistant_message(
 
 
 @pytest.mark.asyncio
-async def test_transcript_summarizer_rolls_previous_summary_into_next_summary(tmp_path: Path) -> None:
-    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+async def test_transcript_summarizer_rolls_previous_summary_into_next_summary(runtime_paths_with_schema) -> None:
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.initialize()
     calls: list[TranscriptSummaryInput] = []
 

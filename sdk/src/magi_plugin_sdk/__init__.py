@@ -17,6 +17,8 @@ Magi backend is installed):
 Both resolve to the same classes at runtime.
 """
 from .base import Plugin
+from .control import ControlRequest
+from .delivery import DeliveryContent, DeliveryReceipt
 from .channels import (
     Channel,
     ChannelConfig,
@@ -93,12 +95,23 @@ from .tools import (
     ToolResult,
     ToolSchema,
 )
+from .capabilities import (
+    BackgroundPort,
+    DelegationEventPort,
+    ToolCapabilities,
+    TracePort,
+)
 
 __version__ = "0.1.0"
 
 __all__ = [
     # Core base class
     "Plugin",
+    # Delivery types (Phase G)
+    "DeliveryContent",
+    "DeliveryReceipt",
+    # Control-plane types (Phase H+2 — approval fanout)
+    "ControlRequest",
     # Channels
     "Channel",
     "ChannelConfig",
@@ -158,6 +171,11 @@ __all__ = [
     "ToolParameter",
     "ToolResult",
     "ToolSchema",
+    # Capabilities
+    "BackgroundPort",
+    "DelegationEventPort",
+    "ToolCapabilities",
+    "TracePort",
     # i18n
     "PluginI18n",
     "DEFAULT_LANGUAGE",

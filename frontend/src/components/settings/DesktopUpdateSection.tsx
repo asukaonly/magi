@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Download, RefreshCcw, RotateCcw } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import type { Update } from '@tauri-apps/plugin-updater';
 
 import type { NetworkProxyConfig } from '@/api/modules/config';
@@ -18,7 +19,6 @@ import { toast } from 'sonner';
 const POST_BACKEND_STOP_QUIESCE_MS = 600;
 
 async function stopBackendBeforeInstall(): Promise<void> {
-  const { invoke } = await import('@tauri-apps/api/core');
   await invoke('stop_backend');
   // Give Windows a moment to release file handles on sidecar-dist binaries
   // before NSIS tries to overwrite them. Harmless on macOS/Linux.
@@ -27,8 +27,7 @@ async function stopBackendBeforeInstall(): Promise<void> {
 
 async function restartBackendAfterInstallFailure(): Promise<void> {
   try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('start_backend');
+      await invoke('start_backend');
   } catch (error) {
     console.warn('[updater] failed to restart backend after install failure', {
       error: error instanceof Error ? error.message : String(error),

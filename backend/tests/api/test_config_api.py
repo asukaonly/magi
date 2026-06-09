@@ -1,6 +1,9 @@
 """Tests for config router extensions."""
 
+from datetime import datetime, timezone
+
 import pytest
+import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -34,6 +37,7 @@ from magi.config.llm_registry import (
     resolve_llm_profile,
 )
 from magi.i18n import language_context
+from magi.system_suggestions.contracts import DismissalKind, DismissalRecord
 
 
 def _provider_settings(
@@ -171,6 +175,40 @@ def test_build_update_paths_includes_background_auto_dispatch_setting(
     updates = _build_update_paths(config)
 
     assert updates["agent.background_tasks.auto_detect_long_task"] is True
+
+
+def test_build_update_paths_keeps_preferences_yaml_safe_with_dismissals(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Preferences must serialize to YAML even when a dismissal record is present.
+
+    Regression: ``suggestion_dismissals`` is typed ``dict[str, DismissalRecord]``,
+    so a full-config save round-trips the on-disk string ``"explicit"`` back into
+    a ``DismissalKind`` enum. ``_build_update_paths`` dumped preferences with
+    ``model_dump(exclude_none=True)`` (python mode), leaving the enum/datetime as
+    native objects that ``yaml.safe_dump`` cannot represent — which truncated
+    agent.yaml mid-write. The dump must be JSON-mode so values are plain scalars.
+    """
+    monkeypatch.setattr(
+        "magi.api.routers.config._build_system_config",
+        lambda mask_api_key=False: SystemConfigModel(),
+    )
+    config = SystemConfigModel()
+    config.preferences.suggestion_dismissals = {
+        "demo.suggestion": DismissalRecord(
+            dedupe_key="demo.suggestion",
+            dismissed_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+            kind=DismissalKind.EXPLICIT,
+        )
+    }
+
+    updates = _build_update_paths(config)
+
+    # The exact operation that corrupted agent.yaml in production.
+    yaml.safe_dump(updates["preferences"], allow_unicode=True, sort_keys=False)
+    dumped = updates["preferences"]["suggestion_dismissals"]["demo.suggestion"]
+    assert type(dumped["kind"]) is str
+    assert dumped["kind"] == "explicit"
 
 
 def test_build_system_config_loads_close_to_tray_enabled_preference_from_raw_yaml(
@@ -1295,3 +1333,15 @@ def test_complete_onboarding_quick_mode_uses_scenario_seed_personality(
 
     assert response.status_code == 200
     assert captured["name"] == "Halberd"
+
+
+def test_user_preferences_has_product_tour_completed_default_false():
+    from magi.api.routers.config_schemas import UserPreferencesModel
+    prefs = UserPreferencesModel()
+    assert prefs.product_tour_completed is False
+
+
+def test_user_preferences_product_tour_completed_roundtrip():
+    from magi.api.routers.config_schemas import UserPreferencesModel
+    prefs = UserPreferencesModel(product_tour_completed=True)
+    assert prefs.model_dump()["product_tour_completed"] is True

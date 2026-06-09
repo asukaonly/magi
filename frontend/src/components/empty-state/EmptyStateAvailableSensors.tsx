@@ -1,0 +1,128 @@
+import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import { useInstallableSensors } from '../../hooks/useInstallableSensors';
+import { usePluginInstallPanelStore } from '../../stores/pluginInstallPanel';
+import {
+  EMPTY_STATE_PRIORITY_PLUGINS,
+  getEmptyStatePluginMeta,
+} from '../../constants/emptyStatePriorities';
+import type { InstallableItem } from '../../api/modules/systemSuggestions';
+import { EmptyStateSensorCard } from './EmptyStateSensorCard';
+
+/**
+ * Orchestrator component for the empty-state CTA list.
+ *
+ * Responsibilities:
+ *   1. Source the candidate plugins from the backend
+ *      `GET /system-suggestions/installable` endpoint via
+ *      `useInstallableSensors`. The backend returns the availability-filtered
+ *      union of locally-installed sensors and registry-available plugins, each
+ *      tagged with an `installed` flag.
+ *   2. Render an `<EmptyStateSensorCard>` for each item that has empty-state
+ *      display metadata, sorted by `EMPTY_STATE_PRIORITY_PLUGINS`. Items
+ *      without metadata are silently skipped.
+ *   3. On a Connect click, open the single MainLayout-mounted
+ *      `<PluginInstallPanel>` via `usePluginInstallPanelStore.openPanel`. For
+ *      registry-only items (`installed === false`) we pass `{ install: true }`
+ *      so the panel downloads the plugin from the registry before the connect
+ *      flow runs (install-then-connect). The panel owns the full honest flow
+ *      (install → enable → sync → build-memory) and its own done state.
+ *
+ * The orchestrator is intentionally self-contained: unlike
+ * `TimelineSourcesSection` it does NOT lift draft state up to a parent, and it
+ * no longer renders its own dialog — the shared panel handles every entry
+ * point.
+ */
+
+export interface EmptyStateAvailableSensorsProps {
+  /**
+   * Plugin IDs that are already installed/configured and should be hidden from
+   * the list. The orchestrator filters them from the rendered rows.
+   */
+  excludePluginIds?: string[];
+}
+
+/**
+ * Stable index for the priority ordering. Plugins absent from the priority
+ * list sort after every listed plugin (and keep their relative input order via
+ * a stable sort).
+ */
+function priorityIndex(pluginId: string): number {
+  const idx = (EMPTY_STATE_PRIORITY_PLUGINS as readonly string[]).indexOf(pluginId);
+  return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+}
+
+export function EmptyStateAvailableSensors({
+  excludePluginIds,
+}: EmptyStateAvailableSensorsProps): JSX.Element | null {
+  const { t } = useTranslation('onboarding');
+
+  const { items, loading } = useInstallableSensors();
+
+  // Connect now opens the single MainLayout-mounted <PluginInstallPanel>, which
+  // owns the full honest flow (install → enable → sync → build-memory) and its
+  // own done state. This component no longer renders its own dialog.
+  const openPanel = usePluginInstallPanelStore((s) => s.openPanel);
+
+  const excluded = useMemo(
+    () => new Set(excludePluginIds ?? []),
+    [excludePluginIds],
+  );
+
+  // Filter out excluded plugins, then order by the empty-state priority list
+  // (plugins not in the list go last, stable).
+  const ordered = useMemo<InstallableItem[]>(() => {
+    const visible = items.filter((item) => !excluded.has(item.plugin_id));
+    return [...visible].sort(
+      (a, b) => priorityIndex(a.plugin_id) - priorityIndex(b.plugin_id),
+    );
+  }, [items, excluded]);
+
+  if (loading) {
+    // Suppress flash-of-cards while the installable list is in flight. The hook
+    // flips loading=false once items are populated.
+    return null;
+  }
+  if (ordered.length === 0) {
+    return null;
+  }
+
+  return (
+    // text-left: the timeline/memory empty states wrap this in a `text-center`
+    // container; without this the inherited centering shifts each row's (short)
+    // title vs (longer) description so they look misaligned.
+    <div className="space-y-3 text-left">
+      <h3 className="text-sm font-medium text-foreground">
+        {t('emptyState.heading')}
+      </h3>
+      <div className="divide-y divide-border/55 overflow-hidden rounded-lg border border-border/55">
+        {ordered.map((item) => {
+          const meta = getEmptyStatePluginMeta(item.plugin_id);
+          if (!meta) {
+            return null;
+          }
+          return (
+            <EmptyStateSensorCard
+              key={item.plugin_id}
+              pluginId={item.plugin_id}
+              titleKey={meta.titleKey}
+              valueKey={meta.valueKey}
+              iconId={meta.iconId}
+              connectLabelKey={
+                item.installed ? 'emptyState.connect' : 'emptyState.installAndConnect'
+              }
+              onConnect={(pluginId) => {
+                // Install-first for registry-only items: the panel downloads
+                // from the registry before the connect flow runs.
+                openPanel(pluginId, { install: !item.installed });
+              }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export default EmptyStateAvailableSensors;

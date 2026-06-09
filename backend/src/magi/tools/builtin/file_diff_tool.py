@@ -6,7 +6,7 @@ import hashlib
 from pathlib import Path
 from typing import Any, Dict
 
-from ...agent.workspace_cache import (
+from magi_plugin_sdk.workspace_cache import (
     EditRecord,
     SessionCache,
     SnapshotRef,

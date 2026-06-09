@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from ..chat.workspace import get_default_chat_workspace_path
+from ..utils.runtime import get_default_chat_workspace_path
 from .schema import (
     IdentityConstraintContext,
     PromptAssemblyContext,

@@ -1,15 +1,20 @@
 # Preset cross-encoder reranker models for ONNX Runtime inference.
 #
 # Each entry defines a model that can be downloaded and used locally for
-# reranking retrieved memory candidates.  Models are stored under
-# ~/.magi/cache/models/rerank/{id}/
+# reranking retrieved memory candidates. Models are stored under
+# ~/.magi/cache/models/rerank/{id}/.
 #
-# Required files in each model directory:
-#   *.onnx or onnx/*.onnx  — ONNX model weights
-#   tokenizer.json          — HuggingFace fast tokenizer
+# `variants` enumerates the per-quantization ONNX files available in the
+# upstream HuggingFace repo. `default_variant` maps a platform key
+# (sys.platform + "_" + platform.machine().lower()) to the variant the
+# runtime picks when the user has not set an explicit override. `_fallback`
+# is used if no platform-specific entry matches.
 #
-# Cross-encoders take (query, document) pairs as input and output a single
-# relevance logit.  The reranker applies sigmoid to produce a [0, 1] score.
+# Note: BGE/Jina rerankers use the onnx-community generic variant naming
+# (model.onnx, model_fp16.onnx, model_quantized.onnx, etc.). MS MARCO
+# rerankers use architecture-specific names from the cross-encoder
+# namespace (model_qint8_arm64.onnx, model_quint8_avx2.onnx, etc.) —
+# the variant keys here mirror those file names verbatim.
 
 models:
   - id: bge-reranker-v2-m3
@@ -17,53 +22,79 @@ models:
     repo: "BAAI/bge-reranker-v2-m3"
     onnx_repo: "onnx-community/bge-reranker-v2-m3-ONNX"
     max_tokens: 512
-    size_mb: 560
-    languages:
-      - multi
+    size_mb: 570
+    languages: [multi]
     recommended: true
     description: "Multilingual cross-encoder (Chinese + English + 100 languages), best overall quality"
+    variants:
+      fp32:      { file: "onnx/model.onnx",            size_mb: 2300 }
+      fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 1136 }
+      quantized: { file: "onnx/model_quantized.onnx",  size_mb: 570 }
+      int8:      { file: "onnx/model_int8.onnx",       size_mb: 570 }
+    default_variant:
+      darwin_arm64:  fp16
+      win32_amd64:   quantized
+      linux_x86_64:  quantized
+      _fallback:     quantized
 
-  - id: bge-reranker-base
-    label: "BGE Reranker Base"
-    repo: "BAAI/bge-reranker-base"
-    onnx_repo: "onnx-community/bge-reranker-base-ONNX"
-    max_tokens: 512
-    size_mb: 278
-    languages:
-      - en
-      - zh
+  - id: gte-reranker-modernbert-base
+    label: "GTE Reranker (ModernBERT base)"
+    repo: "Alibaba-NLP/gte-reranker-modernbert-base"
+    onnx_repo: "Alibaba-NLP/gte-reranker-modernbert-base"
+    max_tokens: 8192
+    size_mb: 151
+    languages: [multi]
     recommended: false
-    description: "Lightweight Chinese-English cross-encoder, good balance of speed and accuracy"
+    description: "Modern multilingual cross-encoder on ModernBERT (8k context, faster than classic BERT), Alibaba, Apache 2.0"
+    variants:
+      fp32:      { file: "onnx/model.onnx",            size_mb: 599 }
+      fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 300 }
+      quantized: { file: "onnx/model_quantized.onnx",  size_mb: 151 }
+      int8:      { file: "onnx/model_int8.onnx",       size_mb: 151 }
+    default_variant:
+      darwin_arm64:  fp16
+      win32_amd64:   quantized
+      linux_x86_64:  quantized
+      _fallback:     quantized
 
   - id: ms-marco-MiniLM-L-6-v2
     label: "MS MARCO MiniLM L-6"
-    repo: "cross-encoder/ms-marco-MiniLM-L-6-v2"
-    onnx_repo: "onnx-community/ms-marco-MiniLM-L-6-v2-ONNX"
+    repo: "cross-encoder/ms-marco-MiniLM-L6-v2"
+    onnx_repo: "cross-encoder/ms-marco-MiniLM-L6-v2"
     max_tokens: 512
-    size_mb: 22
-    languages:
-      - en
+    size_mb: 23
+    languages: [en]
     recommended: false
     description: "Ultra-lightweight English cross-encoder (~3ms per pair), English only"
-
-  - id: ms-marco-MiniLM-L-12-v2
-    label: "MS MARCO MiniLM L-12"
-    repo: "cross-encoder/ms-marco-MiniLM-L-12-v2"
-    onnx_repo: "onnx-community/ms-marco-MiniLM-L-12-v2-ONNX"
-    max_tokens: 512
-    size_mb: 33
-    languages:
-      - en
-    recommended: false
-    description: "Lightweight English cross-encoder, slightly better than L-6"
+    variants:
+      fp32:                 { file: "onnx/model.onnx",                    size_mb: 91 }
+      fp16:                 { file: "onnx/model_O4.onnx",                 size_mb: 46 }
+      arm64_int8:           { file: "onnx/model_qint8_arm64.onnx",        size_mb: 23 }
+      x86_avx512_int8:      { file: "onnx/model_qint8_avx512.onnx",       size_mb: 23 }
+      x86_avx512_vnni_int8: { file: "onnx/model_qint8_avx512_vnni.onnx",  size_mb: 23 }
+      x86_avx2_int8:        { file: "onnx/model_quint8_avx2.onnx",        size_mb: 23 }
+    default_variant:
+      darwin_arm64:  arm64_int8
+      win32_amd64:   x86_avx2_int8
+      linux_x86_64:  x86_avx2_int8
+      _fallback:     x86_avx2_int8
 
   - id: jina-reranker-v2-base-multilingual
     label: "Jina Reranker v2 Base Multilingual"
     repo: "jinaai/jina-reranker-v2-base-multilingual"
     onnx_repo: "jinaai/jina-reranker-v2-base-multilingual"
     max_tokens: 512
-    size_mb: 278
-    languages:
-      - multi
+    size_mb: 280
+    languages: [multi]
     recommended: false
     description: "Multilingual cross-encoder from Jina AI, alternative to BGE"
+    variants:
+      fp32:      { file: "onnx/model.onnx",            size_mb: 1114 }
+      fp16:      { file: "onnx/model_fp16.onnx",       size_mb: 557 }
+      quantized: { file: "onnx/model_quantized.onnx",  size_mb: 280 }
+      int8:      { file: "onnx/model_int8.onnx",       size_mb: 280 }
+    default_variant:
+      darwin_arm64:  fp16
+      win32_amd64:   quantized
+      linux_x86_64:  quantized
+      _fallback:     quantized

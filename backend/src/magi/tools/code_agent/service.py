@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, ClassVar, Optional
 
-from ...agent.workspace_cache.atomic_io import append_jsonl, atomic_write_text
+from magi_plugin_sdk.fs import append_jsonl, atomic_write_text
 from .adapters.base import AdapterRunOutcome, CancelToken, CodeAgentAdapter, OnEvent
 from .adapters.claude_code import ClaudeCodeAdapter
 from .adapters.codex import CodexAdapter
@@ -72,6 +72,7 @@ class CodeAgentService:
         dry_run: bool = False,
         on_event: Optional[OnEvent] = None,
         user_id: Optional[str] = None,
+        delegation_events=None,
     ) -> DelegateResult:
         start = time.monotonic()
         delegation_dir = self._delegation_dir(req)
@@ -80,14 +81,13 @@ class CodeAgentService:
         atomic_write_text(delegation_dir / "request.json", json.dumps(req.model_dump()))
 
         broadcaster_user_id = (user_id or "").strip()
-        broadcast_enabled = bool(broadcaster_user_id)
+        broadcast_enabled = bool(broadcaster_user_id) and delegation_events is not None
 
         async def _broadcast_event_safely(ev: RunEvent) -> None:
             if not broadcast_enabled:
                 return
             try:
-                from ...transport.code_agent_events import broadcast_delegation_event
-                await broadcast_delegation_event(
+                await delegation_events.broadcast_event(
                     user_id=broadcaster_user_id,
                     session_id=req.session_id,
                     delegation_id=req.delegation_id,
@@ -100,8 +100,7 @@ class CodeAgentService:
             if not broadcast_enabled:
                 return
             try:
-                from ...transport.code_agent_events import broadcast_delegation_state
-                await broadcast_delegation_state(
+                await delegation_events.broadcast_state(
                     user_id=broadcaster_user_id,
                     session_id=req.session_id,
                     delegation_id=req.delegation_id,

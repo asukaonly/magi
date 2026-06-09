@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...agent.workspace_cache import SessionCache, resolve_session_cache
+from magi_plugin_sdk.workspace_cache import SessionCache, resolve_session_cache
 from ...core.logger import get_logger
 
 logger = get_logger(__name__)

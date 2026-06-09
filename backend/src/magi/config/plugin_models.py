@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from magi_plugin_sdk.contracts import PluginCapability
+
 
 class PluginSettings(BaseModel):
     """Per-plugin persisted runtime state."""
@@ -15,6 +17,16 @@ class PluginSettings(BaseModel):
     settings: Dict[str, Any] = Field(default_factory=dict)
     source: Optional[str] = Field(default=None)
     manifest_path: Optional[str] = Field(default=None)
+    official: Optional[bool] = Field(
+        default=None,
+        description="Registry-authoritative official flag for non-builtin "
+        "plugins; None means unknown (treated as non-official).",
+    )
+    consented_capabilities: Optional[List[PluginCapability]] = Field(
+        default=None,
+        description="Capabilities the user consented to at install/update. "
+        "None means a legacy install predating consent (treated as empty).",
+    )
 
 
 class PluginsSettings(BaseModel):

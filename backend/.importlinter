@@ -1,0 +1,155 @@
+[importlinter]
+root_package = magi
+
+# ---------------------------------------------------------------------------
+# Layered architecture contract — enforces docs/layered-agent-architecture.md
+# (L1 lowest -> L15 highest). Upper layers may import lower; lower must NOT
+# import upper. Authoritative package->layer mapping lives in that doc.
+#
+# Coverage: every top-level magi.* package is enumerated in `layers` below
+# (bootstrap is the sole exception — it IS the composition root). When adding a
+# new top-level package, place it in the ordering, or CI cannot see its edges.
+#
+# Adoption model: BASELINE + RATCHET.
+#   * The ignore_imports list below is a frozen snapshot of pre-existing
+#     cross-layer imports (originally 115 edges as of 2026-05-31; ratcheted
+#     down since). CI is GREEN today.
+#   * Do NOT add new entries. Any *new* lower->upper import fails CI.
+#   * The list should only ever SHRINK. Delete an entry once the underlying
+#     import is removed; never grow it.
+# ---------------------------------------------------------------------------
+[importlinter:contract:layers]
+name = Magi L1-L15 layered architecture
+type = layers
+containers =
+    magi
+layers =
+    transport | ipc
+    outreach
+    commands
+    api | chat | channels
+    timeline
+    agent
+    context
+    user_profile
+    awareness
+    personality
+    system_suggestions
+    mcp
+    tools
+    skills
+    memory
+    llm
+    plugins
+    control
+    notifications
+    runtime_trace
+    events
+    i18n
+    config
+    hooks
+    location
+    media
+    scheduler | identity
+    db
+    core
+    utils
+    availability
+    chat_preview
+ignore_imports =
+    # == Composition root (NOT debt; structural & permanent) ==================
+    # core.container is the DI container: wiring every layer is its purpose.
+    magi.core.container -> magi.**
+    # Any import of bootstrap/ is composition-root wiring; bootstrap/ is the
+    # outer assembly boundary, intentionally outside the numbered layer stack.
+    magi.** -> magi.bootstrap.**
+    #
+    # == KNOWN DEBT BASELINE (frozen 2026-05-31; ratchet down, never up) ======
+    # Buckets: tools/skills->agent (33), agent->chat/channels/transport (24),
+    # L13 api/chat/channels siblings (15), runtime_trace->events (7),
+    # awareness->timeline (0; retired — timeline now subscribes down to sensor
+    # events instead of awareness feeding up), other (~23). (The L7 tools<->skills
+    # sibling cycle was broken: `tools` is now ordered above `skills` and the
+    # `skills -> tools.registry` arms were inverted via ToolRegistryPort.)
+    magi.agent.lifecycle -> magi.transport.chat_events
+    # ChatExecutionCoordinator RELOCATED from magi.agent.task_agents.chat.coordinator
+    # to magi.chat.task_agent.coordinator (P2 Task 6, chat-driver descent). The old
+    # edge was agent->channels; the new edge is chat->channels cross-sibling (L14).
+    # Faithful relocation, not new debt.
+    magi.chat.task_agent.coordinator -> magi.channels.delivery_prefs
+    magi.chat.task_agent.coordinator -> magi.channels.delivery_router
+    magi.api.routers.commands -> magi.chat
+    magi.api.routers.commands -> magi.chat.provider
+    # _resolve_notifier imports the ChatRuntimeNotifier; its module RELOCATED
+    # from magi.agent.task_agents.chat.postprocess (P2 Task 2). The old edge was
+    # api->agent (downward, unbaselined); the new edge is api->chat cross-sibling
+    # like the commands->magi.chat edges above. Faithful relocation, not new debt.
+    magi.api.routers.commands -> magi.chat.task_agent.postprocess.notifications
+    magi.api.routers.commands -> magi.commands
+    magi.api.routers.memory.dependencies -> magi.chat
+    magi.api.routers.messages -> magi.chat
+    magi.api.routers.messages -> magi.chat.provider
+    magi.api.routers.messages_common -> magi.chat
+    magi.api.routers.messages_mutations -> magi.transport.chat_events
+    magi.api.services.message_dispatch_service -> magi.chat.attachment_ingestion
+    magi.api.services.message_dispatch_service -> magi.chat.provider
+    magi.api.services.message_dispatch_service -> magi.chat.read_service
+    magi.api.services.message_dispatch_service -> magi.transport.chat_events
+    magi.api.services.personality_bootstrap_messages -> magi.chat.contracts
+    magi.api.services.personality_bootstrap_messages -> magi.chat.provider
+    magi.api.services.personality_bootstrap_messages -> magi.transport.chat_events
+    magi.channels.attachments -> magi.chat.attachment_storage
+    magi.channels.dispatcher -> magi.api.services.message_dispatch_service
+    magi.channels.session_mapper -> magi.chat
+    # Control-Plane Extraction Phase 1: the transcript-projection broadcast
+    # dependency was RELOCATED here from the now-deleted
+    # ``magi.agent.control.chat_state_persister -> magi.transport.chat_events``
+    # edge (chat now owns transcript projection). Net debt shrank: three
+    # control->chat/transport edges were removed and only this one added.
+    magi.chat.control_transcript_subscriber -> magi.transport.chat_events
+    magi.memory.event_translation -> magi.awareness.sensor_memory_projection
+    magi.memory.portrait.factory -> magi.personality.persona_repository
+
+[importlinter:contract:plugin-isolation]
+name = Plugin implementations depend on SDK only, never host layers
+type = forbidden
+# Direct-only on purpose: the first hop from any plugin module to a host
+# module is always a direct edge, so the boundary is still fully enforced.
+# Without this, transitive chains through bootstrap/ (the composition root,
+# which imports every layer) would flood the contract with false positives
+# — the same reason the layers contract exempts bootstrap.
+allow_indirect_imports = true
+# NOTE: magi.plugins is intentionally excluded — it is the host-side L4
+# plugin registration/management layer (manager, installation, registry_client),
+# governed by the layers contract, NOT plugin-implementation code.
+source_modules =
+    magi.tools.builtin
+    magi.tools.code_agent
+    # magi.skills excluded (Phase 5): it is the HOST skill-execution engine
+    # (runner/subagent/loader/indexer), host integration code like magi.mcp and
+    # magi.plugins — NOT plugin-implementation content. The third-party skill
+    # *content* plugins contribute is dynamically loaded and runtime-guarded.
+forbidden_modules =
+    magi.agent
+    magi.chat
+    magi.api
+    magi.transport
+    magi.channels
+    magi.timeline
+    magi.context
+    magi.memory
+    magi.personality
+    magi.llm
+    magi.events
+    magi.control
+ignore_imports =
+    # == KNOWN DEBT BASELINE (frozen 2026-05-31; ratchet down, never up) ==
+    # Plugin->host edges that exist today. Do NOT add entries; only delete
+    # them as the underlying import is removed during later migration phases.
+    # Some edges also violate the layers contract and appear in BOTH baselines;
+    # when an import is removed, delete it from BOTH ignore_imports lists.
+    #
+    # BASELINE = 0 as of Phase 5 Task 3: the last plugin->host edge
+    # (magi.tools.builtin.agent_tool -> magi.agent.workers) was removed when
+    # agent_tool was relocated to magi.agent.runtime_tools and host-registered
+    # via the composition root. Do NOT add new entries here.

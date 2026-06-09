@@ -115,3 +115,85 @@ async def test_task_agent_manager_supports_default_agent_type():
 
     assert manager.get_agent("analytics", "tenant-a") is not None
     await manager.stop_all()
+
+
+def _user_fact(session_id: str) -> FactRecord:
+    return FactRecord(
+        agent_id=f"chat:{session_id}",
+        agent_type=TaskAgentType.CHAT.value,
+        agent_instance_id=session_id,
+        event_type="USER_MESSAGE",
+        payload={"content": "hi"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_evicts_oldest_idle_instance_instead_of_silently_rejecting():
+    """At capacity with an idle instance available, a new session must reclaim
+    the oldest idle slot rather than being silently dropped (regression for the
+    no-op _maybe_evict_idle_instances bug)."""
+    manager = TaskAgentManager(
+        create_chat_agent=lambda agent_id: _CollectTaskAgent(TaskAgentType.CHAT, agent_id),
+        max_dynamic_instances=2,
+    )
+    await manager.start_all(event_emitter=None)
+
+    # Two idle dynamic instances fill capacity (empty fact queues).
+    await manager.ensure_agent(TaskAgentType.CHAT, "s-old")
+    await asyncio.sleep(0.01)  # make s-old strictly older than s-new
+    await manager.ensure_agent(TaskAgentType.CHAT, "s-new")
+
+    # Third session arrives at capacity. The oldest idle instance must be
+    # recycled so the new session is accepted — not silently dropped.
+    accepted = await manager.add_fact_to_agent(
+        TaskAgentType.CHAT, "s-third", _user_fact("s-third")
+    )
+
+    assert accepted is True
+    assert manager.get_agent(TaskAgentType.CHAT, "s-third") is not None
+    assert manager.get_agent(TaskAgentType.CHAT, "s-old") is None
+    assert manager.get_agent(TaskAgentType.CHAT, "s-new") is not None
+
+    await manager.stop_all()
+
+
+class _NeverConsumeTaskAgent(TaskAgent):
+    """TaskAgent that never drains its queue — simulates a permanently busy instance."""
+
+    async def start(self, *args, **kwargs) -> None:
+        pass  # intentionally do not spawn the consume loop
+
+    async def stop(self) -> None:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_does_not_evict_busy_instance_and_rejects_explicitly_when_full():
+    """At capacity with no idle instance to reclaim, a new session is rejected
+    explicitly (observable via return value + counter) and the busy instance is
+    not evicted."""
+    manager = TaskAgentManager(
+        create_chat_agent=lambda agent_id: _NeverConsumeTaskAgent(
+            agent_type=TaskAgentType.CHAT, agent_id=agent_id
+        ),
+        max_dynamic_instances=1,
+    )
+    await manager.start_all(event_emitter=None)
+
+    # Occupy the only dynamic slot with a BUSY instance (non-empty queue).
+    busy = await manager.ensure_agent(TaskAgentType.CHAT, "busy")
+    busy._fact_queue.put_nowait(_user_fact("busy"))
+    assert busy._fact_queue.qsize() == 1
+
+    # New session at capacity with nothing idle to reclaim: must be rejected
+    # explicitly, and the busy instance must survive.
+    accepted = await manager.add_fact_to_agent(
+        TaskAgentType.CHAT, "overflow", _user_fact("overflow")
+    )
+
+    assert accepted is False
+    assert manager.get_agent(TaskAgentType.CHAT, "overflow") is None
+    assert manager.get_agent(TaskAgentType.CHAT, "busy") is not None
+    assert manager.get_stats()["enqueue_rejected_count"] >= 1
+
+    await manager.stop_all()

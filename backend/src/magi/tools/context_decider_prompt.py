@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..agent.message_utils import trim_latest_user_message
+from ..utils.message_text import trim_latest_user_message
 from .context_decider_context import ContextDeciderContext
 
 

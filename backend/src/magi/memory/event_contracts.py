@@ -216,6 +216,10 @@ class MemoryEvent:
     id: Optional[int] = None
     idempotency_key: Optional[str] = None
     media_path: Optional[str] = None
+    # Capture-time full text pinned for L2 (RFC #56 P3). Transient: NOT a
+    # fact_events column and NOT placed in metadata_json — the L1 write path
+    # persists it to the l1_event_payload satellite, keeping the row lean.
+    pinned_payload: Optional[str] = None
     metadata_json: Optional[Dict[str, Any]] = None
     embedding_status: Optional[str] = None
     embedding_profile_id: Optional[str] = None
@@ -250,6 +254,7 @@ class MemoryEvent:
             "importance_score": self.importance_score,
             "level": self.level,
             "media_path": self.media_path,
+            "pinned_payload": self.pinned_payload,
             "metadata_json": dict(self.metadata_json) if self.metadata_json is not None else None,
             "embedding_status": self.embedding_status,
             "embedding_profile_id": self.embedding_profile_id,

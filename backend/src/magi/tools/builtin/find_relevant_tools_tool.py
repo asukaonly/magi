@@ -108,6 +108,7 @@ class FindRelevantToolsTool(Tool):
         tool_recommendations = await self._rerank_tool_recommendations(
             recommendations=tool_recommendations,
             query=query,
+            context=context,
         )
         recommendations.extend(tool_recommendations)
         recommendations.extend(
@@ -186,11 +187,12 @@ class FindRelevantToolsTool(Tool):
         *,
         recommendations: list[dict[str, Any]],
         query: str,
+        context: ToolExecutionContext | None = None,
     ) -> list[dict[str, Any]]:
         if not recommendations:
             return []
 
-        l4_store = self._get_l4_store()
+        l4_store = self._get_l4_store(context=context)
         if l4_store is None or not hasattr(l4_store, "get_tool_advisory"):
             return recommendations
 
@@ -275,14 +277,13 @@ class FindRelevantToolsTool(Tool):
         bound = getattr(self, "_tool_registry_ref", None)
         return bound if bound is not None else tool_registry
 
-    def _get_l4_store(self) -> Any | None:
-        try:
-            from ...memory.provider import get_unified_memory
-
-            unified_memory = get_unified_memory()
-        except Exception:
-            return None
-        return getattr(unified_memory, "l4", None)
+    def _get_l4_store(self, *, context: ToolExecutionContext | None = None) -> Any | None:
+        if context is not None:
+            caps = getattr(context, "capabilities", None)
+            mq = getattr(caps, "memory_query", None) if caps is not None else None
+            if mq is not None:
+                return mq.get_l4_store()
+        return None
 
 
 __all__ = ["FindRelevantToolsTool"]

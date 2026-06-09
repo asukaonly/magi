@@ -1,4 +1,9 @@
-"""LLM response parsing helpers for ContextDecider."""
+"""LLM response parsing helpers for ContextDecider.
+
+Phase B: returns RouteDecision (typed schema) instead of ContextDecision
+(free-form). The parser tolerates legacy LLM outputs by falling back to
+a safe-default RouteDecision when fields are missing or invalid.
+"""
 
 from __future__ import annotations
 
@@ -8,143 +13,126 @@ import re
 from typing import Any
 
 from ..config.models import ThinkingDepth
-from .context_routing import ContextDecision
+from .context_routing import RouteDecision
+from .context_routing.route_decision import (
+    COMPLEXITY_VALUES,
+    GRAPH_SHAPE_VALUES,
+    NEEDS_ORCHESTRATION_VALUES,
+    PROFILE_VALUES,
+    PersonaRouting,
+)
 
 logger = logging.getLogger(__name__)
 
 
+def _fallback_route_decision(reasoning: str = "Fallback") -> RouteDecision:
+    """Safe-default RouteDecision returned on empty/garbled LLM output."""
+    return RouteDecision(
+        profile="chat",
+        graph_shape="reply",
+        complexity="simple",
+        reasoning=reasoning,
+    )
+
+
+def _safe_get_literal(data: dict, key: str, allowed: frozenset[str], default: str) -> str:
+    value = data.get(key)
+    if isinstance(value, str) and value in allowed:
+        return value
+    return default
+
+
+def _safe_get_list_str(data: dict, key: str) -> list[str]:
+    value = data.get(key)
+    if isinstance(value, list):
+        return [str(v) for v in value if isinstance(v, str)]
+    return []
+
+
+def _safe_get_tuple_str(data: dict, key: str) -> tuple[str, ...]:
+    return tuple(_safe_get_list_str(data, key))
+
+
+def _safe_get_bool(data: dict, key: str, default: bool = False) -> bool:
+    value = data.get(key)
+    return value if isinstance(value, bool) else default
+
+
+def _safe_get_thinking_depth(data: dict) -> ThinkingDepth:
+    raw_depth = data.get("thinking_depth")
+    if isinstance(raw_depth, str):
+        try:
+            return ThinkingDepth(raw_depth.lower())
+        except ValueError:
+            pass
+    # Backward-compat: old prompts used `deep_thinking: bool`.
+    if data.get("deep_thinking") is True:
+        return ThinkingDepth.MEDIUM
+    return ThinkingDepth.NONE
+
+
 class ContextDeciderResponseMixin:
-    """Parse context-decider LLM JSON responses."""
+    """Parse context-decider LLM JSON responses into RouteDecision."""
 
     max_tools: int
     tool_registry: Any
 
-    def _default_orchestration_strategy(self, tools: list[str] | None = None, user_lower: str = "") -> dict[str, Any]: ...
-
     def _get_available_tools(self) -> list[dict[str, Any]]: ...
 
-    def _normalize_orchestration_strategy(self, payload: Any) -> dict[str, Any]: ...
-
-    def _parse_response(self, response: str) -> ContextDecision:
-        """Parse LLM response into ContextDecision"""
-        response = response.strip()
-
+    def _parse_response(self, response: str) -> RouteDecision:
+        """Parse LLM response into RouteDecision."""
+        response = (response or "").strip()
         if not response:
             logger.warning("[ContextDecider] Empty LLM response")
-            return ContextDecision(
-                intent="unknown",
-                tools=[],
-                thinking_depth=ThinkingDepth.NONE,
-                reasoning="Empty LLM response",
-                orchestration_strategy=self._default_orchestration_strategy(),
-            )
-
-        if response == "{" or response == "{}":
+            return _fallback_route_decision("Empty LLM response")
+        if response in ("{", "}", "{}"):
             logger.warning(f"[ContextDecider] Incomplete LLM response: {response}")
-            return ContextDecision(
-                intent="unknown",
-                tools=[],
-                thinking_depth=ThinkingDepth.NONE,
-                reasoning="Incomplete LLM response",
-                orchestration_strategy=self._default_orchestration_strategy(),
-            )
+            return _fallback_route_decision("Incomplete LLM response")
 
         json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
-
         if not json_match:
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        if not json_match:
+            logger.warning(f"[ContextDecider] No JSON object found in response")
+            return _fallback_route_decision("No JSON in response")
 
-        if json_match:
-            try:
-                json_str = json_match.group()
-                data = json.loads(json_str)
+        try:
+            data = json.loads(json_match.group())
+        except json.JSONDecodeError as exc:
+            logger.warning(f"[ContextDecider] JSON parse failed: {exc}")
+            return _fallback_route_decision(f"JSON parse failed: {exc}")
 
-                if not isinstance(data, dict):
-                    raise ValueError("Response is not a JSON object")
+        if not isinstance(data, dict):
+            return _fallback_route_decision("Response is not a JSON object")
 
-                intent = data.get("intent", "unknown")
-                tools = data.get("tools", [])
-                reasoning = data.get("reasoning", "")
-                orchestration_strategy = self._normalize_orchestration_strategy(
-                    data.get("orchestration_strategy")
-                )
-
-                raw_depth = data.get("thinking_depth")
-                thinking_depth: ThinkingDepth | None = None
-                if isinstance(raw_depth, str):
-                    try:
-                        thinking_depth = ThinkingDepth(raw_depth.lower())
-                    except ValueError:
-                        pass
-                if thinking_depth is None:
-                    deep_thinking = data.get("deep_thinking", False)
-                    thinking_depth = ThinkingDepth.HIGH if deep_thinking else ThinkingDepth.NONE
-
-                valid_tools = []
-                available = {t["name"] for t in self._get_available_tools()}
-                for tool in tools[:self.max_tools]:
-                    if tool in available:
-                        valid_tools.append(tool)
-                    elif tool.startswith("/") and self.tool_registry.is_skill(tool.lstrip("/")):
-                        valid_tools.append(tool)
-
-                register = data.get("register")
-                if register is not None and not isinstance(register, str):
-                    register = None
-                elif isinstance(register, str):
-                    register = register.strip().lower() or None
-                if register not in (None, "casual", "task", "analysis", "emotional", "crisis"):
-                    logger.warning("[ContextDecider] Unknown register '%s' from LLM; ignoring", register)
-                    register = None
-
-                raw_trigger_ids = data.get("active_trigger_ids") or []
-                if not isinstance(raw_trigger_ids, list):
-                    raw_trigger_ids = []
-                active_trigger_ids: list[str] = []
-                for trigger_id in raw_trigger_ids:
-                    if isinstance(trigger_id, str) and trigger_id.strip():
-                        active_trigger_ids.append(trigger_id.strip())
-                    if len(active_trigger_ids) >= 2:
-                        break
-
-                situation_strength = data.get("situation_strength", "ordinary")
-                if not isinstance(situation_strength, str):
-                    situation_strength = "ordinary"
-                situation_strength = situation_strength.strip().lower() or "ordinary"
-                if situation_strength not in {"ordinary", "strong", "crisis"}:
-                    situation_strength = "ordinary"
-
-                raw_hints = data.get("quiet_hour_hints") or []
-                if not isinstance(raw_hints, list):
-                    raw_hints = []
-                quiet_hour_hints: list[str] = [
-                    str(hint).strip() for hint in raw_hints if isinstance(hint, str) and str(hint).strip()
-                ]
-
-                return ContextDecision(
-                    intent=intent,
-                    tools=valid_tools,
-                    thinking_depth=thinking_depth,
-                    reasoning=reasoning,
-                    orchestration_strategy=orchestration_strategy,
-                    register=register,
-                    active_trigger_ids=active_trigger_ids,
-                    situation_strength=situation_strength,
-                    quiet_hour_hints=quiet_hour_hints,
-                )
-            except json.JSONDecodeError as e:
-                logger.warning(f"[ContextDecider] JSON decode error: {e}")
-            except ValueError as e:
-                logger.warning(f"[ContextDecider] Invalid response structure: {e}")
-
-        logger.warning(f"[ContextDecider] Failed to parse response: {response[:200]}")
-        return ContextDecision(
-            intent="unknown",
-            tools=[],
-            thinking_depth=ThinkingDepth.NONE,
-            reasoning="Failed to parse LLM response",
-            orchestration_strategy=self._default_orchestration_strategy(),
-        )
+        try:
+            return RouteDecision(
+                profile=_safe_get_literal(data, "profile", PROFILE_VALUES, "chat"),
+                graph_shape=_safe_get_literal(data, "graph_shape", GRAPH_SHAPE_VALUES, "reply"),
+                complexity=_safe_get_literal(data, "complexity", COMPLEXITY_VALUES, "simple"),
+                tools=_safe_get_list_str(data, "tools")[: self.max_tools],
+                may_write=_safe_get_bool(data, "may_write"),
+                reasoning=str(data.get("reasoning") or ""),
+                thinking_depth=_safe_get_thinking_depth(data),
+                memory_route=str(data.get("memory_route") or "none"),
+                needs_orchestration=(
+                    data["needs_orchestration"]
+                    if isinstance(data.get("needs_orchestration"), str)
+                    and data.get("needs_orchestration") in NEEDS_ORCHESTRATION_VALUES
+                    # Backward-compat: infer from the legacy graph_shape when the
+                    # router hasn't emitted the explicit three-state field yet.
+                    else ("required" if data.get("graph_shape") == "plan_fanout" else "none")
+                ),
+                persona=PersonaRouting(
+                    register=str(data.get("register")) if data.get("register") else None,
+                    active_trigger_ids=_safe_get_tuple_str(data, "active_trigger_ids"),
+                    situation_strength=str(data.get("situation_strength") or "ordinary"),
+                    quiet_hour_hints=_safe_get_tuple_str(data, "quiet_hour_hints"),
+                ),
+            )
+        except (ValueError, TypeError) as exc:
+            logger.warning(f"[ContextDecider] RouteDecision construction failed: {exc}")
+            return _fallback_route_decision(f"Construction failed: {exc}")
 
 
 __all__ = ["ContextDeciderResponseMixin"]

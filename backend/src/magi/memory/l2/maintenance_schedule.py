@@ -22,6 +22,11 @@ from .entities.maintenance import (
 logger = get_logger(__name__)
 
 
+# Retention for non-promoted promotion-counter keys (RFC #56 P2): a key seen only
+# sporadically that never crossed its threshold is pruned after this window (one-off noise).
+_PROMOTION_COUNTER_RETENTION_SECONDS = 30 * 86400  # 30 days
+
+
 async def handle_l2_entity_maintenance(
     context: ScheduledExecutionContext,
 ) -> ScheduledExecutionResult:
@@ -63,10 +68,22 @@ async def handle_l2_entity_maintenance(
             stats={"error": str(exc)},
         )
 
+    # P2 frequency gate: prune stale non-promoted promotion-counter keys (one-off noise that
+    # never crossed threshold); promoted keys are kept. Bounds the counter table over time.
+    pruned = 0
+    counter = getattr(unified, "l2_promotion_counter", None)
+    if counter is not None:
+        try:
+            pruned = await counter.prune_stale(
+                retention_seconds=_PROMOTION_COUNTER_RETENTION_SECONDS
+            )
+        except Exception as exc:
+            logger.warning("L2 promotion-counter prune failed", error=str(exc))
+
     return ScheduledExecutionResult(
         success=True,
         message="maintenance_ok",
-        stats=asdict(stats),
+        stats={**asdict(stats), "promotion_counter_pruned": pruned},
     )
 
 

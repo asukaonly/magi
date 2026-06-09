@@ -85,7 +85,7 @@ class TaskAgentManager:
             return self._agents[key]
 
         if not self._is_core_instance(agent_type, agent_id):
-            self._maybe_evict_idle_instances()
+            await self._maybe_evict_idle_instances()
 
         if len(self._agents) >= self._max_dynamic_instances + len(self._core_instances):
             logger.warning(f"TaskAgentManager at max capacity | max={self._max_dynamic_instances}")
@@ -220,8 +220,8 @@ class TaskAgentManager:
         if keys_to_remove:
             logger.info(f"Janitor recycled {len(keys_to_remove)} idle instances")
 
-    def _maybe_evict_idle_instances(self) -> None:
-        """Evict oldest idle instance if at capacity."""
+    async def _maybe_evict_idle_instances(self) -> None:
+        """Evict the oldest idle instance if at capacity, to make room for a new one."""
         dynamic_count = len(self._agents) - len(self._core_instances)
         if dynamic_count < self._max_dynamic_instances:
             return
@@ -242,7 +242,11 @@ class TaskAgentManager:
                 oldest_key = key
 
         if oldest_key:
-            logger.warning(f"Evicting oldest idle instance to make room | key={oldest_key}")
+            agent = self._agents.pop(oldest_key, None)
+            self._instance_metadata.pop(oldest_key, None)
+            if agent is not None:
+                await agent.stop()
+            logger.info(f"Evicted oldest idle instance to make room | key={oldest_key}")
 
     def _parse_agent_key(self, key: str) -> tuple[str, str]:
         """Parse agent key back to (type, id)."""

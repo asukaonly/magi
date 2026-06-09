@@ -128,3 +128,32 @@ def test_run_command_rejects_unknown_tool(client):
         ToolErrorCode.PERMISSION_DENIED.value,
         ToolErrorCode.TOOL_NOT_FOUND.value,
     )
+
+
+def test_resolve_notifier_returns_callable_with_valid_store(monkeypatch):
+    """Regression: _resolve_notifier must build a real ChatRuntimeNotifier.
+
+    The notifier module relocated to magi.chat.task_agent.postprocess in P2
+    Task 2. The old import path under magi.agent.task_agents.handlers lives inside a
+    ``try/except Exception: return None`` block, so a stale path silently
+    disabled the notifier instead of raising. With a valid (non-``object``)
+    runtime_trace_store wired in, _resolve_notifier must return a callable.
+    """
+    from magi.api.routers import commands as commands_module
+    from magi.core import container as container_module
+
+    class _FakeStore:  # not the bare ``object`` sentinel the guard rejects
+        pass
+
+    class _FakeContainer:
+        runtime_trace_store = staticmethod(lambda: _FakeStore())
+
+    # _resolve_notifier imports get_container locally, so patch it at source.
+    monkeypatch.setattr(
+        container_module, "get_container", lambda: _FakeContainer()
+    )
+
+    notifier = commands_module._resolve_notifier()
+
+    assert notifier is not None
+    assert callable(notifier)

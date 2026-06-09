@@ -3,7 +3,7 @@
 This is the *fallback* path used when the LLM router fails / times out.
 By design we keep it tiny: only routes that we can decide structurally
 (based on context state, not the user's wording) belong here. Anything
-else returns a conservative ``chat`` intent with no tools — the safer
+else returns a conservative ``chat`` profile with no tools — the safer
 default than guessing a category from substring matches.
 
 Historically this module grew several keyword tables (research /
@@ -18,8 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from .context_routing import ContextDecision
-from ..config.models import ThinkingDepth
+from .context_routing import RouteDecision
 
 logger = logging.getLogger(__name__)
 
@@ -41,13 +40,11 @@ class ContextDeciderFallbackMixin:
     max_tools: int
     tool_registry: Any
 
-    def _default_orchestration_strategy(self, tools: list[str] | None = None, user_lower: str = "") -> dict[str, Any]: ...
-
     def _rule_based_fallback(
         self,
         user_message: str,
         context: Optional[dict[str, Any]] = None,
-    ) -> ContextDecision:
+    ) -> RouteDecision:
         """Conservative fallback when the LLM router cannot answer.
 
         Two structural cases are handled here because they can be decided
@@ -66,6 +63,8 @@ class ContextDeciderFallbackMixin:
         for files / web / bash / skills; that path is gone because it
         was the largest source of misrouting and was tracked as the H1
         whack-a-mole rule finding.
+
+        Phase B: returns RouteDecision instead of ContextDecision.
         """
         user_lower = user_message.lower()
         available_tools = self.tool_registry.list_tools()
@@ -79,15 +78,15 @@ class ContextDeciderFallbackMixin:
                         "[ContextDecider] Retry fallback matched last failed tool: %s",
                         last_tool,
                     )
-                    return ContextDecision(
-                        intent="retry_last_tool",
+                    return RouteDecision(
+                        profile="chat",
+                        graph_shape="tool_loop",
+                        complexity="simple",
                         tools=[last_tool],
-                        thinking_depth=ThinkingDepth.NONE,
                         reasoning=(
                             "Retry request detected, reusing last failed tool: "
                             f"{last_tool}"
                         ),
-                        orchestration_strategy=self._default_orchestration_strategy(),
                     )
 
         if "trace_query" in available_tools and context:
@@ -96,28 +95,27 @@ class ContextDeciderFallbackMixin:
                 logger.info(
                     "[ContextDecider] Trace fallback matched recent tool state"
                 )
-                return ContextDecision(
-                    intent="chat",
+                return RouteDecision(
+                    profile="chat",
+                    graph_shape="tool_loop",
+                    complexity="simple",
                     tools=["trace_query"],
-                    thinking_depth=ThinkingDepth.NONE,
                     reasoning=(
                         "LLM router unavailable; recent tool execution state "
                         "exists, surfacing trace_query so the user can ask "
                         "follow-up questions about the last tool call."
                     ),
-                    orchestration_strategy=self._default_orchestration_strategy(),
                 )
 
         logger.info("[ContextDecider] Rule-based fallback returned conservative chat intent")
-        return ContextDecision(
-            intent="chat",
-            tools=[],
-            thinking_depth=ThinkingDepth.NONE,
+        return RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
             reasoning=(
                 "LLM router unavailable and no structural retry/trace context "
                 "to act on; defaulting to chat with no tools."
             ),
-            orchestration_strategy=self._default_orchestration_strategy(),
         )
 
 

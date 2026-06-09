@@ -10,7 +10,7 @@ import pytest
 
 
 def test_guidance_block_forbids_paraphrasing():
-    from magi.agent.task_agents.chat.handler_helpers import (
+    from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
     block = MEMORY_QUERY_GUIDANCE_BLOCK
@@ -18,21 +18,31 @@ def test_guidance_block_forbids_paraphrasing():
     assert "verbatim" in block.lower() or "do not paraphrase" in block.lower(), (
         f"MEMORY_QUERY_GUIDANCE_BLOCK must explicitly forbid paraphrasing; got:\n{block}"
     )
-    # Should mention that query_mode is automatic
-    assert "auto" in block.lower() or "automatic" in block.lower() or "optional" in block.lower()
+    # Should teach the LLM to pick query_mode by answer-shape (not say "omit it")
+    block_lower = block.lower()
+    assert "cross_session" in block_lower or "enumerate" in block_lower, (
+        "MEMORY_QUERY_GUIDANCE_BLOCK must mention answer-shape guidance (e.g. cross_session)"
+    )
+    # Must NOT tell the LLM to omit query_mode as the default action
+    assert "omit it. the system auto-detects" not in block_lower, (
+        "MEMORY_QUERY_GUIDANCE_BLOCK must not say 'omit it' as the primary instruction"
+    )
 
 
-def test_guidance_block_does_not_instruct_to_pick_query_mode():
-    """Phase 4: the block should no longer tell the LLM to select query_mode
-    from an enum. Either omit the instruction or mark it optional."""
-    from magi.agent.task_agents.chat.handler_helpers import (
+def test_guidance_block_instructs_to_pick_query_mode_by_answer_shape():
+    """P2-T3: guidance block must actively teach the LLM to choose query_mode
+    based on the shape of the expected answer, consistent with the tool
+    description — not tell it to omit the parameter by default."""
+    from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
     block = MEMORY_QUERY_GUIDANCE_BLOCK.lower()
-    # No instruction to "choose" or "pick" a query_mode
-    assert "choose query_mode" not in block
-    assert "pick query_mode" not in block
-    assert "select query_mode" not in block
+    # Must reference answer-shape modes
+    assert "cross_session" in block, "Must mention cross_session mode"
+    assert "current_state" in block, "Must mention current_state mode"
+    # Must not frame passing query_mode as rare / an override
+    assert "only pass query_mode when explicitly overriding" not in block
+    assert "only override" not in block
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +78,7 @@ class _FakePromptService:
 
 
 def _build_context(message: str = "do you remember when we talked about X"):
-    from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+    from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
     from magi.agent.task_agents.common import (
         IncomingFactKind,
         UserMessagePayload,
@@ -100,7 +110,7 @@ def _build_context(message: str = "do you remember when we talked about X"):
 
 
 def _build_handler():
-    from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
+    from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
 
     return FunctionCallingHandler(
         SimpleNamespace(
@@ -114,8 +124,8 @@ def _build_handler():
 async def test_guidance_attached_when_memory_route_explicit_query():
     """Baseline (Phase 4 T5): explicit_query route + memory_query in tools
     must attach the guidance block."""
-    from magi.agent.task_agents.chat.contracts import IntentDecision
-    from magi.agent.task_agents.chat.handler_helpers import (
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
+    from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
     from magi.agent.task_agents.common import (
@@ -134,7 +144,6 @@ async def test_guidance_attached_when_memory_route_explicit_query():
                 difficulty="normal",
                 execution_mode=ExecutionMode.FUNCTION_CALLING,
                 reasoning="recall",
-                orchestration_plan=OrchestrationPlan(),
                 memory_route="explicit_query",
             ),
             tool_selection=ToolSelection(
@@ -152,8 +161,8 @@ async def test_guidance_attached_when_memory_query_selected_but_route_is_none():
     non-explicit (memory_route == 'none') but memory_query still ended up in
     selected_tools, the chat LLM MUST still get the don't-paraphrase
     guidance — otherwise the original paraphrase regression returns."""
-    from magi.agent.task_agents.chat.contracts import IntentDecision
-    from magi.agent.task_agents.chat.handler_helpers import (
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
+    from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
     from magi.agent.task_agents.common import (
@@ -172,7 +181,6 @@ async def test_guidance_attached_when_memory_query_selected_but_route_is_none():
                 difficulty="normal",
                 execution_mode=ExecutionMode.FUNCTION_CALLING,
                 reasoning="tool use",
-                orchestration_plan=OrchestrationPlan(),
                 memory_route="none",
             ),
             tool_selection=ToolSelection(
@@ -191,8 +199,8 @@ async def test_guidance_attached_when_memory_query_selected_but_route_is_none():
 async def test_guidance_not_attached_when_memory_query_not_selected():
     """Sanity guard: when memory_query is NOT among selected_tools, the
     guidance must NOT be attached even if memory_route is explicit_query."""
-    from magi.agent.task_agents.chat.contracts import IntentDecision
-    from magi.agent.task_agents.chat.handler_helpers import (
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
+    from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
     from magi.agent.task_agents.common import (
@@ -211,7 +219,6 @@ async def test_guidance_not_attached_when_memory_query_not_selected():
                 difficulty="normal",
                 execution_mode=ExecutionMode.FUNCTION_CALLING,
                 reasoning="search",
-                orchestration_plan=OrchestrationPlan(),
                 memory_route="explicit_query",
             ),
             tool_selection=ToolSelection(
@@ -221,3 +228,37 @@ async def test_guidance_not_attached_when_memory_query_not_selected():
         )
     )
     assert MEMORY_QUERY_GUIDANCE_BLOCK not in request.system_prompt
+
+
+def test_guidance_only_references_valid_query_modes():
+    """Guard: every backtick-quoted mode-like token in MEMORY_QUERY_GUIDANCE_BLOCK
+    must be a member of the real query_mode enum from the tool schema.
+    This test would have caught the exact_match → exact_fact regression."""
+    import re
+
+    from magi.agent.task_agents.handlers.handler_helpers import MEMORY_QUERY_GUIDANCE_BLOCK
+    from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+
+    schema = MemoryQueryTool().get_schema()
+    qm_param = next(p for p in schema.parameters if p.name == "query_mode")
+    valid = set(qm_param.enum)
+
+    # Extract all backtick-quoted tokens
+    candidates = set(re.findall(r"`([a-z_]+)`", MEMORY_QUERY_GUIDANCE_BLOCK))
+
+    # Any token that contains an underscore (mode-name shape) and is NOT in
+    # valid and is NOT a known non-mode token is a suspect invalid mode reference.
+    non_mode_tokens = {"query_mode", "memory_query"}
+    suspects = {
+        c for c in candidates
+        if "_" in c and c not in valid and c not in non_mode_tokens
+    }
+    assert not suspects, (
+        f"MEMORY_QUERY_GUIDANCE_BLOCK references mode-like token(s) that are "
+        f"not in the real query_mode enum {sorted(valid)}: {suspects}"
+    )
+
+    # Sanity: at least the anchor modes that the guidance is expected to teach
+    # must be present
+    assert "cross_session" in candidates, "Guidance must mention cross_session mode"
+    assert "current_state" in candidates, "Guidance must mention current_state mode"

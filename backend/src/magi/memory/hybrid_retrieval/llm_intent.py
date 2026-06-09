@@ -53,6 +53,12 @@ You produce a single refinement object that is applied to every routed plan:
 - ``predicate_family`` (optional, L2): one of ``preference``, ``profile_fact``,
   ``relationship``, ``activity``, ``unknown``. This drives downstream predicate
   expansion but is NOT load-bearing for evidence-class filtering.
+- ``relation_intent`` (optional, L2): a short ENGLISH, relation-oriented phrase
+  describing the action/relationship between the user and the answer object
+  (e.g. "listening to / consuming media", "likes / is fond of",
+  "works at / employed by", "knows / acquainted with"). Always output in English
+  even when the query is in another language — it is matched against an English
+  predicate vocabulary. Leave null when no clear relation is implied.
 - ``evidence_focus`` (optional, L2): when the user is asking about themselves
   (subject_hint="self"), classify what evidence tier the question wants:
     * ``"declared"`` — user is asking about what they explicitly said/claimed
@@ -94,6 +100,7 @@ Return JSON only:
   "entities": ["string", ...],
   "subject_hint": "self" | "explicit" | "none",
   "predicate_family": "preference" | "profile_fact" | "relationship" | "activity" | "unknown",
+  "relation_intent": "string | null",
   "evidence_focus": "declared" | "observed" | "both" | null,
   "semantic_frame": { ... } | null,
   "reasoning": "string"
@@ -114,6 +121,7 @@ class LLMRefinement:
     entities: Optional[list[str]] = None
     subject_hint: Optional[str] = None
     predicate_family: Optional[str] = None
+    relation_intent: Optional[str] = None
     evidence_focus: Optional[EvidenceFocus] = None
     semantic_frame: Optional[L2SemanticFrame] = None
     reasoning: str = ""
@@ -212,6 +220,13 @@ class LLMIntentDecider:
             else None
         )
 
+        relation_intent_raw = data.get("relation_intent")
+        relation_intent = (
+            str(relation_intent_raw).strip()
+            if isinstance(relation_intent_raw, str) and str(relation_intent_raw).strip()
+            else None
+        )
+
         evidence_focus_raw = data.get("evidence_focus")
         evidence_focus: Optional[EvidenceFocus] = None
         if isinstance(evidence_focus_raw, str) and evidence_focus_raw in _VALID_EVIDENCE_FOCI:
@@ -228,6 +243,7 @@ class LLMIntentDecider:
             entities=entities,
             subject_hint=subject_hint,
             predicate_family=predicate_family,
+            relation_intent=relation_intent,
             evidence_focus=evidence_focus,
             semantic_frame=semantic_frame,
             reasoning=reasoning,
@@ -258,6 +274,8 @@ class LLMIntentDecider:
                     conditions.subject_hint = refinement.subject_hint
                 if refinement.predicate_family is not None:
                     conditions.predicate_family = refinement.predicate_family
+                if refinement.relation_intent is not None:
+                    conditions.relation_intent = refinement.relation_intent
                 if refinement.semantic_frame is not None:
                     conditions.semantic_frame = refinement.semantic_frame
                 enrich_l2_conditions(conditions, original_query)

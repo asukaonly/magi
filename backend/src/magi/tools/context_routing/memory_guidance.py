@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any, Optional
 
-from .models import ContextDecision, MemoryGuidance
+from .models import MemoryGuidance
+from .route_decision import RouteDecision
 
 MEMORY_RETRIEVAL_TRIGGERS_BY_CATEGORY: dict[str, list[str]] = {
     "personal_recall": [
@@ -40,8 +42,11 @@ MEMORY_RETRIEVAL_TRIGGERS_BY_CATEGORY: dict[str, list[str]] = {
 }
 
 _ENTITY_RECALL_SUPPRESS_CATEGORIES: frozenset[str] = frozenset({
+    # Legacy intent values (kept for backwards-compat callers passing intent)
     "code_execution", "file_operation", "planning",
     "code_review", "debugging",
+    # Phase B RouteDecision profile values
+    "coding", "system",
 })
 
 _WORKFLOW_REUSE_MARKERS: tuple[str, ...] = (
@@ -88,11 +93,17 @@ def apply_memory_guidance(
     *,
     user_message: str,
     context: Optional[dict[str, Any]],
-    decision: ContextDecision,
+    decision: RouteDecision,
     available_tools: list[dict[str, Any]],
     max_tools: int,
     task_category: str | None = None,
-) -> ContextDecision:
+) -> RouteDecision:
+    """Apply memory routing guidance to a RouteDecision.
+
+    Phase B: now takes/returns RouteDecision instead of ContextDecision.
+    Memory routing fields (memory_route, memory_layer) are set via
+    dataclasses.replace; all other fields are preserved unchanged.
+    """
     guidance = evaluate_memory_need(
         user_message, context or {}, task_category=task_category,
     )
@@ -104,13 +115,9 @@ def apply_memory_guidance(
     tools = list(decision.tools)
     tools = [tool for tool in tools if tool != "memory_query"]
     tools.insert(0, "memory_query")
-    return ContextDecision(
-        intent=decision.intent,
+    return dataclasses.replace(
+        decision,
         tools=tools[:max_tools],
-        thinking_depth=decision.thinking_depth,
-        reasoning=decision.reasoning,
-        orchestration_strategy=decision.orchestration_strategy,
-        memory_layer=decision.memory_layer,
         memory_route=guidance.route,
     )
 

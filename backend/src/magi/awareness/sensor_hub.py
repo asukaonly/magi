@@ -7,7 +7,8 @@ from typing import Optional
 from ..core.logger import get_logger
 from ..events.backend import MessageBusBackend
 from ..events.events import Event, EventTypes
-from ..runtime_defaults import DEFAULT_RUNTIME_NAMESPACE, DEFAULT_USER_ID
+from ..identity import canonicalize_user_id as _canonicalize_user_id
+from ..runtime_defaults import DEFAULT_RUNTIME_NAMESPACE
 from .contracts import SensorEvent
 
 logger = get_logger(__name__)
@@ -72,7 +73,14 @@ class SensorHub:
             payload={
                 "content": content,
                 "attachments": list(attachments),
-                "user_id": str(data.get("user_id", DEFAULT_USER_ID)),
+                # Phase H+2 identity layer ingress #3: canonicalize the
+                # user_id from the bus payload so any channel-prefixed
+                # leaker (legacy fact, stale producer) gets collapsed to
+                # the canonical MagiUserID before reaching memory L1.
+                # Today this is mostly a no-op (session_mapper hands
+                # canonical values upstream), but the assertion makes
+                # the invariant explicit at the awareness boundary.
+                "user_id": str(_canonicalize_user_id(data.get("user_id"))),
                 "runtime_namespace": str(
                     data.get("runtime_namespace")
                     or (data.get("metadata") or {}).get("runtime_namespace")
@@ -83,6 +91,16 @@ class SensorHub:
                 "workspace_path": str(data.get("workspace_path") or "").strip() or None,
                 "metadata": data.get("metadata") or {},
                 "timestamp": float(data.get("timestamp") or event.timestamp),
+                # Phase H+1 plumbing: ``UserMessagePayload.from_dict`` reads
+                # this to tag the resulting ``RunTrigger.source_channel``
+                # (api → user_message; telegram/weixin → external_inbound).
+                # Without this, the external channel scheme set by the
+                # dispatcher (e.g. "weixin") is silently dropped here and
+                # downstream defaults to "api", which the trigger then maps
+                # to chat_sse — so reply-via-origin-channel never fires for
+                # any external inbound. Defaults to "api" to preserve
+                # legacy behavior for events that genuinely lack a source.
+                "source": str(data.get("source") or "api"),
             },
             timestamp=float(data.get("timestamp") or event.timestamp),
             correlation_id=event.correlation_id,

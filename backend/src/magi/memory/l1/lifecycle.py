@@ -18,9 +18,17 @@ from .embeddings.common import (
     EMBEDDING_TEXT_BUILDER_VERSION,
 )
 
-SCHEMA_SQL = importlib.import_module(
-    "magi.db.migrations.l1.versions.0001_initial"
-).SCHEMA_SQL
+# Compose the canonical L1 schema from each alembic revision's SCHEMA_SQL in
+# order. _ensure_schema() applies this (idempotent CREATE TABLE IF NOT EXISTS);
+# each new revision file appends its module here so the runtime "verify schema"
+# path stays in lockstep with the migration chain.
+_L1_MIGRATION_MODULES = (
+    "magi.db.migrations.l1.versions.0001_initial",
+    "magi.db.migrations.l1.versions.0002_l1_event_payload",
+)
+SCHEMA_SQL = "\n".join(
+    importlib.import_module(_module).SCHEMA_SQL for _module in _L1_MIGRATION_MODULES
+)
 
 EMBEDDING_QUEUE_MAXSIZE = 512
 DEFAULT_EMBEDDING_WORKER_COUNT = 2

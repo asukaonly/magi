@@ -351,3 +351,88 @@ def test_classifier_evidence_rule_version_is_three():
     from magi.memory.evidence import EVIDENCE_RULE_VERSION
 
     assert EVIDENCE_RULE_VERSION == 3
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "杭州天气怎么样",          # interrogative at clause end, no mark
+        "我要怎么配",              # "怎么" mid-sentence
+        "我chrome最近在看什么呀",  # "什么" + trailing mood particle
+        "这个多少钱",              # "多少" anywhere
+        "你在哪",                  # "哪" at end
+        "为什么会这样",            # "为什么" lead (already covered, keep as guard)
+    ],
+)
+def test_classifier_maps_chinese_spoken_questions(message):
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(
+        normalize_runtime_event(_build_user_message(message=message))
+    )
+    assert classification.evidence_class == "user_question", message
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "我有一只猫",        # plain statement, no interrogative
+        "没什么特别的",      # "什么" inside a non-question idiom
+        "我知道为什么了",    # "为什么" inside "知道为什么"
+        "什么都行",          # "什么" inside "什么都"
+        "我喜欢喝咖啡",      # plain preference statement
+        "不知道怎么办",      # "怎么" inside "不知道怎么"
+        "哪里哪里，您过奖了",  # modesty reply, "哪里" inside "哪里哪里" blacklist
+    ],
+)
+def test_classifier_keeps_chinese_statements_as_self_report(message):
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(
+        normalize_runtime_event(_build_user_message(message=message))
+    )
+    assert classification.evidence_class == "user_self_report", message
+
+
+# ---------------------------------------------------------------------------
+# Speech-act boundary regression net (characterizes current correct behavior)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        # --- Chinese questions (must be user_question) ---
+        ("你最近在忙什么", "user_question"),
+        ("这个多少钱啊", "user_question"),
+        ("会议改到几点", "user_question"),
+        ("为什么会这样", "user_question"),
+        ("你在哪", "user_question"),
+        ("今天会下雨吗", "user_question"),
+        # --- Chinese requests (must be user_request) ---
+        ("帮我订个会议室", "user_request"),
+        ("请把报告发我", "user_request"),
+        ("告诉我结果", "user_request"),
+        # --- Chinese statements (must stay user_self_report) ---
+        ("我今天有点累", "user_self_report"),
+        ("反正没什么大事", "user_self_report"),
+        ("我不知道为什么", "user_self_report"),
+        ("我喜欢喝咖啡", "user_self_report"),
+        ("我们怎么都行", "user_self_report"),
+        # --- English questions ---
+        ("which one is better", "user_question"),
+        ("how do I reset it", "user_question"),
+        ("is it ready?", "user_question"),
+        # --- English requests ---
+        ("please summarize this", "user_request"),
+        ("can you help me", "user_request"),
+        # --- English statements ---
+        ("I have two cats", "user_self_report"),
+        ("I really like sushi", "user_self_report"),
+    ],
+)
+def test_classifier_speech_act_boundaries(message, expected):
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(
+        normalize_runtime_event(_build_user_message(message=message))
+    )
+    assert classification.evidence_class == expected, f"{message!r} -> {classification.evidence_class}"

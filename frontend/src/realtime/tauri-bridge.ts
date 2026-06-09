@@ -5,6 +5,8 @@
  * and forwards them to registered listeners.
  */
 
+import { listen } from '@tauri-apps/api/event';
+
 import type { RealtimeMessage } from './provider';
 import { normalizeRealtimeStreamEvent } from './stream-events';
 
@@ -34,11 +36,13 @@ const BRIDGE_EVENTS = [
   'chat_message_upserted',
   'chat_message_hidden',
   'background_task_state_changed',
+  'user_notification_added',
   'code_agent_delegation_event',
   'code_agent_delegation_state',
   // Control-plane channels (forwarded by the Rust bridge with `.` → `:` swap;
   // see backend/src/magi/agent/control/common/events.py).
   'control:permission:requested',
+  'control:permission:resolved',
   'control:ask:requested',
   'control:todo:updated',
   'control:plan:updated',
@@ -66,16 +70,14 @@ export class TauriBridgeClient {
   async connect(): Promise<void> {
     if (this.connected) return;
 
-    let listenFn: typeof import('@tauri-apps/api/event').listen;
-    try {
-      const mod = await import('@tauri-apps/api/event');
-      listenFn = mod.listen;
-    } catch {
-      return;
-    }
-
+    // Previously dynamic-imported to fail gracefully outside Tauri, but
+    // @tauri-apps/api/event is now statically pulled into the eager bundle
+    // anyway (via api/window etc.), so the dynamic form only produced a
+    // Vite/Rolldown ineffective-dynamic-import warning without any chunk
+    // savings. Static import is fine — listen() itself only does work
+    // when the Tauri runtime is present.
     for (const eventName of BRIDGE_EVENTS) {
-      const unlistenFn = await listenFn<BridgePayload>(eventName, (event) => {
+      const unlistenFn = await listen<BridgePayload>(eventName, (event) => {
         const payload = event.payload;
         const data = payload.data;
         const dispatchedName = denormalizeBridgeEventName(eventName);

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 from enum import Enum
 
 from .constants import DEFAULT_MAX_TOKENS, MIN_MAX_TOKENS
+from .plugin_models import PluginSettings, PluginsSettings
 
 
 class LLMProvider(str, Enum):
@@ -24,6 +25,7 @@ class LLMProvider(str, Enum):
     DASHSCOPE = "dashscope"
     KIMI = "kimi"
     MINIMAX = "minimax"
+    XIAOMIMIMO = "xiaomimimo"
     LOCAL = "local"
     CUSTOM = "custom"
 
@@ -367,6 +369,14 @@ class LocalEmbeddingSettings(BaseModel):
     managed_model_id: Optional[str] = Field(default=None)
     model_dir_path: Optional[str] = Field(default=None)
     idle_timeout_seconds: int = Field(default=1800, ge=60)
+    variant: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional ONNX quantization variant override (e.g. 'fp32', 'fp16', "
+            "'quantized', 'int8'). When None, the platform default from the "
+            "model's registry entry is used."
+        ),
+    )
 
 
 class MemoryL0Settings(BaseModel):
@@ -447,6 +457,14 @@ class CrossEncoderSettings(BaseModel):
 
     enabled: bool = Field(default=False)
     managed_model_id: Optional[str] = Field(default=None)
+    variant: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional ONNX quantization variant override (e.g. 'fp32', 'fp16', "
+            "'quantized', 'arm64_int8', 'x86_avx512_int8'). When None, the "
+            "platform default from the model's registry entry is used."
+        ),
+    )
 
 
 class MemoryRerankerSettings(BaseModel):
@@ -753,67 +771,6 @@ class ToolsSettings(BaseModel):
 
 
 # =============================================================================
-# Other Settings
-# =============================================================================
-
-
-class PluginSettings(BaseModel):
-    """Per-plugin persisted runtime state."""
-
-    enabled: bool = Field(default=False)
-    trusted: bool = Field(default=False)
-    settings: Dict[str, Any] = Field(default_factory=dict)
-    source: Optional[str] = Field(default=None)
-    manifest_path: Optional[str] = Field(default=None)
-
-
-class PluginsSettings(BaseModel):
-    """Unified plugin runtime configuration."""
-
-    scan_paths: List[str] = Field(default_factory=lambda: ["plugins", "~/.magi/plugins"])
-    registry_url: Optional[str] = Field(default=None)
-    packages: Dict[str, PluginSettings] = Field(
-        default_factory=lambda: {
-            "core-tools": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-            "photo-library": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-            "chrome-history": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-            "calendar": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-            "git-activity": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-            "screen-time": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-            "terminal-history": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-        }
-    )
-
-
-# =============================================================================
 # Network Proxy
 # =============================================================================
 
@@ -857,6 +814,7 @@ class RuntimeTraceLifecycleSettings(BaseModel):
     raw_retention_days: int = Field(default=7, ge=1)
     notifications_retention_days: int = Field(default=7, ge=1)
     plugin_ingress_retention_days: int = Field(default=7, ge=1)
+    user_notifications_retention_days: int = Field(default=30, ge=1)
 
 
 class LLMUsageLifecycleSettings(BaseModel):

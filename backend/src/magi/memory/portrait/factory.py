@@ -228,11 +228,17 @@ class _BridgeJsonAdapter:
             return {}
 
 
-def build_portrait_service():
+def build_portrait_service(chat_read_service_factory=None):
     """Construct a :class:`PortraitService` wired to live magi services.
 
     Imports are local so this module can be imported without pulling in the
     full memory/persona stack at import time (e.g. during isolated tests).
+
+    ``chat_read_service_factory`` is a zero-arg callable returning the chat
+    read service, injected by the composition root (the api portrait route).
+    Injected rather than imported here so this L5 memory module does not reach
+    up through the api layer into chat. When ``None`` (e.g. isolated tests that
+    never exercise ``message_loader``) the loader yields no history.
     """
     from ...config.models import ThinkingDepth
     from ...llm import LLMProviderBridge, LLMScenario
@@ -325,9 +331,10 @@ def build_portrait_service():
         }
 
     async def message_loader(user_id: str, session_id: str) -> list[dict[str, str]]:
+        if chat_read_service_factory is None:
+            return []
         try:
-            from ...api.routers.memory.dependencies import get_chat_read_service
-            svc = get_chat_read_service()
+            svc = chat_read_service_factory()
             history = await svc.aget_display_history(user_id, session_id)
         except Exception as exc:
             logger.debug("portrait message loader failed: %s", exc)

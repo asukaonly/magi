@@ -6,24 +6,32 @@ from .memory_guidance import (
     apply_memory_guidance,
     evaluate_memory_need,
 )
-from .models import ContextDecision, MemoryGuidance
-from .orchestration import default_orchestration_strategy, normalize_orchestration_strategy
+from .models import MemoryGuidance
 from .research_guardrail import (
     is_complex_research_request,
     needs_fetch_for_request,
     should_decompose_external_request,
 )
+from .route_decision import (
+    COMPLEXITY_VALUES,
+    GRAPH_SHAPE_VALUES,
+    PROFILE_VALUES,
+    PersonaRouting,
+    RouteDecision,
+)
 
 __all__ = [
-    "ContextDecision",
-    "MemoryGuidance",
+    "COMPLEXITY_VALUES",
+    "GRAPH_SHAPE_VALUES",
     "MEMORY_RETRIEVAL_TRIGGERS",
     "MEMORY_RETRIEVAL_TRIGGERS_BY_CATEGORY",
+    "MemoryGuidance",
+    "PROFILE_VALUES",
+    "PersonaRouting",
+    "RouteDecision",
     "apply_memory_guidance",
-    "default_orchestration_strategy",
     "evaluate_memory_need",
     "is_complex_research_request",
     "needs_fetch_for_request",
-    "normalize_orchestration_strategy",
     "should_decompose_external_request",
 ]

@@ -136,6 +136,8 @@ class L2Conditions:
     entities: Optional[List[str]] = None
     subject_hint: Optional[str] = None
     predicate_family: Optional[str] = None
+    relation_intent: Optional[str] = None  # English relation phrase from LLM, for embedding predicate resolution (RFC #65 P1)
+    predicate_source: Optional[str] = None  # "explicit"|"embedding"|"llm_family"|"keyword_fallback" (RFC #65 P1)
     allowed_evidence_classes: Optional[set[str]] = None
     evidence_focus_source: Optional[str] = None  # "llm" | "rule_heuristic" | "family_fallback" | None
     entity_types: Optional[List[str]] = None
@@ -231,6 +233,13 @@ class RetrievalConfig:
     intent_decider_llm_timeout_seconds: float = 10.0
     intent_shadow_eval_enabled: bool = True
 
+    # Post-retrieval grounding filter (LLM-as-listwise-relevance-filter).
+    # Trims raw candidate set so the answer LLM doesn't waste tokens /
+    # attention on noise. Only skipped for trivial 0/1-candidate sets
+    # (see MIN_CANDIDATES_TO_FILTER in grounding_filter.py).
+    grounding_filter_enabled: bool = True
+    grounding_filter_timeout_seconds: float = 3.0
+
     # RRF
     rrf_k: int = 60
     rrf_over_fetch_multiplier: int = 5
@@ -246,6 +255,7 @@ class RetrievalConfig:
     # Cross-encoder reranking (optional, on top of heuristic)
     cross_encoder_enabled: bool = False
     cross_encoder_model_id: str | None = None
+    cross_encoder_variant: str | None = None
 
     # Query expansion (LLM-based alternative query generation)
     query_expansion_enabled: bool = True
@@ -291,10 +301,5 @@ class RetrievalConfig:
     char_per_token_ratio: float = 3.0
 
     # L3 category soft preference (see L3Handler._build_category_booster).
-    # When the chat LLM picks a ``summary_category`` we no longer use it
-    # as a hard WHERE filter; instead we widen recall and multiply the
-    # fused RRF score for category-matching items by this factor. Values
-    # > ~3.0 effectively re-create a hard filter; 1.0 disables the
-    # preference entirely.
     l3_category_soft_boost: float = 1.8
     l3_category_fetch_k_multiplier: float = 1.5

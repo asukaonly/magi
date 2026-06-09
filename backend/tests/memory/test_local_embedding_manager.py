@@ -323,3 +323,497 @@ class TestShutdown:
         await asyncio.sleep(0)  # let the task start
         await mgr.shutdown()
         assert cancelled
+
+
+class TestDetectPlatformKey:
+    """Verify platform key format matches what default_variant keys use."""
+
+    def test_darwin_arm64(self) -> None:
+        from unittest.mock import patch
+        from magi.memory import onnx_variants as res
+        with patch.object(res.sys, "platform", "darwin"), \
+             patch.object(res.platform, "machine", return_value="arm64"):
+            assert res.detect_platform_key() == "darwin_arm64"
+
+    def test_win32_amd64_uppercase(self) -> None:
+        from unittest.mock import patch
+        from magi.memory import onnx_variants as res
+        with patch.object(res.sys, "platform", "win32"), \
+             patch.object(res.platform, "machine", return_value="AMD64"):
+            # platform.machine() returns "AMD64" on Windows — must be lowercased.
+            assert res.detect_platform_key() == "win32_amd64"
+
+    def test_linux_x86_64(self) -> None:
+        from unittest.mock import patch
+        from magi.memory import onnx_variants as res
+        with patch.object(res.sys, "platform", "linux"), \
+             patch.object(res.platform, "machine", return_value="x86_64"):
+            assert res.detect_platform_key() == "linux_x86_64"
+
+
+class TestResolveVariantName:
+    """Verify variant selection: override > platform default > _fallback > emergency chain."""
+
+    def _meta(
+        self,
+        variant_names: list[str] | None = None,
+        default: dict[str, str] | None = None,
+    ):
+        from magi.config.local_embedding_registry import (
+            LocalEmbeddingModelMeta,
+            LocalEmbeddingVariantMeta,
+        )
+        names = variant_names or ["fp32", "fp16", "quantized", "int8"]
+        v = {
+            name: LocalEmbeddingVariantMeta(file=f"onnx/model_{name}.onnx", size_mb=100)
+            for name in names
+        }
+        return LocalEmbeddingModelMeta(
+            id="m",
+            label="M",
+            repo="o/m",
+            onnx_repo="o/m",
+            dimension=512,
+            max_tokens=512,
+            variants=v,
+            default_variant=default or {
+                "darwin_arm64": "fp16",
+                "win32_amd64": "quantized",
+                "_fallback": "quantized",
+            },
+        )
+
+    def test_override_wins(self) -> None:
+        from magi.memory.onnx_variants import resolve_variant_name
+        meta = self._meta()
+        assert resolve_variant_name(meta, override="fp32", platform_key="darwin_arm64") == "fp32"
+
+    def test_override_invalid_falls_back_to_platform_default(self, caplog) -> None:
+        from magi.memory.onnx_variants import resolve_variant_name
+        meta = self._meta()
+        with caplog.at_level("WARNING"):
+            result = resolve_variant_name(meta, override="nonexistent", platform_key="darwin_arm64")
+        assert result == "fp16"
+        assert any("nonexistent" in r.message for r in caplog.records)
+
+    def test_platform_default_darwin(self) -> None:
+        from magi.memory.onnx_variants import resolve_variant_name
+        meta = self._meta()
+        assert resolve_variant_name(meta, override=None, platform_key="darwin_arm64") == "fp16"
+
+    def test_platform_default_windows(self) -> None:
+        from magi.memory.onnx_variants import resolve_variant_name
+        meta = self._meta()
+        assert resolve_variant_name(meta, override=None, platform_key="win32_amd64") == "quantized"
+
+    def test_fallback_when_platform_unknown(self) -> None:
+        from magi.memory.onnx_variants import resolve_variant_name
+        meta = self._meta()
+        assert resolve_variant_name(meta, override=None, platform_key="bsd_riscv64") == "quantized"
+
+    def test_emergency_chain_when_default_missing_from_variants(self) -> None:
+        from magi.memory.onnx_variants import resolve_variant_name
+        # default points to a variant the YAML doesn't actually define.
+        # Emergency chain picks first of (quantized, int8, fp16, fp32) present.
+        meta = self._meta(variant_names=["fp32", "int8"], default={"_fallback": "quantized"})
+        assert resolve_variant_name(meta, override=None, platform_key="anything") == "int8"
+
+    def test_no_variants_returns_none(self) -> None:
+        from magi.config.local_embedding_registry import LocalEmbeddingModelMeta
+        from magi.memory.onnx_variants import resolve_variant_name
+        meta = LocalEmbeddingModelMeta(
+            id="m", label="M", repo="o/m", onnx_repo="o/m",
+            dimension=512, max_tokens=512,
+        )
+        assert resolve_variant_name(meta, override=None, platform_key="darwin_arm64") is None
+
+    def test_none_meta_returns_none(self) -> None:
+        from magi.memory.onnx_variants import resolve_variant_name
+        assert resolve_variant_name(None) is None
+
+    def test_default_platform_key_used_when_omitted(self) -> None:
+        """If platform_key is not passed, function calls detect_platform_key()."""
+        from unittest.mock import patch
+        from magi.memory.onnx_variants import resolve_variant_name
+        meta = self._meta()
+        with patch("magi.memory.onnx_variants.detect_platform_key", return_value="win32_amd64"):
+            assert resolve_variant_name(meta, override=None) == "quantized"
+
+
+class TestResolveVariantPath:
+    """resolve_variant_path: from (model_dir, meta) to concrete .onnx path."""
+
+    def _make_meta(self):
+        from magi.config.local_embedding_registry import (
+            LocalEmbeddingModelMeta,
+            LocalEmbeddingVariantMeta,
+        )
+        return LocalEmbeddingModelMeta(
+            id="m",
+            label="M",
+            repo="o/m",
+            onnx_repo="o/m",
+            dimension=512,
+            max_tokens=512,
+            variants={
+                "fp32":      LocalEmbeddingVariantMeta(file="onnx/model.onnx",            size_mb=100),
+                "fp16":      LocalEmbeddingVariantMeta(file="onnx/model_fp16.onnx",       size_mb=50),
+                "quantized": LocalEmbeddingVariantMeta(file="onnx/model_quantized.onnx",  size_mb=25),
+            },
+            default_variant={"darwin_arm64": "fp16", "_fallback": "quantized"},
+        )
+
+    def test_picks_resolved_variant_when_present(self, tmp_path: Path) -> None:
+        from magi.memory.onnx_variants import resolve_variant_path
+        (tmp_path / "onnx").mkdir()
+        (tmp_path / "onnx" / "model_fp16.onnx").touch()
+        (tmp_path / "onnx" / "model_quantized.onnx").touch()
+
+        result = resolve_variant_path(
+            tmp_path, self._make_meta(), override=None, platform_key="darwin_arm64"
+        )
+        assert result == tmp_path / "onnx" / "model_fp16.onnx"
+
+    def test_override_picks_specific_variant(self, tmp_path: Path) -> None:
+        from magi.memory.onnx_variants import resolve_variant_path
+        (tmp_path / "onnx").mkdir()
+        (tmp_path / "onnx" / "model.onnx").touch()
+        (tmp_path / "onnx" / "model_quantized.onnx").touch()
+
+        result = resolve_variant_path(
+            tmp_path, self._make_meta(), override="fp32", platform_key="darwin_arm64"
+        )
+        assert result == tmp_path / "onnx" / "model.onnx"
+
+    def test_chosen_variant_missing_on_disk_returns_none(self, tmp_path: Path) -> None:
+        """If resolver picks fp16 but only fp32 is downloaded, return None — do NOT silently load fp32."""
+        from magi.memory.onnx_variants import resolve_variant_path
+        (tmp_path / "onnx").mkdir()
+        (tmp_path / "onnx" / "model.onnx").touch()  # only fp32 present
+
+        result = resolve_variant_path(
+            tmp_path, self._make_meta(), override=None, platform_key="darwin_arm64"
+        )
+        assert result is None
+
+    def test_flat_layout_fallback(self, tmp_path: Path) -> None:
+        """Variant file is 'onnx/model_fp16.onnx' but user flattened it to model_fp16.onnx at root."""
+        from magi.memory.onnx_variants import resolve_variant_path
+        (tmp_path / "model_fp16.onnx").touch()
+
+        result = resolve_variant_path(
+            tmp_path, self._make_meta(), override=None, platform_key="darwin_arm64"
+        )
+        assert result == tmp_path / "model_fp16.onnx"
+
+    def test_no_variants_block_falls_back_to_legacy_scan(self, tmp_path: Path) -> None:
+        from magi.config.local_embedding_registry import LocalEmbeddingModelMeta
+        from magi.memory.onnx_variants import resolve_variant_path
+        (tmp_path / "model_quantized.onnx").touch()
+        bare_meta = LocalEmbeddingModelMeta(
+            id="m", label="M", repo="o/m", onnx_repo="o/m",
+            dimension=512, max_tokens=512,
+        )
+        result = resolve_variant_path(tmp_path, bare_meta)
+        assert result == tmp_path / "model_quantized.onnx"
+
+    def test_meta_is_none_falls_back_to_legacy_scan(self, tmp_path: Path) -> None:
+        from magi.memory.onnx_variants import resolve_variant_path
+        (tmp_path / "model.onnx").touch()
+        result = resolve_variant_path(tmp_path, None)
+        assert result == tmp_path / "model.onnx"
+
+
+class TestLocalEmbeddingSettingsVariant:
+    """Pydantic round-trip for the new variant override field."""
+
+    def test_default_is_none(self) -> None:
+        from magi.config.models import LocalEmbeddingSettings
+        s = LocalEmbeddingSettings()
+        assert s.variant is None
+
+    def test_explicit_variant(self) -> None:
+        from magi.config.models import LocalEmbeddingSettings
+        s = LocalEmbeddingSettings(variant="fp16")
+        assert s.variant == "fp16"
+
+    def test_serializes_to_dict(self) -> None:
+        from magi.config.models import LocalEmbeddingSettings
+        s = LocalEmbeddingSettings(variant="quantized")
+        assert s.model_dump()["variant"] == "quantized"
+
+    def test_round_trip_through_dict(self) -> None:
+        from magi.config.models import LocalEmbeddingSettings
+        s = LocalEmbeddingSettings.model_validate({"variant": "int8", "managed_model_id": "x"})
+        assert s.variant == "int8"
+        assert s.managed_model_id == "x"
+
+
+class TestLifecycleVariantWiring:
+    """Verify _ensure_loaded picks the configured variant."""
+
+    @pytest.mark.asyncio
+    async def test_picks_fp16_when_settings_variant_is_fp16(self, tmp_path: Path, monkeypatch) -> None:
+        from magi.config.models import LocalEmbeddingSettings, LocalEmbeddingModelSource
+        from magi.config.local_embedding_registry import (
+            LocalEmbeddingModelMeta,
+            LocalEmbeddingVariantMeta,
+            LocalEmbeddingModelRegistry,
+        )
+        from magi.memory.embedding.local_embedding_manager import LocalEmbeddingManager
+        from magi.memory import onnx_variants as res
+
+        # Build a fake managed dir with fp16 + quantized files
+        (tmp_path / "onnx").mkdir()
+        (tmp_path / "onnx" / "model_fp16.onnx").touch()
+        (tmp_path / "onnx" / "model_quantized.onnx").touch()
+        (tmp_path / "tokenizer.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "config.json").write_text('{"hidden_size": 768}', encoding="utf-8")
+
+        # Stub registry to return a known meta
+        meta = LocalEmbeddingModelMeta(
+            id="test-model",
+            label="Test",
+            repo="o/t",
+            onnx_repo="o/t",
+            dimension=768,
+            max_tokens=512,
+            variants={
+                "fp16":      LocalEmbeddingVariantMeta(file="onnx/model_fp16.onnx", size_mb=50),
+                "quantized": LocalEmbeddingVariantMeta(file="onnx/model_quantized.onnx", size_mb=25),
+            },
+            default_variant={"darwin_arm64": "fp16", "_fallback": "quantized"},
+        )
+        registry = LocalEmbeddingModelRegistry(models=[meta])
+        monkeypatch.setattr(
+            "magi.memory.embedding.local_embedding_resolution.get_local_embedding_registry",
+            lambda: registry,
+        )
+
+        runtime_paths = MagicMock()
+        runtime_paths.managed_embedding_model_dir.return_value = str(tmp_path)
+
+        cfg = LocalEmbeddingSettings(
+            model_source=LocalEmbeddingModelSource.MANAGED,
+            managed_model_id="test-model",
+            variant=None,  # let platform default pick
+        )
+        mgr = LocalEmbeddingManager(cfg, runtime_paths=runtime_paths)
+
+        # Force platform_key to darwin_arm64 deterministically
+        monkeypatch.setattr(res, "detect_platform_key", lambda: "darwin_arm64")
+
+        # Patch ort and tokenizers imports inside _ensure_loaded
+        ort_mod = MagicMock()
+        ort_mod.SessionOptions = MagicMock(return_value=MagicMock(
+            inter_op_num_threads=0, intra_op_num_threads=0,
+            graph_optimization_level=0,
+        ))
+        ort_mod.GraphOptimizationLevel.ORT_ENABLE_ALL = 0
+        captured_sessions: list[str] = []
+
+        def fake_session(path, opts, providers):
+            captured_sessions.append(path)
+            return MagicMock()
+
+        ort_mod.InferenceSession = fake_session
+        tokenizers_mod = MagicMock()
+        tokenizers_mod.Tokenizer.from_file = MagicMock(return_value=MagicMock())
+
+        with patch.dict("sys.modules", {"onnxruntime": ort_mod, "tokenizers": tokenizers_mod}):
+            await mgr._ensure_loaded()
+
+        assert len(captured_sessions) == 1
+        assert captured_sessions[0].endswith("model_fp16.onnx"), (
+            f"expected fp16 to be loaded, got {captured_sessions[0]}"
+        )
+
+        # Cancel idle task so test doesn't leak
+        if mgr._unload_task and not mgr._unload_task.done():
+            mgr._unload_task.cancel()
+
+    @pytest.mark.asyncio
+    async def test_picks_overridden_variant(self, tmp_path: Path, monkeypatch) -> None:
+        """When settings.variant='quantized', loads quantized even on darwin_arm64."""
+        from magi.config.models import LocalEmbeddingSettings, LocalEmbeddingModelSource
+        from magi.config.local_embedding_registry import (
+            LocalEmbeddingModelMeta,
+            LocalEmbeddingVariantMeta,
+            LocalEmbeddingModelRegistry,
+        )
+        from magi.memory.embedding.local_embedding_manager import LocalEmbeddingManager
+        from magi.memory import onnx_variants as res
+
+        (tmp_path / "onnx").mkdir()
+        (tmp_path / "onnx" / "model_fp16.onnx").touch()
+        (tmp_path / "onnx" / "model_quantized.onnx").touch()
+        (tmp_path / "tokenizer.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "config.json").write_text('{"hidden_size": 768}', encoding="utf-8")
+
+        meta = LocalEmbeddingModelMeta(
+            id="test-model",
+            label="Test",
+            repo="o/t",
+            onnx_repo="o/t",
+            dimension=768,
+            max_tokens=512,
+            variants={
+                "fp16":      LocalEmbeddingVariantMeta(file="onnx/model_fp16.onnx", size_mb=50),
+                "quantized": LocalEmbeddingVariantMeta(file="onnx/model_quantized.onnx", size_mb=25),
+            },
+            default_variant={"darwin_arm64": "fp16", "_fallback": "quantized"},
+        )
+        registry = LocalEmbeddingModelRegistry(models=[meta])
+        monkeypatch.setattr(
+            "magi.memory.embedding.local_embedding_resolution.get_local_embedding_registry",
+            lambda: registry,
+        )
+        monkeypatch.setattr(res, "detect_platform_key", lambda: "darwin_arm64")
+
+        runtime_paths = MagicMock()
+        runtime_paths.managed_embedding_model_dir.return_value = str(tmp_path)
+
+        cfg = LocalEmbeddingSettings(
+            model_source=LocalEmbeddingModelSource.MANAGED,
+            managed_model_id="test-model",
+            variant="quantized",
+        )
+        mgr = LocalEmbeddingManager(cfg, runtime_paths=runtime_paths)
+
+        ort_mod = MagicMock()
+        ort_mod.SessionOptions = MagicMock(return_value=MagicMock(
+            inter_op_num_threads=0, intra_op_num_threads=0,
+            graph_optimization_level=0,
+        ))
+        ort_mod.GraphOptimizationLevel.ORT_ENABLE_ALL = 0
+        captured: list[str] = []
+        ort_mod.InferenceSession = lambda path, opts, providers: (captured.append(path) or MagicMock())
+        tokenizers_mod = MagicMock()
+        tokenizers_mod.Tokenizer.from_file = MagicMock(return_value=MagicMock())
+
+        with patch.dict("sys.modules", {"onnxruntime": ort_mod, "tokenizers": tokenizers_mod}):
+            await mgr._ensure_loaded()
+
+        assert captured[0].endswith("model_quantized.onnx"), (
+            f"expected quantized override to win over darwin_arm64 default, got {captured[0]}"
+        )
+
+        if mgr._unload_task and not mgr._unload_task.done():
+            mgr._unload_task.cancel()
+
+
+class TestComputeFingerprintVariantAware:
+    """compute_local_embedding_model_fingerprint must respect variant and model_source."""
+
+    def _setup_model_dir(self, tmp_path, variants_present: list[str]) -> None:
+        """Create a managed model dir with the named variant files + tokenizer/config."""
+        (tmp_path / "onnx").mkdir(exist_ok=True)
+        filename_map = {
+            "fp32":      "model.onnx",
+            "fp16":      "model_fp16.onnx",
+            "quantized": "model_quantized.onnx",
+            "int8":      "model_int8.onnx",
+        }
+        for v in variants_present:
+            (tmp_path / "onnx" / filename_map[v]).write_bytes(b"fake-onnx-bytes-" + v.encode())
+        (tmp_path / "tokenizer.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "config.json").write_text('{"hidden_size": 768}', encoding="utf-8")
+
+    def test_identity_changes_when_variant_changes(self, tmp_path, monkeypatch) -> None:
+        from magi.config.models import LocalEmbeddingSettings, LocalEmbeddingModelSource
+        from magi.config.local_embedding_registry import (
+            LocalEmbeddingModelMeta,
+            LocalEmbeddingVariantMeta,
+            LocalEmbeddingModelRegistry,
+        )
+        from magi.memory.embedding.local_embedding_identity import (
+            compute_local_embedding_model_fingerprint,
+        )
+        from unittest.mock import MagicMock
+
+        self._setup_model_dir(tmp_path, ["fp16", "quantized"])
+
+        meta = LocalEmbeddingModelMeta(
+            id="test-model", label="Test", repo="o/t", onnx_repo="o/t",
+            dimension=768, max_tokens=512,
+            variants={
+                "fp16":      LocalEmbeddingVariantMeta(file="onnx/model_fp16.onnx", size_mb=50),
+                "quantized": LocalEmbeddingVariantMeta(file="onnx/model_quantized.onnx", size_mb=25),
+            },
+            default_variant={"darwin_arm64": "fp16", "_fallback": "quantized"},
+        )
+        registry = LocalEmbeddingModelRegistry(models=[meta])
+        monkeypatch.setattr(
+            "magi.memory.embedding.local_embedding_identity.get_local_embedding_registry",
+            lambda: registry,
+        )
+
+        runtime_paths = MagicMock()
+        runtime_paths.managed_embedding_model_dir.return_value = str(tmp_path)
+
+        cfg_fp16 = LocalEmbeddingSettings(
+            model_source=LocalEmbeddingModelSource.MANAGED,
+            managed_model_id="test-model",
+            variant="fp16",
+        )
+        cfg_quantized = LocalEmbeddingSettings(
+            model_source=LocalEmbeddingModelSource.MANAGED,
+            managed_model_id="test-model",
+            variant="quantized",
+        )
+
+        fp_a = compute_local_embedding_model_fingerprint(cfg_fp16, runtime_paths=runtime_paths)
+        fp_b = compute_local_embedding_model_fingerprint(cfg_quantized, runtime_paths=runtime_paths)
+
+        assert fp_a is not None and fp_b is not None
+        assert fp_a.identity_key != fp_b.identity_key, (
+            "switching variant must produce a different identity_key"
+        )
+
+    def test_identity_for_external_source_ignores_residual_managed_id(self, tmp_path, monkeypatch) -> None:
+        """Bug C3 regression: external source must not consult the registry."""
+        from magi.config.models import LocalEmbeddingSettings, LocalEmbeddingModelSource
+        from magi.config.local_embedding_registry import (
+            LocalEmbeddingModelMeta,
+            LocalEmbeddingVariantMeta,
+            LocalEmbeddingModelRegistry,
+        )
+        from magi.memory.embedding.local_embedding_identity import (
+            compute_local_embedding_model_fingerprint,
+        )
+
+        # External dir has just a plain model.onnx (no onnx/ subdir).
+        (tmp_path / "model.onnx").write_bytes(b"external-model-bytes")
+        (tmp_path / "tokenizer.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "config.json").write_text('{"hidden_size": 384}', encoding="utf-8")
+
+        # Registry has a managed entry whose variant files DON'T exist in tmp_path.
+        registry_meta = LocalEmbeddingModelMeta(
+            id="some-other-managed",
+            label="Other",
+            repo="o/o",
+            onnx_repo="o/o",
+            dimension=1024,
+            max_tokens=512,
+            variants={
+                "fp16": LocalEmbeddingVariantMeta(file="onnx/model_fp16.onnx", size_mb=100),
+            },
+            default_variant={"_fallback": "fp16"},
+        )
+        registry = LocalEmbeddingModelRegistry(models=[registry_meta])
+        monkeypatch.setattr(
+            "magi.memory.embedding.local_embedding_identity.get_local_embedding_registry",
+            lambda: registry,
+        )
+
+        cfg = LocalEmbeddingSettings(
+            model_source=LocalEmbeddingModelSource.EXTERNAL,
+            model_dir_path=str(tmp_path),
+            # Residual id from when source was managed — must be ignored.
+            managed_model_id="some-other-managed",
+            variant=None,
+        )
+        fp = compute_local_embedding_model_fingerprint(cfg)
+        assert fp is not None, "external-source fingerprint must succeed via legacy scan"
+        assert fp.model_dir == tmp_path
+        assert fp.model_file_hash, "model_file_hash must be a non-empty digest"

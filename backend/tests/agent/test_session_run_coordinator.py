@@ -1,15 +1,46 @@
 from __future__ import annotations
 
+from collections import deque
+
 import pytest
 
 from magi.agent.runtime.contracts import FactRecord
-from magi.agent.task_agents.chat.fact_classifier import ChatFactClassifier
-from magi.agent.task_agents.chat.interruption_classifier import InterruptionDisposition
-from magi.agent.task_agents.chat.postprocess_service import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
-from magi.agent.task_agents.chat.session_run_coordinator import SessionRunCoordinator
+from magi.chat.task_agent.fact_classifier import ChatFactClassifier
+from magi.chat.task_agent.interruption_classifier import InterruptionDisposition
+from magi.chat.task_agent.postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
+from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.agent.run_control import DetachSignal
 from magi.agent.task_agents.common import IncomingFactKind
 from magi.events.events import EventTypes
+
+
+class _StubInterruptionClassifier:
+    """Returns a scripted sequence of dispositions for sync ``classify`` calls.
+
+    The production ``InterruptionClassifier.classify`` only returns
+    ``INTERRUPT`` (via strict-phrase match) or ``DEFER`` — AUGMENT / STEER
+    decisions require the async LLM-backed path. These tests want to
+    exercise the *coordinator* routing logic for every disposition
+    without dragging a real LLM into the loop, so they inject this stub
+    to force the desired disposition.
+    """
+
+    def __init__(self, dispositions: list[InterruptionDisposition]) -> None:
+        self._queue: deque[InterruptionDisposition] = deque(dispositions)
+        self._last: InterruptionDisposition = InterruptionDisposition.DEFER
+
+    def classify(self, context):  # type: ignore[no-untyped-def]
+        _ = context
+        if self._queue:
+            self._last = self._queue.popleft()
+        return self._last
+
+    async def aclassify(self, context):  # type: ignore[no-untyped-def]
+        return self.classify(context)
+
+    def looks_like_strict_interrupt(self, user_text: str) -> bool:
+        _ = user_text
+        return False
 
 
 def _user_fact(content: str, *, turn_id: str) -> FactRecord:
@@ -69,7 +100,11 @@ def test_first_turn_creates_new_run() -> None:
 
 def test_interjection_during_active_run_is_classified_and_stored() -> None:
     classifier = ChatFactClassifier()
-    coordinator = SessionRunCoordinator()
+    coordinator = SessionRunCoordinator(
+        interruption_classifier=_StubInterruptionClassifier(
+            [InterruptionDisposition.AUGMENT]
+        ),
+    )
     first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
     coordinator.route(
         classifier.classify(
@@ -105,7 +140,11 @@ def test_interjection_during_active_run_is_classified_and_stored() -> None:
 
 def test_steer_interjection_is_queued_with_steer_disposition() -> None:
     classifier = ChatFactClassifier()
-    coordinator = SessionRunCoordinator()
+    coordinator = SessionRunCoordinator(
+        interruption_classifier=_StubInterruptionClassifier(
+            [InterruptionDisposition.STEER]
+        ),
+    )
     first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
     coordinator.route(
         classifier.classify(
@@ -181,7 +220,11 @@ def test_second_turn_starts_fresh_run_after_previous_run_completes() -> None:
 
 def test_interrupt_bumps_revision() -> None:
     classifier = ChatFactClassifier()
-    coordinator = SessionRunCoordinator()
+    coordinator = SessionRunCoordinator(
+        interruption_classifier=_StubInterruptionClassifier(
+            [InterruptionDisposition.INTERRUPT]
+        ),
+    )
     first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
     coordinator.route(
         classifier.classify(
@@ -213,7 +256,11 @@ def test_interrupt_bumps_revision() -> None:
 
 def test_augment_is_visible_at_next_checkpoint() -> None:
     classifier = ChatFactClassifier()
-    coordinator = SessionRunCoordinator()
+    coordinator = SessionRunCoordinator(
+        interruption_classifier=_StubInterruptionClassifier(
+            [InterruptionDisposition.AUGMENT]
+        ),
+    )
     first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
     coordinator.route(
         classifier.classify(
@@ -426,7 +473,11 @@ def test_defer_pending_turn_is_not_merged_at_checkpoint() -> None:
 
 def test_augment_is_merged_at_checkpoint_while_defer_stays_queued() -> None:
     classifier = ChatFactClassifier()
-    coordinator = SessionRunCoordinator()
+    coordinator = SessionRunCoordinator(
+        interruption_classifier=_StubInterruptionClassifier(
+            [InterruptionDisposition.AUGMENT, InterruptionDisposition.DEFER]
+        ),
+    )
     coordinator.route(
         classifier.classify(
             agent_id="u-chat",
@@ -484,7 +535,11 @@ def test_augment_is_merged_at_checkpoint_while_defer_stays_queued() -> None:
 
 def test_consume_deferred_turns_returns_and_clears_defer_pending_turns() -> None:
     classifier = ChatFactClassifier()
-    coordinator = SessionRunCoordinator()
+    coordinator = SessionRunCoordinator(
+        interruption_classifier=_StubInterruptionClassifier(
+            [InterruptionDisposition.AUGMENT, InterruptionDisposition.DEFER]
+        ),
+    )
     coordinator.route(
         classifier.classify(
             agent_id="u-chat",

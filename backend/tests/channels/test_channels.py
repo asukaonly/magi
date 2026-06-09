@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
-import time
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -20,7 +16,6 @@ from magi.channels.contracts import (
 )
 from magi.channels.registry import ChannelRegistry
 from magi.channels.session_mapper import ChannelSessionMapper
-from magi.channels.notification_relay import NotificationRelay
 
 
 # ---------------------------------------------------------------------------
@@ -92,8 +87,8 @@ class TestChannelRegistry:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def mapper_db(tmp_path: Path) -> str:
-    return str(tmp_path / "channels.db")
+def mapper_db(runtime_paths_with_schema) -> str:
+    return str(runtime_paths_with_schema.channels_db_path)
 
 
 @pytest.fixture
@@ -123,7 +118,71 @@ class TestChannelSessionMapper:
         assert mapping.external_chat_id == "12345"
         assert mapping.magi_session_id.startswith("chsess_")
         assert not mapping.is_group
+        # Phase H+2 identity: with no resolver injected, magi_user_id
+        # falls back to the canonical local user (single-user default).
+        # Pre-identity-layer this column would have held the synthetic
+        # f"channel_{type}_{ext}" string instead.
+        assert mapping.magi_user_id == "local_user"
         mock_chat_store.upsert_session.assert_called_once()
+
+    async def test_resolve_canonicalizes_user_id_via_resolver(
+        self, mapper_db: str, mock_chat_store: MagicMock
+    ) -> None:
+        """Phase H+2 identity layer (I-5): when a resolver is injected,
+        magi_user_id MUST be the resolver's canonical output — not the
+        raw external_user_id, not the synthesized ``channel_*`` string.
+
+        Reproduces the contract that fixes the original
+        cross-channel-memory bug: weixin inbound used to get
+        ``magi_user_id = "channel_weixin_o9cq..."`` which then partitioned
+        all downstream memory away from desktop's ``local_user``."""
+        from magi.identity import (
+            CANONICAL_LOCAL_USER,
+            IdentityBindingsStore,
+            LocalUserResolver,
+        )
+        from pathlib import Path
+        import sqlite3
+
+        # Build an in-memory-style identity store (separate file in tmp).
+        identity_db = str(Path(mapper_db).parent / "identity.db")
+        sqlite3.connect(identity_db).executescript(
+            """
+            CREATE TABLE user_identity_bindings (
+                channel_type TEXT NOT NULL,
+                external_user_id TEXT NOT NULL,
+                magi_user_id TEXT NOT NULL,
+                created_at_ms INTEGER NOT NULL,
+                last_seen_at_ms INTEGER NOT NULL,
+                UNIQUE(channel_type, external_user_id)
+            );
+            """
+        )
+        resolver = LocalUserResolver(
+            bindings_store=IdentityBindingsStore(db_path=identity_db),
+        )
+        mapper = ChannelSessionMapper(
+            db_path=mapper_db,
+            chat_store=mock_chat_store,
+            identity_resolver=resolver,
+        )
+        await mapper.initialize()
+
+        mapping = await mapper.resolve_or_create(
+            channel_type="weixin",
+            external_chat_id="o9cq805VkoHSU8CcaDYe0iaJa-DM@im.wechat",
+            external_user_id="o9cq805VkoHSU8CcaDYe0iaJa-DM@im.wechat",
+        )
+
+        # The whole point: magi_user_id is canonical, NOT a synthesized
+        # channel-scoped id.
+        assert mapping.magi_user_id == str(CANONICAL_LOCAL_USER)
+        # external_chat_id semantics unchanged — channels still need
+        # this to route outbound back to the originating chat.
+        assert (
+            mapping.external_chat_id
+            == "o9cq805VkoHSU8CcaDYe0iaJa-DM@im.wechat"
+        )
 
     async def test_resolve_returns_existing(
         self, mapper_db: str, mock_chat_store: MagicMock
@@ -214,181 +273,4 @@ class TestChannelSessionMapper:
         cursor = await mapper.get_notification_cursor("telegram", "12345")
         assert cursor == 42
 
-
-# ---------------------------------------------------------------------------
-# NotificationRelay
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-class TestNotificationRelay:
-    async def test_dispatches_agent_response(self) -> None:
-        channel = FakeChannel("telegram")
-        registry = ChannelRegistry()
-        registry.register(channel)
-
-        mapper = MagicMock(spec=ChannelSessionMapper)
-        mapper.lookup_by_session = AsyncMock(
-            return_value=ChannelSessionMapping(
-                channel_type="telegram",
-                external_chat_id="12345",
-                magi_session_id="sess_abc",
-                magi_user_id="user1",
-            )
-        )
-        mapper.get_notification_cursor = AsyncMock(return_value=0)
-        mapper.update_notification_cursor = AsyncMock()
-        mapper.update_relay_cursor = AsyncMock()
-
-        notif = MagicMock()
-        notif.notification_id = 1
-        notif.channel = "agent_response"
-        notif.session_id = "sess_abc"
-        notif.payload_json = json.dumps({"content": "Hello from Magi!"})
-
-        trace_store = MagicMock()
-        trace_store.get_latest_notification_id = AsyncMock(return_value=0)
-        trace_store.list_notifications = AsyncMock(side_effect=[[notif], []])
-
-        relay = NotificationRelay(
-            registry=registry,
-            session_mapper=mapper,
-            trace_store=trace_store,
-            poll_interval_s=0.01,
-        )
-
-        # Run one cycle then stop
-        relay._running = True
-        relay._cursor = 0
-        await relay._poll_cycle()
-
-        assert len(channel.sent) == 1
-        target, content = channel.sent[0]
-        assert target.channel_type == "telegram"
-        assert target.external_chat_id == "12345"
-        assert content.text == "Hello from Magi!"
-        mapper.update_notification_cursor.assert_awaited_once_with("telegram", "12345", 1)
-        mapper.update_relay_cursor.assert_awaited_once_with("notification_relay", 1)
-
-    async def test_ignores_non_channel_sessions(self) -> None:
-        channel = FakeChannel("telegram")
-        registry = ChannelRegistry()
-        registry.register(channel)
-
-        mapper = MagicMock(spec=ChannelSessionMapper)
-        mapper.lookup_by_session = AsyncMock(return_value=None)  # Not a channel session
-        mapper.update_relay_cursor = AsyncMock()
-
-        notif = MagicMock()
-        notif.notification_id = 1
-        notif.channel = "agent_response"
-        notif.session_id = "unknown_sess"
-        notif.payload_json = json.dumps({"content": "Should not be sent"})
-
-        trace_store = MagicMock()
-        trace_store.get_latest_notification_id = AsyncMock(return_value=0)
-        trace_store.list_notifications = AsyncMock(side_effect=[[notif], []])
-
-        relay = NotificationRelay(
-            registry=registry,
-            session_mapper=mapper,
-            trace_store=trace_store,
-        )
-
-        relay._running = True
-        relay._cursor = 0
-        await relay._poll_cycle()
-
-        assert len(channel.sent) == 0
-
-    async def test_ignores_non_response_channels(self) -> None:
-        channel = FakeChannel("telegram")
-        registry = ChannelRegistry()
-        registry.register(channel)
-
-        mapper = MagicMock(spec=ChannelSessionMapper)
-
-        notif = MagicMock()
-        notif.notification_id = 1
-        notif.channel = "turn_ux_plan"
-        notif.session_id = "sess_x"
-        notif.payload_json = json.dumps({})
-
-        trace_store = MagicMock()
-        trace_store.get_latest_notification_id = AsyncMock(return_value=0)
-        trace_store.list_notifications = AsyncMock(side_effect=[[notif], []])
-
-        relay = NotificationRelay(
-            registry=registry,
-            session_mapper=mapper,
-            trace_store=trace_store,
-        )
-
-        relay._running = True
-        relay._cursor = 0
-        await relay._poll_cycle()
-
-        # Mapper should not even be called for non-response channels
-        mapper.lookup_by_session.assert_not_called()
-        assert len(channel.sent) == 0
-        mapper.update_relay_cursor.assert_awaited_once_with("notification_relay", 1)
-
-    async def test_assembles_streamed_chunks(self) -> None:
-        """Relay accumulates content_delta from streaming chunks and sends on is_final."""
-        channel = FakeChannel("telegram")
-        registry = ChannelRegistry()
-        registry.register(channel)
-
-        mapper = MagicMock(spec=ChannelSessionMapper)
-        mapper.lookup_by_session = AsyncMock(
-            return_value=ChannelSessionMapping(
-                channel_type="telegram",
-                external_chat_id="12345",
-                magi_session_id="sess_abc",
-                magi_user_id="user1",
-            )
-        )
-        mapper.get_notification_cursor = AsyncMock(return_value=0)
-        mapper.update_notification_cursor = AsyncMock()
-        mapper.update_relay_cursor = AsyncMock()
-
-        def _make_chunk(nid: int, delta: str, is_final: bool) -> MagicMock:
-            n = MagicMock()
-            n.notification_id = nid
-            n.channel = "agent_response_chunk"
-            n.session_id = "sess_abc"
-            payload: dict[str, Any] = {
-                "turn_id": "turn_1",
-                "content_delta": delta,
-                "is_final": is_final,
-            }
-            n.payload_json = json.dumps(payload)
-            return n
-
-        chunks = [
-            _make_chunk(1, "Hello", False),
-            _make_chunk(2, " world", False),
-            _make_chunk(3, "!", False),
-            _make_chunk(4, "", True),  # final marker, empty delta
-        ]
-
-        trace_store = MagicMock()
-        trace_store.get_latest_notification_id = AsyncMock(return_value=0)
-        trace_store.list_notifications = AsyncMock(side_effect=[chunks, []])
-
-        relay = NotificationRelay(
-            registry=registry,
-            session_mapper=mapper,
-            trace_store=trace_store,
-            poll_interval_s=0.01,
-        )
-
-        relay._running = True
-        relay._cursor = 0
-        await relay._poll_cycle()
-
-        assert len(channel.sent) == 1
-        _, content = channel.sent[0]
-        assert content.text == "Hello world!"
-        assert content.is_final is True
-        mapper.update_notification_cursor.assert_awaited_once_with("telegram", "12345", 4)
-        assert mapper.update_relay_cursor.await_count == 4
+# NotificationRelay tests removed in Phase G+4 — class deleted (retired by Phase G+1).

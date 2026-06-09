@@ -30,6 +30,7 @@ import structlog
 
 from ..cancel import CancelToken
 from ..turn_input import UserTurnInput
+from ..execution.function_calling.run_input import EngineRunInput
 from .contracts import (
     BackgroundTask,
     BackgroundTaskSpec,
@@ -39,6 +40,8 @@ from .executor import BackgroundTaskRunFn, BackgroundTaskRunResult
 from .manager import BackgroundTaskManager
 
 if TYPE_CHECKING:
+    from magi_plugin_sdk.run_trigger import RunTrigger
+
     from ..task_agents.common.contracts import (
         ExecutionRequest,
         ExecutionResult,
@@ -85,6 +88,7 @@ def build_spec_from_request(
     request: "ExecutionRequest",
     *,
     trigger_source: BackgroundTaskTriggerSource,
+    trigger: "RunTrigger | None" = None,
     timeout_seconds: int | None = 1800,
     max_iterations: int = 50,
     initial_messages: list[dict[str, Any]] | None = None,
@@ -117,6 +121,7 @@ def build_spec_from_request(
         selected_tools=list(request.tool_selection.tools or []),
         workspace_path=workspace_path,
         trigger_source=trigger_source,
+        trigger=trigger,
         timeout_seconds=timeout_seconds,
         max_iterations=max_iterations,
         initial_messages=(
@@ -158,6 +163,7 @@ class BackgroundLaunchService:
         request: "ExecutionRequest",
         *,
         trigger_source: BackgroundTaskTriggerSource,
+        trigger: "RunTrigger | None" = None,
         timeout_seconds: int | None = 1800,
         max_iterations: int = 50,
         initial_messages: list[dict[str, Any]] | None = None,
@@ -170,6 +176,7 @@ class BackgroundLaunchService:
         spec = build_spec_from_request(
             request,
             trigger_source=trigger_source,
+            trigger=trigger,
             timeout_seconds=timeout_seconds,
             max_iterations=max_iterations,
             initial_messages=initial_messages,
@@ -251,26 +258,25 @@ def build_background_run_fn(
         else:
             user_message = spec.goal
             conversation_history = []
-        outcome = await function_calling_orchestrator.execute_with_tools(
-            turn=UserTurnInput(
-                text=user_message,
-                attachments=[],
+        outcome = await function_calling_orchestrator.run(
+            EngineRunInput.headless(
+                turn=UserTurnInput(
+                    text=user_message,
+                    attachments=[],
+                    user_id=spec.user_id,
+                    session_id=spec.session_id or None,
+                ),
+                selected_tools=list(spec.selected_tools),
                 user_id=spec.user_id,
                 session_id=spec.session_id or None,
-            ),
-            system_prompt="",
-            selected_tools=list(spec.selected_tools),
-            user_id=spec.user_id,
-            session_id=spec.session_id or None,
-            session_run_id=None,
-            session_run_revision=0,
-            turn_id=spec.origin_turn_id or None,
-            conversation_history=conversation_history,
-            max_iterations=spec.max_iterations,
-            intent=intent_label,
-            execution_agent_id=execution_agent_id,
-            execution_workspace=spec.workspace_path,
-            cancel_token=cancel_token,
+                turn_id=spec.origin_turn_id or None,
+                conversation_history=conversation_history,
+                max_iterations=spec.max_iterations,
+                intent=intent_label,
+                execution_agent_id=execution_agent_id,
+                execution_workspace=spec.workspace_path,
+                cancel_token=cancel_token,
+            )
         )
         summary = (outcome.content or "").strip()
         return BackgroundTaskRunResult(

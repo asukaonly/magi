@@ -124,8 +124,9 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
     await module.init()
 
     assert captured["l2_batch_flush_interval_seconds"] == 90
-    assert captured["enable_l2_conflict_arbitration"] is True
-    assert captured["l2_conflict_arbitration_min_confidence"] == 0.85
+    # Advanced tuning knobs are bundled into MemoryStoreTuning.
+    assert captured["tuning"].enable_l2_conflict_arbitration is True
+    assert captured["tuning"].l2_conflict_arbitration_min_confidence == 0.85
     assert usage_store.started is False
     assert usage_store.message_bus is None
 

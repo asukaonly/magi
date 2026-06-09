@@ -66,16 +66,16 @@ class TestL1Handler:
         handler = L1Handler(store)
         conds = L1Conditions(content_query="What was the first issue I had with my new car after its first service?", limit=2)
 
-        async def _bm25_path(_query, _limit, *, user_id=None):
+        async def _bm25_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
             return ["assistant-generic", "user-fact"]
 
-        async def _vector_path(_query, _limit, *, user_id=None):
+        async def _vector_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
             return []
 
-        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None):
+        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None, l1_retrieval_scopes=None):
             return ["assistant-generic", "user-fact"]
 
-        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id):
+        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
             by_id = {
                 "assistant-generic": {
                     "event_id": "assistant-generic",
@@ -114,16 +114,16 @@ class TestL1Handler:
         handler = L1Handler(store)
         conds = L1Conditions(content_query="Where did I mention the GPS issue?", limit=1)
 
-        async def _bm25_path(_query, _limit, *, user_id=None):
+        async def _bm25_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
             return ["user-fact"]
 
-        async def _vector_path(_query, _limit, *, user_id=None):
+        async def _vector_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
             return []
 
-        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None):
+        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None, l1_retrieval_scopes=None):
             return ["user-fact"]
 
-        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id):
+        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
             return [
                 {
                     "event_id": "user-fact",
@@ -155,16 +155,16 @@ class TestL1Handler:
             limit=3,
         )
 
-        async def _bm25_path(_query, _limit, *, user_id=None):
+        async def _bm25_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
             return ["assistant-generic", "user-workshop", "user-webinar"]
 
-        async def _vector_path(_query, _limit, *, user_id=None):
+        async def _vector_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
             return []
 
-        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None):
+        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None, l1_retrieval_scopes=None):
             return ["assistant-generic", "user-workshop", "user-webinar"]
 
-        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id):
+        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
             by_id = {
                 "assistant-generic": {
                     "event_id": "assistant-generic",
@@ -216,16 +216,16 @@ class TestL1Handler:
             limit=1,
         )
 
-        async def _bm25_path(_query, _limit, *, user_id=None):
+        async def _bm25_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
             return ["user-workshop"]
 
-        async def _vector_path(_query, _limit, *, user_id=None):
+        async def _vector_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
             return []
 
-        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None):
+        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None, l1_retrieval_scopes=None):
             return ["user-workshop"]
 
-        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id):
+        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
             return [
                 {
                     "event_id": "user-workshop",
@@ -278,13 +278,13 @@ class TestL1Handler:
             },
         ]
 
-        async def _bm25_path(_query, _limit, *, user_id=None):
+        async def _bm25_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
             return []
 
-        async def _vector_path(_query, _limit, *, user_id=None):
+        async def _vector_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
             return []
 
-        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id):
+        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
             by_id = {event["event_id"]: event for event in store.query_events.return_value}
             return [by_id[event_id] for event_id in event_ids if event_id in by_id]
 

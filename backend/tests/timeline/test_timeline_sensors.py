@@ -38,7 +38,8 @@ _reader_spec.loader.exec_module(_reader_mod)
 ScanResult = _reader_mod.ScanResult
 
 from magi.awareness import SensorSyncContext
-from magi.awareness.sensor_projection import build_sensor_projection, build_sensor_timeline_event
+from magi.awareness.sensor_projection import build_sensor_projection
+from magi.timeline.sensor_projection import build_sensor_timeline_event
 from magi.timeline.insight_pipeline import TimelineInsightPipeline
 
 

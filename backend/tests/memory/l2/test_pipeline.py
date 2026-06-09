@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
+from magi.memory import MemoryStoreTuning
 from magi.memory import UnifiedMemoryStore as _RuntimeUnifiedMemoryStore
 from magi.memory.event_contracts import normalize_runtime_event
 from magi_plugin_sdk import ExtractionProfileSpec
@@ -637,8 +638,10 @@ def test_unified_memory_store_wires_l2_batch_flush_interval_into_pipeline():
         enable_l3=False,
         enable_l4=False,
         l2_batch_flush_interval_seconds=90,
-        enable_l2_conflict_arbitration=False,
-        l2_conflict_arbitration_min_confidence=0.9,
+        tuning=MemoryStoreTuning(
+            enable_l2_conflict_arbitration=False,
+            l2_conflict_arbitration_min_confidence=0.9,
+        ),
     )
 
     assert store.l2_pipeline is not None

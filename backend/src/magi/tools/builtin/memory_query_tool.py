@@ -5,12 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, Optional
 
-from ...memory.hybrid_retrieval import build_query
-from ...memory.hybrid_retrieval.models import ConversationTurn
-from ...memory.l2.entities.catalog.lookup import get_canonical_names
-from ...memory.provider import get_hybrid_retrieval_service
 from ...plugins.provider import resolve_plugin_manager
-from ...memory.retrieval_projection import project_historical_recall
 from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
 
 
@@ -79,7 +74,6 @@ class MemoryQueryTool(Tool):
         ``summary_categories`` description reflects the live catalog.
         """
         self._schema_built_with_plugin_manager = False
-        self._service: Optional[Any] = None
         self.schema = self._build_schema(plugin_manager=None)
 
     def _build_schema(self, *, plugin_manager: Optional[Any]) -> ToolSchema:
@@ -112,26 +106,47 @@ class MemoryQueryTool(Tool):
                     ),
                     required=False,
                 ),
-                ToolParameter(
-                    name="sources",
-                    type=ParameterType.ARRAY,
-                    array_item_type=ParameterType.STRING,
-                    description=(
-                        "Optional source filter. Common values: 'chat' (conversation), "
-                        "'timeline' (events from sensors like browsing/photos), 'profile' "
-                        "(user preferences and persona facts), 'settings' (configured defaults), "
-                        "'relationship' (people the user has talked about), 'worker' "
-                        "(autonomous agent work)."
-                    ),
-                    required=False,
-                ),
+                # NOTE: a `sources` parameter used to live here, exposed to
+                # the LLM. We removed it on purpose. Reasoning:
+                #
+                # 1. The LLM doesn't know what concrete source values exist
+                #    (no enum, the documented examples like "timeline" were
+                #    not even real values — the real values are plugin-
+                #    chosen strings like "screenshot_timeline" or
+                #    "chrome_history").
+                # 2. BM25 / vector / temporal-BM25 / keyword retrieval all
+                #    run against ALL sources regardless of this filter —
+                #    the filter only kicks in during the post-fusion
+                #    hydration step, which means a wrong source list
+                #    *throws away* already-found real matches without
+                #    saving any retrieval CPU.
+                # 3. Other axes already do the actual signal work:
+                #      - l1_retrieval_scope         (mode → scope filter)
+                #      - allowed_evidence_classes   (evidence routing)
+                #      - memory_domain              (provenance partition)
+                #    source is an operational/provenance tag, not a
+                #    retrieval-relevance axis. Letting the LLM filter on
+                #    it leaks an internal axis upstream.
+                #
+                # `RetrievalQuery.source_filters` is kept downstream so
+                # internal programmatic callers can still narrow by source
+                # when they have authoritative knowledge (e.g. an agent
+                # that explicitly only wants browser history). For the
+                # user-facing memory_query tool, we just pass [] and let
+                # the engine search everything.
                 ToolParameter(
                     name="query_mode",
                     type=ParameterType.STRING,
                     description=(
-                        "Optional. The system auto-detects the retrieval mode from the query "
-                        "content + conversation context. Pass a value only when overriding "
-                        "the automatic detection (rare)."
+                        "Pick the retrieval mode by the SHAPE of the answer the user wants. "
+                        "Use 'cross_session' when they want to ENUMERATE multiple facts/items "
+                        "(e.g. 'which cafes have I been to', 'list the repos I cloned'). "
+                        "'current_state' for a single current value/preference; "
+                        "'episode_recall' for a narrative of what happened in a session; "
+                        "'temporal_compare' for before/after; 'summary'/'activity_summary' for "
+                        "digests; 'strategy' for how-to/procedures; 'exact_fact' for a single "
+                        "specific fact. If unsure, omit it and the system falls back to "
+                        "heuristic detection."
                     ),
                     required=False,
                     enum=["exact_fact", "current_state", "episode_recall", "cross_session", "temporal_compare", "summary", "activity_summary", "strategy"],
@@ -202,11 +217,6 @@ class MemoryQueryTool(Tool):
         self._maybe_refresh_schema()
         return super().get_info()
 
-    def _get_service(self):
-        """Return an initialized retrieval service when runtime memory is available."""
-        self._service = get_hybrid_retrieval_service()
-        return self._service
-
     async def execute(
         self,
         parameters: Dict[str, Any],
@@ -214,18 +224,25 @@ class MemoryQueryTool(Tool):
     ) -> ToolResult:
         """Execute a hybrid retrieval query."""
         try:
+            mq = context.capabilities.memory_query if context.capabilities else None
+            if mq is None:
+                return ToolResult(
+                    success=False,
+                    error="memory_query capability port is not available",
+                    error_code="CAPABILITY_UNAVAILABLE",
+                )
             user_id = parameters.get("user_id") or context.env_vars.get("user_id")
             # Persistent memory recall should not inherit the current chat session
             # unless a caller explicitly opts into session-local lookup.
             session_id = parameters.get("session_id")
             current_user_text = context.env_vars.get("current_user_text") or None
-            # Parse incoming conversation_context (list of dicts → list[ConversationTurn]).
+            # Parse incoming conversation_context (list of dicts → ConversationTurn instances).
             # Auto-injected by the runtime for indexical reference resolution; tolerant
             # of malformed entries (skip items missing required keys).
             raw_context = parameters.get("conversation_context") or []
-            conversation_context: Optional[list[ConversationTurn]] = None
+            conversation_context = None
             if raw_context:
-                turns: list[ConversationTurn] = []
+                turns = []
                 for item in raw_context:
                     if not isinstance(item, dict):
                         continue
@@ -233,7 +250,7 @@ class MemoryQueryTool(Tool):
                         continue
                     try:
                         turns.append(
-                            ConversationTurn(
+                            mq.make_conversation_turn(
                                 role=item["role"],
                                 content=item["content"],
                                 timestamp=float(item["timestamp"]),
@@ -243,21 +260,24 @@ class MemoryQueryTool(Tool):
                         continue
                 if turns:
                     conversation_context = turns
-            request = build_query(
+            request = mq.build_query(
                 query=parameters["query"],
                 user_id=user_id,
                 session_id=session_id,
                 time_range=parameters.get("time_range", {}),
                 query_mode=parameters.get("query_mode"),
-                source_filters=parameters.get("sources", []) or [],
+                # source_filters is no longer LLM-controllable — see the
+                # block-comment above where the `sources` ToolParameter
+                # used to be declared. Internal callers can still set
+                # source_filters on RetrievalQuery directly via build_query.
+                source_filters=[],
                 domain_filters=parameters.get("domains", []) or [],
                 summary_categories=parameters.get("summary_categories", []) or [],
                 limit=parameters.get("limit", 20),
                 exclude_user_text=current_user_text,
                 conversation_context=conversation_context,
             )
-            service = self._get_service()
-            payload = await service.query(request)
+            payload = await mq.query(request)
             payload_dict = asdict(payload) if hasattr(payload, "__dataclass_fields__") else {
                 "l0_workbench": getattr(payload, "l0_workbench", []),
                 "l1_events": getattr(payload, "l1_events", []),
@@ -311,24 +331,24 @@ class MemoryQueryTool(Tool):
             # ``canonical_names is None`` as legacy mode (no entity-leak
             # filtering) and a populated/empty dict as Phase 5 mode (drop
             # findings whose entity_ids resolve to no canonical name). To
-            # preserve legacy behaviour when the service does not expose a
+            # preserve legacy behaviour when the port does not expose a
             # memory_db_path (e.g. test doubles or fresh deploys), we only
             # opt into Phase 5 mode when a real string path is available.
             # The isinstance guard rejects MagicMock-style auto-attributes.
-            db_path_attr = getattr(service, "memory_db_path", None) or getattr(
-                service, "_memory_db_path", None
+            db_path_attr = getattr(mq, "memory_db_path", None) or getattr(
+                mq, "_memory_db_path", None
             )
             db_path = db_path_attr if isinstance(db_path_attr, str) else None
             canonical_names: dict[str, str] | None = None
             if db_path:
                 canonical_names = (
-                    await get_canonical_names(db_path, entity_ids)
+                    await mq.get_canonical_names(db_path, entity_ids)
                     if entity_ids
                     else {}
                 )
 
             historical_recall = asdict(
-                project_historical_recall(
+                mq.project_historical_recall(
                     payload=payload_dict,
                     request=request,
                     plugin_manager=plugin_manager,
@@ -353,9 +373,18 @@ class MemoryQueryTool(Tool):
             )
 
     def is_ready(self) -> bool:
-        """Check if tool is ready to use."""
-        try:
-            self._get_service()
-        except RuntimeError:
-            return False
+        """Check if tool is ready to use.
+
+        Intentional behaviour change (Phase 2 cluster-G migration):
+        Previously this method returned False when the memory service was
+        unavailable, causing the tool to be hidden from the LLM entirely.
+        It now always returns True so the tool is always advertised.
+
+        Rationale: the port indirection introduced by the MemoryQueryPort
+        adapter means we cannot cheaply probe the underlying service at
+        list-time without triggering a full service initialisation.  Instead,
+        unavailability is reported as an execute-time error ToolResult
+        (CAPABILITY_UNAVAILABLE / EXECUTION_ERROR) rather than hiding the
+        tool.  This is a deliberate degraded-gracefully trade-off.
+        """
         return True

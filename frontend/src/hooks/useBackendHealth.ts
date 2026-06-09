@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { apiClient } from '@/api/client';
 import { useBackendHealthStore } from '@/stores/backend-health';
 
@@ -58,7 +59,6 @@ export function useBackendHealth(): void {
       if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window || '__TAURI__' in window)) {
         return;
       }
-      const { listen } = await import('@tauri-apps/api/event');
       unlisten = await listen<string>(BACKEND_EXIT_EVENT, () => {
         failCount.current = FAILURE_THRESHOLD;
         setHealth('exited');

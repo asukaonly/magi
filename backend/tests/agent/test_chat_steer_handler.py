@@ -29,12 +29,12 @@ from magi.agent.execution.function_calling.step_executor import (
     FunctionCallingStepState,
 )
 from magi.agent.run_control import SteerInbox, SteerMessage
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
-from magi.agent.task_agents.chat.handlers import (
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
+from magi.agent.task_agents.handlers.handlers import (
     ChatHandlerDependencies,
     FunctionCallingHandler,
 )
-from magi.agent.task_agents.chat.session_run_coordinator import (
+from magi.chat.task_agent.session_run_coordinator import (
     SessionRunCoordinator,
     TurnSupersession,
 )
@@ -80,9 +80,12 @@ class _FakeOrchestrator:
         conversation_history: Any = None,
         session_summary: Any = None,
         session_origin: Any = None,
+        reply_context: Any = None,
         allow_attachment_grounding: bool = False,
+        ephemeral_context: Any = None,
+        **kwargs: Any,
     ) -> FunctionCallingStepState:
-        _ = (system_prompt, selected_tools, conversation_history, session_summary, session_origin, allow_attachment_grounding)
+        _ = (system_prompt, selected_tools, conversation_history, session_summary, session_origin, reply_context, allow_attachment_grounding, ephemeral_context, kwargs)
         self.build_step_state_calls.append(turn.text)
         return FunctionCallingStepState(
             messages=[{"role": "user", "content": turn.text}],
@@ -166,7 +169,6 @@ def _make_request(context: ChatRuntimeContext) -> FunctionCallingRequest:
             difficulty="normal",
             execution_mode=ExecutionMode.FUNCTION_CALLING,
             reasoning="tool use",
-            orchestration_plan=OrchestrationPlan(),
         ),
         tool_selection=ToolSelection(tools=["memory_query"], reasoning="tool use"),
         prompt_context=SimpleNamespace(
@@ -189,7 +191,7 @@ def _make_handler(
         planning_service=SimpleNamespace(),
         function_calling_orchestrator=orchestrator,
         task_orchestrator=SimpleNamespace(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         agent_id="s-chat",
         get_task_agent_manager=lambda: None,
         session_run_coordinator=coordinator,
@@ -205,6 +207,12 @@ async def test_steer_turn_queued_before_execution_is_hydrated_at_turn_start() ->
     Simulates the restart-recovery case: a STEER pending turn is queued
     on the coordinator *before* the handler starts executing, and must
     be drained+applied before the very first LLM call.
+
+    Post-H6, the sync interruption classifier only matches strict cancel
+    phrases (everything else DEFERs); STEER is now assigned only via the
+    async LLM classifier. The test seeds a STEER-disposition pending turn
+    directly on the run store so we exercise the handler-side drain path
+    without depending on classifier internals.
     """
     coordinator = SessionRunCoordinator()
     first_turn = coordinator.handle_user_turn(
@@ -215,13 +223,11 @@ async def test_steer_turn_queued_before_execution_is_hydrated_at_turn_start() ->
             turn_id="turn-1",
         )
     )
-    coordinator.handle_user_turn(
-        UserMessagePayload(
-            user_id="u-chat",
-            session_id="s-chat",
-            content="Also, use the staging endpoint.",
-            turn_id="turn-2",
-        )
+    coordinator._run_store.append_pending_turn(
+        "s-chat",
+        "turn-2",
+        "Also, use the staging endpoint.",
+        disposition="steer",
     )
 
     orchestrator = _FakeOrchestrator(
@@ -284,14 +290,15 @@ async def test_steer_turn_arriving_mid_run_is_drained_on_next_iteration() -> Non
 
     def _queue_steer_after_first_step(state: FunctionCallingStepState) -> None:
         # Only queue once, after the first continue step completes.
+        # Post-H6, STEER is set only by the async LLM classifier; we seed
+        # the disposition directly on the run store to keep the test
+        # focused on handler-side drain behaviour.
         if len(state.messages) == 1:
-            coordinator.handle_user_turn(
-                UserMessagePayload(
-                    user_id="u-chat",
-                    session_id="s-chat",
-                    content="Also, use the staging endpoint.",
-                    turn_id="turn-2",
-                )
+            coordinator._run_store.append_pending_turn(
+                "s-chat",
+                "turn-2",
+                "Also, use the staging endpoint.",
+                disposition="steer",
             )
 
     orchestrator = _FakeOrchestrator(
@@ -361,7 +368,7 @@ async def test_no_steer_drain_when_coordinator_is_absent() -> None:
             )
         ),
         task_orchestrator=SimpleNamespace(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         agent_id="s-chat",
         get_task_agent_manager=lambda: None,
         session_run_coordinator=None,

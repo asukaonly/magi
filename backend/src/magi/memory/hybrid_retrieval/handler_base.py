@@ -70,17 +70,7 @@ class RRFSearchHandler(abc.ABC):
             Callable[[List[Dict[str, Any]], Dict[str, float]], Dict[str, float]]
         ] = None,
     ) -> List[Dict[str, Any]]:
-        """Shared RRF fusion skeleton used by all subclasses.
-
-        ``fetch_k_multiplier`` widens the hydration window without changing
-        the final ``limit``. Use it when the caller relaxed a filter at
-        search time and needs more candidates to rerank against.
-
-        ``fused_score_adjuster`` receives the hydrated results and the
-        post-RRF score map and returns a new score map. Use it for soft
-        boosts (e.g. category preference) instead of pre-search hard
-        filters that would suppress recall on imperfect classifications.
-        """
+        """Shared RRF fusion skeleton used by all subclasses."""
         if not content_query:
             return []
 

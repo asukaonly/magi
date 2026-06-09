@@ -20,10 +20,35 @@ class TestTraceQueryTool:
         assert "include_arguments" in param_names
 
     @pytest.mark.asyncio
-    async def test_tool_returns_recent_previous_turn_trace(self, monkeypatch):
-        import magi.tools.builtin.trace_query_tool as trace_query_module
+    async def test_tool_errors_when_trace_capability_unavailable(self):
         from magi.tools.builtin.trace_query_tool import TraceQueryTool
         from magi.tools.schema import ToolExecutionContext
+        from magi_plugin_sdk.capabilities import ToolCapabilities
+
+        tool = TraceQueryTool()
+        env = {"user_id": "local_user", "session_id": "session-1"}
+
+        # capabilities entirely absent
+        result = await tool.execute(
+            {"query": "x"},
+            ToolExecutionContext(agent_id="chat", env_vars=env, capabilities=None),
+        )
+        assert result.success is False
+        assert result.error_code == "CAPABILITY_UNAVAILABLE"
+
+        # bundle present but no trace port wired
+        result = await tool.execute(
+            {"query": "x"},
+            ToolExecutionContext(agent_id="chat", env_vars=env, capabilities=ToolCapabilities()),
+        )
+        assert result.success is False
+        assert result.error_code == "CAPABILITY_UNAVAILABLE"
+
+    @pytest.mark.asyncio
+    async def test_tool_returns_recent_previous_turn_trace(self):
+        from magi.tools.builtin.trace_query_tool import TraceQueryTool
+        from magi.tools.schema import ToolExecutionContext
+        from magi_plugin_sdk.capabilities import ToolCapabilities
 
         class _FakeTraceService:
             def get_turn_activity_map(self, *, user_id: str, session_id: str):
@@ -69,12 +94,11 @@ class TestTraceQueryTool:
                     },
                 }
 
-        monkeypatch.setattr(trace_query_module, "get_chat_trace_read_service", lambda: _FakeTraceService())
-
         tool = TraceQueryTool()
         context = ToolExecutionContext(
             agent_id="chat",
             env_vars={"user_id": "local_user", "session_id": "session-1", "turn_id": "turn-current"},
+            capabilities=ToolCapabilities(trace=_FakeTraceService()),
         )
 
         result = await tool.execute({"query": "刚刚用了什么参数和耗时"}, context)
@@ -86,10 +110,10 @@ class TestTraceQueryTool:
         assert "duration_ms=842" in result.data["summary_markdown"]
 
     @pytest.mark.asyncio
-    async def test_tool_filters_named_tool(self, monkeypatch):
-        import magi.tools.builtin.trace_query_tool as trace_query_module
+    async def test_tool_filters_named_tool(self):
         from magi.tools.builtin.trace_query_tool import TraceQueryTool
         from magi.tools.schema import ToolExecutionContext
+        from magi_plugin_sdk.capabilities import ToolCapabilities
 
         class _FakeTraceService:
             def get_turn_activity_map(self, *, user_id: str, session_id: str):
@@ -119,10 +143,12 @@ class TestTraceQueryTool:
                     },
                 }
 
-        monkeypatch.setattr(trace_query_module, "get_chat_trace_read_service", lambda: _FakeTraceService())
-
         tool = TraceQueryTool()
-        context = ToolExecutionContext(agent_id="chat", env_vars={"user_id": "local_user", "session_id": "session-1"})
+        context = ToolExecutionContext(
+            agent_id="chat",
+            env_vars={"user_id": "local_user", "session_id": "session-1"},
+            capabilities=ToolCapabilities(trace=_FakeTraceService()),
+        )
 
         result = await tool.execute(
             {"query": "memory_query 的参数是什么", "tool_name": "memory_query", "scope": "latest_session_turn"},

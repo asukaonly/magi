@@ -5,6 +5,7 @@ import {
 } from '@/domain/chat/state';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
+import { useNotificationStore } from '@/stores/notifications';
 import { useChatTraceStore } from '@/stores/chat-trace';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useContextUsageStore } from '@/stores/context-usage';
@@ -75,6 +76,17 @@ export const applyRealtimeStoreProjection = (
       return projectTraceSummary() || projected;
     }
 
+    const messageId = payload.message_id ? String(payload.message_id) : undefined;
+
+    // P3 Step 4: project unconditionally on ``session_id``. The Phase-G+1
+    // convergence (Steps 2-3) made ``ChatSseChannel.deliver`` the sole writer of
+    // ``agent_response``, carrying the full payload (turn_id/message_id/
+    // trace_summary/ux_plan/…) for non-streamed turns; streamed turns emit no
+    // ``agent_response`` at all (they finalize via ``chat_message_upserted``).
+    // The former lossy-channel-delivery skip — which guarded against a
+    // turn_id-less channel emission inserting a ghost bubble — is therefore
+    // obsolete: real payloads always carry turn_id, so ``receiveAgentResponse``
+    // replaces the matching bubble cleanly instead of inserting a duplicate.
     if (sessionId) {
       conversationStore.receiveAgentResponse({
         sessionId,
@@ -83,7 +95,7 @@ export const applyRealtimeStoreProjection = (
           ? payload.attachments as any[]
           : undefined,
         timestamp,
-        messageId: payload.message_id ? String(payload.message_id) : undefined,
+        messageId,
         messageKind: payload.message_kind ? String(payload.message_kind) : null,
         personaId,
         turnId: turnId || undefined,
@@ -276,6 +288,11 @@ export const applyRealtimeStoreProjection = (
       return true;
     }
     return false;
+  }
+
+  if (eventName === 'user_notification_added') {
+    void useNotificationStore.getState().refresh();
+    return true;
   }
 
   if (eventName === 'code_agent_delegation_event' && message.data && typeof message.data === 'object') {

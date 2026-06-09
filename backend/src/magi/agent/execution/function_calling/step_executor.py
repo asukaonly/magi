@@ -6,10 +6,17 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from typing import TYPE_CHECKING
+
 from ....config.models import ThinkingDepth
+from ....llm.cancellable_client import CancellationRaised, RetractRaised
 from ....llm.streaming_events import LLMStreamEvent, emit_stream_event
 from ...cancel import CancelToken, null_cancel_token
+from ...run_control import RunControl
 from .types import ToolCallResult
+
+if TYPE_CHECKING:
+    from ....tools.context_routing import RouteDecision
 
 
 MAX_RUNTIME_STATUS_CHARS = 2_000
@@ -80,6 +87,8 @@ class FunctionCallingStepExecutor:
         orchestration_strategy: dict[str, Any] | None = None,
         llm_timeout_seconds: float | None = None,
         cancel_token: CancelToken | None = None,
+        control: RunControl | None = None,
+        route_decision: "RouteDecision | None" = None,
     ) -> FunctionCallingStepOutcome:
         """Run one bounded loop iteration and return control to the caller."""
         token = cancel_token if cancel_token is not None else null_cancel_token()
@@ -114,7 +123,13 @@ class FunctionCallingStepExecutor:
                 intent=intent,
                 execution_agent_id=execution_agent_id,
                 iteration=iteration,
+                control=control,
             )
+        except (CancellationRaised, RetractRaised):
+            # Signal observed during or just before the LLM call.
+            # Return aborted so the orchestrator's next iteration top-of-loop
+            # poll can observe the signal and return the matching outcome.
+            return FunctionCallingStepOutcome(status="aborted", iteration=iteration)
         except Exception as exc:
             failure_reason = self._driver._classify_exception_failure(exc)
             error_text = self._driver._format_exception_trace_text(exc)
@@ -132,6 +147,15 @@ class FunctionCallingStepExecutor:
                 failure_reason=failure_reason,
                 error_text=error_text,
             )
+
+        # Post-call signal check: the LLM may have returned successfully but
+        # a signal could have been set DURING the (un-cancellable) bridge call
+        # (tool-variant bridge calls are not wrapped by CancellableLLMClient).
+        # Discard the response and return aborted so the orchestrator's next
+        # iteration top-of-loop poll observes the signal.
+        if control is not None:
+            if control.retract_signal.is_requested() or await control.cancel_token.is_cancelled():
+                return FunctionCallingStepOutcome(status="aborted", iteration=iteration)
 
         assistant_message = response.get("assistant_message")
         if assistant_message:
@@ -215,6 +239,7 @@ class FunctionCallingStepExecutor:
                         orchestration_strategy=orchestration_strategy,
                         cancel_token=token,
                         recent_messages=state.messages,
+                        route_decision=route_decision,
                     )
                 tool_results.append(result)
                 if result.error_code == "CANCELLED" or await token.is_cancelled():

@@ -4,8 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict
 
-from ...agent.workspace_cache import resolve_session_cache
-from ...agent.workspace_cache.atomic_io import append_jsonl
+from magi_plugin_sdk.workspace_cache import resolve_session_cache
+from magi_plugin_sdk.fs import append_jsonl
 from ...core.logger import get_logger
 from ..schema import (
     ParameterType,

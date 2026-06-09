@@ -11,11 +11,13 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from ... import i18n as core_i18n
+from ...config import get_config
 from ...plugins.contracts import (
     ExtensionFieldSpec,
     PluginContribution,
     PluginManifest,
     PluginPackageState,
+    PluginPermissions,
     PluginRegistryEntry,
 )
 from ...plugins.i18n import PluginI18n
@@ -28,6 +30,20 @@ from .plugins_schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _authoritative_official(manifest, *, packages) -> bool:
+    """Resolve a plugin's official status from the authoritative source.
+
+    builtin plugins are bundled in the app binary, so their manifest is
+    trusted. For every other source the local manifest is attacker-authored
+    and MUST NOT be trusted — official comes from the registry value
+    persisted into config at install time (None/missing → not official).
+    """
+    if getattr(manifest, "source", None) == "builtin":
+        return bool(getattr(manifest, "official", False))
+    entry = packages.get(getattr(manifest, "plugin_id", None))
+    return bool(getattr(entry, "official", None)) if entry is not None else False
 
 
 def normalize_plugin_id(plugin_id: str) -> str:
@@ -94,10 +110,19 @@ def _get_plugin_i18n(plugin_id: str, plugin_dir: str) -> PluginI18n:
     return legacy.PluginI18n(plugin_id, Path(plugin_dir))
 
 
-def _serialize_manifest(manifest: PluginManifest) -> PluginManifestResponse:
+def _serialize_manifest(
+    manifest: PluginManifest, *, packages=None
+) -> PluginManifestResponse:
     legacy = legacy_plugins_module()
     i18n = legacy._get_plugin_i18n(manifest.plugin_id, manifest.plugin_dir)
     plugin_id_normalized = normalize_plugin_id(manifest.plugin_id)
+
+    # ``packages`` is the once-read ``config.plugins.packages`` mapping. List
+    # endpoints pass it down so serializing M plugins does ONE config read
+    # (glob + stat syscalls) instead of M. Single-plugin callers pass None and
+    # we read it here, preserving correctness.
+    if packages is None:
+        packages = get_config().plugins.packages
 
     translated_name = translate_with_fallback(
         i18n, f"{plugin_id_normalized}.name", manifest.name
@@ -112,11 +137,17 @@ def _serialize_manifest(manifest: PluginManifest) -> PluginManifestResponse:
         version=manifest.version,
         description=translated_description or manifest.description,
         author=manifest.author,
-        official=manifest.official,
+        official=_authoritative_official(manifest, packages=packages),
         contribution_types=[item.value for item in manifest.contribution_types],
         source=manifest.source,
         plugin_dir=manifest.plugin_dir,
         manifest_path=manifest.manifest_path,
+        capabilities=manifest.capabilities,
+        consented_capabilities=(
+            packages[manifest.plugin_id].consented_capabilities
+            if manifest.plugin_id in packages
+            else None
+        ),
     )
 
 
@@ -286,10 +317,59 @@ def _serialize_settings_ui_block(
     return out
 
 
+def _localize_activation_field(
+    field: dict[str, Any], i18n: PluginI18n, plugin_id_normalized: str
+) -> dict[str, Any]:
+    """Add plugin-scoped ``*_translated`` mirrors to an activation-flow field dict.
+
+    Mirrors the plugin-scoped lookups in :func:`_serialize_field` (which operates
+    on :class:`ExtensionFieldSpec` instances) but works on the plain dicts that
+    ``ActivationFlowSpec.model_dump()`` produces, so the activation dialog can
+    render localized labels / descriptions / option labels.
+    """
+    out = dict(field)
+    key = field.get("key")
+    if not isinstance(key, str) or not key:
+        return out
+    field_key_short = key.split(".")[-1]
+    out["label_translated"] = translate_with_fallback(
+        i18n,
+        f"{plugin_id_normalized}.fields.{field_key_short}.label",
+        field.get("label"),
+    )
+    out["description_translated"] = translate_with_fallback(
+        i18n,
+        f"{plugin_id_normalized}.fields.{field_key_short}.description",
+        field.get("description"),
+    )
+    options = field.get("options")
+    if isinstance(options, list):
+        out["options"] = [
+            {
+                **opt,
+                "label_translated": translate_with_fallback(
+                    i18n,
+                    f"{plugin_id_normalized}.options.{field_key_short}.{opt.get('value')}",
+                    opt.get("label"),
+                ),
+            }
+            if isinstance(opt, dict)
+            else opt
+            for opt in options
+        ]
+    return out
+
+
 def _serialize_activation_flow(
     flow: dict[str, Any], i18n: PluginI18n, plugin_id: str | None = None
 ) -> dict[str, Any]:
-    """Augment an activation_flow dict with translated mirrors."""
+    """Augment an activation_flow dict with translated mirrors.
+
+    Adds flow-level ``title`` / ``description`` / ``confirm_label`` /
+    ``cancel_label`` mirrors, and localizes each embedded field with the same
+    plugin-scoped ``*_translated`` mirrors that :func:`_serialize_field`
+    produces for top-level fields.
+    """
     out = dict(flow)
     if plugin_id:
         plugin_id_normalized = normalize_plugin_id(plugin_id)
@@ -299,6 +379,14 @@ def _serialize_activation_flow(
                 f"{plugin_id_normalized}.activation.{key}",
                 str(flow.get(key) or ""),
             )
+        fields = flow.get("fields")
+        if isinstance(fields, list):
+            out["fields"] = [
+                _localize_activation_field(field, i18n, plugin_id_normalized)
+                if isinstance(field, dict)
+                else field
+                for field in fields
+            ]
     return out
 
 
@@ -333,6 +421,8 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
     package_config: dict[str, Any] = {"enabled": True}
     if is_library:
         package_config["trusted"] = True
+    package_config["official"] = bool(entry.official)   # registry is authoritative
+    package_config["consented_capabilities"] = [c.model_dump() for c in entry.capabilities]
     save_config({f"plugins.packages.{entry.plugin_id}": package_config})
     logger.info(
         "Saved lightweight plugin install config",
@@ -360,6 +450,7 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
             platforms=entry.platforms,
             plugin_dir=str(dest_dir),
             source="external",
+            permissions=PluginPermissions(capabilities=list(entry.capabilities)),
         ),
         enabled=True,
         trusted=is_library,
@@ -460,6 +551,23 @@ async def install_with_closure(
                 plugin_dir,
                 progress_reporter=progress_reporter,
             )
+            # install_plugin_from_directory -> scan -> _persist_new_packages
+            # conservatively writes official=False for any non-builtin plugin
+            # (the local manifest is attacker-authored and untrusted). The
+            # registry entry is the authoritative source for official, so
+            # overwrite it explicitly *after* the install+scan completes. A
+            # later scan won't clobber this: _persist_new_packages skips any
+            # plugin_id already present in config.plugins.packages.
+            from ...config import save_config
+
+            save_config(
+                {
+                    f"plugins.packages.{entry.plugin_id}.official": bool(entry.official),
+                    f"plugins.packages.{entry.plugin_id}.consented_capabilities": [
+                        c.model_dump() for c in entry.capabilities
+                    ],
+                }
+            )
         else:
             state = await _to_thread(_lightweight_install, plugin_dir, entry)
         if is_target:
@@ -479,12 +587,14 @@ async def _to_thread(func, /, *args, **kwargs):
     return await asyncio.to_thread(func, *args, **kwargs)
 
 
-def _serialize_package(state: PluginPackageState) -> PluginPackageResponse:
+def _serialize_package(
+    state: PluginPackageState, *, packages=None
+) -> PluginPackageResponse:
     legacy = legacy_plugins_module()
     i18n = legacy._get_plugin_i18n(state.manifest.plugin_id, state.manifest.plugin_dir)
 
     return PluginPackageResponse(
-        manifest=legacy._serialize_manifest(state.manifest),
+        manifest=legacy._serialize_manifest(state.manifest, packages=packages),
         enabled=state.enabled,
         trusted=state.trusted,
         loaded=state.loaded,
@@ -495,9 +605,13 @@ def _serialize_package(state: PluginPackageState) -> PluginPackageResponse:
     )
 
 
-def _serialize_package_lightweight(state: PluginPackageState) -> PluginPackageResponse:
+def _serialize_package_lightweight(
+    state: PluginPackageState, *, packages=None
+) -> PluginPackageResponse:
     """Serialize a PluginPackageState without loading plugin-local i18n."""
     m = state.manifest
+    if packages is None:
+        packages = get_config().plugins.packages
     return PluginPackageResponse(
         manifest=PluginManifestResponse(
             plugin_id=m.plugin_id,
@@ -505,11 +619,17 @@ def _serialize_package_lightweight(state: PluginPackageState) -> PluginPackageRe
             version=m.version,
             description=m.description,
             author=m.author,
-            official=m.official,
+            official=_authoritative_official(m, packages=packages),
             contribution_types=[ct.value for ct in m.contribution_types],
             source=m.source,
             plugin_dir=m.plugin_dir,
             manifest_path=m.manifest_path,
+            capabilities=m.capabilities,
+            consented_capabilities=(
+                packages[m.plugin_id].consented_capabilities
+                if m.plugin_id in packages
+                else None
+            ),
         ),
         enabled=state.enabled,
         trusted=state.trusted,

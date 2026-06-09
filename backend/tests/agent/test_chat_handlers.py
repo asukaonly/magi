@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import pytest
 
 from magi.agent.cancel import NullCancelToken
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
-from magi.agent.task_agents.chat.direct_handler import DirectLLMHandler
-from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
+from magi.agent.task_agents.handlers.direct_handler import DirectLLMHandler
+from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
 from magi.agent.task_agents.common import DirectLLMRequest, ExecutionMode, IncomingFactKind, OrchestrationPlan, ToolSelection, UserMessagePayload
 from magi.i18n import language_context
 
@@ -48,6 +48,7 @@ class _FakePromptService:
         timeout_seconds=None,
         llm_trace_callback=None,
         event_context=None,
+        control=None,
     ):
         self.call_llm_calls += 1
         self.event_contexts.append(event_context)
@@ -104,7 +105,6 @@ async def test_direct_llm_handler_carries_llm_trace_into_execution_result() -> N
             difficulty="normal",
             execution_mode=ExecutionMode.DIRECT_LLM,
             reasoning="direct",
-            orchestration_plan=OrchestrationPlan(),
         ),
         tool_selection=ToolSelection(tools=[], reasoning="direct"),
         system_prompt="sys",
@@ -170,7 +170,6 @@ async def test_direct_llm_handler_does_not_duplicate_latest_user_message_from_hi
                 difficulty="normal",
                 execution_mode=ExecutionMode.DIRECT_LLM,
                 reasoning="direct",
-                orchestration_plan=OrchestrationPlan(),
             ),
             tool_selection=ToolSelection(tools=[], reasoning="direct"),
         )
@@ -223,7 +222,6 @@ async def test_direct_llm_handler_passes_stored_persona_id_into_context_service(
                 difficulty="normal",
                 execution_mode=ExecutionMode.DIRECT_LLM,
                 reasoning="direct",
-                orchestration_plan=OrchestrationPlan(),
             ),
             tool_selection=ToolSelection(tools=[], reasoning="direct"),
         )
@@ -278,7 +276,6 @@ async def test_direct_llm_handler_passes_uploaded_attachments_into_context_servi
                 difficulty="normal",
                 execution_mode=ExecutionMode.DIRECT_LLM,
                 reasoning="direct",
-                orchestration_plan=OrchestrationPlan(),
             ),
             tool_selection=ToolSelection(tools=[], reasoning="direct"),
         )
@@ -332,7 +329,6 @@ async def test_direct_llm_handler_passes_turn_workspace_into_context_service() -
                 difficulty="normal",
                 execution_mode=ExecutionMode.DIRECT_LLM,
                 reasoning="direct",
-                orchestration_plan=OrchestrationPlan(),
             ),
             tool_selection=ToolSelection(tools=[], reasoning="direct"),
         )
@@ -384,7 +380,6 @@ async def test_function_calling_handler_passes_stored_persona_id_into_context_se
                 difficulty="normal",
                 execution_mode=ExecutionMode.FUNCTION_CALLING,
                 reasoning="tool use",
-                orchestration_plan=OrchestrationPlan(),
                 memory_route="none",
             ),
             tool_selection=ToolSelection(tools=["glob"], reasoning="search repo"),
@@ -440,7 +435,6 @@ async def test_function_calling_handler_passes_turn_workspace_into_context_servi
                 difficulty="normal",
                 execution_mode=ExecutionMode.FUNCTION_CALLING,
                 reasoning="tool use",
-                orchestration_plan=OrchestrationPlan(),
                 memory_route="none",
             ),
             tool_selection=ToolSelection(tools=["glob"], reasoning="search repo"),
@@ -492,7 +486,6 @@ async def test_function_calling_handler_appends_scope_guidance_from_task_hint() 
                 difficulty="normal",
                 execution_mode=ExecutionMode.FUNCTION_CALLING,
                 reasoning="tool use",
-                orchestration_plan=OrchestrationPlan(),
                 memory_route="none",
                 task_hint={
                     "target_locality": "ambiguous_external_reference",
@@ -550,7 +543,6 @@ async def test_function_calling_handler_adds_photo_workflow_guidance_when_photo_
                 difficulty="normal",
                 execution_mode=ExecutionMode.FUNCTION_CALLING,
                 reasoning="tool use",
-                orchestration_plan=OrchestrationPlan(),
                 memory_route="none",
             ),
             tool_selection=ToolSelection(
@@ -621,7 +613,6 @@ async def test_direct_llm_handler_builds_multimodal_message_for_image_attachment
                 difficulty="normal",
                 execution_mode=ExecutionMode.DIRECT_LLM,
                 reasoning="direct",
-                orchestration_plan=OrchestrationPlan(),
             ),
             tool_selection=ToolSelection(tools=[], reasoning="direct"),
         )
@@ -690,7 +681,6 @@ async def test_direct_llm_handler_returns_clear_message_when_image_model_lacks_v
                 difficulty="normal",
                 execution_mode=ExecutionMode.DIRECT_LLM,
                 reasoning="direct",
-                orchestration_plan=OrchestrationPlan(),
             ),
             tool_selection=ToolSelection(tools=[], reasoning="direct"),
         )
@@ -759,7 +749,6 @@ async def test_direct_llm_handler_localizes_image_model_lacks_vision_message(
                 difficulty="normal",
                 execution_mode=ExecutionMode.DIRECT_LLM,
                 reasoning="direct",
-                orchestration_plan=OrchestrationPlan(),
             ),
             tool_selection=ToolSelection(tools=[], reasoning="direct"),
         )

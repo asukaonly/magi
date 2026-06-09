@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
+from ..awareness.kg_write_queue import KnowledgeGraphWriteQueue
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
+from .adapter import TimelineAdapter
 from .service import TimelineService
 
 if TYPE_CHECKING:
@@ -21,14 +23,24 @@ class TimelineModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_timeline",
-            dependencies=("runtime_memory", "runtime_plugin_system", "runtime_core_dependencies"),
+            dependencies=(
+                "runtime_memory",
+                "runtime_plugin_system",
+                "runtime_core_dependencies",
+                "runtime_location",
+                "runtime_manual_entries",
+            ),
         )
         self._context = context
 
     async def init(self) -> None:
         unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
 
-        self._context.timeline.timeline_service = TimelineService(unified_memory)
+        self._context.timeline.timeline_service = TimelineService(
+            unified_memory,
+            location_resolver=self._context.location.resolver,
+            manual_entry_asset_store=self._context.manual_entries.asset_store,
+        )
         logger.info("TimelineService initialized (L12)")
 
     async def shutdown(self) -> None:
@@ -59,6 +71,7 @@ class TimelineSchedulersModule(LifecycleModule):
                 "runtime_configuration",
                 "runtime_memory",
                 "runtime_exports",
+                "runtime_location",
             ),
         )
         self._context = context
@@ -85,9 +98,6 @@ class TimelineSchedulersModule(LifecycleModule):
             IPGeoPollSchedulerContrib,
             WiFiPollSchedulerContrib,
         )
-        from ..location.sources.ipgeo import IPGeoLocationSource
-        from ..location.sources.wifi import WiFiLocationSource
-        from ..location.nominatim import NominatimClient
 
         unified = getattr(self._context.memory, "unified_memory", None)
         l1_store = getattr(unified, "l1", None) if unified else None
@@ -166,35 +176,29 @@ class TimelineSchedulersModule(LifecycleModule):
                 l2_store is not None, media_registry is not None,
             )
 
-        # 5. Location IPGeo poll (4h cadence, free-tier ipapi.co)
-        location_store = getattr(unified, "location_sample_store", None) if unified else None
-        geocode_cache = getattr(unified, "place_geocode_cache", None) if unified else None
-        if location_store is not None:
-            ipgeo_source = IPGeoLocationSource(store=location_store)
+        # 5/6. Location pollers — the WiFi/IPGeo sources are owned and built
+        # once by LocationModule (context.location); reuse them here instead of
+        # rebuilding (previously these were a second, duplicate construction).
+        loc = self._context.location
+        ipgeo_source = getattr(loc, "ipgeo_source", None)
+        wifi_source = getattr(loc, "wifi_source", None)
+        if ipgeo_source is not None:
             contrib = IPGeoPollSchedulerContrib(ipgeo_source=ipgeo_source)
             await contrib.register_schedules(scheduler_service)
             self._contribs.append(contrib)
             logger_schedulers.info("Registered LOCATION_IPGEO_POLL scheduler")
         else:
             logger_schedulers.warning(
-                "Skipping ipgeo scheduler: location_sample_store unavailable",
+                "Skipping ipgeo scheduler: location source unavailable",
             )
-
-        # 6. Location WiFi poll (10min cadence; backoff to 6h when scan
-        # consistently yields empty — typical for machines with no WiFi
-        # adapter or with permission denied).
-        if location_store is not None and geocode_cache is not None:
-            nominatim = NominatimClient(cache=geocode_cache)
-            wifi_source = WiFiLocationSource(
-                store=location_store, nominatim=nominatim,
-            )
+        if wifi_source is not None:
             contrib = WiFiPollSchedulerContrib(wifi_source=wifi_source)
             await contrib.register_schedules(scheduler_service)
             self._contribs.append(contrib)
             logger_schedulers.info("Registered LOCATION_WIFI_POLL scheduler")
         else:
             logger_schedulers.warning(
-                "Skipping wifi scheduler: stores unavailable",
+                "Skipping wifi scheduler: location source unavailable",
             )
 
     async def shutdown(self) -> None:
@@ -210,3 +214,58 @@ class TimelineSchedulersModule(LifecycleModule):
                     "Failed to unregister contrib %s: %s", type(contrib).__name__, exc
                 )
         self._contribs = []
+
+
+class TimelineSubscriberModule(LifecycleModule):
+    """Wire TimelineSubscriber to the runtime event bus."""
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(
+            name="runtime_timeline_subscriber",
+            dependencies=("runtime_message_bus", "runtime_timeline"),
+        )
+        self._context = context
+        self._subscriber: Any = None
+
+    async def init(self) -> None:
+        from .subscribers.timeline_subscriber import TimelineSubscriber
+        bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        timeline = self._context.timeline.timeline_service
+        if timeline is None:
+            logger.info("Timeline service not available; TimelineSubscriber idle")
+            return
+        adapter = TimelineAdapter(timeline)
+        self._subscriber = TimelineSubscriber(event_bus=bus, timeline_adapter=adapter)
+        await self._subscriber.start()
+        logger.info("TimelineSubscriber started")
+
+    async def shutdown(self) -> None:
+        if self._subscriber is not None:
+            await self._subscriber.stop()
+            self._subscriber = None
+
+
+class KGSubscriberModule(LifecycleModule):
+    """Wire KGSubscriber to the runtime event bus."""
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(
+            name="runtime_kg_subscriber",
+            dependencies=("runtime_message_bus", "runtime_memory"),
+        )
+        self._context = context
+        self._subscriber: Any = None
+
+    async def init(self) -> None:
+        from .subscribers.kg_subscriber import KGSubscriber
+        bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
+        writer = KnowledgeGraphWriteQueue(unified_memory=unified_memory)
+        self._subscriber = KGSubscriber(event_bus=bus, kg_writer=writer)
+        await self._subscriber.start()
+        logger.info("KGSubscriber started")
+
+    async def shutdown(self) -> None:
+        if self._subscriber is not None:
+            await self._subscriber.stop()
+            self._subscriber = None

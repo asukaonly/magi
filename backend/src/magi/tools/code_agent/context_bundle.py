@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .contracts import DelegateConstraints
-from ...agent.workspace_cache.atomic_io import atomic_write_text
+from magi_plugin_sdk.fs import atomic_write_text
 
 
 _SENSITIVE_PATTERNS: tuple[str, ...] = (

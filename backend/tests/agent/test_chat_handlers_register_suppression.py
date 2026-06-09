@@ -18,8 +18,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
-from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
+from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
 from magi.agent.task_agents.common import (
     ExecutionMode,
     IncomingFactKind,
@@ -80,7 +80,6 @@ def _intent_with(*, register: str | None, task_hint: dict | None = None) -> Inte
         difficulty="normal",
         execution_mode=ExecutionMode.FUNCTION_CALLING,
         reasoning="test",
-        orchestration_plan=OrchestrationPlan(),
         memory_route="none",
         task_hint=task_hint or {
             "target_locality": "ambiguous_external_reference",
@@ -207,7 +206,6 @@ async def test_memory_guidance_not_suppressed_by_emotional_register() -> None:
         difficulty="normal",
         execution_mode=ExecutionMode.FUNCTION_CALLING,
         reasoning="memory recall",
-        orchestration_plan=OrchestrationPlan(),
         memory_route="explicit_query",  # required for memory guidance to fire
         persona_routing_hint=PersonaRoutingHint(register="emotional"),
     )

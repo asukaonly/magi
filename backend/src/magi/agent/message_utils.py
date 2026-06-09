@@ -7,8 +7,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..chat import get_chat_read_service
+from .run.ports import AttachmentResolverPort
 from .turn_input import UserTurnInput
+from ..utils.message_text import (
+    _extract_text_content,
+    _is_matching_user_message,
+    trim_latest_user_message,
+)
 
 DEFAULT_HISTORY_TOKEN_BUDGET = 96_000
 _CHARS_PER_TOKEN_ESTIMATE = 4
@@ -19,6 +24,7 @@ def append_latest_user_message(
     history: list[dict[str, Any]] | None,
     turn: UserTurnInput,
     *,
+    resolver: AttachmentResolverPort,
     history_limit: int | None = None,
     history_token_budget: int | None = DEFAULT_HISTORY_TOKEN_BUDGET,
     session_summary: str | None = None,
@@ -30,12 +36,17 @@ def append_latest_user_message(
     The ``turn`` carries text + attachments together so callers cannot drop
     one without dropping the other. When ``history_limit`` is omitted,
     selection is token-budget based.
+
+    ``resolver`` resolves managed attachment payloads (e.g. an image whose
+    ``storage_path`` is not embedded in the turn). Chat injects a chat-backed
+    resolver; non-chat callers inject ``NullAttachmentResolver``.
     """
     source_messages = _normalize_prompt_messages(history or [])
     normalized_latest = str(turn.text or "").strip()
     latest_content = _build_latest_user_message_content(
         normalized_latest,
         list(turn.attachments or []),
+        resolver=resolver,
         user_id=turn.user_id,
         session_id=turn.session_id,
         reply_context=reply_context,
@@ -92,33 +103,11 @@ def build_recent_messages(
     return recent_messages
 
 
-def trim_latest_user_message(
-    recent_messages: list[dict[str, Any]] | None,
-    latest_user_message: str,
-) -> list[dict[str, Any]]:
-    """Return recent messages without a trailing copy of the current user message."""
-    messages = list(recent_messages or [])
-    normalized_latest = str(latest_user_message or "").strip()
-    if normalized_latest and _is_matching_user_message(
-        messages[-1] if messages else None, normalized_latest
-    ):
-        return messages[:-1]
-    return messages
-
-
-def _is_matching_user_message(message: dict[str, Any] | None, latest_user_message: str) -> bool:
-    if not isinstance(message, dict):
-        return False
-    return (
-        str(message.get("role", "")).strip() == "user"
-        and _extract_text_content(message.get("content")) == latest_user_message
-    )
-
-
 def _build_latest_user_message_content(
     latest_user_message: str,
     attachments: list[dict[str, Any]],
     *,
+    resolver: AttachmentResolverPort,
     user_id: str | None = None,
     session_id: str | None = None,
     reply_context: Any | None = None,
@@ -148,7 +137,7 @@ def _build_latest_user_message_content(
         if not storage_path and user_id and session_id:
             attachment_id = str(attachment.get("attachment_id") or "").strip()
             if attachment_id:
-                resolved = get_chat_read_service().get_attachment_payload(
+                resolved = resolver.get_attachment_payload(
                     user_id, session_id, attachment_id
                 )
                 if isinstance(resolved, dict):
@@ -224,23 +213,6 @@ def _build_reply_context_note(reply_context: Any | None) -> str:
             lines.append("- " + "; ".join(details))
         lines.append("Interpret deictic phrases like this image, that document, or the previous attachment against this reply target first.")
     return "\n".join(lines).strip()
-
-
-def _extract_text_content(content: Any) -> str:
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        text_parts: list[str] = []
-        for block in content:
-            if not isinstance(block, dict):
-                continue
-            if str(block.get("type") or "").strip() != "text":
-                continue
-            text_value = str(block.get("text") or "").strip()
-            if text_value:
-                text_parts.append(text_value)
-        return "\n".join(text_parts).strip()
-    return str(content or "").strip()
 
 
 def _normalize_prompt_messages(history: list[dict[str, Any]]) -> list[dict[str, Any]]:

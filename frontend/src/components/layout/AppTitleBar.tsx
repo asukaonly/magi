@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { isMacPlatform } from '@/lib/platform';
@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { shouldRenderChatWorkspace } from '@/pages/chat-route-helpers';
 import { ChatWorkspacePicker } from './ChatWorkspacePicker';
 import { AppWindowControls } from './AppWindowControls';
+import { NotificationBell } from './NotificationBell';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { MonthGridPicker } from '@/components/timeline/immersive/picker/MonthGridPicker';
@@ -187,6 +188,9 @@ const NO_DRAG_SELECTOR = 'button, a, input, select, textarea, [data-no-drag], [r
  * full window width so OS chrome (macOS traffic lights, Windows min/max/
  * close) has its own dedicated stripe instead of overlapping content.
  *
+ * Native decorations are disabled on Windows/Linux during Tauri setup so
+ * only AppWindowControls are shown. macOS keeps titleBarStyle: Overlay.
+ *
  * Per-route content (current behavior — chat-only chrome):
  *   - "/", "/chat"    → TodayStrip + workspace picker + portrait toggle
  *   - everything else → empty (just acts as the drag/resize handle)
@@ -198,29 +202,6 @@ export const AppTitleBar = () => {
   const { t } = useTranslation('app');
   const location = useLocation();
   const isMac = isMacPlatform();
-
-  // Disable native decorations on Windows so our hand-drawn controls own
-  // the title bar. macOS uses native traffic-light overlay (tauri.conf
-  // titleBarStyle:"Overlay") and Linux follows the Windows path. Runs
-  // once at mount; safe no-op when not inside Tauri.
-  useEffect(() => {
-    if (isMac || typeof window === 'undefined') {
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const mod = await import('@tauri-apps/api/window');
-        if (cancelled) return;
-        await mod.getCurrentWindow().setDecorations(false);
-      } catch {
-        /* not running in Tauri */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isMac]);
 
   const portraitRailOpen = useChatShellStore((s) => s.portraitRailOpen);
   const setPortraitRailOpen = useChatShellStore((s) => s.setPortraitRailOpen);
@@ -303,6 +284,13 @@ export const AppTitleBar = () => {
           </div>
         </>
       )}
+
+      {/* Global notification bell — rendered for every route (outside the
+          isTimelineRoute ternary), just before the window controls. Extra
+          right padding keeps the unread badge clear of the window corner. */}
+      <div data-testid="tour-target-bell" className={cn('flex shrink-0 items-center', isMac ? 'pr-3' : 'pr-1')}>
+        <NotificationBell />
+      </div>
 
       {/* Windows / Linux: hand-drawn window controls in the right slot. */}
       {!isMac ? <AppWindowControls className="ml-1" /> : null}

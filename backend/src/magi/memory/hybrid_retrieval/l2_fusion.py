@@ -41,6 +41,7 @@ class L2Candidate:
     gate_status: str = "pass"
     gate_reason: str | None = None
     trace: dict[str, Any] = field(default_factory=dict)
+    predicate_missing_vector_relevance: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -237,12 +238,29 @@ def fuse_l2_candidates(
 def _compute_final_score(c: L2Candidate, plan: L2GroundingPlan) -> float:
     """Compute the final fusion score for a candidate."""
     if c.kind == "knowledge_edge":
-        grounding_score = (
-            0.40 * c.subject_match_score
-            + 0.30 * c.predicate_match_score
-            + 0.20 * c.object_constraint_score
-            + 0.10 * c.status_score
-        )
+        if not plan.predicate_candidates:
+            # Predicate couldn't be inferred → let edge-vector SEMANTIC similarity
+            # drive relevance instead of the neutral 0.5 predicate_match (which let
+            # structured-fallback whole-profile edges ride high). Edges hit by the
+            # edge_vector channel carry a vector_distance → real semantic score;
+            # structured-only fallback edges (no vector_distance = no semantic
+            # evidence) get 0 and sink. Local fix for RFC #65.
+            vd = c.payload.get("vector_distance")
+            vector_relevance = (1.0 / (1.0 + float(vd))) if vd is not None else 0.0
+            grounding_score = (
+                0.40 * c.subject_match_score
+                + 0.30 * vector_relevance
+                + 0.20 * c.object_constraint_score
+                + 0.10 * c.status_score
+            )
+            c.predicate_missing_vector_relevance = round(vector_relevance, 4)
+        else:
+            grounding_score = (
+                0.40 * c.subject_match_score
+                + 0.30 * c.predicate_match_score
+                + 0.20 * c.object_constraint_score
+                + 0.10 * c.status_score
+            )
     else:
         grounding_score = 0.7
 
@@ -281,6 +299,7 @@ def _build_score_trace(c: L2Candidate) -> dict[str, Any]:
         "final_score": c.final_score,
         "gate_status": c.gate_status,
         "gate_reason": c.gate_reason,
+        "predicate_missing_vector_relevance": c.predicate_missing_vector_relevance,
     }
 
 

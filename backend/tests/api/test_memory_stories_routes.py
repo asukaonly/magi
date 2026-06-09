@@ -254,3 +254,83 @@ def test_evidence_404_for_missing_summary(app_factory):
         client = TestClient(app_factory())
         resp = client.get("/api/memory/stories/nope/evidence")
     assert resp.status_code == 404
+
+
+def test_legible_filter_hides_insights_with_raw_trait_name(app_factory):
+    """Legacy insight rows containing raw trait_name (e.g. 'state.sleep_quality')
+    are filtered at retrieval — they don't reach the user."""
+    insights = [
+        {
+            "summary_id": "leak",
+            "summary_type": "insight",
+            "summary_category": "state_change",
+            "content": "用户状态有更新：state.sleep_quality 更明确：poor",  # leaks raw trait_name
+            "period_end": 100.0,
+            "updated_at": 100.0,
+            "review_state": "neutral",
+            "source_event_count": 1,
+        },
+        {
+            "summary_id": "clean",
+            "summary_type": "insight",
+            "summary_category": "state_change",
+            "content": "你的状态：睡眠较差",  # clean
+            "period_end": 100.0,
+            "updated_at": 100.0,
+            "review_state": "neutral",
+            "source_event_count": 1,
+        },
+    ]
+    unified = _stub_memory(insights=insights, temporal=[])
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get("/api/memory/stories", params={"limit": 20})
+    body = resp.json()
+    ids = [item["summary_id"] for item in body["items"]]
+    assert "clean" in ids
+    assert "leak" not in ids
+
+
+def test_legible_filter_allows_file_paths_and_urls(app_factory):
+    """Common file extensions and TLDs are not flagged as trait_name leaks."""
+    insights = [
+        {
+            "summary_id": "url",
+            "summary_type": "insight",
+            "summary_category": "state_change",
+            "content": "你访问了 v2ex.com 和编辑了 main.py。",  # safe TLD + file ext
+            "period_end": 100.0,
+            "updated_at": 100.0,
+            "review_state": "neutral",
+            "source_event_count": 1,
+        },
+    ]
+    unified = _stub_memory(insights=insights, temporal=[])
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get("/api/memory/stories", params={"limit": 20})
+    body = resp.json()
+    ids = [item["summary_id"] for item in body["items"]]
+    assert "url" in ids
+
+
+def test_legible_filter_does_not_touch_temporal_summaries(app_factory):
+    """Temporal day/week/month summaries aren't subject to the trait-leak filter."""
+    temporal = [
+        {
+            "summary_id": "day1",
+            "summary_type": "temporal",
+            "summary_category": "day",
+            "content": "你在 main.go 和 main.py 之间切换",  # would trip filter if applied
+            "period_end": 100.0,
+            "updated_at": 100.0,
+            "review_state": "neutral",
+            "source_event_count": 5,
+        },
+    ]
+    unified = _stub_memory(insights=[], temporal=temporal)
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get("/api/memory/stories", params={"limit": 20})
+    body = resp.json()
+    assert [item["summary_id"] for item in body["items"]] == ["day1"]

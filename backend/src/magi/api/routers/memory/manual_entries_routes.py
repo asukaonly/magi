@@ -24,7 +24,13 @@ from ....memory.manual_entries.asset_store import (
     KNOWN_UNSUPPORTED_CONTENT_TYPES,
     MAX_UPLOAD_BYTES,
 )
-from .dependencies import _resolve_unified_memory
+from .dependencies import (
+    _resolve_location_sample_store,
+    _resolve_manual_entry_asset_store,
+    _resolve_manual_entry_store,
+    _resolve_manual_entry_weather_fetcher,
+    _resolve_unified_memory,
+)
 from .router import memory_router
 
 
@@ -68,32 +74,32 @@ def _entry_to_dict(entry: ManualEntry) -> dict:
 
 
 def _resolve_stores():
-    """Pull the manual-entry components off unified_memory.
+    """Resolve the manual-entry components from their DI bindings.
 
-    Raises 503 if anything is missing so callers see a clear message
-    rather than an internal NoneType error.
+    The store/asset/weather subsystem is owned by ``ManualEntriesModule``; the
+    L1 projector is built from the memory-owned L1 store (memory's only stake).
+    Raises 503 if the manual-entry storage is missing so callers see a clear
+    message rather than an internal NoneType error.
 
     Returns ``(store, assets, projector, weather, location_samples)``.
     ``weather`` and ``location_samples`` are best-effort — None when the
     subsystem isn't wired and the routes degrade gracefully.
     """
-    unified = _resolve_unified_memory()
-    if unified is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Memory subsystem not available",
-        )
-    store = getattr(unified, "manual_entry_store", None)
-    assets = getattr(unified, "manual_entry_asset_store", None)
-    l1 = getattr(unified, "l1", None)
+    store = _resolve_manual_entry_store()
+    assets = _resolve_manual_entry_asset_store()
     if store is None or assets is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Manual-entry storage not initialized",
         )
+    # Memory's only stake in manual entries is the L1 projection: build the
+    # projector from the memory-owned L1 store (best-effort — the routes
+    # degrade gracefully if memory is absent).
+    unified = _resolve_unified_memory()
+    l1 = getattr(unified, "l1", None) if unified is not None else None
     projector = ManualEntryL1Projector(l1_store=l1) if l1 is not None else None
-    weather = getattr(unified, "manual_entry_weather_fetcher", None)
-    location_samples = getattr(unified, "location_sample_store", None)
+    weather = _resolve_manual_entry_weather_fetcher()
+    location_samples = _resolve_location_sample_store()
     return store, assets, projector, weather, location_samples
 
 

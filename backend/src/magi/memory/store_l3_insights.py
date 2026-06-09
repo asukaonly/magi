@@ -115,26 +115,18 @@ class L3InsightsMixin:
                 outcomes=outcomes,
             )
         )
+        contradicted_outcomes = [o for o in outcomes if str(o.status or "") == "contradicted"]
         contradiction_source_ids: list[str] = []
-        contradictions: list[dict[str, Any]] = []
-        for outcome in outcomes:
-            if str(outcome.status or "") != "contradicted":
-                continue
-            contradictions.append(
-                {
-                    "trait_name": str(outcome.trait_name or ""),
-                    "winning_value": str(outcome.winning_value or ""),
-                }
-            )
+        for outcome in contradicted_outcomes:
             for event_id in outcome.evidence_event_ids:
                 event_id_str = str(event_id).strip()
                 if event_id_str and event_id_str not in contradiction_source_ids:
                     contradiction_source_ids.append(event_id_str)
-        if contradictions and contradiction_source_ids:
+        if contradicted_outcomes and contradiction_source_ids:
             await self.persist_contradiction_insight(
                 ContradictionPacket(
                     source_event_ids=contradiction_source_ids,
-                    contradictions=contradictions,
+                    outcomes=contradicted_outcomes,
                 )
             )
         await self.persist_trend_shift_insight(

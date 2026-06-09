@@ -9,9 +9,10 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, status
 
 from ... import i18n as core_i18n
+from ...plugins.installation import InvalidPluginArchiveError
 from .plugins_common import legacy_plugins_module
 from .plugins_install_jobs import plugin_install_jobs, require_plugin_install_job
-from .plugins_schemas import PluginInstallJobSnapshot, PluginInstallRequest, PluginPackageResponse
+from .plugins_schemas import PluginInstallJobSnapshot, PluginInstallRequest, PluginManifestResponse, PluginPackageResponse
 
 plugins_install_router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -51,6 +52,18 @@ async def install_plugin_from_upload(file: UploadFile):
         )
         try:
             state = manager.install_plugin_from_archive(archive_path)
+        except InvalidPluginArchiveError as exc:
+            logger.warning(
+                "Plugin upload install rejected (invalid archive)",
+                extra={"filename": file.filename, "error": str(exc)},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=core_i18n.t(
+                    "plugins.errors.archive_invalid",
+                    fallback="The uploaded file is not a valid plugin archive",
+                ),
+            ) from exc
         except ValueError as exc:
             logger.warning(
                 "Plugin upload install rejected",
@@ -66,6 +79,57 @@ async def install_plugin_from_upload(file: UploadFile):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
             ) from exc
     return legacy._serialize_package(state)
+
+
+@plugins_install_router.post("/install/upload/inspect", response_model=PluginManifestResponse)
+async def inspect_plugin_upload(file: UploadFile):
+    """Return declared capabilities + metadata of an uploaded archive WITHOUT
+    installing it — drives the pre-install consent step for sideload."""
+    legacy = legacy_plugins_module()
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=core_i18n.t("plugins.errors.filename_required", fallback="Filename required"),
+        )
+    name = file.filename.lower()
+    if not (name.endswith(".tar.gz") or name.endswith(".tgz") or name.endswith(".zip")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=core_i18n.t(
+                "plugins.errors.archive_extension_invalid",
+                fallback="Archive must be .tar.gz, .tgz, or .zip",
+            ),
+        )
+    manager = legacy.resolve_plugin_manager()
+    with tempfile.TemporaryDirectory(prefix="magi-upload-inspect-") as tmp:
+        archive_path = Path(tmp) / file.filename
+        archive_path.write_bytes(await file.read())
+        try:
+            manifest = manager.inspect_plugin_archive(archive_path)
+        except InvalidPluginArchiveError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=core_i18n.t(
+                    "plugins.errors.archive_invalid",
+                    fallback="The uploaded file is not a valid plugin archive",
+                ),
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return PluginManifestResponse(
+        plugin_id=manifest.plugin_id,
+        name=manifest.name,
+        version=manifest.version,
+        description=manifest.description,
+        author=manifest.author,
+        official=False,  # sideload is never official
+        contribution_types=[c.value for c in manifest.contribution_types],
+        source="external",
+        plugin_dir="",
+        manifest_path="",
+        capabilities=manifest.capabilities,
+        consented_capabilities=None,
+    )
 
 
 @plugins_install_router.post("/install/upload/jobs", response_model=PluginInstallJobSnapshot)
@@ -200,6 +264,7 @@ async def uninstall_plugin(plugin_id: str):
 
 
 __all__ = [
+    "inspect_plugin_upload",
     "install_plugin_from_registry",
     "install_plugin_from_upload",
     "get_plugin_install_job",

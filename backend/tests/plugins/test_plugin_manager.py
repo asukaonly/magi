@@ -181,6 +181,7 @@ async def test_plugin_manager_discovers_external_plugins_and_loads_enabled_tools
     manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
         search_paths=[tmp_path],
     )
 
@@ -210,6 +211,7 @@ def test_plugin_manager_persists_newly_discovered_plugins_as_disabled(
     manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
         search_paths=[tmp_path],
     )
 
@@ -243,6 +245,7 @@ def test_core_tools_plugin_registers_memory_query_tool(monkeypatch: pytest.Monke
     manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
         search_paths=[builtin_plugins_root],
     )
 
@@ -316,6 +319,7 @@ async def test_unload_plugin_invokes_shutdown_hook(
     manager = PluginManager(
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
         search_paths=[tmp_path],
     )
 
@@ -369,6 +373,7 @@ def test_plugin_manager_reload_clears_cached_plugin_submodules(
     manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
         search_paths=[tmp_path],
     )
 
@@ -419,6 +424,7 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
     manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
     manager.scan(persist_discovery=True)
@@ -474,6 +480,7 @@ def test_install_plugin_from_directory_reports_progress(
     manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
     progress_events: list[tuple[str, str, float | None]] = []
@@ -534,7 +541,9 @@ def test_dependency_install_command_uses_configured_python_when_frozen(
         "/Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend",
     )
 
-    cmd = _build_dependency_install_command(["example-package"], tmp_path / ".deps", quiet=False)
+    lock = tmp_path / "requirements.lock"
+    lock.write_text("example-package==1.0.0 --hash=sha256:abc\n", encoding="utf-8")
+    cmd = _build_dependency_install_command(lock, tmp_path / ".deps", quiet=False)
 
     assert cmd[:4] == [current_python, "-m", "pip", "install"]
 
@@ -553,8 +562,10 @@ def test_dependency_install_command_rejects_frozen_sidecar_without_python(
     )
     monkeypatch.setattr(installation_module.shutil, "which", lambda _name: None)
 
+    lock = tmp_path / "requirements.lock"
+    lock.write_text("example-package==1.0.0 --hash=sha256:abc\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match=PLUGIN_DEPENDENCY_PYTHON_ENV):
-        _build_dependency_install_command(["example-package"], tmp_path / ".deps", quiet=False)
+        _build_dependency_install_command(lock, tmp_path / ".deps", quiet=False)
 
 
 def test_replace_plugin_directory_rolls_back_when_promotion_fails(
@@ -606,7 +617,7 @@ def test_filter_installable_dependencies_respects_environment_markers(
     assert skipped == ["winrt-runtime>=2.0; sys_platform == 'win32'"]
 
 
-def test_build_plugin_runtime_uses_shared_tool_registry_by_default(
+def test_build_plugin_runtime_threads_injected_tool_registry(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -619,6 +630,8 @@ def test_build_plugin_runtime_uses_shared_tool_registry_by_default(
     monkeypatch.setattr("magi.plugins.manager._resolve_search_paths", lambda: [tmp_path])
 
     bindings = build_plugin_runtime(
+        tool_registry=shared_tool_registry,
+        request_sensor_schedule_refresh=lambda: None,
         sensor_registry=SensorRegistry(),
     )
 
@@ -654,6 +667,7 @@ def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins()
     manager = PluginManager(
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
         search_paths=[],
     )
     manager._plugin_instances["chrome-feature"] = ChromeFeaturePlugin()
@@ -744,6 +758,7 @@ def test_plugin_manager_collects_extraction_profiles_from_loaded_plugins() -> No
     manager = PluginManager(
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
         search_paths=[],
     )
     manager._plugin_instances["source-profile"] = SourceProfilePlugin()
@@ -773,6 +788,7 @@ def test_plugin_manager_passes_temporal_feature_budget_to_new_hooks() -> None:
     manager = PluginManager(
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
         search_paths=[],
     )
     manager._plugin_instances["budget-aware"] = BudgetAwarePlugin()

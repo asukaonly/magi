@@ -2,41 +2,21 @@ from __future__ import annotations
 
 import pytest
 
-from magi.agent.task_agents.chat import ChatRuntimeContext, ExecutionMode, UserMessagePayload
-from magi.agent.task_agents.chat import ExecutionHandlerRegistry
-from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
-from magi.agent.task_agents.chat.fact_classifier import ChatFactClassifier, IncomingFactKind
+from magi.agent.task_agents.handlers import ChatRuntimeContext, ExecutionMode, UserMessagePayload
+from magi.agent.task_agents.handlers import ExecutionHandlerRegistry
+from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
+from magi.chat.task_agent.fact_classifier import ChatFactClassifier, IncomingFactKind
 from magi.agent.runtime.contracts import FactRecord
 from magi.config.models import ThinkingDepth
 from magi.events.events import EventTypes
+from magi.llm.streaming_events import LLMStreamEvent
 from magi.tools.builtin.file_read_tool import FileReadTool
 from magi.tools.builtin.glob_tool import GlobTool
 from magi.tools.builtin.grep_tool import GrepTool
 from magi.tools.builtin.web_fetch_tool import WebFetchTool
 from magi.tools.builtin.web_search_tool import WebSearchTool
+from magi.tools.context_routing import RouteDecision
 from magi.tools.registry import ToolRegistry
-
-
-class _FakeContextDecision:
-    def __init__(
-        self,
-        *,
-        intent: str,
-        tools: list[str],
-        deep_thinking: bool,
-        reasoning: str,
-        orchestration_strategy: dict,
-        memory_route: str = "none",
-        llm_trace: dict | None = None,
-    ):
-        self.intent = intent
-        self.tools = tools
-        self.deep_thinking = deep_thinking
-        self.thinking_depth = ThinkingDepth.HIGH if deep_thinking else ThinkingDepth.NONE
-        self.reasoning = reasoning
-        self.orchestration_strategy = orchestration_strategy
-        self.memory_route = memory_route
-        self.llm_trace = llm_trace or {}
 
 
 class _FakeToolRegistry:
@@ -64,7 +44,7 @@ def _build_real_tool_registry_with_web() -> ToolRegistry:
 
 
 class _FakeContextDecider:
-    def __init__(self, decision: _FakeContextDecision, tool_registry=None) -> None:
+    def __init__(self, decision: RouteDecision, tool_registry=None) -> None:
         self._decision = decision
         self.last_decision_context = None
         self.tool_registry = tool_registry or _FakeToolRegistry()
@@ -126,17 +106,12 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
     trace_recorder = _IntentTraceRecorder()
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="code_architecture",
+            RouteDecision(
+                profile="explore",
+                graph_shape="plan_fanout",
+                complexity="medium",
                 tools=["agent"],
-                deep_thinking=False,
                 reasoning="decompose",
-                orchestration_strategy={
-                    "mode": "decompose",
-                    "planner": "task_agent",
-                    "default_leaf_type": "CodeExplore",
-                    "allow_parallel": True,
-                },
             )
         ),
         fact_classifier=ChatFactClassifier(),
@@ -170,13 +145,14 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
     decision = await coordinator.match_intent(context)
 
     assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
-    assert decision.orchestration_plan is not None
-    assert decision.orchestration_plan.route_to_explore_task_agent is True
+    assert decision.route_decision is not None
+    assert decision.route_decision.profile == "explore"
+    assert decision.route_decision.graph_shape == "plan_fanout"
     assert trace_recorder.calls == [
         {
             "user_id": "u-chat",
             "session_id": "s-chat",
-            "intent": "code_architecture",
+            "intent": "explore",
             "execution_mode": "orchestration_launch",
             "tools": ["agent"],
             "reasoning": "decompose",
@@ -187,17 +163,13 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
 @pytest.mark.asyncio
 async def test_coordinator_keeps_bounded_external_plan_in_direct_web_tools() -> None:
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="planning",
+        RouteDecision(
+            profile="research",
+            graph_shape="plan_fanout",
+            complexity="medium",
             tools=["agent"],
-            deep_thinking=True,
+            thinking_depth=ThinkingDepth.HIGH,
             reasoning="router tried decomposition",
-            orchestration_strategy={
-                "mode": "decompose",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": True,
-            },
         ),
         tool_registry=_FakeToolRegistry(
             ["agent", "web-search", "web-fetch", "find-relevant-tools"]
@@ -236,8 +208,8 @@ async def test_coordinator_keeps_bounded_external_plan_in_direct_web_tools() -> 
     decision = await coordinator.match_intent(context)
 
     assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
-    assert decision.orchestration_plan is not None
-    assert decision.orchestration_plan.mode == "direct"
+    assert decision.route_decision is not None
+    # force_direct_external overrides the plan_fanout graph_shape → FUNCTION_CALLING
     assert "agent" not in decision.tools
     assert "web-search" in decision.tools
 
@@ -245,17 +217,13 @@ async def test_coordinator_keeps_bounded_external_plan_in_direct_web_tools() -> 
 @pytest.mark.asyncio
 async def test_coordinator_allows_explicit_external_research_decomposition() -> None:
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="research",
+        RouteDecision(
+            profile="research",
+            graph_shape="plan_fanout",
+            complexity="medium",
             tools=["agent"],
-            deep_thinking=True,
+            thinking_depth=ThinkingDepth.HIGH,
             reasoning="source-heavy research",
-            orchestration_strategy={
-                "mode": "decompose",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": True,
-            },
         ),
         tool_registry=_FakeToolRegistry(["agent", "web-search", "find-relevant-tools"]),
     )
@@ -292,8 +260,8 @@ async def test_coordinator_allows_explicit_external_research_decomposition() -> 
     decision = await coordinator.match_intent(context)
 
     assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
-    assert decision.orchestration_plan is not None
-    assert decision.orchestration_plan.mode == "decompose"
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "plan_fanout"
     assert "agent" in decision.tools
 
 
@@ -301,17 +269,12 @@ async def test_coordinator_allows_explicit_external_research_decomposition() -> 
 async def test_coordinator_carries_intent_llm_trace_metrics() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="chat",
+            RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="simple",
                 tools=[],
-                deep_thinking=False,
                 reasoning="direct response",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
                 llm_trace={
                     "provider": "openai",
                     "model": "gpt-4.1-mini",
@@ -366,17 +329,12 @@ async def test_coordinator_carries_intent_llm_trace_metrics() -> None:
 @pytest.mark.asyncio
 async def test_coordinator_marks_tool_and_orchestration_turns_as_prominent_trace() -> None:
     tool_decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="chat_with_tools",
+        RouteDecision(
+            profile="chat",
+            graph_shape="tool_loop",
+            complexity="simple",
             tools=["memory_query"],
-            deep_thinking=False,
             reasoning="tool use",
-            orchestration_strategy={
-                "mode": "tool_calling",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     tool_coordinator = ChatExecutionCoordinator(
@@ -414,17 +372,12 @@ async def test_coordinator_marks_tool_and_orchestration_turns_as_prominent_trace
     assert tool_decision.ux_plan.trace_display_mode.value == "prominent"
 
     orchestration_decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="code_architecture",
+        RouteDecision(
+            profile="explore",
+            graph_shape="plan_fanout",
+            complexity="medium",
             tools=["agent"],
-            deep_thinking=False,
             reasoning="decompose",
-            orchestration_strategy={
-                "mode": "decompose",
-                "planner": "task_agent",
-                "default_leaf_type": "CodeExplore",
-                "allow_parallel": True,
-            },
         )
     )
     orchestration_coordinator = ChatExecutionCoordinator(
@@ -444,17 +397,12 @@ async def test_coordinator_match_tools_reorders_runtime_tools_with_task_hint() -
     registry = _build_real_tool_registry()
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="code_execution",
+            RouteDecision(
+                profile="coding",
+                graph_shape="tool_loop",
+                complexity="simple",
                 tools=["file_read", "grep", "glob"],
-                deep_thinking=False,
                 reasoning="inspect code",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
             ),
             tool_registry=registry,
         ),
@@ -504,17 +452,12 @@ async def test_coordinator_match_tools_applies_l4_advisory_rerank() -> None:
     registry = _build_real_tool_registry()
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="code_execution",
+            RouteDecision(
+                profile="coding",
+                graph_shape="tool_loop",
+                complexity="simple",
                 tools=["file_read", "grep", "glob"],
-                deep_thinking=False,
                 reasoning="inspect code",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
             ),
             tool_registry=registry,
         ),
@@ -563,17 +506,12 @@ async def test_coordinator_marks_ambiguous_external_reference_scope() -> None:
     registry = _build_real_tool_registry_with_web()
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="code_execution",
+            RouteDecision(
+                profile="research",
+                graph_shape="tool_loop",
+                complexity="simple",
                 tools=["web-search", "file_read"],
-                deep_thinking=False,
                 reasoning="compare external implementation",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
             ),
             tool_registry=registry,
         ),
@@ -618,17 +556,12 @@ async def test_coordinator_marks_ambiguous_external_reference_scope() -> None:
 @pytest.mark.asyncio
 async def test_coordinator_excludes_latest_user_message_from_recent_messages_context() -> None:
     fake_decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="chat",
+        RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
             tools=[],
-            deep_thinking=False,
             reasoning="direct response",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     coordinator = ChatExecutionCoordinator(
@@ -669,17 +602,12 @@ async def test_coordinator_excludes_latest_user_message_from_recent_messages_con
 @pytest.mark.asyncio
 async def test_coordinator_builds_typed_routing_environment_context() -> None:
     fake_decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="chat",
+        RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
             tools=[],
-            deep_thinking=False,
             reasoning="direct response",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     coordinator = ChatExecutionCoordinator(
@@ -731,17 +659,13 @@ async def test_coordinator_builds_typed_routing_environment_context() -> None:
 async def test_coordinator_routes_decompose_without_agent_tool_to_orchestration_launch() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="code_analysis",
+            RouteDecision(
+                profile="coding",
+                graph_shape="plan_fanout",
+                complexity="large",
                 tools=["grep", "file_read", "glob"],
-                deep_thinking=True,
+                thinking_depth=ThinkingDepth.HIGH,
                 reasoning="multi-step analysis should decompose",
-                orchestration_strategy={
-                    "mode": "decompose",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": True,
-                },
             )
         ),
         fact_classifier=ChatFactClassifier(),
@@ -783,17 +707,13 @@ async def test_coordinator_routes_decompose_without_agent_tool_to_orchestration_
 async def test_coordinator_routes_complex_news_to_generic_orchestration_without_explore() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="planning",
+            RouteDecision(
+                profile="research",
+                graph_shape="plan_fanout",
+                complexity="large",
                 tools=["web-search", "web-fetch"],
-                deep_thinking=True,
+                thinking_depth=ThinkingDepth.HIGH,
                 reasoning="complex research",
-                orchestration_strategy={
-                    "mode": "decompose",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": True,
-                },
             )
         ),
         fact_classifier=ChatFactClassifier(),
@@ -830,25 +750,20 @@ async def test_coordinator_routes_complex_news_to_generic_orchestration_without_
     decision = await coordinator.match_intent(context)
 
     assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
-    assert decision.orchestration_plan is not None
-    assert decision.orchestration_plan.default_leaf_type == "general-purpose"
-    assert decision.orchestration_plan.route_to_explore_task_agent is False
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "plan_fanout"
+    assert decision.route_decision.profile != "explore"
 
 
 @pytest.mark.asyncio
 async def test_coordinator_passes_recent_tool_errors_to_context_decider() -> None:
     fake_decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="chat",
+        RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
             tools=[],
-            deep_thinking=False,
             reasoning="follow-up",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     coordinator = ChatExecutionCoordinator(
@@ -900,17 +815,12 @@ async def test_coordinator_passes_recent_tool_errors_to_context_decider() -> Non
 async def test_coordinator_marks_tool_query_as_prominent_trace_ui() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="weather_query",
+            RouteDecision(
+                profile="chat",
+                graph_shape="tool_loop",
+                complexity="simple",
                 tools=["weather"],
-                deep_thinking=False,
                 reasoning="tool required",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
             )
         ),
         fact_classifier=ChatFactClassifier(),
@@ -952,17 +862,12 @@ async def test_coordinator_marks_tool_query_as_prominent_trace_ui() -> None:
 async def test_coordinator_marks_acknowledgement_as_reaction_only_ui() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="small_ack",
+            RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="simple",
                 tools=[],
-                deep_thinking=False,
                 reasoning="acknowledgement",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
             )
         ),
         fact_classifier=ChatFactClassifier(),
@@ -1003,17 +908,12 @@ async def test_coordinator_marks_acknowledgement_as_reaction_only_ui() -> None:
 async def test_coordinator_forces_direct_llm_for_image_attachments() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
-            _FakeContextDecision(
-                intent="screenshot_analysis",
+            RouteDecision(
+                profile="chat",
+                graph_shape="tool_loop",
+                complexity="simple",
                 tools=["file_read"],
-                deep_thinking=False,
                 reasoning="tool required",
-                orchestration_strategy={
-                    "mode": "direct",
-                    "planner": "task_agent",
-                    "default_leaf_type": "general-purpose",
-                    "allow_parallel": False,
-                },
             )
         ),
         fact_classifier=ChatFactClassifier(),
@@ -1056,6 +956,60 @@ async def test_coordinator_forces_direct_llm_for_image_attachments() -> None:
 
 
 @pytest.mark.asyncio
+async def test_coordinator_keeps_tools_when_router_says_reply_but_selects_tools() -> None:
+    """Regression (ADR-0005): the router can emit graph_shape='reply' while
+    still selecting a tool (e.g. memory_query). The tool must NOT be dropped —
+    execution shape is derived from the tool list, so this becomes a
+    tool_loop / FUNCTION_CALLING rather than a tool-less DIRECT_LLM reply."""
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="simple",
+                tools=["memory_query"],
+                reasoning="recall browsing history",
+            )
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "user_id": "u-chat",
+            "session_id": "s-chat",
+            "content": "我最近2天在用chrome看什么来着",
+        },
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="我最近2天在用chrome看什么来着",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert "memory_query" in decision.tools
+    assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "tool_loop"
+
+
+@pytest.mark.asyncio
 async def test_coordinator_injects_tool_advisory_into_decision_context() -> None:
     """Advisory provider should populate ContextDeciderContext.tool_advisory."""
     fake_advisories = [
@@ -1078,17 +1032,12 @@ async def test_coordinator_injects_tool_advisory_into_decision_context() -> None
         return fake_advisories
 
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="realtime_query",
+        RouteDecision(
+            profile="chat",
+            graph_shape="tool_loop",
+            complexity="simple",
             tools=["web_search"],
-            deep_thinking=False,
             reasoning="search",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     coordinator = ChatExecutionCoordinator(
@@ -1144,17 +1093,12 @@ async def test_coordinator_injects_tool_advisory_into_decision_context() -> None
 async def test_coordinator_works_without_advisory_provider() -> None:
     """Coordinator should work fine when tool_advisory_provider is None."""
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="chat",
+        RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
             tools=[],
-            deep_thinking=False,
             reasoning="greeting",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     coordinator = ChatExecutionCoordinator(
@@ -1197,17 +1141,12 @@ async def test_coordinator_works_without_advisory_provider() -> None:
 async def test_coordinator_injects_fallback_tools_when_tools_active() -> None:
     """web-search and find-relevant-tools should be appended when tool-calling is active."""
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="code_execution",
+        RouteDecision(
+            profile="coding",
+            graph_shape="tool_loop",
+            complexity="simple",
             tools=["bash"],
-            deep_thinking=False,
             reasoning="run command",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     decider.tool_registry = _FakeToolRegistry(
@@ -1252,17 +1191,12 @@ async def test_coordinator_injects_fallback_tools_when_tools_active() -> None:
 @pytest.mark.asyncio
 async def test_coordinator_reranks_shortlist_and_skips_open_breaker_fallbacks() -> None:
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="code_execution",
+        RouteDecision(
+            profile="coding",
+            graph_shape="tool_loop",
+            complexity="simple",
             tools=["bash", "web-search"],
-            deep_thinking=False,
             reasoning="run command",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     decider.tool_registry = _FakeToolRegistry(["bash", "web-search", "find-relevant-tools"])
@@ -1343,17 +1277,12 @@ async def test_coordinator_reranks_shortlist_and_skips_open_breaker_fallbacks() 
 async def test_coordinator_does_not_inject_fallback_tools_for_chat() -> None:
     """Pure chat (no tools) should stay tool-free — no fallback injection."""
     decider = _FakeContextDecider(
-        _FakeContextDecision(
-            intent="chat",
+        RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
             tools=[],
-            deep_thinking=False,
             reasoning="greeting",
-            orchestration_strategy={
-                "mode": "direct",
-                "planner": "task_agent",
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": False,
-            },
         )
     )
     decider.tool_registry = _FakeToolRegistry(["bash", "web-search"])
@@ -1390,3 +1319,1271 @@ async def test_coordinator_does_not_inject_fallback_tools_for_chat() -> None:
     decision = await coordinator.match_intent(context)
     assert decision.tools == []
     assert decision.execution_mode == ExecutionMode.DIRECT_LLM
+
+
+@pytest.mark.asyncio
+async def test_coordinator_derives_consistent_shape_and_mode_for_reply_with_tools() -> None:
+    """ADR-0005: graph_shape and execution_mode must stay on a single mode so
+    the GraphBuilder's node and the request shape never mismatch (a ReplyNode
+    receiving a FunctionCallingRequest crashes with 'no attribute messages').
+
+    Pre-ADR-0005 this was enforced by DROPPING tools when the router said
+    'reply'. Now the shape is DERIVED from the tools instead: a router that
+    opines 'reply' yet selects a tool yields tool_loop + FUNCTION_CALLING, with
+    decision.graph_shape rewritten to match. The two axes are sourced from the
+    same derivation and cannot disagree — and the tool is preserved, not lost.
+    """
+    decider = _FakeContextDecider(
+        RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
+            tools=["web-search"],  # router opined a tool but chose reply shape
+            reasoning="reply with optional tool",
+        )
+    )
+    decider.tool_registry = _FakeToolRegistry(["web-search", "find-relevant-tools"])
+
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "hi"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="hi",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    # Tools present → shape derives to tool_loop, mode to FUNCTION_CALLING, and
+    # decision.graph_shape is rewritten to match. Two axes agree; tool survives.
+    assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
+    assert "web-search" in decision.tools
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "tool_loop"
+
+
+# ---------------------------------------------------------------------------
+# Phase G+1 / Task 7: ChatExecutionCoordinator.dispatch_stream_chunk
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_stream_chunk_routes_to_chat_sse_channel_when_registry_wired():
+    class _RecordingChunkChannel:
+        channel_type = "chat_sse"
+        # Opt into streaming so DeliveryRouter.fanout_chunk doesn't skip us.
+        supports_streaming = True
+        def __init__(self): self.chunks = []
+        async def deliver_chunk(self, target, chunk):
+            self.chunks.append((target, chunk))
+    class _Registry:
+        def __init__(self, ch): self._ch = ch
+        def get(self, k): return self._ch if k == "chat_sse" else None
+    rec = _RecordingChunkChannel()
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=_Registry(rec),
+    )
+    await coordinator.dispatch_stream_chunk(
+        session_id="s1", user_id="u1", text="hello",
+        is_final=False, seq=0,
+    )
+    assert len(rec.chunks) == 1
+    target, chunk = rec.chunks[0]
+    assert target.channel_type == "chat_sse"  # scheme-only
+    assert target.magi_session_id == "s1"  # per-run context rides on dedicated field
+    assert chunk.text == "hello"
+    assert chunk.is_final is False
+    assert chunk.seq == 0
+
+
+@pytest.mark.asyncio
+async def test_dispatch_stream_chunk_noop_when_no_router():
+    """When channel_registry is None, dispatch_stream_chunk must not crash
+    and must do nothing."""
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        # no channel_registry → _delivery_router is None
+    )
+    # Should be a no-op — would raise AttributeError if accessed
+    await coordinator.dispatch_stream_chunk(
+        session_id="s1", user_id="u1", text="hi",
+        is_final=False, seq=0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_stream_chunk_noop_when_session_id_empty():
+    """Empty session_id → no-op (can't route without it)."""
+    class _RecordingChunkChannel:
+        channel_type = "chat_sse"
+        def __init__(self): self.chunks = []
+        async def deliver_chunk(self, target, chunk):
+            self.chunks.append((target, chunk))
+    class _Registry:
+        def __init__(self, ch): self._ch = ch
+        def get(self, k): return self._ch if k == "chat_sse" else None
+    rec = _RecordingChunkChannel()
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=_Registry(rec),
+    )
+    await coordinator.dispatch_stream_chunk(
+        session_id="", user_id="u1", text="hello",
+        is_final=False, seq=0,
+    )
+    assert len(rec.chunks) == 0
+
+
+@pytest.mark.asyncio
+async def test_dispatch_stream_chunk_carries_event_and_persona_on_delivery_chunk():
+    """Phase G+1 Step 2: when dispatch_stream_chunk is handed a full
+    LLMStreamEvent, the DeliveryChunk must carry ``event.to_wire_dict()`` and
+    ``persona_id`` so ChatSseChannel.deliver_chunk can forward EVERY
+    stream-event kind (tool_call / reasoning / status / text_flush), not just
+    the legacy text_delta shape."""
+    class _RecordingChunkChannel:
+        channel_type = "chat_sse"
+        supports_streaming = True
+        def __init__(self): self.chunks = []
+        async def deliver_chunk(self, target, chunk):
+            self.chunks.append((target, chunk))
+    class _Registry:
+        def __init__(self, ch): self._ch = ch
+        def get(self, k): return self._ch if k == "chat_sse" else None
+    rec = _RecordingChunkChannel()
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=_Registry(rec),
+    )
+    event = LLMStreamEvent(
+        kind="tool_call_start", tool_call_id="tc1", tool_name="web-search",
+    )
+    await coordinator.dispatch_stream_chunk(
+        session_id="s1", user_id="u1", text="", is_final=False, seq=0,
+        turn_id="t1", event=event, persona_id="p1",
+    )
+    assert len(rec.chunks) == 1
+    _, chunk = rec.chunks[0]
+    assert chunk.event == {
+        "kind": "tool_call_start",
+        "tool_call_id": "tc1",
+        "tool_name": "web-search",
+    }
+    assert chunk.persona_id == "p1"
+    assert chunk.turn_id == "t1"
+
+
+# ---------------------------------------------------------------------------
+# Phase G+1 / Task 9: user_prefs_provider injection for final-delivery fanout
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_user_prefs_returns_empty_when_no_provider():
+    """No provider wired → returns empty dict, no error."""
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+    prefs = await coordinator._resolve_user_prefs("u-1")
+    assert prefs == {}
+
+
+@pytest.mark.asyncio
+async def test_resolve_user_prefs_returns_empty_when_user_id_blank():
+    """Blank user_id → skip provider call, return empty."""
+    calls = []
+
+    async def provider(user_id):
+        calls.append(user_id)
+        return {"delivery_channels": ["chat_sse", "telegram"]}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        user_prefs_provider=provider,
+    )
+    prefs = await coordinator._resolve_user_prefs("")
+    assert prefs == {}
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_user_prefs_returns_provider_result():
+    """Provider returns dict → returned as-is."""
+    async def provider(user_id):
+        assert user_id == "u-7"
+        return {"delivery_channels": ["chat_sse", "telegram"]}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        user_prefs_provider=provider,
+    )
+    prefs = await coordinator._resolve_user_prefs("u-7")
+    assert prefs == {"delivery_channels": ["chat_sse", "telegram"]}
+
+
+@pytest.mark.asyncio
+async def test_resolve_user_prefs_swallows_provider_errors():
+    """Provider raises → returns empty dict (delivery must not crash)."""
+    async def bad_provider(user_id):
+        raise RuntimeError("user-pref store down")
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        user_prefs_provider=bad_provider,
+    )
+    prefs = await coordinator._resolve_user_prefs("u-7")
+    assert prefs == {}
+
+
+@pytest.mark.asyncio
+async def test_execute_uses_user_prefs_provider_for_fanout_targets():
+    """P3 Step 3: execute()-time fanout now serves EXTERNAL channels only
+    (exclude_chat_sse=True). The user opted into chat_sse + telegram, but the
+    chat_sse agent_response is produced later by the postprocess seam
+    (deliver_final_chat_response), so execute() delivers ONLY to telegram."""
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.common.contracts import (
+        ExecutionRequest, ExecutionResult, ExecutionMode,
+    )
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi.tools.context_routing import RouteDecision
+
+    class _Rec(Channel):
+        def __init__(self, ctype):
+            self._t = ctype
+            self.delivered = []
+        @property
+        def channel_type(self):
+            return self._t
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.delivered.append((target, content))
+            return DeliveryReceipt(
+                channel_id=self._t,
+                external_message_id=f"{self._t}_1",
+                delivered_at_ms=1000,
+            )
+        async def retract(self, receipt): pass
+
+    sse = _Rec("chat_sse")
+    telegram = _Rec("telegram")
+
+    class _Registry:
+        def __init__(self, m): self._m = m
+        def get(self, k): return self._m.get(k)
+
+    registry = _Registry({"chat_sse": sse, "telegram": telegram})
+
+    async def provider(user_id):
+        assert user_id == "u-9"
+        return {"delivery_channels": ["chat_sse", "telegram"]}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=registry,
+        user_prefs_provider=provider,
+    )
+
+    # Mock the runner so execute() short-circuits with a fixed result.
+    canned_result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM, response_text="hello world",
+    )
+
+    class _FakeRunner:
+        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
+            return canned_result, RunSnapshot(
+                run_id=run_id,
+                graph=tuple(spec.node_type for spec in node_specs),
+                cursor=len(node_specs),
+                node_states={},
+            )
+
+    coordinator._node_sequence_runner = _FakeRunner()
+
+    # Build a real-shaped request with route_decision so execute() takes the
+    # node-sequence path.
+    route = RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    )
+    fact = FactRecord(
+        agent_id="chat:u-9",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-9", "session_id": "s-9", "content": "hi"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-9",
+        agent_type="chat",
+        runtime_key="chat:u-9",
+        user_id="u-9",
+        session_id="s-9",
+        history_key="u-9::s-9",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="hi",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-9"),
+        session_run_id="run-9",
+    )
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
+    intent = IntentDecision(
+        intent="chat",
+        difficulty="normal",
+        execution_mode=ExecutionMode.DIRECT_LLM,
+        route_decision=route,
+        reasoning="",
+    )
+    from magi.agent.task_agents.common.contracts import ToolSelection
+    request = ExecutionRequest(
+        mode=ExecutionMode.DIRECT_LLM,
+        context=context,
+        intent=intent,
+        tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
+    )
+
+    result = await coordinator.execute(request)
+    assert result is canned_result
+
+    # execute()-time fanout excludes chat_sse: only the external channel is served.
+    assert len(sse.delivered) == 0
+    assert len(telegram.delivered) == 1
+    assert telegram.delivered[0][1].text == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_deliver_final_chat_response_delivers_rich_content_to_chat_sse_only():
+    """P3 Step 3: the postprocess seam delivers the rich agent_response to
+    chat_sse ONLY (chat_sse_only=True), carrying the full DeliveryContent, and
+    persists a chat_sse DeliveryReceipt. External channels are NOT re-served
+    here (execute()-time owns external delivery)."""
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
+
+    class _Rec(Channel):
+        def __init__(self, ctype):
+            self._t = ctype
+            self.received = []
+        @property
+        def channel_type(self):
+            return self._t
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.received.append(content)
+            return DeliveryReceipt(
+                channel_id=self._t, external_message_id=None,
+                delivered_at_ms=1000, magi_session_id=target.magi_session_id,
+            )
+        async def retract(self, receipt): pass
+
+    sse = _Rec("chat_sse")
+    telegram = _Rec("telegram")
+
+    class _Registry:
+        def __init__(self, m): self._m = m
+        def get(self, k): return self._m.get(k)
+
+    saved_receipts: list[dict] = []
+
+    class _RecReceiptsStore:
+        async def save_receipts(self, *, session_id, run_id, revision, receipts):
+            saved_receipts.append(
+                {"session_id": session_id, "run_id": run_id,
+                 "revision": revision, "receipts": list(receipts)}
+            )
+
+    async def _provider(user_id):
+        # Even though the user opted into telegram, the chat_sse-only seam must
+        # not re-serve it.
+        return {"delivery_channels": ["chat_sse", "telegram"]}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=_Registry({"chat_sse": sse, "telegram": telegram}),
+        user_prefs_provider=_provider,
+        receipts_store=_RecReceiptsStore(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-1",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-1", "session_id": "s-1", "content": "hi"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-1",
+        agent_type="chat",
+        runtime_key="chat:u-1",
+        user_id="u-1",
+        session_id="s-1",
+        history_key="u-1::s-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="hi",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-1"),
+        session_run_id="run-1",
+    )
+    content = DeliveryContent(
+        text="final answer",
+        turn_id="t-1",
+        message_id="m-1",
+        message_kind="assistant_final",
+        persona_id="p-1",
+        trace_summary={"turn_id": "t-1"},
+        trace_available=True,
+        ux_plan={"assistant_surface_mode": "final_only"},
+        message_payload={"k": "v"},
+        orchestration_id="o-1",
+    )
+
+    receipts = await coordinator.deliver_final_chat_response(context, content=content)
+
+    # chat_sse only — telegram NOT re-served by the postprocess seam.
+    assert len(sse.received) == 1
+    assert len(telegram.received) == 0
+    delivered = sse.received[0]
+    assert delivered.text == "final answer"
+    assert delivered.turn_id == "t-1"
+    assert delivered.message_id == "m-1"
+    assert delivered.message_kind == "assistant_final"
+    assert delivered.persona_id == "p-1"
+    assert delivered.trace_summary == {"turn_id": "t-1"}
+    assert delivered.trace_available is True
+    assert delivered.ux_plan == {"assistant_surface_mode": "final_only"}
+    assert delivered.message_payload == {"k": "v"}
+    assert delivered.orchestration_id == "o-1"
+
+    # A chat_sse receipt was returned and persisted.
+    assert len(receipts) == 1
+    assert receipts[0].channel_id == "chat_sse"
+    assert len(saved_receipts) == 1
+    assert saved_receipts[0]["session_id"] == "s-1"
+    assert saved_receipts[0]["run_id"] == "run-1"
+
+
+@pytest.mark.asyncio
+async def test_execute_swallows_user_prefs_provider_errors_and_uses_default_target():
+    """If the provider raises, execute() defaults to empty prefs and still
+    fans out to chat_sse only (no crash)."""
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.common.contracts import (
+        ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
+    )
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi.tools.context_routing import RouteDecision
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
+
+    class _Rec(Channel):
+        def __init__(self, ctype):
+            self._t = ctype
+            self.delivered = []
+        @property
+        def channel_type(self):
+            return self._t
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.delivered.append((target, content))
+            return DeliveryReceipt(
+                channel_id=self._t,
+                external_message_id=f"{self._t}_1",
+                delivered_at_ms=1000,
+            )
+        async def retract(self, receipt): pass
+
+    sse = _Rec("chat_sse")
+
+    class _Registry:
+        def __init__(self, m): self._m = m
+        def get(self, k): return self._m.get(k)
+
+    registry = _Registry({"chat_sse": sse})
+
+    async def bad_provider(user_id):
+        raise RuntimeError("store down")
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=registry,
+        user_prefs_provider=bad_provider,
+    )
+
+    canned_result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM, response_text="fallback ok",
+    )
+
+    class _FakeRunner:
+        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
+            return canned_result, RunSnapshot(
+                run_id=run_id,
+                graph=tuple(spec.node_type for spec in node_specs),
+                cursor=len(node_specs),
+                node_states={},
+            )
+
+    coordinator._node_sequence_runner = _FakeRunner()
+
+    route = RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    )
+    fact = FactRecord(
+        agent_id="chat:u-bad",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-bad", "session_id": "s-bad", "content": "hi"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-bad",
+        agent_type="chat",
+        runtime_key="chat:u-bad",
+        user_id="u-bad",
+        session_id="s-bad",
+        history_key="u-bad::s-bad",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="hi",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-bad"),
+        session_run_id="run-bad",
+    )
+    intent = IntentDecision(
+        intent="chat",
+        difficulty="normal",
+        execution_mode=ExecutionMode.DIRECT_LLM,
+        route_decision=route,
+        reasoning="",
+    )
+    request = ExecutionRequest(
+        mode=ExecutionMode.DIRECT_LLM,
+        context=context,
+        intent=intent,
+        tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
+    )
+
+    result = await coordinator.execute(request)
+    assert result is canned_result
+
+    # The provider error is swallowed and execute() completes (result above).
+    # P3 Step 3: the default target (chat_sse) is excluded from execute()-time
+    # fanout, so no external delivery happens for a chat_sse-only default.
+    assert len(sse.delivered) == 0
+
+
+@pytest.mark.asyncio
+async def test_execute_passes_runner_attachments_through_to_delivery_content():
+    """Phase A media-outbound: ExecutionResult.attachments (produced by
+    image_generation_tool / prepare_chat_attachments / photo_library /
+    screenshot_timeline) MUST ride along on the DeliveryContent the
+    coordinator hands to fanout_deliver. Before this fix, the call site
+    only passed text, so external channels (telegram/weixin) could never
+    have known the agent wanted to attach images — even with downstream
+    channel-side support, the data was lost at this layer."""
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.common.contracts import (
+        ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
+    )
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi.tools.context_routing import RouteDecision
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
+
+    class _Capture(Channel):
+        def __init__(self, ctype):
+            self._t = ctype
+            self.received = []  # list of DeliveryContent
+        @property
+        def channel_type(self):
+            return self._t
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.received.append(content)
+            return DeliveryReceipt(
+                channel_id=self._t,
+                external_message_id=f"{self._t}_1",
+                delivered_at_ms=1000,
+            )
+        async def retract(self, receipt): pass
+
+    # P3 Step 3: execute()-time fanout serves EXTERNAL channels only, so this
+    # attachment-passthrough assertion now targets an external (telegram)
+    # channel. The chat_sse rich delivery (also carrying attachments) flows via
+    # the postprocess seam, covered by deliver_final_chat_response tests.
+    tg = _Capture("telegram")
+
+    class _Registry:
+        def __init__(self, m): self._m = m
+        def get(self, k): return self._m.get(k)
+
+    registry = _Registry({"telegram": tg})
+
+    async def _provider(user_id):
+        return {"delivery_channels": ["telegram"]}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=registry,
+        user_prefs_provider=_provider,
+    )
+
+    image_attachment = {
+        "attachment_id": "att-img-1",
+        "kind": "image",
+        "original_name": "cyberpunk.png",
+        "mime_type": "image/png",
+        "size_bytes": 4096,
+        "storage_path": "/tmp/magi-att/cyberpunk.png",
+        "sha256": "deadbeef",
+    }
+    pdf_attachment = {
+        "attachment_id": "att-doc-1",
+        "kind": "document",
+        "original_name": "spec.pdf",
+        "mime_type": "application/pdf",
+        "size_bytes": 12345,
+        "storage_path": "/tmp/magi-att/spec.pdf",
+        "sha256": "cafebabe",
+    }
+    canned_result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="here's what you asked for",
+        attachments=[image_attachment, pdf_attachment],
+    )
+
+    class _FakeRunner:
+        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
+            return canned_result, RunSnapshot(
+                run_id=run_id,
+                graph=tuple(spec.node_type for spec in node_specs),
+                cursor=len(node_specs),
+                node_states={},
+            )
+
+    coordinator._node_sequence_runner = _FakeRunner()
+
+    route = RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    )
+    fact = FactRecord(
+        agent_id="chat:u-att",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-att", "session_id": "s-att", "content": "show"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-att",
+        agent_type="chat",
+        runtime_key="chat:u-att",
+        user_id="u-att",
+        session_id="s-att",
+        history_key="u-att::s-att",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="show",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-att"),
+        session_run_id="run-att",
+    )
+    intent = IntentDecision(
+        intent="chat",
+        difficulty="normal",
+        execution_mode=ExecutionMode.DIRECT_LLM,
+        route_decision=route,
+        reasoning="",
+    )
+    request = ExecutionRequest(
+        mode=ExecutionMode.DIRECT_LLM,
+        context=context,
+        intent=intent,
+        tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
+    )
+
+    await coordinator.execute(request)
+
+    assert len(tg.received) == 1
+    delivered = tg.received[0]
+    # Text is unchanged.
+    assert delivered.text == "here's what you asked for"
+    # Attachments arrived intact, in order, as a tuple of dicts.
+    assert len(delivered.attachments) == 2
+    assert delivered.attachments[0]["attachment_id"] == "att-img-1"
+    assert delivered.attachments[0]["kind"] == "image"
+    assert delivered.attachments[0]["storage_path"] == "/tmp/magi-att/cyberpunk.png"
+    assert delivered.attachments[1]["attachment_id"] == "att-doc-1"
+    assert delivered.attachments[1]["kind"] == "document"
+
+
+@pytest.mark.asyncio
+async def test_execute_passes_empty_attachments_when_runner_has_none():
+    """When ExecutionResult.attachments is empty (the common case for
+    text-only replies), DeliveryContent.attachments must be an empty
+    tuple — not crash, not leak a None into channel.deliver."""
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.common.contracts import (
+        ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
+    )
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi.tools.context_routing import RouteDecision
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
+
+    # P3 Step 3: execute()-time fanout serves EXTERNAL channels, so this
+    # empty-attachments assertion targets a telegram channel.
+    class _Capture(Channel):
+        def __init__(self): self.received = []
+        @property
+        def channel_type(self): return "telegram"
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.received.append(content)
+            return DeliveryReceipt(channel_id="telegram", external_message_id="x", delivered_at_ms=1)
+        async def retract(self, receipt): pass
+
+    sse = _Capture()
+
+    class _Registry:
+        def get(self, k): return sse if k == "telegram" else None
+
+    async def _prov(user_id):
+        return {"delivery_channels": ["telegram"]}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple", tools=[], reasoning="",
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=_Registry(),
+        user_prefs_provider=_prov,
+    )
+    canned_result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="just words",
+        # attachments defaults to [] via dataclass field factory
+    )
+
+    class _FakeRunner:
+        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
+            return canned_result, RunSnapshot(
+                run_id=run_id,
+                graph=tuple(spec.node_type for spec in node_specs),
+                cursor=len(node_specs), node_states={},
+            )
+    coordinator._node_sequence_runner = _FakeRunner()
+
+    fact = FactRecord(
+        agent_id="chat:u",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u", "session_id": "s", "content": "hi"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact, recent_facts=[fact], batch_facts=[fact],
+        agent_id="u", agent_type="chat", runtime_key="chat:u",
+        user_id="u", session_id="s", history_key="u::s",
+        history=[], conversation_history=[], active_orchestrations=[],
+        latest_user_message="hi", incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u"),
+        session_run_id="r",
+    )
+    intent = IntentDecision(
+        intent="chat", difficulty="normal", execution_mode=ExecutionMode.DIRECT_LLM,
+        route_decision=RouteDecision(profile="chat", graph_shape="reply", complexity="simple", tools=[], reasoning=""),
+        reasoning="",
+    )
+    request = ExecutionRequest(
+        mode=ExecutionMode.DIRECT_LLM, context=context, intent=intent,
+        tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
+    )
+
+    await coordinator.execute(request)
+    assert len(sse.received) == 1
+    assert sse.received[0].attachments == ()
+
+
+@pytest.mark.asyncio
+async def test_execute_routes_reply_back_to_origin_channel_from_run_trigger():
+    """Phase H+2 (this change): when a run was triggered by an external
+    channel (its ``AgentRun.trigger.source_channel`` is e.g. ``"weixin"``),
+    the coordinator MUST include that channel in the fanout targets even
+    when the user has no ``delivery_channels`` configured.
+
+    Before the fix, a WeChat user sending a message would see the agent
+    respond in the Magi chat UI (chat_sse default) but never receive the
+    reply on WeChat — the inbound channel identity was lost between
+    inbound dispatch and outbound fanout. This test reproduces the bug
+    end-to-end through ``coordinator.execute``.
+    """
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.common.contracts import (
+        ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
+    )
+    from magi.agent.task_agents.handlers.run_contracts import AgentRun
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi_plugin_sdk.run_trigger import RunTrigger
+    from magi.tools.context_routing import RouteDecision
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
+
+    class _Rec(Channel):
+        def __init__(self, ctype):
+            self._t = ctype
+            self.delivered = []
+        @property
+        def channel_type(self):
+            return self._t
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.delivered.append((target, content))
+            return DeliveryReceipt(
+                channel_id=self._t,
+                external_message_id=f"{self._t}_1",
+                delivered_at_ms=1000,
+            )
+        async def retract(self, receipt): pass
+
+    sse = _Rec("chat_sse")
+    weixin = _Rec("weixin")
+
+    class _Registry:
+        def __init__(self, m): self._m = m
+        def get(self, k): return self._m.get(k)
+
+    registry = _Registry({"chat_sse": sse, "weixin": weixin})
+
+    # Crucially: no user_prefs.delivery_channels — proves the auto-route
+    # is driven by RunTrigger.source_channel, NOT by user config.
+    async def empty_provider(user_id):
+        return {}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=registry,
+        user_prefs_provider=empty_provider,
+    )
+
+    canned_result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM, response_text="reply for weixin",
+    )
+
+    class _FakeRunner:
+        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
+            return canned_result, RunSnapshot(
+                run_id=run_id,
+                graph=tuple(spec.node_type for spec in node_specs),
+                cursor=len(node_specs),
+                node_states={},
+            )
+
+    coordinator._node_sequence_runner = _FakeRunner()
+
+    route = RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    )
+    fact = FactRecord(
+        agent_id="chat:u-wx",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-wx", "session_id": "s-wx", "content": "你好"},
+    )
+    # The key bit: build an AgentRun carrying the inbound-channel trigger.
+    weixin_trigger = RunTrigger(
+        trigger_type="external_inbound",
+        source_channel="weixin",
+        requester="u-wx",
+        priority="foreground",
+    )
+    active_run = AgentRun(
+        session_id="s-wx", run_id="run-wx", trigger=weixin_trigger,
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-wx",
+        agent_type="chat",
+        runtime_key="chat:u-wx",
+        user_id="u-wx",
+        session_id="s-wx",
+        history_key="u-wx::s-wx",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="你好",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-wx"),
+        session_run_id="run-wx",
+        active_run=active_run,
+    )
+    intent = IntentDecision(
+        intent="chat",
+        difficulty="normal",
+        execution_mode=ExecutionMode.DIRECT_LLM,
+        route_decision=route,
+        reasoning="",
+    )
+    request = ExecutionRequest(
+        mode=ExecutionMode.DIRECT_LLM,
+        context=context,
+        intent=intent,
+        tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
+    )
+
+    result = await coordinator.execute(request)
+    assert result is canned_result
+
+    # The fix: weixin received the reply because the run's trigger
+    # carried source_channel="weixin".
+    assert len(weixin.delivered) == 1, "WeChat channel should have received the reply"
+    assert weixin.delivered[0][1].text == "reply for weixin"
+    # P3 Step 3: execute()-time fanout excludes chat_sse (its rich agent_response
+    # is produced by the postprocess seam), so chat_sse does NOT fire here.
+    assert len(sse.delivered) == 0
+
+
+@pytest.mark.asyncio
+async def test_execute_context_user_prefs_wins_over_provider():
+    """When both provider and context.user_prefs supply prefs, context wins
+    (request-time override semantics).
+
+    ChatRuntimeContext is a slots dataclass without a user_prefs attribute,
+    so this exercises the merge with a duck-typed context substitute to keep
+    the override path under test.
+    """
+    from types import SimpleNamespace
+    from magi.agent.run.snapshot import RunSnapshot
+    from magi.agent.task_agents.common.contracts import (
+        ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
+    )
+    from magi_plugin_sdk.channels import Channel
+    from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi.tools.context_routing import RouteDecision
+    from magi.agent.task_agents.handlers.contracts import IntentDecision
+
+    class _Rec(Channel):
+        def __init__(self, ctype):
+            self._t = ctype
+            self.delivered = []
+        @property
+        def channel_type(self):
+            return self._t
+        async def start(self): return None
+        async def stop(self): return None
+        async def send_message(self, target, content): return None
+        async def send_typing_indicator(self, target): return None
+        async def deliver(self, target, content):
+            self.delivered.append((target, content))
+            return DeliveryReceipt(
+                channel_id=self._t,
+                external_message_id=f"{self._t}_1",
+                delivered_at_ms=1000,
+            )
+        async def retract(self, receipt): pass
+
+    sse = _Rec("chat_sse")
+    telegram = _Rec("telegram")
+    slack = _Rec("slack")
+
+    class _Registry:
+        def __init__(self, m): self._m = m
+        def get(self, k): return self._m.get(k)
+
+    registry = _Registry({
+        "chat_sse": sse, "telegram": telegram, "slack": slack,
+    })
+
+    async def provider(user_id):
+        return {"delivery_channels": ["telegram"]}
+
+    decider = _FakeContextDecider(RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning=""
+    ))
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        channel_registry=registry,
+        user_prefs_provider=provider,
+    )
+
+    canned_result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM, response_text="override",
+    )
+
+    class _FakeRunner:
+        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
+            return canned_result, RunSnapshot(
+                run_id=run_id,
+                graph=tuple(spec.node_type for spec in node_specs),
+                cursor=len(node_specs),
+                node_states={},
+            )
+
+    coordinator._node_sequence_runner = _FakeRunner()
+
+    route = RouteDecision(
+        profile="chat", graph_shape="reply", complexity="simple",
+        tools=[], reasoning="",
+    )
+    # Duck-typed context with the user_prefs attribute so the override branch
+    # in execute() actually fires. Only the attrs execute() reads are needed.
+    context = SimpleNamespace(
+        user_id="u-ctx",
+        session_id="s-ctx",
+        session_run_id="run-ctx",
+        user_prefs={"delivery_channels": ["chat_sse", "slack"]},
+    )
+    intent = IntentDecision(
+        intent="chat",
+        difficulty="normal",
+        execution_mode=ExecutionMode.DIRECT_LLM,
+        route_decision=route,
+        reasoning="",
+    )
+    request = ExecutionRequest(
+        mode=ExecutionMode.DIRECT_LLM,
+        context=context,
+        intent=intent,
+        tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
+    )
+
+    await coordinator.execute(request)
+
+    # Context's chat_sse + slack should have been used, not provider's telegram.
+    # P3 Step 3: execute()-time fanout excludes chat_sse, so only the external
+    # slack target fires here (chat_sse rich agent_response comes via the seam).
+    assert len(sse.delivered) == 0
+    assert len(slack.delivered) == 1
+    assert len(telegram.delivered) == 0
+
+
+@pytest.mark.asyncio
+async def test_coordinator_maybe_orchestration_yields_tool_loop() -> None:
+    """P3 (ADR-0005): needs_orchestration='maybe' derives to tool_loop /
+    FUNCTION_CALLING — a loop the `agent` tool gets injected into for in-loop
+    self-escalation — NOT a pre-planned plan_fanout."""
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="simple",
+                tools=[],
+                needs_orchestration="maybe",
+                reasoning="single agent now, may fan out later",
+            )
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "do a big thing"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="do a big thing",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "tool_loop"
+    assert decision.route_decision.needs_orchestration == "maybe"
+
+
+@pytest.mark.asyncio
+async def test_coordinator_required_orchestration_yields_plan_fanout() -> None:
+    """P3 (ADR-0005): needs_orchestration='required' derives to plan_fanout /
+    ORCHESTRATION_LAUNCH (pre-planned multi-agent fanout)."""
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="large",
+                tools=[],
+                needs_orchestration="required",
+                reasoning="decomposable multi-part work",
+            )
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "decompose this"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="decompose this",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
+    assert decision.route_decision is not None
+    assert decision.route_decision.graph_shape == "plan_fanout"

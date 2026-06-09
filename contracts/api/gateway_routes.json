@@ -443,9 +443,19 @@
   ],
   "proxied_prefixes": [
     {
+      "prefix": "/api/availability",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/availability_routes.py"
+    },
+    {
       "prefix": "/api/background-tasks",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/api/routers/background_tasks.py"
+    },
+    {
+      "prefix": "/api/chat/preview",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/chat_preview_routes.py"
     },
     {
       "prefix": "/api/code_agent",
@@ -503,6 +513,16 @@
       "owner_file": "backend/src/magi/api/routers/messages.py"
     },
     {
+      "prefix": "/api/channels",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/channels_bindings.py"
+    },
+    {
+      "prefix": "/api/notifications",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/notifications_routes.py"
+    },
+    {
       "prefix": "/api/personality",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/api/routers/personality_config.py"
@@ -546,6 +566,11 @@
       "prefix": "/api/skills",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/api/routers/skills.py"
+    },
+    {
+      "prefix": "/api/system-suggestions",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/system_suggestions_routes.py"
     },
     {
       "prefix": "/api/timeline",

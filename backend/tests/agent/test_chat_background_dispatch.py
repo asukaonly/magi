@@ -14,9 +14,9 @@ from magi.agent.background.dispatcher import (
     BackgroundDecisionSource,
     BackgroundDisposition,
 )
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
-from magi.agent.task_agents.chat.fact_classifier import IncomingFactKind
-from magi.agent.task_agents.chat.handlers import (
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
+from magi.chat.task_agent.fact_classifier import IncomingFactKind
+from magi.agent.task_agents.handlers.handlers import (
     ChatHandlerDependencies,
     FunctionCallingHandler,
 )
@@ -64,8 +64,11 @@ class _FakeLaunchService:
         request: FunctionCallingRequest,
         *,
         trigger_source: BackgroundTaskTriggerSource,
+        trigger: Any | None = None,
     ) -> ExecutionResult:
-        self.calls.append({"request": request, "trigger_source": trigger_source})
+        self.calls.append(
+            {"request": request, "trigger_source": trigger_source, "trigger": trigger}
+        )
         if self._exc is not None:
             raise self._exc
         return self._result
@@ -123,7 +126,6 @@ def _make_request(*, user_message: str = "summarise the PRs", tools: list[str] |
         difficulty="normal",
         execution_mode=ExecutionMode.FUNCTION_CALLING,
         reasoning="",
-        orchestration_plan=OrchestrationPlan(),
     )
     return FunctionCallingRequest(
         mode=ExecutionMode.FUNCTION_CALLING,
@@ -141,6 +143,7 @@ def _make_handler(
     dispatcher: Any | None = None,
     launch_service: Any | None = None,
     orchestrator: Any | None = None,
+    session_run_coordinator: Any | None = None,
 ) -> FunctionCallingHandler:
     deps = ChatHandlerDependencies(
         context_service=SimpleNamespace(),
@@ -148,10 +151,10 @@ def _make_handler(
         planning_service=SimpleNamespace(),
         function_calling_orchestrator=orchestrator or _FakeOrchestrator(),
         task_orchestrator=SimpleNamespace(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         agent_id="chat:u1",
         get_task_agent_manager=lambda: None,
-        session_run_coordinator=None,
+        session_run_coordinator=session_run_coordinator,
         background_dispatcher=dispatcher,
         background_launch_service=launch_service,
     )
@@ -166,7 +169,7 @@ def _make_handler(
 @pytest.fixture(autouse=True)
 def _enable_auto_background_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "magi.agent.task_agents.chat.runtime_control._auto_background_dispatch_enabled",
+        "magi.agent.task_agents.handlers.runtime_control._auto_background_dispatch_enabled",
         lambda: True,
     )
 
@@ -198,9 +201,52 @@ async def test_background_branch_returns_launch_service_result_on_background_ver
     assert orchestrator.calls == 0  # foreground orchestrator never invoked
     assert len(launch.calls) == 1
     assert launch.calls[0]["trigger_source"] is BackgroundTaskTriggerSource.RULE
+    # No coordinator wired → no run trigger to forward.
+    assert launch.calls[0]["trigger"] is None
     # Dispatcher received the user text and selected tools.
     assert dispatcher.calls[0].user_text == "跑完告诉我"
     assert dispatcher.calls[0].selected_tools == ["deep_research"]
+
+
+@pytest.mark.asyncio
+async def test_background_branch_forwards_run_trigger_keeping_decision_source() -> None:
+    """Auto-dispatch hands the active run's RunTrigger to the background spec for
+    origin-channel provenance, while keeping the decision-derived trigger_source
+    (RULE here) — it does NOT override it with from_trigger's USER, because the
+    dispatch *decision* is more informative than the run origin on this path."""
+    from magi_plugin_sdk.run_trigger import RunTrigger
+
+    run_trigger = RunTrigger(
+        trigger_type="external_inbound",
+        source_channel="weixin",
+        requester="u1",
+        priority="foreground",
+    )
+    active_run = SimpleNamespace(trigger=run_trigger)
+    coordinator = SimpleNamespace(get_active_run=lambda session_id: active_run)
+
+    dispatcher = _FakeDispatcher(
+        BackgroundDecision(
+            disposition=BackgroundDisposition.BACKGROUND,
+            source=BackgroundDecisionSource.RULE,
+        )
+    )
+    ack = ExecutionResult(mode=ExecutionMode.FUNCTION_CALLING, orchestration_id="bg_x")
+    launch = _FakeLaunchService(ack)
+    handler = _make_handler(
+        dispatcher=dispatcher,
+        launch_service=launch,
+        session_run_coordinator=coordinator,
+    )
+
+    result = await handler._maybe_dispatch_to_background(_make_request())
+
+    assert result is ack
+    call = launch.calls[0]
+    assert call["trigger"] is run_trigger
+    assert call["trigger"].source_channel == "weixin"
+    # Decision-derived source is preserved, NOT replaced by from_trigger(USER).
+    assert call["trigger_source"] is BackgroundTaskTriggerSource.RULE
 
 
 @pytest.mark.asyncio
@@ -260,7 +306,7 @@ async def test_background_branch_skips_when_auto_dispatch_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "magi.agent.task_agents.chat.runtime_control._auto_background_dispatch_enabled",
+        "magi.agent.task_agents.handlers.runtime_control._auto_background_dispatch_enabled",
         lambda: False,
     )
     dispatcher = _FakeDispatcher(

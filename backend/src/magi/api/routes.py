@@ -107,6 +107,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
     "sensors": {
         "/status": {"GET"},
         "/today-summary": {"GET"},
+        "/{source_name}/memory-readiness": {"GET"},
         "/{source_name}/sync": {"POST"},
         "/{source_name}/flush-state": {"POST"},
         "/{source_name}/authorize": {"POST"},
@@ -119,6 +120,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/{plugin_id}/update": {"POST"},
         "/{plugin_id}/update/jobs": {"POST"},
         "/install/upload": {"POST"},
+        "/install/upload/inspect": {"POST"},
         "/install/upload/jobs": {"POST"},
         "/install/registry": {"POST"},
         "/install/registry/jobs": {"POST"},
@@ -222,6 +224,31 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/me": {"GET", "PATCH"},
         "/me/refresh": {"POST"},
     },
+    "availability": {
+        "/availability": {"GET"},
+        "/availability/refresh": {"POST"},
+    },
+    "chat_preview": {
+        "/chat/preview": {"POST"},
+    },
+    "system_suggestions": {
+        "/system-suggestions/check": {"POST"},
+        "/system-suggestions/dismiss": {"POST"},
+        "/system-suggestions/dismissals": {"GET"},
+        "/system-suggestions/dismissals/{dedupe_key}": {"DELETE"},
+        "/system-suggestions/installable": {"GET"},
+    },
+    "notifications": {
+        "/notifications": {"GET"},
+        "/notifications/mark-read": {"POST"},
+        "/notifications/dismiss-all": {"POST"},
+        "/notifications/{notification_id}/dismiss": {"POST"},
+        "/notifications/{notification_id}/action": {"POST"},
+    },
+    "channels_bindings": {
+        "/bindings": {"GET"},
+        "/bindings/{channel_type}/{external_user_id}/auto-approve": {"PUT"},
+    },
 
 }
 
@@ -266,6 +293,11 @@ def register_api_routes(app: FastAPI) -> None:
         commands_router,
         code_agent_router,
         profile_router,
+        availability_router,
+        chat_preview_router,
+        system_suggestions_router,
+        notifications_router,
+        channels_bindings_router,
     )
 
     app.include_router(
@@ -375,4 +407,29 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(profile_router, _PUBLIC_ROUTE_METHODS["profile"]),
         prefix="/api/profile",
         tags=["Profile"],
+    )
+    app.include_router(
+        _build_public_router(availability_router, _PUBLIC_ROUTE_METHODS["availability"]),
+        prefix="/api",
+        tags=["Availability"],
+    )
+    app.include_router(
+        _build_public_router(chat_preview_router, _PUBLIC_ROUTE_METHODS["chat_preview"]),
+        prefix="/api",
+        tags=["Chat Preview"],
+    )
+    app.include_router(
+        _build_public_router(system_suggestions_router, _PUBLIC_ROUTE_METHODS["system_suggestions"]),
+        prefix="/api",
+        tags=["System Suggestions"],
+    )
+    app.include_router(
+        _build_public_router(notifications_router, _PUBLIC_ROUTE_METHODS["notifications"]),
+        prefix="/api",
+        tags=["Notifications"],
+    )
+    app.include_router(
+        _build_public_router(channels_bindings_router, _PUBLIC_ROUTE_METHODS["channels_bindings"]),
+        prefix="/api/channels",
+        tags=["Channels"],
     )

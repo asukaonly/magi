@@ -8,8 +8,8 @@ import pytest
 
 from magi.agent.background.contracts import BackgroundTaskTriggerSource
 from magi.agent.run_control import DetachSignal
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
-from magi.agent.task_agents.chat.handlers import FunctionCallingHandler
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
+from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
 from magi.agent.task_agents.common import (
     ExecutionMode,
     FunctionCallingExecutionResult,
@@ -54,7 +54,6 @@ def _make_request(*, user_message: str = "long task", turn_id: str = "t-1") -> F
             difficulty="normal",
             execution_mode=ExecutionMode.FUNCTION_CALLING,
             reasoning="",
-            orchestration_plan=OrchestrationPlan(),
             memory_route="none",
         ),
         tool_selection=ToolSelection(tools=["detach_to_background"], reasoning=""),
@@ -74,6 +73,7 @@ class _RecordingLaunchService:
         request,
         *,
         trigger_source,
+        trigger=None,
         timeout_seconds=1800,
         max_iterations=20,
         initial_messages=None,
@@ -81,6 +81,7 @@ class _RecordingLaunchService:
         self.calls.append(
             {
                 "trigger_source": trigger_source,
+                "trigger": trigger,
                 "initial_messages": initial_messages,
                 "turn_id": getattr(request.context.latest_payload, "turn_id", None),
             }
@@ -95,10 +96,12 @@ class _RecordingLaunchService:
         )
 
 
-def _make_handler(launch_service) -> FunctionCallingHandler:
+def _make_handler(launch_service, *, session_run_coordinator=None) -> FunctionCallingHandler:
     deps = SimpleNamespace(
         background_launch_service=launch_service,
     )
+    if session_run_coordinator is not None:
+        deps.session_run_coordinator = session_run_coordinator
     return FunctionCallingHandler(deps)
 
 
@@ -152,11 +155,91 @@ async def test_handoff_detached_outcome_enqueues_with_snapshot_messages() -> Non
     assert ack.orchestration_id == "bg_stub"
     assert len(launch_service.calls) == 1
     call = launch_service.calls[0]
+    # No coordinator wired → no run trigger to inherit → legacy MANUAL default.
     assert call["trigger_source"] is BackgroundTaskTriggerSource.MANUAL
+    assert call["trigger"] is None
     assert call["initial_messages"] == snapshot_messages
     # Launch service must receive a fresh copy so later mutations of the
     # original result dict cannot retroactively alter the spec.
     assert call["initial_messages"] is not snapshot_messages
+
+
+@pytest.mark.asyncio
+async def test_handoff_inherits_run_trigger_and_derives_source() -> None:
+    """A detaching run hands its origin RunTrigger to the background spec, and
+    the coarse trigger_source is derived from it — so a weixin-originated run
+    that detaches stays deliverable to weixin and is audited as USER, not the
+    blanket MANUAL."""
+    from magi_plugin_sdk.run_trigger import RunTrigger
+
+    run_trigger = RunTrigger(
+        trigger_type="external_inbound",
+        source_channel="weixin",
+        requester="u",
+        priority="foreground",
+    )
+    active_run = SimpleNamespace(trigger=run_trigger, root_turn_id="t-1")
+    coordinator = SimpleNamespace(get_active_run=lambda session_id: active_run)
+
+    launch_service = _RecordingLaunchService()
+    handler = _make_handler(
+        launch_service=launch_service, session_run_coordinator=coordinator
+    )
+
+    detached_result = FunctionCallingExecutionResult(
+        mode=ExecutionMode.FUNCTION_CALLING,
+        response_text="",
+        root_user_message="long task",
+        execution_outcome={
+            "status": "detached",
+            "snapshot": {
+                "messages": [{"role": "user", "content": "long task"}],
+                "iterations": 1,
+                "reason": "long_running",
+                "note": "",
+            },
+        },
+        turn_id="t-1",
+    )
+
+    ack = await handler._maybe_handoff_detached_outcome(_make_request(), detached_result)
+
+    assert ack is not None
+    assert len(launch_service.calls) == 1
+    call = launch_service.calls[0]
+    assert call["trigger"] is run_trigger
+    assert call["trigger"].source_channel == "weixin"
+    assert call["trigger_source"] is BackgroundTaskTriggerSource.USER
+
+
+@pytest.mark.asyncio
+async def test_handoff_falls_back_to_manual_when_active_run_has_no_trigger() -> None:
+    """Coordinator present but the active run has no trigger (predates
+    propagation) → MANUAL, trigger stays None."""
+    active_run = SimpleNamespace(trigger=None, root_turn_id="t-1")
+    coordinator = SimpleNamespace(get_active_run=lambda session_id: active_run)
+    launch_service = _RecordingLaunchService()
+    handler = _make_handler(
+        launch_service=launch_service, session_run_coordinator=coordinator
+    )
+
+    detached_result = FunctionCallingExecutionResult(
+        mode=ExecutionMode.FUNCTION_CALLING,
+        response_text="",
+        root_user_message="long task",
+        execution_outcome={
+            "status": "detached",
+            "snapshot": {"messages": [], "iterations": 0, "reason": "x", "note": ""},
+        },
+        turn_id="t-1",
+    )
+
+    ack = await handler._maybe_handoff_detached_outcome(_make_request(), detached_result)
+
+    assert ack is not None
+    call = launch_service.calls[0]
+    assert call["trigger"] is None
+    assert call["trigger_source"] is BackgroundTaskTriggerSource.MANUAL
 
 
 @pytest.mark.asyncio

@@ -92,6 +92,10 @@ class ChatBootstrapState:
 
     store: ChatStore | None = None
     projector: ChatProjector | None = None
+    # Phase F: ChatStoreModule sets ``module`` to itself so resolvers
+    # (ChatTaskAgent._resolve_conversation_log) can pull the live
+    # ConversationLog instance off the lifecycle module.
+    module: Any | None = None
 
 
 @dataclass
@@ -111,6 +115,37 @@ class MemoryBootstrapState:
     hybrid_retrieval_service: HybridRetrievalService | None = None
     ingestion_subscriber: Any = None
     media_source_registry: "MediaSourceRegistry | None" = None
+
+
+@dataclass
+class LocationBootstrapState:
+    """Location subsystem state slice — owned by LocationModule.
+
+    Built once and read by timeline (resolver for viewport, sources for the
+    pollers). The sample store is also exposed via the ``location_sample_store``
+    DI binding for the manual-entry API router.
+    """
+
+    sample_store: Any = None
+    geocode_cache: Any = None
+    resolver: Any = None
+    wifi_source: Any = None
+    ipgeo_source: Any = None
+
+
+@dataclass
+class ManualEntriesBootstrapState:
+    """Manual-entry subsystem state slice — owned by ManualEntriesModule.
+
+    A timeline-surface feature (notes added/rendered on the timeline page).
+    Built once and exposed via DI for the manual-entry API router; the asset
+    store is also injected into TimelineService for asset resolution. Memory's
+    only stake is the L1 projection, built at the API boundary from the L1 store.
+    """
+
+    store: Any = None
+    asset_store: Any = None
+    weather_fetcher: Any = None
 
 
 @dataclass
@@ -198,6 +233,30 @@ class ChannelsBootstrapState:
 
 
 @dataclass
+class ControlPlaneBootstrapState:
+    """Control-plane state slice — exposes ControlPlaneModule so later-
+    initializing modules (ChannelsModule for the Phase H+2 control
+    fanout binding) can reach the prompter without a hard module
+    dependency."""
+
+    module: Any | None = None
+
+
+@dataclass
+class IdentityBootstrapState:
+    """L1 Identity Layer state slice.
+
+    Exposes the active resolver + store for the four ingress sites
+    (channels dispatcher, api dispatch, sensor_hub, session_mapper)
+    to pull at module-init time.
+    """
+
+    store: Any | None = None
+    resolver: Any | None = None
+    module: Any | None = None
+
+
+@dataclass
 class RuntimeBootstrapContext:
     """Slice-based bootstrap context shared across layer lifecycle modules.
 
@@ -212,6 +271,8 @@ class RuntimeBootstrapContext:
     plugins: PluginBootstrapState = field(default_factory=PluginBootstrapState)
     llm: LLMBootstrapState = field(default_factory=LLMBootstrapState)
     memory: MemoryBootstrapState = field(default_factory=MemoryBootstrapState)
+    location: LocationBootstrapState = field(default_factory=LocationBootstrapState)
+    manual_entries: ManualEntriesBootstrapState = field(default_factory=ManualEntriesBootstrapState)
     skills: SkillsBootstrapState = field(default_factory=SkillsBootstrapState)
     hooks: HooksBootstrapState = field(default_factory=HooksBootstrapState)
     personality: PersonalityBootstrapState = field(default_factory=PersonalityBootstrapState)
@@ -222,3 +283,5 @@ class RuntimeBootstrapContext:
     runtime_trace: RuntimeTraceBootstrapState = field(default_factory=RuntimeTraceBootstrapState)
     maintenance: MaintenanceBootstrapState = field(default_factory=MaintenanceBootstrapState)
     channels: ChannelsBootstrapState = field(default_factory=ChannelsBootstrapState)
+    control_plane: ControlPlaneBootstrapState = field(default_factory=ControlPlaneBootstrapState)
+    identity: IdentityBootstrapState = field(default_factory=IdentityBootstrapState)

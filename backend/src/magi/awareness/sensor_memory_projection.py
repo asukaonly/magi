@@ -125,6 +125,22 @@ def build_sensor_memory_event(
     owner_user_id = payload.owner_user_id or DEFAULT_USER_ID
     metadata_json["memory_owner_user_id"] = owner_user_id
 
+    # Structured-only mode: a sensor with allow_llm_extraction=False gets deterministic
+    # direct-writes but no LLM phase1/2. Stored only when disabled to keep metadata_json
+    # lean; L2 treats a missing key as "extraction allowed".
+    if policy_data.get("allow_llm_extraction", True) is False:
+        metadata_json["allow_llm_extraction"] = False
+    # P2 frequency gate: threshold from policy; per-event promotion_key flows via
+    # domain_payload (already merged into metadata_json above). Stored only when enabled.
+    _promotion_threshold = int(policy_data.get("promotion_threshold") or 0)
+    if _promotion_threshold > 0:
+        metadata_json["promotion_threshold"] = _promotion_threshold
+    # P4 escape hatch: a per-event promotion override (force_full / force_structured_only)
+    # from the sensor output. Stored only when set so resolve_llm_extraction can honor it.
+    _promotion_override = str(output.get("promotion_override") or "").strip()
+    if _promotion_override:
+        metadata_json["promotion_override"] = _promotion_override
+
     event_type = payload.memory_event_type or "SENSOR_EVENT"
 
     return MemoryEvent(
@@ -151,6 +167,7 @@ def build_sensor_memory_event(
         level=EventLevel.INFO.value,
         idempotency_key=payload.idempotency_key,
         media_path=output.get("raw_payload_ref"),
+        pinned_payload=output.get("pinned_payload"),
         metadata_json=metadata_json or None,
         causation_id=causation_id,
         trace_id=getattr(trace_context, "trace_id", None) if trace_context else None,

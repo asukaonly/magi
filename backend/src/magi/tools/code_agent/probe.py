@@ -23,7 +23,7 @@ from typing import Optional
 from .contracts import AdapterName, ProbeResult
 from ._user_paths import code_agent_probe_cache_path
 from .runtime_env import build_exec_env
-from ...agent.workspace_cache.atomic_io import atomic_write_text
+from magi_plugin_sdk.fs import atomic_write_text
 
 
 PROBE_TIMEOUT_S = 5

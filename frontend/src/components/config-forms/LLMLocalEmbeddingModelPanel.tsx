@@ -14,7 +14,7 @@ interface LLMLocalEmbeddingModelPanelProps {
   downloadingModelId: string | null;
   downloadProgress: number | null;
   downloadError: string | null;
-  onDownloadModel: (modelId: string) => void;
+  onDownloadModel: (modelId: string, variant?: string | null) => void;
   onDeleteModel: (modelId: string) => void;
   onPickDirectory: () => void;
 }
@@ -73,13 +73,74 @@ export function LLMLocalEmbeddingModelPanel({
           </label>
 
           {embeddingConfig.local.managed_model_id ? (() => {
+            const selectedModel = presetModels.find((m) => m.id === embeddingConfig.local.managed_model_id);
+            if (!selectedModel || selectedModel.variants.length === 0) return null;
+
+            const autoLabel = selectedModel.default_variant
+              ? `${tApp('settings.memory.fields.embedding_local_variant.auto')} (${selectedModel.default_variant})`
+              : tApp('settings.memory.fields.embedding_local_variant.auto');
+
+            const variantOptions = [
+              { label: autoLabel, value: '' },
+              ...selectedModel.variants.map((v) => ({
+                label: `${v.name} — ${v.size_mb}MB${v.downloaded ? ' ✓' : ''}`,
+                value: v.name,
+              })),
+            ];
+
+            const isDownloadingThis = downloadingModelId === selectedModel.id;
+
+            return (
+              <label className="space-y-2">
+                <span className="text-sm font-medium">
+                  {tApp('settings.memory.fields.embedding_local_variant.label')}
+                </span>
+                <SelectField
+                  className="w-full"
+                  triggerClassName={inputClassName}
+                  value={embeddingConfig.local.variant ?? ''}
+                  allowEmpty={false}
+                  disabled={isDownloadingThis}
+                  options={variantOptions}
+                  onChange={(value) => onEmbeddingConfigChange((draft) => {
+                    draft.local.variant = value === '' ? null : value;
+                  })}
+                />
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {tApp('settings.memory.fields.embedding_local_variant.description')}
+                </p>
+              </label>
+            );
+          })() : null}
+
+          {embeddingConfig.local.managed_model_id ? (() => {
             const selectedModel = presetModels.find((model) => model.id === embeddingConfig.local.managed_model_id);
             if (!selectedModel) return null;
             const isDownloading = downloadingModelId === selectedModel.id;
+
+            // Variant-aware status: the Download/Delete button reflects whether
+            // the *resolved* variant (user override or platform default) is on
+            // disk, not just any variant. Legacy models without a variants
+            // block fall back to the model-level `downloaded` flag.
+            const effectiveVariantName =
+              embeddingConfig.local.variant ?? selectedModel.default_variant ?? null;
+            const effectiveVariant = effectiveVariantName
+              ? selectedModel.variants.find((v) => v.name === effectiveVariantName) ?? null
+              : null;
+            const variantDownloaded = effectiveVariant
+              ? effectiveVariant.downloaded
+              : selectedModel.downloaded;
+
+            // Label the Download button with the specific variant + size, so
+            // users see exactly what they're about to fetch.
+            const downloadButtonLabel = effectiveVariant
+              ? `${tApp('settings.memory.fields.embedding_local_download.download')} ${effectiveVariant.name} (${effectiveVariant.size_mb}MB)`
+              : tApp('settings.memory.fields.embedding_local_download.download');
+
             return (
               <>
                 <div className="flex items-center gap-2">
-                  {selectedModel.downloaded ? (
+                  {variantDownloaded ? (
                     <Button
                       type="button"
                       variant="outline"
@@ -101,20 +162,21 @@ export function LLMLocalEmbeddingModelPanel({
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => onDownloadModel(selectedModel.id)}
+                      onClick={() => onDownloadModel(selectedModel.id, embeddingConfig.local.variant)}
                     >
                       <Download className="h-3.5 w-3.5" />
-                      {tApp('settings.memory.fields.embedding_local_download.download')}
+                      {downloadButtonLabel}
                     </Button>
                   )}
-                  {selectedModel.downloaded && (
+                  {variantDownloaded && (
                     <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
                       <Check className="h-3.5 w-3.5" />
                       {tApp('settings.memory.fields.embedding_local_download.downloaded')}
+                      {effectiveVariant ? ` (${effectiveVariant.name})` : ''}
                     </span>
                   )}
                 </div>
-                {downloadError && !isDownloading && !selectedModel.downloaded && (
+                {downloadError && !isDownloading && !variantDownloaded && (
                   <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                     {downloadError}

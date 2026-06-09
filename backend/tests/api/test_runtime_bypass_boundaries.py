@@ -23,7 +23,7 @@ def test_api_services_module_does_not_reexport_runtime_globals() -> None:
 
 def test_api_service_helpers_do_not_probe_container_directly() -> None:
     from magi.api import services as api_services
-    from magi.api.services.chat_trace import read_service as chat_trace_read_service_module
+    from magi.runtime_trace.chat_trace import read_service as chat_trace_read_service_module
     from magi.chat import read_service as chat_read_service_module
 
     api_services_dir = Path(api_services.__file__).resolve().parent

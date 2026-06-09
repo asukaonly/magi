@@ -11,9 +11,23 @@ from __future__ import annotations
 from typing import Any
 
 from .entity_display import display_name_for
+from .hybrid_retrieval.mode_registry import MODE_REGISTRY
 from .hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
 from .recall_rendering import is_echo_finding
 from .retrieval_projection_summary import split_relationship_statement
+
+# Fallback per-layer quota when a mode declares none (defensive; all registry
+# modes set layer_quota in T1).
+_DEFAULT_LAYER_QUOTA: dict[str, int] = {"L1": 8, "L2": 6, "L3": 3, "L4": 2}
+# Floor so a layer that has candidates is never fully starved by a small quota.
+_LAYER_QUOTA_FLOOR = 1
+
+
+def _resolve_layer_quota(mode: str) -> dict[str, int]:
+    plan = MODE_REGISTRY.get(mode)
+    if plan is not None and plan.layer_quota:
+        return dict(plan.layer_quota)
+    return dict(_DEFAULT_LAYER_QUOTA)
 
 
 # ---------------------------------------------------------------------------
@@ -71,11 +85,13 @@ def build_findings(
     explicit_chat_source = _has_explicit_chat_source(request.source_filters)
 
     candidates: list[dict[str, Any]] = []
+    projection_dropped: list[dict[str, Any]] = []
     candidates.extend(
         _project_events(
             payload.l1_events,
             mode=mode,
             explicit_chat_source=explicit_chat_source,
+            dropped_sink=projection_dropped,
         )
     )
 
@@ -107,12 +123,42 @@ def build_findings(
         if not any(is_echo_finding(c, text) for text in echo_texts if text)
     ]
 
-    candidates.sort(key=lambda x: -float(x.get("_score", 0.0)))
+    # NOTE: request.limit is intentionally NOT a hard cap here — per-mode
+    # layer_quota governs result count. Enumerate modes (e.g. cross_session)
+    # may return more than the caller's default limit by design; downstream
+    # grounding (phase B) narrows further. The caller's `limit` now acts only
+    # as a fallback signal, not a ceiling.
+    #
+    # Per-layer quota selection (replaces cross-layer nlargest). Layers do NOT
+    # compete on a shared score — each ranks internally by its own _score
+    # (which includes mode-preference bonus and predicate bonus, computed above
+    # by _attach_score), then takes its mode-driven quota (floor so a present
+    # layer isn't starved; the quota itself is the cap so no layer hogs).
+    quota = _resolve_layer_quota(mode)
+    by_layer: dict[str, list[dict[str, Any]]] = {}
+    for c in candidates:
+        by_layer.setdefault(str(c.get("source_layer") or "L1"), []).append(c)
 
-    limit = max(int(request.limit or 10), 1)
-    selected = candidates[:limit]
+    selected: list[dict[str, Any]] = []
+    quota_trace: dict[str, int] = {}
+    for layer, items in by_layer.items():
+        items.sort(key=lambda x: float(x.get("_score", 0.0)), reverse=True)
+        take = max(_LAYER_QUOTA_FLOOR, int(quota.get(layer, 0)))
+        kept = items[:take]
+        selected.extend(kept)
+        quota_trace[layer] = len(kept)
+
     for finding in selected:
         finding["topic"] = _derive_finding_topic(finding)
+
+    if projection_dropped:
+        payload.trace["projection_filter"] = {
+            "dropped": projection_dropped,
+            "count": len(projection_dropped),
+        }
+
+    payload.trace["layer_quota"] = {"mode": mode, "kept_per_layer": quota_trace}
+
     return selected, rel_dropped + asrt_dropped
 
 
@@ -488,6 +534,7 @@ def _project_events(
     *,
     mode: str = "exact_fact",
     explicit_chat_source: bool = False,
+    dropped_sink: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     for item in items:
@@ -502,6 +549,14 @@ def _project_events(
             mode=mode,
             explicit_chat_source=explicit_chat_source,
         ):
+            if dropped_sink is not None:
+                dropped_sink.append(
+                    {
+                        "event_id": item.get("event_id"),
+                        "evidence_class": _normalized(item.get("evidence_class")) or "unknown",
+                        "reason": "answer_facing_chat_artifact",
+                    }
+                )
             continue
         findings.append(
             {
@@ -536,9 +591,10 @@ def _is_answer_facing_chat_artifact(
     """
     if explicit_chat_source:
         return False
-    if mode not in _FACT_LIKE_QUERY_MODES:
-        return False
 
+    # Explicit governance annotation is authoritative in EVERY mode. A row
+    # marked user_question / user_request / assistant_freeform is never
+    # factual recall evidence, regardless of how the query was routed.
     evidence_class = _normalized(item.get("evidence_class"))
     if evidence_class and evidence_class != "unknown":
         if evidence_class in _CONVERSATIONAL_EVIDENCE_CLASSES:
@@ -547,9 +603,12 @@ def _is_answer_facing_chat_artifact(
             return True
         return False
 
-    # Fallback: legacy chat-shape heuristic for rows without a usable
-    # evidence annotation. Kept narrow and best-effort; backfill is expected
-    # to retire this branch in steady state.
+    # Fallback heuristic for un-annotated (missing/unknown) rows stays
+    # conservative: only fire in fact-like modes, where chat noise is most
+    # harmful and a false positive is least costly.
+    if mode not in _FACT_LIKE_QUERY_MODES:
+        return False
+
     author_type = _normalized(item.get("author_type"))
     source = _normalized(item.get("source"))
     event_type = _normalized(item.get("event_type"))

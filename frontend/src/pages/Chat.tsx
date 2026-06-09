@@ -1,10 +1,11 @@
 /**
  * Chat page - desktop-focused conversation workspace
  */
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useChatComposerController } from '@/hooks/useChatComposerController';
+import { useFirstConversationFlag } from '@/hooks/useFirstConversationFlag';
 import type { PendingAskAnswerPayload } from '@/hooks/useChatSendMessage';
 import { useChatMessageOverlays } from '@/hooks/useChatMessageOverlays';
 import { useChatMessageMutations } from '@/hooks/useChatMessageMutations';
@@ -14,6 +15,11 @@ import { useChatTraceDrawer } from '@/hooks/useChatTraceDrawer';
 import { useChatExecutionControls } from '@/hooks/useChatExecutionControls';
 import { useConversationStore } from '@/stores';
 import { ChatComposerPane } from '@/components/chat/ChatComposerPane';
+import { FirstConversationChips } from '@/components/chat/FirstConversationChips';
+import { SystemSuggestionTopBar } from '@/components/chat/SystemSuggestionTopBar';
+import { SystemSuggestionSideCard } from '@/components/chat/SystemSuggestionSideCard';
+import { useSystemSuggestions } from '@/hooks/useSystemSuggestions';
+import type { SuggestionProposal } from '@/api/modules/systemSuggestions';
 import { ComposerAskQuickReplies } from '@/components/chat/ComposerAskQuickReplies';
 import { ChatPageOverlays } from '@/components/chat/ChatPageOverlays';
 import { ChatTimelinePane } from '@/components/chat/ChatTimelinePane';
@@ -119,7 +125,7 @@ const resolvePendingAskComposerState = (
 };
 
 export const ChatPage: React.FC = () => {
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
   const shouldReduceMotion = useReducedMotion();
   const reduceTimelineMotion = Boolean(shouldReduceMotion);
   const currentSessionId = useConversationStore((state) => state.currentSessionId);
@@ -303,6 +309,40 @@ export const ChatPage: React.FC = () => {
 
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
+  const { completed: firstConvDone, markCompleted: markFirstConvCompleted } = useFirstConversationFlag();
+  const showFirstConversationChips = !firstConvDone && messages.length === 0;
+
+  // System suggestions: fire after each completed user→assistant turn.
+  const triggerText = useMemo(() => {
+    const lastTwo = messages.slice(-2);
+    if (lastTwo.length < 2) return '';
+    const [maybeUser, maybeAssistant] = lastTwo;
+    if (maybeUser.role !== 'user' || maybeAssistant.role !== 'assistant') return '';
+    if (maybeAssistant.streaming) return '';
+    return `${maybeUser.content}\n${maybeAssistant.content}`;
+  }, [messages]);
+  const suggestionLocale: 'zh' | 'en' = (i18n.language === 'zh-CN' || i18n.language === 'zh') ? 'zh' : 'en';
+  const { proposals: systemSuggestions, dismiss: dismissSystemSuggestion } = useSystemSuggestions({
+    triggerText,
+    locale: suggestionLocale,
+    sessionId: currentSessionId ?? undefined,
+  });
+  const [sideCardProposal, setSideCardProposal] = useState<SuggestionProposal | null>(null);
+  const topBarProposal = systemSuggestions.length > 0 ? systemSuggestions[0] : null;
+  const handleComposerPrimaryActionWithFlag = React.useCallback(() => {
+    handleComposerPrimaryAction();
+    if (!firstConvDone) {
+      void markFirstConvCompleted();
+    }
+  }, [handleComposerPrimaryAction, firstConvDone, markFirstConvCompleted]);
+  const handleFirstConversationChipPick = React.useCallback(
+    (prompt: string) => {
+      setInputValue(prompt);
+      composerTextareaRef.current?.focus();
+    },
+    [setInputValue],
+  );
+
   const mentions = useChatComposerMentions({
     inputValue,
     setInputValue,
@@ -480,9 +520,16 @@ export const ChatPage: React.FC = () => {
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (mentions.onKeyDown(event)) return;
       if (commands.onKeyDown(event)) return;
+      const wasSubmit = !event.defaultPrevented
+        && event.key === 'Enter'
+        && !event.shiftKey
+        && !event.nativeEvent.isComposing;
       handleComposerKeyDown(event);
+      if (wasSubmit && !firstConvDone && inputValue.trim().length > 0) {
+        void markFirstConvCompleted();
+      }
     },
-    [commands, handleComposerKeyDown, mentions],
+    [commands, firstConvDone, handleComposerKeyDown, inputValue, markFirstConvCompleted, mentions],
   );
 
   useEffect(() => {
@@ -603,6 +650,31 @@ export const ChatPage: React.FC = () => {
       transition={{ duration: 0.15 }}
       className="relative flex h-full min-h-0 flex-col px-3 pb-3 pt-2"
     >
+      <SystemSuggestionTopBar
+        proposal={topBarProposal}
+        onOpen={(p) => setSideCardProposal(p)}
+        onDismiss={(dedupeKey, kind) => {
+          // Persist the localized rationale the user saw so the bell's restore
+          // list shows the same text (not a humanized English key).
+          const title = topBarProposal
+            ? topBarProposal.rationale[suggestionLocale] ?? topBarProposal.rationale.en
+            : undefined;
+          void dismissSystemSuggestion(dedupeKey, kind, title);
+        }}
+      />
+      {sideCardProposal && (
+        <SystemSuggestionSideCard
+          proposal={sideCardProposal}
+          onClose={() => setSideCardProposal(null)}
+          onDecline={(dedupeKey) => {
+            const title =
+              sideCardProposal.rationale[suggestionLocale] ?? sideCardProposal.rationale.en;
+            void dismissSystemSuggestion(dedupeKey, 'explicit', title);
+            setSideCardProposal(null);
+          }}
+          onActivated={() => setSideCardProposal(null)}
+        />
+      )}
       <ChatTimelinePane
         messages={messages}
         assistantName={aiName}
@@ -620,6 +692,7 @@ export const ChatPage: React.FC = () => {
         messageContextMenu={messageContextMenu}
         messageContextMenuRef={messageContextMenuRef}
         timelineRef={timelineScrollRef}
+        waitingForReply={waitingForReply}
         onSetReplyTarget={setReplyTarget}
         onOpenImagePreview={setHistoryImagePreview}
         onOpenTraceDrawer={openTraceDrawer}
@@ -636,6 +709,12 @@ export const ChatPage: React.FC = () => {
         onCopyMessage={handleCopyMessage}
         onDeleteMessage={handleDeleteMessage}
       />
+
+      {showFirstConversationChips && (
+        <div className="px-2 pb-2">
+          <FirstConversationChips onPick={handleFirstConversationChipPick} />
+        </div>
+      )}
 
       <ChatComposerPane
         composerRef={composerRef}
@@ -658,7 +737,7 @@ export const ChatPage: React.FC = () => {
         onPickFile={() => fileInputRef.current?.click()}
         sessionId={currentSessionId}
         sendingMessage={sendingMessage}
-        onPrimaryAction={handleComposerPrimaryAction}
+        onPrimaryAction={handleComposerPrimaryActionWithFlag}
         imageInputRef={imageInputRef}
         fileInputRef={fileInputRef}
         onAttachmentInputChange={handleAttachmentInputChange}

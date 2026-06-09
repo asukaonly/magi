@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+from .insight_renderer import render_insight_content
+from .insight_utils import wants_zh
 from .models import ContradictionPacket, L3Candidate
 
 
@@ -15,46 +17,51 @@ class ContradictionInsightService:
         self,
         packet: ContradictionPacket,
     ) -> L3Candidate | None:
-        source_event_ids = [event_id for event_id in packet.source_event_ids if str(event_id).strip()]
-        contradictions = [
-            item
-            for item in packet.contradictions
-            if str(item.get("trait_name") or "").strip()
-            and str(item.get("winning_value") or "").strip()
+        source_event_ids = [
+            str(event_id).strip()
+            for event_id in packet.source_event_ids
+            if str(event_id).strip()
         ]
-        if not source_event_ids or not contradictions:
+        outcomes = [
+            outcome for outcome in packet.outcomes
+            if str(outcome.trait_name or "").strip()
+            and str(outcome.winning_value or "").strip()
+        ]
+        if not source_event_ids or not outcomes:
             return None
 
-        fragments = [self._render_contradiction_fragment(item) for item in contradictions[:3]]
-        content = (
-            "Contradiction resolution signals indicate that "
-            + "; ".join(fragment for fragment in fragments if fragment)
-            + "."
-        ).strip()
+        content = render_insight_content(
+            insight_kind="conflict_resolution",
+            outcomes=outcomes,
+            user_lang_zh=wants_zh(),
+        )
+        if content is None:
+            return None
+
         return L3Candidate(
             summary_type="insight",
             summary_category="conflict_resolution",
             content=content,
             source_event_ids=source_event_ids,
             subtypes=["contradiction_resolved"],
-            insight_key=self._build_insight_key(contradictions),
+            insight_key=self._build_insight_key(outcomes),
             review_state="pending_confirmation",
             insight_metadata={
                 "kind": "conflict_resolution",
-                "policy": "conflict_resolution_gate_v1",
+                "policy": "conflict_resolution_gate_v2",
                 "trigger_reason": packet.trigger_reason,
-                "contradictions": contradictions,
+                "outcomes": [self._outcome_metadata(outcome) for outcome in outcomes],
             },
         )
 
-    def _build_insight_key(self, contradictions: list[dict[str, object]]) -> str:
+    def _build_insight_key(self, outcomes: list) -> str:
         key_material = sorted(
             [
                 {
-                    "trait_name": str(item.get("trait_name") or "").strip(),
-                    "winning_value": self._normalize_value(str(item.get("winning_value") or "")),
+                    "trait_name": str(outcome.trait_name or "").strip(),
+                    "winning_value": self._normalize_value(str(outcome.winning_value or "")),
                 }
-                for item in contradictions
+                for outcome in outcomes
             ],
             key=lambda item: (str(item["trait_name"]), str(item["winning_value"])),
         )
@@ -72,7 +79,10 @@ class ContradictionInsightService:
             decoded = " ".join(decoded.casefold().split())
         return json.dumps(decoded, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
-    def _render_contradiction_fragment(self, contradiction: dict[str, object]) -> str:
-        trait_name = str(contradiction["trait_name"])
-        winning_value = str(contradiction["winning_value"])
-        return f"{trait_name} now conflicts around {winning_value}"
+    def _outcome_metadata(self, outcome) -> dict[str, object]:
+        return {
+            "trait_name": str(outcome.trait_name),
+            "winning_value": str(outcome.winning_value),
+            "status": str(outcome.status),
+            "trait_family": str(outcome.trait_family or ""),
+        }

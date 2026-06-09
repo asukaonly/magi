@@ -13,6 +13,7 @@ import { RealtimeContext } from './provider';
 
 export type ControlEventName =
   | 'control.permission.requested'
+  | 'control.permission.resolved'
   | 'control.ask.requested'
   | 'control.todo.updated'
   | 'control.plan.updated'
@@ -31,6 +32,7 @@ export interface UseControlEventsOptions {
   sessionId?: string | null;
   enabled?: boolean;
   onPermissionRequested?: (payload: ControlEventPayload) => void;
+  onPermissionResolved?: (payload: ControlEventPayload) => void;
   onAskRequested?: (payload: ControlEventPayload) => void;
   onTodoUpdated?: (payload: ControlEventPayload) => void;
   onPlanUpdated?: (payload: ControlEventPayload) => void;
@@ -59,6 +61,9 @@ export function useControlEvents(options: UseControlEventsOptions): void {
       switch (eventName as ControlEventName) {
         case 'control.permission.requested':
           options.onPermissionRequested?.(payload);
+          break;
+        case 'control.permission.resolved':
+          options.onPermissionResolved?.(payload);
           break;
         case 'control.ask.requested':
           options.onAskRequested?.(payload);

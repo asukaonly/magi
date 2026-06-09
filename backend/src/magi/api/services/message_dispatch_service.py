@@ -63,7 +63,7 @@ def get_chat_read_service():
 def resolve_control_session_store():
     """Resolve the control session store lazily to avoid API startup cycles."""
 
-    from ...agent.control.provider import resolve_control_session_store as _resolve_control_session_store
+    from ...control.provider import resolve_control_session_store as _resolve_control_session_store
 
     return _resolve_control_session_store()
 
@@ -71,7 +71,7 @@ def resolve_control_session_store():
 def resolve_control_interaction_broker():
     """Resolve the control interaction broker lazily to avoid API startup cycles."""
 
-    from ...agent.control.provider import resolve_control_interaction_broker as _resolve_control_interaction_broker
+    from ...control.provider import resolve_control_interaction_broker as _resolve_control_interaction_broker
 
     return _resolve_control_interaction_broker()
 
@@ -98,6 +98,14 @@ async def dispatch_user_message(
     runtime_namespace: str | None = None,
 ) -> MessageDispatchOutcome:
     """Resolve session metadata and enqueue a user-message runtime command."""
+
+    # Phase H+2 identity layer ingress #4: canonicalize the user_id
+    # form/query arg the API caller supplied. In single-user mode this
+    # is a no-op for canonical inputs and collapses any leaked
+    # channel-prefixed strings; when multi-user lands it routes
+    # through the resolver's binding lookup.
+    from ...identity import canonicalize_user_id as _canon
+    user_id = str(_canon(user_id))
 
     try:
         runtime_command_queue = require_runtime_command_queue()

@@ -1319,6 +1319,17 @@ fn stop_backend_for_app_exit(app: &AppHandle) {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+fn disable_native_window_decorations(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        log::warn!("Main window not found while disabling native decorations");
+        return;
+    };
+    if let Err(err) = window.set_decorations(false) {
+        log::warn!("Failed to disable native window decorations: {err}");
+    }
+}
+
 fn main() {
     let log_dir = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
@@ -1377,6 +1388,10 @@ fn main() {
                     "Optional desktop presence setup is unavailable; continuing without tray integration: {err}"
                 );
             }
+
+            #[cfg(not(target_os = "macos"))]
+            disable_native_window_decorations(app.handle());
+
             Ok(())
         })
         .on_window_event(|window, event| match event {

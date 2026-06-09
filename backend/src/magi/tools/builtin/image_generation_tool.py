@@ -14,9 +14,16 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ...chat.attachment_ingestion import (
+from magi_plugin_sdk.image_generation import (
     MAX_IMAGE_ATTACHMENT_BYTES,
-    LocalChatAttachmentIngestionService,
+    ImageArtifact,
+    ImageGenAuthError,
+    ImageGenContentFilteredError,
+    ImageGenInvalidParameterError,
+    ImageGenProviderError,
+    ImageGenRateLimitError,
+    ImageGenTimeoutError,
+    ImageGenerationRequest,
 )
 from ..schema import (
     Tool,
@@ -31,19 +38,8 @@ from ...config import get_config, reload_config
 from ...config.loader import get_llm_provider_registry_file
 from ...config.llm_registry import LLMProviderRegistryModel, load_llm_provider_registry
 from ...config.models import LLMScenario
+
 from ...core.logger import get_logger
-from ...llm.image_generation import (
-    ImageArtifact,
-    ImageGenAuthError,
-    ImageGenContentFilteredError,
-    ImageGenInvalidParameterError,
-    ImageGenProviderError,
-    ImageGenRateLimitError,
-    ImageGenTimeoutError,
-    ImageGenerationRequest,
-    create_image_generation_adapter,
-)
-from ...llm.usage_tracing import publish_llm_usage_span
 
 logger = get_logger(__name__, category="TOOLS")
 
@@ -56,7 +52,6 @@ class ImageGenerationTool(Tool):
     """Generate images from text prompts using configured image generation models."""
 
     def __init__(self) -> None:
-        self._ingestion_service = LocalChatAttachmentIngestionService()
         super().__init__()
 
     def _init_schema(self) -> None:
@@ -214,13 +209,22 @@ class ImageGenerationTool(Tool):
                 execution_time=time.time() - start,
             )
 
+        image_gen = context.capabilities.image_gen if context.capabilities else None
+        if image_gen is None:
+            return ToolResult(
+                success=False,
+                error="Image generation capability is not available.",
+                error_code=ToolErrorCode.EXECUTION_ERROR.value,
+                execution_time=time.time() - start,
+            )
+
         try:
             proxy_url = config.network.proxy_url() if hasattr(config, "network") else None
             registry = load_llm_provider_registry(
                 get_llm_provider_registry_file(),
                 fallback=LLMProviderRegistryModel(),
             )
-            adapter = create_image_generation_adapter(
+            adapter = image_gen.create_adapter(
                 provider_id=selection.provider_id,
                 provider_settings=provider_settings,
                 model=selection.model,
@@ -240,6 +244,7 @@ class ImageGenerationTool(Tool):
                         quality=quality,
                         n=1,
                     ),
+                    image_gen=image_gen,
                     event_context={
                         "agent_id": "image_generation_tool",
                         "session_id": str(context.env_vars.get("session_id") or "").strip() or None,
@@ -257,6 +262,7 @@ class ImageGenerationTool(Tool):
                     execution_time=time.time() - start,
                 )
 
+            chat_port = context.capabilities.chat if context.capabilities else None
             saved_paths, artifacts, chat_attachments = await self._persist_images(
                 images=result.images,
                 workspace=Path(context.workspace).resolve(),
@@ -264,6 +270,7 @@ class ImageGenerationTool(Tool):
                 session_id=str(context.env_vars.get("session_id") or "").strip(),
                 turn_id=str(context.env_vars.get("turn_id") or "").strip(),
                 proxy_url=proxy_url,
+                chat_port=chat_port,
             )
 
             revised_prompt = next(
@@ -332,6 +339,7 @@ class ImageGenerationTool(Tool):
         adapter,
         request: ImageGenerationRequest,
         *,
+        image_gen,
         event_context: dict[str, Any] | None = None,
     ):
         started_at = time.time()
@@ -345,6 +353,7 @@ class ImageGenerationTool(Tool):
                         request=request,
                         started_at=started_at,
                         success=True,
+                        image_gen=image_gen,
                         event_context=event_context,
                         resolved_model=result.model,
                     )
@@ -363,6 +372,7 @@ class ImageGenerationTool(Tool):
                 started_at=started_at,
                 success=False,
                 error=str(exc),
+                image_gen=image_gen,
                 event_context=event_context,
             )
             raise
@@ -374,12 +384,15 @@ class ImageGenerationTool(Tool):
         request: ImageGenerationRequest,
         started_at: float,
         success: bool,
+        image_gen,
         error: str | None = None,
         event_context: dict[str, Any] | None = None,
         resolved_model: str | None = None,
     ) -> None:
+        if image_gen is None:
+            return
         try:
-            await publish_llm_usage_span(
+            await image_gen.publish_usage_span(
                 provider=str(getattr(adapter, "provider_id", "unknown") or "unknown"),
                 model=str(resolved_model or request.model or getattr(adapter, "_model", "image_generation")),
                 request_kind="image_generation",
@@ -420,6 +433,7 @@ class ImageGenerationTool(Tool):
         session_id: str,
         turn_id: str,
         proxy_url: str | None = None,
+        chat_port,
     ) -> tuple[list[str], list[dict[str, Any]], list[dict[str, object]]]:
         output_dir = workspace / "generated_images"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -456,8 +470,8 @@ class ImageGenerationTool(Tool):
                 saved_path = str(filepath)
                 saved_paths.append(saved_path)
                 logger.info("Image saved", path=saved_path, model=model)
-                if session_id and turn_id:
-                    attachment = self._ingestion_service.ingest_local_file(
+                if session_id and turn_id and chat_port is not None:
+                    attachment = chat_port.ingest_local_file(
                         session_id=session_id,
                         turn_id=turn_id,
                         file_path=saved_path,

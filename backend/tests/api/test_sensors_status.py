@@ -267,3 +267,96 @@ def test_serialize_activation_flow_falls_back_to_raw_when_keys_missing() -> None
     assert serialized["title_translated"] == "Enable Chrome History"
     assert serialized["confirm_label_translated"] == "Enable"
     assert serialized["cancel_label_translated"] == "Not now"
+
+
+def test_serialize_activation_flow_translates_embedded_fields() -> None:
+    """Embedded activation-flow fields get the same plugin-scoped ``*_translated``
+    mirrors that :func:`_serialize_field` produces for top-level fields, so the
+    activation dialog can render localized labels / descriptions / option labels.
+    """
+    flow = {
+        "title": "Enable Chrome History",
+        "fields": [
+            {
+                "key": "sensors.chrome_history.initial_sync_policy",
+                "type": "select",
+                "label": "First Sync Scope",
+                "description": "Decide how much history to import.",
+                "options": [
+                    {"label": "Sync full history", "value": "full"},
+                    {"label": "Sync recent days", "value": "lookback_days"},
+                ],
+            },
+            {
+                "key": "sensors.chrome_history.initial_sync_lookback_days",
+                "type": "number",
+                "label": "Recent Days",
+                "description": "Used when scope is recent days.",
+            },
+        ],
+    }
+    i18n = _FakeI18n(
+        {
+            "chrome_history.fields.initial_sync_policy.label": "首次同步范围",
+            "chrome_history.fields.initial_sync_policy.description": "决定首次导入多少历史。",
+            "chrome_history.options.initial_sync_policy.full": "同步全部历史",
+            "chrome_history.options.initial_sync_policy.lookback_days": "同步最近几天",
+            "chrome_history.fields.initial_sync_lookback_days.label": "最近天数",
+            "chrome_history.fields.initial_sync_lookback_days.description": "当范围设为最近几天时使用。",
+        }
+    )
+
+    serialized = _serialize_activation_flow(flow, i18n, plugin_id="chrome-history")
+
+    fields = serialized["fields"]
+    assert fields[0]["label_translated"] == "首次同步范围"
+    assert fields[0]["description_translated"] == "决定首次导入多少历史。"
+    assert [opt["label_translated"] for opt in fields[0]["options"]] == [
+        "同步全部历史",
+        "同步最近几天",
+    ]
+    # Raw label preserved as fallback for the frontend's ``label_translated || label``.
+    assert fields[0]["label"] == "First Sync Scope"
+    assert fields[1]["label_translated"] == "最近天数"
+    assert fields[1]["description_translated"] == "当范围设为最近几天时使用。"
+
+
+def test_serialize_activation_flow_embedded_fields_fall_back_to_raw() -> None:
+    flow = {
+        "title": "Enable Chrome History",
+        "fields": [
+            {
+                "key": "sensors.chrome_history.initial_sync_policy",
+                "type": "select",
+                "label": "First Sync Scope",
+                "description": "Decide how much history to import.",
+                "options": [{"label": "Sync full history", "value": "full"}],
+            }
+        ],
+    }
+    i18n = _FakeI18n({})
+
+    serialized = _serialize_activation_flow(flow, i18n, plugin_id="chrome-history")
+
+    field = serialized["fields"][0]
+    assert field["label_translated"] == "First Sync Scope"
+    assert field["description_translated"] == "Decide how much history to import."
+    assert field["options"][0]["label_translated"] == "Sync full history"
+
+
+def test_serialize_activation_flow_without_plugin_id_leaves_fields_untouched() -> None:
+    flow = {
+        "title": "Enable Chrome History",
+        "fields": [
+            {
+                "key": "sensors.chrome_history.initial_sync_policy",
+                "label": "First Sync Scope",
+            }
+        ],
+    }
+    i18n = _FakeI18n({})
+
+    serialized = _serialize_activation_flow(flow, i18n, plugin_id=None)
+
+    assert "label_translated" not in serialized["fields"][0]
+    assert "title_translated" not in serialized

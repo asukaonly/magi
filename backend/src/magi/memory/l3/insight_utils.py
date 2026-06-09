@@ -45,17 +45,21 @@ def wants_zh() -> bool:
     return is_effective_zh_language(default="en")
 
 
-def trait_label(trait_name: str, *, zh: bool) -> str:
+def trait_label(trait_name: str, *, zh: bool) -> str | None:
+    """Translate a trait_name to a human label, or None on dictionary miss.
+
+    This is a strict translator. When the dictionary doesn't cover the
+    trait_name, we return None rather than mangling the raw identifier
+    (e.g. ``state.sleep_quality`` → ``"state sleep quality"``). Callers
+    must handle None by using a higher-level label (trait_family) or
+    by abandoning the rendering.
+    """
     normalized = str(trait_name or "").strip()
+    if not normalized:
+        return None
     if zh:
-        label = _TRAIT_LABELS_ZH.get(normalized)
-        if label:
-            return label
-    else:
-        label = _TRAIT_LABELS_EN.get(normalized)
-        if label:
-            return label
-    return normalized.replace(".", " ").replace("_", " ")
+        return _TRAIT_LABELS_ZH.get(normalized)
+    return _TRAIT_LABELS_EN.get(normalized)
 
 
 def trait_group(trait_name: str) -> str:
@@ -69,11 +73,62 @@ def trait_group(trait_name: str) -> str:
     return normalized
 
 
-def trait_group_label(group_name: str, *, zh: bool) -> str:
+def trait_group_label(group_name: str, *, zh: bool) -> str | None:
+    """Translate a trait_group to a human label, or None on miss."""
     normalized = str(group_name or "").strip()
+    if not normalized:
+        return None
     if zh:
-        return _TRAIT_GROUP_LABELS_ZH.get(normalized, trait_label(normalized, zh=zh))
-    return _TRAIT_GROUP_LABELS_EN.get(normalized, trait_label(normalized, zh=zh))
+        direct = _TRAIT_GROUP_LABELS_ZH.get(normalized)
+        if direct:
+            return direct
+        # Fall back to direct trait_label lookup (might also return None).
+        return trait_label(normalized, zh=zh)
+    direct = _TRAIT_GROUP_LABELS_EN.get(normalized)
+    if direct:
+        return direct
+    return trait_label(normalized, zh=zh)
+
+
+_TRAIT_FAMILY_LABELS_ZH: dict[str, str] = {
+    "state_profile":         "状态",
+    "mood":                  "情绪",
+    "stress":                "压力",
+    "engagement":            "投入度",
+    "trigger":               "触发因素",
+    "communication_profile": "沟通偏好",
+    "preference_profile":    "偏好",
+    "taste_profile":         "审美",
+    "identity_profile":      "身份信息",
+    "relationship_shift":    "关系变化",
+    "group_atmosphere":      "群体氛围",
+    "public_sentiment":      "公众情绪",
+}
+
+_TRAIT_FAMILY_LABELS_EN: dict[str, str] = {
+    "state_profile":         "state",
+    "mood":                  "mood",
+    "stress":                "stress",
+    "engagement":            "engagement",
+    "trigger":               "trigger",
+    "communication_profile": "communication preference",
+    "preference_profile":    "preference",
+    "taste_profile":         "taste",
+    "identity_profile":      "identity",
+    "relationship_shift":    "relationship",
+    "group_atmosphere":      "group atmosphere",
+    "public_sentiment":      "public sentiment",
+}
+
+
+def trait_family_label(family: str, *, zh: bool) -> str | None:
+    """Translate a closed-enum trait_family to a human label, or None on miss."""
+    normalized = str(family or "").strip()
+    if not normalized:
+        return None
+    if zh:
+        return _TRAIT_FAMILY_LABELS_ZH.get(normalized)
+    return _TRAIT_FAMILY_LABELS_EN.get(normalized)
 
 
 def state_change_phrase(statuses: list[str], *, zh: bool) -> str:

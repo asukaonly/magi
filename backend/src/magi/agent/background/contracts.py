@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from time import time
 from typing import Any
+
+from magi_plugin_sdk.run_trigger import RunRequest, RunTrigger
 from uuid import uuid4
 
 
@@ -56,6 +58,44 @@ class BackgroundTaskTriggerSource(str, Enum):
     RULE = "rule"                  # dispatcher rule fast-path match
     SCHEDULE = "schedule"          # scheduler-created agent task
 
+    @classmethod
+    def from_trigger(
+        cls, trigger: "RunTrigger | None"
+    ) -> "BackgroundTaskTriggerSource":
+        """Derive the coarse launch-source enum from a unified ``RunTrigger``.
+
+        ADR-0004 P3 makes ``RunTrigger`` the source of truth for run
+        provenance; this folds its ``trigger_type`` down to the legacy
+        auditing enum so a background task launched from a detaching chat run
+        keeps its origin in metrics instead of being blanket-tagged. The rich
+        provenance (e.g. the external channel) still lives on the ``trigger``
+        itself — this is only the coarse bucket.
+
+        A ``None`` trigger (a run predating trigger propagation) yields
+        ``MANUAL`` — the historical detach default. Unknown / future trigger
+        types degrade to ``RULE`` rather than raising.
+        """
+        if trigger is None:
+            return cls.MANUAL
+        return _TRIGGER_SOURCE_BY_TRIGGER_TYPE.get(trigger.trigger_type, cls.RULE)
+
+
+# trigger_type → coarse BackgroundTaskTriggerSource. Defined at module level
+# (resolved at call time by ``from_trigger``) so the mapping table is visible
+# and testable on its own. Trigger types absent here fall through to ``RULE``.
+_TRIGGER_SOURCE_BY_TRIGGER_TYPE: dict[str, BackgroundTaskTriggerSource] = {
+    "user_message": BackgroundTaskTriggerSource.USER,
+    "user_steer": BackgroundTaskTriggerSource.USER,
+    "user_retract": BackgroundTaskTriggerSource.USER,
+    "external_inbound": BackgroundTaskTriggerSource.USER,
+    "scheduled": BackgroundTaskTriggerSource.SCHEDULE,
+    "background_resume": BackgroundTaskTriggerSource.MANUAL,
+    "sensor_event": BackgroundTaskTriggerSource.RULE,
+    "agent_self": BackgroundTaskTriggerSource.RULE,
+    "child_run_completed": BackgroundTaskTriggerSource.RULE,
+    "batch": BackgroundTaskTriggerSource.RULE,
+}
+
 
 @dataclass(slots=True)
 class BackgroundTaskSpec:
@@ -73,6 +113,10 @@ class BackgroundTaskSpec:
     selected_tools: list[str] = field(default_factory=list)
     workspace_path: str | None = None
     trigger_source: BackgroundTaskTriggerSource = BackgroundTaskTriggerSource.RULE
+    # ADR-0004 P3: unified RunTrigger provenance carried alongside the legacy
+    # trigger_source enum (additive). PR-3 will fold trigger_source into this so
+    # chat / scheduler / batch all describe their run the same way.
+    trigger: RunTrigger | None = None
     priority: int = 0
     max_iterations: int = 50
     timeout_seconds: int | None = 1800
@@ -85,15 +129,49 @@ class BackgroundTaskSpec:
     detached foreground run hands off its in-progress state to the
     background worker without losing any context.
     """
+    # === Phase E ===
+    initial_run_snapshot: dict[str, Any] | None = None
+    """Optional RunSnapshot dict for multi-node run resume.
+
+    When set, the background dispatcher prefers this over the legacy
+    ``initial_messages`` (FC-only) shape. The dict is the result of
+    ``RunSnapshot.to_dict()`` and is passed to
+    ``NodeSequenceRunner.run_with_snapshot(resume_from=RunSnapshot.from_dict(...))``.
+    """
     pending_message_id: str | None = None
     """Id of the placeholder ``background_task_pending`` chat message.
 
-    When set, ``deliver_background_task_completion`` will mark the
-    pending row replaced by the freshly written completion row, so the
-    UI displays exactly one entry for the task across its lifecycle.
+    When set, ``persist_completion_message`` will mark the pending row
+    replaced by the freshly written completion row, so the UI displays
+    exactly one entry for the task across its lifecycle.
     Only set by the ``/api/commands/run-skill-as-background`` flow
     today; legacy detach paths leave it ``None``.
     """
+
+    def as_run_request(self) -> RunRequest:
+        """Project this background spec into a unified ``RunRequest`` (ADR-0004 P3).
+
+        The seam every driver shares: a ``RunRequest`` describes *what to run
+        and for whom* (trigger + input + session + bounds), independent of the
+        background-specific *how* (retry / snapshot / pending-message wiring)
+        that stays on the spec. Falls back to a ``background_resume`` trigger
+        when the spec predates trigger propagation.
+        """
+        trigger = self.trigger or RunTrigger(
+            trigger_type="background_resume",
+            source_channel=None,
+            requester=self.user_id,
+            priority="background",
+        )
+        return RunRequest(
+            trigger=trigger,
+            input={"goal": self.goal},
+            session_id=self.session_id,
+            bounds={
+                "max_iterations": self.max_iterations,
+                "timeout_seconds": self.timeout_seconds,
+            },
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -105,6 +183,7 @@ class BackgroundTaskSpec:
             "selected_tools": list(self.selected_tools),
             "workspace_path": self.workspace_path,
             "trigger_source": self.trigger_source.value,
+            "trigger": self.trigger.to_dict() if self.trigger else None,
             "priority": int(self.priority),
             "max_iterations": int(self.max_iterations),
             "timeout_seconds": (
@@ -113,6 +192,11 @@ class BackgroundTaskSpec:
             "initial_messages": (
                 [dict(m) for m in self.initial_messages]
                 if self.initial_messages is not None
+                else None
+            ),
+            "initial_run_snapshot": (
+                dict(self.initial_run_snapshot)
+                if self.initial_run_snapshot is not None
                 else None
             ),
             "pending_message_id": self.pending_message_id,
@@ -135,6 +219,11 @@ class BackgroundTaskSpec:
             trigger_source=BackgroundTaskTriggerSource(
                 str(data.get("trigger_source") or BackgroundTaskTriggerSource.RULE.value)
             ),
+            trigger=(
+                RunTrigger.from_dict(data["trigger"])
+                if data.get("trigger") is not None
+                else None
+            ),
             priority=int(data.get("priority") or 0),
             max_iterations=int(data.get("max_iterations") or 20),
             timeout_seconds=(
@@ -145,6 +234,11 @@ class BackgroundTaskSpec:
             initial_messages=(
                 [dict(m) for m in data["initial_messages"]]
                 if data.get("initial_messages") is not None
+                else None
+            ),
+            initial_run_snapshot=(
+                dict(data["initial_run_snapshot"])
+                if data.get("initial_run_snapshot") is not None
                 else None
             ),
             pending_message_id=(

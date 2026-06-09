@@ -1,25 +1,13 @@
-"""Risk classifier result models."""
+"""Backward-compatibility shim -> :mod:`magi.control.permission.classifier_models`.
+
+Aliases this old module path to the canonical module *object* so that
+attribute lookups, monkeypatching, and identity all match exactly.
+The plugin-scope actuator tools / skills still import via this path; they relocate to the control layer in Phase 4."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import sys
 
-from .contracts import RiskLevel
+import magi.control.permission.classifier_models as _canonical
 
-
-@dataclass(slots=True, frozen=True)
-class RiskSignal:
-    """Named signal contributing to the risk tier."""
-
-    key: str
-    description: str
-
-
-@dataclass(slots=True)
-class ClassificationResult:
-    level: RiskLevel
-    signals: list[RiskSignal]
-    preview: str | None = None
-
-
-__all__ = ["ClassificationResult", "RiskSignal"]
+sys.modules[__name__] = _canonical

@@ -385,6 +385,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     return (
       <button
         type="button"
+        data-testid={`tour-target-${panel}`}
         onClick={() => handleActivityClick(panel)}
         aria-label={label}
         aria-current={active ? 'page' : undefined}

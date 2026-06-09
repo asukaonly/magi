@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SensorEventEmitted, TaskContext
-from magi.awareness.subscribers.timeline_subscriber import TimelineSubscriber
+from magi.timeline.subscribers.timeline_subscriber import TimelineSubscriber
 
 
 def _make_payload(**overrides):

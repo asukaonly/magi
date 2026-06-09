@@ -6,8 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from magi.agent.task_agents.chat.postprocess.components import ChatRuntimeNotifier
-from magi.llm.streaming_events import LLMStreamEvent
+from magi.chat.task_agent.postprocess.components import ChatRuntimeNotifier
 from magi.runtime_trace import RuntimeNotificationRecord
 
 
@@ -87,48 +86,6 @@ class TestEmitContextUsage:
         assert len(store.notifications) == 0
 
 
-class TestEmitPersonaIdentity:
-    @pytest.mark.asyncio
-    async def test_agent_response_includes_persona_id(self) -> None:
-        store = _FakeTraceStore()
-        notifier = ChatRuntimeNotifier(
-            runtime_trace_store=store,
-            chat_read_service_factory=_unused_read_service_factory,
-        )
-
-        await notifier.emit_agent_response(
-            user_id="u1",
-            session_id="s1",
-            turn_id="t1",
-            response_text="done",
-            orchestration_id=None,
-            trace_summary=None,
-            trace_available=False,
-            ux_plan=None,
-            message_id="msg1",
-            message_kind="assistant_final",
-            persona_id="persona-seven",
-        )
-
-        payload = json.loads(store.notifications[0].payload_json)
-        assert payload["persona_id"] == "persona-seven"
-
-    @pytest.mark.asyncio
-    async def test_stream_event_includes_persona_id(self) -> None:
-        store = _FakeTraceStore()
-        notifier = ChatRuntimeNotifier(
-            runtime_trace_store=store,
-            chat_read_service_factory=_unused_read_service_factory,
-        )
-
-        await notifier.emit_stream_event(
-            event=LLMStreamEvent(kind="text_delta", text="hello"),
-            user_id="u1",
-            session_id="s1",
-            turn_id="t1",
-            persona_id="persona-seven",
-        )
-
-        payload = json.loads(store.notifications[0].payload_json)
-        assert payload["persona_id"] == "persona-seven"
-        assert payload["event"]["kind"] == "text_delta"
+# P3 Step 5: the notifier's legacy agent_response and stream-event writer
+# methods were removed (ChatSseChannel.deliver / deliver_chunk are now the sole
+# writers), so the TestEmitPersonaIdentity cases that pinned them were deleted.

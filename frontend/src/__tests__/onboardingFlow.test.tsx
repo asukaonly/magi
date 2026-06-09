@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { localStorageMock } = vi.hoisted(() => {
   const mock = {
@@ -13,10 +13,8 @@ const { localStorageMock } = vi.hoisted(() => {
 });
 
 import { apiClient } from '@/api/client';
-import { skillsApi } from '@/api';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { personasApi } from '@/api/modules/personas';
-import { pluginsApi } from '@/api/modules/plugins';
 import OnboardingFlow from '@/components/onboarding/OnboardingFlow';
 
 vi.mock('react-i18next', () => ({
@@ -40,296 +38,171 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-describe('OnboardingFlow', () => {
-  const parseLatestOnboardingState = () => {
-    const call = [...localStorageMock.setItem.mock.calls]
-      .reverse()
-      .find(([key]) => key === 'magi_onboarding_state');
+// Mock the streaming preview so persona chat does not hit the network.
+vi.mock('@/api/modules/chatPreview', () => ({
+  streamChatPreview: vi.fn(() =>
+    (async function* () {
+      yield 'hi';
+    })(),
+  ),
+}));
 
-    expect(call).toBeTruthy();
-    return JSON.parse(call?.[1] as string);
-  };
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    localStorageMock.getItem.mockReturnValue(null);
-    localStorageMock.setItem.mockClear();
-    localStorageMock.removeItem.mockClear();
-  });
-
-  it('shows the welcome entrypoint first and keeps quick mode focused on scenario and LLM setup', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    const { container } = render(
-      <OnboardingFlow
-        initialConfig={{
-          ...DEFAULT_SYSTEM_CONFIG,
-          preferences: {
-            ...DEFAULT_SYSTEM_CONFIG.preferences,
-            user_mode: 'quick',
-          },
-        }}
-      />
+// LLMSetupStep now delegates to LLMForm (the same component Settings uses).
+// LLMForm self-loads the provider catalog + renders its own provider/model
+// UI, which is exercised by its own tests. For the onboarding orchestration
+// test we mock LLMForm to a simple provider-picker + api-key input that drives
+// the controlled `value`/`onChange` to a valid state.
+vi.mock('@/components/config-forms/LLMForm', () => ({
+  default: ({ value, onChange }: any) => {
+    const coreProviderId = value?.selections?.core?.provider_id ?? '';
+    return (
+      <div>
+        <label htmlFor="provider-select">provider</label>
+        <select
+          id="provider-select"
+          value={coreProviderId}
+          onChange={(e) => {
+            const pid = e.target.value;
+            if (!pid) return;
+            onChange?.({
+              ...value,
+              providers: {
+                ...(value?.providers ?? {}),
+                [pid]: {
+                  enabled: true,
+                  provider_type: pid,
+                  display_name: pid,
+                  api_key: '',
+                  base_url: '',
+                  services: {
+                    chat: { enabled: true, api_key: '', base_url: '' },
+                    embedding: { enabled: false, api_key: '', base_url: '' },
+                    image_generation: { enabled: false, api_key: '', base_url: '' },
+                    tts: { enabled: false, api_key: '', base_url: '' },
+                  },
+                  api_format: 'openai',
+                  custom_models: [],
+                  custom_default_model: '',
+                  model_metadata_overrides: {},
+                },
+              },
+              selections: {
+                ...(value?.selections ?? {}),
+                core: { provider_id: pid, model: `${pid}-core` },
+                context_decider: { provider_id: pid, model: `${pid}-fast` },
+              },
+            });
+          }}
+        >
+          <option value="">--</option>
+          <option value="openai">openai</option>
+          <option value="anthropic">anthropic</option>
+        </select>
+        <label htmlFor="api-key-input">api key</label>
+        <input
+          id="api-key-input"
+          value={value?.providers?.[coreProviderId]?.api_key ?? ''}
+          onChange={(e) => {
+            const pid = coreProviderId;
+            if (!pid) return;
+            const prov = value.providers[pid];
+            onChange?.({
+              ...value,
+              providers: {
+                ...value.providers,
+                [pid]: {
+                  ...prov,
+                  api_key: e.target.value,
+                  enabled: e.target.value.length > 0,
+                  services: {
+                    ...prov.services,
+                    chat: { ...prov.services.chat, api_key: e.target.value },
+                  },
+                },
+              },
+            });
+          }}
+        />
+      </div>
     );
+  },
+}));
 
-    expect(container.innerHTML).toContain('fixed inset-0');
-    expect(screen.getByText('welcome.title')).toBeInTheDocument();
-    expect(screen.getByText('welcome.subtitle')).toBeInTheDocument();
+const stubCatalog = () => ({
+  providers: [
+    {
+      id: 'anthropic',
+      provider_type: 'anthropic',
+      source: 'builtin',
+      display_name: 'Anthropic',
+    },
+    {
+      id: 'openai',
+      provider_type: 'openai',
+      source: 'builtin',
+      display_name: 'OpenAI',
+    },
+  ],
+});
 
-    await user.click(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' }));
+const stubTemplate = () => ({
+  template: { enabled: true, display_name: 'Custom' },
+  defaults: null,
+});
 
-    expect(await screen.findByText('steps.scenario')).toBeInTheDocument();
-    expect(screen.getByText('steps.llmProviders')).toBeInTheDocument();
-    expect(screen.getByText('steps.llmModels')).toBeInTheDocument();
-    expect(screen.queryByText('steps.personality')).not.toBeInTheDocument();
-  });
+const stubSeedPreviews = () => [
+  {
+    seed_slug: 'nova',
+    name: 'Nova',
+    description: 'Polished assistant',
+    avatar: '/avatars/nova.png',
+    group: 'general',
+    order: 0,
+  },
+  {
+    seed_slug: 'ember',
+    name: 'Ember',
+    description: 'Deep listener',
+    avatar: '/avatars/ember.png',
+    group: 'general',
+    order: 1,
+  },
+];
 
-  it('includes a dedicated model-selection step after entering expert mode', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(
-      <OnboardingFlow
-        initialConfig={{
-          ...DEFAULT_SYSTEM_CONFIG,
-          preferences: {
-            ...DEFAULT_SYSTEM_CONFIG.preferences,
-            user_mode: 'expert',
-          },
-        }}
-      />
+describe('OnboardingFlow (linear 4-step)', () => {
+  beforeEach(() => {
+    vi.spyOn(configApi, 'resolveLLMProviderCatalog').mockResolvedValue(
+      stubCatalog() as any,
     );
-
-    await user.click(screen.getByRole('button', { name: 'welcome.expertMode welcome.expertModeDesc' }));
-
-    expect(await screen.findByText('steps.llmProviders')).toBeInTheDocument();
-    expect(screen.getByText('steps.llmModels')).toBeInTheDocument();
-  });
-
-  it('renders the welcome mode selection entrypoint with both mode cards', () => {
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(
-      <OnboardingFlow
-        initialConfig={{
-          ...DEFAULT_SYSTEM_CONFIG,
-          preferences: {
-            ...DEFAULT_SYSTEM_CONFIG.preferences,
-            user_mode: null,
-          },
-        }}
-      />
+    vi.spyOn(configApi, 'getLLMCustomProviderTemplate').mockResolvedValue(
+      stubTemplate() as any,
     );
-
-    expect(screen.getByText('welcome.title')).toBeInTheDocument();
-    expect(screen.getByText('welcome.subtitle')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'welcome.expertMode welcome.expertModeDesc' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '中文' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'EN' })).toBeInTheDocument();
-  });
-
-  it('applies the lightweight chat preset before moving quick onboarding into LLM setup', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(
-      <OnboardingFlow
-        initialConfig={{
-          ...DEFAULT_SYSTEM_CONFIG,
-          preferences: {
-            ...DEFAULT_SYSTEM_CONFIG.preferences,
-            user_mode: 'quick',
-          },
-        }}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' }));
-    await user.click(await screen.findByRole('button', { name: /scenario\.chatAssistant/ }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    const savedState = parseLatestOnboardingState();
-
-    expect(savedState.scenario).toBe('chat_assistant');
-    expect(savedState.values.memory.retention_days).toBe(60);
-    expect(savedState.values.memory.l2.enabled).toBe(false);
-    expect(savedState.values.memory.l3.enabled).toBe(false);
-    expect(savedState.values.memory.l4.enabled).toBe(false);
-    expect(savedState.values.tools.builtIn.weather.enabled).toBe(false);
-    expect(savedState.values.agent.background_tasks.auto_detect_long_task).toBe(false);
-  });
-
-  it('applies the research-oriented preset for knowledge partner quick onboarding', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(
-      <OnboardingFlow
-        initialConfig={{
-          ...DEFAULT_SYSTEM_CONFIG,
-          preferences: {
-            ...DEFAULT_SYSTEM_CONFIG.preferences,
-            user_mode: 'quick',
-          },
-        }}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' }));
-    await user.click(await screen.findByRole('button', { name: /scenario\.knowledgePartner/ }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    const savedState = parseLatestOnboardingState();
-
-    expect(savedState.scenario).toBe('knowledge_partner');
-    expect(savedState.values.memory.retention_days).toBe(365);
-    expect(savedState.values.memory.query_expansion.enabled).toBe(true);
-    expect(savedState.values.memory.l3.enabled).toBe(true);
-    expect(savedState.values.memory.l4.enabled).toBe(true);
-    expect(savedState.values.tools.builtIn.weather.enabled).toBe(false);
-    expect(savedState.values.agent.background_tasks.auto_detect_long_task).toBe(true);
-  });
-
-  it('blocks quick onboarding while selected sensor plugins are not installed', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
-      registry_version: 'test',
-      plugins: [
-        {
-          plugin_id: 'chrome-history',
-          name: 'Chrome History',
-          name_i18n: {},
-          version: '1.0.0',
-          description: 'Chrome visits',
-          description_i18n: {},
-          author: 'Magi',
-          official: true,
-          contribution_types: ['sensor'],
-          platforms: [],
-          min_sdk_version: '0.1.0',
-          homepage: '',
-          repository: '',
-          path: 'chrome-history',
-          installed: false,
-          installed_version: null,
-          update_available: false,
-        },
-        {
-          plugin_id: 'git-activity',
-          name: 'Git Activity',
-          name_i18n: {},
-          version: '1.0.0',
-          description: 'Git commits',
-          description_i18n: {},
-          author: 'Magi',
-          official: true,
-          contribution_types: ['sensor'],
-          platforms: [],
-          min_sdk_version: '0.1.0',
-          homepage: '',
-          repository: '',
-          path: 'git-activity',
-          installed: false,
-          installed_version: null,
-          update_available: false,
-        },
-      ],
-    });
-
-    render(
-      <OnboardingFlow
-        initialConfig={{
-          ...DEFAULT_SYSTEM_CONFIG,
-          preferences: {
-            ...DEFAULT_SYSTEM_CONFIG.preferences,
-            user_mode: 'quick',
-          },
-        }}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' }));
-    await user.click(await screen.findByRole('button', { name: /scenario\.knowledgePartner/ }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    await screen.findByText('Chrome History');
-    const nextButton = screen.getByRole('button', { name: 'actions.next' });
-
-    await waitFor(() => expect(nextButton).toBeDisabled());
-
-    await user.click(screen.getByRole('button', { name: /Chrome History/ }));
-    await user.click(screen.getByRole('button', { name: /Git Activity/ }));
-
-    await waitFor(() => expect(nextButton).toBeEnabled());
-  });
-
-  it('activates the scenario-mapped seed after quick onboarding completes', async () => {
-    const user = userEvent.setup();
-    const initialConfig = {
-      ...DEFAULT_SYSTEM_CONFIG,
-      preferences: {
-        ...DEFAULT_SYSTEM_CONFIG.preferences,
-        language: 'en' as const,
-        user_mode: 'quick' as const,
-        scenario: 'knowledge_partner',
-      },
-    };
-    localStorageMock.getItem.mockImplementation((key: string) => {
-      if (key === 'magi_onboarding_state') {
-        return JSON.stringify({
-          phase: 'guided',
-          mode: 'quick',
-          current: 4,
-          scenario: 'knowledge_partner',
-          values: initialConfig,
-        });
-      }
-      return null;
-    });
-    vi.spyOn(configApi, 'completeOnboarding').mockResolvedValue({ success: true, message: 'ok', data: initialConfig } as any);
-    vi.spyOn(personasApi, 'seed').mockResolvedValue({ success: true, data: { created_ids: [] } } as any);
     vi.spyOn(personasApi, 'seedPreviews').mockResolvedValue({
       success: true,
-      data: [
-        {
-          seed_slug: 'halberd',
-          name: 'Halberd',
-          description: '',
-          avatar: '',
-          group: 'general',
-          order: 4,
-        },
-        {
-          seed_slug: 'nova',
-          name: 'Nova',
-          description: '',
-          avatar: '',
-          group: 'general',
-          order: 1,
-        },
-      ],
+      data: stubSeedPreviews(),
+    } as any);
+    vi.spyOn(personasApi, 'seed').mockResolvedValue({
+      success: true,
+      data: { created_ids: [] },
     } as any);
     vi.spyOn(personasApi, 'list').mockResolvedValue({
       success: true,
       data: [
         {
-          persona_id: 'uuid-halberd',
-          name: 'Halberd',
-          slug: 'halberd',
+          persona_id: 'uuid-nova',
+          name: 'Nova',
+          slug: 'nova',
           locale: 'en',
           avatar_path: '',
           group_name: 'general',
-          sort_order: 4,
+          sort_order: 0,
           is_builtin: true,
           description: '',
         },
         {
-          persona_id: 'uuid-nova',
-          name: 'Nova',
-          slug: 'nova',
+          persona_id: 'uuid-ember',
+          name: 'Ember',
+          slug: 'ember',
           locale: 'en',
           avatar_path: '',
           group_name: 'general',
@@ -339,7 +212,10 @@ describe('OnboardingFlow', () => {
         },
       ],
     } as any);
-    vi.spyOn(personasApi, 'setActive').mockResolvedValue({ success: true, persona_id: 'uuid-halberd' });
+    vi.spyOn(personasApi, 'setActive').mockResolvedValue({
+      success: true,
+      persona_id: 'uuid-ember',
+    } as any);
     vi.spyOn(apiClient, 'get').mockResolvedValue({
       data: {
         success: true,
@@ -350,131 +226,247 @@ describe('OnboardingFlow', () => {
           runtime_status: 'ready',
         },
       },
-    });
-
-    render(<OnboardingFlow initialConfig={initialConfig} />);
-
-    await user.click(await screen.findByRole('button', { name: 'actions.enterApp' }));
-
-    await waitFor(() => expect(personasApi.setActive).toHaveBeenCalledWith('uuid-halberd'));
-    expect(personasApi.seedPreviews).toHaveBeenCalledWith('en');
+    } as any);
   });
 
-  it('keeps completion action centered without a footer finish button', async () => {
-    const initialConfig = {
-      ...DEFAULT_SYSTEM_CONFIG,
-      preferences: {
-        ...DEFAULT_SYSTEM_CONFIG.preferences,
-        language: 'en' as const,
-        user_mode: 'quick' as const,
-        scenario: 'knowledge_partner',
-      },
-    };
-    localStorageMock.getItem.mockImplementation((key: string) => {
-      if (key === 'magi_onboarding_state') {
-        return JSON.stringify({
-          phase: 'guided',
-          mode: 'quick',
-          current: 4,
-          scenario: 'knowledge_partner',
-          values: initialConfig,
-        });
-      }
-      return null;
-    });
-
-    render(<OnboardingFlow initialConfig={initialConfig} />);
-
-    expect(await screen.findByRole('button', { name: 'actions.enterApp' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'actions.finish' })).not.toBeInTheDocument();
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorageMock.getItem.mockReturnValue(null);
+    localStorageMock.setItem.mockClear();
+    localStorageMock.removeItem.mockClear();
   });
 
-  it('expands built-in tools and blocks continuing until required config is filled', async () => {
-    const initialConfig = {
-      ...DEFAULT_SYSTEM_CONFIG,
-      preferences: {
-        ...DEFAULT_SYSTEM_CONFIG.preferences,
-        user_mode: 'expert' as const,
-      },
-    };
-    localStorageMock.getItem.mockImplementation((key: string) => {
-      if (key === 'magi_onboarding_state') {
-        return JSON.stringify({
-          phase: 'guided',
-          mode: 'expert',
-          current: 5,
-          values: initialConfig,
-        });
-      }
-      return null;
-    });
-    vi.spyOn(skillsApi, 'list').mockResolvedValue([]);
+  it('renders the welcome entrypoint with no mode cards', () => {
+    localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={initialConfig} />);
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
 
-    expect(await screen.findByText('tools.weather.apiKey')).toBeInTheDocument();
-    expect(screen.getByText('tools.weather.apiUrl')).toBeInTheDocument();
-    expect(screen.getByText('tools.validation.weatherApiKeyRequired')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'actions.next' })).toBeDisabled();
+    expect(screen.getByText('welcome.title')).toBeInTheDocument();
+    expect(screen.getByText('welcome.subtitle')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /welcome\.getStarted/ })).toBeInTheDocument();
+    // Mode cards no longer exist anywhere in the flow.
+    expect(screen.queryByText(/welcome\.quickMode/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/welcome\.expertMode/)).not.toBeInTheDocument();
+    // No quick/expert copy anywhere on Welcome.
+    expect(screen.queryByText(/quick mode|快速模式|expert mode|专家模式/i)).toBeNull();
   });
 
-  it('shows completion loading immediately and ignores duplicate finish clicks', async () => {
+  it('walks through welcome → LLM setup → persona preview → completion and persists seed_slug on save', async () => {
     const user = userEvent.setup();
-    const initialConfig = {
-      ...DEFAULT_SYSTEM_CONFIG,
-      preferences: {
-        ...DEFAULT_SYSTEM_CONFIG.preferences,
-        language: 'en' as const,
-        user_mode: 'quick' as const,
-        scenario: 'knowledge_partner',
-      },
-    };
-    localStorageMock.getItem.mockImplementation((key: string) => {
-      if (key === 'magi_onboarding_state') {
-        return JSON.stringify({
-          phase: 'guided',
-          mode: 'quick',
-          current: 4,
-          scenario: 'knowledge_partner',
-          values: initialConfig,
-        });
-      }
-      return null;
-    });
+    localStorageMock.getItem.mockReturnValue(null);
+    const completeOnboarding = vi
+      .spyOn(configApi, 'completeOnboarding')
+      .mockResolvedValue({ success: true, message: 'ok', data: DEFAULT_SYSTEM_CONFIG } as any);
 
-    let resolveComplete: (value: any) => void = () => undefined;
-    vi.spyOn(configApi, 'completeOnboarding').mockReturnValue(
-      new Promise((resolve) => {
-        resolveComplete = resolve;
-      }) as any
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    // Step 0: Welcome → Get Started
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+
+    // Step 1: LLM setup — wait for the registry-loaded provider picker
+    const providerSelect = await screen.findByLabelText(/provider/i);
+    await user.selectOptions(providerSelect, 'openai');
+    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
+    // Until an API key is typed, the LLM step is invalid and Next stays disabled.
+    expect(nextBtn).toBeDisabled();
+    await user.type(screen.getByLabelText(/api key/i), 'sk-test');
+    await waitFor(() => expect(nextBtn).toBeEnabled());
+    await user.click(nextBtn);
+
+    // Step 2: Persona preview — pick Ember (the active rail item is the
+    // selection) and advance with the standard footer Next button.
+    await screen.findByRole('button', { name: /Ember/i });
+    await user.click(screen.getByRole('button', { name: /Ember/i }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    // Step 3: Completion — click Enter App
+    const enterApp = await screen.findByRole('button', { name: 'actions.enterApp' });
+    await user.click(enterApp);
+
+    await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
+    const payload = completeOnboarding.mock.calls[0][0] as any;
+    expect(payload.preferences.onboarding_completed).toBe(true);
+    expect(payload.llm.providers.openai.enabled).toBe(true);
+    expect(payload.llm.providers.openai.api_key).toBe('sk-test');
+
+    // No mode references anywhere across the rendered flow.
+    expect(screen.queryByText(/quick mode|快速模式|expert mode|专家模式/i)).toBeNull();
+  });
+
+  it('surfaces the embedding-fallback row when an Anthropic-style provider is picked', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+
+    const providerSelect = await screen.findByLabelText(/provider/i);
+    await user.selectOptions(providerSelect, 'anthropic');
+
+    await waitFor(() =>
+      expect(screen.getByTestId('llm-setup-embedding-row')).toBeInTheDocument(),
     );
-    vi.spyOn(personasApi, 'seed').mockResolvedValue({ success: true, data: { created_ids: [] } } as any);
-    vi.spyOn(personasApi, 'seedPreviews').mockResolvedValue({ success: true, data: [] } as any);
-    vi.spyOn(personasApi, 'list').mockResolvedValue({ success: true, data: [] } as any);
-    vi.spyOn(apiClient, 'get').mockResolvedValue({
-      data: {
-        success: true,
-        data: {
-          ready: true,
-          status: 'ready',
-          runtime_ready: true,
-          runtime_status: 'ready',
-        },
+  });
+
+  it('activates the chosen persona slug after onboarding completes', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.spyOn(configApi, 'completeOnboarding').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: DEFAULT_SYSTEM_CONFIG,
+    } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+    const providerSelect = await screen.findByLabelText(/provider/i);
+    await user.selectOptions(providerSelect, 'openai');
+    await user.type(screen.getByLabelText(/api key/i), 'sk-test');
+    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
+    await waitFor(() => expect(nextBtn).toBeEnabled());
+    await user.click(nextBtn);
+
+    await screen.findByRole('button', { name: /Ember/i });
+    await user.click(screen.getByRole('button', { name: /Ember/i }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    const enterApp = await screen.findByRole('button', { name: 'actions.enterApp' });
+    await user.click(enterApp);
+
+    await waitFor(() =>
+      expect(personasApi.setActive).toHaveBeenCalledWith('uuid-ember'),
+    );
+  });
+
+  it('creates and activates a custom generated persona on completion', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.spyOn(configApi, 'completeOnboarding').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: DEFAULT_SYSTEM_CONFIG,
+    } as any);
+    const generated = {
+      name: 'Sage',
+      avatar: '',
+      description: 'wise mentor',
+      appearance_prompt: '',
+      identity_core: {
+        identity_statement: 'a patient mentor',
+        values_loved: [],
+        values_rejected: [],
+        attention_biases: [],
       },
+      idiolect: {
+        sentence_style: 'measured and kind',
+        vocab_available: [],
+        vocab_avoided: [],
+        structural_quirks: [],
+      },
+      registers: {},
+      quiet_hours: [],
+      signature_triggers: [],
+      persona_layers: [],
+      dynamic_state_rules: {},
+      milestone_conditions: {},
+      interim_lines: {},
+      bootstrap: null,
+    };
+    vi.spyOn(personasApi, 'generateWithProgress').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: generated,
+      stages: [],
+    } as any);
+    const createSpy = vi.spyOn(personasApi, 'create').mockResolvedValue({
+      success: true,
+      data: { persona_id: 'uuid-custom', name: 'Sage', slug: 'custom-1' },
+    } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+    const providerSelect = await screen.findByLabelText(/provider/i);
+    await user.selectOptions(providerSelect, 'openai');
+    await user.type(screen.getByLabelText(/api key/i), 'sk-test');
+    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
+    await waitFor(() => expect(nextBtn).toBeEnabled());
+    await user.click(nextBtn);
+
+    // Persona step: generate a custom persona, which auto-selects it.
+    await user.click(await screen.findByTestId('persona-create-custom'));
+    await user.type(screen.getByTestId('persona-custom-description'), 'a wise mentor');
+    await user.click(screen.getByTestId('persona-custom-generate'));
+    // Back in chat mode with the custom persona selected — advance.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    const enterApp = await screen.findByRole('button', { name: 'actions.enterApp' });
+    await user.click(enterApp);
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalled());
+    const createArg = createSpy.mock.calls[0][0] as { config_json: string };
+    expect(JSON.parse(createArg.config_json).name).toBe('Sage');
+    await waitFor(() =>
+      expect(personasApi.setActive).toHaveBeenCalledWith('uuid-custom'),
+    );
+  });
+
+  it('disables the footer Next button while a custom persona is generating', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    let resolveGen: (value: any) => void = () => {};
+    vi.spyOn(personasApi, 'generateWithProgress').mockImplementation(
+      () => new Promise((resolve) => { resolveGen = resolve; }),
+    );
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+    const providerSelect = await screen.findByLabelText(/provider/i);
+    await user.selectOptions(providerSelect, 'openai');
+    await user.type(screen.getByLabelText(/api key/i), 'sk-test');
+    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
+    await waitFor(() => expect(nextBtn).toBeEnabled());
+    await user.click(nextBtn);
+
+    // Start a generation on the persona step.
+    await user.click(await screen.findByTestId('persona-create-custom'));
+    await user.type(screen.getByTestId('persona-custom-description'), 'a wise mentor');
+    await user.click(screen.getByTestId('persona-custom-generate'));
+
+    // Footer Next is disabled while the generation is in flight...
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'actions.next' })).toBeDisabled(),
+    );
+
+    // ...and re-enabled once it resolves.
+    resolveGen({
+      success: true,
+      message: 'ok',
+      data: {
+        name: 'Sage',
+        avatar: '',
+        description: 'wise',
+        appearance_prompt: '',
+        identity_core: { identity_statement: 'patient', values_loved: [], values_rejected: [], attention_biases: [] },
+        idiolect: { sentence_style: 'calm', vocab_available: [], vocab_avoided: [], structural_quirks: [] },
+        registers: {},
+        quiet_hours: [],
+        signature_triggers: [],
+        persona_layers: [],
+        dynamic_state_rules: {},
+        milestone_conditions: {},
+        interim_lines: {},
+        bootstrap: null,
+      },
+      stages: [],
     });
-
-    render(<OnboardingFlow initialConfig={initialConfig} />);
-
-    await user.click(await screen.findByRole('button', { name: 'actions.enterApp' }));
-
-    await waitFor(() => expect(configApi.completeOnboarding).toHaveBeenCalledTimes(1));
-    const loadingButton = screen.getByRole('button', { name: 'actions.saving' });
-    expect(loadingButton).toBeDisabled();
-
-    await user.click(loadingButton);
-    expect(configApi.completeOnboarding).toHaveBeenCalledTimes(1);
-
-    resolveComplete({ success: true, message: 'ok', data: initialConfig });
-    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/ready'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled(),
+    );
   });
 });

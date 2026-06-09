@@ -1,18 +1,15 @@
 """Bootstrap wiring for the background-task runtime.
 
 This helper composes the persistence store, manager, dispatcher, launch
-service, and completion-handshake listener into a single bundle that
-:mod:`magi.agent.lifecycle` wires into ``AgentRuntimeModule``. Keeping
-the plumbing here means the lifecycle module stays a thin assembly
-site and the handshake callback has a single, well-named home.
+service, and retention GC into a single bundle that
+:mod:`magi.agent.lifecycle` wires into ``AgentRuntimeModule``. Keeping the
+plumbing here means the lifecycle module stays a thin assembly site.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
-
-import structlog
+from typing import Any, Callable
 
 from ..agent.background import (
     BackgroundDispatcher,
@@ -23,15 +20,7 @@ from ..agent.background import (
     build_background_run_fn,
 )
 from ..agent.execution.function_calling import FunctionCallingOrchestrator
-from ..agent.runtime.types import TaskAgentType
 from ..tools import tool_registry
-
-if TYPE_CHECKING:
-    from ..agent.background import BackgroundTask
-    from ..agent.runtime import TaskAgentManager
-    from ..agent.task_agents.chat_task_agent import ChatTaskAgent
-
-logger = structlog.get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -104,56 +93,7 @@ def build_background_task_wiring(
     )
 
 
-def build_completion_handshake_listener(
-    *,
-    get_task_agent_manager: Callable[[], "TaskAgentManager | None"],
-    chat_agent_id: str = "default",
-) -> Callable[["BackgroundTask"], Any]:
-    """Return a listener that routes terminal tasks back to chat.
-
-    The listener resolves the chat task agent via the ``TaskAgentManager``
-    and invokes :meth:`ChatPostProcessService.deliver_background_task_completion`
-    to post a system message into the task's originating session. Any
-    exception is swallowed (but logged) so one bad task cannot break
-    the manager's dispatch loop.
-    """
-
-    async def _handshake(task: "BackgroundTask") -> None:
-        manager = get_task_agent_manager()
-        if manager is None:
-            logger.warning(
-                "background task completion skipped - no task agent manager",
-                bg_task_id=task.task_id,
-            )
-            return
-        try:
-            chat_agent = await manager.ensure_agent(TaskAgentType.CHAT, chat_agent_id)
-        except Exception:  # noqa: BLE001 - defensive
-            logger.exception(
-                "background task completion could not resolve chat agent",
-                bg_task_id=task.task_id,
-            )
-            return
-        postprocess = getattr(chat_agent, "postprocess_service", None)
-        if postprocess is None:
-            logger.warning(
-                "resolved chat agent exposes no postprocess_service",
-                bg_task_id=task.task_id,
-            )
-            return
-        try:
-            await postprocess.deliver_background_task_completion(task)
-        except Exception:  # noqa: BLE001 - listener isolation
-            logger.exception(
-                "background task completion handshake failed",
-                bg_task_id=task.task_id,
-            )
-
-    return _handshake
-
-
 __all__ = [
     "BackgroundTaskWiring",
     "build_background_task_wiring",
-    "build_completion_handshake_listener",
 ]

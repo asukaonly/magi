@@ -13,7 +13,7 @@ from typing import Any
 
 import tomli_w
 
-from ...agent.workspace_cache.atomic_io import atomic_write_text
+from magi_plugin_sdk.fs import atomic_write_text
 from ._user_paths import code_agent_settings_path
 
 

@@ -1,4 +1,8 @@
-"""Factory functions for creating task agent instances."""
+"""Factory functions for creating non-chat task agent instances.
+
+The chat-agent factory was relocated to ``magi.chat.task_agent.factory`` in
+P2 Task 3 (``ChatTaskAgent`` now lives in the chat layer).
+"""
 
 from __future__ import annotations
 
@@ -6,59 +10,8 @@ from typing import Any, Callable
 
 from ...config import AppConfig
 from ...agent.runtime.types import TaskAgentType
-from ...chat import ChatProjector, ChatStore
 from ...memory import UnifiedMemoryStore
-from ...memory.hybrid_retrieval import HybridRetrievalService
-from ...memory.integration import MemoryIntegrationModule
-from ...runtime_trace import RuntimeTraceStore
-from ...timeline.handler import build_timeline_handler
-from . import ChatTaskAgent, DefaultTaskAgent, ExploreTaskAgent, TimelineTaskAgent
-
-
-def create_chat_agent_factory(
-    *,
-    llm_adapter: Any,
-    llm_pool: Any,
-    memory: Any,
-    unified_memory: UnifiedMemoryStore,
-    hybrid_retrieval_service: HybridRetrievalService,
-    memory_integration: MemoryIntegrationModule,
-    skill_runner: Any,
-    runtime_trace_store: RuntimeTraceStore | None,
-    chat_store: ChatStore | None,
-    chat_projector: ChatProjector | None,
-    chat_read_service_factory: Callable[[], Any],
-    config: AppConfig,
-    background_dispatcher: Any | None = None,
-    background_launch_service: Any | None = None,
-    permission_gateway_provider: Callable[[], Any] | None = None,
-    control_session_store_provider: Callable[[], Any] | None = None,
-) -> Callable[[str], ChatTaskAgent]:
-    """Return a factory callable that creates ChatTaskAgent instances."""
-
-    def _create(agent_id: str) -> ChatTaskAgent:
-        return ChatTaskAgent(
-            agent_id=agent_id,
-            llm_adapter=llm_adapter,
-            llm_pool=llm_pool,
-            memory=memory,
-            unified_memory=unified_memory,
-            hybrid_retrieval_service=hybrid_retrieval_service,
-            memory_integration=memory_integration,
-            history_cache_max_sessions=config.agent.runtime.chat_history_cache_max_sessions,
-            history_fetch_limit=config.agent.runtime.chat_history_fetch_limit,
-            skill_runner=skill_runner,
-            runtime_trace_store=runtime_trace_store,
-            chat_store=chat_store,
-            chat_projector=chat_projector,
-            chat_read_service_factory=chat_read_service_factory,
-            background_dispatcher=background_dispatcher,
-            background_launch_service=background_launch_service,
-            permission_gateway_provider=permission_gateway_provider,
-            control_session_store_provider=control_session_store_provider,
-        )
-
-    return _create
+from . import DefaultTaskAgent, ExploreTaskAgent, TimelineTaskAgent
 
 
 def create_default_agent_factory(
@@ -69,6 +22,7 @@ def create_default_agent_factory(
     unified_memory: UnifiedMemoryStore,
     plugin_manager: Any,
     sensor_registry: Any,
+    build_timeline_handler: Callable[..., Any],
     control_session_store_provider: Callable[[], Any] | None = None,
 ) -> Callable[[str, str], Any]:
     """Return a factory callable that creates non-chat task agent instances."""

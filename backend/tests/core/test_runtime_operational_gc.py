@@ -14,6 +14,9 @@ from magi.core.sqlite import sqlite_connection_async
 llm_usage_initial = import_module("magi.db.migrations.llm_usage.versions.0001_initial")
 message_queue_initial = import_module("magi.db.migrations.message_queue.versions.0001_initial")
 runtime_trace_initial = import_module("magi.db.migrations.runtime_trace.versions.0001_initial")
+runtime_trace_user_notifications = import_module(
+	"magi.db.migrations.runtime_trace.versions.0003_user_notifications"
+)
 scheduler_initial = import_module("magi.db.migrations.scheduler.versions.0001_initial")
 sensor_state_initial = import_module("magi.db.migrations.sensor_state.versions.0001_initial")
 
@@ -101,6 +104,44 @@ async def test_runtime_trace_gc_deletes_expired_trace_and_terminal_events(tmp_pa
 	assert await _count_rows(db_path, "trace_spans") == 1
 	assert await _count_rows(db_path, "runtime_notifications") == 1
 	assert await _count_rows(db_path, "plugin_ingress_events") == 2
+
+
+@pytest.mark.asyncio
+async def test_runtime_trace_gc_deletes_expired_user_notifications_but_keeps_unread(
+	tmp_path: Path,
+) -> None:
+	gc = _gc(tmp_path)
+	db_path = gc.runtime_paths.runtime_trace_db_path
+	old_ms = int((2_000_000.0 - (31 * 86400)) * 1000)
+	recent_ms = int((2_000_000.0 - 60) * 1000)
+
+	async with sqlite_connection_async(db_path) as db:
+		await db.executescript(runtime_trace_initial.SCHEMA_SQL)
+		await db.executescript(runtime_trace_user_notifications.SCHEMA_SQL)
+		await db.executemany(
+			"""
+			INSERT INTO user_notifications (
+				user_id, kind, dedupe_key, title, body, status, created_at_ms
+			) VALUES ('default_user', 'suggestion', ?, 't', 'b', ?, ?)
+			""",
+			(
+				("old-unread", "unread", old_ms),
+				("old-read", "read", old_ms),
+				("old-dismissed", "dismissed", old_ms),
+				("recent-read", "read", recent_ms),
+			),
+		)
+		await db.commit()
+
+	result = await gc.cleanup_runtime_trace()
+
+	# Only the two old, non-unread rows are deleted; old unread + recent survive.
+	assert result["user_notifications_deleted"] == 2
+	assert await _count_rows(db_path, "user_notifications") == 2
+	assert await _count_rows(db_path, "user_notifications", "status = 'unread'") == 1
+	assert await _count_rows(
+		db_path, "user_notifications", "created_at_ms = " + str(recent_ms)
+	) == 1
 
 
 @pytest.mark.asyncio

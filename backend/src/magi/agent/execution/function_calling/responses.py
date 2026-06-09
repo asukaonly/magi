@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...asset_refs import normalize_asset_ref_payload
 from .types import ToolCallResult
+
+if TYPE_CHECKING:
+    from ....tools.context_routing import RouteDecision
 
 
 class FunctionCallingResponseMixin:
@@ -261,6 +264,7 @@ class FunctionCallingResponseMixin:
         self,
         arguments: dict[str, Any],
         orchestration_strategy: dict[str, Any] | None,
+        route_decision: RouteDecision | None = None,
     ) -> dict[str, Any]:
         normalized = dict(arguments)
         action = str(normalized.get("action", "launch"))
@@ -272,10 +276,18 @@ class FunctionCallingResponseMixin:
         if normalized.pop("inherit_context", False) and self._current_messages:
             normalized["parent_context_summary"] = self._build_parent_context_summary()
 
-        if not isinstance(orchestration_strategy, dict):
-            return normalized
+        if route_decision is not None:
+            if route_decision.profile == "coding" or route_decision.may_write:
+                preferred_type = "Coding"
+            elif route_decision.profile == "explore":
+                preferred_type = "CodeExplore"
+            else:
+                preferred_type = "general-purpose"
+        elif isinstance(orchestration_strategy, dict):
+            preferred_type = str(orchestration_strategy.get("default_leaf_type", "")).strip()
+        else:
+            preferred_type = ""
 
-        preferred_type = str(orchestration_strategy.get("default_leaf_type", "")).strip()
         if preferred_type and not str(normalized.get("subagent_type", "")).strip():
             normalized["subagent_type"] = preferred_type
         return normalized

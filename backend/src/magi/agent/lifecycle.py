@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, Callable
+
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.background_tasks import (
     build_background_task_wiring,
-    build_completion_handshake_listener,
 )
-from ..chat import get_chat_read_service
 from ..core.logger import get_logger
-from ..agent.control.provider import resolve_control_session_store
-from ..agent.control.permission.provider import get_permission_gateway
+from ..control.provider import resolve_control_session_store
+from ..control.permission.provider import get_permission_gateway
 from ..tools import tool_registry
 from ..transport.chat_events import broadcast_background_task_state_changed
 from ..utils.runtime import get_runtime_paths
 from .runtime import AgentRuntime, RouterAgent, TaskAgentManager
 from .scheduled_agent_task import UserAgentTaskScheduleContributor
-from .task_agents.factory import create_chat_agent_factory, create_default_agent_factory
+from .task_agents.factory import create_default_agent_factory
+
+if TYPE_CHECKING:
+    from .runtime import TaskAgent
 
 logger = get_logger(__name__)
 
@@ -25,7 +28,14 @@ logger = get_logger(__name__)
 class AgentRuntimeModule(LifecycleModule):
     """Initialize TaskAgentManager, RouterAgent, and AgentRuntime (L11 - Agent Runtime layer)."""
 
-    def __init__(self, context: RuntimeBootstrapContext):
+    def __init__(
+        self,
+        context: RuntimeBootstrapContext,
+        *,
+        create_chat_agent_factory: Callable[..., Callable[[str], "TaskAgent"]],
+        chat_read_service_factory: Callable[..., Any],
+        build_timeline_handler: Callable[..., Any],
+    ):
         super().__init__(
             name="runtime_agent_core",
             dependencies=(
@@ -41,6 +51,9 @@ class AgentRuntimeModule(LifecycleModule):
         )
         self._context = context
         self._background_wiring = None
+        self._create_chat_agent_factory = create_chat_agent_factory
+        self._chat_read_service_factory = chat_read_service_factory
+        self._build_timeline_handler = build_timeline_handler
 
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "runtime config")
@@ -76,8 +89,16 @@ class AgentRuntimeModule(LifecycleModule):
         self._background_wiring = background_wiring
         self._context.agent_runtime.background_task_manager = background_wiring.manager
 
+        # Batch orchestrator (W2): drive manifest jobs via the same manager —
+        # each finished background run fires this listener, which continues the
+        # batch (next slice) or finalizes it. Non-batch runs are ignored.
+        from .batch.driver import BatchDriver
+        background_wiring.manager.add_listener(
+            BatchDriver(background_wiring.manager).on_terminal
+        )
+
         task_agent_manager = TaskAgentManager(
-            create_chat_agent=create_chat_agent_factory(
+            create_chat_agent=self._create_chat_agent_factory(
                 llm_adapter=llm_adapter,
                 llm_pool=llm_pool,
                 memory=memory,
@@ -88,7 +109,7 @@ class AgentRuntimeModule(LifecycleModule):
                 runtime_trace_store=runtime_trace_store,
                 chat_store=chat_store,
                 chat_projector=chat_projector,
-                chat_read_service_factory=get_chat_read_service,
+                chat_read_service_factory=self._chat_read_service_factory,
                 config=config,
                 background_dispatcher=background_wiring.dispatcher if bg_settings.enabled else None,
                 background_launch_service=background_wiring.launch_service if bg_settings.enabled else None,
@@ -102,6 +123,7 @@ class AgentRuntimeModule(LifecycleModule):
                 unified_memory=unified_memory,
                 plugin_manager=plugin_manager,
                 sensor_registry=sensor_registry,
+                build_timeline_handler=self._build_timeline_handler,
                 control_session_store_provider=resolve_control_session_store,
             ),
             idle_ttl_seconds=config.agent.runtime.task_agent_manager_idle_ttl_seconds,
@@ -135,12 +157,16 @@ class AgentRuntimeModule(LifecycleModule):
             )
         await self._context.agent_runtime.agent_runtime.start()
 
-        handshake_listener = build_completion_handshake_listener(
-            get_task_agent_manager=lambda: self._context.agent_runtime.task_agent_manager,
-        )
-        background_wiring.manager.add_listener(handshake_listener)
         background_wiring.manager.add_listener(broadcast_background_task_state_changed)
         await background_wiring.manager.start()
+
+        # Batch restart-recovery: pick up RUNNING batch jobs left by a previous
+        # process (manager._running is empty after restart) and refill their runs.
+        from .batch.driver import BatchDriver
+        resumed = await BatchDriver(background_wiring.manager).resume_running_jobs()
+        if resumed:
+            logger.info("batch jobs resumed after restart", count=resumed)
+
         await background_wiring.retention_gc.start()
 
         logger.info(

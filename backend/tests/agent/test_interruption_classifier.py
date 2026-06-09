@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from magi.agent.task_agents.chat.interruption_classifier import (
+from magi.chat.task_agent.interruption_classifier import (
     InterruptionClassifier,
     InterruptionContext,
     InterruptionDisposition,
@@ -193,7 +193,7 @@ def test_strict_interrupt_rejects_non_cancel_messages(user_text: str) -> None:
 
 def test_strict_interrupt_phrases_loaded_from_yaml() -> None:
     """The cancel phrase set is sourced from interruption_phrases.yaml."""
-    from magi.agent.task_agents.chat.interruption_classifier import (
+    from magi.chat.task_agent.interruption_classifier import (
         _load_strict_interrupt_phrases,
     )
 

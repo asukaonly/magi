@@ -1,17 +1,11 @@
-"""Shared async primitives for the agent control plane."""
+"""Backward-compatibility shim -> :mod:`magi.control.common`.
+
+Re-export (not a ``sys.modules`` alias): aliasing a *package* corrupts
+relative-import resolution for its submodules. Leaf submodules under this
+package are aliased individually so identity and monkeypatching match.
+"""
 
 from __future__ import annotations
 
-from .interaction_broker import (
-    InteractionBroker,
-    InteractionClosedError,
-    InteractionTimeoutError,
-    PendingInteraction,
-)
-
-__all__ = [
-    "InteractionBroker",
-    "InteractionClosedError",
-    "InteractionTimeoutError",
-    "PendingInteraction",
-]
+from magi.control.common import *  # noqa: F401,F403
+from magi.control.common import __all__  # noqa: F401

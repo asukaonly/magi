@@ -33,6 +33,21 @@ One practical rule follows from that:
 - `core/` should stay focused on infrastructure concerns
 - runtime-domain code should prefer explicit collaborator injection over service-locator style access
 
+## Enforcement & debt status
+
+These rules are **CI-enforced**, not conventional. `backend/.importlinter` defines two contracts (a `lint-imports` gate, `2 kept, 0 broken`):
+
+- **`layers`** — the L1–L15 ordering above. Adopted as a **baseline + ratchet**: a frozen snapshot of pre-existing cross-layer imports that may only *shrink*; any *new* lower→upper import fails CI.
+- **`plugin-isolation`** — `tools/builtin` + `tools/code_agent` (capability-tool code) may import the SDK only, never host layers.
+
+Outcome of the layering cleanup (ADRs 0001–0004):
+
+- **`plugin-isolation` baseline = 0** — capability tools are fully SDK-isolated (Framework A). Runtime-control tools (`agent_tool`, batch tools, plan/todo) live in host layers and are composition-root-registered, never in the plugin surface (ADR-0002).
+- **`layers` baseline: 115 → 22.** Retired: the `agent → chat` task-agent cluster (the chat-driver descent, ADR-0003/0004 P2), `agent → timeline`, `runtime_trace → events` (layer repositioned above events), `awareness → timeline` (subscribers inverted into timeline), the `tools ↔ skills` cycle (ordered + `ToolRegistryPort`), `chat.workspace` / `chat_trace` (lowered), and the wrong-direction tail (permission-shim repoint, plus `core→config` / `memory→api` / `skills→engine` / `plugins→tools/awareness` injected, and the `message_text` util lowered).
+- **Remaining ~22 edges are intentionally left** — overwhelmingly `api/channels → chat` (the api router IS the HTTP surface over chat; channels are the delivery surface). Inverting these inherent surface→domain dependencies costs more than it returns; they are a conscious carry, not unaddressed debt. Revisit only if a concrete need (e.g. a second front end) makes the coupling bite.
+
+When adding code, keep both contracts green. A new lower→upper import is a design smell — inject the dependency from the composition root, lower a shared contract/util, or register via the origin-agnostic registry instead.
+
 ## Current Package Mapping
 
 The current codebase maps to the layered model like this.
@@ -63,14 +78,22 @@ Primary packages:
 - `core/`
 - `scheduler/`
 - `runtime_trace/`
+- `identity/`
+- `db/` — Alembic migration environments + runner for the runtime SQLite databases (owned by `DatabaseMigrationModule`, which runs migrations after `core` initializes the database files)
+- `utils/` — shared leaf helpers (runtime paths, packaged-path resolution, message text); imported across every layer, imports none
+- `hooks/` — hook registry, gateway, and shell-hook handlers; a low cross-cutting substrate consumed by `agent`/`api`/`plugins`, depending only on `core`/`config`
+- `location/` — location sample store, geocode cache, WiFi/IPGeo sources, and the read-side resolver (`LocationModule`); a low provider whose write (pollers) and read (viewport) sides are both driven by `timeline` (L13)
+- `media/` — media source registry; a low provider consumed by `timeline` (L13)
 - selected infrastructure helpers in `bootstrap/exports.py`
 
 Notes:
 
 - the scheduler engine is infrastructure, even if bootstrap starts it later in dependency order
 - bootstrap order and ownership layer are not the same thing
-- `runtime_trace/` stores execution observability data; it is not durable memory and does not participate in L6 recall
+- `runtime_trace/` stores execution observability data; it is not durable memory and does not participate in L7 recall
 - workspace storage is an infrastructure facade: `core` owns workspace identity, path safety, generated directory creation, and state manifests; upper layers receive scoped paths instead of constructing `<workspace>/.magi` paths directly
+- `db`, `location`, `media`, and `hooks` are structurally L1 (they depend only on `core`/`scheduler`/`config`) even though their *consumers* live higher — `db` is driven by the composition root, `location`/`media` feed `timeline` (L13), and `hooks` is actuated by `agent`/`api`. Layer = dependency position, not consumer position.
+- `identity/` owns the canonical user-id authority (`MagiUserID`, `IdentityResolver`, the `user_identity_bindings` table). Every upper-layer ingress site (channels dispatcher, api dispatch, sensor_hub, session_mapper) canonicalizes external identifiers through it before downstream stores see them; see [Identity Architecture](./identity-architecture.md) for the boundary contract
 
 ### L2. Configuration
 
@@ -85,6 +108,7 @@ Responsibilities:
 Primary packages:
 
 - `config/`
+- `i18n/` — localization string catalogs and lookup; depends only on `config`
 
 ### L3. Message Bus
 
@@ -98,7 +122,30 @@ Primary packages:
 
 - `events/`
 
-### L4. Plugin Registration Layer
+### L4. Control Plane
+
+Responsibilities:
+
+- session execution-control state (ask/question, plan-mode, todo, detach) and its store
+- interaction registry (pending-interaction futures; the `InteractionBroker` core) and timeout semantics
+- permission gateway, rules, and risk state (execution gating)
+- control-event emission (state changes published on the message bus)
+
+Primary packages:
+
+- `control/`
+- `control/tools/` (host runtime-control tools: `plan_mode`, `todo_write`)
+
+Notes:
+
+- the control plane is shared substrate: tools (L8) actuate it, the agent runtime (L12) reads/drives it, and chat/transport (L14/L15) observe and feed it — so it lives low, depended on downward by all of them
+- it depends only on L1 infrastructure and L3 events; it must NOT import upward (no `chat`, `transport`, `agent`, `tools`, `llm`, `memory`)
+- transcript rendering of control state is the CHAT layer's job: `chat` subscribes to control events and writes state messages itself (downward); the control plane does not reach into `chat`/`transport`
+- interaction answers flow downward: `transport` delivers user answers into the control interaction registry (`transport → control`)
+- `run_control` (detach signal / `current_detach_signal`) belongs here, not in the agent runtime
+- the four "actuator tools" split by species (ADR-0002): `ask_user` + `detach` are shareable capabilities exposed to ALL tools (incl. plugins) as SDK ports on `ToolExecutionContext` (`InteractionPort`/`DetachPort`), so they stay capability tools in `tools/builtin`; `plan_mode` + `todo_write` are host runtime-control tools in `control/tools/`; `agent_tool` (spawn sub-agent) is a runtime-control tool in the agent layer (`agent/runtime_tools/`, L12). The host runtime-control tools are closed and NOT plugin-contributable.
+
+### L5. Plugin Registration Layer
 
 Responsibilities:
 
@@ -116,7 +163,7 @@ Notes:
 - this layer owns package lifecycle only
 - tools and sensors return to their owning runtime layers after registration
 
-### L5. LLM Runtime
+### L6. LLM Runtime
 
 Responsibilities:
 
@@ -129,7 +176,7 @@ Primary packages:
 
 - `llm/`
 
-### L6. Memory Layer
+### L7. Memory Layer
 
 Responsibilities:
 
@@ -144,7 +191,7 @@ Primary packages:
 
 - `memory/`
 
-### L7. Tools And Skills Layer
+### L8. Tools And Skills Layer
 
 Responsibilities:
 
@@ -156,8 +203,15 @@ Primary packages:
 
 - `tools/`
 - `skills/`
+- `mcp/` — MCP server bridge; registers MCP-backed tools into the shared registry. A host integration (like `plugins`/`skills`), NOT plugin-implementation code — see the "Tool sources are host integrations" note below
 
-### L8. Personality Layer
+Notes:
+
+- **Tool taxonomy (ADR-0002):** two tool species share one origin-agnostic registry — **capability tools** (do work; depend only on `magi_plugin_sdk` + host-injected capability ports; first-party ≡ third-party; extensible) and **runtime-control tools** (drive agent execution state; host-owned, closed; live in `control/tools/` (L4) and `agent/runtime_tools/` (L12), registered via the composition root). The `plugin-isolation` contract governs only capability-tool code (`tools/builtin`, `tools/code_agent`): SDK-only, never host internals.
+- **Capability ports:** the host hands capabilities to tools via a `ToolCapabilities` bundle on `ToolExecutionContext` (SDK Protocols the host implements): trace, delegation-events, background, session-cache, chat, memory-query, image-gen, interaction (ask), detach. A tool depends on the Protocol, never the host package.
+- **Tool sources are host integrations:** the plugin manager (`plugins/`, L5), the MCP bridge (`mcp/`), and the skill-execution engine (`skills/`) all register their tools into the single registry. These integration packages are HOST code (`magi.skills` runs sub-agents via the orchestrator, like `magi.mcp` and `magi.plugins`) — so NONE are in the `plugin-isolation` source scope. Only third-party *content* (plugin / skill / MCP-server code) follows the plugin contract; it is loaded dynamically and runtime-guarded, not statically import-checked.
+
+### L9. Personality Layer
 
 Responsibilities:
 
@@ -174,11 +228,11 @@ Primary packages:
 
 Notes:
 
-- L8 owns `PersonaTurnPlanner` and the `PersonaTurnPlan` contract described in [Persona Runtime Architecture](./persona-runtime-architecture.md).
-- L8 may consume task/runtime hints from L11 and profile/memory state from lower layers, but persona-specific trigger interpretation must not be duplicated in chat handlers, context rendering, or post-processing.
+- L9 owns `PersonaTurnPlanner` and the `PersonaTurnPlan` contract described in [Persona Runtime Architecture](./persona-runtime-architecture.md).
+- L9 may consume task/runtime hints from L12 and profile/memory state from lower layers, but persona-specific trigger interpretation must not be duplicated in chat handlers, context rendering, or post-processing.
 - post-processing may update future relationship and dynamic state; it should not be the primary place where the already emitted turn's persona mode is chosen.
 
-### L9. Sensors Layer
+### L10. Sensors Layer
 
 Responsibilities:
 
@@ -196,27 +250,28 @@ Notes:
 
 - plugin-contributed sensors are registered in `plugins/`, but runtime execution belongs here
 - all sensor plugins inherit from `SensorBase` and produce `SensorOutput`
-- `SensorIngestionGateway` routes outputs to memory (L6), timeline (L12), and knowledge graph
+- `SensorIngestionGateway` routes outputs to memory (L7), timeline (L13), and knowledge graph
 
-### L10. Context Layer
+### L11. Context Layer
 
 Responsibilities:
 
 - prompt-context assembly
 - recall shaping
-- prompt rendering from typed context inputs, including the `PersonaTurnPlan` produced by L8
+- prompt rendering from typed context inputs, including the `PersonaTurnPlan` produced by L9
 
 Primary packages:
 
 - `context/`
+- `user_profile/` — user-profile read model assembled from `memory`/`identity`; consumed by `context` prompt assembly and the API
 
 Notes:
 
-- L10 consumes the persona behavior plan and renders it into the final system prompt.
-- L10 should not classify registers, activate persona triggers, or evaluate relationship layers itself.
-- scenario prompt storage should not become a second source of persona behavior truth; persona registers and trigger behavior belong in L8 persona config.
+- L11 consumes the persona behavior plan and renders it into the final system prompt.
+- L11 should not classify registers, activate persona triggers, or evaluate relationship layers itself.
+- scenario prompt storage should not become a second source of persona behavior truth; persona registers and trigger behavior belong in L9 persona config.
 
-### L11. Agent Runtime
+### L12. Agent Runtime
 
 Responsibilities:
 
@@ -231,18 +286,32 @@ Primary packages:
 - `agent/runtime/`
 - `agent/task_agents/`
 - `agent/workers/`
+- `agent/runtime_tools/`
 - `agent/task_orchestrator.py`
 
 Notes:
 
-- `agent/runtime/` is the correct L11 home for runtime control flow
+- `agent/runtime/` is the correct L12 home for runtime control flow
 - it is not a replacement for infrastructure and should not be described as a second `core/`
+- `agent/runtime_tools/` holds host runtime-control tools that need the agent runtime itself (e.g. `agent_tool`, which spawns sub-agents via `WorkerAgentManager`). The L8 tool registry cannot import L12, so these are registered by the composition root (`bootstrap/`), not via the plugin/core-tools path (ADR-0002).
 
-### L12. Timeline Domain
+#### Agent runtime — three rings (ADR-0004)
+
+The run-execution stack is three concentric rings, each separated by a dependency-inversion seam. Rings 1–2 are the domain-agnostic agent runtime (L12); ring 3 is the per-surface driver, which lives in *its own domain layer*, not in `agent/`:
+
+1. **Run Engine** — `FunctionCallingOrchestrator` (`agent/execution/`) + `NodeSequenceRunner` + the node framework (`agent/run/`): a bounded LLM↔tool run. Domain-agnostic and **chat-free** — already used headless by worker / subagent / background. The engine does not runtime-import handlers (they are injected; only TYPE_CHECKING refs exist).
+2. **Generic handler framework** — `TaskAgent` base, `BaseExecutionHandler`, execution contracts, and the handler *algorithms* (`DirectLLMHandler` / `FunctionCallingHandler`) in `agent/task_agents/handlers/`. Domain-agnostic; drives the engine through **injected service Protocols** (`agent/task_agents/common/service_protocols.py`). Generic across drivers (chat today; voice / batch / scheduled next).
+3. **Domain drivers** — the surface-specific composition, in `chat/task_agent/` (L14): `ChatTaskAgent` + factory + the `Chat{Prompt,Planning,History}Service` + postprocess / transcript / reply-context + the run/session state machine (`ChatExecutionCoordinator` / `session_run_*` / `run_store*`) + conversational services (fact-classifier / interruption / rhythm / streaming). A driver lives in its **highest domain layer**, implements the ring-2 Protocols, and is dispatched by type via an injected factory the agent runtime never hard-imports (ADR-0003). The chat driver is constructed via `create_chat_agent_factory` injected from the composition root (`bootstrap/`), so `agent/lifecycle.py` does not import chat.
+
+Seam status: **both seams are inverted & clean.** Ring 1 ↔ 2 — engine request/result contracts + `AttachmentResolverPort` (`agent/run/ports.py`, ADR-0004 P1). Ring 2 ↔ 3 — handler bundle typed against ring-2 Protocols; the **entire** chat driver (incl. `ChatExecutionCoordinator` + the run/session machine) relocated to `chat/task_agent/`; the generic ring-2 package renamed `agent/task_agents/chat/` → `agent/task_agents/handlers/`; factory wiring inverted to the composition root (ADR-0004 P2 / ADR-0003). The `agent → chat` task-agent debt is retired. *Remaining (separate concerns, not the descent):* `TimelineTaskAgent` → `timeline` (same rule, by-need); a few `agent.* → chat.workspace` consumers (a different subsystem — the agent working-context store).
+
+**Triggers & engine front door (ADR-0004 P3 / P4).** Every run carries a typed `RunTrigger` (`agent/run_triggers.py` — built per source: native chat → `user_message`, external channel → `external_inbound`, scheduler → `scheduled`, batch → `batch`), lifted out of chat's coordinator into a standalone, side-effect-free seam. The trigger is persisted with the run in L0 working memory and propagated onto the background spec at every launch path, so a run keeps its origin channel across detach / auto-dispatch / restart (**P3 ✅**). The Run Engine exposes a single typed entry — `FunctionCallingOrchestrator.run(EngineRunInput)`, a parameter object mirroring `execute_with_tools` 1:1 (parity-locked by test) — and all four call sites (chat / background / worker / subagent) go through it; the three headless surfaces use `EngineRunInput.headless(...)`, which structurally cannot carry chat-only session/control fields (**P4 engine front door ✅**). The full **driver registry** (a `RunDriver` protocol + dispatch-by-type, with batch / voice / scheduled as registered drivers, plus timeline-driver relocation) is **deferred (YAGNI)** until a *second real driver* needs polymorphic dispatch; the `RunRequest` projection (`BackgroundTaskSpec.as_run_request()`) exists but has no consumer yet.
+
+### L13. Timeline Domain
 
 Responsibilities:
 
-- timeline read models (`TimelineEvent` is L12-internal, not exported)
+- timeline read models (`TimelineEvent` is L13-internal, not exported)
 - scale-aware viewport and context-bundle read models
 - timeline adapter (`TimelineAdapter`) stores host-rendered `TimelineEvent` objects
 - timeline normalization and insight extraction
@@ -254,11 +323,11 @@ Primary packages:
 
 Notes:
 
-- `TimelineEvent` is an L12-internal view model; sensors produce `SensorOutput` (L9)
+- `TimelineEvent` is an L13-internal view model; sensors produce `SensorOutput` (L10)
 - host projection is the sole owner of timeline display rendering from `SensorOutput.activity` + `SensorOutput.narration`
 - `TimelineAdapter` is the sole entry point for rendered timeline events into the timeline read model
 
-### L13. External Services
+### L14. External Services
 
 Responsibilities:
 
@@ -276,6 +345,12 @@ Primary packages:
 - `chat/`
 - `tasks/`
 - `channels/`
+- `commands/` — slash-command handlers dispatched by the API surface (uses `chat`)
+- `outreach/` — proactive-messaging orchestration over `agent`/`chat`/`channels`; the top surface orchestrator (sits above the `api` line in the contract ordering)
+- `system_suggestions/` — API-facing suggestion generation (uses `llm`)
+- `notifications/` — API-facing notification helpers
+- `availability/` — leaf availability read model exposed by the API
+- `chat_preview/` — leaf chat-preview helper exposed by the API
 
 Notes:
 
@@ -284,7 +359,7 @@ Notes:
 - `chat/` owns transcript truth (`chat.db`), attachment storage, and session workspace; it is not the memory layer
 - `channels/` provides bidirectional adapters for external messaging platforms; each channel routes messages into the standard chat pipeline
 
-### L14. Connection And Transport
+### L15. Connection And Transport
 
 Responsibilities:
 
@@ -355,8 +430,8 @@ When placing new code, use this sequence:
 
 ### Sensor → Timeline → Memory Contract
 
-- sensors (L9) produce domain-neutral `SensorOutput` with per-sensor `SensorMemoryPolicy`
-- `SensorIngestionGateway` (L9) routes each output to memory (L6) and optionally to timeline (L12)
+- sensors (L10) produce domain-neutral `SensorOutput` with per-sensor `SensorMemoryPolicy`
+- `SensorIngestionGateway` (L10) routes each output to memory (L7) and optionally to timeline (L13)
 - timeline is a downstream consumer that builds its own read model (`TimelineEvent`) from sensor outputs
 - memory is the lifecycle system that retains, derives, summarizes, and retrieves durable knowledge from runtime and sensor inputs
 - raw behavioral facts enter memory via `SENSOR_EVENT` classification and enter timeline via `TimelineAdapter`
@@ -381,19 +456,20 @@ To reduce future ambiguity, prefer the following terminology:
 The current codebase maps to the layered model like this:
 
 - `bootstrap/` -> outer composition root, not a numbered layer
-- `core/`, `scheduler/`, `runtime_trace/`, parts of `utils/` -> L1 application infrastructure
-- `config/` -> L2 configuration
+- `core/`, `scheduler/`, `runtime_trace/`, `identity/`, `db/`, `utils/`, `hooks/`, `location/`, `media/` -> L1 application infrastructure
+- `config/`, `i18n/` -> L2 configuration
 - `events/` -> L3 message bus
-- `plugins/` -> L4 plugin registration
-- `llm/` -> L5 LLM runtime
-- `memory/` -> L6 memory
-- `tools/`, `skills/` -> L7 tools and skills
-- `personality/` -> L8 personality
-- `awareness/`, event emitter -> L9 sensors
-- `context/` -> L10 context
-- `agent/` -> L11 agent runtime
-- `timeline/` -> L12 timeline domain
-- `api/`, `chat/`, `tasks/`, `channels/` -> L13 external services
-- `ipc/`, `transport/` and `crates/magi-gateway/` -> L14 connection and transport
+- `control/` (incl. `control/tools/` host runtime-control tools plan/todo) -> L4 control plane
+- `plugins/` -> L5 plugin registration
+- `llm/` -> L6 LLM runtime
+- `memory/` -> L7 memory
+- `tools/`, `skills/` -> L8 tools and skills (`skills/` is the host skill-execution engine; `mcp/` bridges MCP servers — both are host tool-source integrations like `plugins/`, NOT plugin-implementation code)
+- `personality/` -> L9 personality
+- `awareness/`, event emitter -> L10 sensors
+- `context/`, `user_profile/` -> L11 context
+- `agent/` (incl. `agent/runtime_tools/` host runtime-control tool agent_tool) -> L12 agent runtime
+- `timeline/` -> L13 timeline domain
+- `api/`, `chat/`, `tasks/`, `channels/`, `commands/`, `outreach/`, `system_suggestions/`, `notifications/`, `availability/`, `chat_preview/` -> L14 external services
+- `ipc/`, `transport/` and `crates/magi-gateway/` -> L15 connection and transport
 
 The boundary rules above should remain stable even as package internals evolve.

@@ -1,6 +1,6 @@
 """User-level magi config root for code_agent.
 
-Mirrors ``magi.chat.workspace.get_default_chat_workspace_path``: ``~/.magi/``.
+Mirrors ``magi.utils.runtime.get_default_chat_workspace_path``: ``~/.magi/``.
 Override via env ``MAGI_HOME`` for tests.
 """
 from __future__ import annotations

@@ -87,6 +87,13 @@ class SensorMemoryPolicy:
     importance_bias: float = 0.5
     author_type: str = "external"
     content_type: str = "observation"
+    # When False, L2 does deterministic direct-writes (entities + structured graph hints)
+    # but skips the LLM phase1/2 extraction — for high-volume / low-signal or purely
+    # structured sources where the LLM adds little (e.g. git sessions).
+    allow_llm_extraction: bool = True
+    # > 0 enables the P2 frequency gate: an event runs structured-only until its per-event
+    # promotion_key (emitted in metadata) has been seen this many times, then full extraction.
+    promotion_threshold: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -108,6 +115,15 @@ class SensorOutput:
     narration: SensorNarration
     content_blocks: list[ContentBlock] = field(default_factory=list)
     raw_payload_ref: str | None = None
+    # Capture-time full text pinned for L2 (RFC #56 P3): obsidian note body, git
+    # commit text, etc. ``narration.body`` / ``content`` stay a lean summary;
+    # this frozen snapshot is stored in the L1 pinned-payload satellite and read
+    # by L2 at extraction time (never re-fetched from the live source).
+    pinned_payload: str | None = None
+    # Per-event promotion escape hatch (RFC #56 P4): "force_full" runs full L2
+    # extraction and "force_structured_only" skips it, either way overriding the
+    # generic policy (P1 static flag) and frequency gate (P2). None -> default.
+    promotion_override: str | None = None
     tags: list[str] = field(default_factory=list)
     entities: list[dict[str, Any]] = field(default_factory=list)
     provenance: dict[str, Any] = field(default_factory=dict)
@@ -156,6 +172,8 @@ class SensorOutput:
             ),
             content_blocks=blocks,
             raw_payload_ref=data.get("raw_payload_ref"),
+            pinned_payload=data.get("pinned_payload"),
+            promotion_override=data.get("promotion_override"),
             tags=list(data.get("tags", [])),
             entities=list(data.get("entities", [])),
             provenance=dict(data.get("provenance", {})),

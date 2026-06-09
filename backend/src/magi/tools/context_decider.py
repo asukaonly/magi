@@ -9,11 +9,12 @@ Decides:
 This replaces the old ToolSelector for better tool selection.
 """
 
+import dataclasses
 import logging
 from typing import Any, Optional
 
 from ..config.constants import DEFAULT_THINKING_TOKENS
-from ..config.models import LLMScenario, ThinkingDepth
+from ..config.models import LLMScenario
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
 from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
@@ -24,7 +25,7 @@ from .context_decider_prompt import build_context_decider_prompt
 from .context_decider_response import ContextDeciderResponseMixin
 from .context_decider_system_prompt import CONTEXT_DECIDER_SYSTEM_PROMPT
 from .context_decider_trace import ContextDeciderTraceMixin
-from .context_routing import MEMORY_RETRIEVAL_TRIGGERS, ContextDecision, MemoryGuidance
+from .context_routing import MEMORY_RETRIEVAL_TRIGGERS, MemoryGuidance, RouteDecision
 from .registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ class ContextDecider(
         self,
         user_message: str,
         context: Optional[ContextDeciderContext] = None,
-    ) -> ContextDecision:
+    ) -> RouteDecision:
         """
         Analyze user request and decide on tools
 
@@ -85,7 +86,7 @@ class ContextDecider(
             context: additional context (environment info, etc.)
 
         Returns:
-            ContextDecision with selected tools
+            RouteDecision with selected tools
         """
         pooled_llm = self._resolve_llm_from_pool()
         if pooled_llm is not None and pooled_llm is not self.llm:
@@ -94,12 +95,11 @@ class ContextDecider(
 
         if not self.llm:
             logger.warning("[ContextDecider] LLM not available")
-            return ContextDecision(
-                intent="unknown",
-                tools=[],
-                thinking_depth=ThinkingDepth.NONE,
+            return RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="simple",
                 reasoning="LLM not available",
-                orchestration_strategy=self._default_orchestration_strategy(),
             )
 
         available_tools = self._get_available_tools()
@@ -163,17 +163,21 @@ class ContextDecider(
                 decision=decision,
                 available_tools=available_tools,
             )
-            decision.llm_trace = self._build_llm_trace(
+            trace_metadata = self._build_llm_trace(
                 metadata=provider_response.metadata,
                 disable_thinking=True,
                 duration_ms=duration_ms,
             )
-            decision.llm_trace.setdefault("request_preview", user_message[:240])
-            decision.llm_trace.setdefault("response_preview", response[:240])
+            trace_metadata.setdefault("request_preview", user_message[:240])
+            trace_metadata.setdefault("response_preview", response[:240])
+            decision = dataclasses.replace(
+                decision,
+                llm_trace={**decision.llm_trace, **trace_metadata},
+            )
 
             logger.info(
-                f"[ContextDecider] Decision made | Intent: {decision.intent} | "
-                f"Tools: {decision.tools} | Thinking: {decision.thinking_depth.value} | Reasoning: {decision.reasoning}"
+                f"[ContextDecider] Decision made | Profile: {decision.profile} | "
+                f"Graph: {decision.graph_shape} | Tools: {decision.tools} | Thinking: {decision.thinking_depth.value} | Reasoning: {decision.reasoning}"
             )
             logger.debug(f"[ContextDecider] Raw LLM response: {response[:500]}")
 
@@ -181,16 +185,23 @@ class ContextDecider(
 
         except Exception as e:
             logger.error(f"[ContextDecider] Decision failed: {e}")
-            return ContextDecision(
-                intent="error",
-                tools=[],
-                thinking_depth=ThinkingDepth.NONE,
+            return RouteDecision(
+                profile="chat",
+                graph_shape="reply",
+                complexity="simple",
                 reasoning=f"error: {str(e)}",
-                orchestration_strategy=self._default_orchestration_strategy(),
             )
 
     def _get_available_tools(self) -> list[dict[str, Any]]:
-        """Get list of available tools with metadata"""
+        """Get list of available CAPABILITY tools with metadata.
+
+        Resident runtime-control / system tools (ADR-0005 §4) are excluded:
+        they are always available to the main LLM's tool loop, so the router
+        must not spend prompt budget reasoning about whether to select them.
+        """
+        from magi.tools.system_tools import resolve_resident_system_tools
+
+        resident = set(resolve_resident_system_tools(self.tool_registry))
         tools_info = self.tool_registry.get_all_tools_info()
         return [
             {
@@ -199,7 +210,7 @@ class ContextDecider(
                 "type": tool.get("type", "tool"),
             }
             for tool in tools_info
-            if tool.get("type") != "skill"
+            if tool.get("type") != "skill" and tool.get("name") not in resident
         ]
 
     def _build_prompt(
@@ -219,7 +230,7 @@ class ContextDecider(
 
 __all__ = [
     "ContextDecider",
-    "ContextDecision",
+    "RouteDecision",
     "MemoryGuidance",
     "MEMORY_RETRIEVAL_TRIGGERS",
 ]

@@ -82,9 +82,9 @@ class TaskOrchestrationTodosMixin:
             return
 
         try:
-            from .control.chat_state_persister import persist_todo_state_message
+            from .control.common.events import publish_control_todo_state_changed
 
-            await persist_todo_state_message(
+            await publish_control_todo_state_changed(
                 session_id=session_id,
                 user_id=state.user_id,
                 turn_id=state.turn_id,

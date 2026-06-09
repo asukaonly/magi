@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 export interface RuntimeConfig {
   isDesktop: boolean;
   apiBaseUrl: string;
@@ -128,7 +130,6 @@ export async function initializeRuntime(
   }
 
   try {
-    const { invoke } = await import("@tauri-apps/api/core");
     const t0 = performance.now();
 
     // Phase 1: spawn backend (returns immediately).

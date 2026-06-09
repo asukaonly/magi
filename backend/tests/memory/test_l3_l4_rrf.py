@@ -175,16 +175,7 @@ class TestL3HandlerTriplePath:
     async def test_summary_category_is_soft_preference_not_hard_filter(
         self, l3_store: L3SummaryStore
     ) -> None:
-        """A mismatched ``summary_category`` must not drop matching content.
-
-        The chat LLM regularly picks an imperfect category (e.g. it sees
-        a gaming question and reaches for ``browser_activity`` because
-        the registered catalog is small). Treating the category as a
-        hard WHERE filter would zero out recall in that case. The new
-        behavior treats it as a ranking preference: items in the
-        requested category are boosted, but off-category items remain
-        eligible for retrieval and reranking.
-        """
+        """A mismatched ``summary_category`` must not drop matching content."""
         await l3_store.initialize()
         await _seed_summary(
             l3_store,
@@ -211,12 +202,8 @@ class TestL3HandlerTriplePath:
         results = await handler.execute(conds)
 
         ids = [r["summary_id"] for r in results]
-        # Both candidates survive the search; the off-category one is
-        # not silently filtered out.
         assert "s-state" in ids
         assert "s-trend" in ids
-        # And the requested-category item ranks first thanks to the
-        # post-fusion boost.
         assert ids[0] == "s-state"
 
     async def test_time_range_filter(self, l3_store: L3SummaryStore) -> None:

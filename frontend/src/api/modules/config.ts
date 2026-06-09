@@ -38,6 +38,8 @@ export type LLMScenario = 'context_decider' | 'core' | 'memory_summarizer' | 'em
 
 export interface UserPreferences {
   onboarding_completed: boolean;
+  first_conversation_completed: boolean;
+  product_tour_completed: boolean;
   user_mode: UserMode;
   scenario?: string | null;
   language: LanguageCode;
@@ -435,6 +437,7 @@ export interface MemoryL4Config {
 export interface CrossEncoderConfig {
   enabled: boolean;
   managed_model_id: string | null;
+  variant: string | null;
 }
 
 export interface MemoryRerankerConfig {
@@ -454,6 +457,7 @@ export interface LocalEmbeddingConfig {
   managed_model_id: string | null;
   model_dir_path: string | null;
   idle_timeout_seconds: number;
+  variant: string | null;
 }
 
 export interface EmbeddingConfig {
@@ -682,6 +686,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
         managed_model_id: null,
         model_dir_path: null,
         idle_timeout_seconds: 1800,
+        variant: null,
       },
     },
     reranker: {
@@ -689,6 +694,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       cross_encoder: {
         enabled: false,
         managed_model_id: null,
+        variant: null,
       },
     },
     query_expansion: {
@@ -727,6 +733,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   },
   preferences: {
     onboarding_completed: false,
+    first_conversation_completed: false,
+    product_tour_completed: false,
     user_mode: null,
     scenario: null,
     language: 'zh',

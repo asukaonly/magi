@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Optional
 
 import pytest
 
@@ -17,61 +18,137 @@ from magi.agent.run_control import (
 )
 from magi.tools.builtin.detach_to_background_tool import DetachToBackgroundTool
 from magi.tools.schema import ToolExecutionContext
+from magi_plugin_sdk.capabilities import DetachPort, ToolCapabilities
 from magi.agent.turn_input import UserTurnInput
 
 
-def _ctx() -> ToolExecutionContext:
+# ---------------------------------------------------------------------------
+# Fake DetachPort implementations
+# ---------------------------------------------------------------------------
+
+class _UnavailableDetachPort:
+    """Simulates no active detach signal (is_available() returns False)."""
+
+    def is_available(self) -> bool:
+        return False
+
+    def is_requested(self) -> bool:
+        return False
+
+    def request(self, *, reason: str, requested_by: str = "llm", note: str = "") -> None:
+        raise AssertionError("request() must not be called when unavailable")
+
+
+class _FakeDetachPort:
+    """Simulates a live DetachSignal with controllable state."""
+
+    def __init__(self, *, already_requested: bool = False) -> None:
+        self._available = True
+        self._requested = already_requested
+        self.recorded_reason: Optional[str] = None
+        self.recorded_by: Optional[str] = None
+        self.recorded_note: Optional[str] = None
+
+    def is_available(self) -> bool:
+        return self._available
+
+    def is_requested(self) -> bool:
+        return self._requested
+
+    def request(self, *, reason: str, requested_by: str = "llm", note: str = "") -> None:
+        self._requested = True
+        self.recorded_reason = reason
+        self.recorded_by = requested_by
+        self.recorded_note = note
+
+
+def _ctx_no_caps() -> ToolExecutionContext:
+    """Context with no capabilities at all (old-style call path)."""
     return ToolExecutionContext(agent_id="test-agent")
 
 
+def _ctx_with(port) -> ToolExecutionContext:
+    """Context with a DetachPort wired into capabilities."""
+    caps = ToolCapabilities(detach=port)
+    return ToolExecutionContext(agent_id="test-agent", capabilities=caps)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — no-signal branch
+# ---------------------------------------------------------------------------
+
 @pytest.mark.asyncio
-async def test_detach_tool_fails_without_active_signal() -> None:
+async def test_detach_tool_fails_without_capabilities() -> None:
+    """No capabilities at all → detach_not_supported."""
     tool = DetachToBackgroundTool()
 
-    result = await tool.execute({"reason": "long_running"}, _ctx())
+    result = await tool.execute({"reason": "long_running"}, _ctx_no_caps())
 
     assert result.success is False
     assert result.error_code == "detach_not_supported"
 
 
 @pytest.mark.asyncio
-async def test_detach_tool_flips_the_bound_signal() -> None:
+async def test_detach_tool_fails_when_not_available() -> None:
+    """DetachPort present but is_available() is False → detach_not_supported."""
     tool = DetachToBackgroundTool()
-    signal = DetachSignal()
 
-    with bind_detach_signal(signal):
-        result = await tool.execute(
-            {"reason": "deep_research", "note": "scanning 400 commits"},
-            _ctx(),
-        )
+    result = await tool.execute({"reason": "long_running"}, _ctx_with(_UnavailableDetachPort()))
+
+    assert result.success is False
+    assert result.error_code == "detach_not_supported"
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — newly-requested branch
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_detach_tool_flips_the_port() -> None:
+    """First call records the request and returns already_requested=False."""
+    tool = DetachToBackgroundTool()
+    port = _FakeDetachPort()
+
+    result = await tool.execute(
+        {"reason": "deep_research", "note": "scanning 400 commits"},
+        _ctx_with(port),
+    )
 
     assert result.success is True
     assert result.data["status"] == "detach_requested"
     assert result.data["reason"] == "deep_research"
     assert result.data["note"] == "scanning 400 commits"
     assert result.data["already_requested"] is False
-    assert signal.is_requested() is True
-    assert signal.payload is not None
-    assert signal.payload.reason == "deep_research"
-    assert signal.payload.requested_by == "llm"
-    assert signal.payload.note == "scanning 400 commits"
+    assert port.is_requested() is True
+    assert port.recorded_reason == "deep_research"
+    assert port.recorded_by == "llm"
+    assert port.recorded_note == "scanning 400 commits"
 
+
+# ---------------------------------------------------------------------------
+# Unit tests — already-requested (idempotent) branch
+# ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_detach_tool_is_idempotent_for_second_call() -> None:
+    """Second call sees already_requested=True and does not re-request."""
     tool = DetachToBackgroundTool()
-    signal = DetachSignal()
+    port = _FakeDetachPort()
 
-    with bind_detach_signal(signal):
-        first = await tool.execute({"reason": "first"}, _ctx())
-        second = await tool.execute({"reason": "second"}, _ctx())
+    first = await tool.execute({"reason": "first"}, _ctx_with(port))
+    # Simulate second call with an already-requested port
+    port2 = _FakeDetachPort(already_requested=True)
+    second = await tool.execute({"reason": "second"}, _ctx_with(port2))
 
     assert first.success is True and first.data["already_requested"] is False
     assert second.success is True and second.data["already_requested"] is True
-    # The first request's payload must be preserved.
-    assert signal.payload is not None
-    assert signal.payload.reason == "first"
+    # The second call must NOT call request() again (port2 recorded nothing)
+    assert port2.recorded_reason is None
 
+
+# ---------------------------------------------------------------------------
+# ContextVar smoke-tests (still valid: bind_detach_signal still works)
+# ---------------------------------------------------------------------------
 
 def test_bind_detach_signal_restores_on_exit() -> None:
     outer = DetachSignal()
@@ -91,9 +168,11 @@ def test_bind_detach_signal_none_is_noop() -> None:
         assert current_detach_signal() is None
 
 
-# ---------------------------------------------------------------------
-# Integration: orchestrator binds the signal so the tool works end-to-end
-# ---------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Integration: orchestrator binds the signal so the tool works end-to-end.
+# The orchestrator creates a ToolExecutionContext with capabilities wired,
+# so we patch _execute_tool_call to pass the right context.
+# ---------------------------------------------------------------------------
 
 
 class _FakeToolRegistry:
@@ -167,13 +246,30 @@ async def test_orchestrator_bind_makes_detach_tool_flip_signal_and_exit(
 
     async def _fake_execute_tool_call(**kwargs):  # type: ignore[no-untyped-def]
         tool_call = kwargs["tool_call"]
-        # The orchestrator binds the detach signal before the tool runs,
-        # so the tool's ``current_detach_signal()`` lookup must succeed
-        # and flip the signal we passed in.
-        result = await tool.execute(
-            tool_call.arguments,
-            ToolExecutionContext(agent_id="chat:test"),
+        # Build a context with the HostDetachPort backed by the live signal.
+        # We use a thin _FakeDetachPort that reads the signal via bind_detach_signal.
+        from magi.agent.run_control import current_detach_signal as _cds
+        from magi_plugin_sdk.capabilities import ToolCapabilities
+
+        class _SignalBridgePort:
+            def is_available(self):
+                return _cds() is not None
+
+            def is_requested(self):
+                s = _cds()
+                return bool(s and s.is_requested())
+
+            def request(self, *, reason, requested_by="llm", note=""):
+                from magi.agent.run_control import DetachRequested
+                s = _cds()
+                if s is not None:
+                    s.request(DetachRequested(reason=reason, requested_by=requested_by, note=note))
+
+        ctx = ToolExecutionContext(
+            agent_id="chat:test",
+            capabilities=ToolCapabilities(detach=_SignalBridgePort()),
         )
+        result = await tool.execute(tool_call.arguments, ctx)
         return ToolCallResult(
             tool_call_id=tool_call.id,
             tool_name=tool_call.name,

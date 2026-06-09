@@ -1,14 +1,13 @@
-"""Error types for the workspace cache."""
-from __future__ import annotations
+"""Re-export shim — canonical implementation in magi_plugin_sdk.workspace_cache."""
+from magi_plugin_sdk.workspace_cache.errors import *  # noqa: F401, F403
+from magi_plugin_sdk.workspace_cache.errors import (
+    WorkspaceCacheError,
+    SnapshotIntegrityError,
+    SessionCacheCorruptError,
+)
 
-
-class WorkspaceCacheError(Exception):
-    """Base error for workspace cache operations."""
-
-
-class SnapshotIntegrityError(WorkspaceCacheError):
-    """Raised when a snapshot's stored bytes do not match its expected hash."""
-
-
-class SessionCacheCorruptError(WorkspaceCacheError):
-    """Raised when a session cache file is malformed beyond recovery."""
+__all__ = [
+    "WorkspaceCacheError",
+    "SnapshotIntegrityError",
+    "SessionCacheCorruptError",
+]

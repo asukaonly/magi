@@ -1,4 +1,30 @@
 {
+  "productTour": {
+    "next": "下一步",
+    "back": "上一步",
+    "skip": "跳过",
+    "done": "完成",
+    "connect": "启用",
+    "installAndConnect": "安装并启用",
+    "connecting": "连接中…",
+    "recommend": "推荐：{{plugin}}",
+    "chat": {
+      "title": "和我聊天",
+      "body": "在这里和你的人格对话。"
+    },
+    "timeline": {
+      "title": "你的生活时间线",
+      "body": "你让我看到的活动会长在这里。先连一个数据源，让我开始认识你。"
+    },
+    "memory": {
+      "title": "我记得的事",
+      "body": "关于你的记忆都在这里，越用越懂你。"
+    },
+    "bell": {
+      "title": "通知",
+      "body": "建议和任务通知都会出现在这个铃铛里。"
+    }
+  },
   "bootstrap": {
     "startupFailed": "后端启动失败",
     "retry": "重试",
@@ -12,6 +38,22 @@
   },
   "common": {
     "loading": "加载中..."
+  },
+  "notifications": {
+    "bellAria": "通知",
+    "title": "通知",
+    "empty": "暂无通知",
+    "markAllRead": "全部已读",
+    "clearAll": "全部清除",
+    "dismissAria": "删除此通知",
+    "suggestionTitle": "推荐连接「{{plugin}}」",
+    "suggestionTitleGeneric": "新的数据源建议",
+    "connect": "启用",
+    "installAndConnect": "安装并启用",
+    "installing": "安装中…",
+    "connectHint": "连接后 magi 就能读取这部分数据。",
+    "dismissedTitle": "已忽略",
+    "restore": "恢复"
   },
   "nav": {
     "dashboard": "仪表盘",
@@ -1458,6 +1500,11 @@
           "label": "预设模型",
           "placeholder": "选择预设模型"
         },
+        "embedding_local_variant": {
+          "label": "量化精度",
+          "auto": "自动",
+          "description": "根据当前平台自动选择最优变体。若要指定精度，手动选择。"
+        },
         "embedding_local_model_dir_path": {
           "label": "模型目录",
           "placeholder": "/path/to/your/onnx-model-dir"
@@ -2077,7 +2124,9 @@
       "noResults": "没有找到匹配的插件。",
       "badge": {
         "official": "官方",
-        "installed": "已安装"
+        "installed": "已安装",
+        "localOnly": "纯本地",
+        "localOnlyHint": "所有数据只留在本机，不上传任何地方。"
       },
       "actions": {
         "install": "安装",
@@ -2111,6 +2160,31 @@
         "tool": "工具",
         "action": "执行器",
         "channel": "消息渠道"
+      },
+      "consent": {
+        "title": { "install": "安装「{{name}}」?", "update": "更新「{{name}}」?", "sideload": "从文件安装「{{name}}」?" },
+        "lede": "此插件声明将访问:",
+        "ledeEmpty": "此插件未声明需要特殊系统权限或数据访问。",
+        "updateNewLede": "本次更新新增了以下访问:",
+        "groupSystem": "系统权限",
+        "groupData": "数据与网络访问",
+        "optionalTag": "可选",
+        "confirm": { "install": "安装", "update": "更新" },
+        "cancel": "取消",
+        "thirdParty": "第三方插件"
+      },
+      "capability": {
+        "screen_recording": { "label": "屏幕录制", "desc": "截取你的屏幕画面" },
+        "accessibility": { "label": "辅助功能", "desc": "读取活动窗口与界面" },
+        "calendar": { "label": "日历", "desc": "读取你的日历与提醒事项" },
+        "photos": { "label": "照片", "desc": "访问你的照片库" },
+        "contacts": { "label": "通讯录", "desc": "读取你的通讯录" },
+        "system_media": { "label": "系统媒体", "desc": "读取媒体播放信息" },
+        "filesystem_read": { "label": "读取文件", "desc": "读取你电脑上的文件" },
+        "filesystem_write": { "label": "写入文件", "desc": "在你电脑上写入文件" },
+        "network": { "label": "联网", "desc": "连接互联网" },
+        "subprocess": { "label": "运行程序", "desc": "在你电脑上运行其它程序" },
+        "unknown": { "label": "其它访问", "desc": "当前版本 Magi 不识别的访问类型" }
       }
     },
     "pluginInstallProgress": {
@@ -2268,7 +2342,9 @@
         "skills": "Magi 学到的做事方式"
       },
       "advancedToggle": "调试细节",
-      "noResults": "没找到合适的记忆，可以换一个更具体的词。"
+      "noResults": "没找到合适的记忆，可以换一个更具体的词。",
+      "emptyStateIntro": "magi 对你的了解还很有限。来加一条记忆，或者让我看看你的活动：",
+      "manualEntry": "手动添加一条记忆"
     },
     "governance": {
       "title": "整理",
@@ -2624,7 +2700,7 @@
     "search": "搜索",
     "clear": "清除",
     "sources": {
-      "chat_projector": "聊天投影",
+      "chat_projector": "聊天",
       "runtime_event_emitter": "运行时事件发射器",
       "timeline_importer": "时间线导入",
       "manual_journal": "手动日志",

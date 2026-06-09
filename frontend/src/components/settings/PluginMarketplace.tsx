@@ -3,6 +3,7 @@ import {
   Download,
   ExternalLink,
   Loader2,
+  Lock,
   Package,
   RefreshCw,
   Search,
@@ -13,7 +14,9 @@ import { toast } from 'sonner';
 
 import {
   pluginsApi,
+  type PluginCapability,
   type PluginInstallJobSnapshot,
+  type PluginManifest,
   type PluginPackageState,
   type PluginRegistryEntry,
 } from '@/api/modules/plugins';
@@ -21,6 +24,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PluginInstallProgressPanel } from '@/components/plugins/PluginInstallProgressPanel';
+import { PluginConsentDialog, type ConsentMode } from '@/components/plugins/PluginConsentDialog';
+import { capabilitiesExceedingConsent } from '@/lib/pluginCapabilities';
 
 const CONTRIBUTION_TYPE_FILTERS = ['all', 'sensor', 'tool', 'channel'] as const;
 type ContributionFilter = (typeof CONTRIBUTION_TYPE_FILTERS)[number];
@@ -52,12 +57,21 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const [typeFilter, setTypeFilter] = useState<ContributionFilter>('all');
   const [processingIds, setProcessingIds] = useState<Record<string, string>>({});
   const [installSnapshots, setInstallSnapshots] = useState<Record<string, PluginInstallJobSnapshot>>({});
+  const [consent, setConsent] = useState<{
+    mode: ConsentMode;
+    name: string;
+    version: string;
+    official?: boolean;
+    capabilities: PluginCapability[];
+    newCapabilities?: PluginCapability[];
+    proceed: () => Promise<void>;
+  } | null>(null);
 
-  const fetchRegistry = useCallback(async () => {
+  const fetchRegistry = useCallback(async (options?: { force?: boolean }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await pluginsApi.getRegistry();
+      const response = await pluginsApi.getRegistry(options);
       setRegistryEntries(response.plugins);
     } catch (err: any) {
       const message = err?.message || 'unknown';
@@ -94,7 +108,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     );
   }), [registryEntries, currentPlatform, typeFilter, searchQuery]);
 
-  const handleInstall = async (pluginId: string) => {
+  const runInstall = async (pluginId: string) => {
     setProcessingIds((prev) => ({ ...prev, [pluginId]: 'installing' }));
     try {
       await pluginsApi.installFromRegistryWithProgress(pluginId, (snapshot) => {
@@ -104,15 +118,21 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       toast.success(t('settings.marketplace.feedback.installSuccess'));
       await fetchRegistry();
     } catch (err: any) {
-      const message = err?.message || 'unknown';
-      toast.error(t('settings.marketplace.feedback.installFailed', { message }));
+      toast.error(t('settings.marketplace.feedback.installFailed', { message: err?.message || 'unknown' }));
     } finally {
-      setProcessingIds((prev) => {
-        const next = { ...prev };
-        delete next[pluginId];
-        return next;
-      });
+      setProcessingIds((prev) => { const n = { ...prev }; delete n[pluginId]; return n; });
     }
+  };
+
+  const handleInstall = (entry: PluginRegistryEntry) => {
+    setConsent({
+      mode: 'install',
+      name: localized(entry.name, entry.name_i18n, i18n.language),
+      version: entry.version,
+      official: entry.official,
+      capabilities: entry.capabilities ?? [],
+      proceed: () => runInstall(entry.plugin_id),
+    });
   };
 
   const handleUninstall = async (pluginId: string) => {
@@ -134,7 +154,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     }
   };
 
-  const handleUpdate = async (pluginId: string) => {
+  const runUpdate = async (pluginId: string) => {
     setProcessingIds((prev) => ({ ...prev, [pluginId]: 'updating' }));
     try {
       await pluginsApi.updatePluginWithProgress(pluginId, (snapshot) => {
@@ -144,21 +164,32 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       toast.success(t('settings.marketplace.feedback.updateSuccess'));
       await fetchRegistry();
     } catch (err: any) {
-      const message = err?.message || 'unknown';
-      toast.error(t('settings.marketplace.feedback.updateFailed', { message }));
+      toast.error(t('settings.marketplace.feedback.updateFailed', { message: err?.message || 'unknown' }));
     } finally {
-      setProcessingIds((prev) => {
-        const next = { ...prev };
-        delete next[pluginId];
-        return next;
-      });
+      setProcessingIds((prev) => { const n = { ...prev }; delete n[pluginId]; return n; });
     }
   };
 
-  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const handleUpdate = (entry: PluginRegistryEntry) => {
+    const installed = installedPlugins.find((p) => p.manifest.plugin_id === entry.plugin_id);
+    const declared = entry.capabilities ?? [];
+    const newCaps = capabilitiesExceedingConsent(declared, installed?.manifest.consented_capabilities ?? null);
+    if (newCaps.length === 0) {
+      void runUpdate(entry.plugin_id);
+      return;
+    }
+    setConsent({
+      mode: 'update',
+      name: localized(entry.name, entry.name_i18n, i18n.language),
+      version: entry.version,
+      official: entry.official,
+      capabilities: declared,
+      newCapabilities: newCaps,
+      proceed: () => runUpdate(entry.plugin_id),
+    });
+  };
 
+  const runUpload = async (file: File) => {
     setProcessingIds((prev) => ({ ...prev, __upload: 'uploading' }));
     try {
       await pluginsApi.installFromUploadWithProgress(file, (snapshot) => {
@@ -168,16 +199,33 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       toast.success(t('settings.marketplace.feedback.installSuccess'));
       await fetchRegistry();
     } catch (err: any) {
-      const message = err?.message || 'unknown';
-      toast.error(t('settings.marketplace.feedback.installFailed', { message }));
+      toast.error(t('settings.marketplace.feedback.installFailed', { message: err?.message || 'unknown' }));
     } finally {
-      setProcessingIds((prev) => {
-        const next = { ...prev };
-        delete next.__upload;
-        return next;
-      });
-      event.target.value = '';
+      setProcessingIds((prev) => { const n = { ...prev }; delete n.__upload; return n; });
     }
+  };
+
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setProcessingIds((prev) => ({ ...prev, __upload: 'uploading' }));
+    let manifest: PluginManifest;
+    try {
+      manifest = await pluginsApi.inspectUpload(file);
+    } catch (err: any) {
+      toast.error(t('settings.marketplace.feedback.installFailed', { message: err?.message || 'unknown' }));
+      setProcessingIds((prev) => { const n = { ...prev }; delete n.__upload; return n; });
+      return;
+    }
+    setProcessingIds((prev) => { const n = { ...prev }; delete n.__upload; return n; });
+    setConsent({
+      mode: 'sideload',
+      name: manifest.name,
+      version: manifest.version,
+      capabilities: manifest.capabilities ?? [],
+      proceed: () => runUpload(file),
+    });
   };
 
   return (
@@ -221,7 +269,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => void fetchRegistry()}
+            onClick={() => void fetchRegistry({ force: true })}
             disabled={loading}
           >
             <RefreshCw className={loading ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
@@ -263,7 +311,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
         <div className="space-y-3 py-8 text-center">
           <p className="text-sm text-destructive">{t('settings.marketplace.error')}</p>
           <p className="text-xs text-muted-foreground">{error}</p>
-          <Button type="button" variant="outline" size="sm" onClick={() => void fetchRegistry()}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void fetchRegistry({ force: true })}>
             {t('settings.marketplace.actions.retry')}
           </Button>
         </div>
@@ -297,6 +345,18 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                       {entry.official && (
                         <Badge variant="default" className="text-xs">
                           {t('settings.marketplace.badge.official')}
+                        </Badge>
+                      )}
+                      {entry.data_locality === 'local_only' && (
+                        <Badge
+                          variant="outline"
+                          className="gap-1 border-transparent bg-emerald-500/15 text-xs text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300"
+                          title={t('settings.marketplace.badge.localOnlyHint', {
+                            defaultValue: 'All data stays on this device — nothing is uploaded.',
+                          })}
+                        >
+                          <Lock className="h-3 w-3" />
+                          {t('settings.marketplace.badge.localOnly', { defaultValue: 'Local only' })}
                         </Badge>
                       )}
                     </div>
@@ -337,7 +397,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                             variant="outline"
                             size="sm"
                             disabled={isProcessing}
-                            onClick={() => void handleUpdate(entry.plugin_id)}
+                            onClick={() => handleUpdate(entry)}
                           >
                             {operation === 'updating' ? (
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -376,7 +436,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                         variant="default"
                         size="sm"
                         disabled={isProcessing}
-                        onClick={() => void handleInstall(entry.plugin_id)}
+                        onClick={() => handleInstall(entry)}
                       >
                         {operation === 'installing' ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -401,6 +461,20 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
             );
           })}
         </div>
+      )}
+
+      {consent && (
+        <PluginConsentDialog
+          open
+          mode={consent.mode}
+          pluginName={consent.name}
+          version={consent.version}
+          official={consent.official}
+          capabilities={consent.capabilities}
+          newCapabilities={consent.newCapabilities}
+          onCancel={() => setConsent(null)}
+          onConfirm={() => { const p = consent.proceed; setConsent(null); void p(); }}
+        />
       )}
     </div>
   );

@@ -12,6 +12,9 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ...config.cross_encoder_registry import get_cross_encoder_registry
+from ...utils.runtime import RuntimePaths
+from ..onnx_variants import resolve_variant_path
 from .cross_encoder_scorer import CrossEncoderScorer, _find_onnx_model
 from .models import RetrievalConfig
 from .reranker import (
@@ -36,16 +39,29 @@ _HEURISTIC_PENALTY_KEYS = frozenset({
     "generic_penalty",
 })
 
-_scorer_cache: dict[str, CrossEncoderScorer] = {}
+_scorer_cache: dict[tuple[str, str], CrossEncoderScorer] = {}
 _scorer_lock = asyncio.Lock()
 
 
-async def _get_or_create_scorer(model_dir: Path) -> CrossEncoderScorer:
-    """Return a cached scorer for the given model directory."""
-    key = str(model_dir)
+async def _get_or_create_scorer(
+    model_dir: Path,
+    *,
+    model_file_path: Path,
+) -> CrossEncoderScorer:
+    """Return a cached scorer keyed by (model_dir, resolved variant file path).
+
+    Switching variant produces a different ``model_file_path`` -> different
+    cache key -> fresh scorer instance that loads the new file. Old scorers
+    stay in the cache until the idle-unload loop kicks in (reranker models
+    are small, so the memory cost is negligible).
+    """
+    key = (str(model_dir), str(model_file_path))
     async with _scorer_lock:
         if key not in _scorer_cache:
-            _scorer_cache[key] = CrossEncoderScorer(model_dir)
+            _scorer_cache[key] = CrossEncoderScorer(
+                model_dir,
+                model_file_path=model_file_path,
+            )
         return _scorer_cache[key]
 
 
@@ -55,13 +71,35 @@ def _resolve_cross_encoder_model_dir(config: RetrievalConfig) -> Optional[Path]:
     if not model_id:
         return None
 
-    from ...utils.runtime import RuntimePaths
-
     paths = RuntimePaths()
     model_dir = Path(paths.managed_reranker_model_dir(model_id))
     if model_dir.exists() and model_dir.is_dir():
         return model_dir
     return None
+
+
+def _resolve_cross_encoder_paths(
+    config: RetrievalConfig,
+) -> Optional[tuple[Path, Path]]:
+    """Resolve (model_dir, specific .onnx file) for the configured cross-encoder.
+
+    Returns ``None`` if (a) no model is configured, (b) the model dir doesn't
+    exist, or (c) the resolved variant's file isn't on disk. The variant
+    override comes from ``config.cross_encoder_variant`` (``None`` means use
+    the platform default from the registry).
+    """
+    model_dir = _resolve_cross_encoder_model_dir(config)
+    if model_dir is None:
+        return None
+
+    model_id = (config.cross_encoder_model_id or "").strip()
+    meta = get_cross_encoder_registry().get(model_id) if model_id else None
+
+    variant_override = config.cross_encoder_variant
+    model_file = resolve_variant_path(model_dir, meta, override=variant_override)
+    if model_file is None:
+        return None
+    return model_dir, model_file
 
 
 class CrossEncoderReranker(BaseRetrievalReranker):
@@ -88,17 +126,18 @@ class CrossEncoderReranker(BaseRetrievalReranker):
         if not heuristic_results or not self._enabled_for_layer(layer):
             return heuristic_results
 
-        model_dir = _resolve_cross_encoder_model_dir(self._config)
-        if model_dir is None:
+        paths = _resolve_cross_encoder_paths(self._config)
+        if paths is None:
             logger.debug("Cross-encoder model not available, using heuristic only")
             return heuristic_results
+        model_dir, model_file = paths
 
         top_k = max(1, int(self._config.reranker_top_k))
         rerank_slice = list(heuristic_results[:top_k])
         remainder = list(heuristic_results[top_k:])
 
         try:
-            scorer = await _get_or_create_scorer(model_dir)
+            scorer = await _get_or_create_scorer(model_dir, model_file_path=model_file)
             pairs = [
                 (
                     query,
@@ -164,4 +203,5 @@ __all__ = [
     "_find_onnx_model",
     "_get_or_create_scorer",
     "_resolve_cross_encoder_model_dir",
+    "_resolve_cross_encoder_paths",
 ]

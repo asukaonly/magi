@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from magi.agent.task_agents.chat.attachment_context import resolve_effective_turn_attachments
-from magi.agent.task_agents.chat.contracts import ChatReplyContext
+from magi.agent.run.ports import NullAttachmentResolver
+from magi.agent.task_agents.handlers.attachment_context import resolve_effective_turn_attachments
+from magi.agent.task_agents.handlers.contracts import ChatReplyContext
+
+_NULL_RESOLVER = NullAttachmentResolver()
 
 
 class _FakeReadService:
@@ -43,7 +46,7 @@ def test_effective_turn_attachments_include_explicit_reply_target_attachments() 
         ),
     )
 
-    assert resolve_effective_turn_attachments(context) == [
+    assert resolve_effective_turn_attachments(context, resolver=_NULL_RESOLVER) == [
         {"attachment_id": "att-image", "kind": "image", "original_name": "image.png"}
     ]
 
@@ -61,7 +64,7 @@ def test_effective_turn_attachments_ignore_non_explicit_reply_context() -> None:
         ),
     )
 
-    assert resolve_effective_turn_attachments(context) == []
+    assert resolve_effective_turn_attachments(context, resolver=_NULL_RESOLVER) == []
 
 
 def test_effective_turn_attachments_deduplicate_current_and_reply_refs() -> None:
@@ -77,7 +80,7 @@ def test_effective_turn_attachments_deduplicate_current_and_reply_refs() -> None
         ),
     )
 
-    assert resolve_effective_turn_attachments(context) == [{"attachment_id": "att-image", "kind": "image"}]
+    assert resolve_effective_turn_attachments(context, resolver=_NULL_RESOLVER) == [{"attachment_id": "att-image", "kind": "image"}]
 
 
 def test_effective_turn_attachments_resolve_reply_target_managed_payload() -> None:
@@ -106,7 +109,7 @@ def test_effective_turn_attachments_resolve_reply_target_managed_payload() -> No
 
     attachments = resolve_effective_turn_attachments(
         context,
-        read_service_factory=lambda: _FakeReadService(),
+        resolver=_FakeReadService(),
     )
 
     assert attachments == [

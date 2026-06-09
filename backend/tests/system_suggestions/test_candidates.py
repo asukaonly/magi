@@ -1,0 +1,68 @@
+from types import SimpleNamespace
+from magi.system_suggestions.candidates import build_suggestion_candidates, SuggestionCandidate
+
+
+def _desc(category):
+    return SimpleNamespace(category=category)
+
+
+def _manifest(pid, desc):
+    return SimpleNamespace(plugin_id=pid, suggestion_descriptor=desc)
+
+
+def _entry(pid, desc):
+    return SimpleNamespace(plugin_id=pid, suggestion_descriptor=desc)
+
+
+def test_union_tags_installed_and_dedups():
+    installed = [_manifest("chrome-history", _desc("browser_history")),
+                 _manifest("no-desc", None)]
+    registry = [_entry("chrome-history", _desc("browser_history")),  # dup -> installed wins
+                _entry("git-activity", _desc("code_activity")),      # registry-only
+                _entry("lib-only", None)]                            # no descriptor -> skip
+    cands = build_suggestion_candidates(installed, registry)
+    by_id = {c.plugin_id: c for c in cands}
+    assert set(by_id) == {"chrome-history", "git-activity"}
+    assert by_id["chrome-history"].installed is True
+    assert by_id["git-activity"].installed is False
+
+
+def test_empty_inputs():
+    assert build_suggestion_candidates([], []) == []
+
+
+def _pkg(pid, desc):
+    return SimpleNamespace(manifest=_manifest(pid, desc))
+
+
+def test_partition_excludes_source_active_plugins():
+    from magi.system_suggestions.candidates import partition_for_candidates
+
+    packages = [
+        _pkg("chrome-history", _desc("browser_history")),  # source in-use -> drop
+        _pkg("git-activity", _desc("code_activity")),      # installed, source off -> connect
+    ]
+    registry = [
+        _entry("chrome-history", _desc("browser_history")),  # active -> NOT re-suggested
+        _entry("edge-history", _desc("browser_history")),    # not installed -> install
+    ]
+    # chrome-history has an enabled+configured sensor source (in use).
+    active = {"chrome-history"}
+    installed_manifests, registry_entries = partition_for_candidates(
+        packages, registry, active
+    )
+    cands = build_suggestion_candidates(installed_manifests, registry_entries)
+    by_id = {c.plugin_id: c for c in cands}
+    # chrome-history's source is in use -> excluded entirely (not connect, not install).
+    assert "chrome-history" not in by_id
+    assert by_id["git-activity"].installed is True       # installed but source off -> connect
+    assert by_id["edge-history"].installed is False       # not installed -> install
+
+
+def test_partition_without_active_set_keeps_all_installed_as_connect():
+    from magi.system_suggestions.candidates import partition_for_candidates
+
+    packages = [_pkg("chrome-history", _desc("browser_history"))]
+    installed_manifests, _ = partition_for_candidates(packages, [])
+    cands = build_suggestion_candidates(installed_manifests, [])
+    assert {c.plugin_id for c in cands} == {"chrome-history"}

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+from collections import deque
 
 import pytest
 
 from magi.agent.runtime.contracts import FactRecord
-from magi.agent.task_agents.chat.postprocess_service import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
-from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
+from magi.chat.task_agent.interruption_classifier import InterruptionDisposition
+from magi.chat.task_agent.postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
+from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.agent.task_agents.common import ExecutionMode, IncomingFactKind
 from magi.events.events import EventTypes
 from magi.memory import UnifiedMemoryStore
+from magi.tools.context_routing import RouteDecision
 
 
 class _FakeLLMAdapter:
@@ -17,22 +19,43 @@ class _FakeLLMAdapter:
     supports_embeddings = False
 
 
-def _make_decision(user_message: str) -> SimpleNamespace:
-    return SimpleNamespace(
-        intent="chat",
+def _make_decision(user_message: str) -> RouteDecision:
+    return RouteDecision(
+        profile="chat",
+        graph_shape="reply",
+        complexity="simple",
         tools=[],
-        deep_thinking=False,
-        thinking_depth="none",
         reasoning=f"route:{user_message}",
-        orchestration_strategy={
-            "mode": "direct",
-            "planner": "task_agent",
-            "default_leaf_type": "general-purpose",
-            "allow_parallel": False,
-        },
         memory_route="none",
-        llm_trace={},
     )
+
+
+class _StubInterruptionClassifier:
+    """Force a scripted disposition so the interruption test exercises
+    the coordinator routing logic without depending on a real LLM.
+
+    Phase H6 sync ``InterruptionClassifier.classify`` is strict-only,
+    so AUGMENT decisions are only reachable via the LLM-backed async
+    path. These integration tests use a ``_FakeLLMAdapter`` with no
+    provider, which makes ``aclassify`` fall back to the sync path.
+    """
+
+    def __init__(self, dispositions: list[InterruptionDisposition]) -> None:
+        self._queue: deque[InterruptionDisposition] = deque(dispositions)
+        self._last: InterruptionDisposition = InterruptionDisposition.DEFER
+
+    def classify(self, context):  # type: ignore[no-untyped-def]
+        _ = context
+        if self._queue:
+            self._last = self._queue.popleft()
+        return self._last
+
+    async def aclassify(self, context):  # type: ignore[no-untyped-def]
+        return self.classify(context)
+
+    def looks_like_strict_interrupt(self, user_text: str) -> bool:
+        _ = user_text
+        return False
 
 
 def _user_fact(*, session_id: str, content: str, turn_id: str) -> FactRecord:
@@ -74,6 +97,15 @@ async def test_interruptible_chat_sessions_do_not_cross_streams_and_merge_at_own
 ) -> None:
     agent_a = ChatTaskAgent(agent_id="session-a", llm_adapter=_FakeLLMAdapter())
     agent_b = ChatTaskAgent(agent_id="session-b", llm_adapter=_FakeLLMAdapter())
+    # Each session needs AUGMENT for the second user turn so the
+    # checkpoint correctly merges; the first turn opens a fresh run and
+    # bypasses the classifier entirely.
+    agent_a._session_run_coordinator._interruption_classifier = _StubInterruptionClassifier(
+        [InterruptionDisposition.AUGMENT]
+    )
+    agent_b._session_run_coordinator._interruption_classifier = _StubInterruptionClassifier(
+        [InterruptionDisposition.AUGMENT]
+    )
     seen_messages: list[tuple[str, str]] = []
 
     async def _decide_a(user_message: str, decision_context: dict):  # type: ignore[no-untyped-def]
@@ -163,6 +195,9 @@ async def test_interruptible_chat_recovers_pending_turns_from_l0_checkpoint(
         agent_id="session-a",
         llm_adapter=_FakeLLMAdapter(),
         unified_memory=memory,
+    )
+    agent._session_run_coordinator._interruption_classifier = _StubInterruptionClassifier(
+        [InterruptionDisposition.AUGMENT]
     )
     first_fact = _user_fact(session_id="session-a", content="Inspect the login flow.", turn_id="turn-a1")
     augment_fact = _user_fact(

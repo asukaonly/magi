@@ -6,6 +6,7 @@ import { SelectField } from '@/components/config-forms/fields';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { normalizeDynamicSpec, type DynamicConfigSpec } from '@/components/config-forms/dynamic-config-specs';
+import { pickDirectory } from '@/runtime/desktop';
 
 interface DynamicConfigFieldProps {
   spec: DynamicConfigSpec;
@@ -141,7 +142,11 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
       const paths: string[] = Array.isArray(value) ? value : [];
       const handleBrowse = async () => {
         try {
-          const { pickDirectory } = await import('@/runtime/desktop');
+          // runtime/desktop is already in the eagerly-loaded bundle (via
+          // main.tsx); the dynamic import previously here only produced a
+          // Vite/Rolldown ineffective-dynamic-import warning. The Tauri
+          // runtime check inside pickDirectory still returns undefined when
+          // not running under the desktop shell.
           const selected = await pickDirectory(paths[paths.length - 1] ?? undefined);
           if (selected && !paths.includes(selected)) {
             handleChange([...paths, selected]);

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from magi.agent.task_agents.chat.prompt_service import ChatPromptService
+from magi.chat.task_agent.prompt_service import ChatPromptService
 
 
 class TestChatPromptService(unittest.TestCase):

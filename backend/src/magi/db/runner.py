@@ -2,8 +2,8 @@
 
 Each runtime SQLite database that participates in Alembic has its
 schema versioned by an environment under ``magi/db/migrations/<name>``.
-At process startup, ``CoreDependenciesModule`` calls
-``run_upgrade_head`` for each registered target after the runtime
+At process startup, ``DatabaseMigrationModule`` (``db/lifecycle.py``)
+calls ``run_upgrade_head`` for each registered target after the runtime
 paths have been resolved; this brings the on-disk schema up to the
 latest committed revision before any store opens its connection.
 
@@ -73,6 +73,8 @@ MIGRATION_TARGETS: tuple[MigrationTarget, ...] = (
         db_path=lambda rp: rp.permission_rules_db_path,
     ),
     MigrationTarget(name="channels", db_path=lambda rp: rp.channels_db_path),
+    MigrationTarget(name="identity", db_path=lambda rp: rp.identity_db_path),
+    MigrationTarget(name="batch", db_path=lambda rp: rp.batch_db_path),
 )
 
 

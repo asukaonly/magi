@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { syncWindowCaptionColor } from '@/runtime/desktop';
 
 export const THEME_MODE_OPTIONS = [
   'light',
@@ -72,11 +73,15 @@ const syncDesktopCaptionColor = (): void => {
   if (typeof window === 'undefined') {
     return;
   }
-  void import('@/runtime/desktop')
-    .then(({ syncWindowCaptionColor }) => syncWindowCaptionColor())
-    .catch(() => {
-      // desktop runtime unavailable (web build)
-    });
+  // runtime/desktop is already statically imported from main.tsx, so the
+  // previous dynamic import bought nothing but a Vite/Rolldown warning
+  // about ineffective dynamic import. `syncWindowCaptionColor` itself
+  // no-ops cleanly when not running under Tauri.
+  try {
+    void syncWindowCaptionColor();
+  } catch {
+    // desktop runtime unavailable (web build) — swallow silently
+  }
 };
 
 const applyTheme = (mode: ThemeMode, resolvedTheme = resolveTheme(mode)): void => {
@@ -124,15 +129,37 @@ export const useThemeStore = create<ThemeState>((set) => {
   };
 });
 
-// Listen for system theme changes
+// Listen for system theme changes.
+//
+// This runs at module evaluation time, so any path that re-imports this
+// module (Vite HMR in dev, accidental dual-import in prod) would stack
+// duplicate listeners and leak memory + double-apply themes. We guard
+// with a module-scoped flag and stash the listener on `window` so an
+// HMR cycle can dispose the previous one before binding a new one.
+declare global {
+  interface Window {
+    __magiThemeMediaQuery?: MediaQueryList;
+    __magiThemeMediaListener?: (event: MediaQueryListEvent) => void;
+  }
+}
+
 if (typeof window !== 'undefined' && window.matchMedia) {
+  const previousQuery = window.__magiThemeMediaQuery;
+  const previousListener = window.__magiThemeMediaListener;
+  if (previousQuery && previousListener) {
+    previousQuery.removeEventListener('change', previousListener);
+  }
+
   const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-  mediaQuery.addEventListener('change', (e) => {
+  const listener = (event: MediaQueryListEvent) => {
     const state = useThemeStore.getState();
     if (state.mode === 'system') {
-      const resolved = e.matches ? 'dark' : 'light';
+      const resolved = event.matches ? 'dark' : 'light';
       applyTheme(state.mode, resolved);
       useThemeStore.setState({ resolvedTheme: resolved });
     }
-  });
+  };
+  mediaQuery.addEventListener('change', listener);
+  window.__magiThemeMediaQuery = mediaQuery;
+  window.__magiThemeMediaListener = listener;
 }

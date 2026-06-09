@@ -20,8 +20,81 @@ from ..models import (
 logger = get_logger("magi.memory.l2.pipeline")
 
 
+def event_allows_llm_extraction(event: Any) -> bool:
+    """Whether an event may drive LLM phase1/2 extraction.
+
+    A sensor can set ``allow_llm_extraction=False`` (carried in ``metadata_json``) to run
+    in "structured-only" mode: deterministic direct-writes still happen, but the LLM
+    extractor is skipped. A missing key defaults to True (full extraction).
+    """
+    metadata = getattr(event, "metadata_json", None) or {}
+    return bool(metadata.get("allow_llm_extraction", True))
+
+
+async def resolve_llm_extraction(event: Any, counter: Any) -> bool:
+    """Final per-event LLM-extraction decision: P4 override, then P1 flag + P2 gate.
+
+    - P4: a per-event ``promotion_override`` (metadata_json) is the escape hatch —
+      ``force_full`` runs full extraction and ``force_structured_only`` skips it,
+      either way beating both P1 and P2. An unknown value is ignored.
+    - P1: if ``allow_llm_extraction`` is False -> structured-only (skip LLM).
+    - P2: a sensor declaring ``promotion_threshold`` (metadata_json) + a per-event
+      ``promotion_key`` runs structured-only until the key has been seen >= threshold
+      times, then is promoted to full extraction (and stays promoted).
+    No counter or no frequency policy -> falls back to the P1 flag.
+    """
+    metadata = getattr(event, "metadata_json", None) or {}
+    override = str(metadata.get("promotion_override") or "").strip()
+    if override == "force_full":
+        return True
+    if override == "force_structured_only":
+        return False
+    if not event_allows_llm_extraction(event):
+        return False
+    threshold = int(metadata.get("promotion_threshold") or 0)
+    key = str(metadata.get("promotion_key") or "").strip()
+    if threshold <= 0 or not key or counter is None:
+        return True
+    source_type = str(getattr(event, "source", "") or "")
+    event_id = str(getattr(event, "event_id", "") or "")
+    _count, promoted = await counter.bump(source_type, key, event_id, threshold=threshold)
+    return bool(promoted)
+
+
+def resolve_window_texts(events: Any, pinned_by_id: dict[str, str]) -> list[str]:
+    """Per-event window text for L2 extraction: the pinned capture-time full text
+    when present, else the lean L1 ``content`` (RFC #56 P3).
+
+    L2 reads the frozen snapshot, never the live source. An empty/missing pinned
+    value falls back to ``content`` so a blank snapshot never erases the text.
+    """
+    return [
+        (pinned_by_id.get(getattr(ev, "event_id", "") or "") or getattr(ev, "content", "") or "")
+        for ev in events
+    ]
+
+
 class L2PipelineExtractionMixin:
     """Run the end-to-end L2 Phase 1/Phase 2 extraction and persistence flow."""
+
+    async def _fetch_pinned_payloads(self: Any, event_ids: Any) -> dict[str, str]:
+        """Batch-load pinned capture-time full texts for the window (RFC #56 P3).
+
+        Asks L1 (owner of the pinned-payload satellite). Resilient to a missing
+        store/method or read error -> empty map, so extraction falls back to the
+        lean ``content``.
+        """
+        ids = [e for e in (event_ids or []) if e]
+        if not ids:
+            return {}
+        l1 = getattr(self, "_l1_store", None)
+        getter = getattr(l1, "get_pinned_payloads", None) if l1 is not None else None
+        if getter is None:
+            return {}
+        try:
+            return await getter(ids)
+        except Exception:
+            return {}
 
     async def _extract_and_persist(self: Any, job: L2BatchJob) -> dict[str, Any]:
         if self._cognition_store is None:
@@ -136,10 +209,11 @@ class L2PipelineExtractionMixin:
         )
         self_entity_id = self._resolve_self_entity_id(stored_event)
 
+        pinned_by_id = await self._fetch_pinned_payloads(batch_event_ids)
         event_window = L2EventWindow(
             event_ids=batch_event_ids,
             events=[self._serialize_event_for_batch(item[0]) for item in eligible_events],
-            texts=[item[0].content for item in eligible_events],
+            texts=resolve_window_texts([item[0] for item in eligible_events], pinned_by_id),
             context_texts=[
                 msg.get("content", "") for msg in context_messages if msg.get("content", "").strip()
             ],
@@ -176,6 +250,39 @@ class L2PipelineExtractionMixin:
             event=stored_event,
             candidates=direct_write_candidates,
         )
+
+        if not await resolve_llm_extraction(stored_event, getattr(self, "_promotion_counter", None)):
+            # Structured-only (P1 opt-out or P2 below-threshold): direct-writes done above; skip LLM.
+            facet_candidates = self._build_structured_facet_candidates(
+                event=stored_event,
+                evidence_event_ids=batch_event_ids,
+            )
+            facet_count = await self._upsert_entity_facets(facet_candidates)
+            logger.info(
+                "L2 structured-only mode: skipped LLM phase1/2",
+                event_id=stored_event.event_id,
+                profile_id=extraction_profile.profile_id,
+                direct_write_count=direct_write_count,
+                facet_count=facet_count,
+            )
+            return {
+                "relation_count": direct_write_count,
+                "assertion_count": 0,
+                "touched_entity_ids": [],
+                "snapshot_refresh_entity_ids": [],
+                "skipped": False,
+                "evidence_class": classification.evidence_class,
+                "profile_id": extraction_profile.profile_id,
+                "mention_count": 0,
+                "direct_write_count": direct_write_count,
+                "graph_candidate_count": 0,
+                "assertion_candidate_count": 0,
+                "rejected_graph_candidate_count": 0,
+                "rejected_assertion_candidate_count": 0,
+                "contradiction_hint_count": 0,
+                "conflict_arbitration_decision": None,
+                "structured_only": True,
+            }
 
         logger.info(
             "L2 Phase 1 extraction started",

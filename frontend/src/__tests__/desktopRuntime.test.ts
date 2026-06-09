@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const invokeMock = vi.fn();
-const listenMock = vi.fn();
+// vi.hoisted because vi.mock factories are hoisted above the const
+// declaration; runtime/desktop now statically imports these modules, so
+// the mock factory runs during the test file's module-evaluation and
+// would otherwise hit a TDZ on invokeMock/listenMock.
+const { invokeMock, listenMock } = vi.hoisted(() => ({
+  invokeMock: vi.fn(),
+  listenMock: vi.fn(),
+}));
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: invokeMock,

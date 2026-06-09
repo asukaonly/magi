@@ -2,18 +2,38 @@
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from .control import ControlRequest
+    from .delivery import DeliveryChunk, DeliveryContent, DeliveryReceipt
 
 
 @dataclass(slots=True)
 class ChannelTarget:
-    """Identify an external conversation endpoint."""
+    """Identify a destination for a delivery.
+
+    ``channel_type`` is the registry SCHEME only (e.g. "chat_sse",
+    "telegram"). DeliveryRouter looks up channels by exactly this string.
+
+    ``external_chat_id`` / ``external_thread_id`` carry the external
+    platform's identifiers (Telegram chat_id, Slack channel/thread, etc.)
+    when the channel maps to an external system. Empty when the channel
+    is magi-native (e.g. chat_sse).
+
+    ``magi_session_id`` / ``magi_user_id`` carry magi-side context so
+    magi-native channels can route, and external channels can perform
+    their own session->external-id lookups (via session_mapper, etc.).
+    """
 
     channel_type: str
     external_chat_id: str
     external_thread_id: str | None = None
+    magi_session_id: str = ""
+    magi_user_id: str = ""
 
 
 @dataclass(slots=True)
@@ -173,7 +193,33 @@ class ChannelMessageDispatcherProtocol(Protocol):
 
 
 class Channel(ABC):
-    """A bidirectional messaging channel connected to an external platform."""
+    """A bidirectional messaging channel connected to an external platform.
+
+    Phase G additions:
+    - Capability flags (class attributes): ``supports_streaming``,
+      ``supports_revision``, ``supports_attachments``.
+    - ``deliver(target, content)`` — modern delivery returning a
+      ``DeliveryReceipt``. Defaults to wrapping ``send_message`` so
+      existing implementations keep working.
+    - ``revise(receipt, new_content)`` — edit an already-delivered
+      message. Defaults to ``NotImplementedError`` so the host knows
+      to fall back to "send correction" semantics.
+    - ``retract(receipt)`` — delete an already-delivered message.
+      Defaults to ``NotImplementedError`` for the same reason.
+    """
+
+    # === Phase G capability flags (override in subclass) ===
+    supports_streaming: bool = False
+    supports_revision: bool = False
+    supports_attachments: bool = True  # most channels support text + attachments
+
+    # === Phase H+2 control-plane capability flag (override in subclass) ===
+    # ``True`` if the channel implements ``deliver_control_request`` —
+    # used by the host's DeliveryRouter.fanout_control_request to skip
+    # channels that haven't opted in, instead of catching
+    # NotImplementedError per call. Plugins that override the method
+    # MUST also flip this flag.
+    supports_control_requests: bool = False
 
     @property
     @abstractmethod
@@ -195,6 +241,107 @@ class Channel(ABC):
     @abstractmethod
     async def send_typing_indicator(self, target: ChannelTarget) -> None:
         """Show typing or processing state on the external platform."""
+
+    async def deliver(
+        self,
+        target: "ChannelTarget",
+        content: "DeliveryContent",
+    ) -> "DeliveryReceipt":
+        """Phase G delivery. Default: wrap legacy ``send_message``.
+
+        Subclasses that want the receipt's ``external_message_id`` to
+        carry a real channel-native ID (Telegram message_id, Slack ts)
+        should override this method directly.
+        """
+        from .delivery import DeliveryReceipt
+
+        legacy_content = OutboundContent(text=content.text)
+        await self.send_message(target, legacy_content)
+        return DeliveryReceipt(
+            channel_id=target.channel_type,
+            external_message_id=None,  # legacy channels have no native id
+            delivered_at_ms=int(time.time() * 1000),
+        )
+
+    async def deliver_chunk(
+        self,
+        target: "ChannelTarget",
+        chunk: "DeliveryChunk",
+    ) -> None:
+        """Stream one fragment of a delivery.
+
+        Channels that opt into streaming via ``supports_streaming = True``
+        must override. Non-streaming channels see only the assembled content
+        via ``deliver()``; this default raises so silent drops cannot happen.
+        """
+        raise NotImplementedError(
+            f"Channel {type(self).__name__!s} did not implement deliver_chunk; "
+            "either set supports_streaming = False or override deliver_chunk."
+        )
+
+    async def revise(
+        self,
+        receipt: "DeliveryReceipt",
+        new_content: "DeliveryContent",
+    ) -> "DeliveryReceipt":
+        """Phase G edit. Default: NotImplementedError.
+
+        Channels that support editing (Telegram via editMessageText,
+        Slack via chat.update) should override.
+        """
+        raise NotImplementedError(
+            f"Channel {type(self).__name__} does not support revise; "
+            f"override Channel.revise() and set supports_revision=True"
+        )
+
+    async def retract(
+        self,
+        receipt: "DeliveryReceipt",
+    ) -> None:
+        """Phase G retract. Default: NotImplementedError.
+
+        Channels that support deletion (Telegram deleteMessage, Slack
+        chat.delete) should override. Channels that can't (email)
+        should keep the default and rely on the host sending a
+        ``(message retracted)`` correction message.
+        """
+        raise NotImplementedError(
+            f"Channel {type(self).__name__} does not support retract; "
+            f"override Channel.retract() if the channel supports it"
+        )
+
+    async def deliver_control_request(
+        self,
+        target: "ChannelTarget",
+        request: "ControlRequest",
+    ) -> None:
+        """Phase H+2 control-plane fanout. Default: NotImplementedError.
+
+        When a tool call hits the permission gate, the host fans out
+        a ControlRequest to every channel connected to the
+        originating user (desktop SSE + the channel the user is
+        actually chatting from). Channels that opt in (Telegram with
+        inline buttons, WeChat with text instructions) override this
+        method and set ``supports_control_requests = True``.
+
+        The plugin's only contract here is "render the prompt in
+        whatever the platform supports." The user's response flows
+        back through the normal inbound message path — either a
+        button-tap-callback synthesized into ``/approve {short_id}``
+        (Telegram) or the user typing ``/approve {short_id}``
+        verbatim (WeChat). The host's slash-command parser correlates
+        the response back to ``request.request_id`` via short_id.
+
+        Channels that can't render any kind of out-of-band prompt
+        (pure email, batch-only platforms) should keep the default;
+        the host will silently skip them.
+        """
+        raise NotImplementedError(
+            f"Channel {type(self).__name__} does not support control "
+            f"requests; override Channel.deliver_control_request() "
+            f"and set supports_control_requests=True if the channel "
+            f"can render approval prompts."
+        )
 
     def bind_session_mapper(self, session_mapper: ChannelSessionMapperProtocol) -> None:
         """Inject the host-provided session mapper after construction."""

@@ -238,6 +238,23 @@ class RuntimePaths:
         return self.data_dir / "channels" / "channels.db"
 
     @property
+    def identity_db_path(self) -> Path:
+        """Identity layer database path.
+
+        Stores ``user_identity_bindings`` rows mapping
+        ``(channel_type, external_user_id)`` to a canonical
+        ``MagiUserID``. Independent file (not co-located with
+        channels.db) because identity is cross-cutting — see
+        ``docs/identity-architecture.md``.
+        """
+        return self.data_dir / "identity" / "identity.db"
+
+    @property
+    def batch_db_path(self) -> Path:
+        """Batch orchestrator manifest database path."""
+        return self.data_dir / "batch" / "batch.db"
+
+    @property
     def task_orchestrations_path(self) -> Path:
         """Task-orchestration recovery store path."""
         return self.runtime_dir / "task_orchestrations.json"
@@ -311,6 +328,16 @@ class RuntimePaths:
         """
         self.personalities_dir.mkdir(parents=True, exist_ok=True)
 
+
+
+DEFAULT_CHAT_WORKSPACE_DIRNAME = "chat-workspace"
+
+
+def get_default_chat_workspace_path() -> str:
+    """Return the managed default workspace path for desktop chat sessions."""
+    workspace_path = (Path.home() / ".magi" / DEFAULT_CHAT_WORKSPACE_DIRNAME).expanduser()
+    workspace_path.mkdir(parents=True, exist_ok=True)
+    return str(workspace_path.resolve())
 
 
 # Global instance

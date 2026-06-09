@@ -33,7 +33,10 @@ async def get_service() -> Any:
             if _service_singleton is None:
                 try:
                     from ....memory.portrait.factory import build_portrait_service
-                    _service_singleton = build_portrait_service()
+                    from .dependencies import get_chat_read_service
+                    _service_singleton = build_portrait_service(
+                        chat_read_service_factory=get_chat_read_service,
+                    )
                 except Exception as exc:
                     logger.warning("portrait service init failed: %s", exc)
                     raise HTTPException(

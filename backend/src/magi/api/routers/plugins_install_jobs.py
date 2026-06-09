@@ -14,6 +14,7 @@ import uuid
 from fastapi import HTTPException, status
 
 from ... import i18n as core_i18n
+from ...plugins.installation import InvalidPluginArchiveError
 from .plugins_common import (
     _get_registry_client,
     _lightweight_install,
@@ -237,6 +238,15 @@ class PluginInstallJobManager:
                 plugin_dir,
                 progress_reporter=self._reporter(job),
             )
+            from ...config import save_config
+
+            save_config(
+                {
+                    f"plugins.packages.{plugin_id}.consented_capabilities": [
+                        c.model_dump() for c in entry.capabilities
+                    ]
+                }
+            )
             job.complete(_serialize_package(new_state))
         except Exception as exc:
             job.fail(str(exc))
@@ -256,6 +266,13 @@ class PluginInstallJobManager:
             with job.lock:
                 job.plugin_id = state.manifest.plugin_id
             job.complete(_serialize_package(state))
+        except InvalidPluginArchiveError:
+            job.fail(
+                core_i18n.t(
+                    "plugins.errors.archive_invalid",
+                    fallback="The uploaded file is not a valid plugin archive",
+                )
+            )
         except Exception as exc:
             job.fail(str(exc))
         finally:

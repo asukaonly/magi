@@ -8,10 +8,10 @@ from magi.agent.execution.function_calling.step_executor import (
     FunctionCallingStepOutcome,
     FunctionCallingStepState,
 )
-from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
-from magi.agent.task_agents.chat.handlers import ChatHandlerDependencies, FunctionCallingHandler
-from magi.agent.task_agents.chat.interruption_classifier import InterruptionDisposition
-from magi.agent.task_agents.chat.session_run_coordinator import SessionRunCoordinator
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
+from magi.agent.task_agents.handlers.handlers import ChatHandlerDependencies, FunctionCallingHandler
+from magi.chat.task_agent.interruption_classifier import InterruptionDisposition
+from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.agent.task_agents.common import ExecutionMode, FunctionCallingRequest, IncomingFactKind, OrchestrationPlan, ToolSelection, UserMessagePayload
 
 
@@ -26,8 +26,8 @@ class _FakeOrchestrator:
         self.execute_with_tools_calls: list[dict[str, object]] = []
         self.fallback_calls: list[dict[str, object]] = []
 
-    def build_step_state(self, *, turn, system_prompt, selected_tools, conversation_history=None, session_summary=None, session_origin=None, allow_attachment_grounding=False):  # type: ignore[no-untyped-def]
-        _ = (system_prompt, selected_tools, conversation_history, session_summary, session_origin, allow_attachment_grounding)
+    def build_step_state(self, *, turn, system_prompt, selected_tools, conversation_history=None, session_summary=None, session_origin=None, reply_context=None, allow_attachment_grounding=False, ephemeral_context=None, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (system_prompt, selected_tools, conversation_history, session_summary, session_origin, reply_context, allow_attachment_grounding, ephemeral_context, kwargs)
         self.build_step_state_calls.append(turn.text)
         return FunctionCallingStepState(
             messages=[{"role": "user", "content": turn.text}],
@@ -44,6 +44,9 @@ class _FakeOrchestrator:
         outcome = self._step_results.pop(0)
         state.iteration = outcome.iteration
         return outcome
+
+    async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
+        return await self.execute_with_tools(**run_input.to_execute_kwargs())
 
     async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
         self.execute_with_tools_calls.append(dict(kwargs))
@@ -107,7 +110,6 @@ def _make_request(context: ChatRuntimeContext) -> FunctionCallingRequest:
             difficulty="normal",
             execution_mode=ExecutionMode.FUNCTION_CALLING,
             reasoning="tool use",
-            orchestration_plan=OrchestrationPlan(),
         ),
         tool_selection=ToolSelection(tools=["memory_query"], reasoning="tool use"),
         prompt_context=SimpleNamespace(runtime_system=SimpleNamespace(cwd="/tmp/magi")),
@@ -123,7 +125,7 @@ def _make_handler(orchestrator: _FakeOrchestrator, coordinator: SessionRunCoordi
         planning_service=SimpleNamespace(),
         function_calling_orchestrator=orchestrator,
         task_orchestrator=SimpleNamespace(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         agent_id="s-chat",
         get_task_agent_manager=lambda: None,
         session_run_coordinator=coordinator,
@@ -133,6 +135,15 @@ def _make_handler(orchestrator: _FakeOrchestrator, coordinator: SessionRunCoordi
 
 @pytest.mark.asyncio
 async def test_augment_turn_is_merged_at_next_checkpoint() -> None:
+    """Verify the FC handler merges an AUGMENT pending turn at the
+    next checkpoint boundary.
+
+    H6 collapsed the sync interruption classifier to (strict cancel | DEFER),
+    so AUGMENT can only arise via the async LLM classifier or by an
+    explicit dispatch. The test seeds an AUGMENT-disposition pending turn
+    directly on the run store to exercise the merge path without depending
+    on classifier internals.
+    """
     coordinator = SessionRunCoordinator()
     first_turn = coordinator.handle_user_turn(
         UserMessagePayload(
@@ -142,16 +153,15 @@ async def test_augment_turn_is_merged_at_next_checkpoint() -> None:
             turn_id="turn-1",
         )
     )
-    augment_turn = coordinator.handle_user_turn(
-        UserMessagePayload(
-            user_id="u-chat",
-            session_id="s-chat",
-            content="Instead of the login flow, inspect the signup flow.",
-            turn_id="turn-2",
-        )
+    # Seed an AUGMENT pending turn (post-H6: sync classifier never assigns
+    # AUGMENT itself; we inject the disposition the LLM classifier would
+    # have produced).
+    coordinator._run_store.append_pending_turn(
+        "s-chat",
+        "turn-2",
+        "Instead of the login flow, inspect the signup flow.",
+        disposition=InterruptionDisposition.AUGMENT.value,
     )
-
-    assert augment_turn.interruption_disposition == InterruptionDisposition.AUGMENT
 
     orchestrator = _FakeOrchestrator(
         step_results=[
@@ -178,6 +188,14 @@ async def test_augment_turn_is_merged_at_next_checkpoint() -> None:
 
 @pytest.mark.asyncio
 async def test_interrupt_turn_stops_continuation_and_replans() -> None:
+    """Verify the handler aborts continuation and replans when a new
+    INTERRUPT-class turn bumps the run revision mid-step.
+
+    Post-H6, the sync classifier only matches strict cancel phrases.
+    To exercise the mid-run replan path, we bump the revision and set
+    the new root turn directly — the same mutation that the LLM
+    classifier path would perform on a non-strict INTERRUPT.
+    """
     coordinator = SessionRunCoordinator()
     first_turn = coordinator.handle_user_turn(
         UserMessagePayload(
@@ -190,13 +208,14 @@ async def test_interrupt_turn_stops_continuation_and_replans() -> None:
 
     def _interrupt_after_first_step(_state):  # type: ignore[no-untyped-def]
         if coordinator.get_active_run("s-chat").revision == 0:
-            coordinator.handle_user_turn(
-                UserMessagePayload(
-                    user_id="u-chat",
-                    session_id="s-chat",
-                    content="Stop and change the goal to the checkout flow.",
-                    turn_id="turn-2",
-                )
+            coordinator._run_store.bump_revision(
+                "s-chat",
+                clear_pending_turns=True,
+            )
+            coordinator._run_store.set_root_turn(
+                "s-chat",
+                turn_id="turn-2",
+                content="Stop and change the goal to the checkout flow.",
             )
 
     orchestrator = _FakeOrchestrator(
@@ -312,7 +331,7 @@ async def test_function_calling_handler_passes_prompt_workspace_to_execute_with_
         planning_service=SimpleNamespace(),
         function_calling_orchestrator=orchestrator,
         task_orchestrator=SimpleNamespace(),
-        history_service=SimpleNamespace(),
+        context_assembler=SimpleNamespace(),
         agent_id="s-chat",
         get_task_agent_manager=lambda: None,
         session_run_coordinator=None,

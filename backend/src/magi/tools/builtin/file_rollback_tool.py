@@ -5,14 +5,14 @@ import hashlib
 from pathlib import Path
 from typing import Any, Dict
 
-from ...agent.workspace_cache import (
+from magi_plugin_sdk.workspace_cache import (
     EditOp,
     EditRecord,
     SessionCache,
     SnapshotRef,
     resolve_session_cache,
 )
-from ...agent.workspace_cache.atomic_io import atomic_write_bytes
+from magi_plugin_sdk.fs import atomic_write_bytes
 from ...core.logger import get_logger
 from ..schema import (
     ParameterType,

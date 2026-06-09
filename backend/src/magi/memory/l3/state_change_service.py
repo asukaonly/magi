@@ -6,14 +6,11 @@ import hashlib
 import json
 
 from ..l2.models import ReconciledTraitOutcome
+from .insight_renderer import render_insight_content
 from .insight_utils import (
-    compact_values,
     decode_value,
     normalized_value_for_key,
-    state_change_phrase,
     trait_group,
-    trait_group_label,
-    trait_label,
     wants_zh,
 )
 from .models import L3Candidate, StateChangePacket
@@ -51,7 +48,13 @@ class StateChangeService:
         if not normalized_outcomes or not source_event_ids:
             return None
 
-        content = self._render_content(packet, normalized_outcomes)
+        content = render_insight_content(
+            insight_kind="state_change",
+            outcomes=normalized_outcomes,
+            user_lang_zh=wants_zh(),
+        )
+        if content is None:
+            return None
 
         # If every outcome carries an `expires_at`, the insight inherits the
         # latest expiry as its salience window. If any outcome has no expiry
@@ -124,68 +127,3 @@ class StateChangeService:
             "recommended_snapshot_field": str(outcome.recommended_snapshot_field),
         }
 
-    def _render_content(
-        self,
-        packet: StateChangePacket,
-        outcomes: list[ReconciledTraitOutcome],
-    ) -> str:
-        # Prefer the natural-language summaries that L2 already produced for
-        # each underlying assertion. Each outcome carries `natural_summary`;
-        # we keep up to three (matching the existing fragment cap below) and
-        # join them with separators that read naturally in either language.
-        zh = wants_zh()
-        natural_fragments: list[str] = []
-        for outcome in outcomes:
-            summary = str(getattr(outcome, "natural_summary", "") or "").strip()
-            if not summary:
-                continue
-            # Strip a trailing period so we can join cleanly; we'll add one back.
-            summary = summary.rstrip("。.")
-            if summary not in natural_fragments:
-                natural_fragments.append(summary)
-
-        if natural_fragments:
-            joined = ("；" if zh else "; ").join(natural_fragments[:3])
-            return f"{joined}。" if zh else f"{joined}."
-
-        # Fallback: legacy deterministic template using trait labels.
-        grouped: dict[str, list[ReconciledTraitOutcome]] = {}
-        for outcome in outcomes:
-            grouped.setdefault(str(outcome.trait_name), []).append(outcome)
-
-        group_names = sorted({trait_group(str(outcome.trait_name)) for outcome in outcomes})
-        group_subject = trait_group_label(group_names[0], zh=zh) if len(group_names) == 1 else None
-
-        fragments: list[str] = []
-        for trait_name, trait_outcomes in grouped.items():
-            values = self._unique_values(trait_outcomes)
-            statuses = sorted({str(outcome.status).lower() for outcome in trait_outcomes})
-            readable_trait = trait_label(trait_name, zh=zh)
-            readable_status = state_change_phrase(statuses, zh=zh)
-            readable_values = compact_values(values, zh=zh)
-            if zh:
-                if group_subject == "音乐偏好" and readable_status in {"更明确", "比较稳定"}:
-                    fragments.append(f"{readable_trait}包括 {readable_values}")
-                else:
-                    fragments.append(f"{readable_trait}{readable_status}：{readable_values}")
-            else:
-                fragments.append(f"{readable_trait} {readable_status}: {readable_values}")
-
-        joined = "；".join(fragments[:3]) if zh else "; ".join(fragments[:3])
-        if zh:
-            if group_subject:
-                return f"最近的记忆显示，用户的{group_subject}更清晰：{joined}。"
-            return f"最近的记忆显示，用户状态有更新：{joined}。"
-        return f"User state update for {packet.entity_id}: {joined}."
-
-    def _unique_values(self, outcomes: list[ReconciledTraitOutcome]) -> list[object]:
-        values: list[object] = []
-        seen: set[str] = set()
-        for outcome in outcomes:
-            decoded = decode_value(str(outcome.winning_value))
-            signature = normalized_value_for_key(str(outcome.winning_value))
-            if signature in seen:
-                continue
-            seen.add(signature)
-            values.append(decoded)
-        return values
