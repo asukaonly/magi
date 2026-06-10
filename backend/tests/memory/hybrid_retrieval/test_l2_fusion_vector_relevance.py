@@ -315,3 +315,50 @@ class TestStructuredChannelAbstain:
         assert (
             store.batch_get_relationships.called or store.get_relationships.called
         ), "expected store query when object_type constraint is present"
+
+
+# ---------------------------------------------------------------------------
+# Soft-edge fusion scoring tests (RFC #65 P2 Task 6)
+# ---------------------------------------------------------------------------
+
+
+def test_soft_edge_scored_by_confidence_not_vector():
+    """Soft edge (no vector_distance) must score via confidence, not sink to 0."""
+    from magi.memory.hybrid_retrieval.l2_fusion import _compute_final_score, L2Candidate
+    from magi.memory.hybrid_retrieval.grounding import L2GroundingPlan
+
+    plan = L2GroundingPlan()  # predicate_candidates empty → #67 path for hard edges
+    soft = L2Candidate(
+        candidate_id="s1", kind="knowledge_edge",
+        payload={"predicate": "SEMANTIC_CONTEXT", "fact_kind": "semantic_edge",
+                 "confidence": 0.9},
+        subject_match_score=1.0, object_constraint_score=1.0,
+        confidence_score=0.9,
+    )
+    score = _compute_final_score(soft, plan)
+    assert score > 0.0
+
+
+def test_soft_edge_ranks_below_comparable_hard_edge():
+    from magi.memory.hybrid_retrieval.l2_fusion import _compute_final_score, L2Candidate
+    from magi.memory.hybrid_retrieval.grounding import L2GroundingPlan, GroundedPredicateCandidate
+
+    plan = L2GroundingPlan(predicate_candidates=[GroundedPredicateCandidate(predicate="LIKES")])
+    common = dict(subject_match_score=1.0, object_constraint_score=1.0, confidence_score=0.9)
+    hard = L2Candidate(candidate_id="h", kind="knowledge_edge",
+                       payload={"predicate": "LIKES"}, predicate_match_score=1.0, **common)
+    soft = L2Candidate(candidate_id="s", kind="knowledge_edge",
+                       payload={"predicate": "SEMANTIC_CONTEXT", "fact_kind": "semantic_edge"},
+                       predicate_match_score=1.0, **common)
+    hs = _compute_final_score(hard, plan)
+    ss = _compute_final_score(soft, plan)
+    assert ss < hs
+
+
+def test_soft_edge_flag_in_trace():
+    from magi.memory.hybrid_retrieval.l2_fusion import _build_score_trace, L2Candidate
+    soft = L2Candidate(candidate_id="s", kind="knowledge_edge",
+                       payload={"predicate": "SEMANTIC_CONTEXT", "fact_kind": "semantic_edge"})
+    hard = L2Candidate(candidate_id="h", kind="knowledge_edge", payload={"predicate": "LIKES"})
+    assert _build_score_trace(soft)["soft_edge"] is True
+    assert _build_score_trace(hard)["soft_edge"] is False
