@@ -59,7 +59,11 @@ class TestBatchForwarding:
     @pytest.mark.asyncio
     async def test_forwards_evidence_classes_when_plan_field_set(self):
         """When ``plan.allowed_evidence_classes`` is set, every recall-path
-        ``batch_get_relationships`` call must forward it as a list kwarg."""
+        ``batch_get_relationships`` call must forward it as a list kwarg.
+
+        Soft-edge sparse-fallback calls (predicates=["SEMANTIC_CONTEXT"]) are
+        intentionally exempt — co-occurrence edges lack evidence_class labels.
+        """
         store = _make_store()
         plan = _plan_with_subject(
             allowed_evidence_classes={EvidenceClass.USER_SELF_REPORT.label},
@@ -71,7 +75,14 @@ class TestBatchForwarding:
         assert batch_calls, "expected at least one batch_get_relationships call"
         # The structured_graph channel is the recall path here; topology is gated
         # behind answer_kind so won't fire for plain "preference".
-        for call in batch_calls:
+        # Soft-edge fallback calls use predicates=["SEMANTIC_CONTEXT"] and are
+        # deliberately exempt from evidence_classes forwarding (RFC #65 P2).
+        recall_calls = [
+            c for c in batch_calls
+            if c.kwargs.get("predicates") != ["SEMANTIC_CONTEXT"]
+        ]
+        assert recall_calls, "expected at least one recall-path call"
+        for call in recall_calls:
             assert call.kwargs.get("evidence_classes") == [
                 EvidenceClass.USER_SELF_REPORT.label
             ], f"forwarding failed in call: {call}"
@@ -141,7 +152,14 @@ class TestBatchForwarding:
             f"got {presence_of_calls}"
         )
         assert non_presence_of_calls, "expected at least one recall-path call"
-        for call in non_presence_of_calls:
+        # Soft-edge sparse-fallback calls (predicates=["SEMANTIC_CONTEXT"]) are
+        # intentionally exempt from evidence_classes forwarding (RFC #65 P2).
+        recall_calls = [
+            c for c in non_presence_of_calls
+            if c.kwargs.get("predicates") != ["SEMANTIC_CONTEXT"]
+        ]
+        assert recall_calls, "expected at least one primary recall-path call"
+        for call in recall_calls:
             assert call.kwargs.get("evidence_classes") == [
                 EvidenceClass.USER_SELF_REPORT.label
             ], f"recall-path call must forward evidence_classes; got {call}"
@@ -256,3 +274,55 @@ async def test_topology_channel_skipped_when_no_subject_entity_ids():
     assert result == []
     assert store.batch_get_relationships.await_count == 0
     assert store.get_relationships.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_edge_vector_channel_filters_out_soft_edges():
+    """SEMANTIC_CONTEXT must not leak in via the edge_vector channel (RFC #65 P2)."""
+    from magi.memory.hybrid_retrieval.l2_knowledge_retriever import _edge_vector_channel
+
+    store = _make_store()
+    store.search_edges_by_embedding = AsyncMock(return_value=[
+        {"triple_id": "h1", "predicate": "LIKES", "subject_id": "user:u1"},
+        {"triple_id": "s1", "predicate": "SEMANTIC_CONTEXT", "subject_id": "user:u1",
+         "fact_kind": "semantic_edge"},
+    ])
+
+    class _Emb:
+        async def embed_text(self, text):
+            return object()
+
+    plan = _plan_with_subject()
+    results = await _edge_vector_channel(plan, store, _Emb(), object(), limit=20)
+    preds = {e["predicate"] for e in results}
+    assert "LIKES" in preds
+    assert "SEMANTIC_CONTEXT" not in preds
+
+
+@pytest.mark.asyncio
+async def test_structured_channel_soft_fallback_end_to_end():
+    """allow_soft_edges → hop1.include_soft_edges → sparse hard → soft edges surface."""
+    from magi.memory.hybrid_retrieval.l2_knowledge_retriever import retrieve_knowledge
+
+    store = _make_store()
+    store.batch_get_relationships = AsyncMock(side_effect=[
+        {"user:u1": []},  # structured hard fetch: empty
+        {"user:u1": [{"triple_id": "s1", "subject_id": "user:u1",
+                      "predicate": "SEMANTIC_CONTEXT", "object_id": "media:x",
+                      "fact_kind": "semantic_edge", "confidence": 0.8}]},  # soft fallback
+    ])
+    plan = _plan_with_subject(allow_soft_edges=True)
+    merged = await retrieve_knowledge(plan, store)
+    assert any(e["predicate"] == "SEMANTIC_CONTEXT" for e in merged)
+
+
+@pytest.mark.asyncio
+async def test_structured_channel_no_soft_when_disallowed():
+    from magi.memory.hybrid_retrieval.l2_knowledge_retriever import retrieve_knowledge
+
+    store = _make_store()
+    store.batch_get_relationships = AsyncMock(return_value={"user:u1": []})
+    plan = _plan_with_subject(allow_soft_edges=False)
+    await retrieve_knowledge(plan, store)
+    for call in store.batch_get_relationships.await_args_list:
+        assert call.kwargs.get("predicates") != ["SEMANTIC_CONTEXT"]

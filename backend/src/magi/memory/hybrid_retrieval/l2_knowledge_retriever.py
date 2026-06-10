@@ -15,6 +15,7 @@ import logging
 from typing import Any
 
 from .grounding import L2GroundingPlan
+from .soft_edges import SEMANTIC_EDGE_PREDICATE
 from .temporal import build_knowledge_temporal_clause, compute_temporal_score
 from .traversal import HopSpec, TraversalPlan, execute_graph_traversal
 
@@ -85,6 +86,7 @@ async def _structured_graph_channel(
         hop1=HopSpec(
             predicates=tuple(plan.expanded_predicates),
             object_types=tuple(object_types) if object_types else (),
+            include_soft_edges=plan.allow_soft_edges,
         ),
         limit=limit,
     )
@@ -160,6 +162,9 @@ async def _edge_vector_channel(
         limit=limit * 2,
         status_filters=["active"],
     )
+    # RFC #65 P2: soft edges enter only via the deliberate traversal sparse-fallback,
+    # never incidentally by vector similarity here.
+    results = [e for e in results if e.get("predicate") != SEMANTIC_EDGE_PREDICATE]
     _tag_channel(results, "edge_vector")
     return results
 
