@@ -256,3 +256,26 @@ async def test_topology_channel_skipped_when_no_subject_entity_ids():
     assert result == []
     assert store.batch_get_relationships.await_count == 0
     assert store.get_relationships.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_edge_vector_channel_filters_out_soft_edges():
+    """SEMANTIC_CONTEXT must not leak in via the edge_vector channel (RFC #65 P2)."""
+    from magi.memory.hybrid_retrieval.l2_knowledge_retriever import _edge_vector_channel
+
+    store = _make_store()
+    store.search_edges_by_embedding = AsyncMock(return_value=[
+        {"triple_id": "h1", "predicate": "LIKES", "subject_id": "user:u1"},
+        {"triple_id": "s1", "predicate": "SEMANTIC_CONTEXT", "subject_id": "user:u1",
+         "fact_kind": "semantic_edge"},
+    ])
+
+    class _Emb:
+        async def embed_text(self, text):
+            return object()
+
+    plan = _plan_with_subject()
+    results = await _edge_vector_channel(plan, store, _Emb(), object(), limit=20)
+    preds = {e["predicate"] for e in results}
+    assert "LIKES" in preds
+    assert "SEMANTIC_CONTEXT" not in preds
