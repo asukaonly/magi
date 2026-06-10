@@ -140,3 +140,68 @@ async def test_candidate_object_mode_per_object_get_relationships():
     assert first.kwargs["predicates"] == ["VISITED", "LIKES", "DISLIKES"]
     assert first.kwargs["limit"] == 5
     assert first.kwargs["evidence_classes"] == ["user_self_report"]
+
+
+# ---------------------------------------------------------------------------
+# Soft-edge sparse fallback tests (RFC #65 P2)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_soft_fallback_fires_when_hard_sparse_and_allowed():
+    store = _store()
+    store.batch_get_relationships = AsyncMock(side_effect=[
+        {"user:u1": []},  # hard fetch: empty (sparse)
+        {"user:u1": [{"triple_id": "s1", "subject_id": "user:u1",
+                      "predicate": "SEMANTIC_CONTEXT", "object_id": "media:song1",
+                      "fact_kind": "semantic_edge", "confidence": 0.82}]},  # soft fetch
+    ])
+    tp = TraversalPlan(
+        seed_entity_ids=["user:u1"],
+        hop1=HopSpec(predicates=("LISTENED",), object_types=(), include_soft_edges=True),
+    )
+    edges = await execute_graph_traversal(tp, store)
+    assert any(e["predicate"] == "SEMANTIC_CONTEXT" for e in edges)
+    soft_call = store.batch_get_relationships.await_args_list[1]
+    assert soft_call.kwargs["predicates"] == ["SEMANTIC_CONTEXT"]
+    assert soft_call.kwargs["evidence_classes"] is None
+
+
+@pytest.mark.asyncio
+async def test_soft_fallback_skipped_when_hard_sufficient():
+    store = _store()
+    hard = {"user:u1": [{"triple_id": f"h{i}", "subject_id": "user:u1",
+                         "predicate": "LISTENED", "object_id": f"media:{i}",
+                         "object_type": "media"} for i in range(5)]}
+    store.batch_get_relationships = AsyncMock(return_value=hard)
+    tp = TraversalPlan(
+        seed_entity_ids=["user:u1"],
+        hop1=HopSpec(predicates=("LISTENED",), include_soft_edges=True),
+    )
+    await execute_graph_traversal(tp, store)
+    assert store.batch_get_relationships.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_soft_fallback_skipped_when_not_allowed():
+    store = _store()
+    store.batch_get_relationships = AsyncMock(return_value={"user:u1": []})
+    tp = TraversalPlan(
+        seed_entity_ids=["user:u1"],
+        hop1=HopSpec(predicates=("LISTENED",), include_soft_edges=False),
+    )
+    await execute_graph_traversal(tp, store)
+    assert store.batch_get_relationships.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_soft_fallback_fires_on_abstain_when_allowed():
+    """Abstain (no predicate, no object_type) → hard=[] is sparse → soft fires if allowed."""
+    store = _store()
+    store.batch_get_relationships = AsyncMock(return_value={"user:u1": [
+        {"triple_id": "s1", "subject_id": "user:u1", "predicate": "SEMANTIC_CONTEXT",
+         "object_id": "x", "fact_kind": "semantic_edge", "confidence": 0.8}]})
+    tp = TraversalPlan(seed_entity_ids=["user:u1"], hop1=HopSpec(include_soft_edges=True))
+    edges = await execute_graph_traversal(tp, store)
+    assert any(e["predicate"] == "SEMANTIC_CONTEXT" for e in edges)
+    assert store.batch_get_relationships.await_count == 1
+    assert store.batch_get_relationships.await_args_list[0].kwargs["predicates"] == ["SEMANTIC_CONTEXT"]
