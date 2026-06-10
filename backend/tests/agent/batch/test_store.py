@@ -176,6 +176,59 @@ async def test_reclaim_expired_leases(store):
 
 
 @pytest.mark.asyncio
+async def test_reclaim_owner_running_requeues_unreported(store):
+    # A run leased 2 items but only reported one; the other is an orphan stuck
+    # 'running' under the run's lease_owner with a still-valid lease.
+    job = await _make_job(store)
+    await store.add_items(job.job_id, [{"path": "/a"}, {"path": "/b"}])
+    leased = await store.lease_next_batch(
+        job.job_id, limit=2, lease_owner="A", lease_ttl_ms=30 * 60 * 1000, now_ms=1
+    )
+    await store.update_items(
+        job.job_id, [ItemOutcome(item_id=leased[0].item_id, status=BatchItemStatus.DONE)]
+    )
+
+    requeued, dead = await store.reclaim_owner_running(job.job_id, "A", 3, now_ms=2)
+    assert (requeued, dead) == (1, 0)
+    pend = await store.list_by_status(job.job_id, BatchItemStatus.PENDING)
+    assert [i.item_id for i in pend] == [leased[1].item_id]
+    assert pend[0].attempts == 1  # the dead run counts as a consumed attempt
+    assert pend[0].lease_owner is None
+
+
+@pytest.mark.asyncio
+async def test_reclaim_owner_running_scoped_to_owner(store):
+    # Two concurrent runs each hold one in-flight item. Reclaiming run A must
+    # NOT touch run B's still-live item.
+    job = await _make_job(store)
+    await store.add_items(job.job_id, [{"path": "/a"}, {"path": "/b"}])
+    await store.lease_next_batch(job.job_id, limit=1, lease_owner="A", lease_ttl_ms=10**7, now_ms=1)
+    b = await store.lease_next_batch(job.job_id, limit=1, lease_owner="B", lease_ttl_ms=10**7, now_ms=1)
+
+    requeued, dead = await store.reclaim_owner_running(job.job_id, "A", 3, now_ms=2)
+    assert (requeued, dead) == (1, 0)
+    still_running = await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)
+    assert [i.item_id for i in still_running] == [b[0].item_id]
+    assert still_running[0].lease_owner == "B"
+
+
+@pytest.mark.asyncio
+async def test_reclaim_owner_running_dead_letters_when_exhausted(store):
+    # With the dead run as the final allowed attempt, the orphan dead-letters to
+    # 'failed' instead of looping pending -> running -> cap forever.
+    job = await _make_job(store, max_attempts=1)
+    await store.add_items(job.job_id, [{"path": "/a"}])
+    await store.lease_next_batch(job.job_id, limit=1, lease_owner="A", lease_ttl_ms=10**7, now_ms=1)
+
+    requeued, dead = await store.reclaim_owner_running(job.job_id, "A", 1, now_ms=2)
+    assert (requeued, dead) == (0, 1)
+    failed = await store.list_by_status(job.job_id, BatchItemStatus.FAILED)
+    assert len(failed) == 1
+    assert failed[0].attempts == 1
+    assert "orphaned" in (failed[0].error or "")
+
+
+@pytest.mark.asyncio
 async def test_reconcile_scan_complete_and_conflicts(store):
     job = await _make_job(store)
     await store.add_items(job.job_id, [{"path": "/a.mkv"}, {"path": "/b.mkv"}])

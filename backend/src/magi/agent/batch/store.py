@@ -458,6 +458,59 @@ class BatchStore:
             await db.commit()
             return cur.rowcount
 
+    async def reclaim_owner_running(
+        self,
+        job_id: str,
+        lease_owner: str,
+        max_attempts: int,
+        *,
+        now_ms: int | None = None,
+    ) -> "tuple[int, int]":
+        """Reclaim items a FINISHED run leased but never reported.
+
+        When a batch run ends (hit its step cap or died) it may leave items it
+        leased stuck in ``running`` under its ``lease_owner`` with a still-valid
+        lease — invisible to leasing (not pending), to requeue_retryable (not
+        failed), and to reclaim_expired_leases (lease not yet expired). Without
+        this they stall the job until the TTL elapses.
+
+        Scoped to ``lease_owner`` so a finishing run only reclaims its OWN
+        orphans, never items still in-flight under other concurrent runs. The
+        dead run counts as a consumed attempt (``attempts += 1``, mirroring
+        update_items) so a structurally unprocessable item that keeps capping
+        the run eventually dead-letters to ``failed`` instead of looping
+        pending -> running -> cap -> pending forever. Items that have not yet
+        exhausted ``max_attempts`` go back to ``pending`` for re-dispatch.
+
+        Returns ``(requeued, dead_lettered)``.
+        """
+        now = now_ms if now_ms is not None else _now_ms()
+        async with self._connect() as db:
+            dead = await db.execute(
+                """
+                UPDATE batch_item
+                SET status = 'failed', attempts = attempts + 1, lease_owner = NULL,
+                    lease_expires_at_ms = NULL, updated_at_ms = ?,
+                    error = 'orphaned: run ended without reporting an outcome'
+                WHERE job_id = ? AND status = 'running' AND lease_owner = ?
+                  AND attempts + 1 >= ?
+                """,
+                (now, job_id, lease_owner, max_attempts),
+            )
+            dead_lettered = dead.rowcount
+            requeue = await db.execute(
+                """
+                UPDATE batch_item
+                SET status = 'pending', attempts = attempts + 1, lease_owner = NULL,
+                    lease_expires_at_ms = NULL, updated_at_ms = ?
+                WHERE job_id = ? AND status = 'running' AND lease_owner = ?
+                """,
+                (now, job_id, lease_owner),
+            )
+            requeued = requeue.rowcount
+            await db.commit()
+            return requeued, dead_lettered
+
     async def requeue_retryable(
         self, job_id: str, max_attempts: int, *, now_ms: int | None = None
     ) -> int:
