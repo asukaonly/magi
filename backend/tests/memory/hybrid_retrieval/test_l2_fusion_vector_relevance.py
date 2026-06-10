@@ -246,7 +246,7 @@ class TestStructuredChannelAbstain:
 
         # predicate_candidates=[] → expanded_predicates=[] → predicates=None
         # object_constraints=[] → _extract_object_types returns None
-        plan = _make_plan()  # subject_candidates set, predicate_candidates=[]
+        plan = _make_plan(allow_soft_edges=False)  # isolate #67 hard-edge abstain (P2 soft layer off)
 
         result = await _structured_graph_channel(plan, store)
 
@@ -275,6 +275,7 @@ class TestStructuredChannelAbstain:
         store.get_relationships = AsyncMock(return_value=[])
 
         plan = _make_plan(
+            allow_soft_edges=False,  # isolate #67 hard-edge query decision (P2 soft layer off)
             predicate_candidates=[
                 GroundedPredicateCandidate(predicate="LIKES", family="preference"),
             ],

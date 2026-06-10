@@ -86,6 +86,7 @@ async def _structured_graph_channel(
         hop1=HopSpec(
             predicates=tuple(plan.expanded_predicates),
             object_types=tuple(object_types) if object_types else (),
+            include_soft_edges=plan.allow_soft_edges,
         ),
         limit=limit,
     )
