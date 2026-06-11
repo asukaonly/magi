@@ -177,7 +177,8 @@
     "generate": "Generate",
     "generating": "Generating…",
     "cancelCreate": "Cancel",
-    "generationFailed": "Generation failed"
+    "generationFailed": "Generation failed",
+    "waiting": "Typing…"
   },
   "firstConversation": {
     "chips": {

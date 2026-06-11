@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { streamChatPreview, type PreviewTurn } from '../../api/modules/chatPreview';
 import {
@@ -88,6 +89,37 @@ function PreviewAvatar({ name, avatar }: { name: string; avatar?: string }): JSX
   );
 }
 
+/**
+ * Three-dot "typing…" animation shown inside an assistant bubble while we wait
+ * for the preview stream's first chunk (otherwise the empty bubble reads as a
+ * frozen UI). Reuses the global `magiPendingDot` keyframes and honors
+ * reduced-motion by holding the dots static.
+ */
+function TypingDots({
+  shouldReduceMotion,
+  label,
+}: {
+  shouldReduceMotion: boolean;
+  label: string;
+}): JSX.Element {
+  return (
+    <span className="flex items-center gap-1.5 py-0.5" role="status" aria-label={label}>
+      {[0, 180, 360].map((delay) => (
+        <span
+          key={delay}
+          aria-hidden
+          className="block h-1.5 w-1.5 rounded-full bg-muted-foreground/70"
+          style={
+            shouldReduceMotion
+              ? undefined
+              : { animation: `magiPendingDot 1.2s ease-in-out ${delay}ms infinite` }
+          }
+        />
+      ))}
+    </span>
+  );
+}
+
 export function PersonaPreviewChat({
   previews,
   locale,
@@ -98,6 +130,7 @@ export function PersonaPreviewChat({
   onGeneratingChange,
 }: PersonaPreviewChatProps): JSX.Element {
   const { t, i18n } = useTranslation('onboarding');
+  const shouldReduceMotion = useReducedMotion() ?? false;
   const sortedPreviews = useMemo(
     () => [...previews].sort((a, b) => a.order - b.order),
     [previews],
@@ -434,7 +467,14 @@ export function PersonaPreviewChat({
                       : 'rounded-xl rounded-tl-sm'
                   }`}
                 >
-                  {turn.content}
+                  {turn.role === 'assistant' && turn.content === '' ? (
+                    <TypingDots
+                      shouldReduceMotion={shouldReduceMotion}
+                      label={t('personaPreview.waiting')}
+                    />
+                  ) : (
+                    turn.content
+                  )}
                 </span>
               </div>
             ))}

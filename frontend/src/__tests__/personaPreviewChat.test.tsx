@@ -74,6 +74,34 @@ describe('PersonaPreviewChat', () => {
     );
   });
 
+  it('shows a typing indicator while waiting, then swaps it for the streamed reply', async () => {
+    // Gate the stream so the assistant turn stays empty until we release it.
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mockStream.mockImplementation(() =>
+      (async function* () {
+        await gate;
+        yield 'hello world';
+      })(),
+    );
+
+    render(<PersonaPreviewChat previews={previews} />);
+    await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
+    await userEvent.type(screen.getByPlaceholderText(/composerPlaceholder/i), 'hi');
+    await userEvent.click(screen.getByRole('button', { name: /^(personaPreview\.)?send$/i }));
+
+    // Before the first chunk lands, the empty bubble shows typing dots, not text.
+    expect(await screen.findByRole('status')).toBeInTheDocument();
+    expect(screen.queryByText(/hello world/i)).not.toBeInTheDocument();
+
+    // Once the reply streams in, the indicator is replaced by the text.
+    release();
+    await waitFor(() => expect(screen.getByText(/hello world/i)).toBeInTheDocument());
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
   it('preserves each persona transcript when switching back and forth', async () => {
     render(<PersonaPreviewChat previews={previews} />);
     // Send a message to Nova

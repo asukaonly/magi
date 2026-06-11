@@ -178,7 +178,8 @@
     "generate": "生成",
     "generating": "生成中…",
     "cancelCreate": "取消",
-    "generationFailed": "生成失败"
+    "generationFailed": "生成失败",
+    "waiting": "正在输入…"
   },
   "firstConversation": {
     "chips": {
