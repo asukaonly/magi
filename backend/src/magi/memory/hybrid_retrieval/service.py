@@ -426,6 +426,7 @@ class HybridRetrievalService(
             entity_catalog=catalog,
             embedding_service=embedding_service,
             edge_vector_index=edge_vector_index,
+            l1_store=getattr(memory, "l1", None),
         )
 
     @staticmethod

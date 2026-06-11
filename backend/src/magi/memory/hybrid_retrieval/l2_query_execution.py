@@ -61,6 +61,7 @@ class L2QueryExecutionMixin:
                 host._store,
                 embedding_service=getattr(host, "_embedding_service", None),
                 edge_vector_index=getattr(host, "_edge_vector_index", None),
+                l1_store=getattr(host, "_l1_store", None),
                 limit=conditions.limit,
             )
             if conditions.include_relationships

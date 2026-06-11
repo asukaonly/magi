@@ -383,3 +383,66 @@ async def test_two_hop_end_to_end_albums_of_liked_artists():
     plan = _plan_with_subject(hop2_target_type="media", allow_soft_edges=False)
     merged = await retrieve_knowledge(plan, store)
     assert any(e.get("_hop") == 2 and e["object_id"] == "media:album" for e in merged)
+
+
+@pytest.mark.asyncio
+async def test_live_l1_fallback_when_structured_empty():
+    """structured empty + l1_store + subject → synthetic live_l1 soft edges surface."""
+    from magi.memory.hybrid_retrieval.l2_knowledge_retriever import retrieve_knowledge
+
+    class _FakeL1:
+        async def get_entity_event_ids(self, seed_ids, **kw):
+            return {seed_ids[0]: ["e1"]}
+        async def get_event_entity_ids(self, event_ids):
+            return {"e1": ["user:u1", "topic:rust"]} if event_ids else {}
+
+    store = _make_store()  # all channels return empty
+    plan = _plan_with_subject()
+    merged = await retrieve_knowledge(plan, store, l1_store=_FakeL1())
+    assert any(e.get("_channel") == "live_l1" and e["object_id"] == "topic:rust" for e in merged)
+
+
+@pytest.mark.asyncio
+async def test_no_live_l1_when_structured_nonempty():
+    from magi.memory.hybrid_retrieval.l2_knowledge_retriever import retrieve_knowledge
+    called = {"l1": False}
+
+    class _FakeL1:
+        async def get_entity_event_ids(self, seed_ids, **kw):
+            called["l1"] = True
+            return {}
+        async def get_event_entity_ids(self, event_ids):
+            return {}
+
+    store = _make_store()
+    store.batch_get_relationships = AsyncMock(return_value={"user:u1": [
+        {"triple_id": "h1", "subject_id": "user:u1", "predicate": "LIKES",
+         "object_id": "topic:go", "object_type": "topic"}]})
+    plan = _plan_with_subject()
+    await retrieve_knowledge(plan, store, l1_store=_FakeL1())
+    assert called["l1"] is False  # structured non-empty → live L1 not invoked
+
+
+@pytest.mark.asyncio
+async def test_no_live_l1_when_l1_store_none():
+    """Existing behavior: l1_store defaults None → no live L1 (regression)."""
+    from magi.memory.hybrid_retrieval.l2_knowledge_retriever import retrieve_knowledge
+    store = _make_store()
+    plan = _plan_with_subject()
+    merged = await retrieve_knowledge(plan, store)  # no l1_store
+    assert all(e.get("_channel") != "live_l1" for e in merged)
+
+
+def test_l2_handler_holds_l1_store():
+    from magi.memory.hybrid_retrieval.l2_handler import L2Handler
+    from unittest.mock import MagicMock
+    l1 = MagicMock()
+    h = L2Handler(MagicMock(), l1_store=l1)
+    assert h._l1_store is l1
+
+
+def test_l2_handler_l1_store_defaults_none():
+    from magi.memory.hybrid_retrieval.l2_handler import L2Handler
+    from unittest.mock import MagicMock
+    h = L2Handler(MagicMock())
+    assert h._l1_store is None

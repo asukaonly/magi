@@ -62,11 +62,13 @@ class L2Handler(
         entity_catalog: EntityCatalogProtocol | None = None,
         embedding_service: EmbeddingServiceProtocol | None = None,
         edge_vector_index: Any | None = None,
+        l1_store: Any | None = None,
     ) -> None:
         self._store = l2_store
         self._entity_catalog = entity_catalog
         self._embedding_service = embedding_service
         self._edge_vector_index = edge_vector_index
+        self._l1_store = l1_store
 
     @property
     def store(self) -> L2StoreProtocol:
