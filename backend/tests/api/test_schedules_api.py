@@ -88,12 +88,14 @@ class _FakeSchedulerService:
         self.result = result
         self.calls: list[tuple[str, bool]] = []
 
-    async def execute_schedule(
+    async def execute_schedule_async(
         self,
         schedule_id: str,
         *,
-        manual: bool = False,
+        manual: bool = True,
+        override_payload: dict | None = None,
     ) -> ScheduledExecutionResult:
+        # The run-now route dispatches the fire-and-forget variant now.
         self.calls.append((schedule_id, manual))
         return self.result
 
@@ -233,43 +235,10 @@ def test_list_schedules_uses_schedule_specific_execution_state(monkeypatch):
     assert schedules["memory-l3-summary:day"]["target_state"]["last_run_at"] is None
 
 
-def test_activity_lists_and_cancels_queued_sensor_job(monkeypatch):
-    client, repository = _build_client(monkeypatch)
-    schedule = asyncio.run(_seed_sensor_schedule(repository))
-
-    async def seed_job() -> str:
-        execution_id = await repository.create_execution_record(
-            schedule_id=schedule.schedule_id,
-            target_type=schedule.target_type,
-            target_key=schedule.target_key,
-            manual=False,
-            started_at=time.time(),
-        )
-        job_id = await repository.enqueue_sensor_sync_job(
-            schedule=schedule,
-            execution_id=execution_id,
-            manual=False,
-        )
-        assert job_id is not None
-        return job_id
-
-    job_id = asyncio.run(seed_job())
-
-    activity_response = client.get("/api/schedules/activity")
-    assert activity_response.status_code == 200
-    activities = activity_response.json()["activities"]
-    queued = [item for item in activities if item["activity_id"] == f"sensor_job:{job_id}"]
-    assert queued
-    assert queued[0]["cancellable"] is True
-
-    cancel_response = client.post(
-        f"/api/schedules/activity/sensor_job:{job_id}/cancel",
-        json={"reason": "user_clicked_stop"},
-    )
-
-    assert cancel_response.status_code == 200
-    job = asyncio.run(repository.get_sensor_sync_job(job_id))
-    assert job is not None
-    assert job["status"] == "cancelled"
-    assert job["result_message"] == "user_clicked_stop"
+# NOTE: test_activity_lists_and_cancels_queued_sensor_job was removed.
+# ff2bc71e reverted the Python schedule-activity additions ("Rust gateway
+# owns this route") and dropped ScheduleRepository.list_outstanding_sensor_sync_jobs;
+# the test exercised that deliberately-reverted Python route. (The leftover
+# Python /activity handler still references the dropped repository method —
+# tracked separately as dead code.)
 

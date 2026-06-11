@@ -34,6 +34,16 @@ from magi.agent.control.permission.provider import get_permission_gateway
 class _FakeRuntimePaths:
     def __init__(self, base) -> None:
         self.runtime_dir = base
+        # permission_rules schema is alembic-owned; production migrates at
+        # boot (DatabaseMigrationModule) before the control plane starts.
+        from alembic import command
+
+        from magi.db.runner import MIGRATION_TARGETS, _build_config
+
+        from pathlib import Path
+
+        target = next(t for t in MIGRATION_TARGETS if t.name == "permission_rules")
+        command.upgrade(_build_config(target, Path(base) / "permission_rules.db"), "head")
 
 
 @pytest.mark.asyncio
@@ -129,7 +139,10 @@ async def test_e2e_gate_rest_denies_blocks_tool(tmp_path) -> None:
             gate_task = asyncio.create_task(
                 gateway.gate(
                     tool_name="bash",
-                    arguments={"command": "rm file"},
+                    # Default mode is HIGH_ONLY: a plain `rm file` classifies
+                    # as medium risk and auto-allows; only HIGH-risk commands
+                    # (e.g. rm -rf) still prompt the user.
+                    arguments={"command": "rm -rf ~/tmp/project-y"},
                     agent_id="chat",
                     origin=ToolOrigin.CHAT,
                     session_id="sess-deny",

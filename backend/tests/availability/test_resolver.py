@@ -77,6 +77,10 @@ def test_resolver_returns_unavailable_for_missing_file(make_manifest, tmp_path: 
 def test_resolver_returns_unsupported_platform_when_filtered_out(
     make_manifest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # resolver.py imports _current_platform_key into its own namespace, so the
+    # platform_support check looks it up there — patch both the resolver binding
+    # (used by the platform filter) and the source (used by requirement checks).
+    monkeypatch.setattr("magi.availability.resolver._current_platform_key", lambda: "darwin")
     monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "darwin")
     manifest = make_manifest("p3", platforms=["linux"])  # excludes darwin
     resolver = AvailabilityResolver(manifest_provider=_provider_from({"p3": manifest}))

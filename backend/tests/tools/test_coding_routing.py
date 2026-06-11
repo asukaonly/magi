@@ -23,32 +23,37 @@ def test_external_decomposition_policy_requires_research_breadth() -> None:
     )
 
 
+# ADR-0005 / f9c40b9b slimmed the prompt to a single consumed-only schema:
+# leaf types (default_leaf_type / "Coding") are gone — coding routing is the
+# lowercase `coding` PROFILE, and decomposition policy is the orchestration
+# escalation + CodeExplore external-evidence rule.
+
+
 def test_system_prompt_advertises_coding_in_schema() -> None:
     from magi.tools.context_decider_system_prompt import CONTEXT_DECIDER_SYSTEM_PROMPT
 
-    assert "Coding" in CONTEXT_DECIDER_SYSTEM_PROMPT
-    assert (
-        '"default_leaf_type": "CodeExplore|general-purpose|Coding"' in CONTEXT_DECIDER_SYSTEM_PROMPT
-    )
+    assert '"profile": "chat|research|explore|coding|media|system"' in CONTEXT_DECIDER_SYSTEM_PROMPT
 
 
 def test_system_prompt_has_coding_few_shot() -> None:
     from magi.tools.context_decider_system_prompt import CONTEXT_DECIDER_SYSTEM_PROMPT
 
-    assert '"default_leaf_type": "Coding"' in CONTEXT_DECIDER_SYSTEM_PROMPT
     coding_blocks = [
         block
         for block in CONTEXT_DECIDER_SYSTEM_PROMPT.split("\n\n")
-        if '"default_leaf_type": "Coding"' in block
+        if '"profile": "coding"' in block
     ]
-    assert coding_blocks, "no Coding few-shot found"
+    assert coding_blocks, "no coding few-shot found"
     for block in coding_blocks:
-        assert '"agent"' in block, f"Coding few-shot must include agent tool: {block!r}"
+        assert '"agent"' in block, f"coding few-shot must include agent tool: {block!r}"
 
 
 def test_system_prompt_has_external_decomposition_policy() -> None:
     from magi.tools.context_decider_system_prompt import CONTEXT_DECIDER_SYSTEM_PROMPT
 
-    assert "Decompose external-world work only" in CONTEXT_DECIDER_SYSTEM_PROMPT
-    assert "Bounded planning/advice" in CONTEXT_DECIDER_SYSTEM_PROMPT
+    # CodeExplore stays on local evidence; external-world work goes to the
+    # research/web path, escalating to orchestration only for decomposable
+    # multi-part work.
+    assert "other external-world evidence" in CONTEXT_DECIDER_SYSTEM_PROMPT
+    assert "decomposable multi-part work" in CONTEXT_DECIDER_SYSTEM_PROMPT
     assert '"tools": ["web-search"]' in CONTEXT_DECIDER_SYSTEM_PROMPT

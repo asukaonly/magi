@@ -14,6 +14,12 @@ if not _plugin_root.exists():
     _plugin_root = _repo_root.parent / "magi-plugins" / "plugins" / "photo-library"
 
 _sensor_path = _plugin_root / "sensor.py"
+if not _sensor_path.exists():  # pragma: no cover - plugin repo absent (e.g. CI)
+    pytest.skip(
+        "photo-library plugin not available (magi-plugins is a separate repo); "
+        "plugin-backed sensor tests run only where the plugin is checked out",
+        allow_module_level=True,
+    )
 _spec = importlib.util.spec_from_file_location(
     "photo_library_sensor",
     _sensor_path,
@@ -224,10 +230,13 @@ async def test_extract_metadata_for_session_entities_and_relations():
     meta = await sensor.extract_metadata(_session_item())
 
     entity_types = {entity["entity_type"] for entity in meta.entities}
-    assert entity_types == {"device", "location"}
+    # photo-library 87910b7: entity hints use host-valid ontology types — the
+    # geocoded entity is "place" (in ENTITY_TYPE_REGISTRY), not "location".
+    assert entity_types == {"device", "place"}
     assert meta.tags == ["photo_library", "session", "geo"]
     predicates = {candidate["predicate"] for candidate in meta.relation_candidates}
-    assert predicates == {"OWNED_DEVICE", "VISITED"}
+    # Same 87910b7 alignment: OWNS is the host-valid predicate.
+    assert predicates == {"OWNS", "VISITED"}
 
 
 @pytest.mark.asyncio

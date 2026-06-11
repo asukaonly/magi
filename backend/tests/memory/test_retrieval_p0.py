@@ -40,18 +40,28 @@ def _make_store(tmp_path):
 
 
 async def _insert_event(store: L1EventStore, event_id: str, content: str, ts: float = 1000.0, user_id: str = "u1"):
-    """Directly insert a minimal event row for testing."""
-    from magi.core.sqlite import sqlite_connection_async
+    """Insert a minimal event through the store API.
 
-    async with sqlite_connection_async(store.db_path, profile="hot_write") as db:
-        await db.execute(
-            """INSERT OR IGNORE INTO fact_events
-               (event_id, correlation_id, timestamp, created_at, event_type, source,
-                memory_domain, ingest_target, content, author_type, content_type, user_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (event_id, "corr", ts, ts, "UserMessage", "chat", 1, 1, content, "user", "text", user_id),
+    The raw ``fact_events`` shape is alembic-owned and has drifted from the
+    old hand-rolled INSERT (``correlation_id``/``ingest_target`` are no
+    longer columns), so go through the normal write path instead.
+    """
+    from magi.events.events import Event, EventLevel, EventTypes
+    from magi.memory.event_contracts import normalize_runtime_event
+
+    event = normalize_runtime_event(
+        Event(
+            type=EventTypes.USER_MESSAGE,
+            data={"user_id": user_id, "session_id": "s1", "content": content},
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id=event_id,
+            metadata={"user_id": user_id},
+            timestamp=ts,
+            event_id=event_id,
         )
-        await db.commit()
+    )
+    await store.store(event)
 
 
 # -----------------------------------------------------------------------
@@ -89,7 +99,11 @@ class TestL1EventEntitiesSchema:
                 ) as cur:
                     rows = await cur.fetchall()
             index_names = {row[0] for row in rows}
-            assert "idx_l1_event_entities_event" in index_names
+            # idx_l1_event_entities_event was intentionally DROPPED
+            # (migration 11aa7f4e): UNIQUE(event_id, entity_id) already serves
+            # every WHERE event_id = ? lookup. Only the entity-column index
+            # (non-prefix column) remains.
+            assert "idx_l1_event_entities_event" not in index_names
             assert "idx_l1_event_entities_entity" in index_names
         finally:
             await store.shutdown()

@@ -48,7 +48,8 @@ async def test_download_only_fetches_chosen_variant_files(tmp_path: Path) -> Non
     with patch.dict("sys.modules", {"huggingface_hub": MagicMock(snapshot_download=fake_snapshot_download)}), \
          patch.object(router_mod, "_download_progress", {}, create=True), \
          patch.object(router_mod, "_download_tasks", {}, create=True), \
-         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"):
+         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"), \
+         patch("magi.memory.onnx_variants.detect_platform_key", return_value="darwin_arm64"):
         await router_mod._download_model_task(meta, tmp_path, variant_override=None)
 
     # Critical: only fp16 file in patterns, plus its sidecar
@@ -86,7 +87,8 @@ async def test_download_respects_variant_override(tmp_path: Path) -> None:
     with patch.dict("sys.modules", {"huggingface_hub": MagicMock(snapshot_download=fake_snapshot_download)}), \
          patch.object(router_mod, "_download_progress", {}, create=True), \
          patch.object(router_mod, "_download_tasks", {}, create=True), \
-         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"):
+         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"), \
+         patch("magi.memory.onnx_variants.detect_platform_key", return_value="darwin_arm64"):
         await router_mod._download_model_task(meta, tmp_path, variant_override="fp32")
 
     assert "onnx/model.onnx" in captured_patterns
@@ -170,7 +172,8 @@ async def test_list_models_includes_variants_with_downloaded_status(tmp_path: Pa
 
     with patch.object(router_mod, "get_local_embedding_registry", return_value=registry), \
          patch.object(router_mod, "RuntimePaths", return_value=paths), \
-         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"):
+         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"), \
+         patch("magi.memory.onnx_variants.detect_platform_key", return_value="darwin_arm64"):
         result = await router_mod.list_models()
 
     assert len(result) == 1

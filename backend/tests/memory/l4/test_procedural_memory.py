@@ -73,6 +73,10 @@ class _BatchTrackingEmbeddingService:
             vector[3] = 1.0
         return EmbeddingResult(model_name="test-embedding", dimension=4, vector=vector)
 
+    def result_for_index(self, result, *, text_builder_version: str):
+        # Mirror MemoryEmbeddingService.result_for_index; identity is enough.
+        return result
+
 
 class _RecordingVectorIndex:
     def __init__(self) -> None:

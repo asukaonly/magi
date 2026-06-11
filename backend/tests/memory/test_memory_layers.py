@@ -827,11 +827,16 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 entity_id="user:u1",
                 entity_type="user",
                 outcomes=[
+                    # The unified insight renderer never leaks raw trait
+                    # names; outcomes need a natural_summary (the L2 LLM
+                    # writes one in production) or a known trait_family,
+                    # otherwise the insight is intentionally skipped.
                     ReconciledTraitOutcome(
                         entity_id="user:u1",
                         entity_type="user",
                         trait_name="stress_level",
                         winning_value="high",
+                        natural_summary="最近工作压力一直很大",
                         status="stable",
                         confidence=0.92,
                         evidence_event_ids=[first_event_id, second_event_id],
@@ -844,6 +849,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                         entity_type="user",
                         trait_name="mood",
                         winning_value="anxious",
+                        natural_summary="情绪持续偏焦虑",
                         status="corroborated",
                         confidence=0.81,
                         evidence_event_ids=[second_event_id],

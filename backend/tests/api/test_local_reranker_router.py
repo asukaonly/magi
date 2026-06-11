@@ -47,7 +47,8 @@ async def test_download_only_fetches_chosen_variant(tmp_path: Path) -> None:
     with patch.dict("sys.modules", {"huggingface_hub": MagicMock(snapshot_download=fake_snapshot_download)}), \
          patch.object(router_mod, "_download_progress", {}, create=True), \
          patch.object(router_mod, "_download_tasks", {}, create=True), \
-         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"):
+         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"), \
+         patch("magi.memory.onnx_variants.detect_platform_key", return_value="darwin_arm64"):
         await router_mod._download_model_task(meta, tmp_path, variant_override=None)
 
     assert "onnx/model_qint8_arm64.onnx" in captured_patterns
@@ -157,7 +158,8 @@ async def test_endpoint_short_circuits_when_chosen_variant_on_disk(tmp_path: Pat
          patch.object(router_mod, "RuntimePaths", return_value=runtime_paths), \
          patch.object(router_mod, "_download_progress", {}, create=True), \
          patch.object(router_mod, "_download_tasks", {}, create=True), \
-         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"):
+         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"), \
+         patch("magi.memory.onnx_variants.detect_platform_key", return_value="darwin_arm64"):
         response = await router_mod.download_model("ms-marco-test", variant=None)
 
     assert response.status == "completed"
@@ -187,7 +189,8 @@ async def test_endpoint_triggers_download_when_chosen_variant_missing(tmp_path: 
          patch.object(router_mod, "_download_progress", {}, create=True), \
          patch.object(router_mod, "_download_tasks", {}, create=True), \
          patch.object(router_mod, "_download_model_task", side_effect=fake_task), \
-         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"):
+         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"), \
+         patch("magi.memory.onnx_variants.detect_platform_key", return_value="darwin_arm64"):
         response = await router_mod.download_model("ms-marco-test", variant="arm64_int8")
         import asyncio
         await asyncio.sleep(0)
@@ -212,7 +215,8 @@ async def test_list_models_includes_variants(tmp_path: Path) -> None:
 
     with patch.object(router_mod, "get_cross_encoder_registry", return_value=registry), \
          patch.object(router_mod, "RuntimePaths", return_value=paths), \
-         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"):
+         patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"), \
+         patch("magi.memory.onnx_variants.detect_platform_key", return_value="darwin_arm64"):
         result = await router_mod.list_models()
 
     assert len(result) == 1

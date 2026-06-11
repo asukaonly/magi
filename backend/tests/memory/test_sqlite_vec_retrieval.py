@@ -19,6 +19,10 @@ class FakeEmbeddingService:
             vector[3] = 1.0
         return EmbeddingResult(model_name="test-embedding", dimension=4, vector=vector)
 
+    def result_for_index(self, result, *, text_builder_version: str):
+        # Mirror MemoryEmbeddingService.result_for_index; identity is enough.
+        return result
+
 
 @pytest.mark.asyncio
 async def test_l1_store_uses_sqlite_vec_for_semantic_search(tmp_path):

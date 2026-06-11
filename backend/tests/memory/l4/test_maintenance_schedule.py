@@ -25,9 +25,12 @@ from magi.scheduler.contracts import (
 
 
 @pytest.fixture
-async def tmp_db():
+async def tmp_db(ensure_memory_schema):
     tmp = tempfile.TemporaryDirectory()
     db_path = str(Path(tmp.name) / "l4.db")
+    # ensure_procedural_memory_schema is an alembic-managed no-op now; the
+    # memory_shared chain owns the procedural_skills schema.
+    ensure_memory_schema("memory_shared", db_path)
     async with sqlite_connection_async(db_path) as db:
         await ensure_procedural_memory_schema(db)
         await db.commit()
