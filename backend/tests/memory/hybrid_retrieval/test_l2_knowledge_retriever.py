@@ -431,3 +431,18 @@ async def test_no_live_l1_when_l1_store_none():
     plan = _plan_with_subject()
     merged = await retrieve_knowledge(plan, store)  # no l1_store
     assert all(e.get("_channel") != "live_l1" for e in merged)
+
+
+def test_l2_handler_holds_l1_store():
+    from magi.memory.hybrid_retrieval.l2_handler import L2Handler
+    from unittest.mock import MagicMock
+    l1 = MagicMock()
+    h = L2Handler(MagicMock(), l1_store=l1)
+    assert h._l1_store is l1
+
+
+def test_l2_handler_l1_store_defaults_none():
+    from magi.memory.hybrid_retrieval.l2_handler import L2Handler
+    from unittest.mock import MagicMock
+    h = L2Handler(MagicMock())
+    assert h._l1_store is None
