@@ -14,6 +14,12 @@ if not _plugin_root.exists():
     _plugin_root = _repo_root.parent / "magi-plugins" / "plugins" / "photo-library"
 
 _sensor_path = _plugin_root / "sensor.py"
+if not _sensor_path.exists():  # pragma: no cover - plugin repo absent (e.g. CI)
+    pytest.skip(
+        "photo-library plugin not available (magi-plugins is a separate repo); "
+        "plugin-backed sensor tests run only where the plugin is checked out",
+        allow_module_level=True,
+    )
 _spec = importlib.util.spec_from_file_location(
     "photo_library_sensor",
     _sensor_path,
