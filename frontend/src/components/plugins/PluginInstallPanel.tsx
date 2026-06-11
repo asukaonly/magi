@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { ExtensionFieldSpec } from '@/api/modules/plugins';
+import { pluginsApi } from '@/api/modules/plugins';
+import type { ExtensionFieldSpec, PluginCapability } from '@/api/modules/plugins';
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
 import {
   Dialog,
@@ -15,6 +16,7 @@ import {
 import { usePluginInstallPanelStore } from '../../stores/pluginInstallPanel';
 import { usePluginInstallFlow, type InstallStepId } from '../../hooks/usePluginInstallFlow';
 import { InstallStepper } from './InstallStepper';
+import { PluginConsentDialog } from './PluginConsentDialog';
 
 /** "netease-music" → "Netease Music" — readable fallback when a plugin has no
  *  localized name in the `pluginNames` i18n map. Mirrors SystemSuggestionSideCard. */
@@ -72,9 +74,51 @@ export function PluginInstallPanel(): JSX.Element | null {
   const closePanel = usePluginInstallPanelStore((s) => s.closePanel);
   const onDone = usePluginInstallPanelStore((s) => s.onDone);
 
-  const flow = usePluginInstallFlow(open ? pluginId : null, installMode);
+  const [consented, setConsented] = useState(false);
+  const [entryMeta, setEntryMeta] = useState<{
+    capabilities: PluginCapability[];
+    version: string;
+    official: boolean;
+  } | null>(null);
+
+  // In install mode, hold the connect flow until the user accepts the plugin's
+  // declared capabilities (mirrors the marketplace's consent dialog). The flow
+  // stays idle while pluginId is null, so installs never run unseen.
+  const flowActive = open && (!installMode || consented);
+  const flow = usePluginInstallFlow(flowActive ? pluginId : null, installMode);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const doneFiredRef = useRef(false);
+
+  // Reset the consent gate + fetched metadata whenever the panel closes.
+  useEffect(() => {
+    if (!open) {
+      setConsented(false);
+      setEntryMeta(null);
+    }
+  }, [open]);
+
+  // Fetch the plugin's declared capabilities for the install-mode consent gate.
+  useEffect(() => {
+    if (!open || !installMode || !pluginId) return;
+    let cancelled = false;
+    void pluginsApi
+      .getRegistry()
+      .then((reg) => {
+        if (cancelled) return;
+        const e = reg.plugins.find((p) => p.plugin_id === pluginId);
+        setEntryMeta({
+          capabilities: e?.capabilities ?? [],
+          version: e?.version ?? '',
+          official: e?.official ?? false,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setEntryMeta({ capabilities: [], version: '', official: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, installMode, pluginId]);
 
   // Fire the entry point's onDone exactly once when the flow succeeds (`done`).
   // Reset the guard when the panel closes so a later open can fire again.
@@ -132,6 +176,24 @@ export function PluginInstallPanel(): JSX.Element | null {
 
   if (!open) {
     return null;
+  }
+
+  // Install-mode consent gate: show the declared capabilities and require
+  // acceptance before the registry install runs. Already-installed plugins
+  // (installMode=false) were consented at install time and skip this.
+  if (installMode && !consented) {
+    return (
+      <PluginConsentDialog
+        open
+        mode="install"
+        pluginName={name}
+        version={entryMeta?.version ?? ''}
+        official={entryMeta?.official}
+        capabilities={entryMeta?.capabilities ?? []}
+        onConfirm={() => setConsented(true)}
+        onCancel={closePanel}
+      />
+    );
   }
 
   return (

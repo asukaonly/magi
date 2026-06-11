@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { sensorsApi } from '../api/modules/sensors';
 import { pluginsApi } from '../api/modules/plugins';
@@ -75,6 +75,48 @@ describe('PluginInstallPanel', () => {
     // onDone fires exactly once when the flow reaches `done`.
     expect(onDone).toHaveBeenCalledTimes(1);
   }, 12000);
+
+  it('shows the capability consent before installing in install mode', async () => {
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      plugins: [
+        {
+          plugin_id: 'netease-music',
+          name: 'NetEase',
+          name_i18n: {},
+          version: '0.1.2',
+          official: true,
+          capabilities: [{ capability: 'network', scope: ['ws.audioscrobbler.com'] }],
+        },
+      ],
+      registry_version: '2',
+    } as any);
+    const installSpy = vi
+      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
+      .mockResolvedValue({} as any);
+    // After install the flow fetches status; no activation flow → it short-circuits.
+    vi.spyOn(sensorsApi, 'getStatus').mockResolvedValue({
+      sources: [{ source_name: 's', plugin_id: 'netease-music', activation_flow: null }],
+    } as any);
+
+    render(<PluginInstallPanel />);
+    usePluginInstallPanelStore.getState().openPanel('netease-music', { install: true });
+
+    // Consent dialog appears and nothing is installed yet.
+    await waitFor(() =>
+      expect(
+        screen.getByText(/settings\.marketplace\.consent\.title\.install/),
+      ).toBeInTheDocument(),
+    );
+    expect(installSpy).not.toHaveBeenCalled();
+
+    // Confirming consent proceeds to the install.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'settings.marketplace.consent.confirm.install' }),
+    );
+    await waitFor(() =>
+      expect(installSpy).toHaveBeenCalledWith('netease-music', expect.anything()),
+    );
+  });
 
   it('shows the unsupported message when the source has no activation flow', async () => {
     vi.spyOn(sensorsApi, 'getStatus').mockResolvedValue({
