@@ -43,6 +43,7 @@ class TraversalPlan:
 __all__ = ["HopSpec", "TraversalPlan", "execute_graph_traversal"]
 
 MIN_HARD_RESULTS = 3
+MAX_BRIDGES = 5
 
 
 async def execute_graph_traversal(
@@ -144,5 +145,43 @@ async def execute_graph_traversal(
         )
         for rels in soft_result.values():
             hard_edges.extend(rels)
+
+    # ---- Second hop (RFC #65 P3) ----
+    # Expand hop1's object nodes (bridges) toward hop2.object_types via hard + soft
+    # edges. Bridge subject != user; fusion scores these (tagged _hop=2) by confidence
+    # x HOP2_DECAY and exempts them from the user-subject gate. evidence_classes NOT
+    # forwarded (same rationale as soft edges).
+    if traversal.max_hops >= 2 and traversal.hop2 is not None and hard_edges:
+        bridge_ids = list(dict.fromkeys(
+            e.get("object_id") for e in hard_edges if e.get("object_id")
+        ))[:MAX_BRIDGES]
+        if bridge_ids:
+            hop2_types = list(traversal.hop2.object_types) or None
+            hop2_hard = await store.batch_get_relationships(
+                entity_ids=bridge_ids,
+                direction="outgoing",
+                status_filters=["active"],
+                predicates=None,
+                object_types=hop2_types,
+                limit_per_entity=limit,
+                evidence_classes=None,
+            )
+            hop2_results = [hop2_hard]
+            if traversal.hop2.include_soft_edges:
+                hop2_soft = await store.batch_get_relationships(
+                    entity_ids=bridge_ids,
+                    direction="outgoing",
+                    status_filters=["active"],
+                    predicates=[SEMANTIC_EDGE_PREDICATE],
+                    object_types=hop2_types,
+                    limit_per_entity=limit,
+                    evidence_classes=None,
+                )
+                hop2_results.append(hop2_soft)
+            for result in hop2_results:
+                for rels in result.values():
+                    for e in rels:
+                        e["_hop"] = 2
+                        hard_edges.append(e)
 
     return hard_edges

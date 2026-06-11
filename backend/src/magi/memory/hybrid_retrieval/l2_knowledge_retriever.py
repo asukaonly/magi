@@ -80,6 +80,13 @@ async def _structured_graph_channel(
     clause_arg = (tc_sql, tc_params) if tc_sql else None
 
     object_types = _extract_object_types(plan)
+
+    hop2 = None
+    max_hops = 1
+    if plan.hop2_target_type:
+        hop2 = HopSpec(object_types=(plan.hop2_target_type,), include_soft_edges=True)
+        max_hops = 2
+
     traversal = TraversalPlan(
         seed_entity_ids=list(plan.subject_entity_ids),
         subject_scope=plan.subject_scope,
@@ -88,6 +95,8 @@ async def _structured_graph_channel(
             object_types=tuple(object_types) if object_types else (),
             include_soft_edges=plan.allow_soft_edges,
         ),
+        hop2=hop2,
+        max_hops=max_hops,
         limit=limit,
     )
 

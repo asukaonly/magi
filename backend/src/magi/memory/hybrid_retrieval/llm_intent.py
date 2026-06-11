@@ -59,6 +59,12 @@ You produce a single refinement object that is applied to every routed plan:
   "works at / employed by", "knows / acquainted with"). Always output in English
   even when the query is in another language — it is matched against an English
   predicate vocabulary. Leave null when no clear relation is implied.
+- ``hop2_target_type`` (optional, L2): ONLY for two-hop questions that need an
+  intermediate entity before the final answer (e.g. "albums of the artists I like"
+  → the answer is media, reached via the artists; "my colleague's boss" → person,
+  reached via the colleague). Set it to the FINAL answer's entity type, one of:
+  "media" | "person" | "place" | "software" | "topic". Leave null for normal
+  one-hop questions (e.g. "what music do I like" is one hop → null).
 - ``evidence_focus`` (optional, L2): when the user is asking about themselves
   (subject_hint="self"), classify what evidence tier the question wants:
     * ``"declared"`` — user is asking about what they explicitly said/claimed
@@ -101,6 +107,7 @@ Return JSON only:
   "subject_hint": "self" | "explicit" | "none",
   "predicate_family": "preference" | "profile_fact" | "relationship" | "activity" | "unknown",
   "relation_intent": "string | null",
+  "hop2_target_type": "string | null",
   "evidence_focus": "declared" | "observed" | "both" | null,
   "semantic_frame": { ... } | null,
   "reasoning": "string"
@@ -122,6 +129,7 @@ class LLMRefinement:
     subject_hint: Optional[str] = None
     predicate_family: Optional[str] = None
     relation_intent: Optional[str] = None
+    hop2_target_type: Optional[str] = None
     evidence_focus: Optional[EvidenceFocus] = None
     semantic_frame: Optional[L2SemanticFrame] = None
     reasoning: str = ""
@@ -227,6 +235,13 @@ class LLMIntentDecider:
             else None
         )
 
+        hop2_target_type_raw = data.get("hop2_target_type")
+        hop2_target_type = (
+            str(hop2_target_type_raw).strip()
+            if isinstance(hop2_target_type_raw, str) and str(hop2_target_type_raw).strip()
+            else None
+        )
+
         evidence_focus_raw = data.get("evidence_focus")
         evidence_focus: Optional[EvidenceFocus] = None
         if isinstance(evidence_focus_raw, str) and evidence_focus_raw in _VALID_EVIDENCE_FOCI:
@@ -244,6 +259,7 @@ class LLMIntentDecider:
             subject_hint=subject_hint,
             predicate_family=predicate_family,
             relation_intent=relation_intent,
+            hop2_target_type=hop2_target_type,
             evidence_focus=evidence_focus,
             semantic_frame=semantic_frame,
             reasoning=reasoning,
@@ -276,6 +292,8 @@ class LLMIntentDecider:
                     conditions.predicate_family = refinement.predicate_family
                 if refinement.relation_intent is not None:
                     conditions.relation_intent = refinement.relation_intent
+                if refinement.hop2_target_type is not None:
+                    conditions.hop2_target_type = refinement.hop2_target_type
                 if refinement.semantic_frame is not None:
                     conditions.semantic_frame = refinement.semantic_frame
                 enrich_l2_conditions(conditions, original_query)

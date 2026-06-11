@@ -326,3 +326,60 @@ async def test_structured_channel_no_soft_when_disallowed():
     await retrieve_knowledge(plan, store)
     for call in store.batch_get_relationships.await_args_list:
         assert call.kwargs.get("predicates") != ["SEMANTIC_CONTEXT"]
+
+
+@pytest.mark.asyncio
+async def test_structured_channel_passes_hop2_to_executor(monkeypatch):
+    """plan.hop2_target_type → TraversalPlan.hop2 set + max_hops=2 (captured at executor boundary)."""
+    import magi.memory.hybrid_retrieval.l2_knowledge_retriever as mod
+
+    captured = {}
+
+    async def fake_exec(traversal, store, **kwargs):
+        captured["hop2"] = traversal.hop2
+        captured["max_hops"] = traversal.max_hops
+        return []
+
+    monkeypatch.setattr(mod, "execute_graph_traversal", fake_exec)
+    store = _make_store()
+    plan = _plan_with_subject(hop2_target_type="media")
+    await mod._structured_graph_channel(plan, store)
+    assert captured["max_hops"] == 2
+    assert captured["hop2"] is not None
+    assert captured["hop2"].object_types == ("media",)
+    assert captured["hop2"].include_soft_edges is True
+
+
+@pytest.mark.asyncio
+async def test_structured_channel_no_hop2_when_target_type_none(monkeypatch):
+    import magi.memory.hybrid_retrieval.l2_knowledge_retriever as mod
+    captured = {}
+
+    async def fake_exec(traversal, store, **kwargs):
+        captured["hop2"] = traversal.hop2
+        captured["max_hops"] = traversal.max_hops
+        return []
+
+    monkeypatch.setattr(mod, "execute_graph_traversal", fake_exec)
+    store = _make_store()
+    plan = _plan_with_subject()  # no hop2_target_type
+    await mod._structured_graph_channel(plan, store)
+    assert captured["hop2"] is None
+    assert captured["max_hops"] == 1
+
+
+@pytest.mark.asyncio
+async def test_two_hop_end_to_end_albums_of_liked_artists():
+    """Full retrieve_knowledge chain: hop2_target_type=media → hop2 albums surface tagged _hop=2."""
+    store = _make_store()
+    store.batch_get_relationships = AsyncMock(side_effect=[
+        {"user:u1": [{"triple_id": "h1", "subject_id": "user:u1", "predicate": "LIKES",
+                      "object_id": "person:artist", "object_type": "person", "confidence": 0.9}]},  # hop1
+        {"person:artist": [{"triple_id": "h2", "subject_id": "person:artist",
+                            "predicate": "CREATES", "object_id": "media:album",
+                            "object_type": "media", "confidence": 0.8}]},  # hop2 hard
+        {"person:artist": []},  # hop2 soft
+    ])
+    plan = _plan_with_subject(hop2_target_type="media", allow_soft_edges=False)
+    merged = await retrieve_knowledge(plan, store)
+    assert any(e.get("_hop") == 2 and e["object_id"] == "media:album" for e in merged)
