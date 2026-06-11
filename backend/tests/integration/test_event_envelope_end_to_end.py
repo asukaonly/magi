@@ -94,19 +94,17 @@ async def test_causation_chain_persisted():
         conn = sqlite3.connect(str(base / "l1_events.db"))
         try:
             rows = conn.execute(
-                "SELECT event_id, causation_id, trace_id FROM fact_events "
-                "WHERE event_id IN (?, ?) ORDER BY content",
+                "SELECT event_id FROM fact_events WHERE event_id IN (?, ?) ORDER BY content",
                 (a.event_id, b.event_id),
             ).fetchall()
         finally:
             conn.close()
 
-        rows_by_id = {r[0]: r for r in rows}
-        assert rows_by_id[a.event_id][1] is None
-        assert rows_by_id[b.event_id][1] == a.event_id
-        # both share same trace_id (entered via start_span)
-        assert rows_by_id[a.event_id][2] is not None
-        assert rows_by_id[a.event_id][2] == rows_by_id[b.event_id][2]
+        # 19f637e0 slimmed fact_events to durable memory fields:
+        # causation_id/trace_id are no longer persisted in L1 (execution
+        # tracing is runtime_trace's domain). The durable contract left to
+        # verify here is that both envelope event_ids landed in L1.
+        assert {r[0] for r in rows} == {a.event_id, b.event_id}
     finally:
         await _teardown(bus, store, sub, tmp)
 

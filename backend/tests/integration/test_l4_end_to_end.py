@@ -11,7 +11,7 @@ import pytest
 from magi.agent.execution.tool_invocation_service import (
     InvocationContext, ToolCall, ToolInvocationService,
 )
-from magi.core.container import Container
+from magi.core.container import get_container
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.events.domain_payloads import TaskContext
 from magi.events.tracing import drain_pending
@@ -24,7 +24,9 @@ from magi.tools.schema import ToolResult
 async def test_tool_invocation_lands_in_l4():
     bus = InMemoryMessageBusBackend()
     await bus.start()
-    Container.message_bus.override(bus)
+    # Override the container INSTANCE: class-level overrides don't reach
+    # the already-created singleton (providers are copied at instantiation).
+    get_container().message_bus.override(bus)
 
     tmp = tempfile.TemporaryDirectory()
     base = Path(tmp.name)
@@ -76,7 +78,7 @@ async def test_tool_invocation_lands_in_l4():
     await subscriber.stop()
     await store.shutdown()
     await bus.stop()
-    Container.message_bus.reset_override()
+    get_container().message_bus.reset_override()
     tmp.cleanup()
 
 
@@ -84,7 +86,9 @@ async def test_tool_invocation_lands_in_l4():
 async def test_failed_tool_invocation_also_lands_with_failure_flag():
     bus = InMemoryMessageBusBackend()
     await bus.start()
-    Container.message_bus.override(bus)
+    # Override the container INSTANCE: class-level overrides don't reach
+    # the already-created singleton (providers are copied at instantiation).
+    get_container().message_bus.override(bus)
 
     tmp = tempfile.TemporaryDirectory()
     base = Path(tmp.name)
@@ -137,7 +141,7 @@ async def test_failed_tool_invocation_also_lands_with_failure_flag():
     await subscriber.stop()
     await store.shutdown()
     await bus.stop()
-    Container.message_bus.reset_override()
+    get_container().message_bus.reset_override()
     tmp.cleanup()
 
 

@@ -379,7 +379,12 @@ class TestServiceLayerRouting:
         result = await svc.query(
             _make_request(
                 query_mode="graph",
-                query="我对魔都是什么感觉",
+                # RFC #65: the structured channel abstains when no predicate
+                # can be inferred ("什么感觉" no longer maps via keyword
+                # fallback); "喜欢" resolves the preference family while the
+                # alias 魔都 still exercises the entity-catalog resolution
+                # under test.
+                query="我喜欢魔都吗",
             )
         )
 

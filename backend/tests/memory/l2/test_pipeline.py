@@ -363,13 +363,16 @@ def test_contradiction_hint_and_reconcile_outcome_serialize_deterministically():
         "entity_id": "user:u1",
         "entity_type": "user",
         "trait_name": "preference.food",
+        "trait_family": "",
         "winning_value": "sushi",
+        "natural_summary": "",
         "status": "corroborated",
         "confidence": 0.7,
         "evidence_event_ids": ["evt-1", "evt-2"],
         "time_span_hours": 48.0,
         "stability_kind": "stable_trait",
         "recommended_snapshot_field": "preferences",
+        "expires_at": None,
     }
 
 
@@ -2338,7 +2341,7 @@ async def test_assistant_freeform_event_is_skipped_before_llm_extraction():
         )
         await store.initialize()
         try:
-            await store.ingest_event(
+            result = await store.ingest_event(
                 {
                     "id": "evt-ai-freeform-1",
                     "type": EventTypes.AI_RESPONSE,
@@ -2355,18 +2358,15 @@ async def test_assistant_freeform_event_is_skipped_before_llm_extraction():
                 }
             )
 
-            for _ in range(50):
-                stats = store.get_l2_pipeline_stats()
-                if stats["extract_completed"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
             stats = store.get_l2_pipeline_stats()
             relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
             assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
 
-            assert stats["extract_completed"] >= 1
-            assert stats["extract_skipped"] >= 1
+            # The evidence-policy gate now skips assistant_freeform at the
+            # L2 projection layer, BEFORE the pipeline: no job is enqueued and
+            # the extraction stats never tick.
+            assert result["l2_job_enqueued"] is False
+            assert stats["extract_completed"] == 0
             assert relationships == []
             assert assertions == []
             assert adapter.calls == []
@@ -2389,7 +2389,7 @@ async def test_assistant_tool_grounded_event_is_skipped_before_llm_extraction():
         )
         await store.initialize()
         try:
-            await store.ingest_event(
+            result = await store.ingest_event(
                 {
                     "id": "evt-ai-tool-1",
                     "type": EventTypes.AI_RESPONSE,
@@ -2406,18 +2406,14 @@ async def test_assistant_tool_grounded_event_is_skipped_before_llm_extraction():
                 }
             )
 
-            for _ in range(50):
-                stats = store.get_l2_pipeline_stats()
-                if stats["extract_completed"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
             relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
             assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
             stats = store.get_l2_pipeline_stats()
 
-            assert stats["extract_completed"] >= 1
-            assert stats["extract_skipped"] >= 1
+            # assistant_tool_grounded is also blocked by the evidence-policy
+            # gate at the projection layer — skipped before the pipeline.
+            assert result["l2_job_enqueued"] is False
+            assert stats["extract_completed"] == 0
             assert relationships == []
             assert assertions == []
             assert adapter.calls == []
@@ -2511,7 +2507,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
             before_assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
             before_call_count = len(adapter.calls)
 
-            await store.ingest_event(
+            quote_result = await store.ingest_event(
                 {
                     "id": "evt-ai-quote-1",
                     "type": EventTypes.AI_RESPONSE,
@@ -2528,22 +2524,17 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                 }
             )
 
-            for _ in range(50):
-                stats = store.get_l2_pipeline_stats()
-                if stats["extract_completed"] >= 2:
-                    break
-                await asyncio.sleep(0.01)
-
             after_assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
-            stats = store.get_l2_pipeline_stats()
 
+            # The assistant quote never enters the pipeline (policy gate), so
+            # the existing assertion's evidence/confidence stay untouched.
+            assert quote_result["l2_job_enqueued"] is False
             assert len(before_assertions) == 1
             assert len(after_assertions) == 1
             assert after_assertions[0]["assertion_id"] == before_assertions[0]["assertion_id"]
             assert after_assertions[0]["evidence_events"] == ["evt-user-stress-1"]
             assert after_assertions[0]["confidence_score"] == before_assertions[0]["confidence_score"]
             assert len(adapter.calls) == before_call_count
-            assert stats["extract_skipped"] >= 1
         finally:
             await store.shutdown()
 
@@ -2577,7 +2568,7 @@ async def test_pipeline_stats_track_evidence_class_and_skip_reason_breakdown():
                     },
                 }
             )
-            await store.ingest_event(
+            freeform_result = await store.ingest_event(
                 {
                     "id": "evt-ai-freeform-2",
                     "type": EventTypes.AI_RESPONSE,
@@ -2594,15 +2585,19 @@ async def test_pipeline_stats_track_evidence_class_and_skip_reason_breakdown():
 
             for _ in range(50):
                 stats = store.get_l2_pipeline_stats()
-                if stats["extract_completed"] >= 2:
+                if stats["extract_completed"] >= 1:
                     break
                 await asyncio.sleep(0.01)
 
             stats = store.get_l2_pipeline_stats()
 
+            # Eligible user events still flow through extraction and are
+            # tracked by evidence class; assistant_freeform is now blocked at
+            # the projection-layer policy gate and never reaches the pipeline
+            # (so its skip is observable on the ingest result, not in stats).
             assert stats["extract_by_evidence_class"]["user_self_report"] >= 1
-            assert stats["extract_by_evidence_class"]["assistant_freeform"] >= 1
-            assert stats["skip_by_reason"]["assistant_freeform"] >= 1
+            assert freeform_result["l2_job_enqueued"] is False
+            assert "assistant_freeform" not in stats["extract_by_evidence_class"]
         finally:
             await store.shutdown()
 
@@ -2623,11 +2618,28 @@ async def test_pipeline_logs_skip_decision_with_evidence_context(caplog: pytest.
         await store.initialize()
         try:
             with caplog.at_level(logging.INFO, logger="magi.memory.l2.pipeline"):
+                # Eligible user event: flows into the pipeline and logs.
                 await store.ingest_event(
+                    {
+                        "id": "evt-user-log-1",
+                        "type": EventTypes.USER_MESSAGE,
+                        "timestamp": time.time(),
+                        "source": "chat",
+                        "level": EventLevel.INFO.value,
+                        "data": {
+                            "user_id": "u1",
+                            "session_id": "s1",
+                            "content": "I like sushi.",
+                        },
+                    }
+                )
+                # Policy-blocked assistant event: never reaches the pipeline,
+                # so the skip decision is observable on the ingest result.
+                skip_result = await store.ingest_event(
                     {
                         "id": "evt-ai-freeform-log-1",
                         "type": EventTypes.AI_RESPONSE,
-                        "timestamp": time.time(),
+                        "timestamp": time.time() + 1,
                         "source": "assistant",
                         "level": EventLevel.INFO.value,
                         "data": {
@@ -2646,8 +2658,9 @@ async def test_pipeline_logs_skip_decision_with_evidence_context(caplog: pytest.
 
             messages = [record.getMessage() for record in caplog.records if record.name == "magi.memory.l2.pipeline"]
             assert any("L2 extract started" in message for message in messages)
-            assert any("L2 extract skipped" in message for message in messages)
-            assert any("assistant_freeform" in message for message in messages)
+            assert skip_result["l2_job_enqueued"] is False
+            # The blocked event must never show up in pipeline activity.
+            assert not any("evt-ai-freeform-log-1" in message for message in messages)
         finally:
             await store.shutdown()
 
@@ -2755,6 +2768,16 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
             persist_dir=str(base / "memories"),
             l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
+            # Calendar profile is plugin-contributed now; inject the spec so
+            # the profile id appears in extraction logs (see calendar test).
+            extraction_profile_provider=lambda: [
+                {
+                    "profile_id": "source.calendar",
+                    "source_types": ["calendar"],
+                    "allowed_predicates": ["VISITED"],
+                    "allow_assertion": False,
+                }
+            ],
         )
         await store.initialize()
         try:
@@ -2783,8 +2806,9 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
             messages = [record.getMessage() for record in caplog.records if record.name == "magi.memory.l2.pipeline"]
             assert any("L2 extract completed" in message for message in messages)
             assert any("L2 Phase 1 extraction started" in message for message in messages)
-            assert any("L2 Phase 2 candidate validation completed" in message for message in messages)
-            assert any("L2 persistence completed" in message for message in messages)
+            # With allow_assertion=False the pipeline fast-tracks past Phase 2
+            # (no candidate-validation stage runs for this profile).
+            assert any("L2 fast-track: skipped Phase 2" in message for message in messages)
             assert any("source.calendar" in message for message in messages)
             assert any("rejected_graph_candidate_count" in message for message in messages)
             assert any("rejected_assertion_candidate_count" in message for message in messages)
@@ -3203,6 +3227,16 @@ async def test_unified_extraction_respects_calendar_profile_restrictions():
         ]
     )
 
+    # The built-in calendar profile moved out of the host (profiles are now
+    # plugin-contributed via extraction_profile_provider); inject an
+    # equivalent spec so the restriction mechanism itself is under test.
+    calendar_profile_spec = {
+        "profile_id": "source.calendar",
+        "source_types": ["calendar"],
+        "allowed_predicates": ["VISITED"],
+        "allow_assertion": False,
+    }
+
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
         store = UnifiedMemoryStore(
@@ -3211,6 +3245,7 @@ async def test_unified_extraction_respects_calendar_profile_restrictions():
             persist_dir=str(base / "memories"),
             l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
+            extraction_profile_provider=lambda: [calendar_profile_spec],
         )
         await store.initialize()
         try:
@@ -3293,6 +3328,31 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
                         "volatility_index": 0.7,
                         "source_domain": "user_authored",
                         "inference_depth": "defensive_psychology",
+                        "validation_state": "tentative",
+                        "first_inferred_at": timestamps[0],
+                        "last_validated_at": timestamps[-1],
+                    }
+                )
+                # stress_level is a temporary-state trait and the trend-shift
+                # gate deliberately excludes temporary/volatile kinds — seed a
+                # NON-temporary trait over the same long window so reconcile
+                # yields a stable_trait outcome eligible for trend_shift.
+                await store.l2.upsert_assertion_candidate(
+                    {
+                        "entity_id": "user:u1",
+                        "entity_type": "user",
+                        "trait_family": "preference_profile",
+                        "trait_name": "communication_style",
+                        "trait_value": "concise",
+                        "confidence_score": 0.6,
+                        "evidence_events": [
+                            "evt-reconcile-1",
+                            "evt-reconcile-2",
+                            "evt-reconcile-3",
+                        ],
+                        "volatility_index": 0.2,
+                        "source_domain": "user_authored",
+                        "inference_depth": "direct",
                         "validation_state": "tentative",
                         "first_inferred_at": timestamps[0],
                         "last_validated_at": timestamps[-1],

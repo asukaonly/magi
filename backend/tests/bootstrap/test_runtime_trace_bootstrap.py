@@ -46,5 +46,7 @@ async def test_runtime_exports_register_runtime_trace_store() -> None:
         assert container.hybrid_retrieval_service() is context.memory.hybrid_retrieval_service
         assert container.hybrid_retrieval_service.overridden
     finally:
-        container.runtime_trace_store.reset_override()
-        container.hybrid_retrieval_service.reset_override()
+        # init() overrides MANY container bindings (unified_memory, chat
+        # store, plugin manager, ...) — resetting only two of them leaked
+        # overrides into later test files. shutdown() resets them all.
+        await module.shutdown()

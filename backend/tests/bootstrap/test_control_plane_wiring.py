@@ -31,6 +31,14 @@ from magi.agent.control.permission.provider import get_permission_gateway
 class _FakeRuntimePaths:
     def __init__(self, base: Path) -> None:
         self.runtime_dir = base
+        # permission_rules schema is alembic-owned; production migrates at
+        # boot (DatabaseMigrationModule) before the control plane starts.
+        from alembic import command
+
+        from magi.db.runner import MIGRATION_TARGETS, _build_config
+
+        target = next(t for t in MIGRATION_TARGETS if t.name == "permission_rules")
+        command.upgrade(_build_config(target, base / "permission_rules.db"), "head")
 
 
 @pytest.mark.asyncio

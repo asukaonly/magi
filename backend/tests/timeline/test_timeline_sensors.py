@@ -224,10 +224,13 @@ async def test_extract_metadata_for_session_entities_and_relations():
     meta = await sensor.extract_metadata(_session_item())
 
     entity_types = {entity["entity_type"] for entity in meta.entities}
-    assert entity_types == {"device", "location"}
+    # photo-library 87910b7: entity hints use host-valid ontology types — the
+    # geocoded entity is "place" (in ENTITY_TYPE_REGISTRY), not "location".
+    assert entity_types == {"device", "place"}
     assert meta.tags == ["photo_library", "session", "geo"]
     predicates = {candidate["predicate"] for candidate in meta.relation_candidates}
-    assert predicates == {"OWNED_DEVICE", "VISITED"}
+    # Same 87910b7 alignment: OWNS is the host-valid predicate.
+    assert predicates == {"OWNS", "VISITED"}
 
 
 @pytest.mark.asyncio

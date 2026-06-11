@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
+
+_CHROME_EPOCH_OFFSET_S = 11644473600
+
+
+def _chrome_us(seconds_ago: float) -> int:
+    """Chrome-epoch microseconds for a moment ``seconds_ago`` before now.
+
+    The sensor's default ``initial_sync_policy=lookback_days`` (7 days)
+    filters out old visits, so fixtures must seed RECENT timestamps.
+    """
+    return int((time.time() - seconds_ago + _CHROME_EPOCH_OFFSET_S) * 1_000_000)
 
 from magi.config.models import AppConfig, PluginSettings
 from magi.plugins.manager import PluginManager
@@ -69,15 +81,15 @@ def _create_history_db(root: Path) -> Path:
         )
         connection.execute(
             "INSERT INTO visits (id, url, visit_time, from_visit, transition) VALUES (?, ?, ?, ?, ?)",
-            (101, 1, 13285468800000000, 0, 0),
+            (101, 1, _chrome_us(3600), 0, 536870912),
         )
         connection.execute(
             "INSERT INTO visits (id, url, visit_time, from_visit, transition) VALUES (?, ?, ?, ?, ?)",
-            (102, 2, 13285469400000000, 101, 0),
+            (102, 2, _chrome_us(3600 - 600), 101, 536870912),
         )
         connection.execute(
             "INSERT INTO visits (id, url, visit_time, from_visit, transition) VALUES (?, ?, ?, ?, ?)",
-            (103, 3, 13285470000000000, 102, 0),
+            (103, 3, _chrome_us(3600 - 1200), 102, 536870912),
         )
         connection.commit()
     finally:
@@ -115,7 +127,7 @@ def _create_bursty_history_db(root: Path) -> Path:
                 "Online FlowChart & Diagrams Editor - Mermaid Live Editor",
                 8,
                 201,
-                13285468800000000,
+                _chrome_us(3600),
             ),
             (
                 2,
@@ -123,7 +135,7 @@ def _create_bursty_history_db(root: Path) -> Path:
                 "Online FlowChart & Diagrams Editor - Mermaid Live Editor",
                 8,
                 202,
-                13285468815000000,
+                _chrome_us(3600 - 15),
             ),
             (
                 3,
@@ -131,7 +143,7 @@ def _create_bursty_history_db(root: Path) -> Path:
                 "Online FlowChart & Diagrams Editor - Mermaid Live Editor",
                 8,
                 203,
-                13285468830000000,
+                _chrome_us(3600 - 30),
             ),
             (
                 4,
@@ -139,7 +151,7 @@ def _create_bursty_history_db(root: Path) -> Path:
                 "Radiohead | Last.fm",
                 5,
                 204,
-                13285469400000000,
+                _chrome_us(3600 - 600),
             ),
             (
                 5,
@@ -147,7 +159,7 @@ def _create_bursty_history_db(root: Path) -> Path:
                 "Radiohead | Last.fm",
                 5,
                 205,
-                13285469420000000,
+                _chrome_us(3600 - 620),
             ),
         ]
         for url_id, url, title, visit_count, visit_id, visit_time in rows:
@@ -157,7 +169,7 @@ def _create_bursty_history_db(root: Path) -> Path:
             )
             connection.execute(
                 "INSERT INTO visits (id, url, visit_time, from_visit, transition) VALUES (?, ?, ?, ?, ?)",
-                (visit_id, url_id, visit_time, max(0, visit_id - 1), 0),
+                (visit_id, url_id, visit_time, max(0, visit_id - 1), 536870912),
             )
         connection.commit()
     finally:
@@ -195,7 +207,7 @@ def _create_search_bursty_history_db(root: Path) -> Path:
                 "野犬 说法 - Google Search",
                 4,
                 301,
-                13287954018000000,
+                _chrome_us(3600),
             ),
             (
                 2,
@@ -203,7 +215,7 @@ def _create_search_bursty_history_db(root: Path) -> Path:
                 "野犬 说法 - Google Search",
                 4,
                 302,
-                13287954020000000,
+                _chrome_us(3600 - 2),
             ),
             (
                 3,
@@ -211,7 +223,7 @@ def _create_search_bursty_history_db(root: Path) -> Path:
                 "野犬 说法 - Google Search",
                 4,
                 303,
-                13287954022000000,
+                _chrome_us(3600 - 4),
             ),
             (
                 4,
@@ -219,7 +231,7 @@ def _create_search_bursty_history_db(root: Path) -> Path:
                 "野犬 说法 - Google Search",
                 4,
                 304,
-                13287954076000000,
+                _chrome_us(3600 - 58),
             ),
         ]
         for url_id, url, title, visit_count, visit_id, visit_time in rows:
@@ -229,7 +241,7 @@ def _create_search_bursty_history_db(root: Path) -> Path:
             )
             connection.execute(
                 "INSERT INTO visits (id, url, visit_time, from_visit, transition) VALUES (?, ?, ?, ?, ?)",
-                (visit_id, url_id, visit_time, max(0, visit_id - 1), 0),
+                (visit_id, url_id, visit_time, max(0, visit_id - 1), 536870912),
             )
         connection.commit()
     finally:
@@ -238,7 +250,13 @@ def _create_search_bursty_history_db(root: Path) -> Path:
 
 
 def _plugin_root() -> Path:
-    return Path(__file__).resolve().parents[3] / "plugins"
+    # Plugin sources moved to the sibling magi-plugins repo; the in-repo
+    # plugins/ dir only keeps core-tools (same fallback as the
+    # photo-library timeline-sensor test).
+    root = Path(__file__).resolve().parents[3] / "plugins"
+    if (root / "chrome-history").exists():
+        return root
+    return Path(__file__).resolve().parents[3].parent / "magi-plugins" / "plugins"
 
 
 def _build_manager(monkeypatch: pytest.MonkeyPatch, config: AppConfig) -> tuple[PluginManager, SensorRegistry]:
@@ -262,7 +280,9 @@ def test_chrome_history_plugin_is_discovered_enabled_but_source_disabled_by_defa
     chrome_package = next(item for item in packages if item.manifest.plugin_id == "chrome-history")
 
     assert chrome_package.enabled is True
-    assert chrome_package.manifest.source == "builtin"
+    # Plugin sources moved to the sibling magi-plugins repo; the scan
+    # classifies them as external (in-repo plugins/ keeps core-tools only).
+    assert chrome_package.manifest.source == "external"
     assert chrome_package.manifest.official is True
 
     manager.activate_enabled_plugins()
@@ -372,12 +392,14 @@ async def test_chrome_history_sensor_collects_events_and_relations(
     assert output.provenance["visit_id"] == "102"
     policy = sensor.l2_batch_policy(output)
     assert policy is not None
-    assert policy.owner == "chrome_history:Default:github.com"
-    assert policy.catch_up_owner is not None
-    assert policy.catch_up_owner.startswith("chrome_history:Default:catchup:")
+    # L2 batching is day-keyed now (chrome_history:<profile>:<YYYYMMDD>).
+    import re as _re
+
+    assert _re.fullmatch(r"chrome_history:Default:\d{8}", policy.owner)
+    assert policy.catch_up_owner == "chrome_history:Default:catchup"
     assert policy.max_events == 20
     assert policy.min_ready_events == 8
-    assert policy.max_wait_seconds == 180
+    assert policy.max_wait_seconds == 300
 
     root_metadata = await sensor.extract_metadata(result.items[0])
     content_metadata = await sensor.extract_metadata(result.items[1])
@@ -449,7 +471,9 @@ async def test_chrome_history_sensor_merges_burst_visits_and_keeps_cursor(
     mermaid_output = await sensor.build_output(mermaid_item)
     assert mermaid_output.source_type == "chrome_history"
     assert mermaid_output.source_item_id == "201-203"
-    assert mermaid_output.summary.endswith("(3 visits)")
+    # SensorOutput carries activity+narration now; the visit summary lives in
+    # narration.body ("{title} ({count} visits)").
+    assert mermaid_output.narration.body.endswith("(3 visits)")
     assert mermaid_output.provenance["merged_visit_count"] == 3
     assert mermaid_output.provenance["canonical_url"] == "https://mermaid.live/edit"
 

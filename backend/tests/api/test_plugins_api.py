@@ -30,6 +30,11 @@ class _FakeManager:
                         "source": "builtin",
                         "plugin_dir": "/tmp/plugins/core-tools",
                         "manifest_path": "/tmp/plugins/core-tools/plugin.toml",
+                        # Newer manifest contract fields the router reads:
+                        # kind filters out libraries; capabilities feed the
+                        # permission payload.
+                        "kind": "plugin",
+                        "capabilities": [],
                     },
                 )(),
                 "enabled": True,
