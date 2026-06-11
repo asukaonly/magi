@@ -93,6 +93,40 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
     ]
 
 
+def test_schema_migrations_run_before_any_db_consuming_module() -> None:
+    """Regression: in the orchestrator's RESOLVED (topologically-sorted) order,
+    schema migrations must precede every module that opens a migrated DB.
+
+    The builder's *list* order is not the run order — ``ModuleLifecycleOrchestrator``
+    re-sorts by declared dependencies (FIFO Kahn's algorithm). A dependency-free
+    module sits in the initial queue and runs ahead of ``DatabaseMigrationModule``
+    (which must wait for ``runtime_core_dependencies``). That is exactly how
+    ``runtime_control_plane`` (no declared deps) once ran before migrations and
+    read ``permission_rules`` before the table existed (fresh-DB startup crash).
+
+    Only the two modules that legitimately precede migrations — the orphan-process
+    sweep and core dependencies (which provides runtime paths) — may appear first.
+    """
+    from magi.bootstrap.builder import build_runtime_modules
+    from magi.bootstrap.context import RuntimeBootstrapContext
+    from magi.bootstrap.lifecycle import ModuleLifecycleOrchestrator
+
+    resolved = [
+        m.name
+        for m in ModuleLifecycleOrchestrator(
+            build_runtime_modules(RuntimeBootstrapContext())
+        )._modules
+    ]
+    migrations_idx = resolved.index("runtime_database_migrations")
+    assert resolved[:migrations_idx] == [
+        "subprocess_orphan_cleanup",
+        "runtime_core_dependencies",
+    ], (
+        "schema migrations must run before every other module; only orphan "
+        f"cleanup + core deps may precede them. Got before-migrations: {resolved[:migrations_idx]}"
+    )
+
+
 def test_runtime_worker_phase_metadata_matches_built_module_order() -> None:
     """Verify exported phase metadata stays aligned with the actual builder output."""
     from magi.bootstrap import (
