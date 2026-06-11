@@ -64,6 +64,7 @@ class L2GroundingPlan:
     evidence_focus_source: Optional[str] = None  # "llm" | "rule_heuristic" | "family_fallback" | None
     predicate_source: Optional[str] = None  # "explicit"|"embedding"|"llm_family"|"keyword_fallback" (RFC #65 P1)
     allow_soft_edges: bool = True  # RFC #65 P2
+    hop2_target_type: Optional[str] = None  # RFC #65 P3
 
     @property
     def expanded_predicates(self) -> list[str]:
@@ -130,6 +131,7 @@ def build_grounding_plan(
     plan.evidence_focus_source = conditions.evidence_focus_source
     plan.predicate_source = conditions.predicate_source
     plan.allow_soft_edges = conditions.allow_soft_edges
+    plan.hop2_target_type = conditions.hop2_target_type
 
     return plan
 

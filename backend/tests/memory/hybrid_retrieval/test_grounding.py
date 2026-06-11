@@ -170,3 +170,12 @@ def test_build_grounding_plan_copies_allow_soft_edges():
     conditions2 = L2Conditions(content_query="x", allow_soft_edges=False)
     plan2 = build_grounding_plan(conditions2, resolved_entities=[], user_id="u1")
     assert plan2.allow_soft_edges is False
+
+
+def test_build_grounding_plan_copies_hop2_target_type():
+    plan = build_grounding_plan(L2Conditions(content_query="x", hop2_target_type="media"),
+                                resolved_entities=[], user_id="u1")
+    assert plan.hop2_target_type == "media"
+    plan2 = build_grounding_plan(L2Conditions(content_query="x"),
+                                 resolved_entities=[], user_id="u1")
+    assert plan2.hop2_target_type is None
