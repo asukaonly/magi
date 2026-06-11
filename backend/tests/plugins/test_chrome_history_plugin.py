@@ -259,6 +259,14 @@ def _plugin_root() -> Path:
     return Path(__file__).resolve().parents[3].parent / "magi-plugins" / "plugins"
 
 
+if not (_plugin_root() / "chrome-history").exists():  # pragma: no cover - plugin repo absent (e.g. CI)
+    pytest.skip(
+        "chrome-history plugin not available (magi-plugins is a separate repo); "
+        "plugin-backed tests run only where the plugin is checked out",
+        allow_module_level=True,
+    )
+
+
 def _build_manager(monkeypatch: pytest.MonkeyPatch, config: AppConfig) -> tuple[PluginManager, SensorRegistry]:
     sensor_registry = SensorRegistry()
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
