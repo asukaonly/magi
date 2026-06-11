@@ -15,6 +15,7 @@ import logging
 from typing import Any
 
 from .grounding import L2GroundingPlan
+from .live_l1_cooccurrence import live_l1_cooccurrence_edges
 from .soft_edges import SEMANTIC_EDGE_PREDICATE
 from .temporal import build_knowledge_temporal_clause, compute_temporal_score
 from .traversal import HopSpec, TraversalPlan, execute_graph_traversal
@@ -28,6 +29,7 @@ async def retrieve_knowledge(
     *,
     embedding_service: Any = None,
     edge_vector_index: Any = None,
+    l1_store: Any = None,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """Run multi-channel knowledge retrieval and merge results.
@@ -42,6 +44,13 @@ async def retrieve_knowledge(
     ]
 
     graph_results, vector_results, topo_results = await asyncio.gather(*tasks)
+
+    # Live L1 co-occurrence last-resort (RFC #65 P4): only when the structured
+    # channel (hard + P2 soft + P3 hop2) is empty.
+    if not graph_results and l1_store is not None and plan.subject_entity_ids:
+        graph_results = await live_l1_cooccurrence_edges(
+            list(plan.subject_entity_ids), l1_store, limit=limit,
+        )
 
     merged = _merge_channels(graph_results, vector_results, topo_results)
 
