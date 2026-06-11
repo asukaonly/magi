@@ -235,6 +235,7 @@
     "stepSync": "Sync history",
     "stepMemory": "Build memory",
     "syncedCount": "Synced {{count}} items",
+    "memoryCount": "Organized {{count}} memories",
     "fieldsTitle": "First, choose what to connect",
     "connect": "Connect",
     "cancel": "Later",

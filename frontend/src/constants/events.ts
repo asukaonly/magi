@@ -14,6 +14,9 @@ export const APP_EVENTS = {
   MEMORY_CLEARED: 'magi-memory-cleared',
   /** Dispatched when session state changes */
   SESSION_SYNC: 'magi-session-sync',
+  /** Dispatched when the installed/connected plugin set changes (install/enable
+   *  completed), so system suggestions can re-evaluate and drop connected plugins */
+  PLUGINS_CHANGED: 'magi-plugins-changed',
   /** Dispatched when theme changes */
   THEME_CHANGED: 'magi-theme-changed',
   /** Dispatched when language changes */
@@ -74,6 +77,7 @@ export function subscribeToAppEvent(
 export const dispatchAppEvent = {
   memoryCleared: () => dispatchCustomAppEvent(APP_EVENTS.MEMORY_CLEARED),
   sessionSync: () => dispatchCustomAppEvent(APP_EVENTS.SESSION_SYNC),
+  pluginsChanged: () => dispatchCustomAppEvent(APP_EVENTS.PLUGINS_CHANGED),
   themeChanged: (theme: 'light' | 'dark' | 'system') =>
     dispatchCustomAppEvent(APP_EVENTS.THEME_CHANGED, { theme }),
   languageChanged: (language: string) =>

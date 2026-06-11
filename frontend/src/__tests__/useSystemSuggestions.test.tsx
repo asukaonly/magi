@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useSystemSuggestions } from '../hooks/useSystemSuggestions';
+import { APP_EVENTS } from '../constants/events';
 
 const mockCheck = vi.fn();
 const mockDismiss = vi.fn();
@@ -26,6 +27,16 @@ describe('useSystemSuggestions', () => {
     await waitFor(() =>
       expect(mockCheck).toHaveBeenCalledWith({ text: 'hi', locale: 'zh' }),
     );
+  });
+
+  it('re-checks suggestions when a PLUGINS_CHANGED app event fires', async () => {
+    mockCheck.mockResolvedValue([]);
+    renderHook(() => useSystemSuggestions({ triggerText: 'hi', locale: 'zh' }));
+    await waitFor(() => expect(mockCheck).toHaveBeenCalledTimes(1));
+    act(() => {
+      window.dispatchEvent(new Event(APP_EVENTS.PLUGINS_CHANGED));
+    });
+    await waitFor(() => expect(mockCheck).toHaveBeenCalledTimes(2));
   });
 
   it('exposes the returned proposals', async () => {
