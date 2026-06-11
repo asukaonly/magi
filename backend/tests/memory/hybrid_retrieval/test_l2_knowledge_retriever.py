@@ -366,3 +366,20 @@ async def test_structured_channel_no_hop2_when_target_type_none(monkeypatch):
     await mod._structured_graph_channel(plan, store)
     assert captured["hop2"] is None
     assert captured["max_hops"] == 1
+
+
+@pytest.mark.asyncio
+async def test_two_hop_end_to_end_albums_of_liked_artists():
+    """Full retrieve_knowledge chain: hop2_target_type=media → hop2 albums surface tagged _hop=2."""
+    store = _make_store()
+    store.batch_get_relationships = AsyncMock(side_effect=[
+        {"user:u1": [{"triple_id": "h1", "subject_id": "user:u1", "predicate": "LIKES",
+                      "object_id": "person:artist", "object_type": "person", "confidence": 0.9}]},  # hop1
+        {"person:artist": [{"triple_id": "h2", "subject_id": "person:artist",
+                            "predicate": "CREATES", "object_id": "media:album",
+                            "object_type": "media", "confidence": 0.8}]},  # hop2 hard
+        {"person:artist": []},  # hop2 soft
+    ])
+    plan = _plan_with_subject(hop2_target_type="media", allow_soft_edges=False)
+    merged = await retrieve_knowledge(plan, store)
+    assert any(e.get("_hop") == 2 and e["object_id"] == "media:album" for e in merged)
