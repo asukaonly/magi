@@ -236,6 +236,7 @@
     "stepSync": "同步历史数据",
     "stepMemory": "整理记忆",
     "syncedCount": "已同步 {{count}} 条",
+    "memoryCount": "已整理 {{count}} 条记忆",
     "fieldsTitle": "连接前，先选择要接入的内容",
     "connect": "连接",
     "cancel": "稍后",

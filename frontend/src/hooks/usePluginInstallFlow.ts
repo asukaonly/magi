@@ -27,6 +27,7 @@ export interface UsePluginInstallFlowResult {
   installProgress: PluginInstallJobSnapshot | null;
   syncedCount: number | null;
   memoryReady: boolean;
+  memoryCount: number | null;
   backfillNote: boolean;
   error: string | null;
   submitFields: (values: Record<string, unknown>) => void;
@@ -69,6 +70,7 @@ export function usePluginInstallFlow(
   const [installProgress, setInstallProgress] = useState<PluginInstallJobSnapshot | null>(null);
   const [syncedCount, setSyncedCount] = useState<number | null>(null);
   const [memoryReady, setMemoryReady] = useState(false);
+  const [memoryCount, setMemoryCount] = useState<number | null>(null);
   const [backfillNote, setBackfillNote] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [steps, setSteps] = useState<InstallStep[]>([]);
@@ -170,6 +172,7 @@ export function usePluginInstallFlow(
         maxWaitMs: MEMORY_WAIT_MS,
       });
       setMemoryReady(!!readiness.l2_ready);
+      setMemoryCount(typeof readiness.l1_event_count === 'number' ? readiness.l1_event_count : null);
       if (!readiness.l2_ready) setBackfillNote(true);
       // labelled ✓ when memoryReady, "整理中" otherwise — soft-done, never an error.
       setStep('memory', 'done');
@@ -210,6 +213,7 @@ export function usePluginInstallFlow(
     installProgress,
     syncedCount,
     memoryReady,
+    memoryCount,
     backfillNote,
     error,
     submitFields,

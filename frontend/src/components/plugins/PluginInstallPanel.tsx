@@ -17,6 +17,7 @@ import { usePluginInstallPanelStore } from '../../stores/pluginInstallPanel';
 import { usePluginInstallFlow, type InstallStepId } from '../../hooks/usePluginInstallFlow';
 import { InstallStepper } from './InstallStepper';
 import { PluginConsentDialog } from './PluginConsentDialog';
+import { dispatchAppEvent } from '@/constants/events';
 
 /** "netease-music" → "Netease Music" — readable fallback when a plugin has no
  *  localized name in the `pluginNames` i18n map. Mirrors SystemSuggestionSideCard. */
@@ -129,6 +130,9 @@ export function PluginInstallPanel(): JSX.Element | null {
     }
     if (flow.phase === 'done' && !doneFiredRef.current) {
       doneFiredRef.current = true;
+      // The installed/connected plugin set just changed — let every suggestion
+      // surface re-evaluate so this plugin stops being suggested.
+      dispatchAppEvent.pluginsChanged();
       onDone?.();
     }
   }, [open, flow.phase, onDone]);
@@ -168,7 +172,9 @@ export function PluginInstallPanel(): JSX.Element | null {
         ? t('pluginInstallPanel.syncedCount', { count: flow.syncedCount })
         : t('pluginInstallPanel.stepSync'),
     memory: flow.memoryReady
-      ? t('pluginInstallPanel.readyTitle')
+      ? flow.memoryCount != null
+        ? t('pluginInstallPanel.memoryCount', { count: flow.memoryCount })
+        : t('pluginInstallPanel.readyTitle')
       : flow.backfillNote
         ? t('pluginInstallPanel.memoryReadying')
         : t('pluginInstallPanel.stepMemory'),
