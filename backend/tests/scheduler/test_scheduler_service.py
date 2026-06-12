@@ -58,6 +58,91 @@ async def test_scheduler_service_persists_and_restores_interval_jobs(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_reregistering_interval_job_preserves_next_run(tmp_path):
+    """Re-registering an already-scheduled interval job must NOT reset its
+    next_run to now+interval.
+
+    Regression for #85: long-interval maintenance (24h) was starved because every
+    app start re-upserts the job with ``replace_existing=True``, which recomputes
+    next_run = now + interval. Desktop restarts more often than the interval, so the
+    countdown never elapsed and L2 maintenance never ran.
+    """
+    import datetime
+
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+
+    async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
+        return ScheduledExecutionResult(success=True, message="ok")
+
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
+    await service.start()
+    try:
+        await service.schedule_interval(
+            schedule_id="m",
+            target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="global",
+            seconds=86_400.0,
+            target_payload={},
+        )
+        # Simulate a job partway through its 24h countdown (~100s left), as the
+        # persistent jobstore holds after the app has been running for a while.
+        sentinel = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=100)
+        service._scheduler.modify_job("m", next_run_time=sentinel)
+        before = service._scheduler.get_job("m").next_run_time
+
+        # Re-registration on the next app start (what _restore_persisted_jobs does).
+        schedule = await service.repository.get_schedule("m")
+        await service._upsert_job(schedule)
+
+        after = service._scheduler.get_job("m").next_run_time
+        # Bug: `after` resets to ~now+86400 (diff ~86300s). Fixed: preserved (~0s).
+        assert abs((after - before).total_seconds()) < 5, (
+            f"next_run was reset on re-registration: before={before} after={after}"
+        )
+    finally:
+        await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_interval_jobs_are_configured_to_catch_up_missed_runs(tmp_path):
+    """Scheduled jobs must catch up a run that came due while the app was down
+    (misfire_grace_time=None) instead of skipping it (#85). The default 120s grace
+    drops runs missed during downtime — the common case on a desktop app that is
+    only open for part of the day, so a 24h job would otherwise never run.
+    """
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+
+    async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
+        return ScheduledExecutionResult(success=True, message="ok")
+
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
+    await service.start()
+    try:
+        await service.schedule_interval(
+            schedule_id="m",
+            target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="global",
+            seconds=86_400.0,
+            target_payload={},
+        )
+        job = service._scheduler.get_job("m")
+        assert job is not None
+        # None => an overdue run fires on the next start (caught up, coalesced to
+        # one), rather than being dropped past the 120s default grace.
+        assert job.misfire_grace_time is None, (
+            f"missed runs would be skipped: misfire_grace_time={job.misfire_grace_time}"
+        )
+    finally:
+        await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_scheduler_service_supports_once_and_cron_and_replaces_existing_schedule(tmp_path):
     db_path = tmp_path / "scheduler.db"
     runtime_dir = tmp_path / "runtime"
