@@ -164,8 +164,8 @@ _SPECS: list[PredicateSpec] = [
     ),
     PredicateSpec(
         canonical="WORKS_WITH",
-        family="activity",
-        synonym_group="usage",
+        family="relationship",
+        synonym_group="coworker",
         aliases=(),
         subject_types=("person",),
         object_types=("person", "software", "technology"),
