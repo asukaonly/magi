@@ -53,18 +53,21 @@ describe('PluginInstallPanel', () => {
       l2_ready: true,
     } as any);
 
+    let pluginsChangedFired = false;
+    const onPluginsChanged = () => { pluginsChangedFired = true; };
+    window.addEventListener('magi-plugins-changed', onPluginsChanged);
+
     const onDone = vi.fn();
     render(<PluginInstallPanel />);
     usePluginInstallPanelStore.getState().openPanel('calendar', { onDone });
 
     // The flow polls /sensors/status once at SYNC_POLL_MS (1500ms) before the
-    // sync step completes, so allow generous headroom over the default 5s.
-    // `readyTitle` shows twice in the done state (the memory step label + the
-    // standalone "✓ now I get you" line), so match all + assert the terminal
-    // "Done" close button (only rendered once the flow settles).
+    // sync step completes, so allow generous headroom over the default 5s. The
+    // memory step now shows the organized-count ("memoryCount"); assert it plus
+    // the terminal "Done" close button (only rendered once the flow settles).
     await waitFor(
       () => {
-        expect(screen.getAllByText(/pluginInstallPanel\.readyTitle/).length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/pluginInstallPanel\.memoryCount/).length).toBeGreaterThan(0);
         expect(
           screen.getByRole('button', { name: 'pluginInstallPanel.close' }),
         ).toBeInTheDocument();
@@ -74,6 +77,9 @@ describe('PluginInstallPanel', () => {
 
     // onDone fires exactly once when the flow reaches `done`.
     expect(onDone).toHaveBeenCalledTimes(1);
+    // A completed connect flow broadcasts PLUGINS_CHANGED so suggestion surfaces refresh.
+    expect(pluginsChangedFired).toBe(true);
+    window.removeEventListener('magi-plugins-changed', onPluginsChanged);
   }, 12000);
 
   it('shows the capability consent before installing in install mode', async () => {

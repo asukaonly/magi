@@ -5,6 +5,7 @@ import {
   type DismissalKind,
   type SuggestionProposal,
 } from '../api/modules/systemSuggestions';
+import { APP_EVENTS } from '../constants/events';
 
 export interface UseSystemSuggestionsArgs {
   triggerText: string;
@@ -33,7 +34,7 @@ export function useSystemSuggestions({
   const [error, setError] = useState<Error | null>(null);
   const cancelled = useRef(false);
 
-  useEffect(() => {
+  const fetchSuggestions = useCallback(() => {
     if (!triggerText) {
       setProposals([]);
       return;
@@ -51,10 +52,23 @@ export function useSystemSuggestions({
       .finally(() => {
         if (!cancelled.current) setLoading(false);
       });
+  }, [triggerText, locale, sessionId]);
+
+  useEffect(() => {
+    fetchSuggestions();
     return () => {
       cancelled.current = true;
     };
-  }, [triggerText, locale, sessionId]);
+  }, [fetchSuggestions]);
+
+  // Re-evaluate when the installed/connected plugin set changes (a plugin
+  // install/connect just completed), so a now-connected plugin stops being
+  // suggested across every surface (top bar, side card, product tour).
+  useEffect(() => {
+    const handler = () => fetchSuggestions();
+    window.addEventListener(APP_EVENTS.PLUGINS_CHANGED, handler);
+    return () => window.removeEventListener(APP_EVENTS.PLUGINS_CHANGED, handler);
+  }, [fetchSuggestions]);
 
   const dismiss = useCallback(
     async (dedupeKey: string, kind: DismissalKind, title?: string) => {
