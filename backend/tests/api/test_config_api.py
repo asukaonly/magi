@@ -531,7 +531,7 @@ def test_build_update_paths_applies_builtin_provider_defaults_before_save():
     assert updates["llm.providers"]["glm"]["display_name"] == "Z.ai"
     assert updates["llm.providers"]["glm"]["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
     assert updates["llm.selections"]["context_decider"]["model"] == "glm-4.6"
-    assert updates["llm.selections"]["core"]["model"] == "glm-5"
+    assert updates["llm.selections"]["core"]["model"] == "glm-5.1"
     assert updates["llm.selections"]["embedding"]["model"] == "embedding-3"
     assert updates["llm.selections"]["embedding"]["embedding_dimension"] == 1024
 

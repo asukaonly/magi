@@ -5388,7 +5388,7 @@ export interface components {
          *     extensions"; reasoning / thinking knobs are not injected.
          * @enum {string}
          */
-        readonly ModelVendor: "openai" | "deepseek" | "anthropic" | "glm" | "dashscope" | "grok" | "generic";
+        readonly ModelVendor: "openai" | "deepseek" | "anthropic" | "glm" | "dashscope" | "grok" | "gemini" | "kimi" | "minimax" | "generic";
         /** NetworkProxyConfigModel */
         readonly NetworkProxyConfigModel: {
             /**
