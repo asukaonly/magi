@@ -20,9 +20,13 @@ Design contract:
     degrades silently to "no filtering" — the raw payload flows
     through unchanged.
 
-  - We only filter ``l1_events``. L2 layers (relationships /
-    assertions / episodes) are already small and structurally
-    grounded; the user's pain point is L1 noise.
+  - Two independent passes: ``l1_events`` and ``l2_relationships``,
+    each its own LLM call with its own keep-set and trace key
+    (``grounding_filter`` / ``grounding_filter_l2``). They run
+    independently — a failure in one never affects the other. L2
+    relationships are filtered because a precise structured answer
+    edge can otherwise be crowded out by semantically-loose
+    relationship noise (#94).
 
   - The model call uses ``IntentDecider``-style cheap LLM (qwen-flash
     or similar) injected by the caller. The grounding pass is short
@@ -43,7 +47,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Iterable
+from typing import Any
 
 from .models import RetrievalPayload, RetrievalQuery
 
