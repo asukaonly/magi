@@ -135,8 +135,48 @@ Output:
 """
 
 
+_SYSTEM_PROMPT_L2 = """\
+You are a relevance filter for a personal knowledge-graph retrieval system.
+
+You receive (1) a user's natural-language query and (2) a numbered list
+of candidate relationship statements extracted from the user's knowledge
+graph. Your job is to keep ONLY the relationships that genuinely help
+answer THAT query. Drop unrelated noise.
+
+Reply with a single JSON object:
+
+  {"keep": [<idx>, <idx>, ...], "why": "<one short sentence>"}
+
+Rules:
+  - `keep` is a list of integers — the 1-based indices of candidates to
+    keep, in original order.
+  - Be strict but not destructive: if you genuinely can't tell whether a
+    relationship is relevant, KEEP it. Bias toward recall over precision.
+  - Drop a relationship only when it is clearly unrelated to the query
+    (e.g. querying "who is my colleague's boss" should drop LIKES edges).
+  - Reply in the same language as the query (Chinese in / Chinese out).
+  - `why` is a one-sentence rationale.
+  - Output ONLY the JSON object. No prose before or after.
+
+Example — Chinese query:
+Input:
+{"query": "我同事的老板是谁",
+ "candidates": [
+   {"idx": 1, "predicate": "REPORTS_TO",
+    "statement": "用户的同事 王明 向 陈总 汇报"},
+   {"idx": 2, "predicate": "LIKES",
+    "statement": "用户喜欢听周杰伦的歌"},
+   {"idx": 3, "predicate": "USES",
+    "statement": "用户使用 yacd 管理代理规则"}
+ ]}
+Output:
+{"keep": [1], "why": "只有 1 描述了同事的汇报关系（即老板关系），2 和 3 与查询无关。"}
+"""
+
+
 class GroundingFilter:
-    """Apply an LLM-as-listwise-filter to RetrievalPayload.l1_events.
+    """Apply an LLM-as-listwise-filter to RetrievalPayload.l1_events
+    and RetrievalPayload.l2_relationships.
 
     Instantiated once at service setup; ``apply()`` is the per-query
     entry point. Stateless apart from the LLM bridge handle and the
@@ -159,19 +199,38 @@ class GroundingFilter:
         payload: RetrievalPayload,
         request: RetrievalQuery,
     ) -> RetrievalPayload:
-        """Filter ``payload.l1_events`` in place, return the same payload.
+        """Filter ``payload.l1_events`` and ``payload.l2_relationships``
+        in place, return the same payload.
 
-        Records trace fields:
-          - ``grounding_filter.applied`` (bool)
-          - ``grounding_filter.input_count`` (int)
-          - ``grounding_filter.kept_count`` (int)
-          - ``grounding_filter.elapsed_ms`` (float)
-          - ``grounding_filter.why`` (str | None)
-          - ``grounding_filter.degraded_reason`` (str | None) — set on
-            failure path; payload still returned unchanged.
+        Both passes are independent. Either can degrade silently to
+        pass-through without affecting the other.
+
+        Records trace fields under ``grounding_filter`` (L1 pass) and
+        ``grounding_filter_l2`` (L2 pass):
+          - ``applied`` (bool)
+          - ``input_count`` (int)
+          - ``kept_count`` (int)
+          - ``elapsed_ms`` (float)
+          - ``why`` (str | None)
+          - ``degraded_reason`` (str | None) — set on failure path.
         """
         if not self._enabled:
             return payload
+        query = str(request.query or "").strip()
+        payload = await self._apply_l1_events(payload, query)
+        payload = await self._apply_l2_relationships(payload, query)
+        return payload
+
+    async def _apply_l1_events(
+        self,
+        payload: RetrievalPayload,
+        query: str,
+    ) -> RetrievalPayload:
+        """Filter ``payload.l1_events`` in place.
+
+        Degrades silently to pass-through on any failure path. Records
+        trace under ``grounding_filter``.
+        """
         events = payload.l1_events or []
         if len(events) < MIN_CANDIDATES_TO_FILTER:
             payload.trace["grounding_filter"] = {
@@ -181,7 +240,6 @@ class GroundingFilter:
             }
             return payload
 
-        query = str(request.query or "").strip()
         if not query:
             payload.trace["grounding_filter"] = {
                 "applied": False,
@@ -275,6 +333,114 @@ class GroundingFilter:
         }
         return payload
 
+    async def _apply_l2_relationships(
+        self,
+        payload: RetrievalPayload,
+        query: str,
+    ) -> RetrievalPayload:
+        """Filter ``payload.l2_relationships`` in place using the same
+        LLM-call shape as the l1_events pass.
+
+        Degrades silently to pass-through on any failure path. Records
+        trace under ``grounding_filter_l2``.
+        """
+        rels = payload.l2_relationships or []
+        if len(rels) < MIN_CANDIDATES_TO_FILTER:
+            payload.trace["grounding_filter_l2"] = {
+                "applied": False,
+                "skipped_reason": "trivial_count",
+                "input_count": len(rels),
+            }
+            return payload
+
+        if not query:
+            payload.trace["grounding_filter_l2"] = {
+                "applied": False,
+                "skipped_reason": "empty_query",
+                "input_count": len(rels),
+            }
+            return payload
+
+        sliced = rels[:SKIP_THRESHOLD_MAX]
+        prompt_payload = _build_l2_prompt_payload(query, sliced)
+        t0 = time.monotonic()
+        try:
+            raw = await asyncio.wait_for(
+                self._bridge.chat(
+                    system_prompt=_SYSTEM_PROMPT_L2,
+                    messages=[{"role": "user", "content": prompt_payload}],
+                    max_tokens=512,
+                    temperature=0.2,
+                    disable_thinking=True,
+                    json_mode=True,
+                    timeout_seconds=self._timeout,
+                    event_context={
+                        "request_kind": "memory:grounding_filter_l2",
+                        "agent_id": "memory:hybrid_retrieval",
+                    },
+                ),
+                timeout=self._timeout + 0.5,
+            )
+        except asyncio.TimeoutError:
+            payload.trace["grounding_filter_l2"] = _degraded_trace(
+                len(rels), reason="llm_timeout", elapsed_ms=(time.monotonic() - t0) * 1000
+            )
+            logger.info("Grounding filter (L2) timed out; passing raw relationships through.")
+            return payload
+        except Exception as exc:  # noqa: BLE001
+            payload.trace["grounding_filter_l2"] = _degraded_trace(
+                len(rels),
+                reason=f"llm_exception:{type(exc).__name__}",
+                elapsed_ms=(time.monotonic() - t0) * 1000,
+            )
+            logger.warning(
+                "Grounding filter (L2) failed; passing raw relationships through.", exc_info=True
+            )
+            return payload
+
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        kept_indices, why = _parse_keep_response(raw)
+        if kept_indices is None:
+            payload.trace["grounding_filter_l2"] = _degraded_trace(
+                len(rels), reason="bad_response_shape", elapsed_ms=elapsed_ms
+            )
+            logger.info(
+                "Grounding filter (L2) response unparseable; passing raw relationships through."
+            )
+            return payload
+
+        kept_rels = [
+            sliced[i - 1] for i in kept_indices if isinstance(i, int) and 1 <= i <= len(sliced)
+        ]
+        if not kept_rels:
+            if not kept_indices:
+                # Explicit empty verdict — trust it.
+                payload.l2_relationships = []
+                payload.trace["grounding_filter_l2"] = {
+                    "applied": True,
+                    "input_count": len(rels),
+                    "kept_count": 0,
+                    "elapsed_ms": round(elapsed_ms, 1),
+                    "why": why or None,
+                    "all_dropped": True,
+                }
+                return payload
+            # Non-empty but all out of range → hallucination, degrade.
+            payload.trace["grounding_filter_l2"] = _degraded_trace(
+                len(rels), reason="no_valid_indices", elapsed_ms=elapsed_ms
+            )
+            return payload
+
+        payload.l2_relationships = kept_rels
+        payload.trace["grounding_filter_l2"] = {
+            "applied": True,
+            "input_count": len(rels),
+            "kept_count": len(kept_rels),
+            "elapsed_ms": round(elapsed_ms, 1),
+            "why": why or None,
+        }
+        return payload
+
 
 # ---------- helpers ----------
 
@@ -307,6 +473,36 @@ def _build_prompt_payload(query: str, events: list[dict[str, Any]]) -> str:
                 "source": str(event.get("source") or "unknown"),
                 "when": _format_when(when_ts),
                 "content": content,
+            }
+        )
+    body = {"query": query, "candidates": candidates}
+    return json.dumps(body, ensure_ascii=False)
+
+
+def _build_l2_prompt_payload(query: str, rels: list[dict[str, Any]]) -> str:
+    """Construct the user-message JSON for the L2 relationship filter LLM.
+
+    Each relationship is represented by its ``natural_summary`` (the
+    human-readable statement stored in the knowledge graph) plus the
+    predicate label so the LLM can judge structural relevance. Falls
+    back to a synthesised ``subject --predicate--> object`` string when
+    ``natural_summary`` is absent.
+    """
+    candidates: list[dict[str, Any]] = []
+    for i, rel in enumerate(rels, start=1):
+        natural = str(rel.get("natural_summary") or "").strip()
+        if not natural:
+            subj = rel.get("subject_name") or rel.get("subject_id") or ""
+            pred = rel.get("predicate") or ""
+            obj = rel.get("object_name") or rel.get("object_id") or ""
+            natural = f"{subj} --{pred}--> {obj}"
+        if len(natural) > CONTENT_CAP_CHARS:
+            natural = natural[:CONTENT_CAP_CHARS].rstrip() + "…[truncated]"
+        candidates.append(
+            {
+                "idx": i,
+                "predicate": str(rel.get("predicate") or ""),
+                "statement": natural,
             }
         )
     body = {"query": query, "candidates": candidates}
