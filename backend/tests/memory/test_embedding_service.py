@@ -41,6 +41,10 @@ class _BlockingEmbeddingAdapter:
         self.active_calls -= 1
         return [1.0, 0.0, 0.0]
 
+    async def get_embedding_with_usage(self, text: str, model=None):
+        # Mirrors the LLMAdapter contract: delegate and report 0 tokens.
+        return (await self.get_embedding(text), 0)
+
 
 class _EmbeddingScenarioPool:
     def __init__(self, adapter: object) -> None:

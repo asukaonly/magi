@@ -8,6 +8,7 @@ from ..config.loader import get_llm_provider_registry_file
 from ..config.llm_registry import (
     LLMProviderRegistryModel,
     find_chat_model_meta,
+    find_embedding_model_meta,
     load_llm_provider_registry,
 )
 
@@ -80,6 +81,30 @@ def calculate_chat_cost(
 
     currency = (cost.currency or "USD").upper()
     return total / TOKENS_PER_MILLION, currency
+
+
+def calculate_embedding_cost(
+    *,
+    provider: str,
+    model: str,
+    prompt_tokens: int,
+    registry: LLMProviderRegistryModel | None = None,
+) -> tuple[float | None, str | None]:
+    """Cost for an embedding request in the model's native currency.
+
+    Embeddings are input-only (no completion tokens), so the cost is derived
+    solely from ``input_per_million_tokens``. Returns ``(None, None)`` when the
+    model has no pricing metadata.
+    """
+    effective_registry = registry or _load_provider_registry()
+    meta = find_embedding_model_meta(effective_registry, provider, model)
+    if meta is None or meta.cost is None:
+        return None, None
+    input_rate = meta.cost.input_per_million_tokens
+    if input_rate is None:
+        return None, None
+    amount = max(0, int(prompt_tokens or 0)) * input_rate / TOKENS_PER_MILLION
+    return amount, (meta.cost.currency or "USD").upper()
 
 
 def calculate_chat_cost_usd(

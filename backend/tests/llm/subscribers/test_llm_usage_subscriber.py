@@ -155,6 +155,31 @@ async def test_records_native_currency_for_non_usd_model(fake_bus, fake_store):
 
 
 @pytest.mark.asyncio
+async def test_embedding_cost_fallback_when_not_a_chat_model(fake_bus, fake_store):
+    """Embedding models aren't chat models, so the chat calc returns None and the
+    embedding-fallback prices the request in the model's native currency."""
+    sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
+    await sub.start()
+    payload = _payload(
+        attrs={
+            "provider": "dashscope",
+            "model": "text-embedding-v3",  # CNY 0.5 / million tokens, input-only
+            "request_kind": "embedding",
+            "prompt_tokens": 1_000_000,
+            "completion_tokens": 0,
+            "total_tokens": 1_000_000,
+            "usage_available": True,
+        },
+    )
+    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
+    await sub.drain()
+    written = fake_store.record_call.await_args.args[0]
+    assert written["request_kind"] == "embedding"
+    assert written["cost_currency"] == "CNY"
+    assert written["cost_usd"] == pytest.approx(0.5)
+
+
+@pytest.mark.asyncio
 async def test_correlation_id_falls_back_to_attributes(fake_bus, fake_store):
     """When event.correlation_id is None, attrs['correlation_id'] is used."""
     sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)

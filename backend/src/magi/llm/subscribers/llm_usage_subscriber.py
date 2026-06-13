@@ -7,7 +7,7 @@ from typing import Optional
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SpanCompleted
 from magi.events.payload_helpers import expect_payload, PayloadTypeError
-from magi.llm.pricing import calculate_chat_cost
+from magi.llm.pricing import calculate_chat_cost, calculate_embedding_cost
 from magi.llm.usage_store import LLMUsageStore
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,14 @@ class LLMUsageSubscriber:
                     cache_read_tokens=int(attrs.get("cache_read_tokens", 0)),
                     cache_write_tokens=int(attrs.get("cache_write_tokens", 0)),
                 )
+                # Chat-first, embedding-fallback: embedding models are not chat
+                # models, so calculate_chat_cost returns (None, None) for them.
+                if cost_amount is None:
+                    cost_amount, cost_currency = calculate_embedding_cost(
+                        provider=str(attrs.get("provider") or ""),
+                        model=str(attrs.get("model") or payload.name),
+                        prompt_tokens=prompt_tokens,
+                    )
             usage_payload = {
                 "request_id": str(attrs.get("request_id") or payload.span_id),
                 "provider": str(attrs.get("provider") or ""),

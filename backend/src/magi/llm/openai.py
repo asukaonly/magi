@@ -320,6 +320,92 @@ class OpenAIAdapter(LLMAdapter):
             # Fallback to individual retrieval
             return [await self.get_embedding(t, model) for t in texts]
 
+    async def get_embedding_with_usage(
+        self,
+        text: str,
+        model: Optional[str] = None,
+    ) -> tuple[Optional[List[float]], int]:
+        """
+        Get a text embedding vector along with its prompt-token usage.
+
+        Mirrors :meth:`get_embedding` but also surfaces ``usage.prompt_tokens``
+        from the embeddings response (embeddings have no completion tokens).
+
+        Returns:
+            Tuple of (embedding vector or None, prompt token count)
+        """
+        if not text or not text.strip():
+            return (None, 0)
+
+        embedding_model = model or self._embedding_model
+
+        try:
+            request_kwargs: Dict[str, Any] = {
+                "model": embedding_model,
+                "input": text,
+            }
+            if self._embedding_dimension is not None:
+                request_kwargs["dimensions"] = self._embedding_dimension
+            response = await self._client.embeddings.create(**request_kwargs)
+            prompt_tokens = int(getattr(getattr(response, "usage", None), "prompt_tokens", 0) or 0)
+            return (response.data[0].embedding, prompt_tokens)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to get embedding: {e}")
+            return (None, 0)
+
+    async def get_embeddings_with_usage(
+        self,
+        texts: List[str],
+        model: Optional[str] = None,
+    ) -> tuple[List[Optional[List[float]]], int]:
+        """
+        Batch get embedding vectors along with the total prompt-token usage.
+
+        Mirrors :meth:`get_embeddings` but also surfaces ``usage.prompt_tokens``
+        from the embeddings response. In the per-text fallback the token counts
+        are summed across the individual requests.
+
+        Returns:
+            Tuple of (list of embedding vectors, summed prompt token count)
+        """
+        # Filter empty texts
+        valid_texts = [(i, t) for i, t in enumerate(texts) if t and t.strip()]
+        if not valid_texts:
+            return ([None] * len(texts), 0)
+
+        embedding_model = model or self._embedding_model
+
+        try:
+            # OpenAI supports batch request
+            request_kwargs: Dict[str, Any] = {
+                "model": embedding_model,
+                "input": [t for _, t in valid_texts],
+            }
+            if self._embedding_dimension is not None:
+                request_kwargs["dimensions"] = self._embedding_dimension
+            response = await self._client.embeddings.create(**request_kwargs)
+            prompt_tokens = int(getattr(getattr(response, "usage", None), "prompt_tokens", 0) or 0)
+
+            # Build result
+            result = [None] * len(texts)
+            for (i, _), embedding in zip(valid_texts, response.data):
+                result[i] = embedding.embedding
+
+            return (result, prompt_tokens)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to get embeddings: {e}")
+            # Fallback to individual retrieval, summing per-text usage.
+            result = [None] * len(texts)
+            summed_tokens = 0
+            for i, t in enumerate(texts):
+                vector, tokens = await self.get_embedding_with_usage(t, model)
+                result[i] = vector
+                summed_tokens += tokens
+            return (result, summed_tokens)
+
     @property
     def supports_embeddings(self) -> bool:
         """Whether embeddings are supported"""

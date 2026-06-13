@@ -153,6 +153,40 @@ class LLMAdapter(ABC):
         """
         return [await self.get_embedding(text, model) for text in texts]
 
+    async def get_embedding_with_usage(
+        self,
+        text: str,
+        model: Optional[str] = None,
+    ) -> tuple[Optional[List[float]], int]:
+        """
+        Get a text embedding vector along with the prompt-token count.
+
+        Default implementation delegates to :meth:`get_embedding` and reports 0
+        tokens, so adapters that do not surface usage (e.g. local/free paths)
+        stay free. Remote adapters should override to return real token counts.
+
+        Returns:
+            Tuple of (embedding vector or None, prompt token count)
+        """
+        return (await self.get_embedding(text, model), 0)
+
+    async def get_embeddings_with_usage(
+        self,
+        texts: List[str],
+        model: Optional[str] = None,
+    ) -> tuple[List[Optional[List[float]]], int]:
+        """
+        Batch get embedding vectors along with the total prompt-token count.
+
+        Default implementation delegates to :meth:`get_embeddings` and reports 0
+        tokens, so adapters that do not surface usage (e.g. local/free paths)
+        stay free. Remote adapters should override to return real token counts.
+
+        Returns:
+            Tuple of (list of embedding vectors, summed prompt token count)
+        """
+        return (await self.get_embeddings(texts, model), 0)
+
     @property
     def supports_embeddings(self) -> bool:
         """Whether embedding vectors are supported"""
