@@ -586,6 +586,7 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.5
+          cached_input_per_million_tokens: 0.15
           output_per_million_tokens: 9.0
           source: https://ai.google.dev/pricing
       - id: gemini-2.5-pro
@@ -602,6 +603,7 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.25
+          cached_input_per_million_tokens: 0.125
           output_per_million_tokens: 10.0
           source: https://ai.google.dev/gemini-api/docs/pricing
           source_note: Base tier for prompts up to 200k tokens; higher tier is 2.50 input and 15.00 output per million tokens.
@@ -619,6 +621,7 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 0.3
+          cached_input_per_million_tokens: 0.03
           output_per_million_tokens: 2.5
           source: https://ai.google.dev/gemini-api/docs/pricing
       - id: gemini-2.5-flash-lite
@@ -720,6 +723,7 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.25
+          cached_input_per_million_tokens: 0.20
           output_per_million_tokens: 2.5
           source: https://docs.x.ai/docs/models
       - id: grok-4.20-multi-agent-0309
@@ -735,6 +739,7 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.25
+          cached_input_per_million_tokens: 0.20
           output_per_million_tokens: 2.5
           source: https://docs.x.ai/docs/models
       - id: grok-4.20-0309-reasoning
@@ -750,6 +755,7 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.25
+          cached_input_per_million_tokens: 0.20
           output_per_million_tokens: 2.5
           source: https://docs.x.ai/docs/models
       - id: grok-4.20-0309-non-reasoning
@@ -765,6 +771,7 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.25
+          cached_input_per_million_tokens: 0.20
           output_per_million_tokens: 2.5
           source: https://docs.x.ai/docs/models
     fields:
@@ -890,9 +897,10 @@ providers:
         cost:
           currency: CNY
           input_per_million_tokens: 2.0
+          cached_input_per_million_tokens: 0.4
           output_per_million_tokens: 12.0
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 256k tokens; 256k-1M tier is 8 input and 48 output CNY per million tokens.
+          source_note: Base tier for prompts up to 256k tokens; 256k-1M tier is 8 input and 48 output CNY per million tokens. cached_input is the implicit context-cache hit price (= input × 20%).
       - id: qwen3.6-flash
         label: qwen3.6-flash
         capabilities:
@@ -907,9 +915,10 @@ providers:
         cost:
           currency: CNY
           input_per_million_tokens: 1.2
+          cached_input_per_million_tokens: 0.24
           output_per_million_tokens: 7.2
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 256k tokens; 256k-1M tier is 4.8 input and 28.8 output CNY per million tokens.
+          source_note: Base tier for prompts up to 256k tokens; 256k-1M tier is 4.8 input and 28.8 output CNY per million tokens. cached_input is the implicit context-cache hit price (= input × 20%).
       - id: qwen3.5-plus
         label: qwen3.5-plus
         capabilities:
@@ -924,9 +933,10 @@ providers:
         cost:
           currency: CNY
           input_per_million_tokens: 0.8
+          cached_input_per_million_tokens: 0.16
           output_per_million_tokens: 4.8
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 128k tokens; higher tiers are 2/12 CNY at 128k-256k and 4/24 CNY at 256k-1M.
+          source_note: Base tier for prompts up to 128k tokens; higher tiers are 2/12 CNY at 128k-256k and 4/24 CNY at 256k-1M. cached_input is the implicit context-cache hit price (= input × 20%).
       - id: qwen3.5-flash
         label: qwen3.5-flash
         capabilities:
@@ -941,9 +951,10 @@ providers:
         cost:
           currency: CNY
           input_per_million_tokens: 0.2
+          cached_input_per_million_tokens: 0.04
           output_per_million_tokens: 2.0
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 128k tokens; higher tiers are 0.8/8 CNY at 128k-256k and 1.2/12 CNY at 256k-1M.
+          source_note: Base tier for prompts up to 128k tokens; higher tiers are 0.8/8 CNY at 128k-256k and 1.2/12 CNY at 256k-1M. cached_input is the implicit context-cache hit price (= input × 20%).
       - id: qwen3.6-max-preview
         label: qwen3.6-max-preview
         capabilities:
@@ -958,9 +969,10 @@ providers:
         cost:
           currency: CNY
           input_per_million_tokens: 9.0
+          cached_input_per_million_tokens: 1.8
           output_per_million_tokens: 54.0
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 128k tokens; 128k-256k tier is 15 input and 90 output CNY per million tokens.
+          source_note: Base tier for prompts up to 128k tokens; 128k-256k tier is 15 input and 90 output CNY per million tokens. cached_input is the implicit context-cache hit price (= input × 20%).
     embedding_models:
       - id: text-embedding-v3
         label: Text Embedding v3
@@ -1238,8 +1250,10 @@ providers:
         cost:
           currency: CNY
           input_per_million_tokens: 2.1
+          cached_input_per_million_tokens: 0.42
           output_per_million_tokens: 8.4
           source: https://platform.minimax.io/docs/api-reference/text-openai-api
+          source_note: cached_input is the standing 永久五折 effective rate (原价 0.84).
       - id: MiniMax-M2.7
         label: MiniMax M2.7
         capabilities:
@@ -1254,6 +1268,7 @@ providers:
         cost:
           currency: CNY
           input_per_million_tokens: 2.1
+          cached_input_per_million_tokens: 0.42
           output_per_million_tokens: 8.4
           source: https://platform.minimax.io/docs/api-reference/text-openai-api
           source_note: max_output_tokens mirrored from MiniMax M2.x family (not officially published).
