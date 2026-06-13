@@ -181,6 +181,25 @@ providers:
           output_per_million_tokens: 15.0
           source: https://docs.anthropic.com/en/docs/about-claude/pricing
           source_note: Cache write uses the 5-minute cache write price.
+      - id: claude-opus-4-8
+        label: Claude Opus 4.8
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1048576
+          max_output_tokens: 131072
+          max_concurrency: 2
+        cost:
+          currency: USD
+          input_per_million_tokens: 5.0
+          cached_input_per_million_tokens: 0.5
+          cache_write_per_million_tokens: 6.25
+          output_per_million_tokens: 25.0
+          source: https://docs.anthropic.com/en/docs/about-claude/pricing
+          source_note: Cache write uses the 5-minute cache write price.
       - id: claude-opus-4-6
         label: Claude Opus 4.6
         capabilities:
