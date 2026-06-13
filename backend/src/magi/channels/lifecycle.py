@@ -151,6 +151,7 @@ class ChannelsModule(LifecycleModule):
             interaction_broker=(
                 cp_wiring.broker if cp_wiring else None
             ),
+            session_mapper=session_mapper,
         )
         attachment_store = ChannelAttachmentStore(runtime_paths=runtime_paths)
 
