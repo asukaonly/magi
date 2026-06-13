@@ -19,6 +19,7 @@ from magi.memory.hybrid_retrieval.grounding import (
 )
 from magi.memory.hybrid_retrieval.models import TemporalContext
 from magi.memory.hybrid_retrieval.l2_fusion import (
+    HOP2_DECAY,
     L2Candidate,
     _compute_final_score,
     fuse_l2_candidates,
@@ -91,40 +92,35 @@ def test_hop2_answer_edge_not_decayed():
 
 
 def test_hop2_non_answer_still_decayed():
-    """hop2 edge whose object_type does NOT match hop2_target_type must STILL be decayed
-    (regression: we must not remove the decay for speculative inferences)."""
+    """Regression: a speculative hop2 edge (object_type != hop2_target_type) must STILL be
+    decayed by exactly HOP2_DECAY.
+
+    Isolation: the speculative and answer candidates differ ONLY in object_type, so both
+    take the identical hop2 grounding formula and the ONLY scoring difference is the decay.
+    This guards specifically against the decay being removed for speculative inferences.
+    """
     plan = _make_plan(hop2_target_type="person")
 
-    speculative = L2Candidate(
-        candidate_id="speculative",
-        kind="knowledge_edge",
-        payload={"_hop": 2, "object_type": "company"},
-        subject_match_score=0.0,
-        predicate_match_score=1.0,
-        object_constraint_score=1.0,
-        status_score=1.0,
-        confidence_score=0.85,
-        retrieval_channels=["structured_graph"],
-    )
+    def _hop2_edge(object_type: str) -> L2Candidate:
+        return L2Candidate(
+            candidate_id=f"h2_{object_type}",
+            kind="knowledge_edge",
+            payload={"_hop": 2, "object_type": object_type},
+            subject_match_score=0.0,
+            predicate_match_score=1.0,
+            object_constraint_score=1.0,
+            status_score=1.0,
+            confidence_score=0.85,
+            retrieval_channels=["structured_graph"],
+        )
 
-    # Same candidate but hop1 (no decay)
-    hop1 = L2Candidate(
-        candidate_id="hop1_equiv",
-        kind="knowledge_edge",
-        payload={"object_type": "company"},
-        subject_match_score=1.0,
-        predicate_match_score=1.0,
-        object_constraint_score=1.0,
-        status_score=1.0,
-        confidence_score=0.85,
-        retrieval_channels=["structured_graph"],
-    )
+    answer_score = _compute_final_score(_hop2_edge("person"), plan)       # is_answer → no decay
+    speculative_score = _compute_final_score(_hop2_edge("company"), plan)  # not answer → decayed
 
-    spec_score = _compute_final_score(speculative, plan)
-    hop1_score = _compute_final_score(hop1, plan)
-    # Speculative hop2 must be below equivalent hop1 (decay is active)
-    assert spec_score < hop1_score, (
-        f"speculative hop2 ({spec_score:.4f}) should be decayed below hop1 ({hop1_score:.4f})"
+    # The non-answer hop2 edge is decayed by EXACTLY HOP2_DECAY relative to the answer edge.
+    assert speculative_score == pytest.approx(answer_score * HOP2_DECAY), (
+        f"speculative hop2 ({speculative_score:.4f}) should equal answer ({answer_score:.4f}) "
+        f"* HOP2_DECAY ({HOP2_DECAY})"
     )
 
 
