@@ -221,6 +221,10 @@
       "photoLibrary": {
         "title": "Photo library",
         "value": "Lets magi see your photos and recent moments"
+      },
+      "codingAgentHistory": {
+        "title": "Coding agent history",
+        "value": "Lets magi see what you're building from your Claude Code / Codex sessions"
       }
     }
   },

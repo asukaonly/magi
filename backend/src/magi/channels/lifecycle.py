@@ -320,6 +320,44 @@ class ChannelsModule(LifecycleModule):
                     if getattr(c, "supports_control_requests", False)
                 ),
             )
+
+            # === ask fanout (lightweight external egress) ===
+            # A channel-originated turn can pause mid-execution to ask the user
+            # a question. Desktop gets quick-reply chips + a transcript card;
+            # external channels had NO ask egress at all, so the channel user
+            # could neither see the question nor answer it (the turn blocked
+            # until timeout). Bind a callback that delivers the question as a
+            # plain-text message to the channel the session is bound to. The
+            # inbound answer already routes back via
+            # message_dispatch_service._resolve_pending_ask_response (a text
+            # reply on the session resolves the broker), so no inbound code is
+            # needed here.
+            from ..control.common.ask_fanout import (
+                bind_ask_fanout_callback,
+                deliver_ask_to_channel,
+            )
+
+            async def _ask_fanout_callback(
+                *,
+                session_id: str,
+                user_id: str | None,
+                request_id: str,
+                question: str,
+                options: list[str],
+                expires_at_ms: int | None,
+            ) -> None:
+                await deliver_ask_to_channel(
+                    session_id=session_id,
+                    user_id=user_id,
+                    question=question,
+                    options=options,
+                    session_mapper=session_mapper,
+                    delivery_router=delivery_router,
+                    default_user_id=DEFAULT_USER_ID,
+                )
+
+            bind_ask_fanout_callback(_ask_fanout_callback)
+            logger.info("Channels module: ask fanout wired")
         except Exception:
             # Bind failures must not abort channels init — the desktop
             # approval path stays working, fanout / auto-approve just
