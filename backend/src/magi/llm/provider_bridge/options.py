@@ -9,12 +9,15 @@ from ..anthropic import AnthropicAdapter
 from ..base import LLMAdapter
 from ..concurrency_limiter import LLMConcurrencyLimiter
 from ..reasoning_dialect import (
+    ANTHROPIC_THINKING_BUDGETS,
     ReasoningDialect,
+    anthropic_thinking_is_adaptive_only,
     build_reasoning_payload,
     merge_payload,
     resolve_dialect,
 )
 from ...config import get_config
+from ...config.constants import DEFAULT_MAX_TOKENS
 from ...config.loader import get_llm_provider_registry_file
 from ...config.llm_registry import (
     LLMProviderRegistryModel,
@@ -122,6 +125,49 @@ class ProviderBridgeOptionsMixin:
             return ReasoningDialect.ANTHROPIC_BUDGET
         return resolve_dialect(self._resolve_model_vendor())
 
+    def _apply_anthropic_thinking_options(
+        self,
+        kwargs: Dict[str, Any],
+        thinking_depth: ThinkingDepth,
+    ) -> Dict[str, Any]:
+        """Apply Anthropic extended-thinking options to request kwargs.
+
+        Anthropic's Messages API has stricter rules than the generic
+        dialect builder can express, so the budget path is owned here:
+
+        - When thinking is enabled, ``temperature`` and ``top_k`` must be
+          removed entirely (NOT set to 1), and ``top_p`` is only allowed
+          inside ``[0.95, 1.0]`` — otherwise it must be removed too.
+        - Budgeted models need ``budget_tokens >= 1024`` and strictly
+          ``< max_tokens``; we bump ``max_tokens`` to leave answer
+          headroom when the budget would meet or exceed it.
+        - Adaptive-only models (Opus 4.7+, Fable 5) reject ``budget_tokens``
+          and sampling params; they must use ``{type: "adaptive"}``.
+        """
+        if thinking_depth == ThinkingDepth.NONE:
+            # No thinking requested: leave sampling params untouched.
+            return kwargs
+
+        kwargs.pop("temperature", None)
+        kwargs.pop("top_k", None)
+        top_p = kwargs.get("top_p")
+        if top_p is not None and not (0.95 <= float(top_p) <= 1.0):
+            kwargs.pop("top_p", None)
+
+        model_id = str(getattr(self.llm, "model_name", ""))
+        if anthropic_thinking_is_adaptive_only(model_id):
+            kwargs["thinking"] = {"type": "adaptive"}
+            return kwargs
+
+        budget = ANTHROPIC_THINKING_BUDGETS.get(thinking_depth)
+        if budget is None:
+            return kwargs
+        max_tokens = kwargs.get("max_tokens")
+        if isinstance(max_tokens, int) and budget >= max_tokens:
+            kwargs["max_tokens"] = budget + DEFAULT_MAX_TOKENS
+        kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        return kwargs
+
     def _apply_provider_options(
         self,
         kwargs: Dict[str, Any],
@@ -130,10 +176,17 @@ class ProviderBridgeOptionsMixin:
         """Inject vendor-specific reasoning parameters into LLM request kwargs."""
         dialect = self._resolve_reasoning_dialect()
 
+        # Anthropic budget is special-cased ahead of the generic builder:
+        # it has to strip incompatible sampling params, guarantee
+        # max_tokens headroom, and switch adaptive-only models to the
+        # budget-less ``adaptive`` shape (see helper docstring).
+        if dialect == ReasoningDialect.ANTHROPIC_BUDGET:
+            return self._apply_anthropic_thinking_options(kwargs, thinking_depth)
+
         # OpenAI-effort dialects only fire when the model itself advertises
-        # reasoning capability. Other dialects (Anthropic budget, DashScope
-        # toggle, GLM toggle) are always meaningful when the user asks for
-        # a thinking depth, so we don't gate them on capability.
+        # reasoning capability. Other dialects (DashScope toggle, GLM
+        # toggle) are always meaningful when the user asks for a thinking
+        # depth, so we don't gate them on capability.
         if dialect == ReasoningDialect.OPENAI_EFFORT and not self._model_supports_reasoning():
             return kwargs
 

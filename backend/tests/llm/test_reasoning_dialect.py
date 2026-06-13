@@ -7,6 +7,7 @@ import pytest
 from magi.config.models import ModelVendor, ThinkingDepth
 from magi.llm.reasoning_dialect import (
     ReasoningDialect,
+    anthropic_thinking_is_adaptive_only,
     build_reasoning_payload,
     merge_payload,
     resolve_dialect,
@@ -21,12 +22,19 @@ class TestResolveDialect:
         assert resolve_dialect(ModelVendor.DASHSCOPE) == ReasoningDialect.DASHSCOPE_ENABLE
         assert resolve_dialect(ModelVendor.GLM) == ReasoningDialect.GLM_TOGGLE
 
-    def test_grok_explicitly_none(self) -> None:
-        # Historical regression: the old if/elif chain used
-        # `provider != "grok"` as a *negative* exception inside the
-        # OpenAI-effort branch. Grok must not silently pick up
-        # reasoning_effort just because no dedicated dialect is wired.
-        assert resolve_dialect(ModelVendor.GROK) == ReasoningDialect.NONE
+    def test_grok_uses_openai_effort(self) -> None:
+        # Grok 4.3's OpenAI-compatible endpoint exposes a top-level
+        # ``reasoning_effort`` knob, so it routes through OPENAI_EFFORT.
+        assert resolve_dialect(ModelVendor.GROK) == ReasoningDialect.OPENAI_EFFORT
+
+    def test_gemini_uses_openai_effort(self) -> None:
+        assert resolve_dialect(ModelVendor.GEMINI) == ReasoningDialect.OPENAI_EFFORT
+
+    def test_kimi_uses_glm_toggle(self) -> None:
+        assert resolve_dialect(ModelVendor.KIMI) == ReasoningDialect.GLM_TOGGLE
+
+    def test_minimax_uses_glm_toggle(self) -> None:
+        assert resolve_dialect(ModelVendor.MINIMAX) == ReasoningDialect.GLM_TOGGLE
 
     def test_generic_vendor_emits_nothing(self) -> None:
         assert resolve_dialect(ModelVendor.GENERIC) == ReasoningDialect.NONE
@@ -72,6 +80,37 @@ class TestAnthropicBudgetBuilder:
 
     def test_none_depth_emits_nothing(self) -> None:
         assert build_reasoning_payload(ReasoningDialect.ANTHROPIC_BUDGET, ThinkingDepth.NONE) == {}
+
+
+class TestAnthropicAdaptiveOnlyClassifier:
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-opus-4-8[1m]",
+            "claude-fable-5",
+            "Claude-Fable-5-Preview",
+        ],
+    )
+    def test_adaptive_only_models(self, model_id: str) -> None:
+        assert anthropic_thinking_is_adaptive_only(model_id) is True
+
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5",
+            "claude-opus-4-0",
+        ],
+    )
+    def test_budgeted_models(self, model_id: str) -> None:
+        assert anthropic_thinking_is_adaptive_only(model_id) is False
+
+    def test_unknown_defaults_to_budgeted(self) -> None:
+        assert anthropic_thinking_is_adaptive_only("") is False
+        assert anthropic_thinking_is_adaptive_only("some-other-model") is False
 
 
 class TestDeepSeekThinkingBuilder:

@@ -14,8 +14,17 @@ in incompatible payload shapes:
   ``extra_body.enable_thinking: bool``.
 - Zhipu GLM (vendor=GLM) uses ``extra_body.thinking: {type: "disabled"}``
   and only supports an on/off toggle.
-- Grok / Gemini / Kimi / MiniMax (vendor=GROK / GENERIC) currently expose
-  no public reasoning/thinking knob; they map to ``NONE``.
+- Grok (vendor=GROK) and Gemini (vendor=GEMINI) both expose a top-level
+  ``reasoning_effort`` on their OpenAI-compatible endpoints, so they map
+  to ``OPENAI_EFFORT`` (the builder omits the kwarg on NONE, which is
+  safe for models that cannot disable thinking).
+- Kimi (vendor=KIMI, Moonshot) and MiniMax (vendor=MINIMAX) use the
+  ``extra_body.thinking: {type: ...}`` toggle shape; they map to
+  ``GLM_TOGGLE``, which sends ``{type: "disabled"}`` on NONE and nothing
+  otherwise — matching their default-on behavior (a no-op on the
+  always-on variants).
+- Anything with no verified reasoning contract (vendor=GENERIC) maps to
+  ``NONE`` and gets no injected reasoning parameters.
 
 Historically the dialect was looked up by ``provider_name``. That broke
 on OneAPI / NewAPI gateways where a single ``provider`` entry proxies
@@ -27,8 +36,9 @@ is correct regardless of who hosts the endpoint.
 
 from __future__ import annotations
 
+import re
 from enum import Enum
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional
 
 from ..config.models import ModelVendor, ThinkingDepth
 
@@ -44,19 +54,22 @@ class ReasoningDialect(str, Enum):
     GLM_TOGGLE = "glm_toggle"
 
 
-# vendor → dialect. ``GENERIC`` and ``GROK`` map to ``NONE`` because
-# neither has a public reasoning-control payload at the moment; if they
-# add one in the future, add the dialect here without touching call
-# sites. DeepSeek is its own vendor because although its transport is
-# OpenAI-compatible, its thinking mode also requires
-# ``extra_body.thinking`` toggles.
+# vendor → dialect. Only ``GENERIC`` maps to ``NONE`` (no verified
+# reasoning-control payload). Grok and Gemini expose a top-level
+# ``reasoning_effort`` on their OpenAI-compatible endpoints; Kimi and
+# MiniMax use the ``extra_body.thinking`` toggle. DeepSeek is its own
+# vendor because although its transport is OpenAI-compatible, its
+# thinking mode also requires ``extra_body.thinking`` toggles.
 _VENDOR_TO_DIALECT: Dict[ModelVendor, "ReasoningDialect"] = {
     ModelVendor.OPENAI: ReasoningDialect.OPENAI_EFFORT,
     ModelVendor.DEEPSEEK: ReasoningDialect.DEEPSEEK_THINKING,
     ModelVendor.ANTHROPIC: ReasoningDialect.ANTHROPIC_BUDGET,
     ModelVendor.DASHSCOPE: ReasoningDialect.DASHSCOPE_ENABLE,
     ModelVendor.GLM: ReasoningDialect.GLM_TOGGLE,
-    ModelVendor.GROK: ReasoningDialect.NONE,
+    ModelVendor.GROK: ReasoningDialect.OPENAI_EFFORT,
+    ModelVendor.GEMINI: ReasoningDialect.OPENAI_EFFORT,
+    ModelVendor.KIMI: ReasoningDialect.GLM_TOGGLE,
+    ModelVendor.MINIMAX: ReasoningDialect.GLM_TOGGLE,
     ModelVendor.GENERIC: ReasoningDialect.NONE,
 }
 
@@ -118,19 +131,40 @@ def _deepseek_thinking_builder(depth: ThinkingDepth) -> Dict[str, Any]:
     }
 
 
+# Anthropic exposes budgeted "extended thinking" via a token budget per
+# depth. Single source of truth: both ``_anthropic_budget_builder`` and the
+# provider-bridge options path read this map, so tuning a value (which
+# affects per-call cost) only needs one edit. ``NONE`` maps to ``None``
+# meaning "no thinking".
+ANTHROPIC_THINKING_BUDGETS: Dict[ThinkingDepth, Optional[int]] = {
+    ThinkingDepth.NONE: None,
+    ThinkingDepth.LOW: 2048,
+    ThinkingDepth.MEDIUM: 8192,
+    ThinkingDepth.HIGH: 16384,
+    ThinkingDepth.MAX: 32768,
+}
+
+
+def anthropic_thinking_is_adaptive_only(model_id: str) -> bool:
+    """Return True when an Anthropic model only supports *adaptive* thinking.
+
+    Adaptive-only models (Opus 4.7+, Fable 5) reject ``budget_tokens`` and
+    any sampling params (``temperature``/``top_p``/``top_k``) when thinking
+    is on; they must use ``thinking: {type: "adaptive"}`` instead. Shipped
+    budgeted models (Opus 4.6, Sonnet 4.6, Haiku 4.5) return False.
+
+    Heuristic, biased toward budgeted (returns False) when the id is
+    unrecognized — that path still works on every current model.
+    """
+    m = (model_id or "").lower()
+    if "fable" in m:
+        return True
+    match = re.search(r"opus-4-(\d+)", m)
+    return bool(match and int(match.group(1)) >= 7)
+
+
 def _anthropic_budget_builder(depth: ThinkingDepth) -> Dict[str, Any]:
-    # Anthropic exposes "extended thinking" via a token budget. Empirical
-    # values from Anthropic's docs / our smoke tests; bumping these
-    # affects per-call cost. If you tune them, mirror updates here so the
-    # dialect stays the single source of truth.
-    budget_map = {
-        ThinkingDepth.NONE: None,
-        ThinkingDepth.LOW: 2048,
-        ThinkingDepth.MEDIUM: 8192,
-        ThinkingDepth.HIGH: 16384,
-        ThinkingDepth.MAX: 32768,
-    }
-    tokens = budget_map.get(depth)
+    tokens = ANTHROPIC_THINKING_BUDGETS.get(depth)
     if tokens is None:
         return {}
     return {"_kwargs": {"thinking": {"type": "enabled", "budget_tokens": tokens}}}
@@ -182,7 +216,9 @@ def merge_payload(kwargs: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, 
 
 
 __all__ = [
+    "ANTHROPIC_THINKING_BUDGETS",
     "ReasoningDialect",
+    "anthropic_thinking_is_adaptive_only",
     "build_reasoning_payload",
     "merge_payload",
     "resolve_dialect",
