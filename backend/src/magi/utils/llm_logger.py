@@ -10,6 +10,8 @@ import sys
 from logging.handlers import RotatingFileHandler
 from typing import Any, Optional
 
+from .safe_logging import SafeStreamHandler
+
 LLM_CALL_LOGGER_BASE = "magi.llm.calls"
 
 
@@ -56,7 +58,7 @@ def setup_llm_logger() -> logging.Logger:
         )
     )
 
-    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler = SafeStreamHandler(sys.stdout)
     console_handler.setLevel(logging.DEBUG)
     console_handler.setFormatter(
         logging.Formatter(

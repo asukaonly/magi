@@ -165,10 +165,10 @@
         "llm_guidance": "Do not retry web search until at least one search provider is available. Ask the user to confirm tool configuration or restore a supported provider.",
         "user_message": "To continue web search, please ensure the web search tool is configured. I will resume the current search after it is available."
       },
-      "provider_unavailable": {
-        "error": "Requested web search provider {provider} is not configured.",
-        "llm_guidance": "The requested web search provider {provider} is not configured. Do not silently switch providers or retry web search in this turn. Ask the user to configure the requested provider, or ask permission to change the default provider.",
-        "user_message": "The selected web search provider {provider} is not configured yet. Please add its API key in settings, or choose another configured provider before I continue searching."
+      "all_providers_failed": {
+        "error": "All configured web search providers failed: {providers}.",
+        "llm_guidance": "Every configured web search provider was tried in order and all failed for this query. Do not keep retrying web search in this turn. Tell the user which providers failed and ask them to check provider configuration/connectivity, or try again later.",
+        "user_message": "All configured web search providers failed this time ({providers}). Please check the search provider settings or network, then I can retry."
       },
       "duckduckgo_challenge": {
         "error": "DuckDuckGo search challenge triggered. Configure another web-search provider and retry.",

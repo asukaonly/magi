@@ -5,6 +5,10 @@ batch (rather than loop one-by-one and hit the per-turn iteration cap). This is 
 HINT generator — the agent still decides. It is task-agnostic (groups by file
 extension) and pure (no I/O), so it unit-tests cleanly. The decision to attach
 the hint to a tool's output (and the on/off gate) lives at the call site.
+
+Lives in the ``tools`` layer (not ``agent``) so listing tools in
+``magi.tools.builtin`` can surface the hint without an upward layer import; the
+batch orchestrator in ``magi.agent.batch`` may import it downward.
 """
 from __future__ import annotations
 

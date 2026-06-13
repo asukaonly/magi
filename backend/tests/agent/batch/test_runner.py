@@ -9,6 +9,7 @@ from magi.agent.batch.runner import (
     kickoff_next_batch,
     on_batch_run_done,
     parse_job_id_from_goal,
+    parse_lease_owner_from_goal,
 )
 from magi.agent.batch.store import BatchStore
 
@@ -75,6 +76,47 @@ async def test_build_goal_and_parse_jobid(store):
     assert "batch_item_update" in goal
     assert items[0].item_id in goal
     assert parse_job_id_from_goal(goal) == job.job_id
+
+
+@pytest.mark.asyncio
+async def test_build_goal_embeds_lease_owner(store):
+    job = await _job(store, 2, batch_size=2)
+    leased = await store.lease_next_batch(
+        job.job_id, limit=2, lease_owner="run-XYZ", lease_ttl_ms=1000, now_ms=1
+    )
+    goal = build_batch_goal("P", job, leased)
+    assert "run-XYZ" in goal
+    assert parse_lease_owner_from_goal(goal) == "run-XYZ"
+
+
+@pytest.mark.asyncio
+async def test_on_done_reclaims_orphan_and_redispatches(store):
+    """A run that ends without reporting every item (cap/crash) must not strand
+    those items under a live lease: the terminal handler reclaims its own
+    orphans and re-dispatches them, driving the job to completion."""
+    job = await _job(store, 2, batch_size=2)
+    calls = {"n": 0}
+
+    async def enqueue_run(j, items):
+        calls["n"] += 1
+        owner = items[0].lease_owner
+        if calls["n"] == 1:
+            # first run caps: report only the first item, orphan the rest
+            await store.update_items(
+                j.job_id, [ItemOutcome(item_id=items[0].item_id, status=BatchItemStatus.DONE)]
+            )
+        else:
+            await store.update_items(
+                j.job_id,
+                [ItemOutcome(item_id=i.item_id, status=BatchItemStatus.DONE) for i in items],
+            )
+        await on_batch_run_done(store, j.job_id, enqueue_run=enqueue_run, lease_owner=owner)
+
+    await kickoff_next_batch(store, job, enqueue_run=enqueue_run)
+
+    assert calls["n"] == 2  # orphan was re-dispatched in a second run
+    assert (await store.status_counts(job.job_id)).get("done") == 2
+    assert (await store.get_job(job.job_id)).status == BatchJobStatus.DONE
 
 
 @pytest.mark.asyncio

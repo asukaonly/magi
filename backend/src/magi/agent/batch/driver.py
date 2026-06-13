@@ -21,6 +21,7 @@ from .runner import (
     fill_to_concurrency,
     on_batch_run_done,
     parse_job_id_from_goal,
+    parse_lease_owner_from_goal,
 )
 from .store import default_batch_store
 
@@ -94,4 +95,9 @@ class BatchDriver:
         goal = getattr(getattr(task, "spec", None), "goal", "") or ""
         job_id = parse_job_id_from_goal(goal)
         if job_id:
-            await on_batch_run_done(self._store_factory(), job_id, enqueue_run=self._enqueue_run)
+            await on_batch_run_done(
+                self._store_factory(),
+                job_id,
+                enqueue_run=self._enqueue_run,
+                lease_owner=parse_lease_owner_from_goal(goal),
+            )

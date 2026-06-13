@@ -10,6 +10,8 @@ from typing import Any
 import structlog
 from pathlib import Path
 
+from ..utils.safe_logging import SafeStreamHandler
+
 _LOGGING_CONFIGURED = False
 DEFAULT_LOG_FILE_MAX_BYTES = 100 * 1024 * 1024
 DEFAULT_LOG_FILE_BACKUP_COUNT = 10
@@ -104,7 +106,7 @@ def configure_logging(
         handler.close()
     root_logger.setLevel(log_level)
 
-    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler = SafeStreamHandler(sys.stdout)
     stream_handler.setLevel(log_level)
     stream_handler.setFormatter(
         _build_processor_formatter(shared_processors=shared_processors, json_logs=json_logs)

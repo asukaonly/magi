@@ -44,6 +44,21 @@ def test_explicit_system_tools_are_resident_but_other_system_tools_are_not() -> 
     assert "powershell" not in resident
 
 
+def test_batch_create_is_resident_despite_automation_category() -> None:
+    # batch_create is categorised "automation" (not control/system) but is the
+    # entry point for the background batch orchestrator, so it must be resident
+    # on the main LLM loop regardless of router selection.
+    reg = _CategoryRegistry(
+        {"control": ["enter_plan_mode"],
+         "automation": ["batch_create", "batch_item_update", "schedule"]}
+    )
+    resident = resolve_resident_system_tools(reg)
+    assert "batch_create" in resident  # explicit allowlist
+    # other automation tools are routed normally, not resident
+    assert "batch_item_update" not in resident
+    assert "schedule" not in resident
+
+
 def test_tolerates_registry_without_category_kwarg() -> None:
     class _NoCategoryRegistry:
         def list_tools(self, *args: object, **kwargs: object) -> list[str]:

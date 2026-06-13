@@ -20,6 +20,7 @@ from ..schema import (
     ToolResult,
     ToolSchema,
 )
+from ..utils.batch_autodetect import suggest_batch
 from ..utils.path_utils import (
     DEFAULT_EXCLUDE_PATTERNS,
     has_hidden_path_component,
@@ -207,16 +208,23 @@ class FileListTool(Tool):
         }
         entries.sort(key=sort_key_map[sort_by])
 
-        return ToolResult(
-            success=True,
-            data={
-                "path": target_path,
-                "recursive": recursive,
-                "count": len(entries),
-                "truncated": truncated,
-                "entries": entries,
-            },
+        data: Dict[str, Any] = {
+            "path": target_path,
+            "recursive": recursive,
+            "count": len(entries),
+            "truncated": truncated,
+            "entries": entries,
+        }
+        # Nudge the model toward the batch orchestrator when a listing surfaces
+        # many homogeneous files, so it hands off to batch_create instead of
+        # looping one-by-one into the per-turn iteration cap.
+        batch_hint = suggest_batch(
+            [item["name"] for item in entries if item.get("is_file")]
         )
+        if batch_hint:
+            data["batch_hint"] = batch_hint
+
+        return ToolResult(success=True, data=data)
 
     def _walk(
         self,

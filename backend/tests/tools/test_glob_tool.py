@@ -126,6 +126,34 @@ async def test_glob_defaults_to_non_recursive_for_simple_patterns(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_glob_attaches_batch_hint_for_many_homogeneous_files(
+    tmp_path: Path,
+) -> None:
+    for index in range(35):
+        (tmp_path / f"clip_{index}.mkv").write_text("x", encoding="utf-8")
+
+    tool = GlobTool()
+    result = await tool.execute({"pattern": "*.mkv", "path": str(tmp_path)}, _context())
+
+    assert result.success is True
+    assert "batch_hint" in result.data
+    assert "batch_create" in result.data["batch_hint"]
+    assert ".mkv" in result.data["batch_hint"]
+
+
+@pytest.mark.asyncio
+async def test_glob_no_batch_hint_for_few_files(tmp_path: Path) -> None:
+    for index in range(3):
+        (tmp_path / f"clip_{index}.mkv").write_text("x", encoding="utf-8")
+
+    tool = GlobTool()
+    result = await tool.execute({"pattern": "*.mkv", "path": str(tmp_path)}, _context())
+
+    assert result.success is True
+    assert "batch_hint" not in result.data
+
+
+@pytest.mark.asyncio
 async def test_glob_excludes_default_large_directories(tmp_path: Path) -> None:
     src_dir = tmp_path / "src"
     modules_dir = tmp_path / "node_modules"

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Dict, Any, List
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
+from ..utils.batch_autodetect import suggest_batch
 from ..utils.path_utils import (
     DEFAULT_EXCLUDE_PATTERNS,
     has_hidden_path_component,
@@ -230,6 +231,14 @@ class GlobTool(Tool):
                 "count": len(matches),
                 "truncated": len(matches) >= max_results,
             }
+            # Nudge the model toward the batch orchestrator when the pattern
+            # surfaces many homogeneous files, so it hands off to batch_create
+            # instead of looping one-by-one into the per-turn iteration cap.
+            batch_hint = suggest_batch(
+                [item["path"] for item in matches if item.get("is_file")]
+            )
+            if batch_hint:
+                result_data["batch_hint"] = batch_hint
 
             return ToolResult(
                 success=True,

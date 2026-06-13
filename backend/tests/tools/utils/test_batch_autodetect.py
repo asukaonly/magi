@@ -1,4 +1,4 @@
-from magi.agent.batch.autodetect import suggest_batch
+from magi.tools.utils.batch_autodetect import suggest_batch
 
 
 def test_no_hint_below_threshold():
