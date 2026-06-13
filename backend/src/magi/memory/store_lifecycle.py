@@ -18,6 +18,7 @@ class UnifiedMemoryLifecycleMixin:
     l2_pipeline: Any
     l3: Any
     l4: Any
+    _edge_embedding_worker: Any
     _initialized: bool
 
     async def initialize(self) -> None:
@@ -32,6 +33,14 @@ class UnifiedMemoryLifecycleMixin:
         if self.l2_pipeline is not None:
             await self.l2_pipeline.start()
 
+        # Start the L2 edge-embedding drain only when vectors are enabled.
+        if (
+            self._edge_embedding_worker is not None
+            and self.l2_entity_catalog is not None
+            and self.l2_entity_catalog.embedding_service is not None
+        ):
+            await self._edge_embedding_worker.start()
+
         self._initialized = True
         logger.info("Unified memory store initialized")
 
@@ -39,6 +48,8 @@ class UnifiedMemoryLifecycleMixin:
         """Drain asynchronous workers and close store resources."""
         if self.l2_pipeline is not None:
             await self.l2_pipeline.shutdown()
+        if self._edge_embedding_worker is not None:
+            await self._edge_embedding_worker.stop()
         for store in (self.l1, self.l3, self.l4):
             if store is None or not hasattr(store, "shutdown"):
                 continue
