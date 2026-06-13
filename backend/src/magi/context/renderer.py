@@ -31,12 +31,12 @@ class PromptContextRenderer:
             "",
         ])
 
-        lines.extend(self._render_persona_turn_plan(context.self_memory.persona_turn_plan))
-        lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
-        lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
-        lines.extend(self._render_profile_memory(context.profile_memory))
-        lines.extend(self._render_runtime_system(context.runtime_system))
-        lines.extend(self._render_active_attachments(context.runtime_system.active_attachments))
+        # Cache-prefix ordering (issue #97): prompt caching is a prefix match,
+        # so the byte-stable blocks are emitted first to maximise the cacheable
+        # head of the request, and the per-turn dynamic blocks follow. Identity
+        # is already first; the tool catalog (stable when the selected tool set
+        # is unchanged) is rendered next, ahead of the persona plan / memory /
+        # runtime blocks that change every turn.
         if include_tool_catalog:
             # The "You MUST use the available tools" block frames the turn as
             # a task to complete. In emotional / crisis registers that frame
@@ -55,6 +55,14 @@ class PromptContextRenderer:
                 context.tool_catalog,
                 suppress_imperatives=suppress_tool_imperatives,
             ))
+
+        # Per-turn dynamic blocks — kept after the stable prefix.
+        lines.extend(self._render_persona_turn_plan(context.self_memory.persona_turn_plan))
+        lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
+        lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
+        lines.extend(self._render_profile_memory(context.profile_memory))
+        lines.extend(self._render_runtime_system(context.runtime_system))
+        lines.extend(self._render_active_attachments(context.runtime_system.active_attachments))
 
         return "\n".join(lines).strip()
 
@@ -356,7 +364,9 @@ class PromptContextRenderer:
         """
         lines = ["# Tool Information"]
 
-        selected = tools.selected_tools or []
+        # Sort by name so an unchanged tool SET serialises identically across
+        # turns even when the upstream selector reranks it (issue #97).
+        selected = sorted(tools.selected_tools or [])
         lines.append("## Selected Tools")
         if selected:
             for tool in selected:
@@ -365,7 +375,10 @@ class PromptContextRenderer:
             lines.append("* (none selected)")
         lines.append("")
 
-        descriptions = tools.tool_descriptions or []
+        descriptions = sorted(
+            tools.tool_descriptions or [],
+            key=lambda desc: str(desc.get("name", "")),
+        )
         lines.append("## Tool Catalog")
         if descriptions:
             for desc in descriptions:

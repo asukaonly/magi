@@ -89,6 +89,10 @@ def build_tools_parameter(tool_registry: Any, selected_tools: list[str]) -> list
         tool_def["function"]["parameters"]["required"] = required
         tools.append(tool_def)
 
+    # Emit a deterministic, name-sorted order so an unchanged tool SET produces
+    # a byte-identical tools parameter across turns even when the upstream
+    # selector reranks it — preserving the provider prompt-cache prefix (#97).
+    tools.sort(key=lambda tool: tool["function"]["name"])
     return tools
 
 
