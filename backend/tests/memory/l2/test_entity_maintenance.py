@@ -339,7 +339,8 @@ async def test_consolidate_open_predicates_rewrites_to_core() -> None:
 
 
 @pytest.mark.asyncio
-async def test_embed_pending_edges_skips_when_no_embedding_service() -> None:
+async def test_maintenance_leaves_pending_edges_when_no_embedding_service() -> None:
+    """Maintenance without embedding_service must leave pending edges untouched."""
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "m.db")
         await _init_schema(db_path)
@@ -358,23 +359,27 @@ async def test_embed_pending_edges_skips_when_no_embedding_service() -> None:
         )
 
         maint = L2EntityMaintenance(db_path=db_path)
-        stats = await maint.run(
+        await maint.run(
             resolve_ghosts=False,
             merge_fragments=False,
             prune_orphans=False,
             expire_future_intents=False,
             consolidate_open_predicates=False,
         )
-        assert stats.edges_embedded == 0
 
-        # Verify edge still has pending status
+        # Verify edge still has pending status — maintenance must not embed.
         edges = await store.get_pending_edge_embeddings(limit=10)
         assert len(edges) == 1
         assert edges[0]["embedding_status"] == "pending"
 
 
 @pytest.mark.asyncio
-async def test_embed_pending_edges_calls_pipeline_and_updates_status() -> None:
+async def test_maintenance_leaves_pending_edges_even_with_embedding_service() -> None:
+    """Maintenance wired with embedding infra must still leave pending edges untouched.
+
+    EdgeEmbeddingDrainer is now the sole embedder; maintenance.run() must not call
+    the pipeline regardless of whether embedding_service / edge_vector_index are set.
+    """
     from unittest.mock import AsyncMock, MagicMock
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -382,7 +387,7 @@ async def test_embed_pending_edges_calls_pipeline_and_updates_status() -> None:
         await _init_schema(db_path)
 
         store = L2CognitionStore(db_path=db_path)
-        tid = await store.upsert_knowledge_edge(
+        await store.upsert_knowledge_edge(
             subject_id="user:self",
             subject_type="user",
             predicate="LIKES",
@@ -397,17 +402,8 @@ async def test_embed_pending_edges_calls_pipeline_and_updates_status() -> None:
 
         mock_embedding_service = MagicMock()
         mock_vector_index = MagicMock()
-
-        mock_result = MagicMock()
-        mock_result.parent_id = tid
-        mock_result.embedded_at = time.time()
-        mock_result.embeddings = [[0.1, 0.2, 0.3]]
-        mock_embedding_service.profile_from_result.return_value = SimpleNamespace(
-            profile_id="test-profile"
-        )
-
         mock_pipeline_cls = AsyncMock()
-        mock_pipeline_cls.upsert_items = AsyncMock(return_value=[mock_result])
+        mock_pipeline_cls.upsert_items = AsyncMock(return_value=[])
 
         maint = L2EntityMaintenance(
             db_path=db_path,
@@ -420,7 +416,7 @@ async def test_embed_pending_edges_calls_pipeline_and_updates_status() -> None:
         em_module.MemoryEmbeddingPipeline = lambda **kwargs: mock_pipeline_cls
 
         try:
-            stats = await maint.run(
+            await maint.run(
                 resolve_ghosts=False,
                 merge_fragments=False,
                 prune_orphans=False,
@@ -430,19 +426,15 @@ async def test_embed_pending_edges_calls_pipeline_and_updates_status() -> None:
         finally:
             em_module.MemoryEmbeddingPipeline = original_pipeline
 
-        assert stats.edges_embedded == 1
+        # The pipeline is still imported by the maintenance module (used by
+        # `_clean_non_active_edge_embeddings`), so we patch it — but maintenance must
+        # NOT call it to embed *pending* edges. That work moved to EdgeEmbeddingDrainer (#86).
+        mock_pipeline_cls.upsert_items.assert_not_called()
 
+        # Edge must still be pending.
         edges = await store.get_pending_edge_embeddings(limit=10)
-        assert len(edges) == 0
-
-        async with sqlite_connection_async(db_path) as db:
-            async with db.execute(
-                "SELECT embedding_status FROM knowledge_graph WHERE triple_id = ?",
-                (tid,),
-            ) as cur:
-                row = await cur.fetchone()
-        assert row is not None
-        assert row[0] == "ready"
+        assert len(edges) == 1
+        assert edges[0]["embedding_status"] == "pending"
 
 
 @pytest.mark.asyncio
@@ -512,7 +504,6 @@ async def test_expire_decayed_assertions_fast_decay():
             prune_orphans=False,
             expire_future_intents=False,
             consolidate_open_predicates=False,
-            embed_edges=False,
         )
 
         assert stats.expired_assertions == 1
@@ -568,7 +559,6 @@ async def test_expire_decayed_assertions_session_decay():
             prune_orphans=False,
             expire_future_intents=False,
             consolidate_open_predicates=False,
-            embed_edges=False,
         )
 
         assert stats.expired_assertions == 1
@@ -621,7 +611,6 @@ async def test_expire_decayed_assertions_skips_already_rejected():
             prune_orphans=False,
             expire_future_intents=False,
             consolidate_open_predicates=False,
-            embed_edges=False,
         )
 
         assert stats.expired_assertions == 0
@@ -683,7 +672,6 @@ async def test_reconcile_stale_entities_promotes_tentative():
             expire_future_intents=False,
             expire_decayed_assertions=False,
             consolidate_open_predicates=False,
-            embed_edges=False,
         )
 
         assert stats.entities_reconciled == 1
@@ -732,7 +720,6 @@ async def test_reconcile_stale_skips_recent_entities():
             expire_future_intents=False,
             expire_decayed_assertions=False,
             consolidate_open_predicates=False,
-            embed_edges=False,
         )
 
         # Not stale => should not be reconciled
@@ -806,8 +793,7 @@ async def test_consolidate_open_predicates_merges_evidence_on_duplicate():
                 expire_future_intents=False,
                 expire_decayed_assertions=False,
                 reconcile_stale=False,
-                embed_edges=False,
-            )
+                )
 
         assert stats.open_predicates_consolidated == 1
 
@@ -896,7 +882,6 @@ async def test_tom_ghost_rewrite_handles_unique_conflict():
             expire_decayed_assertions=False,
             reconcile_stale=False,
             consolidate_open_predicates=False,
-            embed_edges=False,
         )
 
         assert stats.tom_entity_refs_rewritten >= 1
@@ -1019,7 +1004,6 @@ async def test_archive_stale_low_confidence_edges():
             resolve_ghosts=False, merge_fragments=False, prune_orphans=False,
             expire_future_intents=False, expire_decayed_assertions=False,
             reconcile_stale=False, consolidate_open_predicates=False,
-            embed_edges=False,
         )
         assert stats.edges_archived == 2
 
@@ -1095,3 +1079,76 @@ async def test_archived_edge_warms_back_on_new_evidence():
         assert row[0] == "active", f"Expected 'active' but got '{row[0]}'"
         assert row[1] == 3  # was 2, +1
         assert row[2] > 0.2  # confidence should have increased
+
+
+@pytest.mark.asyncio
+async def test_maintenance_does_not_embed_pending_edges() -> None:
+    """Regression: L2EntityMaintenance.run() must NOT embed pending edges.
+
+    EdgeEmbeddingDrainer is now the sole embedder.  Even when the maintenance
+    instance is wired with a real (mocked) embedding_service + edge_vector_index,
+    running full maintenance must leave a pending edge in its 'pending' state.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+
+        store = L2CognitionStore(db_path=db_path)
+        await store.upsert_knowledge_edge(
+            subject_id="user:self",
+            subject_type="user",
+            predicate="LIKES",
+            object_id="food:tacos",
+            object_type="food",
+            evidence_event_ids=["evt-regression-1"],
+            confidence=0.7,
+            observed_at=time.time(),
+            source_type="chat",
+            evidence_text="I really like tacos",
+        )
+
+        # Confirm the edge starts as pending
+        pending_before = await store.get_pending_edge_embeddings(limit=10)
+        assert len(pending_before) == 1
+
+        # Wire maintenance with mocked embedding infra (same pattern as the old
+        # test_embed_pending_edges_calls_pipeline_and_updates_status test).
+        # Before the fix, maintenance would have called _embed_pending_edges and
+        # embedded the edge; after the fix it must leave it pending.
+        mock_embedding_service = MagicMock()
+        mock_vector_index = MagicMock()
+
+        mock_result = MagicMock()
+        mock_result.parent_id = pending_before[0]["triple_id"]
+        mock_result.embedded_at = time.time()
+        mock_result.embeddings = [[0.1, 0.2, 0.3]]
+        mock_embedding_service.profile_from_result.return_value = SimpleNamespace(
+            profile_id="test-profile"
+        )
+
+        mock_pipeline_cls = AsyncMock()
+        mock_pipeline_cls.upsert_items = AsyncMock(return_value=[mock_result])
+
+        maint = L2EntityMaintenance(
+            db_path=db_path,
+            embedding_service=mock_embedding_service,
+            edge_vector_index=mock_vector_index,
+        )
+
+        import magi.memory.l2.entities.maintenance as em_module
+        original_pipeline = em_module.MemoryEmbeddingPipeline
+        em_module.MemoryEmbeddingPipeline = lambda **kwargs: mock_pipeline_cls
+
+        try:
+            await maint.run()
+        finally:
+            em_module.MemoryEmbeddingPipeline = original_pipeline
+
+        # Edge must STILL be pending — maintenance must not have embedded it.
+        pending_after = await store.get_pending_edge_embeddings(limit=10)
+        assert len(pending_after) == 1, (
+            "maintenance.run() must not embed pending edges; "
+            "EdgeEmbeddingDrainer is now the sole embedder"
+        )

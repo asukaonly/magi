@@ -50,6 +50,9 @@ async def handle_l2_entity_maintenance(
     l2_cfg = memory_cfg.l2
     catalog = unified.l2_entity_catalog
     db_path = str(catalog.db_path)
+    # Maintenance still needs the embedding infra for `_clean_non_active_edge_embeddings`
+    # (pruning vectors of de-activated edges). Embedding *pending* edges is no longer
+    # maintenance's job — that moved to the dedicated EdgeEmbeddingDrainer (#86).
     embedding_service = catalog.embedding_service
     edge_vector_index = catalog.edge_vector_index
     maint = L2EntityMaintenance(

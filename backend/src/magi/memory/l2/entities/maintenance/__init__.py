@@ -56,7 +56,6 @@ class L2EntityMaintenanceStats:
     edges_archived: int = 0
     edges_purged: int = 0
     edge_embeddings_cleaned: int = 0
-    edges_embedded: int = 0
     episodes_promoted: int = 0
     episodes_merged: int = 0
     episodes_invalidated: int = 0
@@ -119,7 +118,6 @@ class L2EntityMaintenance(
         consolidate_open_predicates: bool = True,
         archive_stale_edges: bool = True,
         purge_terminal_edges: bool = True,
-        embed_edges: bool = True,
         consolidate_episodes: bool = True,
     ) -> L2EntityMaintenanceStats:
         if self._run_lock.locked():
@@ -138,7 +136,6 @@ class L2EntityMaintenance(
                 consolidate_open_predicates=consolidate_open_predicates,
                 archive_stale_edges=archive_stale_edges,
                 purge_terminal_edges=purge_terminal_edges,
-                embed_edges=embed_edges,
                 consolidate_episodes=consolidate_episodes,
             )
 
@@ -156,7 +153,6 @@ class L2EntityMaintenance(
         consolidate_open_predicates: bool,
         archive_stale_edges: bool,
         purge_terminal_edges: bool,
-        embed_edges: bool,
         consolidate_episodes: bool,
     ) -> L2EntityMaintenanceStats:
         stats = L2EntityMaintenanceStats()
@@ -180,8 +176,6 @@ class L2EntityMaintenance(
             await self._archive_stale_edges(stats)
         if purge_terminal_edges:
             await self._purge_terminal_edges(stats)
-        if embed_edges:
-            await self._embed_pending_edges(stats)
         if consolidate_episodes:
             await self._consolidate_episodes(stats)
         if any(
@@ -200,7 +194,6 @@ class L2EntityMaintenance(
                 stats.edges_archived,
                 stats.edges_purged,
                 stats.edge_embeddings_cleaned,
-                stats.edges_embedded,
                 stats.episodes_promoted,
                 stats.episodes_merged,
                 stats.episodes_invalidated,
@@ -224,7 +217,6 @@ class L2EntityMaintenance(
                 edges_archived=stats.edges_archived,
                 edges_purged=stats.edges_purged,
                 edge_embeddings_cleaned=stats.edge_embeddings_cleaned,
-                edges_embedded=stats.edges_embedded,
                 episodes_promoted=stats.episodes_promoted,
                 episodes_merged=stats.episodes_merged,
                 episodes_invalidated=stats.episodes_invalidated,

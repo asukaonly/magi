@@ -11,6 +11,7 @@ from .embedding.embedding_service import MemoryEmbeddingService
 from .hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
 from .l0.working_memory import L0WorkingMemoryStore
 from .l1.event_store import L1EventStore
+from .l2.edge_embedding_drain import EdgeEmbeddingDrainer, L2EdgeEmbeddingWorker
 from .l2.entities.catalog import L2EntityCatalog
 from .l2.llm_service import L2LLMService
 from .l2.pipeline import L2Pipeline
@@ -190,6 +191,32 @@ class UnifiedMemoryStore(
                 extraction_profile_provider=extraction_profile_provider,
                 promotion_counter=self.l2_promotion_counter,
             )
+        # Build the edge-embedding drain worker.  The worker is always
+        # constructed (so stop() is always safe to call in shutdown), but is
+        # only *started* in initialize() when an embedding_service is present.
+        _drain_interval: float = 5.0
+        if memory_config_getter is not None:
+            try:
+                _drain_interval = memory_config_getter().l2.edge_embedding_drain_interval_seconds
+            except Exception:
+                pass
+        self._edge_embedding_worker = L2EdgeEmbeddingWorker(
+            drainer=EdgeEmbeddingDrainer(
+                db_path=shared_memory_db,
+                embedding_service=(
+                    self.l2_entity_catalog.embedding_service
+                    if self.l2_entity_catalog is not None
+                    else None
+                ),
+                edge_vector_index=(
+                    self.l2_entity_catalog.edge_vector_index
+                    if self.l2_entity_catalog is not None
+                    else None
+                ),
+            ),
+            idle_interval_seconds=_drain_interval,
+        )
+
         if enable_l3:
             self.l3 = L3SummaryStore(
                 db_path=shared_memory_db,
