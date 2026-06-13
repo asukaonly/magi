@@ -426,7 +426,9 @@ async def test_maintenance_leaves_pending_edges_even_with_embedding_service() ->
         finally:
             em_module.MemoryEmbeddingPipeline = original_pipeline
 
-        # Pipeline must NOT have been called.
+        # The pipeline is still imported by the maintenance module (used by
+        # `_clean_non_active_edge_embeddings`), so we patch it — but maintenance must
+        # NOT call it to embed *pending* edges. That work moved to EdgeEmbeddingDrainer (#86).
         mock_pipeline_cls.upsert_items.assert_not_called()
 
         # Edge must still be pending.
