@@ -89,6 +89,11 @@ class MemoryL2Settings(BaseModel):
         ge=300.0,
         description="Interval between L2 maintenance runs (seconds). Minimum 300 to avoid excessive load.",
     )
+    edge_embedding_drain_interval_seconds: float = Field(
+        default=5.0,
+        ge=1.0,
+        description="Idle poll interval (seconds) for the dedicated L2 edge-embedding drain.",
+    )
     maintenance_min_mentions: int = Field(
         default=2,
         ge=1,
