@@ -374,6 +374,31 @@ class _HostInteractionPort:
         except Exception:  # pragma: no cover - defensive
             logger.debug("ask_user_question.event_failed", exc_info=True)
 
+        # Lightweight external-channel egress (no-op on desktop-only sessions).
+        # A channel-originated turn's question otherwise never reaches the
+        # channel the user is chatting from — only the desktop gets the chips +
+        # transcript card. Fire it after the ask is open and the desktop events
+        # are emitted; a failure here must never block or fail the ask. The
+        # inbound answer round-trips via message_dispatch_service (a text reply
+        # on the session resolves the broker), so this is egress-only.
+        try:
+            from magi.control.common.ask_fanout import get_ask_fanout_callback
+
+            _channel_fanout = get_ask_fanout_callback()
+            if _channel_fanout is not None:
+                await _channel_fanout(
+                    session_id=sid,
+                    user_id=user_id,
+                    request_id=ask.request_id,
+                    question=question,
+                    options=list(options or []),
+                    expires_at_ms=(
+                        int(ask.expires_at * 1000) if ask.expires_at else None
+                    ),
+                )
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("ask_user_question.channel_fanout_failed", exc_info=True)
+
         pending_tasks: set[asyncio.Task[Any]] = {answer_task}
         if cancel_task is not None:
             pending_tasks.add(cancel_task)
