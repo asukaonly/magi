@@ -156,6 +156,8 @@ def apply_structured_filter(
 RRF_K = 60
 SOFT_EDGE_WEIGHT = 0.6
 HOP2_DECAY = 0.5
+STRUCT_RESERVED_SLOTS = 3          # min structured_graph edges guaranteed past top-k
+STRUCT_RESERVE_MIN_SCORE = 0.05    # ...but only if they clear this floor (never force in garbage)
 
 
 def fuse_l2_candidates(
@@ -239,7 +241,48 @@ def fuse_l2_candidates(
     candidates.sort(key=lambda c: c.final_score, reverse=True)
 
     passed = [c for c in candidates if c.gate_status != "filtered"]
-    return passed[:top_k]
+    return _select_with_channel_quota(passed, top_k)
+
+
+def _is_structured(c: L2Candidate) -> bool:
+    """Return True if this candidate came from the structured_graph channel.
+
+    Checks retrieval_channels first (set by fuse_l2_candidates from edge._channels),
+    then falls back to payload["_channels"] / payload["_channel"] for candidates
+    constructed directly (e.g. in unit tests).
+    """
+    chans = list(c.retrieval_channels or [])
+    if not chans:
+        ch = c.payload.get("_channel")
+        chans = list(c.payload.get("_channels") or ([] if ch is None else [ch]))
+    return "structured_graph" in chans
+
+
+def _select_with_channel_quota(passed: list[L2Candidate], top_k: int) -> list[L2Candidate]:
+    """Guarantee up to STRUCT_RESERVED_SLOTS structured_graph edges survive the top-k cut.
+
+    ``passed`` is sorted by final_score desc. Reserve the top structured edges that clear a
+    small floor, then fill remaining slots by global score; dedup; keep score order.
+    Prevents a high-volume channel (edge_vector) from starving the precise structured
+    channel. RFC #65 follow-up (#94 P1).
+    """
+    if len(passed) <= top_k:
+        return passed
+    reserved = []
+    for c in passed:
+        if len(reserved) >= STRUCT_RESERVED_SLOTS:
+            break
+        if _is_structured(c) and c.final_score >= STRUCT_RESERVE_MIN_SCORE:
+            reserved.append(c)
+    reserved_ids = {c.candidate_id for c in reserved}
+    out = list(reserved)
+    for c in passed:
+        if len(out) >= top_k:
+            break
+        if c.candidate_id not in reserved_ids:
+            out.append(c)
+    out.sort(key=lambda c: c.final_score, reverse=True)
+    return out[:top_k]
 
 
 def _compute_final_score(c: L2Candidate, plan: L2GroundingPlan) -> float:
@@ -381,6 +424,10 @@ def project_candidates(
 
 __all__ = [
     "DOMAIN_WEIGHTS",
+    "HOP2_DECAY",
+    "SOFT_EDGE_WEIGHT",
+    "STRUCT_RESERVED_SLOTS",
+    "STRUCT_RESERVE_MIN_SCORE",
     "L2Candidate",
     "apply_structured_filter",
     "fuse_l2_candidates",
