@@ -435,7 +435,19 @@
     },
     "sources": {
       "manual_journal": "手动记录",
-      "chat": "对话"
+      "chat": "对话",
+      "chat_projector": "聊天",
+      "chrome_history": "浏览记录",
+      "photo_library": "照片",
+      "screen_time": "应用使用",
+      "system_media": "系统媒体",
+      "terminal_history": "终端记录",
+      "git_activity": "Git 活动",
+      "calendar": "日历",
+      "netease_music": "网易云音乐",
+      "tool_invocation_service": "工具调用",
+      "task_orchestrator": "任务",
+      "skill_runner": "技能"
     },
     "feed": {
       "showDetails": "查看详情",
@@ -595,7 +607,6 @@
     "disconnected": "未连接",
     "clear": "清空对话",
     "today": {
-      "label": "今日",
       "loading": "正在汇总今日感知…",
       "idle": "今天还没有传感器数据",
       "retry": "重新加载",

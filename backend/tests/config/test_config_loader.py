@@ -52,6 +52,15 @@ _BUILTIN_PLUGIN_DIRS = {
     "terminal-history": "terminal_history",
 }
 
+# The builtin plugin manifests live in the sibling magi-plugins repo, which is
+# not checked out in CI. Tests that assert manifest-driven seeding only run
+# where that repo is present (local dev / magi-plugins' own CI).
+_MANIFESTS_AVAILABLE = (_PLUGINS_REPO_ROOT / "chrome-history" / "plugin.toml").is_file()
+_requires_plugin_manifests = pytest.mark.skipif(
+    not _MANIFESTS_AVAILABLE,
+    reason="builtin plugin manifests live in the sibling magi-plugins repo",
+)
+
 
 def _seed_builtin_manifest_paths(plugins_dir: Path) -> None:
     """Write a plugins/index.yaml pointing each builtin at its real plugin.toml.
@@ -165,6 +174,7 @@ def test_loader_save_rejects_invalid_config_without_writing(tmp_path: Path, monk
     assert loader.load().network.proxy_type == ProxyType.HTTP
 
 
+@_requires_plugin_manifests
 def test_loader_default_photo_library_settings_live_in_the_dedicated_plugin(tmp_path: Path, monkeypatch) -> None:
     _patch_config_paths(monkeypatch, tmp_path)
     _seed_builtin_manifest_paths(tmp_path / "config" / "plugins")
@@ -181,6 +191,7 @@ def test_loader_default_photo_library_settings_live_in_the_dedicated_plugin(tmp_
     assert set(sensors.keys()) == {"photo_library"}
 
 
+@_requires_plugin_manifests
 def test_loader_enables_builtin_sensor_plugins_while_leaving_sources_disabled(tmp_path: Path, monkeypatch) -> None:
     _patch_config_paths(monkeypatch, tmp_path)
     _seed_builtin_manifest_paths(tmp_path / "config" / "plugins")
@@ -207,6 +218,7 @@ def test_loader_enables_builtin_sensor_plugins_while_leaving_sources_disabled(tm
     assert "default_retention_mode" not in screen_time_settings
 
 
+@_requires_plugin_manifests
 def test_loader_migrates_legacy_disabled_chrome_history_plugin(tmp_path: Path, monkeypatch) -> None:
     _patch_config_paths(monkeypatch, tmp_path)
     config_dir = tmp_path / "config" / "plugins"

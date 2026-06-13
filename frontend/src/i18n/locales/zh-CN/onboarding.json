@@ -178,7 +178,8 @@
     "generate": "生成",
     "generating": "生成中…",
     "cancelCreate": "取消",
-    "generationFailed": "生成失败"
+    "generationFailed": "生成失败",
+    "waiting": "正在输入…"
   },
   "firstConversation": {
     "chips": {
@@ -221,6 +222,10 @@
       "photoLibrary": {
         "title": "照片库",
         "value": "让 magi 看到你的照片"
+      },
+      "codingAgentHistory": {
+        "title": "编程助手历史",
+        "value": "让 magi 从你的 Claude Code / Codex 会话看到你在搭什么"
       }
     }
   },
@@ -236,6 +241,7 @@
     "stepSync": "同步历史数据",
     "stepMemory": "整理记忆",
     "syncedCount": "已同步 {{count}} 条",
+    "memoryCount": "已整理 {{count}} 条记忆",
     "fieldsTitle": "连接前，先选择要接入的内容",
     "connect": "连接",
     "cancel": "稍后",

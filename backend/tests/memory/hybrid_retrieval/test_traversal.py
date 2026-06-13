@@ -140,3 +140,122 @@ async def test_candidate_object_mode_per_object_get_relationships():
     assert first.kwargs["predicates"] == ["VISITED", "LIKES", "DISLIKES"]
     assert first.kwargs["limit"] == 5
     assert first.kwargs["evidence_classes"] == ["user_self_report"]
+
+
+# ---------------------------------------------------------------------------
+# Soft-edge sparse fallback tests (RFC #65 P2)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_soft_fallback_fires_when_hard_sparse_and_allowed():
+    store = _store()
+    store.batch_get_relationships = AsyncMock(side_effect=[
+        {"user:u1": []},  # hard fetch: empty (sparse)
+        {"user:u1": [{"triple_id": "s1", "subject_id": "user:u1",
+                      "predicate": "SEMANTIC_CONTEXT", "object_id": "media:song1",
+                      "fact_kind": "semantic_edge", "confidence": 0.82}]},  # soft fetch
+    ])
+    tp = TraversalPlan(
+        seed_entity_ids=["user:u1"],
+        hop1=HopSpec(predicates=("LISTENED",), object_types=(), include_soft_edges=True),
+    )
+    edges = await execute_graph_traversal(tp, store)
+    assert any(e["predicate"] == "SEMANTIC_CONTEXT" for e in edges)
+    soft_call = store.batch_get_relationships.await_args_list[1]
+    assert soft_call.kwargs["predicates"] == ["SEMANTIC_CONTEXT"]
+    assert soft_call.kwargs["evidence_classes"] is None
+
+
+@pytest.mark.asyncio
+async def test_soft_fallback_skipped_when_hard_sufficient():
+    store = _store()
+    hard = {"user:u1": [{"triple_id": f"h{i}", "subject_id": "user:u1",
+                         "predicate": "LISTENED", "object_id": f"media:{i}",
+                         "object_type": "media"} for i in range(5)]}
+    store.batch_get_relationships = AsyncMock(return_value=hard)
+    tp = TraversalPlan(
+        seed_entity_ids=["user:u1"],
+        hop1=HopSpec(predicates=("LISTENED",), include_soft_edges=True),
+    )
+    await execute_graph_traversal(tp, store)
+    assert store.batch_get_relationships.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_soft_fallback_skipped_when_not_allowed():
+    store = _store()
+    store.batch_get_relationships = AsyncMock(return_value={"user:u1": []})
+    tp = TraversalPlan(
+        seed_entity_ids=["user:u1"],
+        hop1=HopSpec(predicates=("LISTENED",), include_soft_edges=False),
+    )
+    await execute_graph_traversal(tp, store)
+    assert store.batch_get_relationships.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_soft_fallback_fires_on_abstain_when_allowed():
+    """Abstain (no predicate, no object_type) → hard=[] is sparse → soft fires if allowed."""
+    store = _store()
+    store.batch_get_relationships = AsyncMock(return_value={"user:u1": [
+        {"triple_id": "s1", "subject_id": "user:u1", "predicate": "SEMANTIC_CONTEXT",
+         "object_id": "x", "fact_kind": "semantic_edge", "confidence": 0.8}]})
+    tp = TraversalPlan(seed_entity_ids=["user:u1"], hop1=HopSpec(include_soft_edges=True))
+    edges = await execute_graph_traversal(tp, store)
+    assert any(e["predicate"] == "SEMANTIC_CONTEXT" for e in edges)
+    assert store.batch_get_relationships.await_count == 1
+    assert store.batch_get_relationships.await_args_list[0].kwargs["predicates"] == ["SEMANTIC_CONTEXT"]
+
+
+# ---------------------------------------------------------------------------
+# Second-hop expansion tests (RFC #65 P3)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_two_hop_expands_from_bridge_nodes():
+    store = _store()
+    store.batch_get_relationships = AsyncMock(side_effect=[
+        {"user:u1": [{"triple_id": "h1", "subject_id": "user:u1", "predicate": "LIKES",
+                      "object_id": "person:artist", "object_type": "person"}]},  # hop1
+        {"person:artist": [{"triple_id": "h2", "subject_id": "person:artist",
+                            "predicate": "CREATES", "object_id": "media:album",
+                            "object_type": "media"}]},  # hop2 hard
+        {"person:artist": [{"triple_id": "s2", "subject_id": "person:artist",
+                            "predicate": "SEMANTIC_CONTEXT", "object_id": "media:album2",
+                            "object_type": "media", "fact_kind": "semantic_edge"}]},  # hop2 soft
+    ])
+    tp = TraversalPlan(
+        seed_entity_ids=["user:u1"],
+        hop1=HopSpec(predicates=("LIKES",), object_types=("person",)),  # no hop1 soft (default False)
+        hop2=HopSpec(object_types=("media",), include_soft_edges=True),
+        max_hops=2,
+    )
+    edges = await execute_graph_traversal(tp, store)
+    hop2_ids = {e["object_id"] for e in edges if e.get("_hop") == 2}
+    assert hop2_ids == {"media:album", "media:album2"}
+    assert any(e["triple_id"] == "h1" and e.get("_hop") != 2 for e in edges)
+    assert store.batch_get_relationships.await_args_list[2].kwargs["predicates"] == ["SEMANTIC_CONTEXT"]
+    assert store.batch_get_relationships.await_args_list[1].kwargs["object_types"] == ["media"]
+
+
+@pytest.mark.asyncio
+async def test_no_second_hop_when_hop2_none():
+    store = _store()
+    store.batch_get_relationships = AsyncMock(return_value={"user:u1": [
+        {"triple_id": "h1", "subject_id": "user:u1", "predicate": "LIKES",
+         "object_id": "person:a", "object_type": "person"}]})
+    tp = TraversalPlan(seed_entity_ids=["user:u1"],
+                       hop1=HopSpec(predicates=("LIKES",), object_types=("person",)))
+    await execute_graph_traversal(tp, store)
+    assert store.batch_get_relationships.await_count == 1  # hop1 only
+
+
+@pytest.mark.asyncio
+async def test_no_second_hop_when_hop1_empty():
+    store = _store()
+    store.batch_get_relationships = AsyncMock(return_value={"user:u1": []})
+    tp = TraversalPlan(seed_entity_ids=["user:u1"],
+                       hop1=HopSpec(predicates=("LIKES",), object_types=("person",)),
+                       hop2=HopSpec(object_types=("media",), include_soft_edges=True), max_hops=2)
+    await execute_graph_traversal(tp, store)
+    assert store.batch_get_relationships.await_count == 1  # hop1 empty → no bridges → no hop2

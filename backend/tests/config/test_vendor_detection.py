@@ -27,6 +27,15 @@ from magi.config.vendor_detection import detect_vendor_from_hints
         # Grok
         ("grok-2", ModelVendor.GROK),
         ("grok-beta", ModelVendor.GROK),
+        # Gemini
+        ("gemini-2.5-pro", ModelVendor.GEMINI),
+        ("gemini-3-flash", ModelVendor.GEMINI),
+        # Kimi / Moonshot
+        ("kimi-k2.6", ModelVendor.KIMI),
+        ("moonshot-v1-8k", ModelVendor.KIMI),
+        # MiniMax
+        ("minimax-m2", ModelVendor.MINIMAX),
+        ("abab6.5-chat", ModelVendor.MINIMAX),
         # DeepSeek family
         ("deepseek-chat", ModelVendor.DEEPSEEK),
         ("deepseek-reasoner", ModelVendor.DEEPSEEK),
@@ -75,6 +84,9 @@ def test_model_id_overrides_url_when_both_present() -> None:
         ("https://dashscope.aliyuncs.com/compatible-mode/v1", ModelVendor.DASHSCOPE),
         ("https://api.x.ai/v1", ModelVendor.GROK),
         ("https://api.deepseek.com/v1", ModelVendor.DEEPSEEK),
+        ("https://generativelanguage.googleapis.com/v1beta", ModelVendor.GEMINI),
+        ("https://api.moonshot.cn/v1", ModelVendor.KIMI),
+        ("https://api.minimax.chat/v1", ModelVendor.MINIMAX),
     ],
 )
 def test_detect_vendor_falls_back_to_url_when_model_id_unknown(

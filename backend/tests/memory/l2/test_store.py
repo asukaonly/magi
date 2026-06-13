@@ -102,21 +102,89 @@ def _ensure_test_store_schema(request):
     _migrated_l2_db_path(tmp_path)
 
 
+# Production deleted the English STRESS/CALM keyword rule (commit 8217ce51):
+# the L2 LLM pipeline is now the single source of mood/stress assertion
+# candidates and `build_rule_assertion_candidates` intentionally returns [].
+# These tests exercise the assertion LIFECYCLE downstream of candidate intake
+# (tentative -> stable promotion, contradiction downgrade, expiry, snapshots,
+# user feedback), so the deleted rule lives on here as a test fixture that
+# shapes candidates exactly like the LLM extraction emits them.
+_STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
+_CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
+
+
+def _llm_style_assertion_candidates(event):  # type: ignore[no-untyped-def]
+    from magi.memory.event_contracts import TomDepth
+    from magi.memory.l2.models import L2TomAssertionWrite
+
+    if not event.cognition_eligible or event.tom_depth != TomDepth.DEFENSIVE_PSYCHOLOGY:
+        return []
+    if not event.user_id:
+        return []
+    text = event.content.lower()
+    if any(keyword in text for keyword in _STRESS_KEYWORDS):
+        trait_value = "high"
+    elif any(keyword in text for keyword in _CALM_KEYWORDS):
+        trait_value = "low"
+    else:
+        return []
+    return [
+        L2TomAssertionWrite(
+            entity_id=f"user:{event.user_id}",
+            entity_type="user",
+            trait_name="stress_level",
+            trait_value=trait_value,
+            confidence_score=0.3,
+            evidence_events=[event.event_id],
+            volatility_index=0.7,
+            source_domain=event.memory_domain.label,
+            inference_depth=event.tom_depth.label,
+            validation_state="tentative",
+            first_inferred_at=event.timestamp,
+            last_validated_at=event.timestamp,
+        )
+    ]
+
+
 async def _apply_rule_candidates(store, event):  # type: ignore[no-untyped-def]
+    """Upsert graph candidates from the surviving rule path, plus assertion
+    candidates shaped like the L2 LLM extraction (see fixture note above)."""
     await store.initialize()
     relation_count = 0
     assertion_count = 0
     for candidate in store.build_rule_graph_candidates(event):
         await store.upsert_knowledge_edge(**candidate.to_dict())
         relation_count += 1
-    for candidate in store.build_rule_assertion_candidates(event):
+    for candidate in _llm_style_assertion_candidates(event):
         await store.upsert_assertion_candidate(candidate.to_dict())
         assertion_count += 1
     return {"relation_count": relation_count, "assertion_count": assertion_count}
 
 
+async def _force_assertion_state(db_path, *, trait_name, validation_state, confidence):  # type: ignore[no-untyped-def]
+    """Stage an assertion's lifecycle state directly.
+
+    Intake re-derives state via the shared state machine
+    (assertions/state_machine.py): a candidate's declared validation_state is
+    not trusted and stability must be EARNED through evidence over time
+    (the insert path treats every candidate as a single observation). Tests
+    that need a specific pre-existing state therefore set it explicitly.
+    """
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "UPDATE tom_trait_assertions SET validation_state = ?, status = ?, confidence_score = ?"
+            " WHERE trait_name = ?",
+            (validation_state, validation_state, confidence, trait_name),
+        )
+        await db.commit()
+
+
 @pytest.mark.asyncio
-async def test_tom_assertion_starts_tentative_with_low_confidence(tmp_path):
+async def test_tom_assertion_intake_from_llm_style_candidate(tmp_path):
+    # Was `test_tom_assertion_starts_tentative_with_low_confidence`: under the
+    # shared state machine (assertions/state_machine.py) a temporary trait
+    # (stress_level) corroborates at >=0.50 on its FIRST evidence, so the old
+    # name/expectation no longer describes intake behavior.
     from magi.memory.l2.models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
     from magi.memory.l2.store import L2CognitionStore
 
@@ -129,12 +197,16 @@ async def test_tom_assertion_starts_tentative_with_low_confidence(tmp_path):
         timestamp=1710000000.0,
     )
     graph_candidates = store.build_rule_graph_candidates(event)
-    assertion_candidates = store.build_rule_assertion_candidates(event)
+    assertion_candidates = _llm_style_assertion_candidates(event)
     result = await _apply_rule_candidates(store, event)
 
     assertions = await store.list_tom_assertions(entity_id="user:u1")
 
     assert graph_candidates == []
+    # The in-store rule fallback is intentionally empty (commit 8217ce51);
+    # assertion candidates come from the L2 LLM pipeline, mirrored here by
+    # the test fixture.
+    assert store.build_rule_assertion_candidates(event) == []
     assert len(assertion_candidates) == 1
     assert isinstance(assertion_candidates[0], L2TomAssertionWrite)
 
@@ -149,8 +221,10 @@ async def test_tom_assertion_starts_tentative_with_low_confidence(tmp_path):
     assert isinstance(graph_candidates[0], L2KnowledgeEdgeWrite)
     assert result["assertion_count"] == 1
     assert assertions[0]["trait_name"] == "stress_level"
-    assert assertions[0]["validation_state"] == "tentative"
-    assert assertions[0]["confidence_score"] <= 0.3
+    # stress_level is a temporary-state trait: single evidence corroborates
+    # at >=0.50 (state_machine.derive_validation_state).
+    assert assertions[0]["validation_state"] == "corroborated"
+    assert assertions[0]["confidence_score"] >= 0.5
 
 
 @pytest.mark.asyncio
@@ -604,6 +678,14 @@ async def test_refresh_snapshot_ignores_expired_temporary_assertions(tmp_path):
             "expires_at": now + 86400,
         }
     )
+    # Intake derives corroborated for a single observation; core_traits only
+    # carries STABLE stress, so stage the stable state explicitly.
+    await _force_assertion_state(
+        str(tmp_path / "l2.db"),
+        trait_name="stress_level",
+        validation_state="stable",
+        confidence=0.82,
+    )
 
     snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
     assertions = await store.list_tom_assertions(entity_id="user:u1", entity_type="user")
@@ -693,6 +775,14 @@ async def test_refresh_entity_snapshot_tracks_core_trait_evolution_history(tmp_p
             "expires_at": now + 86400,
         }
     )
+    # Stability must be earned via the state machine; stage it for the
+    # evolution-history scenario under test.
+    await _force_assertion_state(
+        str(tmp_path / "l2.db"),
+        trait_name="stress_level",
+        validation_state="stable",
+        confidence=0.84,
+    )
     first_snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
 
     async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
@@ -728,24 +818,26 @@ async def test_refresh_entity_snapshot_tracks_core_trait_evolution_history(tmp_p
 @pytest.mark.asyncio
 async def test_custom_opposite_rule_can_mark_existing_edge_conflicted(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
-    from magi.memory.l2.graph_conflicts import GraphConflictRule
 
-    store = L2CognitionStore(
-        db_path=str(tmp_path / "l2.db"),
-        graph_conflict_rules={
-            "ENDORSES": GraphConflictRule(
-                predicate="ENDORSES",
-                opposite_predicates=("REJECTS",),
-                opposite_resolution="mark_conflicted",
-            ),
-            "REJECTS": GraphConflictRule(
-                predicate="REJECTS",
-                opposite_predicates=("ENDORSES",),
-                opposite_resolution="mark_conflicted",
-            ),
-        },
-    )
+    # Conflict rules live in the DB (alembic-seeded) and initialize() reloads
+    # them from there, so constructor-time rule dicts are overwritten —
+    # register custom rules through the persistent runtime API instead.
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
+    await store.upsert_graph_conflict_rule(
+        {
+            "predicate": "ENDORSES",
+            "opposite_predicates": ["REJECTS"],
+            "opposite_resolution": "mark_conflicted",
+        }
+    )
+    await store.upsert_graph_conflict_rule(
+        {
+            "predicate": "REJECTS",
+            "opposite_predicates": ["ENDORSES"],
+            "opposite_resolution": "mark_conflicted",
+        }
+    )
 
     await store.upsert_knowledge_edge(
         subject_id="user:u1",
@@ -783,22 +875,23 @@ async def test_custom_opposite_rule_can_mark_existing_edge_conflicted(tmp_path):
 @pytest.mark.asyncio
 async def test_exclusive_group_rule_deprecates_cross_predicate_edges(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
-    from magi.memory.l2.graph_conflicts import GraphConflictRule
 
-    store = L2CognitionStore(
-        db_path=str(tmp_path / "l2.db"),
-        graph_conflict_rules={
-            "PRIMARY_BASED_IN": GraphConflictRule(
-                predicate="PRIMARY_BASED_IN",
-                exclusive_group="current_residence",
-            ),
-            "CURRENT_LIVES_IN": GraphConflictRule(
-                predicate="CURRENT_LIVES_IN",
-                exclusive_group="current_residence",
-            ),
-        },
-    )
+    # Same as above: persist custom rules via the runtime API so the
+    # DB-backed reload sees them.
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
+    await store.upsert_graph_conflict_rule(
+        {
+            "predicate": "PRIMARY_BASED_IN",
+            "exclusive_group": "current_residence",
+        }
+    )
+    await store.upsert_graph_conflict_rule(
+        {
+            "predicate": "CURRENT_LIVES_IN",
+            "exclusive_group": "current_residence",
+        }
+    )
 
     await store.upsert_knowledge_edge(
         subject_id="user:u1",
@@ -993,7 +1086,8 @@ async def test_apply_user_feedback_confirmed_promotes_confidence(tmp_path):
     await _apply_rule_candidates(store, event)
     assertions = await store.list_tom_assertions(entity_id="user:u1")
     assert len(assertions) == 1
-    assert assertions[0]["validation_state"] == "tentative"
+    # stress_level (temporary trait) corroborates on first evidence.
+    assert assertions[0]["validation_state"] == "corroborated"
     original_confidence = assertions[0]["confidence_score"]
 
     result = await store.apply_user_feedback(assertion_id=assertions[0]["assertion_id"], feedback="confirmed")
@@ -1072,10 +1166,15 @@ async def test_reconcile_respects_user_rejected_feedback(tmp_path):
 
     await store.apply_user_feedback(assertion_id=assertions[0]["assertion_id"], feedback="rejected")
 
+    # Reconcile ignores inactive (user_rejected) assertions entirely
+    # (commit 58cf12f7 "normalize l2 assertion lifecycle"), so no outcome is
+    # produced — and the rejection itself must survive untouched.
     outcomes = await store.reconcile_entity(entity_id="user:u1")
-    assert len(outcomes) == 1
-    assert outcomes[0].status == "user_rejected"
-    assert outcomes[0].confidence == pytest.approx(0.10)
+    assert outcomes == []
+    rejected = await store.get_tom_assertion(assertion_id=assertions[0]["assertion_id"])
+    assert rejected is not None
+    assert rejected["validation_state"] == "user_rejected"
+    assert rejected["confidence_score"] == pytest.approx(0.10)
 
 
 @pytest.mark.asyncio
@@ -2457,17 +2556,22 @@ async def test_expire_session_decay_assertions_expires_tentative(tmp_path):
     await store.initialize()
     now = time.time()
 
+    # NOTE: temporary traits (mood/stress/engagement) corroborate on first
+    # evidence under the state machine and corroborated session-decay
+    # assertions deliberately survive session end (see sibling test). Only a
+    # NON-temporary trait still lands tentative on one observation, so that
+    # is what session-end expiry applies to now.
     await store.upsert_assertion_candidate({
         "entity_id": "user:u1",
         "entity_type": "user",
-        "trait_family": "mood",
-        "trait_name": "mood",
-        "trait_value": "happy",
+        "trait_family": "interest",
+        "trait_name": "interest.topic_crypto",
+        "trait_value": "curious",
         "confidence_score": 0.25,
         "validation_state": "tentative",
         "temporal_scope": "session",
         "decay_policy": "session_decay",
-        "evidence_events": ["evt-mood-1"],
+        "evidence_events": ["evt-interest-1"],
         "volatility_index": 0.5,
         "source_domain": "chat",
         "inference_depth": "defensive_psychology",
@@ -2577,7 +2681,8 @@ async def test_snapshot_includes_emerging_signals(tmp_path):
     assert len(emerging) == 1
     assert emerging[0]["trait_name"] == "preference.coffee"
     assert emerging[0]["trait_value"] == "likes_strong_coffee"
-    assert emerging[0]["confidence"] == pytest.approx(0.25, abs=0.01)
+    # Intake floors a single-evidence candidate at compute_confidence(1)=0.3.
+    assert emerging[0]["confidence"] == pytest.approx(0.3, abs=0.01)
     assert emerging[0]["evidence_count"] == 1
 
     # Corroborated assertion should NOT appear in emerging_signals
@@ -2925,6 +3030,14 @@ async def test_snapshot_preferences_enriched_from_preference_profile_assertions(
             "expires_at": None,
         }
     )
+    # Single observation lands tentative (excluded from preference
+    # enrichment); stage the stable state the scenario describes.
+    await _force_assertion_state(
+        str(tmp_path / "l2.db"),
+        trait_name="communication_style",
+        validation_state="stable",
+        confidence=0.60,
+    )
 
     snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
     assert snapshot is not None
@@ -2998,6 +3111,14 @@ async def test_snapshot_preference_affinity_computation(tmp_path):
             "context_ref_id": "",
             "expires_at": None,
         }
+    )
+    # tea has a single observation -> tentative at intake; stage stable with
+    # the low confidence the affinity formula under test expects.
+    await _force_assertion_state(
+        str(tmp_path / "l2.db"),
+        trait_name="tea_preference",
+        validation_state="stable",
+        confidence=0.30,
     )
 
     snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
@@ -3095,7 +3216,8 @@ async def test_persistent_value_change_supersedes_old_assertion(tmp_path):
     assert old["superseded_at"] is not None
 
     assert new is not None
-    assert new["status"] == "tentative"
+    # mood (temporary trait) corroborates on first evidence at intake.
+    assert new["status"] == "corroborated"
     assert new["trait_value"] == "sad"
 
 

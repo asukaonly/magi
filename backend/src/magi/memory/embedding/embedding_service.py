@@ -312,14 +312,18 @@ class MemoryEmbeddingService:
 
         started_at = time.time()
         try:
-            vector = await self._run_with_embedding_concurrency_limit(
+            vector, prompt_tokens = await self._run_with_embedding_concurrency_limit(
                 adapter=adapter,
-                operation=lambda: adapter.get_embedding(normalized_text),
+                operation=lambda: adapter.get_embedding_with_usage(normalized_text),
             )
         except Exception as exc:
-            await self._publish_embedding_usage(adapter, started_at=started_at, success=False, error=str(exc))
+            await self._publish_embedding_usage(
+                adapter, started_at=started_at, success=False, error=str(exc), prompt_tokens=0
+            )
             raise
-        await self._publish_embedding_usage(adapter, started_at=started_at, success=bool(vector))
+        await self._publish_embedding_usage(
+            adapter, started_at=started_at, success=bool(vector), prompt_tokens=prompt_tokens
+        )
         if not vector:
             return None
 
@@ -350,18 +354,21 @@ class MemoryEmbeddingService:
             sub_start = start  # capture for lambda
             started_at = time.time()
             try:
-                sub_vectors = await self._run_with_embedding_concurrency_limit(
+                sub_vectors, prompt_tokens = await self._run_with_embedding_concurrency_limit(
                     adapter=adapter,
-                    operation=lambda _st=sub_texts: adapter.get_embeddings(_st),
+                    operation=lambda _st=sub_texts: adapter.get_embeddings_with_usage(_st),
                 )
             except Exception as exc:
-                await self._publish_embedding_usage(adapter, started_at=started_at, success=False, error=str(exc))
+                await self._publish_embedding_usage(
+                    adapter, started_at=started_at, success=False, error=str(exc), prompt_tokens=0
+                )
                 logger.debug("Batch embedding sub-batch failed (offset %d): %s", start, exc)
                 continue
             await self._publish_embedding_usage(
                 adapter,
                 started_at=started_at,
                 success=bool(sub_vectors and any(vector for vector in sub_vectors)),
+                prompt_tokens=prompt_tokens,
             )
             if sub_vectors:
                 for i, vec in enumerate(sub_vectors):
@@ -443,8 +450,10 @@ class MemoryEmbeddingService:
         started_at: float,
         success: bool,
         error: str | None = None,
+        prompt_tokens: int = 0,
     ) -> None:
         try:
+            # Embeddings have no completion tokens; total == prompt.
             await publish_llm_usage_span(
                 provider=str(getattr(adapter, "provider_name", "unknown") or "unknown"),
                 model=str(getattr(adapter, "model_name", "embedding") or "embedding"),
@@ -452,6 +461,9 @@ class MemoryEmbeddingService:
                 success=success,
                 started_at=started_at,
                 error=error,
+                prompt_tokens=prompt_tokens,
+                total_tokens=prompt_tokens,
+                usage_available=(prompt_tokens > 0),
                 event_context={"agent_id": "memory:embedding"},
             )
         except Exception:

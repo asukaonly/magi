@@ -418,6 +418,26 @@ def _build_service(tmp_path: Path) -> ChatReadService:
     db_path = tmp_path / "chat.sqlite3"
     service._chat_db_path = db_path
     service._l1_db_path = db_path
+
+    # Hermeticity: display-history now joins chat-trace data through the
+    # container's ChatTraceReadService singleton, whose db paths freeze at
+    # construction (the developer's real ~/.magi when run standalone, or a
+    # stale tmp dir mid-suite). Pin it to THIS tmp dir with real schema.
+    from _shared.db_schema import apply_chain_schema
+    from magi.core.container import get_container
+    from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
+
+    trace_db = tmp_path / "runtime_trace.db"
+    apply_chain_schema("runtime_trace", trace_db)
+    apply_chain_schema("l1", tmp_path / "l1_events.db")
+    trace_service = ChatTraceReadService()
+    trace_service._runtime_trace_db_path = trace_db
+    trace_service._l1_db_path = tmp_path / "l1_events.db"
+    container = get_container()
+    container.chat_trace_read_service.reset()
+    from dependency_injector import providers as _providers
+
+    container.chat_trace_read_service.override(_providers.Object(trace_service))
     return service
 
 
@@ -510,6 +530,9 @@ def test_list_sessions_respects_limit(tmp_path):
 
 def test_create_new_session_persists_workspace_path(tmp_path):
     service = _build_service(tmp_path)
+    # The service no longer creates its own schema (alembic-owned); seed it
+    # like the sibling tests do.
+    _init_chat_session_store(service._chat_db_path)
 
     session_id = service.create_new_session("u1", workspace_path="/tmp/magi")
 
@@ -968,7 +991,7 @@ def test_clear_conversation_history_bumps_history_version(tmp_path):
     assert after_version == before_version + 1
 
 
-def test_update_message_label_persists_and_display_history_returns_label(tmp_path):
+def test_update_message_label_persists_and_display_history_returns_label(tmp_path, monkeypatch):
     chat_db_path = tmp_path / "chat.db"
     store = ChatStore(db_path=str(chat_db_path))
     __import__("asyncio").run(store.initialize())
@@ -1001,6 +1024,18 @@ def test_update_message_label_persists_and_display_history_returns_label(tmp_pat
     service._chat_db_path = chat_db_path
     service._l1_db_path = tmp_path / "l1.sqlite3"
     service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
+    # display-history reads trace data through get_chat_trace_read_service();
+    # pin it to a schema-backed tmp trace db like the sibling tests do.
+    from _shared.db_schema import apply_chain_schema
+
+    apply_chain_schema("runtime_trace", service._runtime_trace_db_path)
+    trace_service = ChatTraceReadService()
+    trace_service._runtime_trace_db_path = service._runtime_trace_db_path
+    trace_service._l1_db_path = service._l1_db_path
+    monkeypatch.setattr(
+        "magi.chat.read_service.get_chat_trace_read_service",
+        lambda: trace_service,
+    )
 
     history = service.get_display_history("u1", "s-label", limit=20)
 
@@ -1013,7 +1048,7 @@ def test_update_message_label_persists_and_display_history_returns_label(tmp_pat
     }
 
 
-def test_hide_message_excludes_it_from_display_history(tmp_path):
+def test_hide_message_excludes_it_from_display_history(tmp_path, monkeypatch):
     chat_db_path = tmp_path / "chat.db"
     store = ChatStore(db_path=str(chat_db_path))
     __import__("asyncio").run(store.initialize())
@@ -1039,6 +1074,18 @@ def test_hide_message_excludes_it_from_display_history(tmp_path):
     service._chat_db_path = chat_db_path
     service._l1_db_path = tmp_path / "l1.sqlite3"
     service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
+    # display-history reads trace data through get_chat_trace_read_service();
+    # pin it to a schema-backed tmp trace db like the sibling tests do.
+    from _shared.db_schema import apply_chain_schema
+
+    apply_chain_schema("runtime_trace", service._runtime_trace_db_path)
+    trace_service = ChatTraceReadService()
+    trace_service._runtime_trace_db_path = service._runtime_trace_db_path
+    trace_service._l1_db_path = service._l1_db_path
+    monkeypatch.setattr(
+        "magi.chat.read_service.get_chat_trace_read_service",
+        lambda: trace_service,
+    )
 
     history = service.get_display_history("u1", "s-hide", limit=20)
 

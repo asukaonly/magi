@@ -52,6 +52,26 @@ _VENDOR_HINTS: tuple[tuple[ModelVendor, tuple[str, ...], tuple[str, ...]], ...] 
         ("grok-", "grok_"),
         ("api.x.ai", "x.ai"),
     ),
+    # Google Gemini. OneAPI gateways often expose gemini-* on an
+    # OpenAI-shape endpoint; generativelanguage is Google's native host.
+    (
+        ModelVendor.GEMINI,
+        ("gemini",),
+        ("generativelanguage",),
+    ),
+    # Moonshot Kimi. Markers cover both the model family name and the
+    # Moonshot platform branding.
+    (
+        ModelVendor.KIMI,
+        ("kimi", "moonshot"),
+        ("moonshot",),
+    ),
+    # MiniMax. abab is MiniMax's legacy model-family prefix.
+    (
+        ModelVendor.MINIMAX,
+        ("minimax", "abab"),
+        ("minimax",),
+    ),
     # DeepSeek family. Its transport is OpenAI-compatible, but the
     # thinking controls are vendor-specific (extra_body.thinking +
     # reasoning_effort), so it needs its own vendor classification.

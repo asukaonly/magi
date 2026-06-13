@@ -317,13 +317,16 @@ async def test_runtime_command_processor_requeues_user_messages_without_local_su
         sensor_hub = SensorHub(message_bus=message_bus)
         await sensor_hub.start()
         try:
-            for _ in range(100):
+            # Generous wall-clock budgets (~6s each): this poll-based test runs
+            # late in the full suite where leaked aiosqlite worker threads jitter
+            # the event loop, so tight 2-3s budgets flake under load.
+            for _ in range(300):
                 stats = await queue.get_stats()
                 if stats["completed_count"] == 1:
                     break
                 await asyncio.sleep(0.02)
 
-            for _ in range(150):
+            for _ in range(300):
                 batch = await sensor_hub.get_batch(max_items=8, timeout_seconds=0.02)
                 if batch:
                     break

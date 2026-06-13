@@ -177,7 +177,8 @@
     "generate": "Generate",
     "generating": "Generating…",
     "cancelCreate": "Cancel",
-    "generationFailed": "Generation failed"
+    "generationFailed": "Generation failed",
+    "waiting": "Typing…"
   },
   "firstConversation": {
     "chips": {
@@ -220,6 +221,10 @@
       "photoLibrary": {
         "title": "Photo library",
         "value": "Lets magi see your photos and recent moments"
+      },
+      "codingAgentHistory": {
+        "title": "Coding agent history",
+        "value": "Lets magi see what you're building from your Claude Code / Codex sessions"
       }
     }
   },
@@ -235,6 +240,7 @@
     "stepSync": "Sync history",
     "stepMemory": "Build memory",
     "syncedCount": "Synced {{count}} items",
+    "memoryCount": "Organized {{count}} memories",
     "fieldsTitle": "First, choose what to connect",
     "connect": "Connect",
     "cancel": "Later",

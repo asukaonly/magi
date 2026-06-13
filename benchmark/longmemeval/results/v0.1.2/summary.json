@@ -1,0 +1,15 @@
+{
+  "total_questions": 500,
+  "evaluated_questions": 470,
+  "abstention_questions": 30,
+  "session_recall_at_k": 0.8042553191489362,
+  "k": 1,
+  "retrieval_compression": {
+    "mean_ratio": 0.0207,
+    "median_ratio": 0.0177,
+    "min_ratio": 0.008,
+    "max_ratio": 0.046,
+    "zero_retrieval_count": 0,
+    "questions_measured": 500
+  }
+}

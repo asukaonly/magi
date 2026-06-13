@@ -321,17 +321,18 @@ def _make_l2_store(**overrides):
 class TestL2Handler:
     @pytest.fixture
     def store(self):
+        edge = {
+            "triple_id": "t1",
+            "subject_id": "alice",
+            "object_id": "bob",
+            "predicate": "KNOWS",
+            "status": "active",
+        }
         return _make_l2_store(
             snapshots=[{"entity_id": "alice", "name": "Alice"}],
-            rels=[
-                {
-                    "triple_id": "t1",
-                    "subject_id": "alice",
-                    "object_id": "bob",
-                    "predicate": "KNOWS",
-                    "status": "active",
-                }
-            ],
+            rels=[edge],
+            # Subject-grounded recall fetches via batch_get_relationships.
+            batch_rels={"person:alice": [edge]},
         )
 
     @pytest.mark.asyncio
@@ -349,8 +350,12 @@ class TestL2Handler:
     @pytest.mark.asyncio
     async def test_relationships(self, store):
         handler = L2Handler(store)
+        # RFC #65: with no predicate AND no object-type constraint the
+        # structured channel deliberately abstains (a bare subject dump is
+        # topically unfiltered), so grounded recall must carry a predicate.
         conds = L2Conditions(
             entities=["person:alice"],
+            predicates=["KNOWS"],
             include_tom_snapshot=False,
             include_relationships=True,
         )
@@ -362,6 +367,7 @@ class TestL2Handler:
         handler = L2Handler(store)
         conds = L2Conditions(
             entities=["person:alice"],
+            predicates=["KNOWS"],
             include_tom_snapshot=True,
             include_relationships=True,
         )
@@ -1023,10 +1029,10 @@ class TestL2HandlerEdgeVectorSupplement:
 
     @pytest.mark.asyncio
     async def test_adds_novel_edges_from_vector_search(self):
+        structured_edge = {"triple_id": "t1", "predicate": "LIKES", "subject_id": "user:u1", "status": "active"}
         store = _make_l2_store(
-            rels=[
-                {"triple_id": "t1", "predicate": "LIKES", "subject_id": "user:u1", "status": "active"}
-            ],
+            rels=[structured_edge],
+            batch_rels={"user:u1": [structured_edge]},
             edge_vectors=[
                 {"triple_id": "t2", "predicate": "LIKES", "vector_distance": 0.1, "status": "active"},
             ],
@@ -1043,6 +1049,8 @@ class TestL2HandlerEdgeVectorSupplement:
         )
         conds = L2Conditions(
             entities=["user:u1"],
+            # RFC #65: structured channel abstains without a predicate.
+            predicates=["LIKES"],
             include_relationships=True,
             content_query="what food does user like",
         )

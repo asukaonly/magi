@@ -449,7 +449,19 @@
     },
     "sources": {
       "manual_journal": "Manual journal",
-      "chat": "Chat"
+      "chat": "Chat",
+      "chat_projector": "Chat",
+      "chrome_history": "Chrome history",
+      "photo_library": "Photos",
+      "screen_time": "App usage",
+      "system_media": "System media",
+      "terminal_history": "Terminal",
+      "git_activity": "Git activity",
+      "calendar": "Calendar",
+      "netease_music": "NetEase Music",
+      "tool_invocation_service": "Tool calls",
+      "task_orchestrator": "Tasks",
+      "skill_runner": "Skills"
     },
     "feed": {
       "showDetails": "Show details",
@@ -595,7 +607,6 @@
     "disconnected": "Disconnected",
     "clear": "Clear Chat",
     "today": {
-      "label": "Today",
       "loading": "Summarizing today's signals…",
       "idle": "No sensor activity today yet",
       "retry": "Reload",

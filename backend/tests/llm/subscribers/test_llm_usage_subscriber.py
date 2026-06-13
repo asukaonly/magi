@@ -85,7 +85,8 @@ async def test_records_llm_call_with_full_payload(fake_bus, fake_store):
     assert written["usage_available"] is True
     assert written["latency_ms"] == 1500
     assert written["ttft_ms"] == 0       # not tracked today
-    assert written["cost_usd"] == 0.0    # unknown model pricing
+    assert written["cost_usd"] is None       # unknown model -> no pricing data
+    assert written["cost_currency"] is None  # NULL currency = "no pricing data" sentinel
     assert written["success"] is True
     assert written["error"] is None
     assert written["correlation_id"] == "corr-1"
@@ -127,6 +128,78 @@ async def test_calculates_cost_from_registry_pricing(fake_bus, fake_store):
     await sub.drain()
     written = fake_store.record_call.await_args.args[0]
     assert written["cost_usd"] == pytest.approx(0.006025)
+    assert written["cost_currency"] == "USD"
+
+
+@pytest.mark.asyncio
+async def test_records_native_currency_for_non_usd_model(fake_bus, fake_store):
+    """Non-USD (e.g. CNY) pricing must be recorded, not silently dropped to 0."""
+    sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
+    await sub.start()
+    payload = _payload(
+        attrs={
+            "provider": "dashscope",
+            "model": "qwen3.6-plus",  # priced in CNY in the shipped registry
+            "request_kind": "chat",
+            "prompt_tokens": 1_000_000,
+            "completion_tokens": 0,
+            "usage_available": True,
+        },
+    )
+    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
+    await sub.drain()
+    written = fake_store.record_call.await_args.args[0]
+    # qwen3.6-plus input is 2.0 CNY / million tokens -> 1M prompt tokens = 2.0 CNY
+    assert written["cost_currency"] == "CNY"
+    assert written["cost_usd"] == pytest.approx(2.0)
+
+
+@pytest.mark.asyncio
+async def test_embedding_cost_fallback_when_not_a_chat_model(fake_bus, fake_store):
+    """Embedding models aren't chat models, so the chat calc returns None and the
+    embedding-fallback prices the request in the model's native currency."""
+    sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
+    await sub.start()
+    payload = _payload(
+        attrs={
+            "provider": "dashscope",
+            "model": "text-embedding-v3",  # CNY 0.5 / million tokens, input-only
+            "request_kind": "embedding",
+            "prompt_tokens": 1_000_000,
+            "completion_tokens": 0,
+            "total_tokens": 1_000_000,
+            "usage_available": True,
+        },
+    )
+    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
+    await sub.drain()
+    written = fake_store.record_call.await_args.args[0]
+    assert written["request_kind"] == "embedding"
+    assert written["cost_currency"] == "CNY"
+    assert written["cost_usd"] == pytest.approx(0.5)
+
+
+@pytest.mark.asyncio
+async def test_image_generation_cost_fallback(fake_bus, fake_store):
+    """Image-generation models are priced per image, so chat/embedding calcs
+    return None and the image-fallback prices it in the model's native currency."""
+    sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
+    await sub.start()
+    payload = _payload(
+        attrs={
+            "provider": "dashscope",
+            "model": "qwen-image-2.0-pro",  # CNY 0.5 / image
+            "request_kind": "image_generation",
+            "image_count": 2,
+            "usage_available": True,
+        },
+    )
+    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
+    await sub.drain()
+    written = fake_store.record_call.await_args.args[0]
+    assert written["request_kind"] == "image_generation"
+    assert written["cost_currency"] == "CNY"
+    assert written["cost_usd"] == pytest.approx(1.0)
 
 
 @pytest.mark.asyncio

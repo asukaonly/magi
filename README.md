@@ -140,15 +140,15 @@ The current long-term memory and retrieval pipeline reaches **87.2% accuracy** o
 
 | LongMemEval category | Accuracy | Count |
 | -------------------- | -------: | ----: |
-| **Overall**          | **0.8720** | **-** |
-| Multi-session        |   0.7444 |   133 |
-| Single-session assistant | 1.0000 |    56 |
-| Temporal reasoning   |   0.8947 |   133 |
-| Knowledge update     |   0.8974 |    78 |
-| Single-session preference | 0.8667 |    30 |
-| Single-session user  |   0.9429 |    70 |
+| **Overall**          | **0.8720** | **500** |
+| Multi-session        |   0.8271 |   133 |
+| Single-session assistant | 0.9286 |    56 |
+| Temporal reasoning   |   0.8647 |   133 |
+| Knowledge update     |   0.9231 |    78 |
+| Single-session preference | 0.6000 |    30 |
+| Single-session user  |   0.9857 |    70 |
 
-For reproduction steps, model configuration, and raw outputs, see [`benchmark/README.md`](./benchmark/README.md).
+Scored on LongMemEval `_s` (500 questions) with an LLM judge (`glm-5`); a second judge (`bailian`) independently scores 87.6%. Raw predictions, per-question judge verdicts, and reproduction steps: [`benchmark/longmemeval/results/v0.1.2/`](./benchmark/longmemeval/results/v0.1.2/RESULTS.md). For the runner and model configuration, see [`benchmark/README.md`](./benchmark/README.md).
 
 ## Install
 

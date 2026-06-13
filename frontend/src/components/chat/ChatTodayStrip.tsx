@@ -24,6 +24,10 @@ const SOURCE_NAME_TO_I18N_KEY: Record<string, string> = {
   calendar: 'timeline.sources.calendar',
   netease_music: 'timeline.sources.netease_music',
   'netease-music': 'timeline.sources.netease_music',
+  chat_projector: 'timeline.sources.chat_projector',
+  tool_invocation_service: 'timeline.sources.tool_invocation_service',
+  task_orchestrator: 'timeline.sources.task_orchestrator',
+  skill_runner: 'timeline.sources.skill_runner',
 };
 
 type LabeledEntry = SensorTodaySummaryEntry & {
@@ -129,15 +133,11 @@ export const ChatTodayStrip = () => {
           : undefined
       }
     >
-      <span className="inline-flex shrink-0 items-center gap-1.5 font-medium text-foreground/85">
-        <span>{t('chat.today.label', { defaultValue: '今日' })}</span>
-        {weekday ? (
-          <>
-            <span className="text-muted-foreground/65" aria-hidden="true">·</span>
-            <span className="font-normal text-muted-foreground">{weekday}</span>
-          </>
-        ) : null}
-      </span>
+      {weekday ? (
+        <span className="inline-flex shrink-0 items-center font-medium text-foreground/85">
+          {weekday}
+        </span>
+      ) : null}
 
       {showInitialLoading ? (
         <span className="inline-flex items-center gap-1.5 text-muted-foreground/70">

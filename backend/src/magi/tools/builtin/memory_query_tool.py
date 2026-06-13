@@ -89,7 +89,14 @@ class MemoryQueryTool(Tool):
                 ToolParameter(
                     name="query",
                     type=ParameterType.STRING,
-                    description="The memory question or recall intent.",
+                    description=(
+                        "The user's memory question, passed through in full and verbatim. "
+                        "Keep the ENTIRE question — do NOT distill it to a topic, drop clauses, "
+                        "or split a multi-part / relational question into pieces. "
+                        "Relational and multi-hop questions (e.g. 'albums of the singer I like', "
+                        "'my coworker's boss') must be passed whole; the memory engine resolves the "
+                        "hops itself. Match the user's language."
+                    ),
                     required=True,
                 ),
                 ToolParameter(

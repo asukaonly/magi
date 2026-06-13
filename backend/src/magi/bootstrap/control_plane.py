@@ -107,7 +107,16 @@ class ControlPlaneModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext) -> None:
         super().__init__(
             name="runtime_control_plane",
-            dependencies=(),
+            # init() reads runtime_paths.runtime_dir AND the alembic-managed
+            # permission_rules table, so it MUST run after schema migrations.
+            # ``runtime_database_migrations`` transitively requires
+            # ``runtime_core_dependencies`` (which sets runtime_paths), so this
+            # single edge guarantees both. Without it this module is
+            # dependency-free and the orchestrator's FIFO topo-sort schedules
+            # it ahead of DatabaseMigrationModule (which must wait for
+            # core-deps), so on a fresh DB it read permission_rules before the
+            # table existed.
+            dependencies=("runtime_database_migrations",),
         )
         self._context = context
         self._wiring: ControlPlaneWiring | None = None

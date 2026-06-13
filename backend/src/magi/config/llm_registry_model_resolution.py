@@ -435,9 +435,12 @@ _BUILTIN_PROVIDER_VENDOR: dict[str, ModelVendor] = {
     "glm_codeplan": ModelVendor.GLM,
     "dashscope": ModelVendor.DASHSCOPE,
     "grok": ModelVendor.GROK,
-    "gemini": ModelVendor.GENERIC,
-    "kimi": ModelVendor.GENERIC,
-    "minimax": ModelVendor.GENERIC,
+    "gemini": ModelVendor.GEMINI,
+    "kimi": ModelVendor.KIMI,
+    "minimax": ModelVendor.MINIMAX,
+    # MiMo's reasoning contract is unverified, so default to GENERIC
+    # (no reasoning injection) explicitly rather than falling through.
+    "xiaomimimo": ModelVendor.GENERIC,
 }
 
 

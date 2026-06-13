@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from .soft_edges import SEMANTIC_EDGE_PREDICATE
+
 
 @dataclass(frozen=True)
 class HopSpec:
@@ -39,6 +41,9 @@ class TraversalPlan:
 
 
 __all__ = ["HopSpec", "TraversalPlan", "execute_graph_traversal"]
+
+MIN_HARD_RESULTS = 3
+MAX_BRIDGES = 5
 
 
 async def execute_graph_traversal(
@@ -89,12 +94,12 @@ async def execute_graph_traversal(
             edges.extend(rels)
         return edges
 
+    # ---- Hard-edge fetch ----
     # Abstain: neither a predicate nor an object-type constraint → topically
-    # unfiltered subject dump. The typed channel's value is exact matching.
+    # unfiltered subject dump; yield no hard edges (soft fallback may still fire).
     if predicates is None and object_types is None:
-        return []
-
-    if subject_ids:
+        hard_edges: list[dict[str, Any]] = []
+    elif subject_ids:
         batch_result = await store.batch_get_relationships(
             entity_ids=subject_ids,
             direction=relation_direction,
@@ -105,16 +110,78 @@ async def execute_graph_traversal(
             temporal_clause=temporal_clause,
             evidence_classes=evidence_classes,
         )
-        edges = []
+        hard_edges = []
         for rels in batch_result.values():
-            edges.extend(rels)
-        return edges
+            hard_edges.extend(rels)
+    else:
+        hard_edges = await store.get_relationships(
+            predicates=predicates,
+            status_filters=["active"],
+            object_types=object_types,
+            limit=limit,
+            temporal_clause=temporal_clause,
+            evidence_classes=evidence_classes,
+        )
 
-    return await store.get_relationships(
-        predicates=predicates,
-        status_filters=["active"],
-        object_types=object_types,
-        limit=limit,
-        temporal_clause=temporal_clause,
-        evidence_classes=evidence_classes,
-    )
+    # ---- Soft-edge sparse fallback (RFC #65 P2) ----
+    # When hard recall is sparse and soft edges are permitted, append the user's
+    # SEMANTIC_CONTEXT co-occurrence edges. evidence_classes intentionally NOT
+    # forwarded (co-occurrence edges are mostly observed / lack evidence_class;
+    # forwarding USER_SELF_REPORT would filter them all out).
+    if (
+        traversal.hop1.include_soft_edges
+        and subject_ids
+        and len(hard_edges) < MIN_HARD_RESULTS
+    ):
+        soft_result = await store.batch_get_relationships(
+            entity_ids=subject_ids,
+            direction=relation_direction,
+            status_filters=["active"],
+            predicates=[SEMANTIC_EDGE_PREDICATE],
+            object_types=None,
+            limit_per_entity=limit,
+            temporal_clause=temporal_clause,
+            evidence_classes=None,
+        )
+        for rels in soft_result.values():
+            hard_edges.extend(rels)
+
+    # ---- Second hop (RFC #65 P3) ----
+    # Expand hop1's object nodes (bridges) toward hop2.object_types via hard + soft
+    # edges. Bridge subject != user; fusion scores these (tagged _hop=2) by confidence
+    # x HOP2_DECAY and exempts them from the user-subject gate. evidence_classes NOT
+    # forwarded (same rationale as soft edges).
+    if traversal.max_hops >= 2 and traversal.hop2 is not None and hard_edges:
+        bridge_ids = list(dict.fromkeys(
+            e.get("object_id") for e in hard_edges if e.get("object_id")
+        ))[:MAX_BRIDGES]
+        if bridge_ids:
+            hop2_types = list(traversal.hop2.object_types) or None
+            hop2_hard = await store.batch_get_relationships(
+                entity_ids=bridge_ids,
+                direction="outgoing",
+                status_filters=["active"],
+                predicates=None,
+                object_types=hop2_types,
+                limit_per_entity=limit,
+                evidence_classes=None,
+            )
+            hop2_results = [hop2_hard]
+            if traversal.hop2.include_soft_edges:
+                hop2_soft = await store.batch_get_relationships(
+                    entity_ids=bridge_ids,
+                    direction="outgoing",
+                    status_filters=["active"],
+                    predicates=[SEMANTIC_EDGE_PREDICATE],
+                    object_types=hop2_types,
+                    limit_per_entity=limit,
+                    evidence_classes=None,
+                )
+                hop2_results.append(hop2_soft)
+            for result in hop2_results:
+                for rels in result.values():
+                    for e in rels:
+                        e["_hop"] = 2
+                        hard_edges.append(e)
+
+    return hard_edges

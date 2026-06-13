@@ -15,6 +15,8 @@ import logging
 from typing import Any
 
 from .grounding import L2GroundingPlan
+from .live_l1_cooccurrence import live_l1_cooccurrence_edges
+from .soft_edges import SEMANTIC_EDGE_PREDICATE
 from .temporal import build_knowledge_temporal_clause, compute_temporal_score
 from .traversal import HopSpec, TraversalPlan, execute_graph_traversal
 
@@ -27,6 +29,7 @@ async def retrieve_knowledge(
     *,
     embedding_service: Any = None,
     edge_vector_index: Any = None,
+    l1_store: Any = None,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """Run multi-channel knowledge retrieval and merge results.
@@ -41,6 +44,13 @@ async def retrieve_knowledge(
     ]
 
     graph_results, vector_results, topo_results = await asyncio.gather(*tasks)
+
+    # Live L1 co-occurrence last-resort (RFC #65 P4): only when the structured
+    # channel (hard + P2 soft + P3 hop2) is empty.
+    if not graph_results and l1_store is not None and plan.subject_entity_ids:
+        graph_results = await live_l1_cooccurrence_edges(
+            list(plan.subject_entity_ids), l1_store, limit=limit,
+        )
 
     merged = _merge_channels(graph_results, vector_results, topo_results)
 
@@ -79,13 +89,23 @@ async def _structured_graph_channel(
     clause_arg = (tc_sql, tc_params) if tc_sql else None
 
     object_types = _extract_object_types(plan)
+
+    hop2 = None
+    max_hops = 1
+    if plan.hop2_target_type:
+        hop2 = HopSpec(object_types=(plan.hop2_target_type,), include_soft_edges=True)
+        max_hops = 2
+
     traversal = TraversalPlan(
         seed_entity_ids=list(plan.subject_entity_ids),
         subject_scope=plan.subject_scope,
         hop1=HopSpec(
             predicates=tuple(plan.expanded_predicates),
             object_types=tuple(object_types) if object_types else (),
+            include_soft_edges=plan.allow_soft_edges,
         ),
+        hop2=hop2,
+        max_hops=max_hops,
         limit=limit,
     )
 
@@ -160,6 +180,9 @@ async def _edge_vector_channel(
         limit=limit * 2,
         status_filters=["active"],
     )
+    # RFC #65 P2: soft edges enter only via the deliberate traversal sparse-fallback,
+    # never incidentally by vector similarity here.
+    results = [e for e in results if e.get("predicate") != SEMANTIC_EDGE_PREDICATE]
     _tag_channel(results, "edge_vector")
     return results
 

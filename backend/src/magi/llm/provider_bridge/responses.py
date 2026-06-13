@@ -16,6 +16,14 @@ from ...config.models import ThinkingDepth
 logger = logging.getLogger(__name__)
 
 
+def _nested_int(obj: Any, outer: str, inner: str) -> int:
+    """Read an int from a nested SDK usage detail (e.g. usage.prompt_tokens_details.cached_tokens); 0 if absent/None."""
+    container = getattr(obj, outer, None)
+    if container is None:
+        return 0
+    return int(getattr(container, inner, 0) or 0)
+
+
 class ProviderBridgeResponseMixin:
     """Normalize provider responses, content blocks, metadata, and usage events."""
 
@@ -56,12 +64,18 @@ class ProviderBridgeResponseMixin:
             return self._extract_anthropic_usage(final_message)
         if usage_data is None:
             return None
-        prompt_tokens = int(getattr(usage_data, "input_tokens", 0) or 0)
+        input_tokens = int(getattr(usage_data, "input_tokens", 0) or 0)
+        cache_read_tokens = int(getattr(usage_data, "cache_read_input_tokens", 0) or 0)
+        cache_write_tokens = int(getattr(usage_data, "cache_creation_input_tokens", 0) or 0)
+        prompt_tokens = input_tokens + cache_read_tokens + cache_write_tokens
         completion_tokens = int(getattr(usage_data, "output_tokens", 0) or 0)
         return ProviderUsage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,
+            reasoning_tokens=0,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
         )
 
     @staticmethod
@@ -72,9 +86,9 @@ class ProviderBridgeResponseMixin:
             prompt_tokens=int(getattr(usage_data, "prompt_tokens", 0) or 0),
             completion_tokens=int(getattr(usage_data, "completion_tokens", 0) or 0),
             total_tokens=int(getattr(usage_data, "total_tokens", 0) or 0),
-            reasoning_tokens=int(getattr(usage_data, "reasoning_tokens", 0) or 0),
-            cache_read_tokens=int(getattr(usage_data, "cache_read_tokens", 0) or 0),
-            cache_write_tokens=int(getattr(usage_data, "cache_write_tokens", 0) or 0),
+            reasoning_tokens=_nested_int(usage_data, "completion_tokens_details", "reasoning_tokens"),
+            cache_read_tokens=_nested_int(usage_data, "prompt_tokens_details", "cached_tokens"),
+            cache_write_tokens=0,
         )
 
     def _convert_messages_to_anthropic(
@@ -325,9 +339,9 @@ class ProviderBridgeResponseMixin:
             prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
             completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
             total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
-            reasoning_tokens=int(getattr(usage, "reasoning_tokens", 0) or 0),
-            cache_read_tokens=int(getattr(usage, "cache_read_tokens", 0) or 0),
-            cache_write_tokens=int(getattr(usage, "cache_write_tokens", 0) or 0),
+            reasoning_tokens=_nested_int(usage, "completion_tokens_details", "reasoning_tokens"),
+            cache_read_tokens=_nested_int(usage, "prompt_tokens_details", "cached_tokens"),
+            cache_write_tokens=0,
         )
 
     @staticmethod
@@ -335,15 +349,18 @@ class ProviderBridgeResponseMixin:
         usage = getattr(response, "usage", None)
         if usage is None:
             return None
-        prompt_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        cache_read_tokens = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+        cache_write_tokens = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+        prompt_tokens = input_tokens + cache_read_tokens + cache_write_tokens
         completion_tokens = int(getattr(usage, "output_tokens", 0) or 0)
         return ProviderUsage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,
-            reasoning_tokens=int(getattr(usage, "reasoning_tokens", 0) or 0),
-            cache_read_tokens=int(getattr(usage, "cache_read_tokens", 0) or 0),
-            cache_write_tokens=int(getattr(usage, "cache_write_tokens", 0) or 0),
+            reasoning_tokens=0,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
         )
 
     def _attach_trace_metrics(

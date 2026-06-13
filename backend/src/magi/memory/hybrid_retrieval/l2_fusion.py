@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional
 
 from .grounding import L2GroundingPlan
+from .soft_edges import is_soft_edge
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,11 @@ def apply_structured_filter(
     Sets candidate.gate_status to 'filtered' if a high-confidence constraint fails.
     Sets gate_reason with the specific failure code.
     """
-    if plan.subject_scope == "self" and plan.subject_entity_ids:
+    if (
+        plan.subject_scope == "self"
+        and plan.subject_entity_ids
+        and candidate.payload.get("_hop") != 2  # hop2 edges reached via traversal: subject is the bridge, not the user
+    ):
         subject_id = candidate.payload.get("subject_id", "")
         if subject_id and subject_id not in plan.subject_entity_ids:
             if candidate.kind == "knowledge_edge":
@@ -149,6 +154,8 @@ def apply_structured_filter(
 # ---------------------------------------------------------------------------
 
 RRF_K = 60
+SOFT_EDGE_WEIGHT = 0.6
+HOP2_DECAY = 0.5
 
 
 def fuse_l2_candidates(
@@ -238,7 +245,24 @@ def fuse_l2_candidates(
 def _compute_final_score(c: L2Candidate, plan: L2GroundingPlan) -> float:
     """Compute the final fusion score for a candidate."""
     if c.kind == "knowledge_edge":
-        if not plan.predicate_candidates:
+        if c.payload.get("_hop") == 2:
+            # hop2: reached via traversal — subject is the bridge, not the user.
+            # Score by the edge's own confidence + object match (NOT subject_match,
+            # which is 0 for non-user subjects). RFC #65 P3.
+            base = c.confidence_score
+            if is_soft_edge(c.payload):
+                base *= SOFT_EDGE_WEIGHT
+            grounding_score = 0.5 * base + 0.5 * c.object_constraint_score
+        elif is_soft_edge(c.payload):
+            # Soft edges arrive via the traversal sparse-fallback (no vector_distance).
+            # Score by the edge's own confidence (co-occurrence cosine); weighted below
+            # hard edges via SOFT_EDGE_WEIGHT. RFC #65 P2.
+            grounding_score = (
+                0.40 * c.subject_match_score
+                + 0.40 * c.confidence_score
+                + 0.20 * c.object_constraint_score
+            )
+        elif not plan.predicate_candidates:
             # Predicate couldn't be inferred → let edge-vector SEMANTIC similarity
             # drive relevance instead of the neutral 0.5 predicate_match (which let
             # structured-fallback whole-profile edges ride high). Edges hit by the
@@ -281,6 +305,11 @@ def _compute_final_score(c: L2Candidate, plan: L2GroundingPlan) -> float:
         * evidence_boost
         * confidence_boost
     )
+    if c.kind == "knowledge_edge":
+        if c.payload.get("_hop") == 2:
+            final *= HOP2_DECAY
+        elif is_soft_edge(c.payload):
+            final *= SOFT_EDGE_WEIGHT
     return round(final, 4)
 
 
@@ -300,6 +329,8 @@ def _build_score_trace(c: L2Candidate) -> dict[str, Any]:
         "gate_status": c.gate_status,
         "gate_reason": c.gate_reason,
         "predicate_missing_vector_relevance": c.predicate_missing_vector_relevance,
+        "soft_edge": is_soft_edge(c.payload) if c.kind == "knowledge_edge" else False,
+        "hop": (c.payload.get("_hop", 1) if c.kind == "knowledge_edge" else None),
     }
 
 

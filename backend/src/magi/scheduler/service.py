@@ -519,6 +519,22 @@ class SchedulerService:
     async def _upsert_job(self, schedule: ScheduleDefinition) -> None:
         trigger = self._build_trigger(schedule.trigger)
         job_id = schedule.job_id or schedule.schedule_id
+        # Preserve an already-scheduled job's next_run across re-registration.
+        # _upsert_job runs on every app start (via _restore_persisted_jobs and the
+        # contribs' register_schedules). Without this, an INTERVAL trigger recomputes
+        # next_run = now + interval each time, so a long-interval job (e.g. 24h L2
+        # maintenance) is perpetually reset on a desktop app that restarts more often
+        # than the interval, and never fires (#85). The persistent jobstore already
+        # holds the live next_run after start(); reuse it instead of resetting.
+        # misfire_grace_time=None makes a run that came due while the app was down
+        # fire as catch-up on the next start (coalesce=True collapses multiple missed
+        # runs into one) instead of being skipped — on a desktop app the exact
+        # interval window is rarely hit, so the default 120s grace would drop the run
+        # until the next full interval.
+        add_kwargs: dict[str, object] = {}
+        existing = self._scheduler.get_job(job_id)
+        if existing is not None and existing.next_run_time is not None:
+            add_kwargs["next_run_time"] = existing.next_run_time
         job = self._scheduler.add_job(
             dispatch_scheduled_job,
             trigger=trigger,
@@ -527,6 +543,8 @@ class SchedulerService:
             replace_existing=True,
             max_instances=1,
             coalesce=True,
+            misfire_grace_time=None,
+            **add_kwargs,
         )
         await self._repository.update_schedule_binding(
             schedule.schedule_id,

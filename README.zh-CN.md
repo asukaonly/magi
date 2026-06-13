@@ -142,15 +142,15 @@ Magi 是本地优先设计：
 
 | LongMemEval 分类          |   Accuracy |  数量 |
 | ------------------------- | ---------: | ----: |
-| **Overall**               | **0.8720** | **-** |
-| Multi-session             |     0.7444 |   133 |
-| Single-session assistant  |     1.0000 |    56 |
-| Temporal reasoning        |     0.8947 |   133 |
-| Knowledge update          |     0.8974 |    78 |
-| Single-session preference |     0.8667 |    30 |
-| Single-session user       |     0.9429 |    70 |
+| **Overall**               | **0.8720** | **500** |
+| Multi-session             |     0.8271 |   133 |
+| Single-session assistant  |     0.9286 |    56 |
+| Temporal reasoning        |     0.8647 |   133 |
+| Knowledge update          |     0.9231 |    78 |
+| Single-session preference |     0.6000 |    30 |
+| Single-session user       |     0.9857 |    70 |
 
-复现方法、模型配置和原始输出见 [`benchmark/README.md`](./benchmark/README.md)。
+在 LongMemEval `_s`（500 题）上用 LLM judge（`glm-5`）评分；换第二个 judge（`bailian`）独立评分为 87.6%。原始 predictions、逐题判分与复现步骤见 [`benchmark/longmemeval/results/v0.1.2/`](./benchmark/longmemeval/results/v0.1.2/RESULTS.md)；runner 与模型配置见 [`benchmark/README.md`](./benchmark/README.md)。
 
 ## 安装
 

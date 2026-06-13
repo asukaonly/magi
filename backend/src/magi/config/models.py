@@ -54,6 +54,9 @@ class ModelVendor(str, Enum):
     GLM = "glm"
     DASHSCOPE = "dashscope"
     GROK = "grok"
+    GEMINI = "gemini"
+    KIMI = "kimi"
+    MINIMAX = "minimax"
     GENERIC = "generic"
 
 

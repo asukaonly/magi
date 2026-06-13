@@ -54,11 +54,30 @@ You produce a single refinement object that is applied to every routed plan:
   ``relationship``, ``activity``, ``unknown``. This drives downstream predicate
   expansion but is NOT load-bearing for evidence-class filtering.
 - ``relation_intent`` (optional, L2): a short ENGLISH, relation-oriented phrase
-  describing the action/relationship between the user and the answer object
-  (e.g. "listening to / consuming media", "likes / is fond of",
-  "works at / employed by", "knows / acquainted with"). Always output in English
-  even when the query is in another language — it is matched against an English
-  predicate vocabulary. Leave null when no clear relation is implied.
+  describing the relationship between the user and the FIRST entity they connect
+  to. For one-hop questions that first entity IS the answer object. For TWO-hop
+  questions (whenever hop2_target_type is set) it is the relationship to the
+  INTERMEDIATE entity — NOT the final answer — because the second hop is resolved
+  separately via hop2_target_type. So "albums of the artists I like" / "我喜欢的歌
+  手的专辑" → "likes / is fond of" (user→artist, the intermediate), NOT "created
+  by"; "my colleague's boss" / "我同事的老板" → "works with / is a colleague of"
+  (user→colleague, the intermediate), NOT "managed by". One-hop examples:
+  "listening to / consuming media", "works at / employed by". Always output in
+  English even when the query is in another language — it is matched against an
+  English predicate vocabulary. Leave null when no clear relation is implied.
+- ``hop2_target_type`` (optional, L2): set this whenever reaching the answer
+  requires first resolving an INTERMEDIATE entity — the question asks for a
+  property or relation OF some entity that itself must be derived from the user,
+  rather than relating to the user directly. This is a STRUCTURAL property of the
+  question and is INDEPENDENT of query_mode_hint: a question can want a single
+  exact answer and still take two hops. Detect it from the question's structure in
+  ANY language, especially possessive/relational chains where one entity is
+  qualified by another — e.g. "the boss of my colleague" / "我同事的老板" (resolve
+  the colleague first, then their boss), or "albums of the artists I like" / "我喜欢
+  的歌手的专辑" (resolve the artists first, then their albums). Set it to the FINAL
+  answer's entity type, one of: "media" | "person" | "place" | "software" |
+  "topic". Leave null only for direct one-hop questions where the answer relates to
+  the user themselves (e.g. "what music do I like" → null).
 - ``evidence_focus`` (optional, L2): when the user is asking about themselves
   (subject_hint="self"), classify what evidence tier the question wants:
     * ``"declared"`` — user is asking about what they explicitly said/claimed
@@ -101,6 +120,7 @@ Return JSON only:
   "subject_hint": "self" | "explicit" | "none",
   "predicate_family": "preference" | "profile_fact" | "relationship" | "activity" | "unknown",
   "relation_intent": "string | null",
+  "hop2_target_type": "string | null",
   "evidence_focus": "declared" | "observed" | "both" | null,
   "semantic_frame": { ... } | null,
   "reasoning": "string"
@@ -122,6 +142,7 @@ class LLMRefinement:
     subject_hint: Optional[str] = None
     predicate_family: Optional[str] = None
     relation_intent: Optional[str] = None
+    hop2_target_type: Optional[str] = None
     evidence_focus: Optional[EvidenceFocus] = None
     semantic_frame: Optional[L2SemanticFrame] = None
     reasoning: str = ""
@@ -227,6 +248,13 @@ class LLMIntentDecider:
             else None
         )
 
+        hop2_target_type_raw = data.get("hop2_target_type")
+        hop2_target_type = (
+            str(hop2_target_type_raw).strip()
+            if isinstance(hop2_target_type_raw, str) and str(hop2_target_type_raw).strip()
+            else None
+        )
+
         evidence_focus_raw = data.get("evidence_focus")
         evidence_focus: Optional[EvidenceFocus] = None
         if isinstance(evidence_focus_raw, str) and evidence_focus_raw in _VALID_EVIDENCE_FOCI:
@@ -244,6 +272,7 @@ class LLMIntentDecider:
             subject_hint=subject_hint,
             predicate_family=predicate_family,
             relation_intent=relation_intent,
+            hop2_target_type=hop2_target_type,
             evidence_focus=evidence_focus,
             semantic_frame=semantic_frame,
             reasoning=reasoning,
@@ -276,6 +305,8 @@ class LLMIntentDecider:
                     conditions.predicate_family = refinement.predicate_family
                 if refinement.relation_intent is not None:
                     conditions.relation_intent = refinement.relation_intent
+                if refinement.hop2_target_type is not None:
+                    conditions.hop2_target_type = refinement.hop2_target_type
                 if refinement.semantic_frame is not None:
                     conditions.semantic_frame = refinement.semantic_frame
                 enrich_l2_conditions(conditions, original_query)

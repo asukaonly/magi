@@ -12,6 +12,7 @@ from magi.config.models import (
     LLMProviderSettings,
     LLMSelectionSettings,
     LLMSettings,
+    ThinkingDepth,
 )
 from magi.llm.base import LLMAdapter
 from magi.llm.anthropic import AnthropicAdapter
@@ -571,6 +572,86 @@ async def test_openai_content_parses_legacy_tool_call_blocks() -> None:
     assert result.tool_calls[0].arguments["timeout_seconds"] == 30
     assert result.tool_calls[0].arguments["run_in_background"] is False
     assert result.tool_calls[0].arguments["description"] == "analyze repo"
+
+
+class TestAnthropicThinkingOptions:
+    """Options-host behavior for the Anthropic extended-thinking path.
+
+    These exercise ``_apply_provider_options`` directly: the bridge's
+    ``is_anthropic`` override forces the ANTHROPIC_BUDGET dialect, then the
+    host applies the budget/adaptive + sampling-param rules.
+    """
+
+    @staticmethod
+    def _anthropic_host(model: str):
+        llm = DummyLLMAdapter(model=model, provider="anthropic")
+        bridge = LLMProviderBridge(llm)
+        bridge.is_anthropic = lambda: True
+        return bridge._operations
+
+    def test_budgeted_model_strips_sampling_and_bumps_max_tokens(self) -> None:
+        host = self._anthropic_host("claude-opus-4-6")
+        # 4096 is the DEFAULT_MAX_TOKENS, below MEDIUM budget (8192).
+        kwargs = {
+            "max_tokens": 4096,
+            "temperature": 0.7,
+            "top_k": 40,
+            "top_p": 0.5,
+            "model": "claude-opus-4-6",
+        }
+        result = host._apply_provider_options(kwargs, ThinkingDepth.MEDIUM)
+
+        assert "temperature" not in result
+        assert "top_k" not in result
+        assert "top_p" not in result  # 0.5 outside [0.95, 1.0] → dropped
+        assert result["thinking"] == {"type": "enabled", "budget_tokens": 8192}
+        # budget (8192) >= max_tokens (4096) → bumped to budget + 4096.
+        assert result["max_tokens"] == 8192 + 4096
+
+    def test_budgeted_model_keeps_valid_top_p_and_sufficient_max_tokens(self) -> None:
+        host = self._anthropic_host("claude-sonnet-4-6")
+        kwargs = {
+            "max_tokens": 20000,
+            "temperature": 0.7,
+            "top_p": 0.97,
+        }
+        result = host._apply_provider_options(kwargs, ThinkingDepth.LOW)
+
+        assert "temperature" not in result
+        assert result["top_p"] == 0.97  # within [0.95, 1.0] → kept
+        assert result["thinking"] == {"type": "enabled", "budget_tokens": 2048}
+        # max_tokens already exceeds budget → untouched.
+        assert result["max_tokens"] == 20000
+
+    def test_adaptive_only_model_uses_adaptive_with_no_budget(self) -> None:
+        host = self._anthropic_host("claude-opus-4-8")
+        kwargs = {"max_tokens": 4096, "temperature": 0.7, "top_k": 40}
+        result = host._apply_provider_options(kwargs, ThinkingDepth.HIGH)
+
+        assert result["thinking"] == {"type": "adaptive"}
+        assert "budget_tokens" not in result["thinking"]
+        assert "temperature" not in result
+        assert "top_k" not in result
+        # adaptive models do not get a max_tokens bump.
+        assert result["max_tokens"] == 4096
+
+    def test_fable_model_uses_adaptive(self) -> None:
+        host = self._anthropic_host("claude-fable-5")
+        result = host._apply_provider_options(
+            {"max_tokens": 4096, "temperature": 0.7}, ThinkingDepth.MAX
+        )
+        assert result["thinking"] == {"type": "adaptive"}
+        assert "temperature" not in result
+
+    def test_none_leaves_temperature_and_adds_no_thinking(self) -> None:
+        host = self._anthropic_host("claude-opus-4-6")
+        kwargs = {"max_tokens": 4096, "temperature": 0.7, "top_p": 0.5}
+        result = host._apply_provider_options(kwargs, ThinkingDepth.NONE)
+
+        assert result["temperature"] == 0.7
+        assert result["top_p"] == 0.5
+        assert "thinking" not in result
+        assert result["max_tokens"] == 4096
 
 
 @pytest.mark.asyncio

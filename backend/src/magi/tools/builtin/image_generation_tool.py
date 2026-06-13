@@ -348,6 +348,11 @@ class ImageGenerationTool(Tool):
             for attempt in range(TRANSIENT_IMAGE_GENERATION_RETRIES + 1):
                 try:
                     result = await adapter.generate(request)
+                    generated_count = (
+                        len(result.images)
+                        if getattr(result, "images", None)
+                        else int(getattr(request, "n", 0) or 0)
+                    )
                     await self._publish_image_generation_usage(
                         adapter,
                         request=request,
@@ -356,6 +361,7 @@ class ImageGenerationTool(Tool):
                         image_gen=image_gen,
                         event_context=event_context,
                         resolved_model=result.model,
+                        image_count=generated_count,
                     )
                     return result
                 except (ImageGenRateLimitError, ImageGenTimeoutError) as exc:
@@ -388,6 +394,7 @@ class ImageGenerationTool(Tool):
         error: str | None = None,
         event_context: dict[str, Any] | None = None,
         resolved_model: str | None = None,
+        image_count: int = 0,
     ) -> None:
         if image_gen is None:
             return
@@ -398,6 +405,8 @@ class ImageGenerationTool(Tool):
                 request_kind="image_generation",
                 success=success,
                 started_at=started_at,
+                image_count=int(image_count or 0),
+                usage_available=bool(success and image_count),
                 error=error,
                 event_context=event_context,
             )

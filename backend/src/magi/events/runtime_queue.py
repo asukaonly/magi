@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -33,6 +34,13 @@ class SQLiteRuntimeCommandQueue:
         self.db_path = str(Path(db_path).expanduser())
         self.poll_interval_seconds = poll_interval_seconds
         self._started = False
+        # Serialize this instance's writes. Producer (enqueue) and consumer
+        # (claim_next, run at a tight poll interval) share one instance in-process,
+        # so without this they issue concurrent write transactions to the same
+        # SQLite file. WAL + busy_timeout cover cross-process access, but in-process
+        # concurrent writers can still intermittently raise "database is locked"
+        # under load (CI). An asyncio.Lock makes in-process writes strictly serial.
+        self._write_lock = asyncio.Lock()
 
     async def start(self) -> None:
         if self._started:
@@ -92,7 +100,7 @@ class SQLiteRuntimeCommandQueue:
         created_at: float,
     ) -> int:
         await self._initialize()
-        async with sqlite_connection_async(self.db_path) as db:
+        async with self._write_lock, sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(
                 """
                 INSERT INTO runtime_commands (
@@ -130,7 +138,7 @@ class SQLiteRuntimeCommandQueue:
 
         placeholders = ", ".join("?" for _ in allowed_types)
         now = time.time()
-        async with sqlite_connection_async(self.db_path) as db:
+        async with self._write_lock, sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(
                 f"""
                 UPDATE runtime_commands
@@ -176,7 +184,7 @@ class SQLiteRuntimeCommandQueue:
 
     async def requeue(self, command_id: int, *, error_text: str | None = None) -> None:
         await self._initialize()
-        async with sqlite_connection_async(self.db_path) as db:
+        async with self._write_lock, sqlite_connection_async(self.db_path) as db:
             await db.execute(
                 """
                 UPDATE runtime_commands
@@ -211,7 +219,7 @@ class SQLiteRuntimeCommandQueue:
 
     async def _update_status(self, *, command_id: int, status: str, clear_claim: bool) -> None:
         await self._initialize()
-        async with sqlite_connection_async(self.db_path) as db:
+        async with self._write_lock, sqlite_connection_async(self.db_path) as db:
             await db.execute(
                 """
                 UPDATE runtime_commands

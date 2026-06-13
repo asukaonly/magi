@@ -150,6 +150,8 @@ class L2Conditions:
     hop_count: int = 1
     status_filter: Optional[List[str]] = None
     semantic_frame: Optional["L2SemanticFrame"] = None
+    allow_soft_edges: bool = True  # permit SEMANTIC_CONTEXT soft-edge sparse fallback (RFC #65 P2)
+    hop2_target_type: Optional[str] = None  # FINAL answer entity type for 2-hop queries (RFC #65 P3)
     limit: int = 20
 
 

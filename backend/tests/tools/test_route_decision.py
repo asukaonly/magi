@@ -173,18 +173,28 @@ def test_context_decision_class_is_deleted() -> None:
 
 
 def test_context_decider_system_prompt_mentions_route_decision_fields() -> None:
-    """Source check: the system prompt must request the RouteDecision
-    schema's enum fields so the LLM outputs strict JSON that the new
-    parser can validate."""
+    """Source check: the system prompt must request the consumed-only schema
+    fields so the LLM outputs strict JSON the parser can validate.
+
+    ADR-0005 / f9c40b9b: graph_shape is DERIVED by ``derive_execution_shape``
+    (never requested from the LLM) and the dead ``complexity`` field was
+    dropped — the prompt now advertises exactly the consumed fields.
+    """
     from magi.tools.context_decider_system_prompt import CONTEXT_DECIDER_SYSTEM_PROMPT
 
     prompt = CONTEXT_DECIDER_SYSTEM_PROMPT
-    assert "profile" in prompt
-    assert "graph_shape" in prompt
-    assert "complexity" in prompt
+    for field in (
+        "profile",
+        "tools",
+        "may_write",
+        "needs_orchestration",
+        "thinking_depth",
+        "memory_route",
+        "register",
+    ):
+        assert f'"{field}"' in prompt, f"system prompt must request field {field!r}"
     # Each profile value must be mentioned so the LLM knows the allowed set
     for value in ("chat", "research", "explore", "coding", "media", "system"):
         assert value in prompt, f"system prompt must mention profile value {value!r}"
-    # Each graph_shape value
-    for value in ("reply", "tool_loop", "plan_fanout"):
-        assert value in prompt, f"system prompt must mention graph_shape value {value!r}"
+    # graph_shape must NOT be requested from the LLM — it is derived.
+    assert '"graph_shape"' not in prompt

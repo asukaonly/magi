@@ -74,6 +74,7 @@ fn empty_summary(days: i64) -> Value {
             "avg_latency_ms": 0.0,
             "avg_ttft_ms": null,
             "total_cost_usd": 0.0,
+            "cost_by_currency": [],
         },
         "providers": [],
         "models": [],
@@ -90,7 +91,8 @@ const PROVIDER_BREAKDOWN_QUERY: &str = "SELECT provider, \
     COALESCE(SUM(total_tokens), 0) AS total_tokens, \
     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms, \
     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms, \
-    COALESCE(SUM(cost_usd), 0) AS cost_usd \
+    COALESCE(SUM(cost_usd), 0) AS cost_usd, \
+    MAX(cost_currency) AS cost_currency \
  FROM llm_usage WHERE created_at >= ?1 \
  GROUP BY provider ORDER BY total_tokens DESC, calls DESC";
 
@@ -103,7 +105,8 @@ const MODEL_BREAKDOWN_QUERY: &str = "SELECT provider, model, \
     COALESCE(SUM(total_tokens), 0) AS total_tokens, \
     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms, \
     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms, \
-    COALESCE(SUM(cost_usd), 0) AS cost_usd \
+    COALESCE(SUM(cost_usd), 0) AS cost_usd, \
+    MAX(cost_currency) AS cost_currency \
  FROM llm_usage WHERE created_at >= ?1 \
  GROUP BY provider, model ORDER BY total_tokens DESC, calls DESC LIMIT ?2";
 
@@ -116,7 +119,8 @@ const REQUEST_KIND_BREAKDOWN_QUERY: &str = "SELECT request_kind, \
     COALESCE(SUM(total_tokens), 0) AS total_tokens, \
     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms, \
     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms, \
-    COALESCE(SUM(cost_usd), 0) AS cost_usd \
+    COALESCE(SUM(cost_usd), 0) AS cost_usd, \
+    MAX(cost_currency) AS cost_currency \
  FROM llm_usage WHERE created_at >= ?1 \
  GROUP BY request_kind ORDER BY total_tokens DESC, calls DESC";
 
@@ -158,7 +162,30 @@ fn query_summary(days: i64, model_limit: i64) -> Value {
             }))
         },
     ) {
-        Ok(v) => v,
+        Ok(mut v) => {
+            // Per-currency cost breakdown (native billing currencies).
+            let cost_by_currency: Vec<Value> = match conn.prepare(
+                "SELECT cost_currency, COALESCE(SUM(cost_usd), 0) \
+                 FROM llm_usage WHERE created_at >= ?1 AND cost_currency IS NOT NULL \
+                 GROUP BY cost_currency ORDER BY 2 DESC",
+            ) {
+                Ok(mut stmt) => stmt
+                    .query_map(rusqlite::params![cutoff], |row| {
+                        Ok(json!({
+                            "currency": row.get::<_, String>(0)?,
+                            "amount": (row.get::<_, f64>(1)? * 10000.0).round() / 10000.0,
+                        }))
+                    })
+                    .ok()
+                    .map(|iter| iter.filter_map(|r| r.ok()).collect())
+                    .unwrap_or_default(),
+                Err(_) => vec![],
+            };
+            if let Value::Object(ref mut m) = v {
+                m.insert("cost_by_currency".to_string(), Value::Array(cost_by_currency));
+            }
+            v
+        }
         Err(_) => return empty_summary(days),
     };
 
@@ -235,6 +262,8 @@ fn query_grouped_usage(
             "cost_usd".into(),
             json!((row.get::<_, f64>(n + 8)? * 10000.0).round() / 10000.0),
         );
+        let cost_currency: Option<String> = row.get(n + 9)?;
+        obj.insert("cost_currency".into(), json!(cost_currency));
         Ok(Value::Object(obj))
     })
     .ok()
@@ -306,6 +335,7 @@ mod tests {
                 latency_ms INTEGER NOT NULL DEFAULT 0,
                 ttft_ms INTEGER NOT NULL DEFAULT 0,
                 cost_usd REAL NOT NULL DEFAULT 0,
+                cost_currency TEXT,
                 success INTEGER NOT NULL DEFAULT 1,
                 error TEXT,
                 correlation_id TEXT,
@@ -317,11 +347,11 @@ mod tests {
 
             INSERT INTO llm_usage (
                 request_id, provider, model, request_kind, prompt_tokens, completion_tokens,
-                total_tokens, usage_available, latency_ms, ttft_ms, cost_usd, success, created_at
+                total_tokens, usage_available, latency_ms, ttft_ms, cost_usd, cost_currency, success, created_at
             ) VALUES
-                ('req-1', 'openai', 'gpt-4.1', 'chat', 100, 40, 140, 1, 1200, 300, 0.12, 1, 1000),
-                ('req-2', 'openai', 'gpt-4.1', 'chat', 50, 10, 60, 1, 900, 250, 0.04, 1, 1001),
-                ('req-3', 'anthropic', 'claude-3-7-sonnet', 'function_calling:tools', 80, 20, 100, 1, 1500, 0, 0.08, 1, 1002);
+                ('req-1', 'openai', 'gpt-4.1', 'chat', 100, 40, 140, 1, 1200, 300, 0.12, 'USD', 1, 1000),
+                ('req-2', 'openai', 'gpt-4.1', 'chat', 50, 10, 60, 1, 900, 250, 0.04, 'USD', 1, 1001),
+                ('req-3', 'anthropic', 'claude-3-7-sonnet', 'function_calling:tools', 80, 20, 100, 1, 1500, 0, 0.08, 'USD', 1, 1002);
             ",
         )
         .expect("create llm_usage test table");
@@ -355,6 +385,7 @@ mod tests {
         assert_eq!(providers[0]["provider"], "openai");
         assert_eq!(providers[0]["calls"], 2);
         assert_eq!(providers[0]["total_tokens"], 200);
+        assert_eq!(providers[0]["cost_currency"], "USD");
 
         assert_eq!(models.len(), 2);
         assert_eq!(models[0]["provider"], "openai");
@@ -364,5 +395,33 @@ mod tests {
         assert_eq!(request_kinds.len(), 2);
         assert_eq!(request_kinds[0]["request_kind"], "chat");
         assert_eq!(request_kinds[0]["calls"], 2);
+    }
+
+    #[test]
+    fn null_cost_currency_yields_json_null() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        setup_llm_usage_table(&conn);
+        // Seed an unpriced provider (cost_currency left NULL).
+        conn.execute(
+            "INSERT INTO llm_usage (
+                request_id, provider, model, request_kind, prompt_tokens, completion_tokens,
+                total_tokens, usage_available, latency_ms, ttft_ms, cost_usd, success, created_at
+            ) VALUES
+                ('req-4', 'local', 'llama-3', 'chat', 5, 5, 10, 1, 100, 0, 0, 1, 1003)",
+            [],
+        )
+        .expect("insert unpriced row");
+
+        let providers = query_grouped_usage(
+            &conn,
+            PROVIDER_BREAKDOWN_QUERY,
+            rusqlite::params![0.0],
+            &["provider"],
+        );
+        let local = providers
+            .iter()
+            .find(|p| p["provider"] == "local")
+            .expect("local provider row present");
+        assert!(local["cost_currency"].is_null());
     }
 }

@@ -246,7 +246,7 @@ class TestStructuredChannelAbstain:
 
         # predicate_candidates=[] → expanded_predicates=[] → predicates=None
         # object_constraints=[] → _extract_object_types returns None
-        plan = _make_plan()  # subject_candidates set, predicate_candidates=[]
+        plan = _make_plan(allow_soft_edges=False)  # isolate #67 hard-edge abstain (P2 soft layer off)
 
         result = await _structured_graph_channel(plan, store)
 
@@ -275,6 +275,7 @@ class TestStructuredChannelAbstain:
         store.get_relationships = AsyncMock(return_value=[])
 
         plan = _make_plan(
+            allow_soft_edges=False,  # isolate #67 hard-edge query decision (P2 soft layer off)
             predicate_candidates=[
                 GroundedPredicateCandidate(predicate="LIKES", family="preference"),
             ],
@@ -314,3 +315,98 @@ class TestStructuredChannelAbstain:
         assert (
             store.batch_get_relationships.called or store.get_relationships.called
         ), "expected store query when object_type constraint is present"
+
+
+# ---------------------------------------------------------------------------
+# Soft-edge fusion scoring tests (RFC #65 P2 Task 6)
+# ---------------------------------------------------------------------------
+
+
+def test_soft_edge_scored_by_confidence_not_vector():
+    """Soft edge (no vector_distance) must score via confidence, not sink to 0."""
+    from magi.memory.hybrid_retrieval.l2_fusion import _compute_final_score, L2Candidate
+    from magi.memory.hybrid_retrieval.grounding import L2GroundingPlan
+
+    plan = L2GroundingPlan()  # predicate_candidates empty → #67 path for hard edges
+    soft = L2Candidate(
+        candidate_id="s1", kind="knowledge_edge",
+        payload={"predicate": "SEMANTIC_CONTEXT", "fact_kind": "semantic_edge",
+                 "confidence": 0.9},
+        subject_match_score=1.0, object_constraint_score=1.0,
+        confidence_score=0.9,
+    )
+    score = _compute_final_score(soft, plan)
+    assert score > 0.0
+
+
+def test_soft_edge_ranks_below_comparable_hard_edge():
+    from magi.memory.hybrid_retrieval.l2_fusion import _compute_final_score, L2Candidate
+    from magi.memory.hybrid_retrieval.grounding import L2GroundingPlan, GroundedPredicateCandidate
+
+    plan = L2GroundingPlan(predicate_candidates=[GroundedPredicateCandidate(predicate="LIKES")])
+    common = dict(subject_match_score=1.0, object_constraint_score=1.0, confidence_score=0.9)
+    hard = L2Candidate(candidate_id="h", kind="knowledge_edge",
+                       payload={"predicate": "LIKES"}, predicate_match_score=1.0, **common)
+    soft = L2Candidate(candidate_id="s", kind="knowledge_edge",
+                       payload={"predicate": "SEMANTIC_CONTEXT", "fact_kind": "semantic_edge"},
+                       predicate_match_score=1.0, **common)
+    hs = _compute_final_score(hard, plan)
+    ss = _compute_final_score(soft, plan)
+    assert ss < hs
+
+
+def test_soft_edge_flag_in_trace():
+    from magi.memory.hybrid_retrieval.l2_fusion import _build_score_trace, L2Candidate
+    soft = L2Candidate(candidate_id="s", kind="knowledge_edge",
+                       payload={"predicate": "SEMANTIC_CONTEXT", "fact_kind": "semantic_edge"})
+    hard = L2Candidate(candidate_id="h", kind="knowledge_edge", payload={"predicate": "LIKES"})
+    assert _build_score_trace(soft)["soft_edge"] is True
+    assert _build_score_trace(hard)["soft_edge"] is False
+
+
+# ---------------------------------------------------------------------------
+# hop2 edge scoring and gate tests (RFC #65 P3 Task 5)
+# ---------------------------------------------------------------------------
+
+
+def test_hop2_edge_exempt_from_subject_gate():
+    from magi.memory.hybrid_retrieval.l2_fusion import apply_structured_filter, L2Candidate
+    from magi.memory.hybrid_retrieval.grounding import L2GroundingPlan, GroundedEntityCandidate
+    plan = L2GroundingPlan(subject_scope="self",
+                           subject_candidates=[GroundedEntityCandidate(
+                               entity_id="user:u1", entity_type="person", surface="self", score=1.0)])
+    hop2 = L2Candidate(candidate_id="x", kind="knowledge_edge",
+                       payload={"subject_id": "person:artist", "_hop": 2, "status": "active"})
+    apply_structured_filter(hop2, plan)
+    assert hop2.gate_status != "filtered"  # exempt
+
+    non_hop2 = L2Candidate(candidate_id="y", kind="knowledge_edge",
+                           payload={"subject_id": "person:artist", "status": "active"})
+    apply_structured_filter(non_hop2, plan)
+    assert non_hop2.gate_status == "filtered"  # #67 gate still bites non-hop2
+
+
+def test_hop2_edge_scored_by_confidence_and_decayed_below_hop1():
+    from magi.memory.hybrid_retrieval.l2_fusion import _compute_final_score, L2Candidate
+    from magi.memory.hybrid_retrieval.grounding import L2GroundingPlan, GroundedPredicateCandidate
+    plan = L2GroundingPlan(predicate_candidates=[GroundedPredicateCandidate(predicate="LIKES")])
+    hop1 = L2Candidate(candidate_id="h1", kind="knowledge_edge",
+                       payload={"predicate": "LIKES"},
+                       subject_match_score=1.0, predicate_match_score=1.0,
+                       object_constraint_score=1.0, confidence_score=0.9)
+    hop2 = L2Candidate(candidate_id="h2", kind="knowledge_edge",
+                       payload={"predicate": "CREATES", "_hop": 2},
+                       subject_match_score=0.0,
+                       object_constraint_score=1.0, confidence_score=0.9)
+    hs = _compute_final_score(hop1, plan)
+    h2s = _compute_final_score(hop2, plan)
+    assert h2s > 0.0
+    assert h2s < hs
+
+
+def test_hop2_in_trace():
+    from magi.memory.hybrid_retrieval.l2_fusion import _build_score_trace, L2Candidate
+    hop2 = L2Candidate(candidate_id="h2", kind="knowledge_edge", payload={"_hop": 2})
+    hop1 = L2Candidate(candidate_id="h1", kind="knowledge_edge", payload={"predicate": "LIKES"})
+    assert _build_score_trace(hop2)["hop"] == 2
+    assert _build_score_trace(hop1)["hop"] == 1

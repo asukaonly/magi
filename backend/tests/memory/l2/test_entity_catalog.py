@@ -307,17 +307,21 @@ async def test_upsert_entity_normalizes_alias_entity_type_before_persistence():
         entities = await catalog.list_entities(limit=10)
 
         assert entity_id == "food:west-lake-vinegar-fish"
-        assert entities == [
-            {
-                "entity_id": "food:west-lake-vinegar-fish",
-                "canonical_name": "West Lake Vinegar Fish",
-                "entity_type": "food",
-                "embedding_status": "disabled",
-                "embedding_profile_id": None,
-                "last_embedded_at": None,
-                "aliases": [],
-            }
-        ]
+        # Rows now carry created_at/updated_at timestamps; compare the
+        # deterministic fields.
+        assert len(entities) == 1
+        row = dict(entities[0])
+        assert row.pop("created_at") > 0
+        assert row.pop("updated_at") > 0
+        assert row == {
+            "entity_id": "food:west-lake-vinegar-fish",
+            "canonical_name": "West Lake Vinegar Fish",
+            "entity_type": "food",
+            "embedding_status": "disabled",
+            "embedding_profile_id": None,
+            "last_embedded_at": None,
+            "aliases": [],
+        }
 
 
 @pytest.mark.asyncio
