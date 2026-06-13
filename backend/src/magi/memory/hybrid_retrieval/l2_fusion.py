@@ -307,7 +307,15 @@ def _compute_final_score(c: L2Candidate, plan: L2GroundingPlan) -> float:
     )
     if c.kind == "knowledge_edge":
         if c.payload.get("_hop") == 2:
-            final *= HOP2_DECAY
+            # Only decay speculative 2-hop inferences. If the edge's object_type
+            # matches the answer type the plan is looking for, this IS the answer —
+            # skip the decay so it can rank above 1-hop noise. (RFC #65 P0 fix)
+            is_answer = (
+                plan.hop2_target_type is not None
+                and str(c.payload.get("object_type")) == str(plan.hop2_target_type)
+            )
+            if not is_answer:
+                final *= HOP2_DECAY
         elif is_soft_edge(c.payload):
             final *= SOFT_EDGE_WEIGHT
     return round(final, 4)
