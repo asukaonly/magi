@@ -36,6 +36,12 @@ PROVIDER_INFO = {
 
 _DEDUP_CACHE_TTL_SECONDS = 600.0
 
+# Deterministic fallback order used when the configured default provider fails
+# or is not configured. Keyed / higher-quality providers first; keyless
+# DuckDuckGo last as the always-available safety net. The configured default is
+# always tried first regardless of its position here.
+_FALLBACK_PRIORITY = ("brave", "tavily", "perplexity", "duckduckgo")
+
 
 class WebSearchTool(MultiProviderTool):
     """
@@ -54,8 +60,10 @@ class WebSearchTool(MultiProviderTool):
         self.schema = ToolSchema(
             name="web-search",
             description=(
-                "Search the web for information using configured providers.\n\n"
-                "Supported providers: duckduckgo, brave, perplexity, tavily.\n"
+                "Search the web for information. The provider is chosen by the "
+                "system from the user's configuration — you cannot and need not "
+                "select one. The configured default provider is used first, with "
+                "automatic fallback to other configured providers if it fails.\n"
                 "Configure provider settings via system-settings tool "
                 "(for example: tool.web-search.providers.brave.api_key)."
             ),
@@ -68,17 +76,6 @@ class WebSearchTool(MultiProviderTool):
                     type=ParameterType.STRING,
                     description="The search query",
                     required=True,
-                ),
-                ToolParameter(
-                    name="provider",
-                    type=ParameterType.STRING,
-                    description=(
-                        "Optional search provider override: 'duckduckgo', 'brave', "
-                        "'perplexity', or 'tavily'. Omit this field to use the current "
-                        "configured default provider."
-                    ),
-                    required=False,
-                    enum=["duckduckgo", "brave", "perplexity", "tavily"],
                 ),
                 ToolParameter(
                     name="num_results",
@@ -286,9 +283,10 @@ class WebSearchTool(MultiProviderTool):
                 error_code=ToolErrorCode.MISSING_QUERY.value,
             )
 
-        # Use specified provider or default from config
-        requested_provider = str(parameters.get("provider") or self._get_default_provider()).strip()
-        provider_name = requested_provider
+        # Provider is system-chosen, never caller-chosen: the LLM cannot select
+        # one (the schema exposes no `provider` field), so we always start from
+        # the configured default and fall back internally.
+        configured_provider = str(self._get_default_provider()).strip()
         date_range_applied = self._normalize_date_range(
             parameters.get("start_date"),
             parameters.get("end_date"),
@@ -331,57 +329,87 @@ class WebSearchTool(MultiProviderTool):
                 },
             )
 
-        # Provider selection is explicit: configuration errors should not silently switch providers.
-        if provider_name not in available_providers:
-            return self._build_provider_unavailable_guidance(
-                requested_provider=requested_provider,
-                available_providers=available_providers,
-            )
+        # Build the deterministic fallback chain: configured default first, then
+        # the remaining configured providers in canonical priority order. A
+        # misconfigured / unavailable default is simply skipped rather than
+        # surfaced as an error — the tool self-heals instead of stalling.
+        ordered = [configured_provider] + [
+            p for p in _FALLBACK_PRIORITY if p != configured_provider
+        ]
+        candidates = [p for p in ordered if p in available_providers]
+        if not candidates:  # defensive: providers exist but none matched the order
+            candidates = list(available_providers)
+        primary_provider = candidates[0]
 
+        # Dedup is keyed on the primary provider so a repeated identical search in
+        # the same turn short-circuits regardless of which provider ultimately served.
         duplicate_result = self._build_duplicate_turn_result(
             context=context,
-            provider_name=provider_name,
+            provider_name=primary_provider,
             query=str(query),
             executed_query=executed_query,
             num_results=num_results,
-            requested_provider=requested_provider,
+            requested_provider=configured_provider,
         )
         if duplicate_result is not None:
             return duplicate_result
 
-        result = await self.execute_with_provider(
-            provider_name,
-            {
-                "query": executed_query,
-                "num_results": num_results,
-                "proxy_url": proxy_url,
-            },
-        )
+        attempts: List[Dict[str, Any]] = []
+        ddg_challenge_seen = False
+        for provider_name in candidates:
+            result = await self.execute_with_provider(
+                provider_name,
+                {
+                    "query": executed_query,
+                    "num_results": num_results,
+                    "proxy_url": proxy_url,
+                },
+            )
+            if result.success:
+                result.data["query"] = query
+                result.data["executed_query"] = executed_query
+                result.data["requested_provider"] = configured_provider
+                result.data["actual_provider"] = provider_name
+                result.data["fallback_used"] = provider_name != configured_provider
+                if attempts:
+                    result.data["fallback_from"] = [a["provider"] for a in attempts]
+                if date_range_applied is not None:
+                    result.data["date_range_applied"] = date_range_applied
+                self._record_successful_turn_query(
+                    context=context,
+                    provider_name=primary_provider,
+                    executed_query=executed_query,
+                    num_results=num_results,
+                    result_count=int(result.data.get("result_count") or result.data.get("total") or 0),
+                )
+                return result
 
-        if not result.success and self._is_duckduckgo_challenge_error(provider_name, result):
+            attempts.append(
+                {
+                    "provider": provider_name,
+                    "error_code": result.error_code,
+                    "error": str(result.error or ""),
+                }
+            )
+            if self._is_duckduckgo_challenge_error(provider_name, result):
+                ddg_challenge_seen = True
+
+        # Every configured provider failed. Preserve the actionable DuckDuckGo
+        # challenge guidance when it was the only option; otherwise report the
+        # aggregated failure so the model stops retrying and tells the user.
+        if ddg_challenge_seen and len(candidates) == 1:
             return self._build_duckduckgo_challenge_guidance(
                 query=query,
-                requested_provider=requested_provider,
-                actual_provider=provider_name,
+                requested_provider=configured_provider,
+                actual_provider="duckduckgo",
                 date_range_applied=date_range_applied,
             )
-
-        if result.success:
-            result.data["query"] = query
-            result.data["executed_query"] = executed_query
-            result.data["requested_provider"] = requested_provider
-            result.data["actual_provider"] = provider_name
-            if date_range_applied is not None:
-                result.data["date_range_applied"] = date_range_applied
-            self._record_successful_turn_query(
-                context=context,
-                provider_name=provider_name,
-                executed_query=executed_query,
-                num_results=num_results,
-                result_count=int(result.data.get("result_count") or result.data.get("total") or 0),
-            )
-
-        return result
+        return self._build_all_providers_failed_guidance(
+            query=str(query),
+            configured_provider=configured_provider,
+            attempts=attempts,
+            date_range_applied=date_range_applied,
+        )
 
     def _build_duplicate_turn_result(
         self,
@@ -465,47 +493,52 @@ class WebSearchTool(MultiProviderTool):
         normalized_query = " ".join(str(executed_query or "").lower().split())
         return (str(provider_name or "").strip().lower(), normalized_query, int(num_results))
 
-    def _build_provider_unavailable_guidance(
+    def _build_all_providers_failed_guidance(
         self,
         *,
-        requested_provider: str,
-        available_providers: List[str],
+        query: str,
+        configured_provider: str,
+        attempts: List[Dict[str, Any]],
+        date_range_applied: Dict[str, str] | None,
     ) -> ToolResult:
-        provider_display = self._provider_display_name(requested_provider)
-        supported_providers = self.get_all_provider_names()
-        alternative_providers = [name for name in supported_providers if name != requested_provider]
+        attempted = [a["provider"] for a in attempts]
         data: Dict[str, Any] = {
-            "next_action": "ask_user_to_configure_requested_search_provider",
+            "next_action": "ask_user_to_check_search_providers",
             "retryable": False,
             "terminal": True,
-            "requested_provider": requested_provider,
-            "available_providers": available_providers,
-            "supported_providers": supported_providers,
+            "query": query,
+            "configured_provider": configured_provider,
+            "attempted_providers": attempted,
+            "attempts": attempts,
             "llm_guidance": t(
-                "tools.web_search.provider_unavailable.llm_guidance",
-                fallback="The requested web search provider is not configured. Do not silently switch providers or retry web search in this turn. Ask the user to configure the requested provider, or ask permission to change the default provider.",
-                provider=provider_display,
+                "tools.web_search.all_providers_failed.llm_guidance",
+                fallback=(
+                    "Every configured web search provider was tried in order and "
+                    "all failed for this query. Do not keep retrying web search in "
+                    "this turn. Tell the user which providers failed and ask them to "
+                    "check provider configuration/connectivity, or try again later."
+                ),
             ),
             "user_message_template": t(
-                "tools.web_search.provider_unavailable.user_message",
-                fallback="The selected web search provider {provider} is not configured yet. Please add its API key in settings, or choose another configured provider before I continue searching.",
-                provider=provider_display,
+                "tools.web_search.all_providers_failed.user_message",
+                fallback=(
+                    "All configured web search providers failed this time ({providers}). "
+                    "Please check the search provider settings or network, then I can retry."
+                ),
+                providers=", ".join(attempted) or configured_provider,
             ),
             "config_tool": "system-settings",
-            "config_examples": self._build_provider_config_examples(
-                [requested_provider]
-                if requested_provider in supported_providers
-                else alternative_providers
-            ),
         }
+        if date_range_applied is not None:
+            data["date_range_applied"] = date_range_applied
         return ToolResult(
             success=False,
             error=t(
-                "tools.web_search.provider_unavailable.error",
-                fallback="Requested web search provider {provider} is not configured.",
-                provider=provider_display,
+                "tools.web_search.all_providers_failed.error",
+                fallback="All configured web search providers failed: {providers}.",
+                providers=", ".join(attempted) or configured_provider,
             ),
-            error_code=ToolErrorCode.PROVIDER_NOT_CONFIGURED.value,
+            error_code=ToolErrorCode.PROVIDER_ERROR.value,
             data=data,
         )
 
@@ -595,11 +628,6 @@ class WebSearchTool(MultiProviderTool):
                 }
             )
         return examples
-
-    @staticmethod
-    def _provider_display_name(provider_name: str) -> str:
-        info = PROVIDER_INFO.get(provider_name, {})
-        return str(info.get("name") or provider_name).strip() or provider_name
 
     def _normalize_date_range(
         self, start_date: Any, end_date: Any

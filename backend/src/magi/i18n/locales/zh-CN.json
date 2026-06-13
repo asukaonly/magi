@@ -165,10 +165,10 @@
         "llm_guidance": "在至少有一个搜索提供商可用前，不要继续重试 web-search。请用中文告知用户需要检查或恢复搜索工具配置。",
         "user_message": "要继续联网搜索，请先确认搜索工具已经配置好。配置可用后，我可以继续当前搜索。"
       },
-      "provider_unavailable": {
-        "error": "请求的搜索提供商 {provider} 尚未配置。",
-        "llm_guidance": "请求的搜索提供商 {provider} 尚未配置。不要静默切换到其他提供商，也不要在本轮继续重试 web-search。请用中文让用户配置该提供商，或确认是否要改用其他已配置的提供商。",
-        "user_message": "当前选择的搜索提供商 {provider} 还没有配置。请先在设置里填好它的 API key，或改选一个已经配置好的搜索提供商，我再继续搜索。"
+      "all_providers_failed": {
+        "error": "所有已配置的搜索提供商都失败了：{providers}。",
+        "llm_guidance": "已按顺序尝试了所有已配置的搜索提供商，本次查询全部失败。本轮不要再继续重试 web-search。请用中文告知用户哪些提供商失败，并让其检查提供商配置或网络连接，或稍后再试。",
+        "user_message": "本次所有已配置的搜索提供商都失败了（{providers}）。请检查搜索提供商设置或网络，然后我再重试。"
       },
       "duckduckgo_challenge": {
         "error": "DuckDuckGo 触发了反机器人验证。请配置其他 web-search 提供商后再重试。",
