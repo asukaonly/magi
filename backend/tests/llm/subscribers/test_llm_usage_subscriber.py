@@ -180,6 +180,29 @@ async def test_embedding_cost_fallback_when_not_a_chat_model(fake_bus, fake_stor
 
 
 @pytest.mark.asyncio
+async def test_image_generation_cost_fallback(fake_bus, fake_store):
+    """Image-generation models are priced per image, so chat/embedding calcs
+    return None and the image-fallback prices it in the model's native currency."""
+    sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
+    await sub.start()
+    payload = _payload(
+        attrs={
+            "provider": "dashscope",
+            "model": "qwen-image-2.0-pro",  # CNY 0.5 / image
+            "request_kind": "image_generation",
+            "image_count": 2,
+            "usage_available": True,
+        },
+    )
+    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
+    await sub.drain()
+    written = fake_store.record_call.await_args.args[0]
+    assert written["request_kind"] == "image_generation"
+    assert written["cost_currency"] == "CNY"
+    assert written["cost_usd"] == pytest.approx(1.0)
+
+
+@pytest.mark.asyncio
 async def test_correlation_id_falls_back_to_attributes(fake_bus, fake_store):
     """When event.correlation_id is None, attrs['correlation_id'] is used."""
     sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)

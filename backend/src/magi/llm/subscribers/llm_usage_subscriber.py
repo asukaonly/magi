@@ -7,7 +7,11 @@ from typing import Optional
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SpanCompleted
 from magi.events.payload_helpers import expect_payload, PayloadTypeError
-from magi.llm.pricing import calculate_chat_cost, calculate_embedding_cost
+from magi.llm.pricing import (
+    calculate_chat_cost,
+    calculate_embedding_cost,
+    calculate_image_generation_cost,
+)
 from magi.llm.usage_store import LLMUsageStore
 
 logger = logging.getLogger(__name__)
@@ -81,6 +85,16 @@ class LLMUsageSubscriber:
                         model=str(attrs.get("model") or payload.name),
                         prompt_tokens=prompt_tokens,
                     )
+                # Image-generation fallback: priced per image, not per token, so
+                # both the chat and embedding calcs return (None, None) for them.
+                if cost_amount is None:
+                    image_count = int(attrs.get("image_count", 0) or 0)
+                    if image_count > 0:
+                        cost_amount, cost_currency = calculate_image_generation_cost(
+                            provider=str(attrs.get("provider") or ""),
+                            model=str(attrs.get("model") or payload.name),
+                            image_count=image_count,
+                        )
             usage_payload = {
                 "request_id": str(attrs.get("request_id") or payload.span_id),
                 "provider": str(attrs.get("provider") or ""),

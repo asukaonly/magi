@@ -84,13 +84,14 @@ class _FakeImageGenPort:
     def __init__(self, fake_adapter: _FakeAdapter, *, capture: dict | None = None) -> None:
         self._adapter = fake_adapter
         self._capture = capture if capture is not None else {}
+        self.usage_spans: list[dict] = []
 
     def create_adapter(self, *, provider_id, provider_settings, model, registry, timeout, proxy_url=None):
         self._capture.update({"provider_id": provider_id, "model": model, "timeout": timeout})
         return self._adapter
 
     async def publish_usage_span(self, **kwargs) -> None:
-        pass  # no-op for tests
+        self.usage_spans.append(kwargs)
 
 
 def _config() -> AppConfig:
@@ -170,6 +171,13 @@ async def test_image_generation_tool_saves_and_returns_chat_attachment(
     assert fake_adapter.requests[0].prompt == "draw a small desk"
     assert fake_adapter.closed is True
     assert adapter_kwargs["timeout"] == 181
+    # Success publishes a usage span carrying the number of generated images,
+    # which the usage subscriber prices per image.
+    assert fake_image_gen.usage_spans, "expected a usage span to be published"
+    span = fake_image_gen.usage_spans[-1]
+    assert span["success"] is True
+    assert span["request_kind"] == "image_generation"
+    assert span["image_count"] == 1
 
 
 @pytest.mark.asyncio

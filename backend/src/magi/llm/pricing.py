@@ -9,6 +9,7 @@ from ..config.llm_registry import (
     LLMProviderRegistryModel,
     find_chat_model_meta,
     find_embedding_model_meta,
+    find_image_generation_model_meta,
     load_llm_provider_registry,
 )
 
@@ -104,6 +105,30 @@ def calculate_embedding_cost(
     if input_rate is None:
         return None, None
     amount = max(0, int(prompt_tokens or 0)) * input_rate / TOKENS_PER_MILLION
+    return amount, (meta.cost.currency or "USD").upper()
+
+
+def calculate_image_generation_cost(
+    *,
+    provider: str,
+    model: str,
+    image_count: int,
+    registry: LLMProviderRegistryModel | None = None,
+) -> tuple[float | None, str | None]:
+    """Cost for an image-generation request in the model's native currency.
+
+    Image models are billed per image (``per_image``), so the cost is
+    ``per_image × image_count``. Returns ``(None, None)`` when the model has no
+    pricing metadata, so callers can tell "no pricing data" apart from a real 0.
+    """
+    effective_registry = registry or _load_provider_registry()
+    meta = find_image_generation_model_meta(effective_registry, provider, model)
+    if meta is None or meta.cost is None:
+        return None, None
+    per_image = meta.cost.per_image
+    if per_image is None:
+        return None, None
+    amount = max(0, int(image_count or 0)) * per_image
     return amount, (meta.cost.currency or "USD").upper()
 
 
