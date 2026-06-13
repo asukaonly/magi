@@ -630,7 +630,7 @@ providers:
           reasoning: true
         limits:
           context_window: 1048576
-          max_output_tokens: 32768
+          max_output_tokens: 65536
           max_concurrency: 6
         cost:
           currency: USD
@@ -840,6 +840,40 @@ providers:
     default_classify_model: qwen3.6-flash
     default_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     chat_models:
+      - id: qwen3.7-plus
+        label: qwen3.7-plus
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1000000
+          max_output_tokens: 64000
+          max_concurrency: 10
+        cost:
+          currency: CNY
+          input_per_million_tokens: 2.0
+          output_per_million_tokens: 8.0
+          source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
+          source_note: max_output_tokens mirrored from qwen3.6-plus (not officially published).
+      - id: qwen3.7-max
+        label: qwen3.7-max
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 256000
+          max_output_tokens: 64000
+          max_concurrency: 10
+        cost:
+          currency: CNY
+          input_per_million_tokens: 12.0
+          output_per_million_tokens: 36.0
+          source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
+          source_note: max_output_tokens mirrored from family (not officially published).
       - id: qwen3.6-plus
         label: qwen3.6-plus
         capabilities:
@@ -1025,6 +1059,24 @@ providers:
     default_classify_model: kimi-k2.6
     default_base_url: https://api.moonshot.cn/v1
     chat_models:
+      - id: kimi-k2.7-code
+        label: Kimi K2.7 Code
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 262144
+          max_output_tokens: 8192
+          max_concurrency: 4
+        cost:
+          currency: CNY
+          input_per_million_tokens: 6.5
+          cached_input_per_million_tokens: 1.3
+          output_per_million_tokens: 27.0
+          source: https://platform.kimi.com/docs/pricing/chat-k27-code
+          source_note: max_output_tokens mirrored from kimi family (not officially published).
       - id: kimi-k2.6
         label: Kimi K2.6
         capabilities:
@@ -1186,6 +1238,23 @@ providers:
           input_per_million_tokens: 2.1
           output_per_million_tokens: 8.4
           source: https://platform.minimax.io/docs/api-reference/text-openai-api
+      - id: MiniMax-M2.7
+        label: MiniMax M2.7
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 204800
+          max_output_tokens: 8192
+          max_concurrency: 3
+        cost:
+          currency: CNY
+          input_per_million_tokens: 2.1
+          output_per_million_tokens: 8.4
+          source: https://platform.minimax.io/docs/api-reference/text-openai-api
+          source_note: max_output_tokens mirrored from MiniMax M2.x family (not officially published).
     embedding_models:
       - id: abab-6.5e-001
         label: MiniMax Embedding
