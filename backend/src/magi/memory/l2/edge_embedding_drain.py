@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from ...core.logger import get_logger
@@ -121,3 +122,51 @@ class EdgeEmbeddingDrainer:
             logger.warning("Failed to embed pending edges: %s", exc)
 
         return embedded_count
+
+
+class L2EdgeEmbeddingWorker:
+    """Owns a background loop that drains pending edge embeddings (#86)."""
+
+    def __init__(
+        self,
+        *,
+        drainer: EdgeEmbeddingDrainer,
+        idle_interval_seconds: float = 5.0,
+        batch_limit: int = 200,
+    ) -> None:
+        self._drainer = drainer
+        self._idle_interval = max(0.01, float(idle_interval_seconds))
+        self._batch_limit = int(batch_limit)
+        self._running = False
+        self._task: asyncio.Task | None = None
+
+    async def start(self) -> None:
+        if self._running:
+            return
+        self._running = True
+        self._task = asyncio.create_task(self._run_loop())
+
+    async def stop(self) -> None:
+        self._running = False
+        if self._task is not None:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+
+    async def _run_loop(self) -> None:
+        backoff = self._idle_interval
+        while self._running:
+            try:
+                n = await self._drainer.drain_once(batch_limit=self._batch_limit)
+                backoff = self._idle_interval
+                if n >= self._batch_limit:
+                    continue  # likely more pending — drain again immediately
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # defensive; drain_once is already never-raise
+                logger.warning("edge embedding drain loop error: %s", exc)
+                backoff = min(backoff * 6, 300.0)
+            await asyncio.sleep(backoff)

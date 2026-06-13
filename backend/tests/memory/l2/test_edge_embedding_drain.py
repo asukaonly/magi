@@ -185,3 +185,91 @@ async def test_drain_once_no_service_is_noop() -> None:
 
         count = await drainer.drain_once()
         assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_worker_drains_then_stops_cleanly() -> None:
+    """L2EdgeEmbeddingWorker drains pending edges and stops cleanly with no leaked task."""
+    import asyncio
+    import time
+
+    from magi.memory.l2.edge_embedding_drain import EdgeEmbeddingDrainer, L2EdgeEmbeddingWorker
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "memory.db")
+        await _init_schema(db_path)
+
+        store = L2CognitionStore(db_path=db_path)
+        await store.upsert_knowledge_edge(
+            subject_id="user:u",
+            subject_type="person",
+            predicate="LIKES",
+            object_id="person:jay",
+            object_type="person",
+            evidence_event_ids=["e1"],
+            confidence=1.0,
+            observed_at=1.0,
+            source_type="test",
+            evidence_text="u likes jay",
+        )
+
+        mock_embedding_service = MagicMock()
+        mock_vector_index = MagicMock()
+
+        mock_result = MagicMock()
+        mock_result.embedded_at = time.time()
+        mock_result.embeddings = [[0.1, 0.2, 0.3]]
+        mock_embedding_service.profile_from_result.return_value = SimpleNamespace(
+            profile_id="test-profile"
+        )
+
+        mock_pipeline_cls = AsyncMock()
+        mock_pipeline_cls.upsert_items = AsyncMock(return_value=[mock_result])
+
+        drainer = EdgeEmbeddingDrainer(
+            db_path=db_path,
+            embedding_service=mock_embedding_service,
+            edge_vector_index=mock_vector_index,
+        )
+
+        import magi.memory.l2.edge_embedding_drain as drain_module
+
+        original_pipeline = drain_module.MemoryEmbeddingPipeline
+
+        def _patched_pipeline(**kwargs):
+            # fix parent_id on mock_result to match the actual triple_id returned by upsert
+            return mock_pipeline_cls
+
+        drain_module.MemoryEmbeddingPipeline = _patched_pipeline
+
+        # We need the mock_result.parent_id to match the upserted triple_id.
+        # Capture it by wrapping upsert_items.
+        captured_items: list = []
+        original_upsert = mock_pipeline_cls.upsert_items
+
+        async def _capturing_upsert(items):
+            captured_items.extend(items)
+            if captured_items:
+                mock_result.parent_id = captured_items[0].parent_id
+            return await original_upsert(items)
+
+        mock_pipeline_cls.upsert_items = _capturing_upsert
+
+        try:
+            worker = L2EdgeEmbeddingWorker(drainer=drainer, idle_interval_seconds=0.05)
+            await worker.start()
+
+            # Poll until pending edges are cleared (up to ~40 × 20ms = 800ms)
+            for _ in range(40):
+                await asyncio.sleep(0.02)
+                pending = await store.get_pending_edge_embeddings(limit=1)
+                if pending == []:
+                    break
+
+            await worker.stop()
+        finally:
+            drain_module.MemoryEmbeddingPipeline = original_pipeline
+
+        pending = await store.get_pending_edge_embeddings(limit=1)
+        assert pending == [], "Worker should have drained the pending edge"
+        assert worker._task is None, "stop() must set _task to None (no leaked task)"
