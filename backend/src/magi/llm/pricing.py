@@ -22,7 +22,7 @@ def _load_provider_registry() -> LLMProviderRegistryModel:
     )
 
 
-def calculate_chat_cost_usd(
+def calculate_chat_cost(
     *,
     provider: str,
     model: str,
@@ -31,17 +31,24 @@ def calculate_chat_cost_usd(
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
     registry: LLMProviderRegistryModel | None = None,
-) -> float | None:
-    """Calculate USD cost for a chat completion using registry pricing."""
+) -> tuple[float | None, str | None]:
+    """Calculate a chat completion cost in the model's native billing currency.
+
+    Returns ``(amount, currency)`` where ``currency`` is the upper-cased ISO code
+    declared in the registry (e.g. ``"USD"``, ``"CNY"``). Returns ``(None, None)``
+    when the model has no pricing metadata, so callers can tell "no pricing data"
+    apart from a genuine zero cost.
+
+    Unlike the legacy :func:`calculate_chat_cost_usd`, this does NOT drop non-USD
+    pricing — the amount is reported in whatever currency the model is billed in,
+    and conversion (if any) is left to the presentation layer.
+    """
     effective_registry = registry or _load_provider_registry()
     model_meta = find_chat_model_meta(effective_registry, provider, model)
     if model_meta is None or model_meta.cost is None:
-        return None
+        return None, None
 
     cost = model_meta.cost
-    if cost.currency.upper() != "USD":
-        return None
-
     input_rate = cost.input_per_million_tokens
     cached_input_rate = cost.cached_input_per_million_tokens
     cache_write_rate = cost.cache_write_per_million_tokens
@@ -52,7 +59,7 @@ def calculate_chat_cost_usd(
         and cache_write_rate is None
         and output_rate is None
     ):
-        return None
+        return None, None
 
     prompt_count = max(0, int(prompt_tokens or 0))
     completion_count = max(0, int(completion_tokens or 0))
@@ -71,4 +78,35 @@ def calculate_chat_cost_usd(
     if output_rate is not None:
         total += completion_count * output_rate
 
-    return total / TOKENS_PER_MILLION
+    currency = (cost.currency or "USD").upper()
+    return total / TOKENS_PER_MILLION, currency
+
+
+def calculate_chat_cost_usd(
+    *,
+    provider: str,
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    registry: LLMProviderRegistryModel | None = None,
+) -> float | None:
+    """Calculate USD cost for a chat completion, or ``None`` if not USD-priced.
+
+    Back-compat wrapper around :func:`calculate_chat_cost`; only returns a value
+    for models billed in USD. New callers should prefer
+    :func:`calculate_chat_cost` so non-USD currencies are not silently dropped.
+    """
+    amount, currency = calculate_chat_cost(
+        provider=provider,
+        model=model,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
+        registry=registry,
+    )
+    if amount is None or currency != "USD":
+        return None
+    return amount

@@ -79,8 +79,21 @@ const formatLatency = (value?: number | null) =>
 
 const formatPercent = (value: number) => `${Math.round(value)}%`;
 
-const formatCurrency = (value?: number | null) =>
-  typeof value === 'number' && Number.isFinite(value) ? `$${value.toFixed(value >= 10 ? 1 : 2)}` : null;
+const CURRENCY_SYMBOLS: Record<string, string> = { USD: '$', CNY: '¥', EUR: '€', GBP: '£', JPY: '¥' };
+
+const formatCurrency = (value?: number | null, currency?: string | null) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const code = (currency || 'USD').toUpperCase();
+  const symbol = CURRENCY_SYMBOLS[code] ?? '';
+  const amount = value.toFixed(value >= 10 ? 1 : 2);
+  return symbol ? `${symbol}${amount}` : `${amount} ${code}`;
+};
+
+const formatTotalCost = (entries?: Array<{ currency: string; amount: number }> | null) => {
+  if (!entries || entries.length === 0) return null;
+  const parts = entries.map((e) => formatCurrency(e.amount, e.currency)).filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+};
 
 const computeSuccessRate = (summary: LLMUsageSummary | null) => {
   const totals = summary?.totals;
@@ -289,7 +302,7 @@ const LLMStatisticsSectionInner: FC = () => {
         signalRibbon={(
           <>
             <SignalItem label={t('settings.usage.cards.totalTokens')} value={formatCompactNumber(totals.total_tokens)} />
-            <SignalItem label={t('settings.statistics.shared.totalCost')} value={formatCurrency(totals.total_cost_usd) || unavailableLabel} />
+            <SignalItem label={t('settings.statistics.shared.totalCost')} value={formatTotalCost(totals.cost_by_currency) || unavailableLabel} />
             <SignalItem label={t('settings.usage.cards.avgLatency')} value={formatLatency(totals.avg_latency_ms) || unavailableLabel} />
             <SignalItem label={t('settings.statistics.shared.avgTTFT')} value={formatLatency(totals.avg_ttft_ms) || unavailableLabel} />
             <SignalItem label={t('settings.usage.cards.successRate', { value: Math.round(successRate) })} value={formatPercent(successRate)} />
@@ -385,7 +398,7 @@ const LLMStatisticsSectionInner: FC = () => {
                         <TableCell>{formatInteger(item.total_tokens)}</TableCell>
                         <TableCell>{formatInteger(item.prompt_tokens)}</TableCell>
                         <TableCell>{formatInteger(item.completion_tokens)}</TableCell>
-                        <TableCell>{formatCurrency(item.cost_usd) || unavailableLabel}</TableCell>
+                        <TableCell>{item.cost_currency == null ? unavailableLabel : (formatCurrency(item.cost_usd, item.cost_currency) || unavailableLabel)}</TableCell>
                         <TableCell>{formatLatency(item.avg_latency_ms) || unavailableLabel}</TableCell>
                         <TableCell>{formatLatency(item.avg_ttft_ms) || unavailableLabel}</TableCell>
                       </tr>

@@ -7,7 +7,7 @@ from typing import Optional
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SpanCompleted
 from magi.events.payload_helpers import expect_payload, PayloadTypeError
-from magi.llm.pricing import calculate_chat_cost_usd
+from magi.llm.pricing import calculate_chat_cost
 from magi.llm.usage_store import LLMUsageStore
 
 logger = logging.getLogger(__name__)
@@ -57,10 +57,15 @@ class LLMUsageSubscriber:
             attrs = payload.attributes or {}
             prompt_tokens = int(attrs.get("prompt_tokens", 0))
             completion_tokens = int(attrs.get("completion_tokens", 0))
+            # Cost is recorded in the model's native billing currency. A None
+            # amount/currency means "no pricing data" (distinct from a real 0),
+            # which the stats UI renders as an em dash instead of a fake $0.00.
             explicit_cost = attrs.get("cost_usd")
-            calculated_cost = None
-            if explicit_cost is None:
-                calculated_cost = calculate_chat_cost_usd(
+            if explicit_cost is not None:
+                cost_amount: float | None = float(explicit_cost)
+                cost_currency: str | None = "USD"
+            else:
+                cost_amount, cost_currency = calculate_chat_cost(
                     provider=str(attrs.get("provider") or ""),
                     model=str(attrs.get("model") or payload.name),
                     prompt_tokens=prompt_tokens,
@@ -79,7 +84,8 @@ class LLMUsageSubscriber:
                 "usage_available": bool(attrs.get("usage_available", False)),
                 "latency_ms": int(payload.duration_ms),
                 "ttft_ms": int(attrs.get("ttft_ms", 0)),
-                "cost_usd": float(explicit_cost if explicit_cost is not None else calculated_cost or 0.0),
+                "cost_usd": cost_amount,
+                "cost_currency": cost_currency,
                 "success": (payload.status == "ok"),
                 "error": payload.error.message if payload.error else None,
                 "correlation_id": event.correlation_id or attrs.get("correlation_id"),

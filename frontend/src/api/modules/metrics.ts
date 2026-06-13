@@ -10,6 +10,7 @@ export interface LLMUsageTotals {
   total_tokens: number;
   avg_latency_ms: number;
   total_cost_usd?: number | null;
+  cost_by_currency?: Array<{ currency: string; amount: number }> | null;
   avg_ttft_ms?: number | null;
 }
 
@@ -26,6 +27,7 @@ export interface LLMUsageBreakdownItem {
   avg_latency_ms?: number | null;
   avg_ttft_ms?: number | null;
   cost_usd?: number | null;
+  cost_currency?: string | null;
 }
 
 export interface LLMUsageSummary {

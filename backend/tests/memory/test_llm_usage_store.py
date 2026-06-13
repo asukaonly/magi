@@ -1,17 +1,18 @@
 """Tests for LLM usage storage and aggregation."""
-import importlib
-import sqlite3
 from pathlib import Path
 
 import pytest
+from alembic import command
 
+from magi.db.runner import MIGRATION_TARGETS, _build_config
 from magi.llm.usage_store import LLMUsageStore
 
 
 def _install_llm_usage_schema(db_path: Path) -> None:
-    migration = importlib.import_module("magi.db.migrations.llm_usage.versions.0001_initial")
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(migration.SCHEMA_SQL)
+    # Apply the real migration chain (0001 + later revisions) so the test schema
+    # never drifts from production as columns are added.
+    target = next(t for t in MIGRATION_TARGETS if t.name == "llm_usage")
+    command.upgrade(_build_config(target, db_path), "head")
 
 
 @pytest.mark.asyncio
@@ -59,6 +60,9 @@ async def test_llm_usage_store_summarizes_prompt_and_completion_tokens(tmp_path:
     assert summary["totals"]["prompt_tokens"] == 160
     assert summary["totals"]["completion_tokens"] == 70
     assert summary["totals"]["total_tokens"] == 230
+    # No pricing data for these models -> no per-currency cost, breakdown carries NULL currency.
+    assert summary["totals"]["cost_by_currency"] == []
+    assert summary["providers"][0]["cost_currency"] is None
     assert summary["providers"][0]["provider"] == "openai"
     assert len(timeseries) == 1
     assert timeseries[0]["prompt_tokens"] == 160

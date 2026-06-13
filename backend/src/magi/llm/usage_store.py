@@ -53,6 +53,7 @@ class LLMUsageStore:
                     latency_ms,
                     ttft_ms,
                     cost_usd,
+                    cost_currency,
                     success,
                     error,
                     correlation_id,
@@ -60,7 +61,7 @@ class LLMUsageStore:
                     turn_id,
                     agent_id,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(payload.get("request_id") or ""),
@@ -73,7 +74,10 @@ class LLMUsageStore:
                     1 if payload.get("usage_available") else 0,
                     int(payload.get("latency_ms") or 0),
                     int(payload.get("ttft_ms") or 0),
+                    # cost_usd holds the amount in cost_currency (historically USD-only);
+                    # NULL currency is the "no pricing data" sentinel.
                     float(payload.get("cost_usd") or 0),
+                    payload.get("cost_currency"),
                     1 if payload.get("success", True) else 0,
                     payload.get("error"),
                     payload.get("correlation_id"),
@@ -125,7 +129,8 @@ class LLMUsageStore:
                     COALESCE(SUM(total_tokens), 0) AS total_tokens,
                     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
                     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
-                    COALESCE(SUM(cost_usd), 0) AS cost_usd
+                    COALESCE(SUM(cost_usd), 0) AS cost_usd,
+                    MAX(cost_currency) AS cost_currency
                 FROM llm_usage
                 WHERE created_at >= ?
                 GROUP BY provider
@@ -148,7 +153,8 @@ class LLMUsageStore:
                     COALESCE(SUM(total_tokens), 0) AS total_tokens,
                     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
                     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
-                    COALESCE(SUM(cost_usd), 0) AS cost_usd
+                    COALESCE(SUM(cost_usd), 0) AS cost_usd,
+                    MAX(cost_currency) AS cost_currency
                 FROM llm_usage
                 WHERE created_at >= ?
                 GROUP BY provider, model
@@ -171,7 +177,8 @@ class LLMUsageStore:
                     COALESCE(SUM(total_tokens), 0) AS total_tokens,
                     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
                     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
-                    COALESCE(SUM(cost_usd), 0) AS cost_usd
+                    COALESCE(SUM(cost_usd), 0) AS cost_usd,
+                    MAX(cost_currency) AS cost_currency
                 FROM llm_usage
                 WHERE created_at >= ?
                 GROUP BY request_kind
@@ -179,6 +186,25 @@ class LLMUsageStore:
                 """,
                 (cutoff,),
             )
+
+            # Costs are summed per native currency so a mixed USD+CNY window is
+            # not collapsed into one meaningless number. Rows with no pricing
+            # data (cost_currency IS NULL) are excluded.
+            cost_by_currency_cursor = await db.execute(
+                """
+                SELECT cost_currency AS currency, COALESCE(SUM(cost_usd), 0) AS amount
+                FROM llm_usage
+                WHERE created_at >= ? AND cost_currency IS NOT NULL
+                GROUP BY cost_currency
+                ORDER BY amount DESC
+                """,
+                (cutoff,),
+            )
+            cost_by_currency_rows = await cost_by_currency_cursor.fetchall()
+            cost_by_currency = [
+                {"currency": str(row["currency"]), "amount": round(float(row["amount"] or 0), 4)}
+                for row in cost_by_currency_rows
+            ]
 
         total_calls = int(totals["total_calls"] or 0)
         successful_calls = int(totals["successful_calls"] or 0)
@@ -196,6 +222,7 @@ class LLMUsageStore:
                 "avg_latency_ms": round(float(totals["avg_latency_ms"] or 0), 2),
                 "avg_ttft_ms": round(float(totals["avg_ttft_ms"] or 0), 2) if float(totals["avg_ttft_ms"] or 0) > 0 else None,
                 "total_cost_usd": round(float(totals["total_cost_usd"] or 0), 4),
+                "cost_by_currency": cost_by_currency,
             },
             "providers": providers,
             "models": models,
