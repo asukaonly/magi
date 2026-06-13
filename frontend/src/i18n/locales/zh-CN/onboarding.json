@@ -222,6 +222,10 @@
       "photoLibrary": {
         "title": "照片库",
         "value": "让 magi 看到你的照片"
+      },
+      "codingAgentHistory": {
+        "title": "编程助手历史",
+        "value": "让 magi 从你的 Claude Code / Codex 会话看到你在搭什么"
       }
     }
   },

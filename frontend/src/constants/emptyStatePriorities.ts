@@ -44,10 +44,19 @@ const META: Record<string, EmptyStatePluginMeta> = {
     valueKey: 'emptyState.plugins.photoLibrary.value',
     iconId: 'photo',
   },
+  // NOTE: this plugin's id is underscore (`coding_agent_history`), unlike the
+  // hyphenated ids above — it must match the manifest plugin_id exactly or the
+  // empty-state filter drops it.
+  'coding_agent_history': {
+    titleKey: 'emptyState.plugins.codingAgentHistory.title',
+    valueKey: 'emptyState.plugins.codingAgentHistory.value',
+    iconId: 'code',
+  },
 };
 
 export const EMPTY_STATE_PRIORITY_PLUGINS = [
   'chrome-history',
+  'coding_agent_history',
   'calendar',
   'git-activity',
   'photo-library',
