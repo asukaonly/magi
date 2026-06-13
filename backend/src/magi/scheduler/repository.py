@@ -176,6 +176,9 @@ class ScheduleRepository(
         job_id = schedule.job_id or schedule.schedule_id
         base_state = await self.get_target_state(schedule.target_type, schedule.target_key)
         executions = await self.list_executions(schedule_id=schedule.schedule_id, limit=1)
+        # Authoritative source is the APScheduler jobstore. The target_state mirror
+        # is only a fallback for display when the job isn't in the jobstore. See #89
+        # (tracked removal of the redundant next_run_at mirror).
         next_run_at = await self.get_schedule_next_run_at(schedule)
         if next_run_at is None and base_state.scheduler_job_id == job_id:
             next_run_at = base_state.next_run_at
