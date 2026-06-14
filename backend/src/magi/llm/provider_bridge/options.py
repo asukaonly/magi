@@ -7,6 +7,7 @@ from typing import Any, Awaitable, Callable, Dict, TypeVar, cast
 
 from ..anthropic import AnthropicAdapter
 from ..base import LLMAdapter
+from .cache_policy import cache_marked_system_content, vendor_supports_cache_marker
 from ..concurrency_limiter import LLMConcurrencyLimiter
 from ..reasoning_dialect import (
     ANTHROPIC_THINKING_BUDGETS,
@@ -192,6 +193,20 @@ class ProviderBridgeOptionsMixin:
 
         payload = build_reasoning_payload(dialect, thinking_depth)
         return cast(Dict[str, Any], merge_payload(kwargs, payload))
+
+    def _cache_marked_system(self, system_prompt: str) -> Any:
+        """Build the system content with a prompt-cache breakpoint.
+
+        For marker-capable vendors (Anthropic, Qwen/DashScope) the byte-stable
+        head — split at the renderer's boundary — gets an ``ephemeral``
+        cache_control marker; for automatic-only vendors the boundary is simply
+        stripped and a plain string returned. Used by every Anthropic ``system``
+        and OpenAI system-message construction site (#110).
+        """
+        vendor = ModelVendor.ANTHROPIC if self.is_anthropic() else self._resolve_model_vendor()
+        return cache_marked_system_content(
+            system_prompt, supports_marker=vendor_supports_cache_marker(vendor)
+        )
 
     def _build_concurrency_key(self, request_family: str) -> str:
         base_url = getattr(self.llm, "base_url", None)

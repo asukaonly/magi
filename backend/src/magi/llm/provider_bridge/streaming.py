@@ -57,7 +57,7 @@ class ProviderBridgeChatStreamingMixin:
                 "model": host.llm.model_name,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "system": system_prompt,
+                "system": host._cache_marked_system(system_prompt),
                 "messages": api_messages,
                 "stream": True,
             }
@@ -105,7 +105,7 @@ class ProviderBridgeChatStreamingMixin:
                 yield usage_event
         else:
             full_messages = [
-                {"role": "system", "content": system_prompt}
+                {"role": "system", "content": host._cache_marked_system(system_prompt)}
             ] + host._convert_messages_to_openai(messages)
             chat_kwargs: Dict[str, Any] = {
                 "messages": full_messages,

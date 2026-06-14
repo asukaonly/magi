@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
+from ..config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from ..personality.turn_planner import PersonaTurnPlan
 from .schema import (
     ProfileMemoryContext,
@@ -55,6 +56,13 @@ class PromptContextRenderer:
                 context.tool_catalog,
                 suppress_imperatives=suppress_tool_imperatives,
             ))
+
+        # Cache boundary: everything above (identity + tool catalog) is the
+        # byte-stable head; the per-turn dynamic blocks below follow. The
+        # provider bridge splits here to place a prompt-cache breakpoint on the
+        # head for marker-capable providers, and strips this marker before
+        # sending so it never reaches the model (#110).
+        lines.append(SYSTEM_PROMPT_CACHE_BOUNDARY)
 
         # Per-turn dynamic blocks — kept after the stable prefix.
         lines.extend(self._render_persona_turn_plan(context.self_memory.persona_turn_plan))

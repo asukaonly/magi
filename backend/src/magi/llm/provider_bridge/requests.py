@@ -37,6 +37,9 @@ class _ProviderBridgeRequestHostProtocol(Protocol):
     ) -> Dict[str, Any]:
         ...
 
+    def _cache_marked_system(self, system_prompt: str) -> Any:
+        ...
+
     def _parse_anthropic_response(self, response: Any) -> ProviderResponse:
         ...
 
@@ -69,7 +72,7 @@ class ProviderBridgeRequestMixin:
                 "model": host.llm.model_name,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "system": system_prompt,
+                "system": host._cache_marked_system(system_prompt),
                 "messages": api_messages,
             }
             if timeout_seconds is not None:
@@ -115,7 +118,7 @@ class ProviderBridgeRequestMixin:
                 )
             return parsed_response
 
-        full_messages = [{"role": "system", "content": system_prompt}] + host._convert_messages_to_openai(messages)
+        full_messages = [{"role": "system", "content": host._cache_marked_system(system_prompt)}] + host._convert_messages_to_openai(messages)
         chat_kwargs: Dict[str, Any] = {
             "messages": full_messages,
             "max_tokens": max_tokens,
@@ -252,7 +255,7 @@ class ProviderBridgeRequestMixin:
                 "model": host.llm.model_name,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "system": system_prompt,
+                "system": host._cache_marked_system(system_prompt),
                 "messages": api_messages,
                 "tools": tools if tools else None,
                 "timeout": timeout_seconds,
@@ -261,7 +264,7 @@ class ProviderBridgeRequestMixin:
             response = await host.llm._client.messages.create(**anthropic_kwargs)
             return host._parse_anthropic_response(response)
 
-        full_messages = [{"role": "system", "content": system_prompt}] + host._convert_messages_to_openai(messages)
+        full_messages = [{"role": "system", "content": host._cache_marked_system(system_prompt)}] + host._convert_messages_to_openai(messages)
         kwargs: Dict[str, Any] = {
             "model": host.llm.model_name,
             "messages": full_messages,
