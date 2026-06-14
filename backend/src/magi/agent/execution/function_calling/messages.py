@@ -12,6 +12,7 @@ class FunctionCallingMessageHistoryMixin:
     """Compact older tool-call protocol blocks without breaking message order."""
 
     _RAW_TOOL_HISTORY_LIMIT: int
+    _COMPACT_TRIGGER: int
 
     def _append_message(self, messages: list[dict[str, Any]], message: dict[str, Any]) -> None:
         """Append a message and compact old tool interactions."""
@@ -21,7 +22,10 @@ class FunctionCallingMessageHistoryMixin:
     def _compact_message_history(self, messages: list[dict[str, Any]]) -> None:
         """Keep only a few raw tool turns and summarize older ones."""
         completed_blocks = self._collect_completed_tool_blocks(messages)
-        if len(completed_blocks) <= self._RAW_TOOL_HISTORY_LIMIT:
+        # Hysteresis: leave the history append-only (cache-preserving) until raw
+        # tool blocks reach the high-water mark; then summarize down to the floor
+        # in one batch (#100/P2b).
+        if len(completed_blocks) < self._COMPACT_TRIGGER:
             return
 
         blocks_to_summarize = completed_blocks[:-self._RAW_TOOL_HISTORY_LIMIT]
