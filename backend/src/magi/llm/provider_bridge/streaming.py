@@ -54,7 +54,7 @@ class ProviderBridgeChatStreamingMixin:
         response_preview_parts: list[str] = []
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
-            api_messages = host._mark_anthropic_history(messages, api_messages)
+            api_messages = host._mark_message_cache_breakpoints(messages, api_messages)
             anthropic_kwargs: Dict[str, Any] = {
                 "model": host.llm.model_name,
                 "max_tokens": max_tokens,
@@ -106,9 +106,12 @@ class ProviderBridgeChatStreamingMixin:
                 await emit_stream_event(usage_event)
                 yield usage_event
         else:
+            openai_messages = host._mark_message_cache_breakpoints(
+                messages, host._convert_messages_to_openai(messages)
+            )
             full_messages = [
                 {"role": "system", "content": host._cache_marked_system(system_prompt)}
-            ] + host._convert_messages_to_openai(messages)
+            ] + openai_messages
             chat_kwargs: Dict[str, Any] = {
                 "messages": full_messages,
                 "max_tokens": max_tokens,

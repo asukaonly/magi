@@ -45,7 +45,7 @@ class _ProviderBridgeRequestHostProtocol(Protocol):
     ) -> list[dict[str, Any]]:
         ...
 
-    def _mark_anthropic_history(
+    def _mark_message_cache_breakpoints(
         self,
         injected_messages: list[dict[str, Any]],
         api_messages: list[dict[str, Any]],
@@ -86,7 +86,7 @@ class ProviderBridgeRequestMixin:
         messages = host._inject_turn_context(messages, system_prompt)
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
-            api_messages = host._mark_anthropic_history(messages, api_messages)
+            api_messages = host._mark_message_cache_breakpoints(messages, api_messages)
             anthropic_kwargs: Dict[str, Any] = {
                 "model": host.llm.model_name,
                 "max_tokens": max_tokens,
@@ -137,7 +137,10 @@ class ProviderBridgeRequestMixin:
                 )
             return parsed_response
 
-        full_messages = [{"role": "system", "content": host._cache_marked_system(system_prompt)}] + host._convert_messages_to_openai(messages)
+        openai_messages = host._mark_message_cache_breakpoints(
+            messages, host._convert_messages_to_openai(messages)
+        )
+        full_messages = [{"role": "system", "content": host._cache_marked_system(system_prompt)}] + openai_messages
         chat_kwargs: Dict[str, Any] = {
             "messages": full_messages,
             "max_tokens": max_tokens,
@@ -273,7 +276,7 @@ class ProviderBridgeRequestMixin:
         messages = host._inject_turn_context(messages, system_prompt)
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
-            api_messages = host._mark_anthropic_history(messages, api_messages)
+            api_messages = host._mark_message_cache_breakpoints(messages, api_messages)
             anthropic_kwargs: Dict[str, Any] = {
                 "model": host.llm.model_name,
                 "max_tokens": max_tokens,
@@ -287,7 +290,10 @@ class ProviderBridgeRequestMixin:
             response = await host.llm._client.messages.create(**anthropic_kwargs)
             return host._parse_anthropic_response(response)
 
-        full_messages = [{"role": "system", "content": host._cache_marked_system(system_prompt)}] + host._convert_messages_to_openai(messages)
+        openai_messages = host._mark_message_cache_breakpoints(
+            messages, host._convert_messages_to_openai(messages)
+        )
+        full_messages = [{"role": "system", "content": host._cache_marked_system(system_prompt)}] + openai_messages
         kwargs: Dict[str, Any] = {
             "model": host.llm.model_name,
             "messages": full_messages,

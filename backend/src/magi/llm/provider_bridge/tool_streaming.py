@@ -71,7 +71,7 @@ class ProviderBridgeToolStreamingMixin:
         host = cast(_ToolStreamingHostProtocol, self)
         messages = host._inject_turn_context(messages, system_prompt)
         api_messages = host._convert_messages_to_anthropic(messages)
-        api_messages = host._mark_anthropic_history(messages, api_messages)
+        api_messages = host._mark_message_cache_breakpoints(messages, api_messages)
         anthropic_kwargs: Dict[str, Any] = {
             "model": host.llm.model_name,
             "max_tokens": max_tokens,
@@ -252,7 +252,10 @@ class ProviderBridgeToolStreamingMixin:
     ) -> ToolStreamResult:
         host = cast(_ToolStreamingHostProtocol, self)
         messages = host._inject_turn_context(messages, system_prompt)
-        full_messages = [{"role": "system", "content": host._cache_marked_system(system_prompt)}] + host._convert_messages_to_openai(messages)
+        openai_messages = host._mark_message_cache_breakpoints(
+            messages, host._convert_messages_to_openai(messages)
+        )
+        full_messages = [{"role": "system", "content": host._cache_marked_system(system_prompt)}] + openai_messages
         kwargs: Dict[str, Any] = {
             "model": host.llm.model_name,
             "messages": full_messages,
