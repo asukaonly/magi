@@ -42,14 +42,19 @@ class TestPersonaTurnPlanRendering:
             ],
         )
 
-        text = "\n".join(renderer._render_persona_turn_plan(plan))
+        # Persona rendering is split into the stable head (identity/voice) and
+        # the per-turn steer (register/triggers/clamp); join both for content.
+        text = "\n".join(
+            renderer._render_persona_identity(plan)
+            + renderer._render_persona_turn_steer(plan)
+        )
 
-        assert "# Persona Runtime Plan" in text
-        assert "Distrusts empty systems." in text
-        assert "Register: analysis" in text
-        assert "domain_hotzone" in text
-        assert "Increase technical judgment." in text
-        assert "focused_work" in text
+        assert "# Persona Runtime Plan" in text  # identity head
+        assert "Distrusts empty systems." in text  # identity head
+        assert "Register: analysis" in text  # turn steer
+        assert "domain_hotzone" in text  # turn steer
+        assert "Increase technical judgment." in text  # turn steer
+        assert "focused_work" in text  # turn steer
         assert "Contextual Behavior Protocol" not in text
 
     def test_plan_in_full_system_prompt(self):

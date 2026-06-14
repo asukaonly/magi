@@ -111,3 +111,45 @@ def test_log_llm_request_pretty_prints_tool_json_content() -> None:
     assert "用户喜欢下雨天" in rendered_messages
     assert "\\u7528\\u6237" not in rendered_messages
     assert '"memory_context": "用户喜欢下雨天\\n也喜欢阴天"' not in rendered_messages
+
+
+def _debug_text(mock_logger: MagicMock) -> str:
+    return "\n".join(str(call.args[0]) for call in mock_logger.debug.call_args_list)
+
+
+def test_log_llm_request_splits_system_prompt_at_cache_boundary() -> None:
+    boundary = "<!--MAGI_CACHE_BOUNDARY-->"
+    logger = MagicMock()
+    system_prompt = f"STABLE HEAD\n{boundary}\nPER-TURN TAIL with time"
+
+    llm_logger_module.log_llm_request(
+        logger,
+        request_id="req-1",
+        model="claude-opus-4-8",
+        system_prompt=system_prompt,
+        messages=[{"role": "user", "content": "hi"}],
+        cache_boundary=boundary,
+    )
+
+    text = _debug_text(logger)
+    # Two labeled sections; the boundary marker itself never appears in the log.
+    assert "cacheable head" in text
+    assert "per-turn tail" in text
+    assert "STABLE HEAD" in text
+    assert "PER-TURN TAIL with time" in text
+    assert boundary not in text
+
+
+def test_log_llm_request_no_boundary_logs_plain_system_prompt() -> None:
+    logger = MagicMock()
+    llm_logger_module.log_llm_request(
+        logger,
+        request_id="req-2",
+        model="claude-opus-4-8",
+        system_prompt="plain system prompt, no boundary",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    text = _debug_text(logger)
+    assert "System Prompt:" in text
+    assert "cacheable head" not in text

@@ -39,7 +39,11 @@ def _assembly_context(selected_tools: list[str]) -> PromptAssemblyContext:
             persona_turn_plan=PersonaTurnPlan(
                 persona_name="Seven",
                 identity_core={"identity_statement": "Pinned identity."},
+                idiolect={"sentence_style": "terse"},
                 register="task",
+                register_behavior="Be direct.",
+                dynamic_modulations={"low_energy": "shorter replies"},
+                selected_examples=["[User: hi]\nSeven: yo"],
             ),
         ),
         profile_memory=ProfileMemoryContext(user_id="u1"),
@@ -73,9 +77,10 @@ def test_static_blocks_render_before_dynamic_blocks() -> None:
     assert i_tools < i_runtime
 
 
-def test_cache_boundary_sits_after_persona_before_dynamic() -> None:
-    # P2a (#100): persona joins the stable head, so the boundary now sits after
-    # identity + tool catalog + persona, and before the per-turn blocks (memory /
+def test_cache_boundary_sits_after_persona_identity_before_dynamic() -> None:
+    # P2a (#100): only the byte-stable persona DEFINITION (identity + baseline
+    # voice) joins the cached head. The boundary sits after identity + tool
+    # catalog + persona identity, and before the per-turn blocks (memory /
     # runtime) that the provider bridge moves out to the message tail.
     prompt = PromptContextRenderer().render_system_prompt(_assembly_context(["alpha_tool"]))
 
@@ -85,6 +90,25 @@ def test_cache_boundary_sits_after_persona_before_dynamic() -> None:
     assert prompt.index("# Persona Runtime Plan") < i_boundary
     assert i_boundary < prompt.index("# Memory Library")
     assert i_boundary < prompt.index("# System Information")
+
+
+def test_persona_identity_in_head_per_turn_steer_in_tail() -> None:
+    # The persona DEFINITION (Identity Core + Baseline Voice) is stable across
+    # turns and stays in the cached head. The per-turn STEER (register,
+    # modulation, examples) is recomputed every turn by PersonaTurnPlanner, so it
+    # must sit below the boundary or it invalidates the cached prefix each turn
+    # (root cause of cache read=0 on the chat path).
+    prompt = PromptContextRenderer().render_system_prompt(_assembly_context(["alpha_tool"]))
+    i_boundary = prompt.index(SYSTEM_PROMPT_CACHE_BOUNDARY)
+
+    # Stable persona definition — above the boundary (cached).
+    assert prompt.index("## Identity Core") < i_boundary
+    assert prompt.index("## Baseline Voice") < i_boundary
+
+    # Per-turn steer — below the boundary (moved to the message tail).
+    assert i_boundary < prompt.index("## Current Register")
+    assert i_boundary < prompt.index("## Dynamic Modulation")
+    assert i_boundary < prompt.index("## Relevant Persona Examples")
 
 
 class _FakeToolRegistry:
