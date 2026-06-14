@@ -206,10 +206,15 @@
     "connect": "启用",
     "installAndConnect": "安装并启用",
     "installing": "安装中…",
+    "browseAll": "浏览全部插件 →",
     "plugins": {
       "chromeHistory": {
         "title": "Chrome 历史",
         "value": "让 magi 看到你最近在网上读什么"
+      },
+      "screenshotTimeline": {
+        "title": "屏幕记录",
+        "value": "让 magi 看到你屏幕上发生了什么"
       },
       "calendar": {
         "title": "日历",
