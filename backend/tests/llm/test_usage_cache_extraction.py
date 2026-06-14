@@ -66,6 +66,26 @@ def test_openai_usage_returns_none_when_absent() -> None:
     assert M._extract_openai_usage(SimpleNamespace()) is None
 
 
+def test_openai_usage_captures_deepseek_top_level_cache_hit() -> None:
+    # DeepSeek reports cache hits at the TOP level (prompt_cache_hit_tokens /
+    # prompt_cache_miss_tokens), NOT nested under prompt_tokens_details.cached_tokens.
+    resp = SimpleNamespace(
+        usage=SimpleNamespace(
+            prompt_tokens=1000,
+            completion_tokens=200,
+            total_tokens=1200,
+            prompt_cache_hit_tokens=800,
+            prompt_cache_miss_tokens=200,
+        )
+    )
+
+    usage = M._extract_openai_usage(resp)
+
+    assert usage is not None
+    assert usage.cache_read_tokens == 800
+    assert usage.cache_write_tokens == 0
+
+
 # ---------------------------------------------------------------------------
 # OpenAI streaming
 # ---------------------------------------------------------------------------
@@ -101,6 +121,22 @@ def test_openai_stream_usage_without_details_does_not_crash() -> None:
     assert usage is not None
     assert usage.cache_read_tokens == 0
     assert usage.reasoning_tokens == 0
+
+
+def test_openai_stream_usage_captures_deepseek_top_level_cache_hit() -> None:
+    usage_data = SimpleNamespace(
+        prompt_tokens=1000,
+        completion_tokens=200,
+        total_tokens=1200,
+        prompt_cache_hit_tokens=800,
+        prompt_cache_miss_tokens=200,
+    )
+
+    usage = M._extract_openai_stream_usage(usage_data)
+
+    assert usage is not None
+    assert usage.cache_read_tokens == 800
+    assert usage.cache_write_tokens == 0
 
 
 # ---------------------------------------------------------------------------

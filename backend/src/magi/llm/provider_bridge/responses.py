@@ -24,6 +24,21 @@ def _nested_int(obj: Any, outer: str, inner: str) -> int:
     return int(getattr(container, inner, 0) or 0)
 
 
+def _openai_cache_read_tokens(usage: Any) -> int:
+    """Cache-read (hit) tokens from an OpenAI-compatible usage object.
+
+    OpenAI and most compat providers report cached prompt tokens nested under
+    ``prompt_tokens_details.cached_tokens``. DeepSeek instead reports them at the
+    top level as ``prompt_cache_hit_tokens`` (paired with ``prompt_cache_miss_tokens``),
+    so fall back to that when the nested field is absent/zero — otherwise DeepSeek
+    cache hits read as 0 and never reach usage/pricing/trace (#98).
+    """
+    nested = _nested_int(usage, "prompt_tokens_details", "cached_tokens")
+    if nested:
+        return nested
+    return int(getattr(usage, "prompt_cache_hit_tokens", 0) or 0)
+
+
 class ProviderBridgeResponseMixin:
     """Normalize provider responses, content blocks, metadata, and usage events."""
 
@@ -87,7 +102,7 @@ class ProviderBridgeResponseMixin:
             completion_tokens=int(getattr(usage_data, "completion_tokens", 0) or 0),
             total_tokens=int(getattr(usage_data, "total_tokens", 0) or 0),
             reasoning_tokens=_nested_int(usage_data, "completion_tokens_details", "reasoning_tokens"),
-            cache_read_tokens=_nested_int(usage_data, "prompt_tokens_details", "cached_tokens"),
+            cache_read_tokens=_openai_cache_read_tokens(usage_data),
             cache_write_tokens=0,
         )
 
@@ -340,7 +355,7 @@ class ProviderBridgeResponseMixin:
             completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
             total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
             reasoning_tokens=_nested_int(usage, "completion_tokens_details", "reasoning_tokens"),
-            cache_read_tokens=_nested_int(usage, "prompt_tokens_details", "cached_tokens"),
+            cache_read_tokens=_openai_cache_read_tokens(usage),
             cache_write_tokens=0,
         )
 
