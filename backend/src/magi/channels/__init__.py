@@ -18,6 +18,8 @@ from .attachments import ChannelAttachmentStore
 from .registry import ChannelRegistry
 from .session_mapper import ChannelSessionMapper
 from magi_plugin_sdk.channels import (
+    ChannelControlCommandResult,
+    ChannelControlPortProtocol,
     ChannelMessageDispatcherProtocol,
     ChannelMessageDispatchOutcome,
     ChannelAttachmentStoreProtocol,
@@ -29,6 +31,8 @@ __all__ = [
     "ChannelConfig",
     "ChannelAttachmentStore",
     "ChannelAttachmentStoreProtocol",
+    "ChannelControlCommandResult",
+    "ChannelControlPortProtocol",
     "ChannelMessageDispatcher",
     "ChannelMessageDispatcherProtocol",
     "ChannelMessageDispatchOutcome",

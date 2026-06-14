@@ -3,6 +3,8 @@
 from magi_plugin_sdk.channels import (  # noqa: F401
     ChannelConfig,
     ChannelAttachmentStoreProtocol,
+    ChannelControlCommandResult,
+    ChannelControlPortProtocol,
     ChannelMessageDispatcherProtocol,
     ChannelMessageDispatchOutcome,
     ChannelSessionMapping,
@@ -14,6 +16,8 @@ from magi_plugin_sdk.channels import (  # noqa: F401
 __all__ = [
     "ChannelConfig",
     "ChannelAttachmentStoreProtocol",
+    "ChannelControlCommandResult",
+    "ChannelControlPortProtocol",
     "ChannelMessageDispatcherProtocol",
     "ChannelMessageDispatchOutcome",
     "ChannelSessionMapping",

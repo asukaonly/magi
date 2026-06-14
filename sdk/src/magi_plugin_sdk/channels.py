@@ -103,6 +103,21 @@ class ChannelMessageDispatchOutcome:
     queue_size: int | None = None
 
 
+@dataclass(slots=True)
+class ChannelControlCommandResult:
+    """Outcome of a host control command (permission / session / help).
+
+    Returned by :meth:`ChannelControlPortProtocol.handle_command` when the inbound
+    message WAS a control command. ``None`` (not this type) means "not a command —
+    dispatch as normal chat". ``ack`` is the short text the channel surfaces to the
+    user; ``kind`` names the command family ("permission" / "session" / "help") for
+    plugin-side routing or logging.
+    """
+
+    ack: str | None = None
+    kind: str = ""
+
+
 @runtime_checkable
 class ChannelAttachmentStoreProtocol(Protocol):
     """Host-provided storage facade for channel-owned inbound attachments."""
@@ -190,6 +205,30 @@ class ChannelMessageDispatcherProtocol(Protocol):
         runtime_namespace: str | None = None,
     ) -> ChannelMessageDispatchOutcome:
         """Dispatch one inbound channel message into the Magi runtime."""
+
+
+@runtime_checkable
+class ChannelControlPortProtocol(Protocol):
+    """Host-provided control-command facade injected into channels.
+
+    Owns ALL channel control commands in one place — permission (``/approve|/deny``),
+    session (``/new|/reset``), ``/help`` — so the command set and the session-mapping
+    reset chain live host-side, not duplicated per plugin. A channel calls
+    ``handle_command`` for an inbound message BEFORE dispatching it as chat: a
+    non-``None`` result means it was a control command (surface ``result.ack`` and
+    stop); ``None`` means dispatch via :class:`ChannelMessageDispatcherProtocol`.
+    """
+
+    async def handle_command(
+        self,
+        *,
+        message: str,
+        session_id: str | None,
+        channel_type: str,
+        external_chat_id: str,
+        external_user_id: str,
+    ) -> "ChannelControlCommandResult | None":
+        """Handle ``message`` if it is a control command, else return ``None``."""
 
 
 class Channel(ABC):
@@ -355,11 +394,17 @@ class Channel(ABC):
         """Inject the host-provided attachment store after construction."""
         _ = attachment_store
 
+    def bind_control_port(self, control_port: "ChannelControlPortProtocol") -> None:
+        """Inject the host-provided control-command port after construction."""
+        _ = control_port
+
 
 __all__ = [
     "Channel",
     "ChannelConfig",
     "ChannelAttachmentStoreProtocol",
+    "ChannelControlCommandResult",
+    "ChannelControlPortProtocol",
     "ChannelMessageDispatcherProtocol",
     "ChannelMessageDispatchOutcome",
     "ChannelSessionMapperProtocol",
