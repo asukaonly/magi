@@ -224,6 +224,21 @@ class ProviderBridgeResponseMixin:
                 text_value = block.text or ""
                 content_text_parts.append(text_value)
                 assistant_blocks.append({"type": "text", "text": text_value})
+            elif block.type == "thinking":
+                # Extended-thinking blocks must be echoed back verbatim (with
+                # their signature) on the follow-up tool turn — Anthropic rejects
+                # tool turns whose thinking blocks were stripped (#99).
+                assistant_blocks.append(
+                    {
+                        "type": "thinking",
+                        "thinking": getattr(block, "thinking", "") or "",
+                        "signature": getattr(block, "signature", None),
+                    }
+                )
+            elif block.type == "redacted_thinking":
+                assistant_blocks.append(
+                    {"type": "redacted_thinking", "data": getattr(block, "data", None)}
+                )
             elif block.type == "tool_use":
                 tool_calls.append(
                     ProviderToolCall(
