@@ -196,6 +196,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const renderSectionContent = () => {
     const embeddingSelection = draftConfig.llm?.selections?.embedding;
     const hasEmbeddingModel = !!(embeddingSelection?.provider_id && embeddingSelection?.model);
+    const hasCrossEncoderModel = !!(draftConfig.memory.reranker?.cross_encoder?.managed_model_id);
 
     switch (effectiveActiveSection) {
       case 'preferences':
@@ -275,6 +276,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             patchDraftConfig={patchDraftConfig}
             updateMemoryToggle={updateMemoryToggle}
             hasEmbeddingModel={hasEmbeddingModel}
+            hasCrossEncoderModel={hasCrossEncoderModel}
           />
         );
 

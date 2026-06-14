@@ -23,7 +23,9 @@ interface SettingsMemorySectionProps {
   patchDraftConfig: (updater: (draft: SystemConfig) => void) => void;
   updateMemoryToggle: (field: MemoryToggleFieldId, checked: boolean) => void;
   hasEmbeddingModel: boolean;
+  hasCrossEncoderModel: boolean;
 }
+
 
 export function SettingsMemorySection({
   section,
@@ -31,6 +33,7 @@ export function SettingsMemorySection({
   patchDraftConfig,
   updateMemoryToggle,
   hasEmbeddingModel,
+  hasCrossEncoderModel,
 }: SettingsMemorySectionProps) {
   switch (section) {
     case 'memoryGeneral':
@@ -38,6 +41,7 @@ export function SettingsMemorySection({
         <MemoryGeneralSettingsSection
           draftConfig={draftConfig}
           patchDraftConfig={patchDraftConfig}
+          hasCrossEncoderModel={hasCrossEncoderModel}
         />
       );
 
