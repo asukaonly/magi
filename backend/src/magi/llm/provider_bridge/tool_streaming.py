@@ -69,6 +69,7 @@ class ProviderBridgeToolStreamingMixin:
         host = cast(_ToolStreamingHostProtocol, self)
         messages = host._inject_turn_context(messages, system_prompt)
         api_messages = host._convert_messages_to_anthropic(messages)
+        api_messages = host._mark_anthropic_history(messages, api_messages)
         anthropic_kwargs: Dict[str, Any] = {
             "model": host.llm.model_name,
             "max_tokens": max_tokens,

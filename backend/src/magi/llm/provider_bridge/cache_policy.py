@@ -99,6 +99,52 @@ def _prepend_text(message: dict[str, Any], text: str) -> dict[str, Any]:
     return {**message, "content": new_content}
 
 
+def last_user_message_index(messages: list[dict[str, Any]]) -> int:
+    """Index of the last ``user`` message, or -1 if there is none.
+
+    This is the message :func:`inject_turn_context` attaches the per-turn context
+    to. Tool results carry role ``tool`` (not ``user``), so during a tool loop
+    this still resolves to the human turn that started it.
+    """
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("role") == "user":
+            return i
+    return -1
+
+
+def mark_history_breakpoint(
+    api_messages: list[dict[str, Any]], boundary_index: int
+) -> list[dict[str, Any]]:
+    """Place an ``ephemeral`` cache_control on the last content block of the
+    message at ``boundary_index`` — the stable history boundary.
+
+    Anthropic caches by prefix and needs an explicit breakpoint; placing it on
+    the message *before* the volatile per-turn context lets the older history be
+    reused across turns while the current turn stays uncached (a rolling
+    breakpoint). String content is promoted to a one-element text block so the
+    marker has somewhere to live. Returns a new list; the input is not mutated.
+    Out-of-range indices are a no-op.
+    """
+    if boundary_index < 0 or boundary_index >= len(api_messages):
+        return api_messages
+
+    target = api_messages[boundary_index]
+    content = target.get("content")
+    if isinstance(content, str):
+        new_content: Any = [
+            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
+        ]
+    elif isinstance(content, list) and content:
+        new_content = [dict(block) for block in content]
+        new_content[-1] = {**new_content[-1], "cache_control": {"type": "ephemeral"}}
+    else:
+        return api_messages
+
+    out = list(api_messages)
+    out[boundary_index] = {**target, "content": new_content}
+    return out
+
+
 def inject_turn_context(messages: list[dict[str, Any]], system: str) -> list[dict[str, Any]]:
     """Move the system's per-turn tail into the message stream as turn context.
 
