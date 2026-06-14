@@ -40,6 +40,11 @@ class _ProviderBridgeRequestHostProtocol(Protocol):
     def _cache_marked_system(self, system_prompt: str) -> Any:
         ...
 
+    def _inject_turn_context(
+        self, messages: list[dict[str, Any]], system_prompt: str
+    ) -> list[dict[str, Any]]:
+        ...
+
     def _parse_anthropic_response(self, response: Any) -> ProviderResponse:
         ...
 
@@ -66,6 +71,7 @@ class ProviderBridgeRequestMixin:
         event_context: Optional[Dict[str, Any]],
     ) -> ProviderResponse:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
+        messages = host._inject_turn_context(messages, system_prompt)
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
             anthropic_kwargs: Dict[str, Any] = {
@@ -249,6 +255,7 @@ class ProviderBridgeRequestMixin:
         timeout_seconds: Optional[float],
     ) -> ProviderResponse:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
+        messages = host._inject_turn_context(messages, system_prompt)
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
             anthropic_kwargs: Dict[str, Any] = {
