@@ -67,6 +67,7 @@ class ProviderBridgeToolStreamingMixin:
         timeout_seconds: Optional[float],
     ) -> ToolStreamResult:
         host = cast(_ToolStreamingHostProtocol, self)
+        messages = host._inject_turn_context(messages, system_prompt)
         api_messages = host._convert_messages_to_anthropic(messages)
         anthropic_kwargs: Dict[str, Any] = {
             "model": host.llm.model_name,
@@ -209,6 +210,7 @@ class ProviderBridgeToolStreamingMixin:
         timeout_seconds: Optional[float],
     ) -> ToolStreamResult:
         host = cast(_ToolStreamingHostProtocol, self)
+        messages = host._inject_turn_context(messages, system_prompt)
         full_messages = [{"role": "system", "content": host._cache_marked_system(system_prompt)}] + host._convert_messages_to_openai(messages)
         kwargs: Dict[str, Any] = {
             "model": host.llm.model_name,

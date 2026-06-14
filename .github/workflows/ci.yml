@@ -5,9 +5,12 @@ on:
   push:
     branches:
       - main
+  schedule:
+    # Nightly canonical full run (single-process backstop) at 02:00 CST / 18:00 UTC.
+    - cron: '0 18 * * *'
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -73,7 +76,16 @@ jobs:
       - name: Run backend test suite
         working-directory: backend
         timeout-minutes: 15
-        run: python -m pytest -q
+        # PR + push to main: run the full suite in parallel (pytest-xdist) for
+        # fast full-coverage feedback. Nightly (schedule): canonical single-process
+        # run as a backstop in case parallelism ever masks an ordering-dependent
+        # failure. Coverage is identical across both; only the runner differs.
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            python -m pytest -q
+          else
+            python -m pytest -n auto -q
+          fi
 
       - name: Check import layer contracts
         working-directory: backend

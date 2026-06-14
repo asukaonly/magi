@@ -73,15 +73,17 @@ def test_static_blocks_render_before_dynamic_blocks() -> None:
     assert i_tools < i_runtime
 
 
-def test_cache_boundary_sits_between_static_and_dynamic() -> None:
-    # The renderer emits the cache boundary after the static head (identity +
-    # tool catalog) and before the per-turn dynamic blocks (#110), so the
-    # provider bridge can mark only the stable head.
+def test_cache_boundary_sits_after_persona_before_dynamic() -> None:
+    # P2a (#100): persona joins the stable head, so the boundary now sits after
+    # identity + tool catalog + persona, and before the per-turn blocks (memory /
+    # runtime) that the provider bridge moves out to the message tail.
     prompt = PromptContextRenderer().render_system_prompt(_assembly_context(["alpha_tool"]))
 
     assert SYSTEM_PROMPT_CACHE_BOUNDARY in prompt
     i_boundary = prompt.index(SYSTEM_PROMPT_CACHE_BOUNDARY)
-    assert prompt.index("# Tool Information") < i_boundary < prompt.index("# Persona Runtime Plan")
+    assert prompt.index("# Tool Information") < i_boundary
+    assert prompt.index("# Persona Runtime Plan") < i_boundary
+    assert i_boundary < prompt.index("# Memory Library")
     assert i_boundary < prompt.index("# System Information")
 
 

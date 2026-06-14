@@ -183,8 +183,15 @@ async def test_cancel_running_task_transitions_to_cancelled(runtime_paths_with_s
 
         events = await store.list_events(task.task_id)
         transitions = [e.to_status for e in events]
+        # Both transitions are recorded. The append-order of the executor's
+        # CANCELLED event vs the manager's CANCELLING event is not deterministic
+        # under load: manager.cancel() flips the token (waking the run loop) before
+        # it appends the CANCELLING event, so the executor can append CANCELLED
+        # first. The authoritative terminal status (CANCELLED) is already asserted
+        # above via _wait_until + fetched.status, so assert membership here, not
+        # strict event order (which flakes, especially under parallel test runs).
         assert BackgroundTaskStatus.CANCELLING in transitions
-        assert transitions[-1] == BackgroundTaskStatus.CANCELLED
+        assert BackgroundTaskStatus.CANCELLED in transitions
     finally:
         await manager.stop()
 
