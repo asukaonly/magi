@@ -213,6 +213,7 @@ async def test_interruptible_chat_recovers_pending_turns_from_l0_checkpoint(
     assert augment_context.planner_fact_kind == IncomingFactKind.OTHER_FACT
 
     await memory.l0.checkpoint_all()  # type: ignore[union-attr]
+    await memory.shutdown()
 
     restored_memory = UnifiedMemoryStore(
         l1_db_path=str(tmp_path / "l1.db"),
@@ -224,17 +225,20 @@ async def test_interruptible_chat_recovers_pending_turns_from_l0_checkpoint(
         enable_l4=False,
     )
     await restored_memory.initialize()
-    restored_agent = ChatTaskAgent(
-        agent_id="session-a",
-        llm_adapter=_FakeLLMAdapter(),
-        unified_memory=restored_memory,
-    )
+    try:
+        restored_agent = ChatTaskAgent(
+            agent_id="session-a",
+            llm_adapter=_FakeLLMAdapter(),
+            unified_memory=restored_memory,
+        )
 
-    checkpoint_context = await restored_agent.build_context(
-        await restored_agent.merge_facts([_tool_loop_fact(session_id="session-a")])
-    )
+        checkpoint_context = await restored_agent.build_context(
+            await restored_agent.merge_facts([_tool_loop_fact(session_id="session-a")])
+        )
 
-    assert checkpoint_context.planner_fact_kind == IncomingFactKind.USER_MESSAGE
-    assert checkpoint_context.latest_user_message == (
-        "Inspect the login flow.\n\nInstead of the login flow, inspect the signup flow."
-    )
+        assert checkpoint_context.planner_fact_kind == IncomingFactKind.USER_MESSAGE
+        assert checkpoint_context.latest_user_message == (
+            "Inspect the login flow.\n\nInstead of the login flow, inspect the signup flow."
+        )
+    finally:
+        await restored_memory.shutdown()
