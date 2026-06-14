@@ -120,6 +120,7 @@ class ProviderBridgeChatStreamingMixin:
             if timeout_seconds is not None:
                 chat_kwargs["timeout"] = timeout_seconds
             chat_kwargs = host._apply_provider_options(chat_kwargs, depth)
+            chat_kwargs = host._apply_cache_routing(chat_kwargs, event_context)
             if getattr(host.llm, "_client", None) is not None:
                 chat_kwargs["model"] = host.llm.model_name
                 stream = await host.llm._client.chat.completions.create(**chat_kwargs)

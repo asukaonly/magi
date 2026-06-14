@@ -7,6 +7,10 @@ from typing import Any, Awaitable, Callable, Dict, TypeVar, cast
 
 from ..anthropic import AnthropicAdapter
 from ..base import LLMAdapter
+from .cache_routing import (
+    cache_routing_request_kwargs,
+    routing_key_from_event_context,
+)
 from .cache_policy import (
     cache_marked_system_content,
     inject_turn_context,
@@ -267,6 +271,25 @@ class ProviderBridgeOptionsMixin:
         """Vendor used for cache-marker capability decisions (Anthropic if the
         native path is active, else the resolved OpenAI-compatible vendor)."""
         return ModelVendor.ANTHROPIC if self.is_anthropic() else self._resolve_model_vendor()
+
+    def _apply_cache_routing(
+        self, kwargs: Dict[str, Any], event_context: Dict[str, Any] | None
+    ) -> Dict[str, Any]:
+        """Merge provider cache-routing extras into OpenAI-compatible request kwargs.
+
+        OpenAI's ``prompt_cache_key`` (body) / xAI's ``x-grok-conv-id`` (header)
+        pin a conversation to a cache-warm backend node, lifting the hit rate.
+        Keyed on ``session_id``, vendor-gated, and merged so existing
+        ``extra_body``/``extra_headers`` (e.g. reasoning options) survive. No-op
+        when there's no key or the vendor has no hint. OpenAI-compatible path only
+        (#98).
+        """
+        extras = cache_routing_request_kwargs(
+            self._resolve_model_vendor(), routing_key_from_event_context(event_context)
+        )
+        for field, value in extras.items():
+            kwargs[field] = {**(kwargs.get(field) or {}), **value}
+        return kwargs
 
     def _build_concurrency_key(self, request_family: str) -> str:
         base_url = getattr(self.llm, "base_url", None)
