@@ -39,7 +39,6 @@ CREATE TABLE IF NOT EXISTS target_state (
     last_error TEXT,
     last_cursor TEXT,
     watermark_ts REAL,
-    next_run_at REAL,
     scheduler_job_id TEXT,
     stats_json TEXT NOT NULL DEFAULT '{}',
     updated_at REAL NOT NULL,
