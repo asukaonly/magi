@@ -1611,7 +1611,7 @@
           "label": "启用查询扩写",
           "description": "使用 LLM 为记忆查询生成额外检索表达，提升召回率，但会增加一次额外模型调用。"
         },
-        "cross_encoder_model_hint": "精排模型可在「大模型配置 → 模型选择 → 精排模型」中选择和下载。",
+        "cross_encoder_no_model_hint": "请先在「大模型配置 → 模型选择 → 精排模型」中配置 Cross-Encoder 模型，再启用此功能。",
         "reranker_model": {
           "label": "精排模型",
           "placeholder": "选择一个 Cross-Encoder 模型"

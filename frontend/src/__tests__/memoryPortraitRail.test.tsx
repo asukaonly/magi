@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { MemoryPortraitRail } from '@/components/chat/MemoryPortraitRail';
 import { memoryPortraitApi } from '@/api/modules/memoryPortrait';
@@ -42,8 +42,11 @@ describe('MemoryPortraitRail', () => {
       cold_start_reason: 'computing', is_stale: false,
     });
     render(<MemoryPortraitRail sessionId="s1" userId="u1" personaId="p1" />);
-    await waitFor(() => expect(screen.getByTestId('portrait-cold-start')).toBeInTheDocument());
-    expect(screen.getByText('hi')).toBeInTheDocument();
+    // The cold-start container also renders pre-resolution (the initial null payload
+    // shows the fallback line), so waiting for the container races the API-provided
+    // line. findByText retries until the resolved render shows the actual cold_start_line.
+    expect(await screen.findByText('hi')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-cold-start')).toBeInTheDocument();
   });
 
   it('renders nothing visible when sessionId is missing', () => {

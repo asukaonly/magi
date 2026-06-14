@@ -16,6 +16,7 @@ These tests pin the two prefix-stabilising guarantees for the system prompt:
 from __future__ import annotations
 
 from magi.agent.execution.function_calling.tools import build_tools_parameter
+from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.context.assembler import PromptContextRenderer
 from magi.context.schema import (
     IdentityConstraintContext,
@@ -70,6 +71,18 @@ def test_static_blocks_render_before_dynamic_blocks() -> None:
     assert i_tools < i_persona
     assert i_tools < i_memory
     assert i_tools < i_runtime
+
+
+def test_cache_boundary_sits_between_static_and_dynamic() -> None:
+    # The renderer emits the cache boundary after the static head (identity +
+    # tool catalog) and before the per-turn dynamic blocks (#110), so the
+    # provider bridge can mark only the stable head.
+    prompt = PromptContextRenderer().render_system_prompt(_assembly_context(["alpha_tool"]))
+
+    assert SYSTEM_PROMPT_CACHE_BOUNDARY in prompt
+    i_boundary = prompt.index(SYSTEM_PROMPT_CACHE_BOUNDARY)
+    assert prompt.index("# Tool Information") < i_boundary < prompt.index("# Persona Runtime Plan")
+    assert i_boundary < prompt.index("# System Information")
 
 
 class _FakeToolRegistry:

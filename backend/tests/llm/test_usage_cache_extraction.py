@@ -257,3 +257,39 @@ def test_cache_read_tokens_drive_cached_pricing_for_qwen() -> None:
     # The whole point: cached billing is materially cheaper now that
     # cache_read_tokens actually flows through.
     assert cached_amount < uncached_amount
+
+
+# ---------------------------------------------------------------------------
+# DashScope explicit cache: WRITE reported in cache_creation_input_tokens (#110)
+# ---------------------------------------------------------------------------
+
+
+def test_openai_usage_captures_dashscope_explicit_cache_creation() -> None:
+    resp = SimpleNamespace(
+        usage=SimpleNamespace(
+            prompt_tokens=1000,
+            completion_tokens=20,
+            total_tokens=1020,
+            prompt_tokens_details=SimpleNamespace(cached_tokens=0, cache_creation_input_tokens=900),
+        )
+    )
+
+    usage = M._extract_openai_usage(resp)
+
+    assert usage is not None
+    assert usage.cache_write_tokens == 900
+    assert usage.cache_read_tokens == 0
+
+
+def test_openai_stream_usage_captures_dashscope_explicit_cache_creation() -> None:
+    usage_data = SimpleNamespace(
+        prompt_tokens=1000,
+        completion_tokens=20,
+        total_tokens=1020,
+        prompt_tokens_details=SimpleNamespace(cached_tokens=0, cache_creation_input_tokens=900),
+    )
+
+    usage = M._extract_openai_stream_usage(usage_data)
+
+    assert usage is not None
+    assert usage.cache_write_tokens == 900

@@ -15,3 +15,10 @@ MIN_THINKING_TOKENS = 300
 
 # Minimum value constraints
 MIN_MAX_TOKENS = 1
+
+# Internal marker the renderer inserts between the byte-stable head of the
+# system prompt (identity/boundary/tool-catalog) and its per-turn dynamic tail
+# (persona/memory/runtime). The provider bridge splits on it to place a
+# prompt-cache breakpoint on the stable head, then strips it before sending so
+# it never reaches the model. See the unified prompt-cache layer (#110).
+SYSTEM_PROMPT_CACHE_BOUNDARY = "<!--MAGI_CACHE_BOUNDARY-->"

@@ -72,7 +72,7 @@ class ProviderBridgeToolStreamingMixin:
             "model": host.llm.model_name,
             "max_tokens": max_tokens,
             "temperature": temperature,
-            "system": system_prompt,
+            "system": host._cache_marked_system(system_prompt),
             "messages": api_messages,
             "tools": tools if tools else None,
             "timeout": timeout_seconds,
@@ -209,7 +209,7 @@ class ProviderBridgeToolStreamingMixin:
         timeout_seconds: Optional[float],
     ) -> ToolStreamResult:
         host = cast(_ToolStreamingHostProtocol, self)
-        full_messages = [{"role": "system", "content": system_prompt}] + host._convert_messages_to_openai(messages)
+        full_messages = [{"role": "system", "content": host._cache_marked_system(system_prompt)}] + host._convert_messages_to_openai(messages)
         kwargs: Dict[str, Any] = {
             "model": host.llm.model_name,
             "messages": full_messages,

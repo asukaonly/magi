@@ -21,6 +21,11 @@ interface MemorySettingsSectionProps {
   hasEmbeddingModel: boolean;
 }
 
+interface MemoryGeneralSettingsSectionProps
+  extends Omit<MemorySettingsSectionProps, 'updateMemoryToggle' | 'hasEmbeddingModel'> {
+  hasCrossEncoderModel: boolean;
+}
+
 function MemorySectionShell({
   className,
   children,
@@ -239,7 +244,8 @@ function VectorMaintenancePanel() {
 export function MemoryGeneralSettingsSection({
   draftConfig,
   patchDraftConfig,
-}: Omit<MemorySettingsSectionProps, 'updateMemoryToggle' | 'hasEmbeddingModel'>) {
+  hasCrossEncoderModel,
+}: MemoryGeneralSettingsSectionProps) {
   const { t } = useTranslation('app');
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -323,26 +329,16 @@ export function MemoryGeneralSettingsSection({
             label={t('settings.memory.fields.cross_encoder_enabled.label')}
             description={t('settings.memory.fields.cross_encoder_enabled.description')}
             checked={rerankerConfig.cross_encoder.enabled}
+            disabled={!hasCrossEncoderModel}
             onCheckedChange={(checked) => patchDraftConfig((draft) => {
               draft.memory.reranker.cross_encoder ??= { ...DEFAULT_SYSTEM_CONFIG.memory.reranker.cross_encoder };
               draft.memory.reranker.cross_encoder.enabled = checked;
             })}
           />
-
-          {rerankerConfig.cross_encoder.enabled ? (
-            <div className="pt-3 pb-2">
-              <NumberField
-                label={t('settings.memory.fields.reranker_top_k.label')}
-                value={rerankerConfig.top_k}
-                min={1}
-                onChange={(value) => patchDraftConfig((draft) => {
-                  draft.memory.reranker.top_k = value;
-                })}
-              />
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                {t('settings.memory.fields.cross_encoder_model_hint')}
-              </p>
-            </div>
+          {!hasCrossEncoderModel ? (
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {t('settings.memory.fields.cross_encoder_no_model_hint')}
+            </p>
           ) : null}
         </div>
       </MemoryGroup>
