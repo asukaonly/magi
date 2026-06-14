@@ -238,16 +238,17 @@ class ProviderBridgeOptionsMixin:
         """
         return inject_turn_context(messages, system_prompt)
 
-    def _mark_anthropic_history(
+    def _mark_message_cache_breakpoints(
         self,
         injected_messages: list[Dict[str, Any]],
         api_messages: list[Dict[str, Any]],
     ) -> list[Dict[str, Any]]:
-        """Add message-stream cache breakpoints to converted Anthropic messages.
+        """Add message-stream cache breakpoints to converted request messages.
 
-        Anthropic caches by prefix and (unlike auto-caching OpenAI-compatible
-        vendors) needs explicit markers. Two breakpoints, both 5m (they sit after
-        the 1h system head, satisfying Anthropic's 1h-before-5m ordering):
+        Marker vendors (Anthropic, DashScope — both honor inline ``cache_control``;
+        the latter verified by direct probe) cache by prefix and need explicit
+        markers. Two breakpoints, both 5m (they sit after the 1h system head,
+        satisfying Anthropic's 1h-before-5m ordering):
 
         - **Rolling history**: after P2a the per-turn context rides on the last
           user message, so the message *before* it is the stable history boundary
@@ -256,6 +257,12 @@ class ProviderBridgeOptionsMixin:
           mid-loop; mark the last message so the next loop iteration hits the
           growing tool history (P2b made it append-only/cacheable).
 
+        ``tool``-role messages are never marked: OpenAI-compatible tool results
+        carry role ``tool`` with plain-string content, and not every compat
+        endpoint accepts a content-block list there. Anthropic converts tool
+        results to role ``user``, so this guard never skips on the native path —
+        the Anthropic behavior is unchanged.
+
         Indices align 1:1 between ``injected_messages`` (raw, post turn-context
         injection) and ``api_messages`` (converted) since conversion is
         per-message. No-op for non-marker vendors or first turns.
@@ -263,8 +270,17 @@ class ProviderBridgeOptionsMixin:
         if not vendor_supports_cache_marker(self._marker_vendor()):
             return api_messages
         boundary_index = last_user_message_index(injected_messages) - 1
-        api_messages = mark_history_breakpoint(api_messages, boundary_index)
-        tail_active = bool(injected_messages) and injected_messages[-1].get("role") == "tool"
+        if (
+            0 <= boundary_index < len(api_messages)
+            and api_messages[boundary_index].get("role") != "tool"
+        ):
+            api_messages = mark_history_breakpoint(api_messages, boundary_index)
+        tail_active = (
+            bool(injected_messages)
+            and injected_messages[-1].get("role") == "tool"
+            and bool(api_messages)
+            and api_messages[-1].get("role") != "tool"
+        )
         return mark_tool_loop_tail_breakpoint(api_messages, active=tail_active)
 
     def _marker_vendor(self) -> ModelVendor:

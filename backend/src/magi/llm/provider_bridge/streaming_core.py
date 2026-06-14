@@ -102,7 +102,7 @@ class ProviderBridgeStreamingHostProtocol(Protocol):
     ) -> list[dict[str, Any]]:
         ...
 
-    def _mark_anthropic_history(
+    def _mark_message_cache_breakpoints(
         self,
         injected_messages: list[dict[str, Any]],
         api_messages: list[dict[str, Any]],
