@@ -76,6 +76,7 @@ class LLMUsageSubscriber:
                     completion_tokens=completion_tokens,
                     cache_read_tokens=int(attrs.get("cache_read_tokens", 0)),
                     cache_write_tokens=int(attrs.get("cache_write_tokens", 0)),
+                    cache_write_1h_tokens=int(attrs.get("cache_write_1h_tokens", 0)),
                 )
                 # Chat-first, embedding-fallback: embedding models are not chat
                 # models, so calculate_chat_cost returns (None, None) for them.

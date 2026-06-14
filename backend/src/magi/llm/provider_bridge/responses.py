@@ -92,6 +92,7 @@ class ProviderBridgeResponseMixin:
         input_tokens = int(getattr(usage_data, "input_tokens", 0) or 0)
         cache_read_tokens = int(getattr(usage_data, "cache_read_input_tokens", 0) or 0)
         cache_write_tokens = int(getattr(usage_data, "cache_creation_input_tokens", 0) or 0)
+        cache_write_1h_tokens = _nested_int(usage_data, "cache_creation", "ephemeral_1h_input_tokens")
         prompt_tokens = input_tokens + cache_read_tokens + cache_write_tokens
         completion_tokens = int(getattr(usage_data, "output_tokens", 0) or 0)
         return ProviderUsage(
@@ -101,6 +102,7 @@ class ProviderBridgeResponseMixin:
             reasoning_tokens=0,
             cache_read_tokens=cache_read_tokens,
             cache_write_tokens=cache_write_tokens,
+            cache_write_1h_tokens=cache_write_1h_tokens,
         )
 
     @staticmethod
@@ -392,6 +394,9 @@ class ProviderBridgeResponseMixin:
         input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
         cache_read_tokens = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
         cache_write_tokens = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+        # 1h-TTL writes are billed at 2x base input vs 1.25x for 5m; the API
+        # reports the split under usage.cache_creation.ephemeral_1h_input_tokens.
+        cache_write_1h_tokens = _nested_int(usage, "cache_creation", "ephemeral_1h_input_tokens")
         prompt_tokens = input_tokens + cache_read_tokens + cache_write_tokens
         completion_tokens = int(getattr(usage, "output_tokens", 0) or 0)
         return ProviderUsage(
@@ -401,6 +406,7 @@ class ProviderBridgeResponseMixin:
             reasoning_tokens=0,
             cache_read_tokens=cache_read_tokens,
             cache_write_tokens=cache_write_tokens,
+            cache_write_1h_tokens=cache_write_1h_tokens,
         )
 
     def _attach_trace_metrics(
@@ -422,6 +428,7 @@ class ProviderBridgeResponseMixin:
             "reasoning_tokens": int(usage.reasoning_tokens if usage else 0),
             "cache_read_tokens": int(usage.cache_read_tokens if usage else 0),
             "cache_write_tokens": int(usage.cache_write_tokens if usage else 0),
+            "cache_write_1h_tokens": int(usage.cache_write_1h_tokens if usage else 0),
             "thinking_enabled": thinking_depth != ThinkingDepth.NONE,
             "thinking_depth": thinking_depth.value,
             "duration_ms": int(latency_ms),
@@ -471,6 +478,7 @@ class ProviderBridgeResponseMixin:
         reasoning_tokens = self._usage_int(usage, "reasoning_tokens")
         cache_read_tokens = self._usage_int(usage, "cache_read_tokens")
         cache_write_tokens = self._usage_int(usage, "cache_write_tokens")
+        cache_write_1h_tokens = self._usage_int(usage, "cache_write_1h_tokens")
         request_preview = (
             str(context.get("request_preview") or context.get("input_preview") or "").strip()
             or None
@@ -522,6 +530,7 @@ class ProviderBridgeResponseMixin:
                     "reasoning_tokens": reasoning_tokens,
                     "cache_read_tokens": cache_read_tokens,
                     "cache_write_tokens": cache_write_tokens,
+                    "cache_write_1h_tokens": cache_write_1h_tokens,
                     "usage_available": usage is not None,
                     "request_preview": request_preview,
                     "response_preview": response_preview,

@@ -293,3 +293,71 @@ def test_openai_stream_usage_captures_dashscope_explicit_cache_creation() -> Non
 
     assert usage is not None
     assert usage.cache_write_tokens == 900
+
+
+# ---------------------------------------------------------------------------
+# 1-hour TTL cache writes bill at 2x input (Anthropic), not the 5m rate (#100)
+# ---------------------------------------------------------------------------
+
+
+def test_anthropic_1h_cache_write_bills_at_2x_input() -> None:
+    """A 1h cache write costs 2x base input; a 5m write costs 1.25x.
+
+    claude-sonnet-4-6: input 3.0/M, 5m write 3.75/M, 1h write 6.0/M (2x input).
+    """
+    write_5m, currency = calculate_chat_cost(
+        provider="anthropic", model="claude-sonnet-4-6",
+        prompt_tokens=1_000_000, completion_tokens=0,
+        cache_write_tokens=1_000_000, cache_write_1h_tokens=0,
+    )
+    write_1h, _ = calculate_chat_cost(
+        provider="anthropic", model="claude-sonnet-4-6",
+        prompt_tokens=1_000_000, completion_tokens=0,
+        cache_write_tokens=1_000_000, cache_write_1h_tokens=1_000_000,
+    )
+    assert currency == "USD"
+    assert write_5m == pytest.approx(3.75)   # 5m rate from registry
+    assert write_1h == pytest.approx(6.0)    # 2x input, not the 5m 3.75
+    assert write_1h > write_5m
+
+
+def test_mixed_5m_and_1h_writes_split_correctly() -> None:
+    # 1M total writes, half 1h: 0.5M @ 6.0 + 0.5M @ 3.75 = 3.0 + 1.875 = 4.875
+    amount, _ = calculate_chat_cost(
+        provider="anthropic", model="claude-sonnet-4-6",
+        prompt_tokens=1_000_000, completion_tokens=0,
+        cache_write_tokens=1_000_000, cache_write_1h_tokens=500_000,
+    )
+    assert amount == pytest.approx(0.5 * 6.0 + 0.5 * 3.75)
+
+
+def test_anthropic_usage_captures_1h_cache_write_portion() -> None:
+    resp = SimpleNamespace(
+        usage=SimpleNamespace(
+            input_tokens=300,
+            output_tokens=200,
+            cache_read_input_tokens=2000,
+            cache_creation_input_tokens=500,
+            cache_creation=SimpleNamespace(
+                ephemeral_5m_input_tokens=200,
+                ephemeral_1h_input_tokens=300,
+            ),
+        )
+    )
+    usage = M._extract_anthropic_usage(resp)
+    assert usage is not None
+    assert usage.cache_write_tokens == 500          # total (5m + 1h)
+    assert usage.cache_write_1h_tokens == 300       # the 1h portion only
+
+
+def test_anthropic_usage_1h_portion_zero_without_breakdown() -> None:
+    resp = SimpleNamespace(
+        usage=SimpleNamespace(
+            input_tokens=300, output_tokens=200,
+            cache_read_input_tokens=0, cache_creation_input_tokens=500,
+        )
+    )
+    usage = M._extract_anthropic_usage(resp)
+    assert usage is not None
+    assert usage.cache_write_tokens == 500
+    assert usage.cache_write_1h_tokens == 0
