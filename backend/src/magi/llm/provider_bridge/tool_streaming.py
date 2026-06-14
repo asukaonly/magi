@@ -32,6 +32,7 @@ class ProviderBridgeToolStreamingMixin:
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
+        event_context: Optional[Dict[str, Any]] = None,
     ) -> ToolStreamResult:
         """Stream an LLM call with tools."""
         host = cast(_ToolStreamingHostProtocol, self)
@@ -53,6 +54,7 @@ class ProviderBridgeToolStreamingMixin:
             temperature=temperature,
             thinking_depth=thinking_depth,
             timeout_seconds=timeout_seconds,
+            event_context=event_context,
         )
 
     async def _stream_anthropic_with_tools(
@@ -246,6 +248,7 @@ class ProviderBridgeToolStreamingMixin:
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
+        event_context: Optional[Dict[str, Any]] = None,
     ) -> ToolStreamResult:
         host = cast(_ToolStreamingHostProtocol, self)
         messages = host._inject_turn_context(messages, system_prompt)
@@ -262,6 +265,7 @@ class ProviderBridgeToolStreamingMixin:
         if timeout_seconds is not None:
             kwargs["timeout"] = timeout_seconds
         kwargs = host._apply_provider_options(kwargs, thinking_depth)
+        kwargs = host._apply_cache_routing(kwargs, event_context)
 
         stream = await host.llm._client.chat.completions.create(**kwargs)
 

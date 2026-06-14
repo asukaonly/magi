@@ -269,6 +269,7 @@ class LLMProviderBridge:
                     temperature=temperature,
                     thinking_depth=depth,
                     timeout_seconds=timeout_seconds,
+                    event_context=event_context,
                 ),
             )
 
@@ -335,6 +336,7 @@ class LLMProviderBridge:
                     temperature=temperature,
                     thinking_depth=depth,
                     timeout_seconds=timeout_seconds,
+                    event_context=event_context,
                 ),
             )
 

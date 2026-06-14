@@ -56,7 +56,42 @@ def strip_boundary(system: str) -> str:
     return f"{head}\n{tail}" if tail else head
 
 
-def cache_marked_system_content(system: str, *, supports_marker: bool) -> str | list[dict[str, Any]]:
+def _ephemeral(ttl: str | None = None) -> dict[str, Any]:
+    """An ``ephemeral`` cache_control marker, optionally with a longer TTL.
+
+    No ``ttl`` field means Anthropic's 5-minute default (1.25x write); ``"1h"``
+    extends it to one hour (2x write) — worth it only for entries reused widely
+    enough to amortize the premium. Anthropic requires any 1h breakpoint to
+    appear before all 5m ones; render order (tools → system → messages) keeps a
+    1h system head ahead of 5m message markers automatically.
+    """
+    marker: dict[str, Any] = {"type": "ephemeral"}
+    if ttl:
+        marker["ttl"] = ttl
+    return marker
+
+
+def _mark_last_block(message: dict[str, Any], ttl: str | None) -> dict[str, Any] | None:
+    """Copy ``message`` with a cache_control on its last content block.
+
+    String content is promoted to a one-element text block so the marker has
+    somewhere to live. Returns None when there is nothing to mark (empty/None
+    content). The input is never mutated.
+    """
+    content = message.get("content")
+    if isinstance(content, str):
+        new_content: Any = [{"type": "text", "text": content, "cache_control": _ephemeral(ttl)}]
+    elif isinstance(content, list) and content:
+        new_content = [dict(block) for block in content]
+        new_content[-1] = {**new_content[-1], "cache_control": _ephemeral(ttl)}
+    else:
+        return None
+    return {**message, "content": new_content}
+
+
+def cache_marked_system_content(
+    system: str, *, supports_marker: bool, ttl: str | None = None
+) -> str | list[dict[str, Any]]:
     """Return the SYSTEM field content: the byte-stable head only.
 
     The per-turn tail (after the boundary) is NOT returned here — it is moved
@@ -64,7 +99,8 @@ def cache_marked_system_content(system: str, *, supports_marker: bool) -> str | 
     plus the conversation history form one stable, cacheable prefix (#100/P2).
 
     - marker vendor + boundary: a content-block list with an ``ephemeral``
-      cache_control on the head.
+      cache_control on the head (with optional ``ttl`` for marker vendors that
+      support it, e.g. Anthropic's ``"1h"``).
     - non-marker vendor + boundary: the head as a plain ``str``.
     - no boundary: the system unchanged (nothing to split out).
     """
@@ -74,7 +110,7 @@ def cache_marked_system_content(system: str, *, supports_marker: bool) -> str | 
 
     head, _tail = parts
     if supports_marker:
-        return [{"type": "text", "text": head, "cache_control": {"type": "ephemeral"}}]
+        return [{"type": "text", "text": head, "cache_control": _ephemeral(ttl)}]
     return head
 
 
@@ -112,8 +148,23 @@ def last_user_message_index(messages: list[dict[str, Any]]) -> int:
     return -1
 
 
+def _mark_at(
+    api_messages: list[dict[str, Any]], index: int, ttl: str | None
+) -> list[dict[str, Any]]:
+    """Return a copy of ``api_messages`` with a breakpoint on message ``index``'s
+    last block; a no-op (same list, unmutated) for out-of-range or unmarkable."""
+    if index < 0 or index >= len(api_messages):
+        return api_messages
+    marked = _mark_last_block(api_messages[index], ttl)
+    if marked is None:
+        return api_messages
+    out = list(api_messages)
+    out[index] = marked
+    return out
+
+
 def mark_history_breakpoint(
-    api_messages: list[dict[str, Any]], boundary_index: int
+    api_messages: list[dict[str, Any]], boundary_index: int, *, ttl: str | None = None
 ) -> list[dict[str, Any]]:
     """Place an ``ephemeral`` cache_control on the last content block of the
     message at ``boundary_index`` — the stable history boundary.
@@ -121,28 +172,27 @@ def mark_history_breakpoint(
     Anthropic caches by prefix and needs an explicit breakpoint; placing it on
     the message *before* the volatile per-turn context lets the older history be
     reused across turns while the current turn stays uncached (a rolling
-    breakpoint). String content is promoted to a one-element text block so the
-    marker has somewhere to live. Returns a new list; the input is not mutated.
-    Out-of-range indices are a no-op.
+    breakpoint). Returns a new list; the input is not mutated. Out-of-range
+    indices are a no-op.
     """
-    if boundary_index < 0 or boundary_index >= len(api_messages):
-        return api_messages
+    return _mark_at(api_messages, boundary_index, ttl)
 
-    target = api_messages[boundary_index]
-    content = target.get("content")
-    if isinstance(content, str):
-        new_content: Any = [
-            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
-        ]
-    elif isinstance(content, list) and content:
-        new_content = [dict(block) for block in content]
-        new_content[-1] = {**new_content[-1], "cache_control": {"type": "ephemeral"}}
-    else:
-        return api_messages
 
-    out = list(api_messages)
-    out[boundary_index] = {**target, "content": new_content}
-    return out
+def mark_tool_loop_tail_breakpoint(
+    api_messages: list[dict[str, Any]], *, active: bool, ttl: str | None = None
+) -> list[dict[str, Any]]:
+    """Place a breakpoint on the LAST message (the growing tool-result tail).
+
+    Within a single agentic turn the tool loop re-calls the model with an
+    ever-growing message list; marking the tail lets each iteration hit the
+    previous one's cache. Only when ``active`` — i.e. the raw turn ends in a
+    tool result — because otherwise the last message holds the volatile per-turn
+    context and marking it would just waste a (never-reused) cache write.
+    Returns a new list; the input is not mutated.
+    """
+    if not active:
+        return api_messages
+    return _mark_at(api_messages, len(api_messages) - 1, ttl)
 
 
 def inject_turn_context(messages: list[dict[str, Any]], system: str) -> list[dict[str, Any]]:

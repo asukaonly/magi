@@ -52,6 +52,11 @@ class _ProviderBridgeRequestHostProtocol(Protocol):
     ) -> list[dict[str, Any]]:
         ...
 
+    def _apply_cache_routing(
+        self, kwargs: dict[str, Any], event_context: Optional[dict[str, Any]]
+    ) -> dict[str, Any]:
+        ...
+
     def _parse_anthropic_response(self, response: Any) -> ProviderResponse:
         ...
 
@@ -143,6 +148,7 @@ class ProviderBridgeRequestMixin:
         if timeout_seconds is not None:
             chat_kwargs["timeout"] = timeout_seconds
         chat_kwargs = host._apply_provider_options(chat_kwargs, thinking_depth)
+        chat_kwargs = host._apply_cache_routing(chat_kwargs, event_context)
 
         if getattr(host.llm, "_client", None) is not None:
             chat_kwargs["model"] = host.llm.model_name
@@ -261,6 +267,7 @@ class ProviderBridgeRequestMixin:
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
+        event_context: Optional[Dict[str, Any]] = None,
     ) -> ProviderResponse:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
         messages = host._inject_turn_context(messages, system_prompt)
@@ -292,6 +299,7 @@ class ProviderBridgeRequestMixin:
         if timeout_seconds is not None:
             kwargs["timeout"] = timeout_seconds
         kwargs = host._apply_provider_options(kwargs, thinking_depth)
+        kwargs = host._apply_cache_routing(kwargs, event_context)
 
         response = await host.llm._client.chat.completions.create(**kwargs)
         return host._parse_openai_response(response)
