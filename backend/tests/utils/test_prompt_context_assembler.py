@@ -97,10 +97,13 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
         i5 = prompt.find("# Tool Information")
 
         self.assertTrue(i1 >= 0)
-        self.assertTrue(i2 > i1)
-        self.assertTrue(i3 > i1)
+        # Cache-prefix order (issue #97): identity first, then the static tool
+        # catalog, then the per-turn dynamic blocks (persona -> profile ->
+        # runtime system info).
+        self.assertTrue(i5 > i1)
+        self.assertTrue(i2 > i5)
+        self.assertTrue(i3 > i2)
         self.assertTrue(i4 > i3)
-        self.assertTrue(i5 > i4)
         self.assertIn("weather", prompt)
         self.assertIn("* User Name: 哈基米", prompt)
         self.assertIn("* Preferred Address: 哈基米", prompt)
