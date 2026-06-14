@@ -860,6 +860,7 @@
       "summaryStepsValue": "{{completed}} done / {{failed}} failed",
       "summaryMode": "Mode",
       "summaryTokens": "Token Usage",
+      "cacheTokens": "Cache Tokens",
       "summaryTokensValue": "In {{input}} / Out {{output}}",
       "summaryTokensWithReasoning": "In {{input}} / Out {{output}} / Think {{reasoning}}",
       "statusRunning": "running",

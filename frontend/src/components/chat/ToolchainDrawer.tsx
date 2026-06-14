@@ -87,6 +87,13 @@ const formatTokenCount = (input?: number, output?: number, reasoning?: number): 
   return parts.length > 0 ? parts.join(' / ') : '--';
 };
 
+const formatCacheTokens = (read?: number, write?: number): string => {
+  const parts: string[] = [];
+  if (read) parts.push(`Read ${read.toLocaleString()}`);
+  if (write) parts.push(`Write ${write.toLocaleString()}`);
+  return parts.length > 0 ? parts.join(' / ') : '--';
+};
+
 const asRecord = (value: unknown): Record<string, unknown> => (
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 );
@@ -246,6 +253,7 @@ const NodeDetails = ({ node }: { node: NormalizedExecutionTraceNode }) => {
   const metadataDefaultOpen = node.status === 'failed' || node.status === 'running';
   const hasModelInfo = hasValue(meta.model) || hasValue(meta.provider);
   const hasTokenInfo = Boolean(meta.input_tokens || meta.output_tokens || meta.reasoning_tokens);
+  const hasCacheInfo = Boolean(meta.cache_read_tokens || meta.cache_write_tokens);
   const hasRouteReason = hasValue(meta.route_reason);
   const isSkillNode = node.kind === 'skill' || node.kind === 'skill_call';
   const skillAllowedTools = isSkillNode ? asStringArray(meta.allowed_tools) : [];
@@ -263,6 +271,12 @@ const NodeDetails = ({ node }: { node: NormalizedExecutionTraceNode }) => {
           <DetailField
             label={t('chat.trace.summaryTokens')}
             value={formatTokenCount(Number(meta.input_tokens || 0), Number(meta.output_tokens || 0), Number(meta.reasoning_tokens || 0))}
+          />
+        )}
+        {hasCacheInfo && (
+          <DetailField
+            label={t('chat.trace.cacheTokens')}
+            value={formatCacheTokens(Number(meta.cache_read_tokens || 0), Number(meta.cache_write_tokens || 0))}
           />
         )}
         {hasValue(meta.intent_label) && <DetailField label={t('chat.trace.intentLabel')} value={String(meta.intent_label)} />}

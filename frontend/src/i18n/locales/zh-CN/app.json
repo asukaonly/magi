@@ -859,6 +859,7 @@
       "summaryStepsValue": "{{completed}} 个完成 / {{failed}} 个失败",
       "summaryMode": "模式",
       "summaryTokens": "Token 用量",
+      "cacheTokens": "缓存 Token",
       "summaryTokensValue": "输入 {{input}} / 输出 {{output}}",
       "summaryTokensWithReasoning": "输入 {{input}} / 输出 {{output}} / 思考 {{reasoning}}",
       "statusRunning": "running",
