@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next';
 
 import { useInstallableSensors } from '../../hooks/useInstallableSensors';
 import { usePluginInstallPanelStore } from '../../stores/pluginInstallPanel';
+import { useChatShellStore } from '../../stores/chat-shell';
 import {
   EMPTY_STATE_PRIORITY_PLUGINS,
   getEmptyStatePluginMeta,
+  type EmptyStatePluginMeta,
 } from '../../constants/emptyStatePriorities';
 import type { InstallableItem } from '../../api/modules/systemSuggestions';
 import { EmptyStateSensorCard } from './EmptyStateSensorCard';
@@ -53,6 +55,13 @@ function priorityIndex(pluginId: string): number {
   return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
 }
 
+/**
+ * Hard cap on how many cards the empty-state list renders. Items beyond the
+ * top-N (by priority, after dropping metadata-less ones) stay behind the
+ * "Browse all plugins" marketplace exit rather than growing the list.
+ */
+const MAX_EMPTY_STATE_CARDS = 5;
+
 export function EmptyStateAvailableSensors({
   excludePluginIds,
 }: EmptyStateAvailableSensorsProps): JSX.Element | null {
@@ -65,18 +74,36 @@ export function EmptyStateAvailableSensors({
   // own done state. This component no longer renders its own dialog.
   const openPanel = usePluginInstallPanelStore((s) => s.openPanel);
 
+  // "Browse all plugins" footer deep-links into Settings → plugin marketplace,
+  // the full catalog beyond the META-whitelisted empty-state cards. Same intent
+  // mechanism ScheduleConfigPage uses to jump into a settings section.
+  const setActivePanel = useChatShellStore((s) => s.setActivePanel);
+  const setSettingsNavigationIntent = useChatShellStore(
+    (s) => s.setSettingsNavigationIntent,
+  );
+
   const excluded = useMemo(
     () => new Set(excludePluginIds ?? []),
     [excludePluginIds],
   );
 
-  // Filter out excluded plugins, then order by the empty-state priority list
-  // (plugins not in the list go last, stable).
-  const ordered = useMemo<InstallableItem[]>(() => {
-    const visible = items.filter((item) => !excluded.has(item.plugin_id));
-    return [...visible].sort(
+  // Filter out excluded plugins, order by the empty-state priority list (plugins
+  // not in the list go last, stable), drop items without display metadata, then
+  // cap to the top MAX_EMPTY_STATE_CARDS — the remainder stays behind the
+  // marketplace exit so the empty state never grows unbounded.
+  const visible = useMemo<{ item: InstallableItem; meta: EmptyStatePluginMeta }[]>(() => {
+    const candidates = items.filter((item) => !excluded.has(item.plugin_id));
+    const sorted = [...candidates].sort(
       (a, b) => priorityIndex(a.plugin_id) - priorityIndex(b.plugin_id),
     );
+    const withMeta: { item: InstallableItem; meta: EmptyStatePluginMeta }[] = [];
+    for (const item of sorted) {
+      const meta = getEmptyStatePluginMeta(item.plugin_id);
+      if (meta) {
+        withMeta.push({ item, meta });
+      }
+    }
+    return withMeta.slice(0, MAX_EMPTY_STATE_CARDS);
   }, [items, excluded]);
 
   if (loading) {
@@ -84,8 +111,28 @@ export function EmptyStateAvailableSensors({
     // flips loading=false once items are populated.
     return null;
   }
-  if (ordered.length === 0) {
-    return null;
+
+  // "Browse all plugins" always-available exit into the full marketplace —
+  // rendered even when no cards are available on this device, so the user is
+  // never left without a way in.
+  const browseAll = (
+    <button
+      type="button"
+      data-testid="empty-state-browse-all"
+      onClick={() => {
+        setSettingsNavigationIntent({ section: 'pluginsMarketplace' });
+        setActivePanel('settings');
+      }}
+      className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
+    >
+      {t('emptyState.browseAll')}
+    </button>
+  );
+
+  if (visible.length === 0) {
+    // No device-available, whitelisted cards — still surface the marketplace
+    // exit rather than rendering nothing.
+    return <div className="text-left">{browseAll}</div>;
   }
 
   return (
@@ -97,30 +144,25 @@ export function EmptyStateAvailableSensors({
         {t('emptyState.heading')}
       </h3>
       <div className="divide-y divide-border/55 overflow-hidden rounded-lg border border-border/55">
-        {ordered.map((item) => {
-          const meta = getEmptyStatePluginMeta(item.plugin_id);
-          if (!meta) {
-            return null;
-          }
-          return (
-            <EmptyStateSensorCard
-              key={item.plugin_id}
-              pluginId={item.plugin_id}
-              titleKey={meta.titleKey}
-              valueKey={meta.valueKey}
-              iconId={meta.iconId}
-              connectLabelKey={
-                item.installed ? 'emptyState.connect' : 'emptyState.installAndConnect'
-              }
-              onConnect={(pluginId) => {
-                // Install-first for registry-only items: the panel downloads
-                // from the registry before the connect flow runs.
-                openPanel(pluginId, { install: !item.installed });
-              }}
-            />
-          );
-        })}
+        {visible.map(({ item, meta }) => (
+          <EmptyStateSensorCard
+            key={item.plugin_id}
+            pluginId={item.plugin_id}
+            titleKey={meta.titleKey}
+            valueKey={meta.valueKey}
+            iconId={meta.iconId}
+            connectLabelKey={
+              item.installed ? 'emptyState.connect' : 'emptyState.installAndConnect'
+            }
+            onConnect={(pluginId) => {
+              // Install-first for registry-only items: the panel downloads
+              // from the registry before the connect flow runs.
+              openPanel(pluginId, { install: !item.installed });
+            }}
+          />
+        ))}
       </div>
+      {browseAll}
     </div>
   );
 }

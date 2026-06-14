@@ -29,6 +29,11 @@ const META: Record<string, EmptyStatePluginMeta> = {
     valueKey: 'emptyState.plugins.chromeHistory.value',
     iconId: 'chrome',
   },
+  'screenshot_timeline': {
+    titleKey: 'emptyState.plugins.screenshotTimeline.title',
+    valueKey: 'emptyState.plugins.screenshotTimeline.value',
+    iconId: 'screen',
+  },
   'calendar': {
     titleKey: 'emptyState.plugins.calendar.title',
     valueKey: 'emptyState.plugins.calendar.value',
@@ -57,6 +62,7 @@ const META: Record<string, EmptyStatePluginMeta> = {
 export const EMPTY_STATE_PRIORITY_PLUGINS = [
   'chrome-history',
   'coding_agent_history',
+  'screenshot_timeline',
   'calendar',
   'git-activity',
   'photo-library',
