@@ -43,6 +43,7 @@ type ActivityPanel = Exclude<ChatPanelType, 'none'>;
 const MEMORY_DESTINATIONS = [
   { key: 'stories', path: '/memory/stories' },
   { key: 'episodes', path: '/memory/episodes' },
+  { key: 'knowledge', path: '/memory/knowledge' },
   { key: 'portrait', path: '/memory/portrait' },
   { key: 'recall', path: '/memory/recall' },
   { key: 'governance', path: '/memory/governance' },
