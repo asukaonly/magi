@@ -120,13 +120,31 @@ async def test_no_history_breakpoint_on_first_turn() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_result_history_breakpoint_targets_pre_turn_message() -> None:
+async def test_system_head_uses_1h_ttl() -> None:
+    client = _RecordingMessagesClient(_text_response())
+    bridge = _bridge(client)
+
+    await bridge.chat_response(
+        system_prompt=SYS,
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    # The stable system head is written with a 1h TTL (it is reused across turns
+    # and conversations, so the 2x write amortizes); message markers stay 5m.
+    system = client.kwargs["system"]
+    assert system[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+
+@pytest.mark.asyncio
+async def test_tool_loop_marks_pre_turn_history_and_tool_result_tail() -> None:
     client = _RecordingMessagesClient(_text_response())
     bridge = _bridge(client)
 
     # A completed prior turn, then the current human turn that kicked off a tool
-    # loop (tool results are role "tool"). The breakpoint must target the prior
-    # turn's assistant message, never the tool results that grow this turn.
+    # loop (tool results are role "tool"). Two message breakpoints: the rolling
+    # history boundary (a1, reused across turns) and the growing tool-result tail
+    # (reused across iterations of THIS turn's loop). The mid-loop tool_use turn
+    # is never a breakpoint.
     await bridge.chat_with_tools(
         system_prompt=SYS,
         messages=[
@@ -143,8 +161,9 @@ async def test_tool_result_history_breakpoint_targets_pre_turn_message() -> None
     )
 
     sent = client.kwargs["messages"]
-    # last user message (raw) is u2 at index 2 -> breakpoint on a1 at index 1.
+    # rolling history boundary: last raw user is u2 (index 2) -> breakpoint on a1.
     assert sent[1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
-    # the tool_use turn and the tool_result turn are uncached (grow this turn).
+    # the mid-loop assistant tool_use turn is NOT a breakpoint.
     assert "cache_control" not in str(sent[3])
-    assert "cache_control" not in str(sent[4])
+    # the tool-result tail IS a breakpoint (5m), so the next loop iteration hits.
+    assert sent[4]["content"][-1]["cache_control"] == {"type": "ephemeral"}

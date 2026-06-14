@@ -9,6 +9,7 @@ from magi.llm.provider_bridge.cache_policy import (
     inject_turn_context,
     last_user_message_index,
     mark_history_breakpoint,
+    mark_tool_loop_tail_breakpoint,
     split_on_boundary,
     vendor_supports_cache_marker,
 )
@@ -51,6 +52,18 @@ def test_unsupported_provider_system_is_head_only() -> None:
 def test_supported_provider_marks_head_only_no_tail_block() -> None:
     out = cache_marked_system_content(SYS, supports_marker=True)
     assert out == [{"type": "text", "text": STABLE, "cache_control": {"type": "ephemeral"}}]
+
+
+def test_system_head_accepts_1h_ttl() -> None:
+    out = cache_marked_system_content(SYS, supports_marker=True, ttl="1h")
+    assert out == [
+        {"type": "text", "text": STABLE, "cache_control": {"type": "ephemeral", "ttl": "1h"}}
+    ]
+
+
+def test_system_head_default_ttl_omits_field() -> None:
+    out = cache_marked_system_content(SYS, supports_marker=True, ttl=None)
+    assert out[0]["cache_control"] == {"type": "ephemeral"}  # no ttl key -> 5m default
 
 
 def test_no_boundary_system_unchanged() -> None:
@@ -157,4 +170,28 @@ def test_mark_history_breakpoint_noop_for_out_of_range_index() -> None:
     assert mark_history_breakpoint(api, -1) == api
     assert mark_history_breakpoint(api, 5) == api
     # nothing marked
+    assert "cache_control" not in str(api)
+
+
+# --- tool-loop tail breakpoint (Anthropic) ---
+
+
+def test_mark_tool_loop_tail_marks_last_message_when_active() -> None:
+    api = [
+        {"role": "user", "content": [{"type": "text", "text": "u1"}]},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "bash", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "{}"}]},
+    ]
+    out = mark_tool_loop_tail_breakpoint(api, active=True)
+    # the growing tool-result tail caches for the next loop iteration
+    assert out[-1]["content"][-1]["cache_control"] == EPHEMERAL
+    # earlier messages untouched; input not mutated
+    assert "cache_control" not in str(api)
+
+
+def test_mark_tool_loop_tail_noop_when_inactive() -> None:
+    # simple turn: last message holds volatile per-turn context -> marking it
+    # would only waste a cache write, so the tail breakpoint must stay off.
+    api = [{"role": "user", "content": [{"type": "text", "text": "ctx+q"}]}]
+    assert mark_tool_loop_tail_breakpoint(api, active=False) == api
     assert "cache_control" not in str(api)
