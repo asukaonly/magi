@@ -66,6 +66,12 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     # last few rounds is summarized; raw payloads stay full-fidelity for recent
     # turns where the LLM is most likely to reference them.
     _RAW_TOOL_HISTORY_LIMIT = 4
+    # Hysteresis high-water mark: only compact once raw tool blocks reach this,
+    # then reduce back to _RAW_TOOL_HISTORY_LIMIT in one batch. Between triggers
+    # the tool history is append-only, so the request prefix stays byte-stable
+    # and the provider prompt-cache keeps hitting through the loop; most tool
+    # loops never reach this and so never break the cache (#100/P2b).
+    _COMPACT_TRIGGER = 12
     # How many failed iterations we tolerate before forcing a re-plan. Two
     # gives the LLM one opportunity to self-correct without loop-thrashing.
     _FAILED_ITERATION_REPLAN_LIMIT = 2
