@@ -7,9 +7,13 @@ from magi.llm.provider_bridge.cache_policy import (
     cache_marked_system_content,
     extract_turn_context,
     inject_turn_context,
+    last_user_message_index,
+    mark_history_breakpoint,
     split_on_boundary,
     vendor_supports_cache_marker,
 )
+
+EPHEMERAL = {"type": "ephemeral"}
 
 STABLE = "STABLE HEAD identity + boundary + tool catalog + persona"
 DYNAMIC = "DYNAMIC TAIL memory + time"
@@ -100,3 +104,57 @@ def test_inject_no_user_message_appends_context_turn() -> None:
     out = inject_turn_context(messages, SYS)
     assert out[-1]["role"] == "user"
     assert DYNAMIC in out[-1]["content"]
+
+
+# --- rolling history cache breakpoint (Anthropic) ---
+
+
+def test_last_user_message_index() -> None:
+    msgs = [
+        {"role": "user", "content": "u1"},
+        {"role": "assistant", "content": "a1"},
+        {"role": "user", "content": "u2"},
+        {"role": "assistant", "content": "a2"},
+    ]
+    assert last_user_message_index(msgs) == 2
+    # tool-loop shape: tool results sit after the human turn but are role "tool"
+    loop = [
+        {"role": "user", "content": "u1"},
+        {"role": "assistant", "content": "", "tool_calls": []},
+        {"role": "tool", "tool_call_id": "t1", "content": "{}"},
+    ]
+    assert last_user_message_index(loop) == 0
+    assert last_user_message_index([{"role": "assistant", "content": "a"}]) == -1
+
+
+def test_mark_history_breakpoint_marks_last_block_of_boundary_message() -> None:
+    api = [
+        {"role": "user", "content": [{"type": "text", "text": "u1"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "a1"}]},
+        {"role": "user", "content": [{"type": "text", "text": "ctx+u2"}]},
+    ]
+    out = mark_history_breakpoint(api, 1)
+    # boundary message gets the breakpoint on its last block
+    assert out[1]["content"][-1]["cache_control"] == EPHEMERAL
+    # current turn (carries turn_context) stays unmarked -> reusable next turn
+    assert "cache_control" not in out[2]["content"][-1]
+    # earlier history untouched
+    assert "cache_control" not in out[0]["content"][-1]
+    # input not mutated
+    assert "cache_control" not in api[1]["content"][-1]
+
+
+def test_mark_history_breakpoint_promotes_string_content_to_block() -> None:
+    api = [{"role": "assistant", "content": "plain answer"}]
+    out = mark_history_breakpoint(api, 0)
+    assert out[0]["content"] == [
+        {"type": "text", "text": "plain answer", "cache_control": EPHEMERAL}
+    ]
+
+
+def test_mark_history_breakpoint_noop_for_out_of_range_index() -> None:
+    api = [{"role": "user", "content": "u1"}]
+    assert mark_history_breakpoint(api, -1) == api
+    assert mark_history_breakpoint(api, 5) == api
+    # nothing marked
+    assert "cache_control" not in str(api)
