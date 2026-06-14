@@ -97,6 +97,11 @@ class ProviderBridgeStreamingHostProtocol(Protocol):
     def _cache_marked_system(self, system_prompt: str) -> Any:
         ...
 
+    def _inject_turn_context(
+        self, messages: list[dict[str, Any]], system_prompt: str
+    ) -> list[dict[str, Any]]:
+        ...
+
     def _anthropic_usage_to_wire(self, usage_data: Any) -> dict[str, int] | None:
         ...
 

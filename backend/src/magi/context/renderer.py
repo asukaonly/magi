@@ -57,16 +57,23 @@ class PromptContextRenderer:
                 suppress_imperatives=suppress_tool_imperatives,
             ))
 
-        # Cache boundary: everything above (identity + tool catalog) is the
-        # byte-stable head; the per-turn dynamic blocks below follow. The
-        # provider bridge splits here to place a prompt-cache breakpoint on the
-        # head for marker-capable providers, and strips this marker before
-        # sending so it never reaches the model (#110).
-        lines.append(SYSTEM_PROMPT_CACHE_BOUNDARY)
-
-        # Per-turn dynamic blocks — kept after the stable prefix.
+        # Persona stays in the byte-stable head: its identity/voice is stable
+        # across turns (register shifts only occasionally), so keeping it cached
+        # with identity + tool catalog both grows the cached head and avoids
+        # relocating persona — which would change how the model "sees" it
+        # (#100/P2a).
         lines.extend(self._render_persona_turn_plan(context.self_memory.persona_turn_plan))
         lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
+
+        # Cache boundary: identity + tool catalog + persona above is the stable
+        # head; the per-turn blocks below (memory / profile / runtime+time /
+        # attachments) are moved OUT of the system prompt into the message stream
+        # by the provider bridge (#100/P2a), so the system head + conversation
+        # history stay a byte-stable, cacheable prefix. The marker is stripped
+        # before sending so it never reaches the model.
+        lines.append(SYSTEM_PROMPT_CACHE_BOUNDARY)
+
+        # Per-turn dynamic blocks — moved to the message tail by the bridge.
         lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
         lines.extend(self._render_profile_memory(context.profile_memory))
         lines.extend(self._render_runtime_system(context.runtime_system))

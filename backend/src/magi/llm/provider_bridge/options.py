@@ -7,7 +7,11 @@ from typing import Any, Awaitable, Callable, Dict, TypeVar, cast
 
 from ..anthropic import AnthropicAdapter
 from ..base import LLMAdapter
-from .cache_policy import cache_marked_system_content, vendor_supports_cache_marker
+from .cache_policy import (
+    cache_marked_system_content,
+    inject_turn_context,
+    vendor_supports_cache_marker,
+)
 from ..concurrency_limiter import LLMConcurrencyLimiter
 from ..reasoning_dialect import (
     ANTHROPIC_THINKING_BUDGETS,
@@ -207,6 +211,19 @@ class ProviderBridgeOptionsMixin:
         return cache_marked_system_content(
             system_prompt, supports_marker=vendor_supports_cache_marker(vendor)
         )
+
+    def _inject_turn_context(
+        self, messages: list[Dict[str, Any]], system_prompt: str
+    ) -> list[Dict[str, Any]]:
+        """Move the system prompt's per-turn tail into the message stream.
+
+        The dynamic tail (memory/profile/runtime-time/attachments, below the
+        renderer's boundary) is prepended — send-time only — to the last user
+        message so the system head + conversation history stay a stable cacheable
+        prefix (#100/P2a). Returns a new list; the input is not mutated. Call this
+        in every request builder before the Anthropic/OpenAI branch.
+        """
+        return inject_turn_context(messages, system_prompt)
 
     def _build_concurrency_key(self, request_family: str) -> str:
         base_url = getattr(self.llm, "base_url", None)
