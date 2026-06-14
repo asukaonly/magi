@@ -175,7 +175,6 @@ def _build_client(monkeypatch):
         await repository.update_schedule_binding(
             schedule_id,
             job_id=schedule_id,
-            next_run_at=1710000500.0,
         )
         await repository.acquire_target_lock(
             ScheduledTargetType.SENSOR_SYNC,
@@ -189,7 +188,6 @@ def _build_client(monkeypatch):
                 message="sensor_sync_completed",
                 stats={"count": 4, "raw_count": 7},
             ),
-            next_run_at=1710000500.0,
             scheduler_job_id=schedule_id,
         )
 
@@ -241,7 +239,6 @@ def test_get_sensor_source_status_sanitizes_internal_runtime_error(monkeypatch):
                 "content='https://auth.openai.com/oauth/authorize?...')] tasks=2> "
                 "is bound to a different event loop"
             ),
-            next_run_at=1710000500.0,
             scheduler_job_id="sensor-sync:screen-time:screen_time",
         )
     )

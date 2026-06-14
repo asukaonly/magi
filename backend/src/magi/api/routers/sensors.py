@@ -186,11 +186,9 @@ async def get_sensor_source_status():
             if (state is not None and supports_pull_sync)
             else None
         )
-        resolved_next_run_at = (
-            state.next_run_at
-            if (state is not None and state.next_run_at is not None)
-            else (recurring_binding[1] if recurring_binding is not None else None)
-        )
+        # next_run_at is exclusively sourced from the APScheduler jobstore (#89).
+        # recurring_binding[1] carries next_run_time from apscheduler_jobs.
+        resolved_next_run_at = recurring_binding[1] if recurring_binding is not None else None
         resolved_scheduler_job_id = (
             recurring_binding[0]
             if recurring_binding is not None

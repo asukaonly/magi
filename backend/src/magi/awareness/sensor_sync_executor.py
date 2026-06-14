@@ -122,7 +122,6 @@ class SensorSyncExecutor:
         execution_id = str(job["execution_id"])
         scheduler_binding = await self._repository.get_recurring_target_binding(target_type, target_key)
         scheduler_job_id = str(scheduler_binding[0]) if scheduler_binding is not None else None
-        next_run_at = float(scheduler_binding[1]) if scheduler_binding is not None and scheduler_binding[1] is not None else None
 
         try:
             result = await self._run_with_execution_lock(self._run_on_owner_loop(self._run_job(job)))
@@ -138,7 +137,6 @@ class SensorSyncExecutor:
                 target_type,
                 target_key,
                 result=result,
-                next_run_at=next_run_at,
                 scheduler_job_id=scheduler_job_id,
             )
             await self._repository.complete_execution_success(
@@ -158,7 +156,6 @@ class SensorSyncExecutor:
                 target_type,
                 target_key,
                 error=str(exc),
-                next_run_at=next_run_at,
                 scheduler_job_id=scheduler_job_id,
             )
             await self._repository.complete_execution_failure(

@@ -21,7 +21,7 @@ class SchedulerTargetStateRepositoryMixin:
             cursor = await db.execute(
                 """
                 SELECT running, last_run_at, last_success_at, last_error, last_cursor,
-                       watermark_ts, next_run_at, scheduler_job_id, stats_json, updated_at
+                       watermark_ts, scheduler_job_id, stats_json, updated_at
                 FROM target_state
                 WHERE target_type = ? AND target_key = ?
                 """,
@@ -43,6 +43,16 @@ class SchedulerTargetStateRepositoryMixin:
                     target_key=target_key,
                     updated_at=now,
                 )
+        # Column mapping (next_run_at column dropped from SELECT — jobstore is authoritative):
+        # row[0] = running
+        # row[1] = last_run_at
+        # row[2] = last_success_at
+        # row[3] = last_error
+        # row[4] = last_cursor
+        # row[5] = watermark_ts
+        # row[6] = scheduler_job_id   (was row[7] before next_run_at removal)
+        # row[7] = stats_json          (was row[8])
+        # row[8] = updated_at          (was row[9])
         return ScheduledTargetState(
             target_type=target_type,
             target_key=target_key,
@@ -52,10 +62,10 @@ class SchedulerTargetStateRepositoryMixin:
             last_error=row[3],
             last_cursor=row[4],
             watermark_ts=row[5],
-            next_run_at=row[6],
-            scheduler_job_id=row[7],
-            stats=json.loads(row[8] or "{}"),
-            updated_at=row[9],
+            next_run_at=None,  # not persisted; populated by get_schedule_runtime_state from jobstore
+            scheduler_job_id=row[6],
+            stats=json.loads(row[7] or "{}"),
+            updated_at=row[8],
         )
 
     async def acquire_target_lock(
@@ -90,7 +100,6 @@ class SchedulerTargetStateRepositoryMixin:
         target_key: str,
         *,
         result: ScheduledExecutionResult,
-        next_run_at: Optional[float],
         scheduler_job_id: Optional[str],
     ) -> None:
         now = time.time()
@@ -103,7 +112,6 @@ class SchedulerTargetStateRepositoryMixin:
                     last_error = NULL,
                     last_cursor = ?,
                     watermark_ts = ?,
-                    next_run_at = ?,
                     scheduler_job_id = ?,
                     stats_json = ?,
                     updated_at = ?
@@ -113,7 +121,6 @@ class SchedulerTargetStateRepositoryMixin:
                     now,
                     result.next_cursor,
                     result.watermark_ts,
-                    next_run_at,
                     scheduler_job_id,
                     json.dumps(result.stats, ensure_ascii=False),
                     now,
@@ -158,7 +165,6 @@ class SchedulerTargetStateRepositoryMixin:
         target_key: str,
         *,
         error: str,
-        next_run_at: Optional[float],
         scheduler_job_id: Optional[str],
     ) -> None:
         now = time.time()
@@ -168,14 +174,12 @@ class SchedulerTargetStateRepositoryMixin:
                 UPDATE target_state
                 SET running = 0,
                     last_error = ?,
-                    next_run_at = ?,
                     scheduler_job_id = ?,
                     updated_at = ?
                 WHERE target_type = ? AND target_key = ?
                 """,
                 (
                     error,
-                    next_run_at,
                     scheduler_job_id,
                     now,
                     target_type.value,
@@ -195,8 +199,7 @@ class SchedulerTargetStateRepositoryMixin:
             await db.execute(
                 """
                 UPDATE target_state
-                SET next_run_at = NULL,
-                    scheduler_job_id = NULL,
+                SET scheduler_job_id = NULL,
                     running = 0,
                     last_error = NULL,
                     updated_at = ?
