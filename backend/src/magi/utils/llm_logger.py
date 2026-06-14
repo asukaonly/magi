@@ -141,6 +141,43 @@ def _format_log_text(text: Any, max_length: int, truncate: bool) -> str:
     return truncate_text(text, max_length)
 
 
+def _log_system_prompt(
+    logger: logging.Logger,
+    system_prompt: str,
+    max_length: int,
+    truncate: bool,
+    cache_boundary: Optional[str],
+) -> None:
+    """Log the system prompt, split at the cache boundary when present.
+
+    The provider bridge splits the rendered system prompt at ``cache_boundary``:
+    the head is sent as the cached ``system`` field (with a cache_control
+    marker), and the per-turn tail is moved into the last user message — it is
+    NOT in ``system`` on the wire. Logging the two parts separately mirrors
+    what's actually sent and makes it obvious which bytes are cacheable vs.
+    recomputed each turn. The boundary marker itself is stripped before sending.
+
+    ``cache_boundary`` is passed in (rather than imported) so this low-level
+    logging module stays free of higher-layer imports.
+    """
+    if not cache_boundary or cache_boundary not in system_prompt:
+        logger.debug(f"System Prompt:\n{_format_log_text(system_prompt, max_length, truncate)}")
+        return
+
+    head, _, tail = system_prompt.partition(cache_boundary)
+    head = head.rstrip("\n")
+    tail = tail.lstrip("\n")
+    logger.debug(
+        f"System Prompt [cacheable head — sent as `system` with cache_control]:\n"
+        f"{_format_log_text(head, max_length, truncate)}"
+    )
+    logger.debug("-" * 40)
+    logger.debug(
+        f"System Prompt [per-turn tail — injected before the last user message, "
+        f"NOT in `system` on the wire]:\n{_format_log_text(tail, max_length, truncate)}"
+    )
+
+
 def log_llm_request(
     logger: logging.Logger,
     request_id: str,
@@ -150,6 +187,7 @@ def log_llm_request(
     truncate: bool = False,
     system_prompt_max_length: int = 2000,
     message_max_length: int = 1000,
+    cache_boundary: Optional[str] = None,
     **kwargs
 ):
     """
@@ -161,12 +199,15 @@ def log_llm_request(
         model: Model name.
         system_prompt: System prompt.
         messages: Message list.
+        cache_boundary: Internal cache-boundary marker; when present in the
+            system prompt, the log shows the cacheable head and per-turn tail
+            separately (mirrors what the provider bridge sends).
         **kwargs: Other parameters.
     """
     logger.debug("=" * 80)
     logger.debug(f"LLM_REQUEST [{request_id}] | Model: {model}")
     logger.debug("-" * 80)
-    logger.debug(f"System Prompt:\n{_format_log_text(system_prompt, system_prompt_max_length, truncate)}")
+    _log_system_prompt(logger, system_prompt, system_prompt_max_length, truncate, cache_boundary)
     logger.debug("-" * 80)
     logger.debug("Messages:")
     for i, msg in enumerate(messages):

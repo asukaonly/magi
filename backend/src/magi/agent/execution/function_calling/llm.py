@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Protocol, cast
 
-from ....config.constants import DEFAULT_MAX_TOKENS
+from ....config.constants import DEFAULT_MAX_TOKENS, SYSTEM_PROMPT_CACHE_BOUNDARY
 from ....config.models import ThinkingDepth
 from ....llm.base import LLMAdapter
 from ....llm.cancellable_client import (
@@ -138,6 +138,7 @@ class FunctionCallingLlmMixin:
             model=model_name,
             system_prompt=system_prompt,
             messages=messages,
+            cache_boundary=SYSTEM_PROMPT_CACHE_BOUNDARY,
             tool_count=len(tools),
             tool_names=[str(t.get("function", {}).get("name", "")) for t in tools],
         )
@@ -302,6 +303,7 @@ class FunctionCallingLlmMixin:
             model=model_name,
             system_prompt=system_prompt,
             messages=messages,
+            cache_boundary=SYSTEM_PROMPT_CACHE_BOUNDARY,
         )
 
         try:
