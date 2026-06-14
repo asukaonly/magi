@@ -1,8 +1,16 @@
-"""Tests for L2 relationship pruning in the grounding filter.
+"""Tests for L2 relationship pruning in the unified grounding filter.
 
-Mirrors test_grounding_filter.py exactly for the l2_relationships path.
-Every failure mode (no bridge / disabled / LLM raises / timeout /
-unparseable) must degrade to raw payload unchanged.
+After the L1+L2 unification (single LLM call), L2 relationships and L1
+events are judged together in one pass. This file covers:
+  - L2-only payloads (l1_events empty)
+  - Mixed payloads (both types present, one bridge call)
+  - All degradation paths (no bridge / disabled / LLM raises / timeout /
+    unparseable) — BOTH lists must be returned unchanged.
+  - Obsolete independence test: the old "L2 fails, L1 still runs"
+    property is intentionally dropped — one call means they degrade
+    together. See the comment in test_unified_mixed_payload_single_bridge_call.
+
+Every failure mode must degrade to raw payload unchanged.
 """
 from __future__ import annotations
 
@@ -24,8 +32,10 @@ from magi.memory.hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
 class _StaticBridge:
     def __init__(self, response: str) -> None:
         self._response = response
+        self.call_count = 0
 
     async def chat(self, **kwargs: Any) -> str:  # noqa: ARG002
+        self.call_count += 1
         return self._response
 
 
@@ -60,6 +70,18 @@ def _make_relationships(n: int) -> list[dict[str, Any]]:
     ]
 
 
+def _make_events(n: int) -> list[dict[str, Any]]:
+    return [
+        {
+            "event_id": f"ev_{i:04d}",
+            "source": "screenshot_timeline",
+            "content": f"OCR content row {i}",
+            "timestamp": 1779944800 + i,
+        }
+        for i in range(n)
+    ]
+
+
 def _make_request(query: str = "我同事的老板是谁") -> RetrievalQuery:
     return RetrievalQuery(query=query, user_id="local_user")
 
@@ -69,7 +91,11 @@ def _make_request(query: str = "我同事的老板是谁") -> RetrievalQuery:
 
 @pytest.mark.asyncio
 async def test_l2_keeps_relevant_relationship_and_drops_others() -> None:
-    """Filter keeps the LLM-chosen relationship and drops the noise."""
+    """Filter keeps the LLM-chosen relationship and drops the noise.
+
+    With only l2_relationships in the payload, global indices 1..N map
+    directly to relationships (no events before them).
+    """
     rels = _make_relationships(5)
     payload = RetrievalPayload(l2_relationships=rels)
     bridge = _StaticBridge('{"keep": [1, 3], "why": "only 1 and 3 are relevant"}')
@@ -82,16 +108,23 @@ async def test_l2_keeps_relevant_relationship_and_drops_others() -> None:
 
 @pytest.mark.asyncio
 async def test_l2_trace_records_applied_true_and_counts() -> None:
+    """grounding_filter_l2 compat key records applied/input_count/kept_count."""
     rels = _make_relationships(10)
     payload = RetrievalPayload(l2_relationships=rels)
     bridge = _StaticBridge('{"keep": [2, 5], "why": "these two match"}')
     f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
     out = await f.apply(payload, _make_request())
-    trace = out.trace["grounding_filter_l2"]
+    # Primary trace
+    trace = out.trace["grounding_filter"]
     assert trace["applied"] is True
     assert trace["input_count"] == 10
     assert trace["kept_count"] == 2
     assert trace["why"] == "these two match"
+    # grounding_filter_l2 compat key
+    l2_trace = out.trace["grounding_filter_l2"]
+    assert l2_trace["applied"] is True
+    assert l2_trace["input_count"] == 10
+    assert l2_trace["kept_count"] == 2
 
 
 @pytest.mark.asyncio
@@ -107,10 +140,11 @@ async def test_l2_out_of_range_indices_silently_dropped() -> None:
 
 @pytest.mark.asyncio
 async def test_l2_explicit_empty_keep_clears_relationships() -> None:
-    """LLM explicitly returns keep=[] for L2 — trust it, clear the list.
+    """LLM explicitly returns keep=[] for a payload of only relationships —
+    trust it, clear the list.
 
-    Mirrors the l1_events behaviour: an explicit empty verdict is a VALID
-    'none are relevant' judgment and must NOT be rolled back to raw.
+    In unified mode, explicit empty verdict clears BOTH lists. With no
+    l1_events in this payload the net effect on l2_relationships is the same.
     """
     rels = _make_relationships(10)
     payload = RetrievalPayload(l2_relationships=rels)
@@ -142,7 +176,7 @@ async def test_l2_all_out_of_range_indices_falls_back_not_cleared() -> None:
 
 @pytest.mark.asyncio
 async def test_l2_skips_trivial_count() -> None:
-    """Fewer than MIN_CANDIDATES_TO_FILTER relationships — skip, no LLM call."""
+    """Combined count (events + rels) below MIN_CANDIDATES_TO_FILTER — skip."""
     rels = _make_relationships(MIN_CANDIDATES_TO_FILTER - 1)
     payload = RetrievalPayload(l2_relationships=rels)
     bridge = _StaticBridge('{"keep": [1], "why": "x"}')  # must NOT be called
@@ -152,6 +186,7 @@ async def test_l2_skips_trivial_count() -> None:
     trace = out.trace.get("grounding_filter_l2") or {}
     assert trace.get("applied") is False
     assert trace.get("skipped_reason") == "trivial_count"
+    assert bridge.call_count == 0
 
 
 @pytest.mark.asyncio
@@ -215,23 +250,84 @@ async def test_l2_malformed_response_degrades_to_raw() -> None:
     assert trace["degraded_reason"] == "bad_response_shape"
 
 
-# ---------- L1 events UNAFFECTED by L2 filtering ----------
+# ---------- unified mixed-payload: ONE bridge call, BOTH types filtered ----------
 
 
 @pytest.mark.asyncio
-async def test_l2_filter_does_not_touch_l1_events() -> None:
-    """L2 relationship filtering must leave l1_events completely untouched."""
-    l1 = [{"event_id": "ev_a", "content": "some event", "timestamp": 1.0}]
+async def test_unified_mixed_payload_single_bridge_call() -> None:
+    """Core unified-design test: a payload with BOTH events AND relationships
+    must be filtered with exactly ONE bridge call.
+
+    Old independence property intentionally dropped: in the two-call design,
+    an L2 failure left L1 untouched and vice versa. Now a single call
+    covers both — a failure degrades BOTH lists together (pass-through).
+    This is the accepted trade-off for halved latency.
+
+    Global index layout: events first (1..n_events), relationships after
+    (n_events+1..n_events+n_rels).
+    """
+    events = _make_events(3)  # global indices 1, 2, 3
+    rels = _make_relationships(4)  # global indices 4, 5, 6, 7
+
+    # Keep event idx=2 (ev_0001) and relationship idx=5 (entity_0001 LIKES)
+    bridge = _StaticBridge('{"keep": [2, 5], "why": "event 2 and rel 5 match"}')
+    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
+    payload = RetrievalPayload(l1_events=events, l2_relationships=rels)
+    out = await f.apply(payload, _make_request("something"))
+
+    # Exactly ONE bridge call
+    assert bridge.call_count == 1
+
+    # Correct event kept (global idx 2 → events[1])
+    assert len(out.l1_events) == 1
+    assert out.l1_events[0]["event_id"] == "ev_0001"
+
+    # Correct relationship kept (global idx 5 → rels[5 - 3 - 1] = rels[1])
+    assert len(out.l2_relationships) == 1
+    assert out.l2_relationships[0]["subject_id"] == "entity_0001"
+
+    # Trace reflects both counts
+    trace = out.trace["grounding_filter"]
+    assert trace["applied"] is True
+    assert trace["kept_events"] == 1
+    assert trace["kept_relationships"] == 1
+    assert trace["kept_count"] == 2
+    assert trace["input_events"] == 3
+    assert trace["input_relationships"] == 4
+
+
+@pytest.mark.asyncio
+async def test_unified_timeout_degrades_both_lists() -> None:
+    """When the single LLM call times out, BOTH l1_events and
+    l2_relationships must be returned unchanged."""
+    events = _make_events(5)
     rels = _make_relationships(5)
-    payload = RetrievalPayload(l1_events=l1, l2_relationships=rels)
-    bridge = _StaticBridge('{"keep": [2], "why": "only 2 relevant"}')
+    payload = RetrievalPayload(l1_events=events, l2_relationships=rels)
+    f = GroundingFilter(llm_bridge=_HangingBridge(), timeout_seconds=0.05)
+    out = await f.apply(payload, _make_request())
+    # Both lists unchanged
+    assert len(out.l1_events) == 5
+    assert len(out.l2_relationships) == 5
+    # Both trace keys record failure
+    assert out.trace["grounding_filter"]["applied"] is False
+    assert out.trace["grounding_filter"]["degraded_reason"] == "llm_timeout"
+    assert out.trace["grounding_filter_l2"]["applied"] is False
+    assert out.trace["grounding_filter_l2"]["degraded_reason"] == "llm_timeout"
+
+
+@pytest.mark.asyncio
+async def test_unified_explicit_empty_keep_clears_both_lists() -> None:
+    """LLM returns keep=[] on a mixed payload → both lists cleared."""
+    events = _make_events(3)
+    rels = _make_relationships(3)
+    payload = RetrievalPayload(l1_events=events, l2_relationships=rels)
+    bridge = _StaticBridge('{"keep": [], "why": "nothing relevant"}')
     f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
     out = await f.apply(payload, _make_request())
-    # L2 relationships filtered
-    assert len(out.l2_relationships) == 1
-    # L1 events completely unchanged (only one event, no l1 filter runs)
-    assert len(out.l1_events) == 1
-    assert out.l1_events[0]["event_id"] == "ev_a"
+    assert out.l1_events == []
+    assert out.l2_relationships == []
+    assert out.trace["grounding_filter"]["all_dropped"] is True
+    assert out.trace["grounding_filter_l2"]["all_dropped"] is True
 
 
 # ---------- prompt shape: natural_summary used as content field ----------
@@ -239,7 +335,7 @@ async def test_l2_filter_does_not_touch_l1_events() -> None:
 
 @pytest.mark.asyncio
 async def test_l2_prompt_uses_natural_summary_as_content() -> None:
-    """The L2 filter prompt must expose natural_summary so the LLM can
+    """The unified filter prompt must expose natural_summary so the LLM can
     judge relevance. A 'smart' bridge reads the prompt and verifies the
     natural_summary text appears in it."""
     rels = [
