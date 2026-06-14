@@ -257,7 +257,7 @@ class ProviderBridgeOptionsMixin:
         return ModelVendor.ANTHROPIC if self.is_anthropic() else self._resolve_model_vendor()
 
     def _apply_cache_routing(
-        self, kwargs: Dict[str, Any], event_context: Optional[Dict[str, Any]]
+        self, kwargs: Dict[str, Any], event_context: Dict[str, Any] | None
     ) -> Dict[str, Any]:
         """Merge provider cache-routing extras into OpenAI-compatible request kwargs.
 
