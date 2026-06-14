@@ -159,6 +159,73 @@ async def test_sensor_sync_executor_runs_jobs_on_owner_loop(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_sensor_sync_success_triggers_l3_backfill(tmp_path, monkeypatch):
+    """After a successful sync, the executor best-effort backfills L3 over the
+    synced source's L1 event window (min/max timestamp from summarize_event_sources)."""
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+
+    backfill_calls: list[dict[str, object]] = []
+    summarize_calls: list[dict[str, object]] = []
+
+    async def _fake_backfill(**kwargs):
+        backfill_calls.append(kwargs)
+        return {"generated": [], "skipped_existing": 0, "skipped_sparse": 0}
+
+    async def _fake_summarize_event_sources(**kwargs):
+        summarize_calls.append(kwargs)
+        return [
+            {
+                "source": "test-source",
+                "event_count": 5,
+                "avg_importance": 0.5,
+                "min_timestamp": 1000.0,
+                "max_timestamp": 2000.0,
+            }
+        ]
+
+    class _FakeL1:
+        summarize_event_sources = staticmethod(_fake_summarize_event_sources)
+
+    class _FakeUnifiedMemory:
+        l1 = _FakeL1()
+        backfill_l3_gaps = staticmethod(_fake_backfill)
+
+    fake_um = _FakeUnifiedMemory()
+    monkeypatch.setattr(
+        "magi.memory.provider.get_unified_memory",
+        lambda: fake_um,
+    )
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        assert job_record["job_id"] == job_id
+        return ScheduledExecutionResult(success=True, message="sensor_sync_completed")
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        poll_interval_seconds=0.01,
+        running_timeout_seconds=30.0,
+    )
+    await executor.start()
+    await _wait_for_job_status(repository, job_id, "success")
+    # Backfill is fired after the success commit; give the executor loop a beat.
+    deadline = time.time() + 2.0
+    while time.time() < deadline and not backfill_calls:
+        await asyncio.sleep(0.02)
+    await executor.stop()
+
+    assert summarize_calls, "summarize_event_sources was not called"
+    assert summarize_calls[0]["source_filters"] == ["test-source"]
+    assert len(backfill_calls) == 1
+    assert backfill_calls[0]["range_start"] == 1000.0
+    assert backfill_calls[0]["range_end"] == 2000.0
+
+
+@pytest.mark.asyncio
 async def test_sensor_sync_executor_requeues_stale_running_job_on_startup(tmp_path):
     db_path = tmp_path / "scheduler.db"
     repository = ScheduleRepository(db_path)

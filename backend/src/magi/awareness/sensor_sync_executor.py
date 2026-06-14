@@ -145,6 +145,13 @@ class SensorSyncExecutor:
                 scheduler_job_id=scheduler_job_id,
                 finished_at=finished_at,
             )
+            # Best-effort: fill L3 "Stories" for any CLOSED past periods this
+            # source's data lands in. Historical imports land in already-closed
+            # day/week windows the recurring scheduler never revisits. Strictly
+            # AFTER the success commit and fully guarded so an L3 failure can
+            # never fail the sync. Gap-checked + min_events-gated → a near-no-op
+            # for incremental syncs (no closed-past gaps).
+            await self._backfill_l3_after_sync(str(job["source_type"]))
         except Exception as exc:
             finished_at = time.time()
             await self._repository.complete_sensor_sync_job_failure(
@@ -163,6 +170,47 @@ class SensorSyncExecutor:
                 error=str(exc),
                 scheduler_job_id=scheduler_job_id,
                 finished_at=finished_at,
+            )
+
+    async def _backfill_l3_after_sync(self, source_name: str) -> None:
+        """Best-effort L3 historical backfill over a synced source's L1 window.
+
+        Fully guarded: any failure here is logged and swallowed so it can never
+        break a sync that already committed successfully.
+        """
+        try:
+            from ..memory.provider import get_unified_memory
+
+            unified_memory = get_unified_memory()
+            rows = await unified_memory.l1.summarize_event_sources(
+                source_filters=[source_name],
+                cognition_eligible=True,
+            )
+            spans = [
+                row
+                for row in rows
+                if row.get("min_timestamp") is not None
+                and row.get("max_timestamp") is not None
+            ]
+            if not spans:
+                return
+            range_start = min(float(row["min_timestamp"]) for row in spans)
+            range_end = max(float(row["max_timestamp"]) for row in spans)
+            backfilled = await unified_memory.backfill_l3_gaps(
+                range_start=range_start,
+                range_end=range_end,
+            )
+            logger.info(
+                "L3 backfill after sensor sync",
+                source=source_name,
+                generated=len(backfilled.get("generated", [])),
+                skipped_existing=backfilled.get("skipped_existing", 0),
+                skipped_sparse=backfilled.get("skipped_sparse", 0),
+            )
+        except Exception:  # pragma: no cover - defensive: L3 must never fail a sync
+            logger.exception(
+                "L3 backfill after sensor sync failed (non-fatal)",
+                source=source_name,
             )
 
     async def flush_sensor_state(self, source_name: str) -> dict[str, Any]:
