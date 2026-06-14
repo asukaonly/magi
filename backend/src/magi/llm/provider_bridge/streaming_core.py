@@ -109,6 +109,11 @@ class ProviderBridgeStreamingHostProtocol(Protocol):
     ) -> list[dict[str, Any]]:
         ...
 
+    def _apply_cache_routing(
+        self, kwargs: dict[str, Any], event_context: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        ...
+
     def _anthropic_usage_to_wire(self, usage_data: Any) -> dict[str, int] | None:
         ...
 
