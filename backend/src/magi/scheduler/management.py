@@ -275,7 +275,8 @@ class ScheduleManagementService:
         for schedule in schedules:
             if not include_system and schedule.target_type is not ScheduledTargetType.USER_AGENT_TASK:
                 continue
-            state = await self.repository.get_target_state(schedule.target_type, schedule.target_key)
+            # Use get_schedule_runtime_state to populate next_run_at from jobstore (#89).
+            state = await self.repository.get_schedule_runtime_state(schedule)
             items.append(serialize_schedule(schedule, state))
         return items
 
@@ -284,7 +285,8 @@ class ScheduleManagementService:
         schedule = await self.repository.get_schedule(schedule_id)
         if schedule is None:
             return None
-        state = await self.repository.get_target_state(schedule.target_type, schedule.target_key)
+        # Use get_schedule_runtime_state to populate next_run_at from jobstore (#89).
+        state = await self.repository.get_schedule_runtime_state(schedule)
         return serialize_schedule(schedule, state)
 
     async def create_user_agent_task_schedule(self, raw: dict[str, Any], actor: ScheduleActorContext) -> dict[str, Any]:
@@ -311,7 +313,8 @@ class ScheduleManagementService:
             },
         )
         saved = await self._scheduler.schedule(definition)
-        state = await self.repository.get_target_state(saved.target_type, saved.target_key)
+        # Use get_schedule_runtime_state to populate next_run_at from jobstore (#89).
+        state = await self.repository.get_schedule_runtime_state(saved)
         return serialize_schedule(saved, state)
 
     async def update_user_schedule(self, schedule_id: str, raw_patch: dict[str, Any], actor: ScheduleActorContext) -> dict[str, Any]:
@@ -344,7 +347,8 @@ class ScheduleManagementService:
             job_id=existing.job_id,
         )
         saved = await self._scheduler.schedule(next_schedule)
-        state = await self.repository.get_target_state(saved.target_type, saved.target_key)
+        # Use get_schedule_runtime_state to populate next_run_at from jobstore (#89).
+        state = await self.repository.get_schedule_runtime_state(saved)
         return serialize_schedule(saved, state)
 
     async def remove_user_schedule(self, schedule_id: str) -> dict[str, Any]:

@@ -41,7 +41,9 @@ async def test_scheduler_service_persists_and_restores_interval_jobs(tmp_path):
     assert schedule.job_id == "l2-maintenance-1"
     assert handled == ["l2-maintenance-1"]
     assert state.last_success_at is not None
-    assert state.next_run_at is not None
+    # next_run_at is NOT persisted in target_state; it is only available via
+    # get_schedule_runtime_state (jobstore-sourced). get_target_state returns None.
+    assert state.next_run_at is None
 
     await service.stop()
 
@@ -394,6 +396,56 @@ async def test_scheduler_service_coalesces_sensor_sync_when_outstanding_job_exis
     assert second.message == "target_busy"
     assert outstanding is not None
     assert outstanding["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_next_run_at_sourced_from_jobstore_not_target_state(tmp_path):
+    """next_run_at must come from the APScheduler jobstore, never from target_state.
+
+    get_target_state (raw persistence layer) must return next_run_at=None — the
+    field is no longer persisted there. get_schedule_runtime_state (display layer)
+    must populate next_run_at from the jobstore instead.
+    """
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+
+    async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
+        return ScheduledExecutionResult(success=True, message="ok")
+
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
+    await service.start()
+    try:
+        await service.schedule_interval(
+            schedule_id="nra-test",
+            target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="global",
+            seconds=300.0,
+            target_payload={},
+        )
+        await service.trigger_now("nra-test")
+
+        # Raw persistence layer: next_run_at is NOT stored here
+        raw_state = await service.get_target_state(
+            ScheduledTargetType.MEMORY_L2_MAINTENANCE, "global"
+        )
+        assert raw_state.next_run_at is None, (
+            "target_state must not persist next_run_at (single-source: jobstore)"
+        )
+
+        # Display layer: next_run_at is populated from jobstore
+        schedule = await service.repository.get_schedule("nra-test")
+        assert schedule is not None
+        runtime_state = await service.repository.get_schedule_runtime_state(schedule)
+        assert runtime_state.next_run_at is not None, (
+            "get_schedule_runtime_state must populate next_run_at from jobstore"
+        )
+        # Confirm the jobstore is the source by comparing with get_schedule_next_run_at
+        jobstore_next_run = await service.repository.get_schedule_next_run_at(schedule)
+        assert runtime_state.next_run_at == jobstore_next_run
+    finally:
+        await service.stop()
 
 
 @pytest.mark.asyncio

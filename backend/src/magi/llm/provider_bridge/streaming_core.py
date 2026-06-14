@@ -102,6 +102,13 @@ class ProviderBridgeStreamingHostProtocol(Protocol):
     ) -> list[dict[str, Any]]:
         ...
 
+    def _mark_anthropic_history(
+        self,
+        injected_messages: list[dict[str, Any]],
+        api_messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        ...
+
     def _anthropic_usage_to_wire(self, usage_data: Any) -> dict[str, int] | None:
         ...
 

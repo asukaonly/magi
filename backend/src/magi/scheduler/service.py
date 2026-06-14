@@ -5,7 +5,7 @@ import asyncio
 import dataclasses
 import time
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -455,12 +455,10 @@ class SchedulerService:
                     manual=manual,
                 )
             )
-            next_run_at = self._resolve_next_run_time(schedule.job_id or schedule.schedule_id)
             await self._repository.record_target_success(
                 schedule.target_type,
                 schedule.target_key,
                 result=result,
-                next_run_at=next_run_at,
                 scheduler_job_id=schedule.job_id or schedule.schedule_id,
             )
             await self._repository.complete_execution_success(
@@ -473,12 +471,10 @@ class SchedulerService:
                 await self._repository.delete_schedule(schedule.schedule_id)
             return result
         except Exception as exc:
-            next_run_at = self._resolve_next_run_time(schedule.job_id or schedule.schedule_id)
             await self._repository.record_target_failure(
                 schedule.target_type,
                 schedule.target_key,
                 error=str(exc),
-                next_run_at=next_run_at,
                 scheduler_job_id=schedule.job_id or schedule.schedule_id,
             )
             await self._repository.complete_execution_failure(
@@ -549,7 +545,6 @@ class SchedulerService:
         await self._repository.update_schedule_binding(
             schedule.schedule_id,
             job_id=job.id,
-            next_run_at=job.next_run_time.timestamp() if job.next_run_time else None,
         )
 
     def _build_trigger(self, trigger: TriggerDefinition):
@@ -560,14 +555,6 @@ class SchedulerService:
         if trigger.trigger_type == TriggerType.CRON:
             return CronTrigger(**trigger.config)
         raise ValueError(f"Unsupported trigger type: {trigger.trigger_type}")
-
-    def _resolve_next_run_time(self, job_id: str | None) -> Optional[float]:
-        if not job_id:
-            return None
-        job = self._scheduler.get_job(job_id)
-        if job is None or job.next_run_time is None:
-            return None
-        return job.next_run_time.timestamp()
 
     @staticmethod
     def _coerce_datetime(value: object):

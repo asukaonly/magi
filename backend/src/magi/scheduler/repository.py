@@ -176,12 +176,9 @@ class ScheduleRepository(
         job_id = schedule.job_id or schedule.schedule_id
         base_state = await self.get_target_state(schedule.target_type, schedule.target_key)
         executions = await self.list_executions(schedule_id=schedule.schedule_id, limit=1)
-        # Authoritative source is the APScheduler jobstore. The target_state mirror
-        # is only a fallback for display when the job isn't in the jobstore. See #89
-        # (tracked removal of the redundant next_run_at mirror).
+        # next_run_at is exclusively sourced from the APScheduler jobstore (#89).
+        # target_state no longer persists next_run_at.
         next_run_at = await self.get_schedule_next_run_at(schedule)
-        if next_run_at is None and base_state.scheduler_job_id == job_id:
-            next_run_at = base_state.next_run_at
         if not executions:
             return ScheduledTargetState(
                 target_type=schedule.target_type,
@@ -242,7 +239,6 @@ class ScheduleRepository(
         schedule_id: str,
         *,
         job_id: Optional[str],
-        next_run_at: Optional[float],
     ) -> None:
         schedule = await self.get_schedule(schedule_id)
         if schedule is None:
@@ -256,18 +252,16 @@ class ScheduleRepository(
             await db.execute(
                 """
                 INSERT INTO target_state (
-                    target_type, target_key, next_run_at, scheduler_job_id, updated_at
+                    target_type, target_key, scheduler_job_id, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT(target_type, target_key) DO UPDATE SET
-                    next_run_at = excluded.next_run_at,
                     scheduler_job_id = excluded.scheduler_job_id,
                     updated_at = excluded.updated_at
                 """,
                 (
                     schedule.target_type.value,
                     schedule.target_key,
-                    next_run_at,
                     job_id,
                     now,
                 ),

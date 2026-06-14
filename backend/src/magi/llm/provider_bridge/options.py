@@ -10,6 +10,8 @@ from ..base import LLMAdapter
 from .cache_policy import (
     cache_marked_system_content,
     inject_turn_context,
+    last_user_message_index,
+    mark_history_breakpoint,
     vendor_supports_cache_marker,
 )
 from ..concurrency_limiter import LLMConcurrencyLimiter
@@ -207,9 +209,9 @@ class ProviderBridgeOptionsMixin:
         stripped and a plain string returned. Used by every Anthropic ``system``
         and OpenAI system-message construction site (#110).
         """
-        vendor = ModelVendor.ANTHROPIC if self.is_anthropic() else self._resolve_model_vendor()
         return cache_marked_system_content(
-            system_prompt, supports_marker=vendor_supports_cache_marker(vendor)
+            system_prompt,
+            supports_marker=vendor_supports_cache_marker(self._marker_vendor()),
         )
 
     def _inject_turn_context(
@@ -224,6 +226,31 @@ class ProviderBridgeOptionsMixin:
         in every request builder before the Anthropic/OpenAI branch.
         """
         return inject_turn_context(messages, system_prompt)
+
+    def _mark_anthropic_history(
+        self,
+        injected_messages: list[Dict[str, Any]],
+        api_messages: list[Dict[str, Any]],
+    ) -> list[Dict[str, Any]]:
+        """Add a rolling history cache breakpoint to converted Anthropic messages.
+
+        Anthropic caches by prefix and (unlike auto-caching OpenAI-compatible
+        vendors) needs an explicit marker. After P2a the per-turn context rides
+        on the last user message, so the message *before* it is the stable
+        history boundary — mark its last block ``ephemeral`` so older history is
+        reused across turns. Indices align 1:1 between ``injected_messages`` (raw,
+        post turn-context injection) and ``api_messages`` (converted) since
+        conversion is per-message. No-op for non-marker vendors or first turns.
+        """
+        if not vendor_supports_cache_marker(self._marker_vendor()):
+            return api_messages
+        boundary_index = last_user_message_index(injected_messages) - 1
+        return mark_history_breakpoint(api_messages, boundary_index)
+
+    def _marker_vendor(self) -> ModelVendor:
+        """Vendor used for cache-marker capability decisions (Anthropic if the
+        native path is active, else the resolved OpenAI-compatible vendor)."""
+        return ModelVendor.ANTHROPIC if self.is_anthropic() else self._resolve_model_vendor()
 
     def _build_concurrency_key(self, request_family: str) -> str:
         base_url = getattr(self.llm, "base_url", None)

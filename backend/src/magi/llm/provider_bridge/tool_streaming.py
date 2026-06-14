@@ -69,6 +69,7 @@ class ProviderBridgeToolStreamingMixin:
         host = cast(_ToolStreamingHostProtocol, self)
         messages = host._inject_turn_context(messages, system_prompt)
         api_messages = host._convert_messages_to_anthropic(messages)
+        api_messages = host._mark_anthropic_history(messages, api_messages)
         anthropic_kwargs: Dict[str, Any] = {
             "model": host.llm.model_name,
             "max_tokens": max_tokens,
@@ -85,6 +86,10 @@ class ProviderBridgeToolStreamingMixin:
         tool_calls: List[ProviderToolCall] = []
         content_parts: List[str] = []
         assistant_blocks: List[Dict[str, Any]] = []
+        thinking_blocks: List[Dict[str, Any]] = []
+        thinking_text_parts: List[str] = []
+        thinking_signature: str | None = None
+        redacted_data: str | None = None
         has_tool_calls = False
         chunks_emitted = 0
         in_thinking = False
@@ -110,13 +115,26 @@ class ProviderBridgeToolStreamingMixin:
                     ))
                 elif block_type == "thinking":
                     in_thinking = True
+                    thinking_text_parts = []
+                    thinking_signature = None
+                    redacted_data = None
+                elif block_type == "redacted_thinking":
+                    # Redacted thinking arrives fully-formed on the start event
+                    # (encrypted, no deltas); preserve it for the re-sent turn.
+                    in_thinking = True
+                    thinking_text_parts = []
+                    thinking_signature = None
+                    redacted_data = getattr(block, "data", None)
             elif event_type == "content_block_delta":
                 delta = event.delta
                 delta_type = getattr(delta, "type", None)
                 if delta_type == "thinking_delta":
                     text = getattr(delta, "thinking", None) or getattr(delta, "text", None)
                     if text:
+                        thinking_text_parts.append(text)
                         await emit_stream_event(LLMStreamEvent(kind="reasoning_delta", text=text))
+                elif delta_type == "signature_delta":
+                    thinking_signature = getattr(delta, "signature", None) or thinking_signature
                 elif in_thinking and getattr(delta, "text", None):
                     await emit_stream_event(LLMStreamEvent(kind="reasoning_delta", text=delta.text))
                 elif hasattr(delta, "text") and not has_tool_calls:
@@ -165,6 +183,22 @@ class ProviderBridgeToolStreamingMixin:
                     current_tool_id = None
                     current_tool_name = None
                     current_tool_json_parts = []
+                elif in_thinking:
+                    if redacted_data is not None:
+                        thinking_blocks.append(
+                            {"type": "redacted_thinking", "data": redacted_data}
+                        )
+                    elif thinking_text_parts or thinking_signature is not None:
+                        thinking_blocks.append(
+                            {
+                                "type": "thinking",
+                                "thinking": "".join(thinking_text_parts),
+                                "signature": thinking_signature,
+                            }
+                        )
+                    thinking_text_parts = []
+                    thinking_signature = None
+                    redacted_data = None
                 in_thinking = False
             elif event_type == "message_delta":
                 usage_data = getattr(event, "usage", usage_data)
@@ -176,6 +210,10 @@ class ProviderBridgeToolStreamingMixin:
         content_text = "".join(content_parts)
         if content_text:
             assistant_blocks.insert(0, {"type": "text", "text": content_text})
+        # Thinking blocks must lead the re-sent assistant turn (#99): prepend them
+        # ahead of any text/tool_use so Anthropic accepts the follow-up request.
+        for thinking_block in reversed(thinking_blocks):
+            assistant_blocks.insert(0, thinking_block)
 
         usage = host._extract_anthropic_stream_usage(stream, usage_data)
         usage_payload = host._anthropic_usage_to_wire(usage_data)

@@ -45,6 +45,13 @@ class _ProviderBridgeRequestHostProtocol(Protocol):
     ) -> list[dict[str, Any]]:
         ...
 
+    def _mark_anthropic_history(
+        self,
+        injected_messages: list[dict[str, Any]],
+        api_messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        ...
+
     def _parse_anthropic_response(self, response: Any) -> ProviderResponse:
         ...
 
@@ -74,6 +81,7 @@ class ProviderBridgeRequestMixin:
         messages = host._inject_turn_context(messages, system_prompt)
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
+            api_messages = host._mark_anthropic_history(messages, api_messages)
             anthropic_kwargs: Dict[str, Any] = {
                 "model": host.llm.model_name,
                 "max_tokens": max_tokens,
@@ -258,6 +266,7 @@ class ProviderBridgeRequestMixin:
         messages = host._inject_turn_context(messages, system_prompt)
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
+            api_messages = host._mark_anthropic_history(messages, api_messages)
             anthropic_kwargs: Dict[str, Any] = {
                 "model": host.llm.model_name,
                 "max_tokens": max_tokens,
