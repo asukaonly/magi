@@ -39,6 +39,16 @@ def _openai_cache_read_tokens(usage: Any) -> int:
     return int(getattr(usage, "prompt_cache_hit_tokens", 0) or 0)
 
 
+def _openai_cache_write_tokens(usage: Any) -> int:
+    """Cache-write (creation) tokens from an OpenAI-compatible usage object.
+
+    DashScope explicit cache reports the write under
+    ``prompt_tokens_details.cache_creation_input_tokens`` (Anthropic-style). Most
+    OpenAI-compat providers have no cache-write concept and report nothing (#110).
+    """
+    return _nested_int(usage, "prompt_tokens_details", "cache_creation_input_tokens")
+
+
 class ProviderBridgeResponseMixin:
     """Normalize provider responses, content blocks, metadata, and usage events."""
 
@@ -103,7 +113,7 @@ class ProviderBridgeResponseMixin:
             total_tokens=int(getattr(usage_data, "total_tokens", 0) or 0),
             reasoning_tokens=_nested_int(usage_data, "completion_tokens_details", "reasoning_tokens"),
             cache_read_tokens=_openai_cache_read_tokens(usage_data),
-            cache_write_tokens=0,
+            cache_write_tokens=_openai_cache_write_tokens(usage_data),
         )
 
     def _convert_messages_to_anthropic(
@@ -356,7 +366,7 @@ class ProviderBridgeResponseMixin:
             total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
             reasoning_tokens=_nested_int(usage, "completion_tokens_details", "reasoning_tokens"),
             cache_read_tokens=_openai_cache_read_tokens(usage),
-            cache_write_tokens=0,
+            cache_write_tokens=_openai_cache_write_tokens(usage),
         )
 
     @staticmethod

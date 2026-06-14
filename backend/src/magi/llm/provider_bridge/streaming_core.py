@@ -94,6 +94,9 @@ class ProviderBridgeStreamingHostProtocol(Protocol):
     ) -> Dict[str, Any]:
         ...
 
+    def _cache_marked_system(self, system_prompt: str) -> Any:
+        ...
+
     def _anthropic_usage_to_wire(self, usage_data: Any) -> dict[str, int] | None:
         ...
 
