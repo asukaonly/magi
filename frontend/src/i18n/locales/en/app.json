@@ -1613,6 +1613,7 @@
           "description": "Use an LLM to generate additional retrieval phrasings for memory queries, improving recall at the cost of one extra model call."
         },
         "cross_encoder_model_hint": "The reranker model can be selected and downloaded in LLM Configuration → Model Selection → Reranker.",
+        "cross_encoder_no_model_hint": "Configure a Cross-Encoder model first in LLM Configuration → Model Selection → Reranker.",
         "reranker_model": {
           "label": "Reranker Model",
           "placeholder": "Select a Cross-Encoder model"
