@@ -205,7 +205,7 @@ class ProviderBridgeOptionsMixin:
         payload = build_reasoning_payload(dialect, thinking_depth)
         return cast(Dict[str, Any], merge_payload(kwargs, payload))
 
-    def _cache_marked_system(self, system_prompt: str) -> Any:
+    def _cache_marked_system(self, system_prompt: str, *, cache_whole: bool = False) -> Any:
         """Build the system content with a prompt-cache breakpoint.
 
         For marker-capable vendors (Anthropic, Qwen/DashScope) the byte-stable
@@ -213,6 +213,10 @@ class ProviderBridgeOptionsMixin:
         cache_control marker; for automatic-only vendors the boundary is simply
         stripped and a plain string returned. Used by every Anthropic ``system``
         and OpenAI system-message construction site (#110).
+
+        ``cache_whole`` is for auxiliary calls (routing, memory extraction) whose
+        whole system prompt is byte-stable but carries no renderer boundary: the
+        entire system is marked as one cacheable block for marker vendors.
         """
         vendor = self._marker_vendor()
         # The system head is stable across turns AND conversations, so a 1h TTL
@@ -223,6 +227,7 @@ class ProviderBridgeOptionsMixin:
             system_prompt,
             supports_marker=vendor_supports_cache_marker(vendor),
             ttl=ttl,
+            cache_whole=cache_whole,
         )
 
     def _inject_turn_context(

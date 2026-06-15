@@ -90,9 +90,9 @@ def _mark_last_block(message: dict[str, Any], ttl: str | None) -> dict[str, Any]
 
 
 def cache_marked_system_content(
-    system: str, *, supports_marker: bool, ttl: str | None = None
+    system: str, *, supports_marker: bool, ttl: str | None = None, cache_whole: bool = False
 ) -> str | list[dict[str, Any]]:
-    """Return the SYSTEM field content: the byte-stable head only.
+    """Return the SYSTEM field content, with a cache_control marker when applicable.
 
     The per-turn tail (after the boundary) is NOT returned here — it is moved
     into the message stream by :func:`inject_turn_context`, so the system head
@@ -100,12 +100,19 @@ def cache_marked_system_content(
 
     - marker vendor + boundary: a content-block list with an ``ephemeral``
       cache_control on the head (with optional ``ttl`` for marker vendors that
-      support it, e.g. Anthropic's ``"1h"``).
-    - non-marker vendor + boundary: the head as a plain ``str``.
-    - no boundary: the system unchanged (nothing to split out).
+      support it, e.g. Anthropic's ``"1h"``). Boundary always wins, so a per-turn
+      tail is never marked even when ``cache_whole`` is set.
+    - marker vendor + no boundary + ``cache_whole``: mark the WHOLE system as one
+      cacheable block — for auxiliary calls (routing, memory extraction) whose
+      system prompt the caller knows is byte-stable but which don't go through the
+      renderer's boundary machinery (#100).
+    - non-marker vendor: the head/system as a plain ``str`` (auto-caching only).
+    - no boundary, no ``cache_whole``: the system unchanged.
     """
     parts = split_on_boundary(system)
     if parts is None:
+        if cache_whole and supports_marker and system.strip():
+            return [{"type": "text", "text": system, "cache_control": _ephemeral(ttl)}]
         return system
 
     head, _tail = parts

@@ -126,6 +126,8 @@ class ContextDecider(
                 max_tokens=DEFAULT_THINKING_TOKENS,
                 temperature=0.3,
                 disable_thinking=True,
+                # Routing system prompt is a constant — cache it (marker vendors).
+                cache_system=True,
                 event_context={
                     "request_id": request_id,
                     "request_kind": "context_decider",

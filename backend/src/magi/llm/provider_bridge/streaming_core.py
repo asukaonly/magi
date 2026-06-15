@@ -94,7 +94,7 @@ class ProviderBridgeStreamingHostProtocol(Protocol):
     ) -> Dict[str, Any]:
         ...
 
-    def _cache_marked_system(self, system_prompt: str) -> Any:
+    def _cache_marked_system(self, system_prompt: str, *, cache_whole: bool = False) -> Any:
         ...
 
     def _inject_turn_context(

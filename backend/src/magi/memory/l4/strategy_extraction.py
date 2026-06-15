@@ -194,6 +194,7 @@ class L4StrategyExtractor:
                 temperature=0.0,
                 json_mode=True,
                 disable_thinking=True,
+                cache_system=True,  # constant extraction system prompt
                 event_context={
                     "request_kind": "memory:l4_strategy_extraction",
                     "agent_id": "memory:l4",

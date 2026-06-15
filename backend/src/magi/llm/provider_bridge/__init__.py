@@ -177,9 +177,15 @@ class LLMProviderBridge:
         timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
         thinking_depth: ThinkingDepth | None = None,
+        cache_system: bool = False,
     ) -> ProviderResponse:
         """
         Unified plain-chat call that still returns normalized ProviderResponse.
+
+        ``cache_system=True`` marks the whole (byte-stable) system prompt as a
+        cacheable block for marker vendors — for auxiliary calls (routing, memory
+        extraction) whose system prompt is a constant but carries no renderer
+        cache boundary.
         """
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         started_at = time.time()
@@ -196,6 +202,7 @@ class LLMProviderBridge:
                     json_mode=json_mode,
                     timeout_seconds=timeout_seconds,
                     event_context=event_context,
+                    cache_system=cache_system,
                 ),
             )
 

@@ -71,6 +71,37 @@ def test_no_boundary_system_unchanged() -> None:
     assert cache_marked_system_content("plain system", supports_marker=False) == "plain system"
 
 
+# --- cache_whole: stable auxiliary-call system prompts (routing, memory) ---
+
+
+def test_cache_whole_marks_entire_system_when_no_boundary() -> None:
+    # Aux calls (routing/memory) have a stable system but no boundary; cache_whole
+    # marks the whole thing for marker vendors so it caches like the main head.
+    out = cache_marked_system_content("STABLE ROUTING PROMPT", supports_marker=True, cache_whole=True)
+    assert out == [
+        {"type": "text", "text": "STABLE ROUTING PROMPT", "cache_control": {"type": "ephemeral"}}
+    ]
+
+
+def test_cache_whole_respects_ttl() -> None:
+    out = cache_marked_system_content("S", supports_marker=True, cache_whole=True, ttl="1h")
+    assert out == [{"type": "text", "text": "S", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+
+
+def test_cache_whole_noop_for_non_marker_vendor() -> None:
+    assert cache_marked_system_content("S", supports_marker=False, cache_whole=True) == "S"
+
+
+def test_cache_whole_with_boundary_still_splits_head_only() -> None:
+    # Boundary takes precedence — never mark a per-turn tail even if cache_whole.
+    out = cache_marked_system_content(SYS, supports_marker=True, cache_whole=True)
+    assert out == [{"type": "text", "text": STABLE, "cache_control": {"type": "ephemeral"}}]
+
+
+def test_cache_whole_off_leaves_plain_system() -> None:
+    assert cache_marked_system_content("S", supports_marker=True, cache_whole=False) == "S"
+
+
 # --- per-turn tail injection into the message stream ---
 
 

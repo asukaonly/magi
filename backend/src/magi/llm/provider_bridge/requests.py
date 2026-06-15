@@ -37,7 +37,7 @@ class _ProviderBridgeRequestHostProtocol(Protocol):
     ) -> Dict[str, Any]:
         ...
 
-    def _cache_marked_system(self, system_prompt: str) -> Any:
+    def _cache_marked_system(self, system_prompt: str, *, cache_whole: bool = False) -> Any:
         ...
 
     def _inject_turn_context(
@@ -81,6 +81,7 @@ class ProviderBridgeRequestMixin:
         json_mode: bool,
         timeout_seconds: Optional[float],
         event_context: Optional[Dict[str, Any]],
+        cache_system: bool = False,
     ) -> ProviderResponse:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
         messages = host._inject_turn_context(messages, system_prompt)
@@ -91,7 +92,7 @@ class ProviderBridgeRequestMixin:
                 "model": host.llm.model_name,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "system": host._cache_marked_system(system_prompt),
+                "system": host._cache_marked_system(system_prompt, cache_whole=cache_system),
                 "messages": api_messages,
             }
             if timeout_seconds is not None:
@@ -140,7 +141,9 @@ class ProviderBridgeRequestMixin:
         openai_messages = host._mark_message_cache_breakpoints(
             messages, host._convert_messages_to_openai(messages)
         )
-        full_messages = [{"role": "system", "content": host._cache_marked_system(system_prompt)}] + openai_messages
+        full_messages = [
+            {"role": "system", "content": host._cache_marked_system(system_prompt, cache_whole=cache_system)}
+        ] + openai_messages
         chat_kwargs: Dict[str, Any] = {
             "messages": full_messages,
             "max_tokens": max_tokens,
