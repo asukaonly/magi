@@ -398,6 +398,77 @@ async def test_upsert_knowledge_edge_accumulates_confidence_on_repeat(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_upsert_knowledge_edge_idempotent_on_identical_evidence_replay(tmp_path):
+    """Replaying the SAME evidence must not inflate confidence/observation_count (#137)."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    triple_id = ""
+    for _ in range(3):
+        triple_id = await store.upsert_knowledge_edge(
+            subject_id="user:u1",
+            subject_type="user",
+            predicate="LIKES",
+            object_id="food:ramen",
+            object_type="food",
+            evidence_event_ids=["evt-1"],  # identical evidence on every replay
+            confidence=0.3,
+            observed_at=1710000000.0,
+            source_type="chat",
+        )
+
+    edge = await store.get_relationship(triple_id=triple_id)
+    assert edge["observation_count"] == 1
+    assert abs(edge["confidence"] - 0.3) < 1e-6
+
+
+@pytest.mark.asyncio
+async def test_corroborate_edge_idempotent_on_identical_evidence_replay(tmp_path):
+    """corroborate_edge must bump only when new evidence arrives (#137)."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    triple_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:ramen",
+        object_type="food",
+        evidence_event_ids=["evt-1"],
+        confidence=0.3,
+        observed_at=1710000000.0,
+        source_type="chat",
+    )
+
+    # Replay with the SAME evidence id → no inflation.
+    ok = await store.corroborate_edge(
+        triple_id=triple_id,
+        evidence_event_ids=["evt-1"],
+        new_confidence=0.3,
+        observed_at=1710010000.0,
+    )
+    assert ok is True
+    edge = await store.get_relationship(triple_id=triple_id)
+    assert edge["observation_count"] == 1
+    assert abs(edge["confidence"] - 0.3) < 1e-6
+
+    # New evidence → genuine corroboration still bumps.
+    await store.corroborate_edge(
+        triple_id=triple_id,
+        evidence_event_ids=["evt-2"],
+        new_confidence=0.3,
+        observed_at=1710020000.0,
+    )
+    edge = await store.get_relationship(triple_id=triple_id)
+    assert edge["observation_count"] == 2
+    assert edge["confidence"] > 0.3
+
+
+@pytest.mark.asyncio
 async def test_upsert_knowledge_edge_keeps_first_and_last_observed_bounds_for_out_of_order_events(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 

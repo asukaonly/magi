@@ -267,16 +267,25 @@ class L2StoreGraphWriteMixin:
             existing = await cursor.fetchone()
 
         if existing:
-            merged_evidence = sorted(
-                set(json.loads(existing["evidence_event_ids"] or "[]")).union(evidence_event_ids)
-            )
+            existing_evidence = set(json.loads(existing["evidence_event_ids"] or "[]"))
+            merged_set = existing_evidence.union(evidence_event_ids)
+            merged_evidence = sorted(merged_set)
             if len(merged_evidence) > MAX_EVIDENCE_EVENT_IDS:
                 merged_evidence = merged_evidence[-MAX_EVIDENCE_EVENT_IDS:]
-            observation_count = int(existing["observation_count"]) + 1
+            # Only count corroboration when genuinely new evidence arrived. Replays
+            # (requeue, stale-job retry, overlapping windows) re-apply identical
+            # evidence; bumping unconditionally inflates confidence/observation_count
+            # without new support and is irreversible (#137).
+            evidence_grew = len(merged_set) > len(existing_evidence)
+            old_confidence = float(existing["confidence"])
+            if evidence_grew:
+                observation_count = int(existing["observation_count"]) + 1
+                accumulated_confidence = accumulate_confidence(old_confidence, float(confidence))
+            else:
+                observation_count = int(existing["observation_count"])
+                accumulated_confidence = old_confidence
             first_observed_at = min(float(existing["first_observed_at"]), float(observed_at))
             last_observed_at = max(float(existing["last_observed_at"]), float(observed_at))
-            old_confidence = float(existing["confidence"])
-            accumulated_confidence = accumulate_confidence(old_confidence, float(confidence))
             effective_fact_kind = normalized_fact_kind or str(existing["fact_kind"] or "").strip() or "explicit_fact"
             existing_evidence_text = str(existing["evidence_text"] or "")
             if len(effective_evidence_text) <= len(existing_evidence_text):
@@ -406,13 +415,22 @@ class L2StoreGraphWriteMixin:
             if not existing:
                 return False
 
-            merged_evidence = sorted(
-                set(json.loads(existing["evidence_event_ids"] or "[]")).union(evidence_event_ids)
-            )
+            existing_evidence = set(json.loads(existing["evidence_event_ids"] or "[]"))
+            merged_set = existing_evidence.union(evidence_event_ids)
+            merged_evidence = sorted(merged_set)
             if len(merged_evidence) > MAX_EVIDENCE_EVENT_IDS:
                 merged_evidence = merged_evidence[-MAX_EVIDENCE_EVENT_IDS:]
-            observation_count = int(existing["observation_count"]) + 1
-            accumulated_confidence = accumulate_confidence(float(existing["confidence"]), float(new_confidence))
+            # Bump only on genuinely new evidence; identical-evidence replays must
+            # not inflate confidence/observation_count (#137).
+            evidence_grew = len(merged_set) > len(existing_evidence)
+            if evidence_grew:
+                observation_count = int(existing["observation_count"]) + 1
+                accumulated_confidence = accumulate_confidence(
+                    float(existing["confidence"]), float(new_confidence)
+                )
+            else:
+                observation_count = int(existing["observation_count"])
+                accumulated_confidence = float(existing["confidence"])
             first_observed_at = min(float(existing["first_observed_at"]), float(observed_at))
             last_observed_at = max(float(existing["last_observed_at"]), float(observed_at))
             new_evidence_text = str(evidence_text).strip() if evidence_text else ""
