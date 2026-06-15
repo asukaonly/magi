@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from ..l2.assertions.state_machine import ACTIVE_VALIDATION_STATES
 from .models import TemporalContext
 
 
@@ -80,7 +81,7 @@ def build_assertion_temporal_clause(
     params: list[Any] = []
     now = time.time()
 
-    active_states = ("active", "corroborated", "tentative", "stable-compatible")
+    active_states = ACTIVE_VALIDATION_STATES
 
     if tc.mode == "current":
         state_ph = ", ".join("?" for _ in active_states)
