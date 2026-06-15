@@ -1424,6 +1424,46 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/memory/l2/assertions/{assertion_id}/correct": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Correct Assertion
+         * @description User-initiated value correction that supersedes an existing assertion.
+         */
+        readonly post: operations["correct_assertion_api_memory_l2_assertions__assertion_id__correct_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/assertions/{assertion_id}/feedback": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        /**
+         * Submit Assertion Feedback
+         * @description Apply user confirmation or rejection to an L2 assertion.
+         */
+        readonly patch: operations["submit_assertion_feedback_api_memory_l2_assertions__assertion_id__feedback_patch"];
+        readonly trace?: never;
+    };
     readonly "/api/memory/l2/conflict-rules": {
         readonly parameters: {
             readonly query?: never;
@@ -3534,6 +3574,21 @@ export interface components {
              * @default magi-agent
              */
             readonly name: string;
+        };
+        /** AssertionCorrectionRequest */
+        readonly AssertionCorrectionRequest: {
+            /** New Value */
+            readonly new_value: string;
+            /** Reason */
+            readonly reason?: string | null;
+        };
+        /** AssertionFeedbackRequest */
+        readonly AssertionFeedbackRequest: {
+            /**
+             * Feedback
+             * @enum {string}
+             */
+            readonly feedback: "confirmed" | "rejected";
         };
         /** AvailabilityEntry */
         readonly AvailabilityEntry: {
@@ -9897,6 +9952,76 @@ export interface operations {
             readonly cookie?: never;
         };
         readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly correct_assertion_api_memory_l2_assertions__assertion_id__correct_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly assertion_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["AssertionCorrectionRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly submit_assertion_feedback_api_memory_l2_assertions__assertion_id__feedback_patch: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly assertion_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["AssertionFeedbackRequest"];
+            };
+        };
         readonly responses: {
             /** @description Successful Response */
             readonly 200: {
