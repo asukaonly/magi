@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ..assertions.state_machine import RETRIEVAL_EXCLUDED_STATUSES
 from .codec import L2EpisodeStoreBaseMixin
 
 
@@ -35,17 +36,19 @@ class L2EpisodeFtsMixin(L2EpisodeStoreBaseMixin):
         """Full-text search over episode summary/label/user_label."""
         await self.initialize()
         safe_query = query.replace('"', '""')
+        status_ph = ", ".join("?" for _ in RETRIEVAL_EXCLUDED_STATUSES)
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """
+                f"""
                 SELECT e.* FROM episodes e
                 JOIN episodes_fts f ON e.episode_id = f.episode_id
                 WHERE episodes_fts MATCH ?
+                  AND e.status NOT IN ({status_ph})
                 ORDER BY rank
                 LIMIT ?
                 """,
-                (f'"{safe_query}"', limit),
+                (f'"{safe_query}"', *RETRIEVAL_EXCLUDED_STATUSES, limit),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [self._episode_row_to_dict(row) for row in rows]

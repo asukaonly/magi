@@ -11,6 +11,10 @@ import logging
 import time
 from typing import Any
 
+from ..l2.assertions.state_machine import (
+    ACTIVE_VALIDATION_STATES,
+    HISTORICAL_VALIDATION_STATES,
+)
 from .grounding import L2GroundingPlan
 from .temporal import (
     build_assertion_temporal_clause,
@@ -90,10 +94,14 @@ def _infer_assertion_trait_families(plan: L2GroundingPlan) -> list[str] | None:
 
 
 def _infer_assertion_states(tc: Any) -> list[str] | None:
-    """Determine which validation states to include based on temporal mode."""
+    """Determine which validation states to include based on temporal mode.
+
+    Must mirror the states `derive_validation_state` actually emits — including
+    the graduated ``stable`` state — so the strongest ToM facts stay retrievable.
+    """
     if tc is None or tc.mode in ("none", "current"):
-        return ["active", "corroborated", "tentative", "stable-compatible"]
-    return ["active", "corroborated", "tentative", "stable-compatible", "superseded"]
+        return list(ACTIVE_VALIDATION_STATES)
+    return list(HISTORICAL_VALIDATION_STATES)
 
 
 # ---------------------------------------------------------------------------

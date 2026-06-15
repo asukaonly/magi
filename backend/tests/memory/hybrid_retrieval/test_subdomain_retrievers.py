@@ -16,6 +16,7 @@ from magi.memory.hybrid_retrieval.l2_subdomain_retrievers import (
     retrieve_snapshots,
 )
 from magi.memory.hybrid_retrieval.models import TemporalContext
+from magi.memory.hybrid_retrieval.temporal import build_assertion_temporal_clause
 
 
 def _make_store() -> MagicMock:
@@ -83,6 +84,34 @@ class TestRetrieveAssertions:
         plan = _make_plan()
         result = await retrieve_assertions(plan, store)
         assert "_temporal_score" in result[0]
+
+    @pytest.mark.asyncio
+    async def test_stable_state_included_in_assertion_query(self):
+        """The graduated 'stable' state must be retrievable (regression for #133)."""
+        store = _make_store()
+        plan = _make_plan()
+        await retrieve_assertions(plan, store)
+        states = store.batch_list_tom_assertions.call_args.kwargs["validation_states"]
+        assert "stable" in states
+
+    @pytest.mark.asyncio
+    async def test_phantom_states_excluded_from_assertion_query(self):
+        """Phantom states the write side never emits must not be queried (#133)."""
+        store = _make_store()
+        plan = _make_plan()
+        await retrieve_assertions(plan, store)
+        states = store.batch_list_tom_assertions.call_args.kwargs["validation_states"]
+        assert "active" not in states
+        assert "stable-compatible" not in states
+
+
+class TestAssertionTemporalClause:
+    def test_current_mode_includes_stable(self):
+        """The 'current' temporal clause must allow stable assertions (#133)."""
+        _sql, params = build_assertion_temporal_clause(TemporalContext(mode="current"))
+        assert "stable" in params
+        assert "active" not in params
+        assert "stable-compatible" not in params
 
 
 class TestRetrieveSnapshots:

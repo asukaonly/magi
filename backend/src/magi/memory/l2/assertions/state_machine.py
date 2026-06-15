@@ -6,6 +6,20 @@ from typing import Optional
 
 _TEMPORARY_STATE_TRAITS = frozenset({"stress_level", "mood", "engagement"})
 
+# Validation states representing live, retrievable assertions. These are the only
+# non-terminal states `derive_validation_state` emits — read paths must allow
+# exactly these (plus history below), never phantom values like "active".
+ACTIVE_VALIDATION_STATES: tuple[str, ...] = ("tentative", "corroborated", "stable")
+
+# Live states plus historically-true-but-replaced facts, surfaced only for
+# time-scoped ("as_of"/"during"/...) queries.
+HISTORICAL_VALIDATION_STATES: tuple[str, ...] = ACTIVE_VALIDATION_STATES + ("superseded",)
+
+# Governance statuses set by forget/reject cascades. They leave validation_state
+# untouched, so read paths must exclude them by `status` regardless of
+# validation_state, or forgotten data leaks back into retrieval.
+RETRIEVAL_EXCLUDED_STATUSES: tuple[str, ...] = ("archived", "invalidated", "user_rejected")
+
 
 def compute_confidence(evidence_count: int) -> float:
     """Base confidence curve from accumulated evidence count."""
@@ -63,4 +77,7 @@ __all__ = [
     "compute_confidence",
     "derive_validation_state",
     "_TEMPORARY_STATE_TRAITS",
+    "ACTIVE_VALIDATION_STATES",
+    "HISTORICAL_VALIDATION_STATES",
+    "RETRIEVAL_EXCLUDED_STATUSES",
 ]
