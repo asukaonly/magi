@@ -10,7 +10,7 @@ from typing import Any
 
 from magi.config import get_user_preference
 from magi.core.logger import get_logger
-from magi.agent.task_agents.common import AssistantResponsePlan, AssistantResponseSegment
+from magi.agent.task_agents.common import AssistantResponsePlan, AssistantResponseSegment, RhythmPersonaSignal
 
 logger = get_logger(__name__)
 
@@ -113,7 +113,9 @@ class ResponseRhythmPlanner:
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         streamed: bool = False,
+        persona: RhythmPersonaSignal | None = None,
     ) -> AssistantResponsePlan | None:
+        _ = persona  # consumed in Task 3/4 (segmentation bias + voice hint)
         if streamed or not self._is_enabled():
             return None
         if str((ux_plan or {}).get("assistant_surface_mode") or "final_only").strip() in {"none", "reaction_only"}:

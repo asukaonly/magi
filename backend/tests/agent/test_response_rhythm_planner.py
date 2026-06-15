@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -360,6 +361,73 @@ async def test_response_rhythm_planner_keeps_markdown_lists_in_one_message(monke
 
     assert plan is None
     assert prompt_service.calls == []
+
+
+def test_extract_persona_rhythm_from_prompt_context() -> None:
+    from magi.agent.task_agents.handlers.direct_handler import _extract_persona_rhythm
+
+    plan = SimpleNamespace(
+        register="chat",
+        persona_intensity=2,
+        idiolect={"sentence_style": "爱用短句"},
+    )
+    ctx = SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=plan))
+
+    signal = _extract_persona_rhythm(ctx)
+    assert signal is not None
+    assert signal.register == "chat"
+    assert signal.persona_intensity == 2
+    assert signal.sentence_style == "爱用短句"
+
+    assert _extract_persona_rhythm(SimpleNamespace()) is None
+    assert _extract_persona_rhythm(SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=None))) is None
+
+    # persona_intensity == 0 (crisis/suppression) must be preserved, not coerced to 1
+    crisis_plan = SimpleNamespace(register="crisis", persona_intensity=0, idiolect={})
+    crisis_ctx = SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=crisis_plan))
+    crisis_signal = _extract_persona_rhythm(crisis_ctx)
+    assert crisis_signal is not None
+    assert crisis_signal.persona_intensity == 0
+    assert crisis_signal.register == "crisis"
+    assert crisis_signal.sentence_style == ""
+
+
+@pytest.mark.asyncio
+async def test_postprocess_forwards_persona_to_rhythm_planner() -> None:
+    from magi.agent.task_agents.common import (
+        ExecutionResult,
+        ExecutionMode,
+        RhythmPersonaSignal,
+    )
+    from magi.chat.task_agent.postprocess_service import ChatPostProcessService
+
+    received: dict = {}
+
+    class _RecordingPlanner:
+        async def plan(self, **kwargs):
+            received.update(kwargs)
+            return None
+
+    from magi.chat.task_agent.postprocess.utils import normalize_mode
+    service = object.__new__(ChatPostProcessService)
+    service._response_rhythm_planner = _RecordingPlanner()
+    service._normalize_mode = normalize_mode  # bare instance lacks the _operations chain
+
+    signal = RhythmPersonaSignal(register="chat", persona_intensity=2, sentence_style="爱用短句")
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="x",
+        root_user_message="hi",
+        persona_rhythm=signal,
+    )
+
+    await service._build_response_rhythm_plan(
+        context=SimpleNamespace(latest_user_message="hi"),
+        result=result,
+        response_text="x",
+        ux_plan={},
+    )
+    assert received.get("persona") is signal
 
 
 def test_compute_delay_ms_scales_with_length_and_clamps() -> None:
