@@ -306,6 +306,7 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
                 temperature=0.0,
                 json_mode=True,
                 disable_thinking=resolved_disable_thinking,
+                cache_system=True,  # constant + per-language system prompt
                 timeout_seconds=resolved_timeout_seconds,
                 event_context={
                     "request_kind": "memory:l3_temporal_summary",

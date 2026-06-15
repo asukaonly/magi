@@ -183,3 +183,43 @@ async def test_no_routing_key_for_unsupported_vendor() -> None:
     )
     assert "prompt_cache_key" not in completions.kwargs.get("extra_body", {})
     assert "x-grok-conv-id" not in completions.kwargs.get("extra_headers", {})
+
+
+# ---------------------------------------------------------------------------
+# cache_system=True: mark a stable aux-call system prompt (routing/memory) (#100)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cache_system_marks_stable_system_for_marker_vendor() -> None:
+    bridge, completions = _bridge(ModelVendor.DASHSCOPE)
+    await bridge.chat_response(
+        system_prompt="STABLE ROUTING PROMPT (no boundary)",
+        messages=[{"role": "user", "content": "route this"}],
+        cache_system=True,
+    )
+    system_msg = completions.kwargs["messages"][0]
+    assert system_msg["role"] == "system"
+    assert isinstance(system_msg["content"], list)
+    assert system_msg["content"][0]["cache_control"] == {"type": "ephemeral"}
+
+
+@pytest.mark.asyncio
+async def test_cache_system_off_leaves_plain_system() -> None:
+    bridge, completions = _bridge(ModelVendor.DASHSCOPE)
+    await bridge.chat_response(
+        system_prompt="STABLE ROUTING PROMPT",
+        messages=[{"role": "user", "content": "route"}],
+    )
+    assert completions.kwargs["messages"][0]["content"] == "STABLE ROUTING PROMPT"
+
+
+@pytest.mark.asyncio
+async def test_cache_system_noop_for_non_marker_vendor() -> None:
+    bridge, completions = _bridge(ModelVendor.DEEPSEEK)
+    await bridge.chat_response(
+        system_prompt="STABLE ROUTING PROMPT",
+        messages=[{"role": "user", "content": "route"}],
+        cache_system=True,
+    )
+    assert completions.kwargs["messages"][0]["content"] == "STABLE ROUTING PROMPT"

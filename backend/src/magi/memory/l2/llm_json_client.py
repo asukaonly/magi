@@ -71,6 +71,9 @@ class L2LLMJsonClientMixin:
                     temperature=0.0,
                     json_mode=True,
                     disable_thinking=disable_thinking,
+                    # L2 extraction system prompts are constants (dynamic entities
+                    # ride in the user message) — cache them (marker vendors).
+                    cache_system=True,
                     event_context={
                         "request_kind": request_kind,
                         "turn_id": turn_id,
