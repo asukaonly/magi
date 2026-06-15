@@ -48,7 +48,6 @@ class L2StoreRowMappingMixin:
             "status": str(row["status"]) if "status" in columns and row["status"] else "active",
             "superseded_by": str(row["superseded_by"]) if "superseded_by" in columns and row["superseded_by"] else None,
             "superseded_at": float(row["superseded_at"]) if "superseded_at" in columns and row["superseded_at"] else None,
-            "privacy_scope": str(row["privacy_scope"]) if "privacy_scope" in columns and row["privacy_scope"] else "private",
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         }

@@ -128,9 +128,9 @@ class L2StoreFeedbackMixin:
                     inference_depth, validation_state, first_inferred_at, last_validated_at,
                     target_entity_id, target_entity_type, target_scope, temporal_scope,
                     decay_policy, decay_anchor_at, context_ref_id, expires_at,
-                    status, privacy_scope, user_feedback, user_feedback_at,
+                    status, user_feedback, user_feedback_at,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     new_assertion_id,
@@ -156,7 +156,6 @@ class L2StoreFeedbackMixin:
                     str(existing["context_ref_id"] or ""),
                     existing["expires_at"],
                     "stable",
-                    str(existing["privacy_scope"] if "privacy_scope" in existing.keys() else "private"),
                     "confirmed",
                     now,
                     now,

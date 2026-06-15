@@ -34,7 +34,6 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
         formation_method: str = "time_gap_cluster",
         confidence: float = 0.5,
         source_event_count: int = 0,
-        privacy_scope: str = "private",
         slice_narrative: Optional[str] = None,
         slice_sensory_detail: Optional[str] = None,
         magi_standout: bool = False,
@@ -53,11 +52,11 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
                     parent_episode_id, label, summary, dominant_mode,
                     primary_entity_ids, primary_place_ids, primary_topic_keys,
                     continuity_signals, formation_method, confidence,
-                    source_event_count, privacy_scope,
+                    source_event_count,
                     slice_narrative, slice_sensory_detail, magi_standout,
                     standout_score, standout_reason, representative_asset_ref,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     episode_id,
@@ -76,7 +75,6 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
                     formation_method,
                     confidence,
                     source_event_count,
-                    privacy_scope,
                     slice_narrative,
                     slice_sensory_detail,
                     1 if magi_standout else 0,
@@ -117,7 +115,6 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
             "source_event_count", "parent_episode_id", "user_label",
             "user_note", "user_pinned", "embedding_status",
             "embedding_profile_id", "last_embedded_at", "last_recomputed_at",
-            "privacy_scope",
             # Immersive timeline fields (Plan 1)
             "slice_narrative", "slice_sensory_detail", "magi_standout",
             "standout_score", "standout_reason", "representative_asset_ref",

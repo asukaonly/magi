@@ -40,7 +40,6 @@ class EpisodeWrite:
     formation_method: str = "time_gap_cluster"
     confidence: float = 0.5
     source_event_count: int = 0
-    privacy_scope: str = "private"
 
     # Immersive timeline fields (Plan 1 — Plan 2 fills via LLM/scheduler)
     slice_narrative: str = ""
@@ -73,7 +72,6 @@ class EpisodeWrite:
         self.formation_method = _optional_text(self.formation_method) or "time_gap_cluster"
         self.confidence = float(self.confidence or 0.5)
         self.source_event_count = int(self.source_event_count or 0)
-        self.privacy_scope = _optional_text(self.privacy_scope) or "private"
         self.slice_narrative = _optional_text(self.slice_narrative) or ""
         self.slice_sensory_detail = _optional_text(self.slice_sensory_detail) or ""
         self.magi_standout = bool(self.magi_standout)
@@ -103,7 +101,6 @@ class EpisodeWrite:
             formation_method=str(data.get("formation_method", "time_gap_cluster")),
             confidence=float(data.get("confidence", 0.5)),
             source_event_count=int(data.get("source_event_count", 0)),
-            privacy_scope=str(data.get("privacy_scope", "private")),
             slice_narrative=str(data.get("slice_narrative", "") or ""),
             slice_sensory_detail=str(data.get("slice_sensory_detail", "") or ""),
             magi_standout=bool(data.get("magi_standout", False)),

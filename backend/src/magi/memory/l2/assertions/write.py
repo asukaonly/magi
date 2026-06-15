@@ -87,9 +87,9 @@ INSERT INTO tom_trait_assertions(
     inference_depth, validation_state, first_inferred_at, last_validated_at,
     target_entity_id, target_entity_type, target_scope, temporal_scope,
     decay_policy, decay_anchor_at, context_ref_id, expires_at,
-    status, privacy_scope, memory_subdomain, natural_summary,
+    status, memory_subdomain, natural_summary,
     created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -303,7 +303,6 @@ class L2StoreAssertionMixin:
                                 normalized_candidate["context_ref_id"],
                                 normalized_candidate["expires_at"],
                                 validation_state,
-                                str(existing["privacy_scope"] or "private"),
                                 normalized_candidate["memory_subdomain"],
                                 normalized_candidate["natural_summary"],
                                 now,
@@ -451,7 +450,6 @@ class L2StoreAssertionMixin:
                 candidate["context_ref_id"],
                 candidate["expires_at"],
                 validation_state,
-                "private",
                 candidate["memory_subdomain"],
                 candidate["natural_summary"],
                 now,
