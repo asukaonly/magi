@@ -430,6 +430,23 @@ async def test_postprocess_forwards_persona_to_rhythm_planner() -> None:
     assert received.get("persona") is signal
 
 
+def test_build_system_prompt_segmentation_varies_with_intensity() -> None:
+    low = ResponseRhythmPlanner._build_system_prompt(persona_intensity=0)
+    mid = ResponseRhythmPlanner._build_system_prompt(persona_intensity=1)
+    high = ResponseRhythmPlanner._build_system_prompt(persona_intensity=2)
+
+    assert "exactly one group" in low
+    assert "Prefer one group" in mid
+    assert "Prefer two groups" in high
+
+    # None (no persona signal — the common path) must behave like intensity=1
+    none_default = ResponseRhythmPlanner._build_system_prompt(persona_intensity=None)
+    assert none_default == mid
+    # production clamps intensity to [0,3]; 3 falls through the >=2 branch
+    high3 = ResponseRhythmPlanner._build_system_prompt(persona_intensity=3)
+    assert "Prefer two groups" in high3
+
+
 def test_compute_delay_ms_scales_with_length_and_clamps() -> None:
     class _FixedRng:
         @staticmethod

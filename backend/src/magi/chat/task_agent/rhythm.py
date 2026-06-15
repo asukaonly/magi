@@ -115,7 +115,7 @@ class ResponseRhythmPlanner:
         streamed: bool = False,
         persona: RhythmPersonaSignal | None = None,
     ) -> AssistantResponsePlan | None:
-        _ = persona  # consumed in Task 3/4 (segmentation bias + voice hint)
+        persona_intensity = persona.persona_intensity if persona is not None else None
         if streamed or not self._is_enabled():
             return None
         if str((ux_plan or {}).get("assistant_surface_mode") or "final_only").strip() in {"none", "reaction_only"}:
@@ -133,7 +133,7 @@ class ResponseRhythmPlanner:
             return None
         try:
             raw_plan = await self._prompt_service.call_llm(
-                system_prompt=self._build_system_prompt(),
+                system_prompt=self._build_system_prompt(persona_intensity=persona_intensity),
                 messages=[
                     {
                         "role": "user",
@@ -207,8 +207,19 @@ class ResponseRhythmPlanner:
         )
 
     @staticmethod
-    def _build_system_prompt() -> str:
-        return """You are an internal chat presentation planner.
+    def _build_system_prompt(*, persona_intensity: int | None = None) -> str:
+        intensity = 1 if persona_intensity is None else int(persona_intensity)
+        if intensity <= 0:
+            segmentation_bias = "- Use exactly one group; do not split."
+        elif intensity == 1:
+            # Default path (no active persona triggers): conservative single-bubble
+            # bias; the legacy "prefer two groups" nudge is intentionally dropped here.
+            segmentation_bias = (
+                "- Prefer one group; use at most two only when units are truly separate moves."
+            )
+        else:
+            segmentation_bias = "- Prefer two groups for most splittable answers."
+        return f"""You are an internal chat presentation planner.
 
 You do not answer the user. You only decide how to display an already finished assistant answer as one to three chat bubbles.
 
@@ -218,19 +229,18 @@ Rules:
 - Use only the provided unit ids.
 - Cover every unit exactly once, in the original order.
 - Use at most three groups.
-- Prefer one group unless multiple units are truly separate conversational moves.
-- Prefer two groups for most splittable answers.
+{segmentation_bias}
 - Use three groups only for long answers with three distinct moves; never split into three just because three sentence units exist.
 - Use one group when the answer is short, terse, transactional, or splitting would hurt meaning.
 - Technical explanations, architecture notes, implementation plans, API/protocol/configuration details, debugging analysis, and source-code-related answers should usually be one group. If a technical answer is conversational enough to split, use at most two groups and keep the technical body intact.
 - Never add fake hesitation, filler, or dramatic pauses; every group must carry useful content.
 
 Schema:
-{
+{{
   "groups": [
-    {"unit_ids": ["u1"], "intent": "acknowledge|answer|explain|tradeoff|next_step|afterthought"}
+    {{"unit_ids": ["u1"], "intent": "acknowledge|answer|explain|tradeoff|next_step|afterthought"}}
   ]
-}
+}}
 """.strip()
 
     @staticmethod
