@@ -62,15 +62,15 @@ def _build_pre_migration_db() -> sqlite3.Connection:
 
 def test_migration_module_loads() -> None:
     """The migration file must exist and be importable."""
-    mod = _load_migration("0012_tom_assertions_shadow_status.py")
-    assert mod.revision == "0012_tom_assertions_shadow_status"
-    assert mod.down_revision == "0011_l0_execution_run_trigger"
+    mod = _load_migration("0013_tom_assertions_shadow_status.py")
+    assert mod.revision == "0013_tom_assertions_shadow_status"
+    assert mod.down_revision == "0012_drop_privacy_scope"
 
 
 def test_shadow_appears_in_index_where_clause_after_migration() -> None:
     """After apply(), the index WHERE clause must include 'shadow'."""
     conn = _build_pre_migration_db()
-    mod = _load_migration("0012_tom_assertions_shadow_status.py")
+    mod = _load_migration("0013_tom_assertions_shadow_status.py")
 
     # Pre-condition: 'shadow' is NOT in the index before migration.
     rows = conn.execute(
@@ -102,7 +102,7 @@ def test_shadow_and_active_rows_can_coexist_after_migration() -> None:
     constraint).
     """
     conn = _build_pre_migration_db()
-    mod = _load_migration("0012_tom_assertions_shadow_status.py")
+    mod = _load_migration("0013_tom_assertions_shadow_status.py")
     mod.apply(conn)
 
     # Insert the authoritative 'active' row.
@@ -134,7 +134,7 @@ def test_two_active_rows_still_violate_after_migration() -> None:
     (SQLite treats NULL != NULL in unique indexes).
     """
     conn = _build_pre_migration_db()
-    mod = _load_migration("0012_tom_assertions_shadow_status.py")
+    mod = _load_migration("0013_tom_assertions_shadow_status.py")
     mod.apply(conn)
 
     conn.execute(

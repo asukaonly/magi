@@ -5,16 +5,16 @@ Lets an inferred assertion that contradicts an authoritative one persist as a
 idx_tom_assertions_active_unique. SQLite cannot ALTER a partial index's WHERE,
 so we DROP + CREATE. Idempotent.
 
-Revision ID: 0012_tom_assertions_shadow_status
-Revises: 0011_l0_execution_run_trigger
+Revision ID: 0013_tom_assertions_shadow_status
+Revises: 0012_drop_privacy_scope
 Create Date: 2026-06-15
 """
 from __future__ import annotations
 
 from alembic import op
 
-revision = "0012_tom_assertions_shadow_status"
-down_revision = "0011_l0_execution_run_trigger"
+revision = "0013_tom_assertions_shadow_status"
+down_revision = "0012_drop_privacy_scope"
 branch_labels = None
 depends_on = None
 
