@@ -447,6 +447,21 @@ def test_build_system_prompt_segmentation_varies_with_intensity() -> None:
     assert "Prefer two groups" in high3
 
 
+def test_build_system_prompt_includes_sentence_style() -> None:
+    with_voice = ResponseRhythmPlanner._build_system_prompt(
+        persona_intensity=2, sentence_style="爱用短句，碎碎念"
+    )
+    without_voice = ResponseRhythmPlanner._build_system_prompt(
+        persona_intensity=2, sentence_style=""
+    )
+    assert "爱用短句，碎碎念" in with_voice
+    assert "爱用短句，碎碎念" not in without_voice
+    # no stray blank line in the no-voice (default) path
+    assert "\n\n- Use three groups only" not in without_voice
+    # with a voice, the hint sits directly between segmentation and the three-groups rule
+    assert "without changing wording.\n- Use three groups only" in with_voice
+
+
 def test_compute_delay_ms_scales_with_length_and_clamps() -> None:
     class _FixedRng:
         @staticmethod

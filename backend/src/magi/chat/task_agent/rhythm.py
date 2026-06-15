@@ -116,6 +116,7 @@ class ResponseRhythmPlanner:
         persona: RhythmPersonaSignal | None = None,
     ) -> AssistantResponsePlan | None:
         persona_intensity = persona.persona_intensity if persona is not None else None
+        persona_voice = persona.sentence_style if persona is not None else ""
         if streamed or not self._is_enabled():
             return None
         if str((ux_plan or {}).get("assistant_surface_mode") or "final_only").strip() in {"none", "reaction_only"}:
@@ -133,7 +134,9 @@ class ResponseRhythmPlanner:
             return None
         try:
             raw_plan = await self._prompt_service.call_llm(
-                system_prompt=self._build_system_prompt(persona_intensity=persona_intensity),
+                system_prompt=self._build_system_prompt(
+                    persona_intensity=persona_intensity, sentence_style=persona_voice
+                ),
                 messages=[
                     {
                         "role": "user",
@@ -207,7 +210,7 @@ class ResponseRhythmPlanner:
         )
 
     @staticmethod
-    def _build_system_prompt(*, persona_intensity: int | None = None) -> str:
+    def _build_system_prompt(*, persona_intensity: int | None = None, sentence_style: str = "") -> str:
         intensity = 1 if persona_intensity is None else int(persona_intensity)
         if intensity <= 0:
             segmentation_bias = "- Use exactly one group; do not split."
@@ -219,6 +222,14 @@ class ResponseRhythmPlanner:
             )
         else:
             segmentation_bias = "- Prefer two groups for most splittable answers."
+        stripped_style = sentence_style.strip()
+        bias_lines = [segmentation_bias]
+        if stripped_style:
+            bias_lines.append(
+                f"- This persona's speaking voice: {stripped_style}. "
+                "Let it inform whether and where to split, without changing wording."
+            )
+        bias_block = "\n".join(bias_lines)
         return f"""You are an internal chat presentation planner.
 
 You do not answer the user. You only decide how to display an already finished assistant answer as one to three chat bubbles.
@@ -229,7 +240,7 @@ Rules:
 - Use only the provided unit ids.
 - Cover every unit exactly once, in the original order.
 - Use at most three groups.
-{segmentation_bias}
+{bias_block}
 - Use three groups only for long answers with three distinct moves; never split into three just because three sentence units exist.
 - Use one group when the answer is short, terse, transactional, or splitting would hurt meaning.
 - Technical explanations, architecture notes, implementation plans, API/protocol/configuration details, debugging analysis, and source-code-related answers should usually be one group. If a technical answer is conversational enough to split, use at most two groups and keep the technical body intact.
