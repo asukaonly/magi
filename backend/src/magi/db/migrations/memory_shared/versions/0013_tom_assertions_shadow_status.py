@@ -8,6 +8,11 @@ so we DROP + CREATE. Idempotent.
 Revision ID: 0013_tom_assertions_shadow_status
 Revises: 0012_drop_privacy_scope
 Create Date: 2026-06-15
+
+Named SCHEMA_SQL so the test schema helper (tests/_shared/memory_schema.py)
+applies it (via regex) after the 0001 CREATE on a fresh test DB — without it,
+the stale 0001 index (no 'shadow' exclusion) would reject the shadow sibling
+a source-aware upsert writes on the same active key. Mirrors 0012's convention.
 """
 from __future__ import annotations
 
@@ -17,6 +22,15 @@ revision = "0013_tom_assertions_shadow_status"
 down_revision = "0012_drop_privacy_scope"
 branch_labels = None
 depends_on = None
+
+# Idempotent index swap. Named SCHEMA_SQL (triple-quoted) so the test schema
+# helper's regex extractor picks it up — mirrors 0012's convention.
+SCHEMA_SQL = """
+DROP INDEX IF EXISTS idx_tom_assertions_active_unique;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tom_assertions_active_unique
+    ON tom_trait_assertions(entity_id, entity_type, trait_name, target_entity_id)
+    WHERE status NOT IN ('superseded', 'archived', 'expired', 'user_rejected', 'shadow');
+"""
 
 _DROP = "DROP INDEX IF EXISTS idx_tom_assertions_active_unique;"
 _CREATE = (

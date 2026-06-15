@@ -33,6 +33,7 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "0009_manual_entries_body_doc.py",
     "0010_kg_evidence_class.py",
     "0012_drop_privacy_scope.py",
+    "0013_tom_assertions_shadow_status.py",
 )
 
 
