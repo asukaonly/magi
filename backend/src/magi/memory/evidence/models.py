@@ -114,6 +114,7 @@ class AssertionScope(_LabeledIntEnum):
     NONE = 1
     TOPOLOGY_ONLY = 2
     FULL = 3
+    INTEREST = 4
 
     @classmethod
     def _labels(cls) -> dict["AssertionScope", str]:
@@ -121,6 +122,7 @@ class AssertionScope(_LabeledIntEnum):
             cls.NONE: "none",
             cls.TOPOLOGY_ONLY: "topology_only",
             cls.FULL: "full",
+            cls.INTEREST: "interest",
         }
 
 

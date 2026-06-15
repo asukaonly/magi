@@ -14,6 +14,7 @@ from ...ontology_aliases import canonicalize_predicate
 from ...storage.utils import normalize_event_ids
 
 _TOPOLOGY_ONLY_TRAIT_FAMILIES = {"public_sentiment", "group_atmosphere", "relationship_shift"}
+_INTEREST_TRAIT_FAMILIES = _TOPOLOGY_ONLY_TRAIT_FAMILIES | {"preference_profile", "taste_profile"}
 _SEMANTIC_TEMPORAL_SCOPES = {"persistent", "stable", ""}
 _SEMANTIC_DECAY_POLICIES = {"none", "evidence_only", ""}
 _PROFILE_TRAIT_BY_PREDICATE = {
@@ -360,6 +361,12 @@ class L2AssertionValidationMixin:
                 candidate
                 for candidate in raw_candidates
                 if candidate.trait_family.casefold() in _TOPOLOGY_ONLY_TRAIT_FAMILIES
+            ]
+        if assertion_scope == "interest":
+            return [
+                candidate
+                for candidate in raw_candidates
+                if candidate.trait_family.casefold() in _INTEREST_TRAIT_FAMILIES
             ]
         return []
 
