@@ -5,7 +5,12 @@ import json
 import pytest
 
 from magi.chat.task_agent import rhythm as rhythm_module
-from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+from magi.chat.task_agent.rhythm import (
+    ResponseRhythmPlanner,
+    _compute_delay_ms,
+    _FLOOR_MS,
+    _CEIL_MS,
+)
 
 
 class _FakePromptService:
@@ -62,7 +67,8 @@ async def test_response_rhythm_planner_groups_existing_units(monkeypatch) -> Non
         "第三段给出下一步：今天先留出一小段安静时间，把要处理的事情写成一句话。然后只选其中最容易开始的一项做十分钟，先让事情重新动起来。",
     ]
     assert [segment.intent for segment in plan.segments] == ["acknowledge", "answer", "next_step"]
-    assert [segment.delay_ms for segment in plan.segments] == [0, 1000, 1000]
+    assert plan.segments[0].delay_ms == 0
+    assert all(_FLOOR_MS <= s.delay_ms <= _CEIL_MS for s in plan.segments[1:])
     assert prompt_service.calls[0]["json_mode"] is True
 
 
@@ -178,7 +184,8 @@ async def test_response_rhythm_planner_splits_short_cjk_sentence_units(monkeypat
         "先别把节奏规划当成第二个回答模型。",
         "主模型正常说完，保留原来的判断。\n然后只把自然断句拆成两三条气泡，让它像聊天而不是报告。",
     ]
-    assert [segment.delay_ms for segment in plan.segments] == [0, 1000]
+    assert plan.segments[0].delay_ms == 0
+    assert _FLOOR_MS <= plan.segments[1].delay_ms <= _CEIL_MS
     payload = json.loads(prompt_service.calls[0]["messages"][0]["content"])
     assert [unit["text"] for unit in payload["units"]] == [
         "先别把节奏规划当成第二个回答模型。",
@@ -353,3 +360,25 @@ async def test_response_rhythm_planner_keeps_markdown_lists_in_one_message(monke
 
     assert plan is None
     assert prompt_service.calls == []
+
+
+def test_compute_delay_ms_scales_with_length_and_clamps() -> None:
+    class _FixedRng:
+        @staticmethod
+        def uniform(_a: float, _b: float) -> float:
+            return 1.0
+
+    rng = _FixedRng()
+    # 极短 -> floor
+    assert _compute_delay_ms("嗯", rng=rng) == _FLOOR_MS
+    # 30 CJK 字 * 50ms = 1500ms(jitter=1.0)
+    mid = _compute_delay_ms("字" * 30, rng=rng)
+    assert mid == 1500
+    # 极长 -> ceil
+    assert _compute_delay_ms("字" * 1000, rng=rng) == _CEIL_MS
+    # 同字数下 latin 比 CJK 轻
+    assert _compute_delay_ms("a" * 100, rng=rng) < _compute_delay_ms("字" * 100, rng=rng)
+    # speed_factor 单调
+    slow = _compute_delay_ms("字" * 30, speed_factor=1.3, rng=rng)
+    fast = _compute_delay_ms("字" * 30, speed_factor=0.8, rng=rng)
+    assert fast < mid < slow

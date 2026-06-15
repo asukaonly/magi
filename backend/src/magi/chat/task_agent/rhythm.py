@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -18,9 +19,11 @@ _MAX_UNITS = 12
 _MIN_CONTENT_CHARS = 120
 _MIN_CJK_CONTENT_CHARS = 48
 _MIN_UNITS_FOR_RHYTHM = 2
-_MIN_DELAY_MS = 1000
-_DEFAULT_DELAY_MS = 1200
-_MAX_DELAY_MS = 2400
+_CJK_MS = 50
+_LATIN_MS = 10
+_FLOOR_MS = 500
+_CEIL_MS = 4000
+_JITTER = 0.20
 _CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
 _MARKDOWN_LIST_LINE_RE = re.compile(r"(?m)^\s{0,3}(?:[-*+]\s+|\d+[.)]\s+)")
 _LIST_ITEM_RE = re.compile(r"(?m)^\s*(?:[-*+]\s+|\d+[.)、]\s+|[一二三四五六七八九十]+[、.]\s*)")
@@ -32,6 +35,28 @@ _COMMAND_LINE_RE = re.compile(
 _STACK_TRACE_RE = re.compile(
     r"(?m)^\s*(?:Traceback \(most recent call last\)|File \".+\", line \d+|[A-Za-z0-9_.]+(?:Error|Exception):)"
 )
+
+
+def _compute_delay_ms(
+    segment_text: str,
+    *,
+    speed_factor: float = 1.0,
+    rng: Any = None,
+) -> int:
+    """Estimate a human-like inter-bubble delay from the segment's own length.
+
+    Models the time the sender spends "typing" this bubble: CJK chars are full
+    units, latin chars are lighter. Result is jittered then clamped to a
+    believable window so a long follow-up pauses longer and a short one snaps in.
+    """
+    text = str(segment_text or "")
+    n_cjk = sum(1 for ch in text if _CJK_RE.match(ch))
+    n_latin = sum(1 for ch in text if not ch.isspace() and not _CJK_RE.match(ch))
+    base = n_cjk * _CJK_MS + n_latin * _LATIN_MS
+    source = rng if rng is not None else random
+    jitter = source.uniform(1.0 - _JITTER, 1.0 + _JITTER)
+    value = base * speed_factor * jitter
+    return int(max(_FLOOR_MS, min(value, _CEIL_MS)))
 
 
 def is_conversation_rhythm_enabled() -> bool:
@@ -197,13 +222,11 @@ Rules:
 - Use one group when the answer is short, terse, transactional, or splitting would hurt meaning.
 - Technical explanations, architecture notes, implementation plans, API/protocol/configuration details, debugging analysis, and source-code-related answers should usually be one group. If a technical answer is conversational enough to split, use at most two groups and keep the technical body intact.
 - Never add fake hesitation, filler, or dramatic pauses; every group must carry useful content.
-- Delays must be integers between 1000 and 2400 milliseconds except the first group.
-- The first group delay should be 0.
 
 Schema:
 {
   "groups": [
-    {"unit_ids": ["u1"], "intent": "acknowledge|answer|explain|tradeoff|next_step|afterthought", "delay_ms": 0}
+    {"unit_ids": ["u1"], "intent": "acknowledge|answer|explain|tradeoff|next_step|afterthought"}
   ]
 }
 """.strip()
@@ -272,7 +295,7 @@ Schema:
             content = self._join_group_content([unit_lookup[unit_id] for unit_id in unit_ids])
             if not content:
                 return None
-            delay_ms = self._coerce_delay_ms(group.get("delay_ms"), first=index == 0)
+            delay_ms = 0 if index == 0 else _compute_delay_ms(content)
             intent = self._normalize_intent(group.get("intent"))
             segments.append(
                 AssistantResponseSegment(
@@ -292,16 +315,6 @@ Schema:
             aggregate_text=aggregate_text,
             segments=segments,
         )
-
-    @staticmethod
-    def _coerce_delay_ms(value: Any, *, first: bool) -> int:
-        if first:
-            return 0
-        try:
-            delay = int(value)
-        except (TypeError, ValueError):
-            delay = _DEFAULT_DELAY_MS
-        return max(_MIN_DELAY_MS, min(delay, _MAX_DELAY_MS))
 
     @staticmethod
     def _min_three_segment_chars(response_text: str) -> int:
