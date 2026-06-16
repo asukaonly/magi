@@ -84,6 +84,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_exports",
         "runtime_control_plane",
         "runtime_l2_maintenance_scheduler",
+        "runtime_l2_derive_scheduler",
         "runtime_l3_summary_scheduler",
         "runtime_l4_maintenance_scheduler",
         "runtime_timeline_schedulers",
