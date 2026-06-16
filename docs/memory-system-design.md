@@ -343,6 +343,9 @@ Key properties:
   L2-only, while runtime callers that hold L1/L2/L3 handles (periodic L2
   maintenance and manual reconsolidation) generate missing L3 episodic summaries
   for those episodes or for active backfill scope
+- Product episode lists default to `status='active'`; episode detail reads join
+  event memberships with live L2 assertions whose `evidence_events` intersect
+  those events, while corrections reuse the assertion feedback path
 - Explicit merges move event memberships to the survivor, mark the absorbed
   episode `merged`, and recompute the survivor `source_event_count` from
   `episode_events`

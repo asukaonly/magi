@@ -92,8 +92,8 @@ def test_list_episodes_surface_standout_null_summary_when_not_generated(app_with
     assert r.json()["items"][0]["episode_summary"] is None
 
 
-def test_list_episodes_default_surface_unchanged(app_with_mock_memory):
-    """Without surface=standout, default behavior is intact."""
+def test_list_episodes_default_surface_lists_active(app_with_mock_memory):
+    """Without an explicit status, the experience page lists active episodes."""
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     l2.list_episodes = AsyncMock(return_value=[{"episode_id": "ep1"}])
@@ -106,7 +106,48 @@ def test_list_episodes_default_surface_unchanged(app_with_mock_memory):
     body = r.json()
     assert body["total"] == 1
     assert "surface" not in body
+    assert l2.list_episodes.await_args.kwargs["status"] == "active"
+    assert l2.count_episodes.await_args.kwargs["status"] == "active"
     l2.list_standout_episodes.assert_not_called()
+
+
+def test_episode_detail_returns_events_and_inferred(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(
+        return_value={"episode_id": "ep1", "status": "active", "time_start": 1, "time_end": 2}
+    )
+    l2.list_episode_events = AsyncMock(return_value=[{"event_id": "e1"}])
+    l2.list_assertions_for_episode = AsyncMock(
+        return_value=[
+            {
+                "assertion_id": "assert-1",
+                "entity_id": "user",
+                "entity_type": "user",
+                "trait_family": "preference",
+                "trait_name": "balance",
+                "trait_value": "values work-life balance",
+                "confidence_score": 0.7,
+                "natural_summary": "User values balance.",
+                "validation_state": "tentative",
+                "user_feedback": None,
+                "evidence_events": ["e1"],
+            }
+        ]
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = None
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.get("/api/memory/l2/episodes/ep1")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["events"] == [{"event_id": "e1"}]
+    assert body["inferred"][0]["assertion_id"] == "assert-1"
+    assert body["inferred"][0]["trait_name"] == "balance"
+    l2.list_assertions_for_episode.assert_awaited_once_with(episode_id="ep1")
 
 
 def test_merge_episode_endpoint_calls_store(app_with_mock_memory):
@@ -141,14 +182,25 @@ def test_merge_episode_endpoint_calls_store(app_with_mock_memory):
 
 def test_merge_episode_route_is_publicly_allowlisted():
     public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
-    route_methods = {
-        route.path: route.methods
-        for route in public.routes
-        if getattr(route, "path", None)
-    }
+    route_methods: dict[str, set[str]] = {}
+    for route in public.routes:
+        if getattr(route, "path", None):
+            route_methods.setdefault(route.path, set()).update(route.methods or set())
 
     assert "/l2/episodes/{episode_id}/merge" in route_methods
     assert "POST" in route_methods["/l2/episodes/{episode_id}/merge"]
+
+
+def test_episode_read_and_annotation_routes_are_publicly_allowlisted():
+    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
+    route_methods: dict[str, set[str]] = {}
+    for route in public.routes:
+        if getattr(route, "path", None):
+            route_methods.setdefault(route.path, set()).update(route.methods or set())
+
+    assert "GET" in route_methods["/l2/episodes"]
+    assert "GET" in route_methods["/l2/episodes/{episode_id}"]
+    assert "PATCH" in route_methods["/l2/episodes/{episode_id}"]
 
 
 def test_list_episodes_insight_metadata_string_decoded(app_with_mock_memory):

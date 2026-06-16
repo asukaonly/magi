@@ -43,6 +43,12 @@ class L2StoreRowMappingMixin:
             "decay_anchor_at": float(row["decay_anchor_at"]) if row["decay_anchor_at"] else None,
             "context_ref_id": str(row["context_ref_id"] or ""),
             "expires_at": float(row["expires_at"]) if row["expires_at"] else None,
+            "memory_subdomain": (
+                str(row["memory_subdomain"] or "") if "memory_subdomain" in columns else ""
+            ),
+            "natural_summary": (
+                str(row["natural_summary"] or "") if "natural_summary" in columns else ""
+            ),
             "user_feedback": str(row["user_feedback"]) if "user_feedback" in columns and row["user_feedback"] else None,
             "user_feedback_at": float(row["user_feedback_at"]) if "user_feedback_at" in columns and row["user_feedback_at"] else None,
             "status": str(row["status"]) if "status" in columns and row["status"] else "active",

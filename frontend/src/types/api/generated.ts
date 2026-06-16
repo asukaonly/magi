@@ -1524,6 +1524,30 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/memory/l2/episodes": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List L2 Episodes
+         * @description List episodes with optional filters.
+         *
+         *     When ``surface='standout'``, only ``magi_standout=1 OR user_pinned=1``
+         *     episodes are returned, and each item carries a ``summary`` field with the
+         *     linked L3 episodic summary (or null if not generated yet).
+         */
+        readonly get: operations["list_l2_episodes_api_memory_l2_episodes_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/memory/l2/episodes/reconsolidate": {
         readonly parameters: {
             readonly query?: never;
@@ -1551,6 +1575,30 @@ export interface paths {
         readonly options?: never;
         readonly head?: never;
         readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/episodes/{episode_id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Get L2 Episode
+         * @description Get a single episode with its event memberships.
+         */
+        readonly get: operations["get_l2_episode_api_memory_l2_episodes__episode_id__get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        /**
+         * Annotate L2 Episode
+         * @description User annotation on an episode (label, note, pin).
+         */
+        readonly patch: operations["annotate_l2_episode_api_memory_l2_episodes__episode_id__patch"];
         readonly trace?: never;
     };
     readonly "/api/memory/l2/episodes/{episode_id}/merge": {
@@ -4026,6 +4074,15 @@ export interface components {
              * @default false
              */
             readonly enabled: boolean;
+        };
+        /** EpisodeAnnotationRequest */
+        readonly EpisodeAnnotationRequest: {
+            /** User Label */
+            readonly user_label?: string | null;
+            /** User Note */
+            readonly user_note?: string | null;
+            /** User Pinned */
+            readonly user_pinned?: boolean | null;
         };
         /** EpisodeMergeRequest */
         readonly EpisodeMergeRequest: {
@@ -10205,6 +10262,45 @@ export interface operations {
             };
         };
     };
+    readonly list_l2_episodes_api_memory_l2_episodes_get: {
+        readonly parameters: {
+            readonly query?: {
+                readonly status?: string | null;
+                readonly episode_type?: string | null;
+                readonly time_start?: number | null;
+                readonly time_end?: number | null;
+                readonly parent_episode_id?: string | null;
+                /** @description 'standout' for canonical chapters */
+                readonly surface?: string | null;
+                readonly limit?: number;
+                readonly offset?: number;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     readonly reconsolidate_episodes_endpoint_api_memory_l2_episodes_reconsolidate_post: {
         readonly parameters: {
             readonly query?: never;
@@ -10221,6 +10317,72 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": unknown;
+                };
+            };
+        };
+    };
+    readonly get_l2_episode_api_memory_l2_episodes__episode_id__get: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly episode_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly annotate_l2_episode_api_memory_l2_episodes__episode_id__patch: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly episode_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["EpisodeAnnotationRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

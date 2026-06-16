@@ -359,12 +359,14 @@ async def test_list_assertions_for_episode_intersects_evidence(store: L2Cognitio
             "validation_state": "tentative",
             "first_inferred_at": now,
             "last_validated_at": now,
+            "natural_summary": "User values balance.",
         }
     )
 
     rows = await store.list_assertions_for_episode(episode_id="ep")
 
     assert any(row["assertion_id"] == assertion_id for row in rows)
+    assert rows[0]["natural_summary"] == "User values balance."
 
     await store.apply_user_feedback(assertion_id=assertion_id, feedback="rejected")
     rows_after_reject = await store.list_assertions_for_episode(episode_id="ep")

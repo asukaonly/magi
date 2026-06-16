@@ -14,6 +14,23 @@ from ..router import memory_router
 from ..schemas import EpisodeAnnotationRequest, EpisodeMergeRequest
 
 
+def _serialize_episode_inference(assertion: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the episode-detail shape for an inferred assertion."""
+    return {
+        "assertion_id": assertion.get("assertion_id"),
+        "entity_id": assertion.get("entity_id"),
+        "entity_type": assertion.get("entity_type"),
+        "trait_family": assertion.get("trait_family"),
+        "trait_name": assertion.get("trait_name"),
+        "trait_value": assertion.get("trait_value"),
+        "confidence_score": assertion.get("confidence_score"),
+        "natural_summary": assertion.get("natural_summary") or "",
+        "validation_state": assertion.get("validation_state"),
+        "user_feedback": assertion.get("user_feedback"),
+        "evidence_events": list(assertion.get("evidence_events") or []),
+    }
+
+
 @memory_router.get("/l2/episodes")
 async def list_l2_episodes(
     status_filter: Optional[str] = Query(default=None, alias="status"),
@@ -78,10 +95,11 @@ async def list_l2_episodes(
             "surface": "standout",
         }
 
-    # Default path: existing behavior unchanged.
+    # Experience page default: show formed experiences, not only standouts.
+    effective_status = status_filter if status_filter is not None else "active"
     items, total = await asyncio.gather(
         unified_memory.l2.list_episodes(
-            status=status_filter,
+            status=effective_status,
             episode_type=episode_type,
             time_start=time_start,
             time_end=time_end,
@@ -89,7 +107,7 @@ async def list_l2_episodes(
             limit=limit,
             offset=offset,
         ),
-        unified_memory.l2.count_episodes(status=status_filter),
+        unified_memory.l2.count_episodes(status=effective_status),
     )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
@@ -119,8 +137,15 @@ async def get_l2_episode(episode_id: str):
     episode = await unified_memory.l2.get_episode(episode_id=episode_id)
     if episode is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.episode_not_found", "Episode not found"))
-    events = await unified_memory.l2.list_episode_events(episode_id=episode_id)
-    return {**episode, "events": events}
+    events, inferred = await asyncio.gather(
+        unified_memory.l2.list_episode_events(episode_id=episode_id),
+        unified_memory.l2.list_assertions_for_episode(episode_id=episode_id),
+    )
+    return {
+        **episode,
+        "events": events,
+        "inferred": [_serialize_episode_inference(item) for item in inferred],
+    }
 
 
 @memory_router.patch("/l2/episodes/{episode_id}")
