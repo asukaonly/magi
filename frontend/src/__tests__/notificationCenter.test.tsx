@@ -6,6 +6,7 @@ import * as api from '@/api/modules/notifications';
 import * as suggestionsApi from '@/api/modules/systemSuggestions';
 import { sensorsApi } from '@/api/modules/sensors';
 import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
+import { useNotificationStore } from '@/stores/notifications';
 
 // `t` is mocked to echo the key, so composed titles render as their key
 // (e.g. 'notifications.suggestionTitle'). Rows are selected by test id.
@@ -15,6 +16,7 @@ describe('NotificationCenter', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     usePluginInstallPanelStore.getState().closePanel();
+    useNotificationStore.setState({ items: [], unreadCount: 0, loading: false });
     vi.spyOn(api, 'listNotifications').mockResolvedValue({
       items: [{ id: 1, kind: 'suggestion', dedupe_key: 'browser_history', title: '看浏览历史', body: '看浏览历史',
         payload: { plugin_ids: ['chrome-history'], installable_plugin_ids: [] }, status: 'unread', created_at_ms: 1, read_at_ms: null }],
@@ -99,5 +101,89 @@ describe('NotificationCenter', () => {
     render(<NotificationCenter />);  // default mock: { dedupe_key: 'music' } (no title)
     await userEvent.click(await screen.findByRole('button', { name: /notifications.dismissedTitle/ }));
     expect(await screen.findByText('Music')).toBeInTheDocument();
+  });
+});
+
+describe('NotificationCenter — profile_conflict branch', () => {
+  const CONFLICT_NOTIFICATION = {
+    id: 42,
+    kind: 'suggestion' as const,
+    dedupe_key: 'profile_conflict:42',
+    title: '个人信息存在冲突',
+    body: '你自陈「职业」为「工程师」，但 magi 推断为「研究员」。',
+    payload: {
+      conflict_type: 'profile_conflict' as const,
+      shadow_id: 'shadow-1',
+      authoritative_id: 'auth-1',
+      trait_name: '职业',
+      authoritative_value: '工程师',
+      inferred_value: '研究员',
+      entity_id: 'entity-1',
+    },
+    status: 'unread' as const,
+    created_at_ms: 2,
+    read_at_ms: null,
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    // Reset the zustand singleton so stale items from other describe blocks don't bleed in.
+    useNotificationStore.setState({ items: [], unreadCount: 0, loading: false });
+    vi.spyOn(api, 'listNotifications').mockResolvedValue({
+      items: [CONFLICT_NOTIFICATION],
+      unread_count: 1,
+    });
+    vi.spyOn(api, 'markRead').mockResolvedValue();
+    vi.spyOn(api, 'markAllRead').mockResolvedValue();
+    vi.spyOn(api, 'dismissNotification').mockResolvedValue();
+    vi.spyOn(api, 'dismissAllNotifications').mockResolvedValue();
+    vi.spyOn(api, 'actionNotification').mockResolvedValue();
+    vi.spyOn(api, 'resolveConflict').mockResolvedValue();
+    vi.spyOn(suggestionsApi, 'listDismissals').mockResolvedValue([]);
+  });
+
+  it('renders 更新 and 保持 buttons when expanded', async () => {
+    render(<NotificationCenter />);
+    const row = await screen.findByTestId('notification-row');
+    // expand the row (click the title area)
+    await userEvent.click(within(row).getByText('个人信息存在冲突'));
+    expect(await screen.findByTestId('notification-conflict-confirm')).toBeInTheDocument();
+    expect(screen.getByTestId('notification-conflict-reject')).toBeInTheDocument();
+  });
+
+  it('更新 calls resolveConflict(id, "confirm") then act', async () => {
+    render(<NotificationCenter />);
+    const row = await screen.findByTestId('notification-row');
+    await userEvent.click(within(row).getByText('个人信息存在冲突'));
+    await userEvent.click(await screen.findByTestId('notification-conflict-confirm'));
+    await waitFor(() => {
+      expect(api.resolveConflict).toHaveBeenCalledWith(42, 'confirm');
+      expect(api.actionNotification).toHaveBeenCalledWith(42);
+    });
+  });
+
+  it('保持 calls resolveConflict(id, "reject") then act', async () => {
+    render(<NotificationCenter />);
+    const row = await screen.findByTestId('notification-row');
+    await userEvent.click(within(row).getByText('个人信息存在冲突'));
+    await userEvent.click(await screen.findByTestId('notification-conflict-reject'));
+    await waitFor(() => {
+      expect(api.resolveConflict).toHaveBeenCalledWith(42, 'reject');
+      expect(api.actionNotification).toHaveBeenCalledWith(42);
+    });
+  });
+
+  it('does NOT render conflict buttons for a suggestion notification', async () => {
+    vi.spyOn(api, 'listNotifications').mockResolvedValue({
+      items: [{ id: 1, kind: 'suggestion', dedupe_key: 'browser_history', title: '看浏览历史', body: '看浏览历史',
+        payload: { plugin_ids: ['chrome-history'], installable_plugin_ids: [] }, status: 'unread', created_at_ms: 1, read_at_ms: null }],
+      unread_count: 1,
+    });
+    render(<NotificationCenter />);
+    const row = await screen.findByTestId('notification-row');
+    await userEvent.click(within(row).getByText('notifications.suggestionTitle'));
+    await screen.findByTestId('notification-connect-chrome-history');
+    expect(screen.queryByTestId('notification-conflict-confirm')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('notification-conflict-reject')).not.toBeInTheDocument();
   });
 });

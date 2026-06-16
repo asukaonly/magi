@@ -21,7 +21,18 @@ export interface NotificationItem {
   dedupe_key: string;
   title: string;
   body: string;
-  payload: { category?: string; plugin_ids?: string[]; installable_plugin_ids?: string[] };
+  payload: {
+    category?: string;
+    plugin_ids?: string[];
+    installable_plugin_ids?: string[];
+    conflict_type?: 'profile_conflict';
+    shadow_id?: string;
+    authoritative_id?: string;
+    authoritative_value?: string;
+    inferred_value?: string;
+    trait_name?: string;
+    entity_id?: string;
+  };
   status: NotificationStatus;
   created_at_ms: number;
   read_at_ms: number | null;
@@ -45,4 +56,7 @@ export async function dismissAllNotifications(): Promise<void> {
 }
 export async function actionNotification(id: number): Promise<void> {
   await api.post(`/notifications/${id}/action`, {});
+}
+export async function resolveConflict(id: number, action: 'confirm' | 'reject'): Promise<void> {
+  await api.post(`/notifications/${id}/resolve-conflict`, { action });
 }

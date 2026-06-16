@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import json
-from typing import Callable, Optional
+from typing import Callable, Literal, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from magi.notifications.service import NotificationService
@@ -34,7 +34,21 @@ class MarkReadRequest(BaseModel):
     all: bool = False
 
 
-def build_default_notifications_router(*, service_dep: Callable[[], NotificationService]) -> APIRouter:
+class ResolveConflictRequest(BaseModel):
+    action: Literal["confirm", "reject"]
+
+
+class ResolveConflictResponse(BaseModel):
+    status: str
+    action: str
+    resolved: bool
+
+
+def build_default_notifications_router(
+    *,
+    service_dep: Callable[[], NotificationService],
+    unified_memory_dep: "Callable[[], object] | None" = None,
+) -> APIRouter:
     router = APIRouter()
 
     @router.get("/notifications", response_model=ListResponse)
@@ -75,6 +89,69 @@ def build_default_notifications_router(*, service_dep: Callable[[], Notification
         service_dep().action(notification_id)
         return {"ok": True}
 
+    @router.post(
+        "/notifications/{notification_id}/resolve-conflict",
+        response_model=ResolveConflictResponse,
+    )
+    async def resolve_conflict(
+        notification_id: int,
+        body: ResolveConflictRequest,
+    ) -> ResolveConflictResponse:
+        """Resolve a profile-conflict notification by confirming or rejecting the shadow assertion.
+
+        action="confirm" promotes the inferred shadow to the authoritative value.
+        action="reject"  discards the shadow; the existing authoritative value is kept.
+        """
+        svc = service_dep()
+
+        # 1. Load the notification; 404 if absent.
+        row = svc._store.get(notification_id)
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification not found",
+            )
+
+        # 2. Parse payload and verify it is a profile_conflict notification.
+        try:
+            payload = json.loads(row.payload_json or "{}")
+        except (ValueError, TypeError):
+            payload = {}
+
+        if payload.get("conflict_type") != "profile_conflict" or not payload.get("shadow_id"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Notification is not a resolvable profile-conflict notification",
+            )
+
+        shadow_id: str = payload["shadow_id"]
+
+        # 3. Resolve via the L2 store.
+        _get_unified_memory = (
+            unified_memory_dep if unified_memory_dep is not None else _default_unified_memory_dep
+        )
+        unified_memory = _get_unified_memory()
+        if unified_memory is None or unified_memory.l2 is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Memory system not available",
+            )
+
+        result = await unified_memory.l2.resolve_shadow_conflict(
+            shadow_id=shadow_id,
+            action=body.action,
+        )
+
+        # 4. Mark the notification as actioned regardless of whether the shadow
+        #    was already resolved (idempotency: shadow may be gone on retry).
+        svc.action(notification_id)
+
+        return ResolveConflictResponse(
+            status="resolved",
+            action=body.action,
+            resolved=result is not None,
+        )
+
     return router
 
 
@@ -84,8 +161,19 @@ def _default_service() -> NotificationService:
     return NotificationService(store=get_notification_store(), record_dismissal=record_dismissal)
 
 
+def _default_unified_memory_dep():
+    try:
+        from magi.memory.provider import get_unified_memory
+        return get_unified_memory()
+    except RuntimeError:
+        return None
+
+
 def _build_production_notifications_router() -> APIRouter:
-    return build_default_notifications_router(service_dep=_default_service)
+    return build_default_notifications_router(
+        service_dep=_default_service,
+        unified_memory_dep=_default_unified_memory_dep,
+    )
 
 
 notifications_router: APIRouter = _build_production_notifications_router()

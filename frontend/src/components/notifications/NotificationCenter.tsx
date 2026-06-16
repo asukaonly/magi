@@ -5,6 +5,7 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { useSuggestionDismissals } from '@/hooks/useSuggestionDismissals';
 import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 import { getEmptyStatePluginMeta } from '@/constants/emptyStatePriorities';
+import { resolveConflict } from '@/api/modules/notifications';
 import type { NotificationItem } from '@/api/modules/notifications';
 
 // A non-localized fallback rationale some plugin descriptors still emit
@@ -25,6 +26,7 @@ export function NotificationCenter(): JSX.Element {
   const { items: dismissed, refresh: refreshDismissed, clear: restore } = useSuggestionDismissals();
   const [showDismissed, setShowDismissed] = useState(false);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [conflictLoading, setConflictLoading] = useState<Map<number, 'confirm' | 'reject' | null>>(new Map());
 
   // Dismissing a notification records a preferences-level dismissal, so refresh
   // the "已忽略" footer after each dismiss to keep the restore list in sync.
@@ -65,6 +67,16 @@ export function NotificationCenter(): JSX.Element {
       }
     }
     return t('notifications.connectHint');
+  };
+
+  const handleConflict = async (n: NotificationItem, action: 'confirm' | 'reject') => {
+    setConflictLoading((prev) => new Map(prev).set(n.id, action));
+    try {
+      await resolveConflict(n.id, action);
+      await act(n.id);
+    } finally {
+      setConflictLoading((prev) => { const next = new Map(prev); next.delete(n.id); return next; });
+    }
   };
 
   const toggle = (n: NotificationItem) => {
@@ -167,6 +179,27 @@ export function NotificationCenter(): JSX.Element {
                             </button>
                           );
                         })}
+                      </div>
+                    ) : n.payload.conflict_type === 'profile_conflict' ? (
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          data-testid="notification-conflict-confirm"
+                          disabled={conflictLoading.has(n.id)}
+                          onClick={() => { void handleConflict(n, 'confirm'); }}
+                          className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+                        >
+                          {t('notifications.conflictConfirm')}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="notification-conflict-reject"
+                          disabled={conflictLoading.has(n.id)}
+                          onClick={() => { void handleConflict(n, 'reject'); }}
+                          className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted/60 disabled:opacity-50"
+                        >
+                          {t('notifications.conflictReject')}
+                        </button>
                       </div>
                     ) : null}
                   </div>

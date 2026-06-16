@@ -53,7 +53,9 @@
     "installing": "安装中…",
     "connectHint": "连接后 magi 就能读取这部分数据。",
     "dismissedTitle": "已忽略",
-    "restore": "恢复"
+    "restore": "恢复",
+    "conflictConfirm": "更新",
+    "conflictReject": "保持"
   },
   "nav": {
     "dashboard": "仪表盘",

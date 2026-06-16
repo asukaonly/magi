@@ -2293,6 +2293,29 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/notifications/{notification_id}/resolve-conflict": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Resolve Conflict
+         * @description Resolve a profile-conflict notification by confirming or rejecting the shadow assertion.
+         *
+         *     action="confirm" promotes the inferred shadow to the authoritative value.
+         *     action="reject"  discards the shadow; the existing authoritative value is kept.
+         */
+        readonly post: operations["resolve_conflict_api_notifications__notification_id__resolve_conflict_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/personalities/": {
         readonly parameters: {
             readonly query?: never;
@@ -6312,6 +6335,23 @@ export interface components {
              * @default local_user
              */
             readonly user_id: string;
+        };
+        /** ResolveConflictRequest */
+        readonly ResolveConflictRequest: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            readonly action: "confirm" | "reject";
+        };
+        /** ResolveConflictResponse */
+        readonly ResolveConflictResponse: {
+            /** Action */
+            readonly action: string;
+            /** Resolved */
+            readonly resolved: boolean;
+            /** Status */
+            readonly status: string;
         };
         /** ResourceReadPayload */
         readonly ResourceReadPayload: {
@@ -11481,6 +11521,41 @@ export interface operations {
                     readonly "application/json": {
                         readonly [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly resolve_conflict_api_notifications__notification_id__resolve_conflict_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly notification_id: number;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["ResolveConflictRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ResolveConflictResponse"];
                 };
             };
             /** @description Validation Error */

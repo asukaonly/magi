@@ -121,6 +121,34 @@ class L2StoreAssertionQueryMixin:
             await db.commit()
         return count
 
+    async def list_assertions_by_status(
+        self,
+        status: str,
+        *,
+        entity_id: Optional[str] = None,
+        limit: int = 500,
+    ) -> List[Dict[str, Any]]:
+        """Return all assertion rows with the given ``status`` value.
+
+        This is a low-level admin/maintenance query that bypasses the normal
+        ``RETRIEVAL_EXCLUDED_STATUSES`` filter intentionally — for example, to
+        fetch ``status='shadow'`` rows that the normal read path hides.
+        """
+        host = cast(L2RetrievalQueryHostProtocol, self)
+        await host.initialize()
+        query = "SELECT * FROM tom_trait_assertions WHERE status = ?"
+        args: list[Any] = [status]
+        if entity_id:
+            query += " AND entity_id = ?"
+            args.append(entity_id)
+        query += " ORDER BY updated_at DESC LIMIT ?"
+        args.append(int(limit))
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [host._assertion_row_to_dict(row) for row in rows]
+
     async def get_tom_assertion(self, *, assertion_id: str) -> Optional[Dict[str, Any]]:
         """Fetch one ToM assertion by id."""
         host = cast(L2RetrievalQueryHostProtocol, self)
