@@ -13,6 +13,7 @@ from ...scheduler.contracts import (
 )
 from ...scheduler.service import SchedulerService
 from ..provider import get_unified_memory
+from .assertions.interest_aggregation import aggregate_interests
 from .entities.maintenance import (
     L2EntityMaintenance,
     SCHEDULE_ID_L2_MAINTENANCE,
@@ -83,10 +84,34 @@ async def handle_l2_entity_maintenance(
         except Exception as exc:
             logger.warning("L2 promotion-counter prune failed", error=str(exc))
 
+    # Interest aggregation: surface INTERESTED_IN edges as inferred preference_profile assertions.
+    interest_topics_aggregated = 0
+    if l2_cfg.interest_aggregation_enabled:
+        # Reuse the cognition store already wired into the maintenance object when available;
+        # fall back to constructing one from the shared db_path (initialize() is idempotent).
+        cognition_store = maint._cognition_store
+        if cognition_store is None:
+            from .store import L2CognitionStore
+            cognition_store = L2CognitionStore(db_path=db_path)
+            await cognition_store.initialize()
+        try:
+            agg_stats = await aggregate_interests(
+                cognition_store,
+                entity_id="user:self",
+                min_observations=int(l2_cfg.interest_observation_threshold),
+            )
+            interest_topics_aggregated = agg_stats.get("topics_aggregated", 0)
+        except Exception as exc:
+            logger.warning("L2 interest aggregation failed", error=str(exc))
+
     return ScheduledExecutionResult(
         success=True,
         message="maintenance_ok",
-        stats={**asdict(stats), "promotion_counter_pruned": pruned},
+        stats={
+            **asdict(stats),
+            "promotion_counter_pruned": pruned,
+            "interest_topics_aggregated": interest_topics_aggregated,
+        },
     )
 
 
