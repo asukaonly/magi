@@ -13,6 +13,7 @@ from ...scheduler.contracts import (
 )
 from ...scheduler.service import SchedulerService
 from ..provider import get_unified_memory
+from .assertions.conflict_notifications import materialize_shadow_conflict_notifications
 from .assertions.interest_aggregation import aggregate_interests
 from .entities.maintenance import (
     L2EntityMaintenance,
@@ -110,6 +111,31 @@ async def handle_l2_entity_maintenance(
             except Exception:
                 logger.warning("interest aggregation: snapshot refresh failed", exc_info=True)
 
+    # Shadow-conflict notifications: surface assertion conflicts to the user.
+    shadow_notifications_emitted = 0
+    if l2_cfg.shadow_conflict_notification_enabled:
+        cognition_store_for_shadows = maint._cognition_store
+        if cognition_store_for_shadows is None:
+            # interest_aggregation may have already built one above; fall back
+            # to a fresh instance from the shared db_path.
+            from .store import L2CognitionStore
+            cognition_store_for_shadows = L2CognitionStore(db_path=db_path)
+            await cognition_store_for_shadows.initialize()
+        try:
+            from magi.notifications.service import NotificationService
+            from magi.notifications.store import get_notification_store
+            _notif_service = NotificationService(store=get_notification_store())
+            shadow_stats = await materialize_shadow_conflict_notifications(
+                cognition_store_for_shadows,
+                _notif_service,
+                user_id="default_user",
+                entity_id="user:self",
+                entity_type="user",
+            )
+            shadow_notifications_emitted = shadow_stats.get("notifications_emitted", 0)
+        except Exception as exc:
+            logger.warning("L2 shadow conflict notification scan failed", error=str(exc))
+
     return ScheduledExecutionResult(
         success=True,
         message="maintenance_ok",
@@ -117,6 +143,7 @@ async def handle_l2_entity_maintenance(
             **asdict(stats),
             "promotion_counter_pruned": pruned,
             "interest_topics_aggregated": interest_topics_aggregated,
+            "shadow_notifications_emitted": shadow_notifications_emitted,
         },
     )
 
