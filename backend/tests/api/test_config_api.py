@@ -1166,9 +1166,10 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
     client = TestClient(app)
 
     payload = SystemConfigModel()
+    payload.tools.builtIn.webFetch.enabled = False
     expected_updates = {
         "agent.memory.l0.enabled": False,
-        "tools.web_fetch.default_provider": "browser",
+        "tools.web_fetch.enabled": False,
     }
     captured_updates: dict[str, object] = {}
 
@@ -1179,7 +1180,7 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
     refreshed_config = object()
     returned_config = SystemConfigModel()
     returned_config.memory.l0.enabled = False
-    returned_config.tools.builtIn.webFetch.usePlaywright = True
+    returned_config.tools.builtIn.webFetch.enabled = False
 
     monkeypatch.setattr(
         "magi.api.routers.config._build_update_paths", lambda config: expected_updates
@@ -1197,7 +1198,7 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
     assert response.status_code == 200
     assert captured_updates == expected_updates
     assert response.json()["data"]["memory"]["l0"]["enabled"] is False
-    assert response.json()["data"]["tools"]["builtIn"]["webFetch"]["usePlaywright"] is True
+    assert response.json()["data"]["tools"]["builtIn"]["webFetch"]["enabled"] is False
 
 
 def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(

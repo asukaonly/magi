@@ -268,6 +268,7 @@ class PermissionGateway:
         classification: ClassificationResult = self._classifier.classify(
             tool_name=tool_name,
             arguments=arguments,
+            workspace=workspace,
             tool_is_dangerous=tool_is_dangerous,
         )
 

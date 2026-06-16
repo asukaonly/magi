@@ -2,6 +2,7 @@
 Web Search Tool - Search web using multiple providers
 """
 
+import copy
 import time
 from datetime import date
 from typing import Dict, Any, List
@@ -21,6 +22,7 @@ from ..providers.web_search import (
     DuckDuckGoSearchProvider,
     BraveSearchProvider,
     PerplexitySearchProvider,
+    SearXNGSearchProvider,
     TavilySearchProvider,
 )
 from ...config import get_config, save_config
@@ -31,16 +33,18 @@ PROVIDER_INFO = {
     "duckduckgo": {"name": "DuckDuckGo"},
     "brave": {"name": "Brave Search"},
     "perplexity": {"name": "Perplexity AI"},
+    "searxng": {"name": "SearXNG"},
     "tavily": {"name": "Tavily"},
 }
 
 _DEDUP_CACHE_TTL_SECONDS = 600.0
+_RESULT_CACHE_TTL_SECONDS = 900.0
 
 # Deterministic fallback order used when the configured default provider fails
 # or is not configured. Keyed / higher-quality providers first; keyless
 # DuckDuckGo last as the always-available safety net. The configured default is
 # always tried first regardless of its position here.
-_FALLBACK_PRIORITY = ("brave", "tavily", "perplexity", "duckduckgo")
+_FALLBACK_PRIORITY = ("brave", "tavily", "perplexity", "searxng", "duckduckgo")
 
 
 class WebSearchTool(MultiProviderTool):
@@ -53,6 +57,7 @@ class WebSearchTool(MultiProviderTool):
     def __init__(self) -> None:
         self._turn_query_cache: dict[str, dict[tuple[str, str, int], float]] = {}
         self._query_result_counts: dict[tuple[str, str, int], tuple[float, int]] = {}
+        self._result_cache: dict[tuple[str, tuple[str, ...], str, int], tuple[float, dict[str, Any]]] = {}
         super().__init__()
 
     def _init_schema(self) -> None:
@@ -135,6 +140,7 @@ class WebSearchTool(MultiProviderTool):
         self.register_provider(DuckDuckGoSearchProvider())
         self.register_provider(BraveSearchProvider())
         self.register_provider(PerplexitySearchProvider())
+        self.register_provider(SearXNGSearchProvider())
         self.register_provider(TavilySearchProvider())
 
     def _get_provider_config(self, provider_name: str) -> ProviderConfig:
@@ -174,8 +180,8 @@ class WebSearchTool(MultiProviderTool):
             ToolConfigSpec(
                 path="providers.{provider}.base_url",
                 type="string",
-                description="DuckDuckGo HTML endpoint override (optional)",
-                providers=["duckduckgo"],
+                description="Search endpoint override or self-hosted instance URL",
+                providers=["duckduckgo", "searxng"],
             ),
         ]
         return specs
@@ -341,6 +347,17 @@ class WebSearchTool(MultiProviderTool):
             candidates = list(available_providers)
         primary_provider = candidates[0]
 
+        cached_result = self._build_cached_result(
+            configured_provider=configured_provider,
+            candidates=candidates,
+            query=str(query),
+            executed_query=executed_query,
+            num_results=num_results,
+            date_range_applied=date_range_applied,
+        )
+        if cached_result is not None:
+            return cached_result
+
         # Dedup is keyed on the primary provider so a repeated identical search in
         # the same turn short-circuits regardless of which provider ultimately served.
         duplicate_result = self._build_duplicate_turn_result(
@@ -375,6 +392,13 @@ class WebSearchTool(MultiProviderTool):
                     result.data["fallback_from"] = [a["provider"] for a in attempts]
                 if date_range_applied is not None:
                     result.data["date_range_applied"] = date_range_applied
+                self._record_successful_result(
+                    configured_provider=configured_provider,
+                    candidates=candidates,
+                    executed_query=executed_query,
+                    num_results=num_results,
+                    data=result.data,
+                )
                 self._record_successful_turn_query(
                     context=context,
                     provider_name=primary_provider,
@@ -459,6 +483,79 @@ class WebSearchTool(MultiProviderTool):
         cache_key = self._query_cache_key(provider_name, executed_query, num_results)
         self._turn_query_cache.setdefault(turn_key, {})[cache_key] = now
         self._query_result_counts[cache_key] = (now, result_count)
+
+    def _build_cached_result(
+        self,
+        *,
+        configured_provider: str,
+        candidates: list[str],
+        query: str,
+        executed_query: str,
+        num_results: int,
+        date_range_applied: Dict[str, str] | None,
+    ) -> ToolResult | None:
+        self._prune_result_cache()
+        cache_key = self._result_cache_key(
+            configured_provider=configured_provider,
+            candidates=candidates,
+            executed_query=executed_query,
+            num_results=num_results,
+        )
+        cached = self._result_cache.get(cache_key)
+        if cached is None:
+            return None
+        _, data = cached
+        payload = copy.deepcopy(data)
+        payload["cached"] = True
+        payload["cache_ttl_seconds"] = int(_RESULT_CACHE_TTL_SECONDS)
+        payload["query"] = query
+        payload["executed_query"] = executed_query
+        if date_range_applied is not None:
+            payload["date_range_applied"] = date_range_applied
+        return ToolResult(success=True, data=payload)
+
+    def _record_successful_result(
+        self,
+        *,
+        configured_provider: str,
+        candidates: list[str],
+        executed_query: str,
+        num_results: int,
+        data: Dict[str, Any],
+    ) -> None:
+        cache_key = self._result_cache_key(
+            configured_provider=configured_provider,
+            candidates=candidates,
+            executed_query=executed_query,
+            num_results=num_results,
+        )
+        payload = copy.deepcopy(data)
+        payload.pop("cached", None)
+        self._result_cache[cache_key] = (time.time(), payload)
+
+    def _prune_result_cache(self) -> None:
+        cutoff = time.time() - _RESULT_CACHE_TTL_SECONDS
+        stale_keys = [
+            key for key, (seen_at, _) in self._result_cache.items() if seen_at < cutoff
+        ]
+        for key in stale_keys:
+            self._result_cache.pop(key, None)
+
+    @staticmethod
+    def _result_cache_key(
+        *,
+        configured_provider: str,
+        candidates: list[str],
+        executed_query: str,
+        num_results: int,
+    ) -> tuple[str, tuple[str, ...], str, int]:
+        normalized_query = " ".join(str(executed_query or "").lower().split())
+        return (
+            str(configured_provider or "").strip().lower(),
+            tuple(str(item).strip().lower() for item in candidates),
+            normalized_query,
+            int(num_results),
+        )
 
     def _prune_dedup_cache(self) -> None:
         cutoff = time.time() - _DEDUP_CACHE_TTL_SECONDS

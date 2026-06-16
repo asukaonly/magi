@@ -7191,27 +7191,31 @@ export interface components {
             readonly enabled: boolean;
             /**
              * Provider
-             * @default qweather
+             * @default openmeteo
              */
             readonly provider: string;
         };
         /** WebFetchToolConfigModel */
         readonly WebFetchToolConfigModel: {
             /**
+             * Allowprivatenetworkfetch
+             * @default false
+             */
+            readonly allowPrivateNetworkFetch: boolean;
+            /**
              * Enabled
              * @default true
              */
             readonly enabled: boolean;
-            /**
-             * Useplaywright
-             * @default false
-             */
-            readonly usePlaywright: boolean;
+            /** Privatenetworkallowlist */
+            readonly privateNetworkAllowlist: readonly string[];
         };
         /** WebSearchToolConfigModel */
         readonly WebSearchToolConfigModel: {
             /** Apikey */
             readonly apiKey?: string | null;
+            /** Apiurl */
+            readonly apiUrl?: string | null;
             /**
              * Enabled
              * @default true

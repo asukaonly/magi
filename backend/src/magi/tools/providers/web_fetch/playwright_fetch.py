@@ -6,6 +6,7 @@ Fetch web page content using a real browser rendering engine.
 from typing import Any, Dict
 
 from ..base import Provider, ProviderConfig
+from ...utils.network_safety import blocked_url_target_reason
 
 
 class PlaywrightFetchProvider(Provider):
@@ -41,6 +42,8 @@ class PlaywrightFetchProvider(Provider):
         url = str(params["url"]).strip()
         timeout_ms = int(params.get("timeout_ms", 15000))
         proxy_url = str(params.get("proxy_url") or "").strip() or None
+        allow_private_network = bool(params.get("allow_private_network", False))
+        private_network_allowlist = list(params.get("private_network_allowlist") or [])
         wait_until = str(params.get("wait_until", "networkidle")).strip().lower()
         if wait_until not in {"domcontentloaded", "load", "networkidle"}:
             wait_until = "networkidle"
@@ -60,6 +63,19 @@ class PlaywrightFetchProvider(Provider):
             browser = await playwright.chromium.launch(**launch_options)
             try:
                 page = await browser.new_page(user_agent=user_agent)
+
+                async def guard_route(route, request):
+                    reason = await blocked_url_target_reason(
+                        request.url,
+                        allow_private_network=allow_private_network,
+                        private_network_allowlist=private_network_allowlist,
+                    )
+                    if reason:
+                        await route.abort()
+                        return
+                    await route.continue_()
+
+                await page.route("**/*", guard_route)
                 response = await page.goto(url, wait_until=wait_until, timeout=max(1, timeout_ms))
                 html = await page.content()
                 title = await page.title()

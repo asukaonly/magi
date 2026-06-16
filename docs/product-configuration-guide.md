@@ -380,8 +380,14 @@ Tool-specific expectations:
 
 - users can enable or disable supported builtin or plugin-provided tools
 - tool-specific configuration is shown only when relevant
-- web search uses the explicitly selected provider; if the selected or requested provider is unavailable, runtime should return a provider-configuration error instead of silently falling back to DuckDuckGo or another provider
+- built-in tool enable switches are enforced at execution time, not just displayed in settings
+- weather defaults to keyless Open-Meteo for global first-run usability; QWeather remains available for users who prefer it and requires an API key, with API host kept as an optional override when the default endpoint is not accepted by the account
+- web search starts with the configured default provider and may fall back to other configured providers in a deterministic order; tool results should expose the actual provider and whether fallback was used, and repeat identical successful queries may be served from a short-lived in-memory cache
+- DuckDuckGo is the keyless default for web search, but its availability depends on user network conditions and anti-bot checks; Brave, Tavily, and Perplexity require user-provided API keys; SearXNG is available when the user provides a trusted self-hosted instance URL
 - DuckDuckGo anti-bot challenge responses are terminal for the current turn; the assistant should ask the user to configure another supported search provider instead of retrying the same provider loop
+- web fetch should stay simple in ordinary settings: the default tool mode automatically tries direct HTTP first and falls back to browser rendering or curl when needed
+- web fetch is primarily for public web content and may reuse successful fetch results from a short-lived in-memory cache; localhost, private-network, link-local, multicast, reserved, and otherwise non-globally-routable targets are blocked before provider execution unless the user explicitly enables private-network fetch and allowlists trusted hostnames, host:port values, IPs, or CIDR ranges
+- file read should stay low-friction inside the active conversation workspace; reads outside that workspace are allowed only through the existing permission flow, with sensitive user paths such as SSH, cloud, CLI credential, and netrc files classified as higher risk
 - external skills are discoverable from the backend rather than hardcoded
 - expert mode exposes more of this surface than quick mode
 

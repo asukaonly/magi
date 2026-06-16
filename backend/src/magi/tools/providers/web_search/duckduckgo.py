@@ -131,7 +131,7 @@ class DuckDuckGoSearchProvider(Provider):
         proxy_url = str(params.get("proxy_url") or "").strip() or None
         url = config.base_url or "https://html.duckduckgo.com/html/"
         headers = {
-            "User-Agent": "Magi/1.0 (+https://github.com/your-org/magi)",
+            "User-Agent": "Magi/1.0 (+https://github.com/asukaonly/magi)",
             "Accept": "text/html,application/xhtml+xml",
         }
 

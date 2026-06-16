@@ -311,21 +311,30 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "tools.web_search.enabled": config.tools.builtIn.webSearch.enabled,
         "tools.web_search.default_provider": config.tools.builtIn.webSearch.provider,
         "tools.web_fetch.enabled": config.tools.builtIn.webFetch.enabled,
-        "tools.web_fetch.default_provider": (
-            "browser" if config.tools.builtIn.webFetch.usePlaywright else "http"
-        ),
+        "tools.web_fetch.allow_private_network": config.tools.builtIn.webFetch.allowPrivateNetworkFetch,
+        "tools.web_fetch.private_network_allowlist": config.tools.builtIn.webFetch.privateNetworkAllowlist,
     }
-    if config.tools.builtIn.weather.apiKey is not None:
+    if config.tools.builtIn.weather.provider == "qweather" and config.tools.builtIn.weather.apiKey is not None:
         updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.api_key"] = (
             config.tools.builtIn.weather.apiKey
         )
-    if config.tools.builtIn.weather.apiUrl is not None:
+    if config.tools.builtIn.weather.provider == "qweather" and config.tools.builtIn.weather.apiUrl is not None:
         updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.base_url"] = (
             config.tools.builtIn.weather.apiUrl
         )
-    if config.tools.builtIn.webSearch.apiKey is not None:
+    if (
+        config.tools.builtIn.webSearch.provider in {"brave", "perplexity", "tavily"}
+        and config.tools.builtIn.webSearch.apiKey is not None
+    ):
         updates[f"tools.web_search.providers.{config.tools.builtIn.webSearch.provider}.api_key"] = (
             config.tools.builtIn.webSearch.apiKey
+        )
+    if (
+        config.tools.builtIn.webSearch.provider in {"duckduckgo", "searxng"}
+        and config.tools.builtIn.webSearch.apiUrl is not None
+    ):
+        updates[f"tools.web_search.providers.{config.tools.builtIn.webSearch.provider}.base_url"] = (
+            config.tools.builtIn.webSearch.apiUrl
         )
     return updates
 

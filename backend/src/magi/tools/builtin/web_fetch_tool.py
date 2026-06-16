@@ -1,7 +1,9 @@
 """
 Web Fetch Tool - Fetch and extract web page content
 """
+import copy
 import re
+import time
 from html import unescape
 from typing import Any, Dict, List
 from urllib.parse import urlparse
@@ -18,11 +20,18 @@ from ..schema import (
     ToolSchema,
     ToolErrorCode,
 )
+from ..utils.network_safety import blocked_url_target_reason
 from ...config import get_config, save_config
+
+_FETCH_CACHE_TTL_SECONDS = 900.0
 
 
 class WebFetchTool(MultiProviderTool):
     """Fetch web page content with automatic fallback strategies."""
+
+    def __init__(self) -> None:
+        self._fetch_cache: dict[tuple[str, str, str, str, int, int, bool], tuple[float, dict[str, Any]]] = {}
+        super().__init__()
 
     def _init_schema(self) -> None:
         self.schema = ToolSchema(
@@ -136,15 +145,7 @@ class WebFetchTool(MultiProviderTool):
         return await self._handle_fetch(parameters)
 
     def list_config_specs(self) -> List[ToolConfigSpec]:
-        return [
-            ToolConfigSpec(
-                path="default_provider",
-                type="string",
-                description="Default web-fetch provider for direct mode (http/browser/curl)",
-                required=True,
-                enum=self.get_all_provider_names(),
-            ),
-        ]
+        return []
 
     async def get_config_value(self, path: str, context: ToolExecutionContext) -> ToolResult:
         config = get_config().tools.web_fetch
@@ -207,6 +208,32 @@ class WebFetchTool(MultiProviderTool):
                 error_code=ToolErrorCode.INVALID_URL.value,
             )
 
+        config = get_config()
+        web_fetch_config = getattr(getattr(config, "tools", None), "web_fetch", None)
+        allow_private_network = bool(getattr(web_fetch_config, "allow_private_network", False))
+        private_network_allowlist = list(getattr(web_fetch_config, "private_network_allowlist", []) or [])
+
+        block_reason = await blocked_url_target_reason(
+            url,
+            allow_private_network=allow_private_network,
+            private_network_allowlist=private_network_allowlist,
+        )
+        if block_reason:
+            return ToolResult(
+                success=False,
+                error=f"Blocked web-fetch URL: {block_reason}",
+                error_code=ToolErrorCode.POLICY_BLOCKED.value,
+                data={
+                    "url": url,
+                    "reason": block_reason,
+                    "llm_guidance": (
+                        "Do not retry this URL with web-fetch. Ask the user to provide "
+                        "a public URL or use an explicit local tool/workspace path if "
+                        "they intended to inspect local resources."
+                    ),
+                },
+            )
+
         mode = str(parameters.get("mode", "auto")).strip().lower()
         output_format = str(parameters.get("output_format", "markdown")).strip().lower()
         timeout_ms = int(parameters.get("timeout_ms", 15000))
@@ -214,18 +241,32 @@ class WebFetchTool(MultiProviderTool):
         max_chars = int(parameters.get("max_chars", 20000))
         include_metadata = bool(parameters.get("include_metadata", True))
 
+        cached = self._build_cached_fetch_result(
+            url=url,
+            mode=mode,
+            output_format=output_format,
+            wait_until=wait_until,
+            timeout_ms=timeout_ms,
+            max_chars=max_chars,
+            include_metadata=include_metadata,
+        )
+        if cached is not None:
+            return cached
+
         fetch_params = {
             "url": url,
             "timeout_ms": timeout_ms,
             "wait_until": wait_until,
-            "proxy_url": get_config().network.proxy_url(),
+            "proxy_url": config.network.proxy_url(),
+            "allow_private_network": allow_private_network,
+            "private_network_allowlist": private_network_allowlist,
         }
 
         if mode != "auto":
             provider_result = await self.execute_with_provider(mode, fetch_params)
             if not provider_result.success:
                 return provider_result
-            return self._build_output(
+            output = self._build_output(
                 provider_data=provider_result.data,
                 output_format=output_format,
                 max_chars=max_chars,
@@ -233,6 +274,17 @@ class WebFetchTool(MultiProviderTool):
                 mode=mode,
                 attempts=[mode],
             )
+            self._record_fetch_result(
+                url=url,
+                mode=mode,
+                output_format=output_format,
+                wait_until=wait_until,
+                timeout_ms=timeout_ms,
+                max_chars=max_chars,
+                include_metadata=include_metadata,
+                result=output,
+            )
+            return output
 
         attempts: List[str] = []
 
@@ -242,7 +294,7 @@ class WebFetchTool(MultiProviderTool):
             html = str(http_result.data.get("html", ""))
             text = self._to_text(html)
             if not self._looks_like_js_shell(html, text):
-                return self._build_output(
+                output = self._build_output(
                     provider_data=http_result.data,
                     output_format=output_format,
                     max_chars=max_chars,
@@ -250,11 +302,22 @@ class WebFetchTool(MultiProviderTool):
                     mode="auto",
                     attempts=attempts,
                 )
+                self._record_fetch_result(
+                    url=url,
+                    mode=mode,
+                    output_format=output_format,
+                    wait_until=wait_until,
+                    timeout_ms=timeout_ms,
+                    max_chars=max_chars,
+                    include_metadata=include_metadata,
+                    result=output,
+                )
+                return output
 
         browser_result = await self.execute_with_provider("browser", fetch_params)
         attempts.append("browser")
         if browser_result.success and browser_result.data:
-            return self._build_output(
+            output = self._build_output(
                 provider_data=browser_result.data,
                 output_format=output_format,
                 max_chars=max_chars,
@@ -262,11 +325,22 @@ class WebFetchTool(MultiProviderTool):
                 mode="auto",
                 attempts=attempts,
             )
+            self._record_fetch_result(
+                url=url,
+                mode=mode,
+                output_format=output_format,
+                wait_until=wait_until,
+                timeout_ms=timeout_ms,
+                max_chars=max_chars,
+                include_metadata=include_metadata,
+                result=output,
+            )
+            return output
 
         curl_result = await self.execute_with_provider("curl", fetch_params)
         attempts.append("curl")
         if curl_result.success and curl_result.data:
-            return self._build_output(
+            output = self._build_output(
                 provider_data=curl_result.data,
                 output_format=output_format,
                 max_chars=max_chars,
@@ -274,6 +348,17 @@ class WebFetchTool(MultiProviderTool):
                 mode="auto",
                 attempts=attempts,
             )
+            self._record_fetch_result(
+                url=url,
+                mode=mode,
+                output_format=output_format,
+                wait_until=wait_until,
+                timeout_ms=timeout_ms,
+                max_chars=max_chars,
+                include_metadata=include_metadata,
+                result=output,
+            )
+            return output
 
         if http_result.success is False and browser_result.success is False and curl_result.success is False:
             return ToolResult(
@@ -296,6 +381,92 @@ class WebFetchTool(MultiProviderTool):
     def _is_valid_url(self, url: str) -> bool:
         parsed = urlparse(url)
         return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+    def _build_cached_fetch_result(
+        self,
+        *,
+        url: str,
+        mode: str,
+        output_format: str,
+        wait_until: str,
+        timeout_ms: int,
+        max_chars: int,
+        include_metadata: bool,
+    ) -> ToolResult | None:
+        self._prune_fetch_cache()
+        cache_key = self._fetch_cache_key(
+            url=url,
+            mode=mode,
+            output_format=output_format,
+            wait_until=wait_until,
+            timeout_ms=timeout_ms,
+            max_chars=max_chars,
+            include_metadata=include_metadata,
+        )
+        cached = self._fetch_cache.get(cache_key)
+        if cached is None:
+            return None
+        _, data = cached
+        payload = copy.deepcopy(data)
+        payload["cached"] = True
+        payload["cache_ttl_seconds"] = int(_FETCH_CACHE_TTL_SECONDS)
+        return ToolResult(success=True, data=payload)
+
+    def _record_fetch_result(
+        self,
+        *,
+        url: str,
+        mode: str,
+        output_format: str,
+        wait_until: str,
+        timeout_ms: int,
+        max_chars: int,
+        include_metadata: bool,
+        result: ToolResult,
+    ) -> None:
+        if not result.success or not isinstance(result.data, dict):
+            return
+        cache_key = self._fetch_cache_key(
+            url=url,
+            mode=mode,
+            output_format=output_format,
+            wait_until=wait_until,
+            timeout_ms=timeout_ms,
+            max_chars=max_chars,
+            include_metadata=include_metadata,
+        )
+        payload = copy.deepcopy(result.data)
+        payload.pop("cached", None)
+        self._fetch_cache[cache_key] = (time.time(), payload)
+
+    def _prune_fetch_cache(self) -> None:
+        cutoff = time.time() - _FETCH_CACHE_TTL_SECONDS
+        stale_keys = [
+            key for key, (seen_at, _) in self._fetch_cache.items() if seen_at < cutoff
+        ]
+        for key in stale_keys:
+            self._fetch_cache.pop(key, None)
+
+    @staticmethod
+    def _fetch_cache_key(
+        *,
+        url: str,
+        mode: str,
+        output_format: str,
+        wait_until: str,
+        timeout_ms: int,
+        max_chars: int,
+        include_metadata: bool,
+    ) -> tuple[str, str, str, str, int, int, bool]:
+        return (
+            str(url).strip(),
+            str(mode).strip().lower(),
+            str(output_format).strip().lower(),
+            str(wait_until).strip().lower(),
+            int(timeout_ms),
+            int(max_chars),
+            bool(include_metadata),
+        )
 
     def _build_output(
         self,

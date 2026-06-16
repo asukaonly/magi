@@ -2,8 +2,8 @@ import type { SystemConfig } from '@/api/modules/config';
 
 export type ToolValidationField =
   | 'weather.apiKey'
-  | 'weather.apiUrl'
-  | 'webSearch.apiKey';
+  | 'webSearch.apiKey'
+  | 'webSearch.apiUrl';
 
 export interface ToolValidationIssue {
   field: ToolValidationField;
@@ -28,29 +28,30 @@ export function validateToolsConfig(config?: Pick<SystemConfig, 'tools'> | null)
 
   const weather = builtIn.weather;
   if (weather?.enabled) {
-    if (!hasText(weather.apiKey)) {
+    if (weather.provider === 'qweather' && !hasText(weather.apiKey)) {
       issues.push({
         field: 'weather.apiKey',
         messageKey: 'tools.validation.weatherApiKeyRequired',
       });
     }
-    if (weather.provider === 'qweather' && !hasText(weather.apiUrl)) {
-      issues.push({
-        field: 'weather.apiUrl',
-        messageKey: 'tools.validation.qweatherApiUrlRequired',
-      });
-    }
   }
 
   const webSearch = builtIn.webSearch;
-  if (webSearch?.enabled && webSearch.provider !== 'duckduckgo' && !hasText(webSearch.apiKey)) {
-    issues.push({
-      field: 'webSearch.apiKey',
-      messageKey: 'tools.validation.webSearchApiKeyRequired',
-      values: {
-        provider: WEB_SEARCH_PROVIDER_LABELS[webSearch.provider] || webSearch.provider,
-      },
-    });
+  if (webSearch?.enabled) {
+    if (webSearch.provider === 'searxng' && !hasText(webSearch.apiUrl)) {
+      issues.push({
+        field: 'webSearch.apiUrl',
+        messageKey: 'tools.validation.webSearchApiUrlRequired',
+      });
+    } else if (webSearch.provider !== 'duckduckgo' && webSearch.provider !== 'searxng' && !hasText(webSearch.apiKey)) {
+      issues.push({
+        field: 'webSearch.apiKey',
+        messageKey: 'tools.validation.webSearchApiKeyRequired',
+        values: {
+          provider: WEB_SEARCH_PROVIDER_LABELS[webSearch.provider] || webSearch.provider,
+        },
+      });
+    }
   }
 
   return issues;

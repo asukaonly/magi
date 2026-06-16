@@ -96,6 +96,31 @@ async def test_ignores_caller_supplied_provider(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_reuses_cached_successful_search(monkeypatch) -> None:
+    monkeypatch.setattr(web_search_tool, "get_config", lambda: _FakeConfig())
+    calls = 0
+
+    def behavior(params):
+        nonlocal calls
+        calls += 1
+        return {
+            "results": [{"title": f"result {calls}", "url": "https://example.com"}],
+            "result_count": 1,
+        }
+
+    tool = _tool([_FakeProvider("brave", behavior=behavior)], default="brave")
+
+    first = await tool.execute({"query": "hello"}, _ctx())
+    second = await tool.execute({"query": "hello"}, _ctx())
+
+    assert first.success is True
+    assert second.success is True
+    assert second.data["cached"] is True
+    assert second.data["results"][0]["title"] == "result 1"
+    assert calls == 1
+
+
+@pytest.mark.asyncio
 async def test_all_providers_failed_reports_aggregate(monkeypatch) -> None:
     monkeypatch.setattr(web_search_tool, "get_config", lambda: _FakeConfig())
     tool = _tool(

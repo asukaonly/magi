@@ -86,6 +86,55 @@ def test_unknown_tool_dangerous_flag_promotes_to_high(
     assert any(s.key == "tool_flagged_dangerous" for s in result.signals)
 
 
+def test_file_read_inside_workspace_stays_low_risk(
+    classifier: RiskClassifier, tmp_path
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = classifier.classify(
+        tool_name="file_read",
+        arguments={"path": "src/app.py"},
+        workspace=str(workspace),
+    )
+
+    assert result.level is RiskLevel.LOW
+    assert {signal.key for signal in result.signals} == {"fs_read"}
+
+
+def test_file_read_outside_workspace_promotes_to_high(
+    classifier: RiskClassifier, tmp_path
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside.txt"
+
+    result = classifier.classify(
+        tool_name="file_read",
+        arguments={"path": str(outside)},
+        workspace=str(workspace),
+    )
+
+    assert result.level is RiskLevel.HIGH
+    assert {signal.key for signal in result.signals} == {"fs_read", "outside_workspace"}
+
+
+def test_file_read_sensitive_path_promotes_to_destructive(
+    classifier: RiskClassifier,
+) -> None:
+    result = classifier.classify(
+        tool_name="file_read",
+        arguments={"path": "~/.ssh/id_rsa"},
+        workspace="/tmp/workspace",
+    )
+
+    assert result.level is RiskLevel.DESTRUCTIVE
+    assert {signal.key for signal in result.signals} == {
+        "fs_read",
+        "sensitive_user_path",
+    }
+
+
 @pytest.mark.parametrize(
     "tool_name",
     [

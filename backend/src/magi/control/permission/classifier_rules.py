@@ -3,24 +3,31 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import os
 from typing import Any
 
 from .classifier_models import ClassificationResult, RiskSignal
 from .contracts import RiskLevel
 
 
-def _classify_shell(arguments: dict[str, Any]) -> ClassificationResult:
+def _classify_shell(
+    arguments: dict[str, Any], *, workspace: str | None = None
+) -> ClassificationResult:
     """Bridge to the shared bash command classifier.
 
     The classifier lives in the SDK (:mod:`magi_plugin_sdk.command_risk`), a
     downward (allowed) dependency for control. Imported lazily to keep this
     module cheap to load.
     """
+    _ = workspace
     from magi_plugin_sdk.command_risk import classify_for_permission
     return classify_for_permission(arguments)
 
 
-def _classify_file_write(arguments: dict[str, Any]) -> ClassificationResult:
+def _classify_file_write(
+    arguments: dict[str, Any], *, workspace: str | None = None
+) -> ClassificationResult:
+    _ = workspace
     path = arguments.get("path") or arguments.get("file_path") or ""
     signals = [RiskSignal(key="fs_write", description="filesystem write")]
     if isinstance(path, str) and _is_sensitive_user_path(path):
@@ -37,7 +44,10 @@ def _classify_file_write(arguments: dict[str, Any]) -> ClassificationResult:
     )
 
 
-def _classify_file_edit(arguments: dict[str, Any]) -> ClassificationResult:
+def _classify_file_edit(
+    arguments: dict[str, Any], *, workspace: str | None = None
+) -> ClassificationResult:
+    _ = workspace
     path = arguments.get("path") or arguments.get("file_path") or ""
     signals = [RiskSignal(key="fs_edit", description="filesystem edit")]
     if isinstance(path, str) and _is_sensitive_user_path(path):
@@ -54,7 +64,10 @@ def _classify_file_edit(arguments: dict[str, Any]) -> ClassificationResult:
     )
 
 
-def _classify_web_fetch(arguments: dict[str, Any]) -> ClassificationResult:
+def _classify_web_fetch(
+    arguments: dict[str, Any], *, workspace: str | None = None
+) -> ClassificationResult:
+    _ = workspace
     url = arguments.get("url") or arguments.get("uri") or ""
     return ClassificationResult(
         level=RiskLevel.MEDIUM,
@@ -63,7 +76,10 @@ def _classify_web_fetch(arguments: dict[str, Any]) -> ClassificationResult:
     )
 
 
-def _classify_web_search(arguments: dict[str, Any]) -> ClassificationResult:
+def _classify_web_search(
+    arguments: dict[str, Any], *, workspace: str | None = None
+) -> ClassificationResult:
+    _ = workspace
     query = arguments.get("query") or ""
     return ClassificationResult(
         level=RiskLevel.LOW,
@@ -72,7 +88,10 @@ def _classify_web_search(arguments: dict[str, Any]) -> ClassificationResult:
     )
 
 
-def _classify_send_message(arguments: dict[str, Any]) -> ClassificationResult:
+def _classify_send_message(
+    arguments: dict[str, Any], *, workspace: str | None = None
+) -> ClassificationResult:
+    _ = workspace
     signals = [
         RiskSignal(key="external_side_effect", description="sends a message externally")
     ]
@@ -84,7 +103,10 @@ def _classify_send_message(arguments: dict[str, Any]) -> ClassificationResult:
     )
 
 
-def _classify_image_generation(arguments: dict[str, Any]) -> ClassificationResult:
+def _classify_image_generation(
+    arguments: dict[str, Any], *, workspace: str | None = None
+) -> ClassificationResult:
+    _ = workspace
     prompt = arguments.get("prompt") or ""
     return ClassificationResult(
         level=RiskLevel.HIGH,
@@ -99,12 +121,37 @@ def _classify_image_generation(arguments: dict[str, Any]) -> ClassificationResul
     )
 
 
-def _classify_file_read(arguments: dict[str, Any]) -> ClassificationResult:
+def _classify_file_read(
+    arguments: dict[str, Any], *, workspace: str | None = None
+) -> ClassificationResult:
     path = arguments.get("path") or arguments.get("file_path") or ""
+    path_text = str(path)
+    signals = [RiskSignal(key="fs_read", description="filesystem read")]
+
+    if _is_sensitive_user_path(path_text):
+        signals.append(
+            RiskSignal(key="sensitive_user_path", description="reads user-sensitive path")
+        )
+        return ClassificationResult(
+            level=RiskLevel.DESTRUCTIVE,
+            signals=signals,
+            preview=path_text[:200] if path_text else None,
+        )
+
+    if _is_outside_workspace(path_text, workspace):
+        signals.append(
+            RiskSignal(key="outside_workspace", description="reads outside active workspace")
+        )
+        return ClassificationResult(
+            level=RiskLevel.HIGH,
+            signals=signals,
+            preview=path_text[:200] if path_text else None,
+        )
+
     return ClassificationResult(
         level=RiskLevel.LOW,
-        signals=[RiskSignal(key="fs_read", description="filesystem read")],
-        preview=str(path)[:200] if path else None,
+        signals=signals,
+        preview=path_text[:200] if path_text else None,
     )
 
 
@@ -118,11 +165,31 @@ _SENSITIVE_USER_PATH_SUFFIXES: tuple[str, ...] = (
 
 
 def _is_sensitive_user_path(path: str) -> bool:
-    probe = path.replace("\\", "/")
+    probe = "/" + path.replace("\\", "/").lstrip("/")
     return any(marker in probe for marker in _SENSITIVE_USER_PATH_SUFFIXES)
 
 
-RULES: dict[str, Callable[[dict[str, Any]], ClassificationResult]] = {
+def _is_outside_workspace(path: str, workspace: str | None) -> bool:
+    if not path:
+        return False
+    try:
+        expanded_path = os.path.expanduser(path)
+        if workspace:
+            expanded_workspace = os.path.expanduser(workspace)
+            target = (
+                expanded_path
+                if os.path.isabs(expanded_path)
+                else os.path.join(expanded_workspace, expanded_path)
+            )
+            resolved_target = os.path.realpath(target)
+            resolved_workspace = os.path.realpath(expanded_workspace)
+            return os.path.commonpath([resolved_target, resolved_workspace]) != resolved_workspace
+        return os.path.isabs(expanded_path) or path.startswith("~")
+    except ValueError:
+        return True
+
+
+RULES: dict[str, Callable[..., ClassificationResult]] = {
     "bash": _classify_shell,
     "shell": _classify_shell,
     "execute_command": _classify_shell,

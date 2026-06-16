@@ -765,26 +765,34 @@
       "qweather": "和风天气",
       "apiKey": "API Key",
       "apiKeyPlaceholder": "输入 API Key",
-      "apiUrl": "API URL",
-      "apiUrlPlaceholder": "自定义 API 端点"
+      "apiUrl": "API URL（可选）",
+      "apiUrlPlaceholder": "可选的自定义 API 端点"
     },
     "webSearch": {
       "label": "网页搜索",
       "desc": "在互联网上搜索实时信息。",
       "provider": "服务商",
+      "providerHint": "DuckDuckGo 无需 API Key。SearXNG 使用你自己的实例地址。已配置的服务商失败时，Magi 可能会自动尝试其他已配置搜索服务商。",
       "apiKey": "API Key",
-      "apiKeyPlaceholder": "输入 API Key（DuckDuckGo 无需配置）"
+      "apiKeyPlaceholder": "输入 API Key（DuckDuckGo 无需配置）",
+      "apiUrl": "实例地址",
+      "searxngUrlPlaceholder": "https://search.example.com"
     },
     "webFetch": {
       "label": "网页获取",
       "desc": "抓取和读取网页内容。",
-      "usePlaywright": "使用 Playwright 渲染",
-      "usePlaywrightDesc": "对于需要 JavaScript 渲染的页面启用浏览器渲染。"
+      "autoMode": "自动渲染模式",
+      "autoModeDesc": "Magi 会先尝试直接 HTTP 抓取，需要时自动回退到浏览器渲染或 curl。",
+      "allowPrivateNetwork": "允许抓取私网地址",
+      "allowPrivateNetworkDesc": "默认关闭，用于防止 SSRF。只有在你信任本机服务或局域网目标时再开启。",
+      "privateNetworkAllowlist": "私网地址 allowlist",
+      "privateNetworkAllowlistPlaceholder": "localhost:3000, 192.168.1.0/24",
+      "privateNetworkAllowlistDesc": "用逗号分隔允许抓取的主机名、host:port、IP 或 CIDR 网段。"
     },
     "validation": {
       "weatherApiKeyRequired": "请先填写天气服务的 API Key。",
-      "qweatherApiUrlRequired": "请先填写和风天气的 API URL。",
-      "webSearchApiKeyRequired": "请先填写 {{provider}} 的 API Key。"
+      "webSearchApiKeyRequired": "请先填写 {{provider}} 的 API Key。",
+      "webSearchApiUrlRequired": "请先填写 SearXNG 实例地址。"
     },
     "skills": {
       "label": "技能",

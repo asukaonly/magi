@@ -57,6 +57,14 @@ class ToolRegistryExecutionMixin:
         schema = tool.get_schema()
         stats = self._stats[canonical_tool_name]
 
+        if not self._is_tool_enabled(canonical_tool_name):
+            logger.warning("Tool %s is disabled by configuration", canonical_tool_name)
+            return ToolResult(
+                success=False,
+                error=f"Tool {canonical_tool_name} is disabled by configuration",
+                error_code=ToolErrorCode.POLICY_BLOCKED.value,
+            )
+
         if schema.dangerous and "dangerous_tools" not in context.permissions:
             logger.warning(f"Tool {tool_name} requires dangerous_tools permission")
             return ToolResult(

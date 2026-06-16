@@ -121,6 +121,28 @@ async def test_high_only_prompts_on_high_risk() -> None:
 
 
 @pytest.mark.asyncio
+async def test_high_only_prompts_for_file_read_outside_workspace(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside.txt"
+    prompter = _StubPrompter(UserPromptResponse(allow=True))
+    gateway, _ = await _make_gateway(mode=PermissionMode.HIGH_ONLY, prompter=prompter)
+
+    decision = await gateway.gate(
+        tool_name="file_read",
+        arguments={"path": str(outside)},
+        agent_id="a1",
+        workspace=str(workspace),
+    )
+
+    assert decision.outcome is PermissionOutcome.ALLOWED
+    assert decision.source == "user"
+    assert len(prompter.calls) == 1
+    assert prompter.calls[0].risk_level.value == "high"
+    assert "outside_workspace" in prompter.calls[0].signals
+
+
+@pytest.mark.asyncio
 async def test_high_only_skips_medium_risk() -> None:
     prompter = _StubPrompter(UserPromptResponse(allow=False))
     gateway, _ = await _make_gateway(mode=PermissionMode.HIGH_ONLY, prompter=prompter)

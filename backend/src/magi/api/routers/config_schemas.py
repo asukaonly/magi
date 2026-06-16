@@ -262,7 +262,7 @@ class PersonalitySettingsModel(BaseModel):
 
 class WeatherToolConfigModel(BaseModel):
     enabled: bool = Field(default=True)
-    provider: str = Field(default="qweather")
+    provider: str = Field(default="openmeteo")
     apiKey: Optional[str] = Field(default=None)
     apiUrl: Optional[str] = Field(default=None)
 
@@ -271,11 +271,13 @@ class WebSearchToolConfigModel(BaseModel):
     enabled: bool = Field(default=True)
     provider: str = Field(default="duckduckgo")
     apiKey: Optional[str] = Field(default=None)
+    apiUrl: Optional[str] = Field(default=None)
 
 
 class WebFetchToolConfigModel(BaseModel):
     enabled: bool = Field(default=True)
-    usePlaywright: bool = Field(default=False)
+    allowPrivateNetworkFetch: bool = Field(default=False)
+    privateNetworkAllowlist: List[str] = Field(default_factory=list)
 
 
 class BuiltInToolsConfigModel(BaseModel):

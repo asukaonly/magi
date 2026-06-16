@@ -764,26 +764,34 @@
       "qweather": "QWeather",
       "apiKey": "API Key",
       "apiKeyPlaceholder": "Enter API Key",
-      "apiUrl": "API URL",
-      "apiUrlPlaceholder": "Custom API endpoint"
+      "apiUrl": "API URL (optional)",
+      "apiUrlPlaceholder": "Optional custom API endpoint"
     },
     "webSearch": {
       "label": "Web Search",
       "desc": "Search the internet for real-time information.",
       "provider": "Provider",
+      "providerHint": "DuckDuckGo works without an API key. SearXNG uses your self-hosted instance URL. If a configured provider fails, Magi may try other configured search providers automatically.",
       "apiKey": "API Key",
-      "apiKeyPlaceholder": "Enter API Key (not required for DuckDuckGo)"
+      "apiKeyPlaceholder": "Enter API Key (not required for DuckDuckGo)",
+      "apiUrl": "Instance URL",
+      "searxngUrlPlaceholder": "https://search.example.com"
     },
     "webFetch": {
       "label": "Web Fetch",
       "desc": "Fetch and read content from web pages.",
-      "usePlaywright": "Use Playwright rendering",
-      "usePlaywrightDesc": "Enable browser rendering for pages that require JavaScript."
+      "autoMode": "Automatic rendering",
+      "autoModeDesc": "Magi starts with direct HTTP and automatically falls back to browser rendering or curl when needed.",
+      "allowPrivateNetwork": "Allow private network fetch",
+      "allowPrivateNetworkDesc": "Off by default to prevent SSRF. Turn on only for local services or LAN targets you trust.",
+      "privateNetworkAllowlist": "Private network allowlist",
+      "privateNetworkAllowlistPlaceholder": "localhost:3000, 192.168.1.0/24",
+      "privateNetworkAllowlistDesc": "Comma-separated hostnames, host:port values, IPs, or CIDR ranges that web-fetch may access."
     },
     "validation": {
       "weatherApiKeyRequired": "Enter the weather provider API Key before continuing.",
-      "qweatherApiUrlRequired": "Enter the QWeather API URL before continuing.",
-      "webSearchApiKeyRequired": "Enter the API Key for {{provider}} before continuing."
+      "webSearchApiKeyRequired": "Enter the API Key for {{provider}} before continuing.",
+      "webSearchApiUrlRequired": "Enter the SearXNG instance URL before continuing."
     },
     "skills": {
       "label": "Skills",

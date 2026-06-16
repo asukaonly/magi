@@ -18,6 +18,7 @@ from magi.tools.builtin.weather_tool import WeatherTool
 from magi.tools.builtin.web_search_tool import WebSearchTool
 from magi.tools.builtin.web_fetch_tool import WebFetchTool
 from magi.tools.providers.base import ProviderConfig
+from magi.tools.providers.weather.open_meteo import OpenMeteoProvider
 from magi.tools.providers.weather.qweather import QWeatherProvider
 
 
@@ -43,11 +44,12 @@ def test_tools_config_route_matches_static_endpoint_first():
     pytest.fail("Expected /config to match the static tool config endpoint")
 
 
-def test_web_fetch_config_response_uses_default_provider():
+def test_web_fetch_config_response_has_no_user_provider_toggle():
     response = _build_tool_config_response("web-fetch", WebFetchTool())
 
     assert response.enabled is True
-    assert response.current_values["default_provider"] == "http"
+    assert response.config_specs == []
+    assert response.current_values == {}
 
 
 def test_web_search_config_response_exposes_provider_enum_and_targeted_specs():
@@ -57,17 +59,16 @@ def test_web_search_config_response_exposes_provider_enum_and_targeted_specs():
     api_key_spec = next(spec for spec in response.config_specs if spec.path == "providers.{provider}.api_key")
     base_url_spec = next(spec for spec in response.config_specs if spec.path == "providers.{provider}.base_url")
 
-    assert default_provider_spec.enum == ["duckduckgo", "brave", "perplexity", "tavily"]
+    assert default_provider_spec.enum == ["duckduckgo", "brave", "perplexity", "searxng", "tavily"]
     assert api_key_spec.providers == ["brave", "perplexity", "tavily"]
-    assert base_url_spec.providers == ["duckduckgo"]
+    assert base_url_spec.providers == ["duckduckgo", "searxng"]
 
 
-def test_web_search_provider_parameter_does_not_hardcode_duckduckgo_default():
+def test_web_search_provider_parameter_is_not_exposed_to_llm():
     schema = WebSearchTool().get_schema()
-    provider_param = next(param for param in schema.parameters if param.name == "provider")
 
-    assert provider_param.default is None
-    assert "configured default provider" in provider_param.description
+    assert "provider" not in {param.name for param in schema.parameters}
+    assert "configured default provider" in schema.description
 
 
 def test_web_search_schema_disables_tool_retry_for_terminal_provider_errors():
@@ -77,7 +78,7 @@ def test_web_search_schema_disables_tool_retry_for_terminal_provider_errors():
     assert schema.max_retries == 0
 
 
-def test_web_search_config_response_includes_sensitive_current_values(monkeypatch):
+def test_web_search_config_response_omits_sensitive_current_values(monkeypatch):
     config = AppConfig()
     config.tools.web_search.providers["brave"].api_key = "secret-key"
 
@@ -85,20 +86,21 @@ def test_web_search_config_response_includes_sensitive_current_values(monkeypatc
 
     response = _build_tool_config_response("web-search", WebSearchTool())
 
-    assert response.current_values["providers.brave.api_key"] == "secret-key"
+    assert "providers.brave.api_key" not in response.current_values
 
 
-def test_weather_tool_requires_api_key_and_base_url_for_qweather():
+def test_weather_tool_requires_only_api_key_for_qweather():
     tool_response = _build_tool_config_response("weather", WeatherTool())
+    openmeteo_info = next(provider for provider in tool_response.providers if provider.name == "openmeteo")
     qweather_info = next(provider for provider in tool_response.providers if provider.name == "qweather")
+    openmeteo_provider = OpenMeteoProvider()
     qweather_provider = QWeatherProvider()
 
-    assert qweather_info.required_config == [
-        "providers.qweather.api_key",
-        "providers.qweather.base_url",
-    ]
+    assert openmeteo_info.required_config == []
+    assert openmeteo_provider.is_ready(ProviderConfig()) is True
+    assert qweather_info.required_config == ["providers.qweather.api_key"]
     assert qweather_provider.is_ready(ProviderConfig(api_key="token", base_url="devapi.qweather.com")) is True
-    assert qweather_provider.is_ready(ProviderConfig(api_key="token", base_url="")) is False
+    assert qweather_provider.is_ready(ProviderConfig(api_key="token", base_url="")) is True
 
 
 @pytest.mark.asyncio

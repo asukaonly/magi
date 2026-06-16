@@ -41,6 +41,16 @@ def resolve_path_from_workspace(
     return os.path.normpath(os.path.join(expanded_workspace, expanded_path))
 
 
+def path_within_root(path: str, root: str | None) -> bool:
+    """Return True when path resolves to root or a child of root."""
+    try:
+        resolved_path = os.path.realpath(expand_input_path(path))
+        resolved_root = os.path.realpath(expand_input_path(root, default="."))
+        return os.path.commonpath([resolved_path, resolved_root]) == resolved_root
+    except ValueError:
+        return False
+
+
 def has_hidden_path_component(path: str) -> bool:
     """Return True if any path segment is hidden (starts with a dot)."""
     normalized = path.replace("\\", "/")

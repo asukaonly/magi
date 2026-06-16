@@ -123,9 +123,10 @@ def _get_provider_display_name(provider_name: str) -> str:
         "duckduckgo": "DuckDuckGo",
         "brave": "Brave Search",
         "perplexity": "Perplexity AI",
+        "searxng": "SearXNG",
         "tavily": "Tavily",
+        "openmeteo": "Open-Meteo",
         "qweather": "QWeather",
-        "openweather": "OpenWeather",
     }
     return name_map.get(provider_name, provider_name.replace("-", " ").title())
 
@@ -185,7 +186,6 @@ def _build_tool_config_response(tool_name: str, tool) -> ToolConfigResponse:
         current_values.update(_provider_current_values(config.tools.web_search.providers, config_specs_raw))
     elif tool_name == "web-fetch":
         tool_enabled = config.tools.web_fetch.enabled
-        current_values["default_provider"] = config.tools.web_fetch.default_provider
 
     return ToolConfigResponse(
         name=tool_name,
@@ -230,6 +230,8 @@ def _provider_current_values(
 
     for spec in config_specs_raw:
         path = str(spec.path)
+        if getattr(spec, "sensitive", False):
+            continue
         supported_providers = getattr(spec, "providers", None) or list(provider_configs.keys())
         if path == "default_provider":
             continue

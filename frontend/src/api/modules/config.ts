@@ -376,20 +376,22 @@ export type { PersonalityConfig };
 
 export interface WeatherToolConfig {
   enabled: boolean;
-  provider: 'openweather' | 'qweather';
+  provider: 'openmeteo' | 'qweather';
   apiKey?: string;
   apiUrl?: string;
 }
 
 export interface WebSearchToolConfig {
   enabled: boolean;
-  provider: 'duckduckgo' | 'brave' | 'perplexity' | 'tavily';
+  provider: 'duckduckgo' | 'brave' | 'perplexity' | 'searxng' | 'tavily';
   apiKey?: string;
+  apiUrl?: string;
 }
 
 export interface WebFetchToolConfig {
   enabled: boolean;
-  usePlaywright: boolean;
+  allowPrivateNetworkFetch?: boolean;
+  privateNetworkAllowlist?: string[];
 }
 
 export interface ToolsConfig {
@@ -760,9 +762,9 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   personalitySettings: DEFAULT_PERSONALITY_SETTINGS_CONFIG,
   tools: {
     builtIn: {
-      weather: { enabled: true, provider: 'qweather' },
+      weather: { enabled: true, provider: 'openmeteo' },
       webSearch: { enabled: true, provider: 'duckduckgo' },
-      webFetch: { enabled: true, usePlaywright: false },
+      webFetch: { enabled: true, allowPrivateNetworkFetch: false, privateNetworkAllowlist: [] },
     },
     skills: [],
   },

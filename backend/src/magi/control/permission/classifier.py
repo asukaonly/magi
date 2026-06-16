@@ -28,11 +28,12 @@ class RiskClassifier:
         *,
         tool_name: str,
         arguments: dict[str, Any],
+        workspace: str | None = None,
         tool_is_dangerous: bool = False,
     ) -> ClassificationResult:
         rule = RULES.get(tool_name)
         if rule is not None:
-            return rule(dict(arguments))
+            return rule(dict(arguments), workspace=workspace)
         lowered = tool_name.lower()
         if any(marker in lowered for marker in EXTERNAL_SEND_SUBSTRINGS):
             return classify_external_send(dict(arguments))

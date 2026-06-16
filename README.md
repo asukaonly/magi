@@ -130,6 +130,8 @@ Magi is designed to be local-first:
 - **Application data stays local**: on macOS/Linux it lives under `~/.magi/`; on Windows under `%USERPROFILE%\.magi`
 - **Data is only sent out during LLM calls**: your chat content and retrieved context are sent as needed to the model providers you configure, such as OpenAI, Anthropic, or local Ollama
 - **Permission tiers**: tool execution supports permission levels, and sensitive actions such as file writes, commits, or pushes require confirmation
+- **Powerful local tools are explicit**: built-in tools can read and write files, run shell commands, fetch public web pages, search the web, and call configured external services. File reads inside the active workspace stay low-friction; reads outside the workspace are permission-gated, with sensitive user paths treated as higher risk. Web fetch blocks localhost/private-network targets unless the user explicitly enables private-network fetch and allowlists trusted hosts/IP ranges. Disable tools you do not want Magi to use, and review permission prompts before allowing sensitive actions.
+- **Network tools use configured providers**: weather uses keyless Open-Meteo by default with QWeather available for users who prefer it, while web search defaults to keyless DuckDuckGo and can use Brave, Tavily, Perplexity, or a user-hosted SearXNG instance when configured. Search and fetch results are cached briefly in memory to reduce duplicate requests. DuckDuckGo availability depends on the user's network and anti-bot checks; app network proxy settings are opt-in.
 - **Memory can be deleted**: all stored memories can be reviewed and cleared from the memory workbench
 
 If you want to fully wipe Magi data, deleting the directory above is enough.

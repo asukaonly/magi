@@ -41,7 +41,6 @@ class CurlFetchProvider(Provider):
 
         command = [
             "curl",
-            "-L",
             "-sS",
             "--max-time",
             str(timeout_sec),

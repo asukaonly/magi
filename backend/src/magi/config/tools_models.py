@@ -16,9 +16,12 @@ class ProviderConfig(BaseModel):
 class WeatherToolSettings(BaseModel):
     """Weather tool configuration."""
     enabled: bool = Field(default=True)
-    default_provider: str = Field(default="qweather")
+    default_provider: str = Field(default="openmeteo")
     providers: Dict[str, ProviderConfig] = Field(
-        default_factory=lambda: {"qweather": ProviderConfig()}
+        default_factory=lambda: {
+            "openmeteo": ProviderConfig(),
+            "qweather": ProviderConfig(),
+        }
     )
 
     def get_provider_config(self, provider_name: str) -> ProviderConfig:
@@ -35,6 +38,7 @@ class WebSearchToolSettings(BaseModel):
             "duckduckgo": ProviderConfig(),
             "brave": ProviderConfig(),
             "perplexity": ProviderConfig(),
+            "searxng": ProviderConfig(),
             "tavily": ProviderConfig(),
         }
     )
@@ -48,6 +52,8 @@ class WebFetchToolSettings(BaseModel):
     """Web fetch tool configuration."""
     enabled: bool = Field(default=True)
     default_provider: str = Field(default="http")
+    allow_private_network: bool = Field(default=False)
+    private_network_allowlist: List[str] = Field(default_factory=list)
     providers: Dict[str, ProviderConfig] = Field(
         default_factory=lambda: {
             "http": ProviderConfig(),

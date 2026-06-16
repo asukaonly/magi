@@ -136,8 +136,10 @@ features:
 tools:
   weather:
     enabled: true
-    default_provider: "qweather"
+    default_provider: "openmeteo"
     providers:
+      openmeteo:
+        base_url: ""
       qweather:
         api_key: ""
         base_url: ""
@@ -152,12 +154,16 @@ tools:
         api_key: ""
       perplexity:
         api_key: ""
+      searxng:
+        base_url: ""
       tavily:
         api_key: ""
 
   web_fetch:
     enabled: true
     default_provider: "http"
+    allow_private_network: false
+    private_network_allowlist: []
     providers:
       http:
         base_url: ""

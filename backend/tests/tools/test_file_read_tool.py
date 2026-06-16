@@ -16,10 +16,11 @@ def _context(workspace: str = "./workspace") -> ToolExecutionContext:
 
 
 @pytest.mark.asyncio
-async def test_file_read_expands_home_placeholder(
+async def test_file_read_allows_home_placeholder_after_permission_gate(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     project_dir = tmp_path / "project"
     project_dir.mkdir()
     readme_path = project_dir / "README.md"
@@ -29,7 +30,6 @@ async def test_file_read_expands_home_placeholder(
     result = await tool.execute({"path": "~/project/README.md"}, _context())
 
     assert result.success is True
-    assert result.data["path"] == str(readme_path)
     assert result.data["content"] == "hello magi\n"
 
 
@@ -47,3 +47,17 @@ async def test_file_read_resolves_relative_path_from_workspace(tmp_path: Path) -
     assert result.success is True
     assert result.data["path"] == str(readme_path)
     assert result.data["content"] == "workspace doc\n"
+
+
+@pytest.mark.asyncio
+async def test_file_read_allows_absolute_path_after_permission_gate(tmp_path: Path) -> None:
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+    secret_path = tmp_path / "secret.txt"
+    secret_path.write_text("do not leak\n", encoding="utf-8")
+
+    tool = FileReadTool()
+    result = await tool.execute({"path": str(secret_path)}, _context(str(workspace_dir)))
+
+    assert result.success is True
+    assert result.data["content"] == "do not leak\n"

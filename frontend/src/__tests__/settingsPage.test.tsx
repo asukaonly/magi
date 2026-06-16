@@ -479,12 +479,12 @@ const toolsFixture = {
           sensitive: false,
           read_only: false,
           required: true,
-          enum: ['qweather'],
+          enum: ['openmeteo', 'qweather'],
           is_template: false,
         },
       ],
       current_values: {
-        default_provider: 'qweather',
+        default_provider: 'openmeteo',
       },
     },
     {

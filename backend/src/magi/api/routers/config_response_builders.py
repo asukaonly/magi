@@ -130,10 +130,6 @@ def build_tools(raw: Dict[str, Any], runtime_config: Any) -> ToolsConfigModel:
     )
     web_search_provider_cfg = web_search_runtime.providers.get(web_search_provider)
 
-    use_playwright = built_in.get("webFetch", {}).get(
-        "usePlaywright", web_fetch_runtime.default_provider == "browser"
-    )
-
     return ToolsConfigModel(
         builtIn=BuiltInToolsConfigModel(
             weather=WeatherToolConfigModel(
@@ -146,10 +142,12 @@ def build_tools(raw: Dict[str, Any], runtime_config: Any) -> ToolsConfigModel:
                 enabled=web_search_runtime.enabled,
                 provider=web_search_provider,
                 apiKey=(web_search_provider_cfg.api_key if web_search_provider_cfg else None),
+                apiUrl=(web_search_provider_cfg.base_url if web_search_provider_cfg else None),
             ),
             webFetch=WebFetchToolConfigModel(
                 enabled=web_fetch_runtime.enabled,
-                usePlaywright=bool(use_playwright),
+                allowPrivateNetworkFetch=web_fetch_runtime.allow_private_network,
+                privateNetworkAllowlist=list(web_fetch_runtime.private_network_allowlist),
             ),
         ),
         skills=tools_raw.get("skills", []),

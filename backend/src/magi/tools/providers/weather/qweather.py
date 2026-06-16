@@ -29,7 +29,7 @@ class QWeatherProvider(Provider):
 
     def is_ready(self, config: ProviderConfig) -> bool:
         """Check if QWeather API key is configured."""
-        return bool((config.api_key or "").strip() and (config.base_url or "").strip())
+        return bool((config.api_key or "").strip())
 
     def _normalize_api_host(self, raw_value: Optional[str]) -> str:
         """Normalize endpoint value to host-only format."""

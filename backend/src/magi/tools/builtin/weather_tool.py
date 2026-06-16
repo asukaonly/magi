@@ -6,9 +6,10 @@ from urllib.parse import urlparse
 
 from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolConfigSpec, ToolErrorCode
 from ..providers.base import ProviderConfig
-from ..providers.weather import QWeatherProvider
+from ..providers.weather import OpenMeteoProvider, QWeatherProvider
 from ...config import get_config, save_config
 from ...core.logger import get_logger
+from ...i18n import effective_app_language_code
 
 
 logger = get_logger(__name__, category="TOOLS")
@@ -45,9 +46,8 @@ class WeatherTool(MultiProviderTool):
                 ToolParameter(
                     name="lang",
                     type=ParameterType.STRING,
-                    description="Language: 'zh' (Chinese) or 'en' (English)",
+                    description="Language: 'zh' (Chinese) or 'en' (English). Defaults to the app language.",
                     required=False,
-                    default="zh",
                     enum=["zh", "en"],
                 ),
                 ToolParameter(
@@ -91,6 +91,7 @@ class WeatherTool(MultiProviderTool):
 
     def _register_providers(self) -> None:
         """Register all available weather providers."""
+        self.register_provider(OpenMeteoProvider())
         self.register_provider(QWeatherProvider())
 
     def _get_provider_config(self, provider_name: str) -> ProviderConfig:
@@ -148,8 +149,8 @@ class WeatherTool(MultiProviderTool):
             ToolConfigSpec(
                 path="providers.{provider}.base_url",
                 type="string",
-                description="Provider base URL",
-                required=True,
+                description="Provider base URL override",
+                required=False,
                 providers=["qweather"],
             ),
         ]
@@ -281,7 +282,7 @@ class WeatherTool(MultiProviderTool):
                 error_code=ToolErrorCode.MISSING_LOCATION.value,
             )
 
-        lang = parameters.get("lang", "zh")
+        lang = self._resolve_language(parameters.get("lang"))
         mode = parameters.get("mode", "current")
         days = parameters.get("days", 3)
         provider_name = self._get_default_provider()
@@ -399,3 +400,11 @@ class WeatherTool(MultiProviderTool):
                 )
 
         return result
+
+    @staticmethod
+    def _resolve_language(value: Any) -> str:
+        """Resolve weather provider language from explicit value or app locale."""
+        text = str(value or "").strip().lower()
+        if text:
+            return "zh" if text.startswith("zh") else "en"
+        return effective_app_language_code(default="en")

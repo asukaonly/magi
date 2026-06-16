@@ -22,6 +22,22 @@ class ToolRegistryLookupMixin:
     _stats: dict[str, ToolExecutionStats]
     _skills: dict[str, "SkillMetadata"]
 
+    def _is_tool_enabled(self, tool_name: str) -> bool:
+        """Return False when a built-in tool is disabled in product config."""
+        try:
+            from ..config import get_config
+
+            config = get_config()
+        except Exception:
+            return True
+
+        enabled_by_tool = {
+            "weather": getattr(config.tools.weather, "enabled", True),
+            "web-search": getattr(config.tools.web_search, "enabled", True),
+            "web-fetch": getattr(config.tools.web_fetch, "enabled", True),
+        }
+        return bool(enabled_by_tool.get(tool_name, True))
+
     def resolve_tool_name(self, tool_name: str) -> str:
         """Return the canonical tool name for direct names and supported aliases."""
         normalized_name = str(tool_name or "").strip()
@@ -59,7 +75,11 @@ class ToolRegistryLookupMixin:
         Returns:
             List of tool names.
         """
-        tools = list(self._tools.keys())
+        tools = [
+            tool_name
+            for tool_name in self._tools.keys()
+            if self._is_tool_enabled(tool_name)
+        ]
 
         if category:
             tools = list(set(tools) & set(self._category_index.get(category, [])))
@@ -112,6 +132,8 @@ class ToolRegistryLookupMixin:
         enabled_set = set(enabled_features) if enabled_features is not None else None
         tools_info = []
         for tool_name in self._tools.keys():
+            if not self._is_tool_enabled(tool_name):
+                continue
             if enabled_set is not None and not self._tool_passes_feature_gate(tool_name, enabled_set):
                 continue
             tools_info.append(self.get_tool_info(tool_name))

@@ -4,14 +4,18 @@ HTTP Fetch Provider
 Fetch web page content via direct HTTP request.
 """
 from typing import Any, Dict
+from urllib.parse import urljoin
 
 import aiohttp
 
 from ..base import Provider, ProviderConfig
+from ...utils.network_safety import blocked_url_target_reason
 
 
 class HttpFetchProvider(Provider):
     """Direct HTTP fetching provider."""
+
+    MAX_REDIRECTS = 5
 
     @property
     def name(self) -> str:
@@ -30,6 +34,8 @@ class HttpFetchProvider(Provider):
         url = str(params["url"]).strip()
         timeout_ms = int(params.get("timeout_ms", 15000))
         proxy_url = str(params.get("proxy_url") or "").strip() or None
+        allow_private_network = bool(params.get("allow_private_network", False))
+        private_network_allowlist = list(params.get("private_network_allowlist") or [])
         user_agent = str(
             params.get(
                 "user_agent",
@@ -45,17 +51,34 @@ class HttpFetchProvider(Provider):
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
 
+        current_url = url
         async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
-            async with session.get(
-                url,
-                headers=headers,
-                allow_redirects=True,
-                proxy=proxy_url,
-            ) as response:
-                html = await response.text(errors="ignore")
-                content_type = response.headers.get("Content-Type", "")
-                final_url = str(response.url)
-                status_code = response.status
+            for _ in range(self.MAX_REDIRECTS + 1):
+                block_reason = await blocked_url_target_reason(
+                    current_url,
+                    allow_private_network=allow_private_network,
+                    private_network_allowlist=private_network_allowlist,
+                )
+                if block_reason:
+                    raise RuntimeError(f"Blocked web-fetch redirect target: {block_reason}")
+
+                async with session.get(
+                    current_url,
+                    headers=headers,
+                    allow_redirects=False,
+                    proxy=proxy_url,
+                ) as response:
+                    if response.status in {301, 302, 303, 307, 308} and response.headers.get("Location"):
+                        current_url = urljoin(str(response.url), str(response.headers["Location"]))
+                        continue
+
+                    html = await response.text(errors="ignore")
+                    content_type = response.headers.get("Content-Type", "")
+                    final_url = str(response.url)
+                    status_code = response.status
+                    break
+            else:
+                raise RuntimeError(f"Too many redirects while fetching {url}")
 
         return {
             "provider": self.name,

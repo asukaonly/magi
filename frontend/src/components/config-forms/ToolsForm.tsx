@@ -179,7 +179,7 @@ export const ToolsForm: React.FC<ToolsFormProps> = ({ validationIssues = [] }) =
         const weatherEnabled = builtIn.weather?.enabled ?? false;
         const webSearchEnabled = builtIn.webSearch?.enabled ?? false;
         const webFetchEnabled = builtIn.webFetch?.enabled ?? false;
-        const weatherProvider = builtIn.weather?.provider ?? 'qweather';
+        const weatherProvider = builtIn.weather?.provider ?? 'openmeteo';
         const webSearchProvider = builtIn.webSearch?.provider ?? 'duckduckgo';
 
         const patchTools = (updates: Record<string, any>) => {
@@ -232,29 +232,30 @@ export const ToolsForm: React.FC<ToolsFormProps> = ({ validationIssues = [] }) =
                     <Form.Item name={['tools', 'builtIn', 'weather', 'provider']} noStyle>
                       <SelectField
                         options={[
-                          { label: 'OpenWeather', value: 'openweather' },
+                          { label: 'Open-Meteo', value: 'openmeteo' },
                           { label: t('tools.weather.qweather'), value: 'qweather' },
                         ]}
                       />
                     </Form.Item>
                   </div>
 
-                  <div>
-                    <FieldLabel>{t('tools.weather.apiKey')}</FieldLabel>
-                    <Form.Item name={['tools', 'builtIn', 'weather', 'apiKey']} noStyle>
-                      <Input type="password" placeholder={t('tools.weather.apiKeyPlaceholder')} />
-                    </Form.Item>
-                    <FieldError issue={issueFor('weather.apiKey')} />
-                  </div>
-
                   {weatherProvider === 'qweather' ? (
-                    <div>
-                      <FieldLabel>{t('tools.weather.apiUrl')}</FieldLabel>
-                      <Form.Item name={['tools', 'builtIn', 'weather', 'apiUrl']} noStyle>
-                        <Input placeholder={t('tools.weather.apiUrlPlaceholder')} />
-                      </Form.Item>
-                      <FieldError issue={issueFor('weather.apiUrl')} />
-                    </div>
+                    <>
+                      <div>
+                        <FieldLabel>{t('tools.weather.apiKey')}</FieldLabel>
+                        <Form.Item name={['tools', 'builtIn', 'weather', 'apiKey']} noStyle>
+                          <Input type="password" placeholder={t('tools.weather.apiKeyPlaceholder')} />
+                        </Form.Item>
+                        <FieldError issue={issueFor('weather.apiKey')} />
+                      </div>
+
+                      <div>
+                        <FieldLabel>{t('tools.weather.apiUrl')}</FieldLabel>
+                        <Form.Item name={['tools', 'builtIn', 'weather', 'apiUrl']} noStyle>
+                          <Input placeholder={t('tools.weather.apiUrlPlaceholder')} />
+                        </Form.Item>
+                      </div>
+                    </>
                   ) : null}
                 </div>
               </ExpandableToolCard>
@@ -288,19 +289,33 @@ export const ToolsForm: React.FC<ToolsFormProps> = ({ validationIssues = [] }) =
                           { label: 'DuckDuckGo', value: 'duckduckgo' },
                           { label: 'Brave', value: 'brave' },
                           { label: 'Perplexity', value: 'perplexity' },
+                          { label: 'SearXNG', value: 'searxng' },
                           { label: 'Tavily', value: 'tavily' },
                         ]}
                       />
                     </Form.Item>
+                    <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                      {t('tools.webSearch.providerHint')}
+                    </p>
                   </div>
 
-                  {webSearchProvider !== 'duckduckgo' ? (
+                  {webSearchProvider !== 'duckduckgo' && webSearchProvider !== 'searxng' ? (
                     <div>
                       <FieldLabel>{t('tools.webSearch.apiKey')}</FieldLabel>
                       <Form.Item name={['tools', 'builtIn', 'webSearch', 'apiKey']} noStyle>
                         <Input type="password" placeholder={t('tools.webSearch.apiKeyPlaceholder')} />
                       </Form.Item>
                       <FieldError issue={issueFor('webSearch.apiKey')} />
+                    </div>
+                  ) : null}
+
+                  {webSearchProvider === 'searxng' ? (
+                    <div>
+                      <FieldLabel>{t('tools.webSearch.apiUrl')}</FieldLabel>
+                      <Form.Item name={['tools', 'builtIn', 'webSearch', 'apiUrl']} noStyle>
+                        <Input placeholder={t('tools.webSearch.searxngUrlPlaceholder')} />
+                      </Form.Item>
+                      <FieldError issue={issueFor('webSearch.apiUrl')} />
                     </div>
                   ) : null}
                 </div>
@@ -326,20 +341,63 @@ export const ToolsForm: React.FC<ToolsFormProps> = ({ validationIssues = [] }) =
                 }}
                 onExpand={() => toggleExpand('webFetch')}
               >
-                <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-medium">{t('tools.webFetch.usePlaywright')}</div>
-                    <div className="text-[11px] leading-4 text-muted-foreground">{t('tools.webFetch.usePlaywrightDesc')}</div>
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-medium">{t('tools.webFetch.autoMode')}</div>
+                      <div className="text-[11px] leading-4 text-muted-foreground">{t('tools.webFetch.autoModeDesc')}</div>
+                    </div>
                   </div>
-                  <Form.Item name={['tools', 'builtIn', 'webFetch', 'usePlaywright']} noStyle shouldUpdate>
+
+                  <Form.Item name={['tools', 'builtIn', 'webFetch', 'allowPrivateNetworkFetch']} noStyle shouldUpdate>
                     {({ getFieldValue: gv, setFieldValue: sv }: { getFieldValue: (n: any) => any; setFieldValue: (n: any, v: any) => void }) => (
-                      <ToggleSwitch
-                        checked={!!gv(['tools', 'builtIn', 'webFetch', 'usePlaywright'])}
-                        onChange={(v) => sv(['tools', 'builtIn', 'webFetch', 'usePlaywright'], v)}
-                      />
+                      <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
+                        <div className="space-y-0.5">
+                          <div className="text-xs font-medium">{t('tools.webFetch.allowPrivateNetwork')}</div>
+                          <div className="text-[11px] leading-4 text-muted-foreground">
+                            {t('tools.webFetch.allowPrivateNetworkDesc')}
+                          </div>
+                        </div>
+                        <ToggleSwitch
+                          checked={!!gv(['tools', 'builtIn', 'webFetch', 'allowPrivateNetworkFetch'])}
+                          onChange={(v) => sv(['tools', 'builtIn', 'webFetch', 'allowPrivateNetworkFetch'], v)}
+                        />
+                      </label>
                     )}
                   </Form.Item>
-                </label>
+
+                  <Form.Item noStyle shouldUpdate>
+                    {({ getFieldValue: gv, setFieldValue: sv }: { getFieldValue: (n: any) => any; setFieldValue: (n: any, v: any) => void }) => {
+                      const allowPrivate = !!gv(['tools', 'builtIn', 'webFetch', 'allowPrivateNetworkFetch']);
+                      if (!allowPrivate) {
+                        return null;
+                      }
+                      const allowlist = gv(['tools', 'builtIn', 'webFetch', 'privateNetworkAllowlist']);
+                      const renderedValue = Array.isArray(allowlist) ? allowlist.join(', ') : '';
+                      return (
+                        <div>
+                          <FieldLabel>{t('tools.webFetch.privateNetworkAllowlist')}</FieldLabel>
+                          <Input
+                            value={renderedValue}
+                            placeholder={t('tools.webFetch.privateNetworkAllowlistPlaceholder')}
+                            onChange={(event) =>
+                              sv(
+                                ['tools', 'builtIn', 'webFetch', 'privateNetworkAllowlist'],
+                                event.target.value
+                                  .split(',')
+                                  .map((item) => item.trim())
+                                  .filter(Boolean)
+                              )
+                            }
+                          />
+                          <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                            {t('tools.webFetch.privateNetworkAllowlistDesc')}
+                          </p>
+                        </div>
+                      );
+                    }}
+                  </Form.Item>
+                </div>
               </ExpandableToolCard>
 
               {/* Skills */}
