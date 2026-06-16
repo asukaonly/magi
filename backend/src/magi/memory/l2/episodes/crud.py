@@ -269,7 +269,13 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
         If both are None, returns the most-recent ``limit`` standouts regardless of date.
         """
         await self.initialize()
-        clauses: list[str] = ["(magi_standout = 1 OR user_pinned = 1)"]
+        # Terminal-state episodes (merged into a survivor / invalidated) must never
+        # leak into the standout sidebar even if their magi_standout flag is still 1
+        # — the merge/invalidate transitions only flip status, not the flag (#16).
+        clauses: list[str] = [
+            "(magi_standout = 1 OR user_pinned = 1)",
+            "status NOT IN ('merged', 'invalidated')",
+        ]
         params: list[Any] = []
         if period_start is not None:
             clauses.append("time_start >= ?")

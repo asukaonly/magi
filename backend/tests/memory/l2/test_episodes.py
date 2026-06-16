@@ -714,6 +714,161 @@ async def test_clear_includes_episodes(tmp_path):
     assert len(events) == 0
 
 
+async def _make_mature_candidate(store, *, episode_id, source_event_count, primary_entity_ids):
+    """Create a candidate old enough and rich enough that consolidate promotes it.
+
+    Backs the declared count with real distinct membership so the consolidation
+    invalidate/merge scans see a healthy episode, and backdates created_at so the
+    30-min promotion-age gate passes.
+    """
+    from magi.core.sqlite import sqlite_connection_async
+
+    now = time.time()
+    await store.create_episode(
+        episode_id=episode_id,
+        time_start=now - 7200,
+        time_end=now - 3600,  # 1 hour duration (> standout 20-min floor)
+        primary_entity_ids=primary_entity_ids,
+        source_event_count=source_event_count,
+    )
+    await store.add_episode_events(
+        episode_id=episode_id,
+        event_ids=[f"{episode_id}-evt-{i}" for i in range(source_event_count)],
+    )
+    async with sqlite_connection_async(store.db_path) as db:
+        await db.execute(
+            "UPDATE episodes SET created_at = ? WHERE episode_id = ?",
+            (now - 7200, episode_id),
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_promoted_non_standout_visible_via_status_active(l2_store_with_schema):
+    """Page visibility is decoupled from standout: list_episodes(status='active')
+    returns a promoted episode even when magi_standout is False (finding #14)."""
+    from magi.memory.l2.episode_formation import consolidate_episodes
+
+    store = l2_store_with_schema
+    # 4 events: above MIN_EVENTS_TO_PROMOTE (3), below STANDOUT_MIN_EVENTS (5) →
+    # gets promoted to active but NOT flagged standout.
+    await _make_mature_candidate(
+        store, episode_id="ep-plain", source_event_count=4,
+        primary_entity_ids=["a"],
+    )
+
+    await consolidate_episodes(store)
+
+    ep = await store.get_episode(episode_id="ep-plain")
+    assert ep["status"] == "active"
+    assert ep["magi_standout"] is False
+
+    active = await store.list_episodes(status="active")
+    assert "ep-plain" in {e["episode_id"] for e in active}
+
+
+@pytest.mark.asyncio
+async def test_consolidate_does_not_flip_standout_between_passes(l2_store_with_schema):
+    """Single-writer / idempotent: running consolidate_episodes twice must not
+    flip an episode's magi_standout (finding #14 — no double-write reversal)."""
+    from magi.memory.l2.episode_formation import consolidate_episodes
+
+    store = l2_store_with_schema
+    # 6 events + 2 entities + 1h duration → passes the standout gate.
+    await _make_mature_candidate(
+        store, episode_id="ep-standout", source_event_count=6,
+        primary_entity_ids=["a", "b"],
+    )
+
+    await consolidate_episodes(store)
+    first = await store.get_episode(episode_id="ep-standout")
+    assert first["status"] == "active"
+    assert first["magi_standout"] is True
+
+    # Second pass: the episode is already active; consolidate must not demote it.
+    await consolidate_episodes(store)
+    second = await store.get_episode(episode_id="ep-standout")
+    assert second["magi_standout"] is True
+
+
+@pytest.mark.asyncio
+async def test_rescore_does_not_demote_formation_flagged_standout(l2_store_with_schema):
+    """Single-writer invariant (finding #14): consolidate_episodes is the canonical
+    writer of magi_standout. The 2-hour standout rescore must never flip a
+    formation-flagged episode back to magi_standout=False, even when its own
+    heuristic score is below threshold."""
+    from magi.media.source_registry import MediaSourceRegistry
+    from magi.timeline.standout.scheduler_contrib import StandoutScoringSchedulerContrib
+
+    store = l2_store_with_schema
+    now = time.time()
+    # A SHORT episode that the formation gate flagged standout (e.g. it had >=5
+    # events and >=2 entities), but whose duration is below the rescore's 90-min
+    # WEIGHT_DURATION threshold and has no photos → rescore heuristic score = 0.
+    await store.create_episode(
+        episode_id="ep-flagged",
+        status="active",
+        time_start=now - 600,
+        time_end=now,  # 10 minutes — below rescore duration threshold
+        primary_entity_ids=[],  # no first-seen entity bonus either
+        source_event_count=5,
+        magi_standout=True,  # set by the canonical formation writer
+    )
+
+    registry = MediaSourceRegistry()  # empty — no photos
+    contrib = StandoutScoringSchedulerContrib(l2_store=store, media_registry=registry)
+
+    class _Ctx:
+        triggered_at = now
+        manual = False
+
+    await contrib._handle_rescore(_Ctx())
+
+    ep = await store.get_episode(episode_id="ep-flagged")
+    # Rescore may refresh standout_score/reason metadata, but must NOT demote the
+    # formation-set flag — otherwise the episode silently drops out of the reel.
+    assert ep["magi_standout"] is True
+
+
+@pytest.mark.asyncio
+async def test_invalidated_standout_not_returned_by_standout_query(l2_store_with_schema):
+    """Terminal-state leak (finding #16): an episode that was standout but later
+    became 'invalidated' (or 'merged') must NOT appear in the standout list."""
+    store = l2_store_with_schema
+    now = time.time()
+    await store.create_episode(
+        episode_id="ep-gone",
+        status="active",
+        time_start=now - 3600,
+        time_end=now - 1800,
+        primary_entity_ids=["a", "b"],
+        source_event_count=5,
+        magi_standout=True,
+    )
+    # Sanity: while active it IS a standout.
+    standouts = await store.list_standout_episodes(limit=50)
+    assert "ep-gone" in {e["episode_id"] for e in standouts}
+
+    # Terminal state — the standout query must drop it.
+    await store.update_episode(episode_id="ep-gone", status="invalidated")
+    standouts_after = await store.list_standout_episodes(limit=50)
+    assert "ep-gone" not in {e["episode_id"] for e in standouts_after}
+
+    # Same for a merged episode.
+    await store.create_episode(
+        episode_id="ep-merged",
+        status="active",
+        time_start=now - 3600,
+        time_end=now - 1800,
+        primary_entity_ids=["c", "d"],
+        source_event_count=5,
+        magi_standout=True,
+    )
+    await store.update_episode(episode_id="ep-merged", status="merged")
+    standouts_merged = await store.list_standout_episodes(limit=50)
+    assert "ep-merged" not in {e["episode_id"] for e in standouts_merged}
+
+
 @pytest.mark.asyncio
 async def test_episode_models():
     """Verify EpisodeWrite and EpisodeCandidateJob dataclass contracts."""
