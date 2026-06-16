@@ -27,6 +27,7 @@ Design:
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 
@@ -74,8 +75,6 @@ async def aggregate_interests(
             - ``edges_seen``: total INTERESTED_IN edges found (any count)
             - ``topics_aggregated``: edges that met min_observations threshold
     """
-    await store.initialize()
-
     # -- 1. Fetch all active INTERESTED_IN edges for this entity --------------
     edges: list[dict[str, Any]] = await store.get_relationships(
         subject_id=entity_id,
@@ -85,6 +84,11 @@ async def aggregate_interests(
     )
 
     edges_seen = len(edges)
+    if edges_seen >= 500:
+        logger.warning(
+            "aggregate_interests: edge result hit limit=500; some topics may be skipped",
+            entity_id=entity_id,
+        )
 
     # -- 2. Filter to high-frequency edges ------------------------------------
     qualifying = [e for e in edges if int(e.get("observation_count", 0)) >= min_observations]
@@ -109,6 +113,22 @@ async def aggregate_interests(
         object_type: str = edge.get("object_type") or "topic"
         raw_slug = _topic_slug(object_id)
         slug = _safe_slug(raw_slug)
+
+        # Fix 1: skip degenerate topics whose slug sanitizes to empty string
+        # (e.g. object_id == "topic:" → raw_slug="" → slug="").
+        if not slug:
+            logger.warning(
+                "aggregate_interests: skipping topic with empty slug",
+                object_id=object_id,
+            )
+            continue
+
+        # Fix 2: if sanitization was lossy, two distinct object_ids could map to
+        # the same trait_name.  Append a short stable hash of object_id to keep
+        # them distinct while still surfacing clean slugs for clean topics.
+        if slug != raw_slug.lower():
+            slug = f"{slug}-{hashlib.sha1(object_id.encode('utf-8')).hexdigest()[:6]}"
+
         canonical_name = canonical_names.get(object_id, raw_slug)
 
         # Confidence derivation: base from edge confidence, boosted by

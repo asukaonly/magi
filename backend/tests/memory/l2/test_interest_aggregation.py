@@ -21,6 +21,7 @@ and does NOT appear in the snapshot preferences (see state_machine.py line 71).
 
 from __future__ import annotations
 
+import json
 import time
 
 import aiosqlite
@@ -167,13 +168,26 @@ async def test_aggregate_interests_surfaces_in_snapshot_as_inferred(l2_store_wit
     )
     await _seed_canonical_name(store, entity_id="topic:python", canonical_name="Python")
 
+    # Seed a below-threshold topic (only 1 event → stays tentative → absent from snapshot)
+    await _seed_interested_in_edge(
+        store,
+        object_id="topic:fortran",
+        event_ids=["ft-e1"],
+    )
+    await _seed_canonical_name(store, entity_id="topic:fortran", canonical_name="Fortran")
+
     stats = await aggregate_interests(store, min_observations=3)
     assert stats["topics_aggregated"] == 1
 
     # Verify assertion validation_state is at least corroborated
     assertions = await _get_assertions(store)
-    assert len(assertions) == 1
-    row = assertions[0]
+    # Only the python assertion should have been written (fortran < threshold)
+    written_names = {a["trait_name"] for a in assertions}
+    assert "interest.python" in written_names
+    assert "interest.fortran" not in written_names, (
+        "Below-threshold topic 'fortran' should not have produced an assertion"
+    )
+    row = next(a for a in assertions if a["trait_name"] == "interest.python")
     assert row["validation_state"] in {"corroborated", "stable"}, (
         f"Expected corroborated or stable, got {row['validation_state']!r}. "
         f"evidence_events={row['evidence_events']!r}"
@@ -193,6 +207,11 @@ async def test_aggregate_interests_surfaces_in_snapshot_as_inferred(l2_store_wit
     )
     assert pref["value"] == "Python", f"Expected value='Python', got {pref['value']!r}"
     assert pref["family"] == "preference_profile", f"Expected family='preference_profile', got {pref['family']!r}"
+
+    # Negative invariant: below-threshold topic must be absent from snapshot preferences
+    assert "interest.fortran" not in preferences, (
+        "Below-threshold topic 'fortran' must not appear in snapshot preferences"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -228,8 +247,7 @@ async def test_aggregate_interests_is_idempotent(l2_store_with_schema):
     assert len(active) == 1, f"Expected exactly one active assertion, got {len(active)}: {active}"
 
     # Evidence events must not be duplicated
-    import json as _json
-    ev = _json.loads(active[0]["evidence_events"] or "[]")
+    ev = json.loads(active[0]["evidence_events"] or "[]")
     assert len(ev) == len(set(ev)), f"Duplicate evidence events found: {ev}"
 
 
@@ -254,3 +272,91 @@ async def test_aggregate_interests_returns_zero_when_all_below_threshold(l2_stor
 
     assertions = await _get_assertions(store)
     assert len(assertions) == 0
+
+
+# ---------------------------------------------------------------------------
+# Test 5 – Slug collision: lossy sanitization produces distinct trait_names
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_aggregate_interests_slug_collision_produces_distinct_trait_names(l2_store_with_schema):
+    """Two topics whose object_ids differ only in non-slug chars (e.g. 'c++ lang'
+    vs 'c# lang') both appear in the snapshot under distinct trait_names —
+    neither is silently lost to a slug collision.
+    """
+    store = l2_store_with_schema
+
+    # Both sanitize naively to "c__lang"; the hash suffix must distinguish them.
+    await _seed_interested_in_edge(
+        store,
+        object_id="topic:c++ lang",
+        event_ids=["cpp-e1", "cpp-e2", "cpp-e3"],
+    )
+    await _seed_canonical_name(store, entity_id="topic:c++ lang", canonical_name="C++")
+
+    await _seed_interested_in_edge(
+        store,
+        object_id="topic:c# lang",
+        event_ids=["cs-e1", "cs-e2", "cs-e3"],
+    )
+    await _seed_canonical_name(store, entity_id="topic:c# lang", canonical_name="C#")
+
+    stats = await aggregate_interests(store, min_observations=3)
+    assert stats["topics_aggregated"] == 2, (
+        f"Both topics should be aggregated, got topics_aggregated={stats['topics_aggregated']}"
+    )
+
+    assertions = await _get_assertions(store)
+    trait_names = {a["trait_name"] for a in assertions}
+
+    # Both must be present and distinct
+    assert len(trait_names) == 2, f"Expected 2 distinct trait_names, got: {trait_names}"
+
+    # Neither should be a plain "interest.c__lang" without a disambiguating suffix
+    assert all(name.startswith("interest.c") for name in trait_names), trait_names
+    # The two names must differ (no silent overwrite)
+    names_list = [a["trait_name"] for a in assertions]
+    assert names_list[0] != names_list[1], f"Slug collision: both traits got name {names_list[0]!r}"
+
+
+# ---------------------------------------------------------------------------
+# Test 6 – Empty slug: "topic:" is skipped, no assertion written, no crash
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_aggregate_interests_skips_empty_slug(l2_store_with_schema):
+    """A topic whose object_id is exactly 'topic:' (empty slug after stripping
+    prefix) is skipped without crashing; no assertion is written for it.
+    """
+    store = l2_store_with_schema
+
+    # Seed the degenerate topic with enough events to pass the threshold
+    await _seed_interested_in_edge(
+        store,
+        object_id="topic:",
+        event_ids=["empty-e1", "empty-e2", "empty-e3"],
+    )
+
+    # Also seed a valid topic to confirm aggregation still runs for good topics
+    await _seed_interested_in_edge(
+        store,
+        object_id="topic:typescript",
+        event_ids=["ts-e1", "ts-e2", "ts-e3"],
+    )
+    await _seed_canonical_name(store, entity_id="topic:typescript", canonical_name="TypeScript")
+
+    stats = await aggregate_interests(store, min_observations=3)
+
+    # "topic:" should be skipped; only "topic:typescript" should be aggregated
+    assert stats["topics_aggregated"] == 1, (
+        f"Expected 1 (only 'typescript'), got topics_aggregated={stats['topics_aggregated']}"
+    )
+
+    assertions = await _get_assertions(store)
+    trait_names = {a["trait_name"] for a in assertions}
+
+    # The poisoned "interest." key must not appear
+    assert "interest." not in trait_names, (
+        f"Empty-slug topic should have been skipped, but 'interest.' appeared in: {trait_names}"
+    )
+    assert "interest.typescript" in trait_names
