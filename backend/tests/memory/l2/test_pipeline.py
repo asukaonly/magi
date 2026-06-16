@@ -1326,14 +1326,19 @@ async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
                 }
             )
 
-            for _ in range(50):
+            assert store.l2 is not None
+            # Episode formation runs *after* extract_completed is incremented,
+            # so poll on the candidate episode itself rather than the stat to
+            # avoid a read-before-write race.
+            episodes: list[dict] = []
+            for _ in range(100):
                 if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
-                    break
+                    episodes = await store.l2.list_episodes(status="candidate", limit=10)
+                    if episodes:
+                        break
                 await asyncio.sleep(0.01)
 
-            assert store.l2 is not None
             # The extract worker should have formed a candidate episode.
-            episodes = await store.l2.list_episodes(status="candidate", limit=10)
             assert episodes, "extract worker did not form a candidate episode"
             episode = episodes[0]
 
@@ -1341,10 +1346,18 @@ async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
             assert "place:shanghai" in (episode.get("primary_place_ids") or [])
 
             # type hint plumbed through: episode_type follows the event's
-            # event_type rather than the old hardcoded "activity".
+            # event_type, MAPPED to a gap-table category, rather than the old
+            # hardcoded "activity". A UserMessage maps to "conversation", which
+            # is distinct from the "activity" default — so this proves the hint
+            # is both plumbed and mapped (not silently falling back).
+            from magi.memory.l2.episode_formation import episode_type_for_event
+
             stored_event = await store.l1.get_memory_event("evt-episode-hint-1")
             assert stored_event is not None
-            expected_type = stored_event.event_type or "activity"
+            assert stored_event.event_type == EventTypes.USER_MESSAGE
+            expected_type = episode_type_for_event(stored_event.event_type)
+            assert expected_type == "conversation"
+            assert expected_type != "activity"
             assert episode["episode_type"] == expected_type
         finally:
             await store.shutdown()

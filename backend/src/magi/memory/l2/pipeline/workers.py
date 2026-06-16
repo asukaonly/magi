@@ -7,7 +7,7 @@ from typing import Any, Awaitable, Callable, Protocol
 
 from ....core.logger import get_logger
 from ...event_contracts import MemoryEvent
-from ..episode_formation import assign_events_to_episode
+from ..episode_formation import assign_events_to_episode, episode_type_for_event
 from ..models import (
     EpisodeCandidateJob,
     L2BatchJob,
@@ -145,8 +145,8 @@ class L2PipelineWorkerMixin:
                                 else [],
                                 place_ids=result.get("touched_place_ids", []) or [],
                                 topic_keys=result.get("touched_topic_keys", []) or [],
-                                episode_type_hint=str(
-                                    evt.get("event_type") or "activity"
+                                episode_type_hint=episode_type_for_event(
+                                    str(evt.get("event_type") or "")
                                 ),
                             )
                             for eid, evt in zip(job.event_ids, job.events)

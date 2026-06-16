@@ -30,6 +30,31 @@ EPISODE_MAX_GAP: Dict[str, float] = {
     "conversation": 10 * 60,  # 10 minutes
 }
 
+# Raw event_type (e.g. ``MemoryEvent.event_type`` like ``"UserMessage"``) →
+# gap-table category. Without this the multi-type gap table is dead: a raw
+# event_type is never a key in ``EPISODE_MAX_GAP`` and always falls to the
+# 30-min ``default`` gap. Keep this small and explicit.
+_EVENT_TYPE_TO_EPISODE_TYPE: Dict[str, str] = {
+    # Chat / message exchanges → tight conversation gap
+    "UserMessage": "conversation",
+    "AIResponse": "conversation",
+    "UserMessageReceived": "conversation",
+    "AssistantResponseProduced": "conversation",
+    # Location / visit events → loose visit gap
+    "LocationVisit": "visit",
+    "PlaceVisit": "visit",
+}
+
+
+def episode_type_for_event(event_type: str) -> str:
+    """Map a raw ``event_type`` to a gap-table category in ``EPISODE_MAX_GAP``.
+
+    Chat/message types cluster as ``"conversation"``; location/visit types as
+    ``"visit"``; anything unrecognized falls back to the safe ``"activity"``
+    default. The result is always a valid ``EPISODE_MAX_GAP`` key.
+    """
+    return _EVENT_TYPE_TO_EPISODE_TYPE.get(event_type, "activity")
+
 # ── Consolidation thresholds ─────────────────────────────────────
 
 MIN_EVENTS_TO_PROMOTE = 3
