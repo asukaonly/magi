@@ -53,7 +53,9 @@
     "installing": "Installing…",
     "connectHint": "Connect it so magi can use this data.",
     "dismissedTitle": "Dismissed",
-    "restore": "Restore"
+    "restore": "Restore",
+    "conflictConfirm": "Update",
+    "conflictReject": "Keep"
   },
   "nav": {
     "dashboard": "Dashboard",
