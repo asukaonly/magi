@@ -93,6 +93,60 @@ class L2StoreAssertionQueryMixin:
                 rows = await cursor.fetchall()
         return [host._assertion_row_to_dict(row) for row in rows]
 
+    async def list_assertions_for_episode(
+        self,
+        *,
+        episode_id: str,
+        limit: int = 100,
+        event_limit: int = 500,
+    ) -> List[Dict[str, Any]]:
+        """List live assertions inferred from events in an episode.
+
+        The link is derived, not stored: an assertion belongs to an episode when
+        its ``evidence_events`` JSON array overlaps the episode's membership
+        rows. Keep the event-id set bounded so this query stays a detail-page
+        lookup instead of becoming an unbounded scan.
+        """
+        host = cast(L2RetrievalQueryHostProtocol, self)
+        await host.initialize()
+
+        async with sqlite_connection_async(host.db_path) as db:
+            async with db.execute(
+                """
+                SELECT event_id
+                FROM episode_events
+                WHERE episode_id = ?
+                ORDER BY added_at ASC
+                LIMIT ?
+                """,
+                (episode_id, int(event_limit)),
+            ) as cursor:
+                event_rows = await cursor.fetchall()
+
+        event_ids = [str(row[0]) for row in event_rows if row and row[0]]
+        if not event_ids:
+            return []
+
+        event_placeholders = ", ".join("?" for _ in event_ids)
+        status_sql, status_args = _excluded_status_clause()
+        query = f"""
+            SELECT DISTINCT a.*
+            FROM tom_trait_assertions AS a
+            JOIN json_each(a.evidence_events) AS evidence
+              ON evidence.value IN ({event_placeholders})
+            WHERE 1=1
+            {status_sql}
+            ORDER BY a.updated_at DESC
+            LIMIT ?
+        """
+        args: list[Any] = [*event_ids, *status_args, int(limit)]
+
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [host._assertion_row_to_dict(row) for row in rows]
+
     async def expire_session_decay_assertions(
         self,
         *,
