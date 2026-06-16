@@ -1,13 +1,15 @@
-"""Integration tests for interest aggregation wired into the L2 maintenance handler.
+"""Tests for interest aggregation after the DT-1 split.
 
-Tests:
+The interest aggregation step now lives in ``handle_l2_derive``, NOT in
+``handle_l2_entity_maintenance``.  This file verifies:
+
 1. Config defaults — ``interest_aggregation_enabled=True``, ``interest_observation_threshold=3``.
-2. Handler enabled — seeds INTERESTED_IN edges (≥ threshold), runs the full
-   ``handle_l2_entity_maintenance`` handler (with ``get_unified_memory`` and
-   ``get_config`` patched), then asserts the snapshot contains an inferred
+2. Derive handler enabled — seeds INTERESTED_IN edges (≥ threshold), runs
+   ``handle_l2_derive``, asserts the snapshot contains an inferred
    preference_profile assertion.
-3. Handler disabled — same setup, but ``interest_aggregation_enabled=False``; asserts
-   no interest assertion appears in the snapshot.
+3. Derive handler disabled — same setup but ``interest_aggregation_enabled=False``;
+   asserts no interest assertion appears in the snapshot.
+4. Maintenance handler no longer emits ``interest_topics_aggregated`` in its stats.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ from magi.memory.l2.store import L2CognitionStore
 
 
 # ---------------------------------------------------------------------------
-# Helpers shared with test_interest_aggregation.py
+# Helpers
 # ---------------------------------------------------------------------------
 
 async def _seed_interested_in_edge(
@@ -84,8 +86,24 @@ def _make_dummy_context() -> Any:
 
 
 def _build_mock_unified(store: L2CognitionStore, db_path: str) -> Any:
-    """Build a mock unified-memory object that the handler can navigate."""
-    # The handler reads: unified.l2_entity_catalog, unified.l2_promotion_counter, unified.l2_pipeline
+    """Build a mock unified-memory object that the derive handler can navigate."""
+    catalog_mock = MagicMock()
+    catalog_mock.db_path = db_path
+    catalog_mock.embedding_service = None
+    catalog_mock.edge_vector_index = None
+
+    # l2_pipeline._cognition_store — the handler uses getattr chaining
+    pipeline_mock = MagicMock()
+    pipeline_mock._cognition_store = store
+
+    unified = MagicMock()
+    unified.l2_entity_catalog = catalog_mock
+    unified.l2_pipeline = pipeline_mock
+    return unified
+
+
+def _build_mock_unified_for_maintenance(store: L2CognitionStore, db_path: str) -> Any:
+    """Build a mock unified-memory object that the maintenance handler can navigate."""
     catalog_mock = MagicMock()
     catalog_mock.db_path = db_path
     catalog_mock.embedding_service = None
@@ -94,7 +112,6 @@ def _build_mock_unified(store: L2CognitionStore, db_path: str) -> Any:
     counter_mock = MagicMock()
     counter_mock.prune_stale = AsyncMock(return_value=0)
 
-    # l2_pipeline._cognition_store — the handler uses getattr chaining
     pipeline_mock = MagicMock()
     pipeline_mock._cognition_store = store
 
@@ -105,12 +122,25 @@ def _build_mock_unified(store: L2CognitionStore, db_path: str) -> Any:
     return unified
 
 
-def _build_config_mock(*, enabled: bool) -> Any:
-    """Build a minimal config mock with both l2.enabled flags and interest settings."""
+def _build_derive_config_mock(*, enabled: bool) -> Any:
+    """Build a minimal config mock for the derive handler."""
+    l2_cfg = MemoryL2Settings(
+        enabled=True,
+        derive_schedule_enabled=True,
+        interest_aggregation_enabled=enabled,
+        interest_observation_threshold=3,
+    )
+    memory_cfg = SimpleNamespace(l2=l2_cfg)
+    cfg = SimpleNamespace(agent=SimpleNamespace(memory=memory_cfg))
+    return cfg
+
+
+def _build_maintenance_config_mock() -> Any:
+    """Build a config mock for the maintenance handler (interest aggregation irrelevant)."""
     l2_cfg = MemoryL2Settings(
         enabled=True,
         maintenance_enabled=True,
-        interest_aggregation_enabled=enabled,
+        interest_aggregation_enabled=True,  # even if True, maintenance must not run it
         interest_observation_threshold=3,
     )
     memory_cfg = SimpleNamespace(l2=l2_cfg)
@@ -130,12 +160,12 @@ def test_memory_l2_settings_interest_defaults() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 2 — Handler with interest_aggregation_enabled=True produces snapshot
+# Test 2 — Derive handler with interest_aggregation_enabled=True produces snapshot
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_maintenance_handler_aggregates_interests_when_enabled(tmp_path):
-    """Full handler run with enabled=True seeds INTERESTED_IN and finds inferred pref."""
+async def test_derive_handler_aggregates_interests_when_enabled(tmp_path):
+    """Full derive handler run with enabled=True seeds INTERESTED_IN and finds inferred pref."""
     db_path = str(tmp_path / "l2.db")
     await apply_memory_shared_schema(db_path)
     store = L2CognitionStore(db_path=db_path)
@@ -150,26 +180,21 @@ async def test_maintenance_handler_aggregates_interests_when_enabled(tmp_path):
     await _seed_canonical_name(store, entity_id="topic:python", canonical_name="Python")
 
     unified_mock = _build_mock_unified(store, db_path)
-    cfg_mock = _build_config_mock(enabled=True)
+    cfg_mock = _build_derive_config_mock(enabled=True)
 
-    from magi.memory.l2.maintenance_schedule import handle_l2_entity_maintenance
+    from magi.memory.l2.derive_schedule import handle_l2_derive
 
     with (
-        patch("magi.memory.l2.maintenance_schedule.get_unified_memory", return_value=unified_mock),
-        patch("magi.memory.l2.maintenance_schedule.get_config", return_value=cfg_mock),
+        patch("magi.memory.l2.derive_schedule.get_unified_memory", return_value=unified_mock),
+        patch("magi.memory.l2.derive_schedule.get_config", return_value=cfg_mock),
     ):
-        result = await handle_l2_entity_maintenance(_make_dummy_context())
+        result = await handle_l2_derive(_make_dummy_context())
 
     assert result.success is True
-    assert result.message == "maintenance_ok"
-    # The handler itself calls refresh_entity_snapshot when topics_aggregated > 0,
-    # so the aggregated interest must surface within the SAME maintenance run.
+    assert result.message == "derive_ok"
     assert result.stats.get("interest_topics_aggregated", 0) >= 1
 
-    # Verify the snapshot was written by the handler itself: use the read-only
-    # get_tom_snapshot (no rebuild) — if the handler's internal refresh_entity_snapshot
-    # fired, the row is already in tom_snapshots and we read it back here without
-    # triggering another refresh cycle.
+    # Verify the snapshot was written by the handler itself.
     snapshot = await store.get_tom_snapshot(entity_id="user:self", entity_type="user")
     assert snapshot is not None, "tom_snapshots row not found — handler did not refresh"
     preferences = snapshot.get("preferences") or {}
@@ -180,12 +205,12 @@ async def test_maintenance_handler_aggregates_interests_when_enabled(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 3 — Handler with interest_aggregation_enabled=False skips aggregation
+# Test 3 — Derive handler with interest_aggregation_enabled=False skips aggregation
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_maintenance_handler_skips_aggregation_when_disabled(tmp_path):
-    """Full handler run with enabled=False must NOT produce any inferred interest assertions."""
+async def test_derive_handler_skips_aggregation_when_disabled(tmp_path):
+    """Derive handler run with enabled=False must NOT produce any inferred interest assertions."""
     db_path = str(tmp_path / "l2.db")
     await apply_memory_shared_schema(db_path)
     store = L2CognitionStore(db_path=db_path)
@@ -200,15 +225,15 @@ async def test_maintenance_handler_skips_aggregation_when_disabled(tmp_path):
     await _seed_canonical_name(store, entity_id="topic:rust", canonical_name="Rust")
 
     unified_mock = _build_mock_unified(store, db_path)
-    cfg_mock = _build_config_mock(enabled=False)
+    cfg_mock = _build_derive_config_mock(enabled=False)
 
-    from magi.memory.l2.maintenance_schedule import handle_l2_entity_maintenance
+    from magi.memory.l2.derive_schedule import handle_l2_derive
 
     with (
-        patch("magi.memory.l2.maintenance_schedule.get_unified_memory", return_value=unified_mock),
-        patch("magi.memory.l2.maintenance_schedule.get_config", return_value=cfg_mock),
+        patch("magi.memory.l2.derive_schedule.get_unified_memory", return_value=unified_mock),
+        patch("magi.memory.l2.derive_schedule.get_config", return_value=cfg_mock),
     ):
-        result = await handle_l2_entity_maintenance(_make_dummy_context())
+        result = await handle_l2_derive(_make_dummy_context())
 
     assert result.success is True
     assert result.stats.get("interest_topics_aggregated", 0) == 0
@@ -219,4 +244,46 @@ async def test_maintenance_handler_skips_aggregation_when_disabled(tmp_path):
     interest_keys = [k for k in preferences if k.startswith("interest.")]
     assert interest_keys == [], (
         f"Expected no interest preferences when aggregation disabled, got: {interest_keys}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 4 — Maintenance handler no longer emits interest_topics_aggregated
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_maintenance_handler_does_not_aggregate_interests(tmp_path):
+    """After DT-1, maintenance must NOT emit interest_topics_aggregated in its stats."""
+    db_path = str(tmp_path / "l2.db")
+    await apply_memory_shared_schema(db_path)
+    store = L2CognitionStore(db_path=db_path)
+    await store.initialize()
+
+    # Seed qualifying edges — would have been aggregated in the old maintenance handler.
+    await _seed_interested_in_edge(
+        store,
+        object_id="topic:golang",
+        event_ids=["go-e1", "go-e2", "go-e3"],
+    )
+    await _seed_canonical_name(store, entity_id="topic:golang", canonical_name="Go")
+
+    unified_mock = _build_mock_unified_for_maintenance(store, db_path)
+    cfg_mock = _build_maintenance_config_mock()
+
+    from magi.memory.l2.maintenance_schedule import handle_l2_entity_maintenance
+
+    with (
+        patch("magi.memory.l2.maintenance_schedule.get_unified_memory", return_value=unified_mock),
+        patch("magi.memory.l2.maintenance_schedule.get_config", return_value=cfg_mock),
+    ):
+        result = await handle_l2_entity_maintenance(_make_dummy_context())
+
+    assert result.success is True
+    assert result.message == "maintenance_ok"
+    # maintenance must NOT include these keys after the split
+    assert "interest_topics_aggregated" not in result.stats, (
+        f"maintenance still emits interest_topics_aggregated: {result.stats}"
+    )
+    assert "shadow_notifications_emitted" not in result.stats, (
+        f"maintenance still emits shadow_notifications_emitted: {result.stats}"
     )

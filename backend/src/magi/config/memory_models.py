@@ -112,6 +112,15 @@ class MemoryL2Settings(BaseModel):
         default=True,
         description="Emit a 'profile_conflict' notification for each active shadow assertion that conflicts with a user-authoritative row, prompting the user to resolve the discrepancy.",
     )
+    derive_schedule_enabled: bool = Field(
+        default=True,
+        description="Register periodic L2 derived-data (interest aggregation + conflict notifications) task, independent of maintenance.",
+    )
+    derive_schedule_interval_seconds: float = Field(
+        default=21_600.0,
+        ge=300.0,
+        description="Interval between L2 derive runs (seconds). Minimum 300s.",
+    )
 
 
 class MemoryL3Settings(BaseModel):
