@@ -493,6 +493,7 @@ class ChatPostProcessService:
                 execution_mode=self._normalize_mode(result.mode),
                 ux_plan=ux_plan,
                 streamed=bool(getattr(result, "streamed", False)),
+                persona=getattr(result, "persona_rhythm", None),
             )
         except Exception as exc:
             logger.debug("Conversation rhythm planning failed", error=str(exc))
