@@ -246,6 +246,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/notifications/dismiss-all": {"POST"},
         "/notifications/{notification_id}/dismiss": {"POST"},
         "/notifications/{notification_id}/action": {"POST"},
+        "/notifications/{notification_id}/resolve-conflict": {"POST"},
     },
     "channels_bindings": {
         "/bindings": {"GET"},
