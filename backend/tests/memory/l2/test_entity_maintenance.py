@@ -615,7 +615,11 @@ async def test_expire_decayed_assertions_skips_already_rejected():
 
         assert stats.expired_assertions == 0
 
-        assertions = await store.list_tom_assertions(entity_id="user:u1")
+        # user_rejected is hidden from default retrieval reads (#134); inspect it
+        # explicitly to confirm the decay GC left it untouched.
+        assertions = await store.list_tom_assertions(
+            entity_id="user:u1", include_inactive=True
+        )
         assert assertions[0]["validation_state"] == "user_rejected"
 
 

@@ -113,14 +113,38 @@ def parse_python_routes(root: Path) -> dict[str, set[str]]:
     from fastapi.routing import APIRoute  # type: ignore[import-not-found]
     from magi.transport.http_app import create_transport_app
 
+    def iter_leaf_routes(router, prefix=""):
+        """Yield (full_path, methods) for every leaf APIRoute, descending into
+        included sub-routers.
+
+        fastapi <0.137 flattens ``include_router`` into ``APIRoute`` objects with
+        the prefix already baked into ``route.path``. fastapi >=0.137 instead
+        appends one ``_IncludedRouter`` wrapper per ``include_router`` call,
+        exposing the child via ``include_context.included_router`` and the
+        include-time prefix via ``include_context.prefix``. Descend through both
+        shapes (compounding prefixes) so route discovery is version-agnostic and
+        reproduces the historical flattened path set.
+        """
+        for route in getattr(router, "routes", ()):
+            if isinstance(route, APIRoute):
+                methods = {m for m in (route.methods or set()) if m in HTTP_METHODS}
+                if methods:
+                    yield prefix + route.path, methods
+                continue
+            ctx = getattr(route, "include_context", None)
+            child = getattr(ctx, "included_router", None) if ctx is not None else None
+            if child is None:
+                child = getattr(route, "original_router", None)
+            if child is None and hasattr(route, "routes"):
+                child = route
+            if child is not None and child is not router:
+                child_prefix = prefix + ((getattr(ctx, "prefix", "") or "") if ctx is not None else "")
+                yield from iter_leaf_routes(child, child_prefix)
+
     app = create_transport_app()
     routes: dict[str, set[str]] = {}
-    for route in app.routes:
-        if not isinstance(route, APIRoute):
-            continue
-        methods = {method for method in (route.methods or set()) if method in HTTP_METHODS}
-        if methods:
-            routes.setdefault(route.path, set()).update(methods)
+    for path, methods in iter_leaf_routes(app):
+        routes.setdefault(path, set()).update(methods)
     return routes
 
 

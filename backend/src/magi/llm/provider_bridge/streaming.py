@@ -45,6 +45,7 @@ class ProviderBridgeChatStreamingMixin:
     ) -> AsyncIterator[LLMStreamEvent]:
         """Streaming variant of chat_response()."""
         host = cast(ProviderBridgeStreamingHostProtocol, self)
+        messages = host._inject_turn_context(messages, system_prompt)
         event_context = enrich_event_context_with_turn_trace(event_context)
         depth = thinking_depth if thinking_depth is not None else ThinkingDepth.MEDIUM
         started_at = time.time()
@@ -53,11 +54,12 @@ class ProviderBridgeChatStreamingMixin:
         response_preview_parts: list[str] = []
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
+            api_messages = host._mark_message_cache_breakpoints(messages, api_messages)
             anthropic_kwargs: Dict[str, Any] = {
                 "model": host.llm.model_name,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "system": system_prompt,
+                "system": host._cache_marked_system(system_prompt),
                 "messages": api_messages,
                 "stream": True,
             }
@@ -104,9 +106,12 @@ class ProviderBridgeChatStreamingMixin:
                 await emit_stream_event(usage_event)
                 yield usage_event
         else:
+            openai_messages = host._mark_message_cache_breakpoints(
+                messages, host._convert_messages_to_openai(messages)
+            )
             full_messages = [
-                {"role": "system", "content": system_prompt}
-            ] + host._convert_messages_to_openai(messages)
+                {"role": "system", "content": host._cache_marked_system(system_prompt)}
+            ] + openai_messages
             chat_kwargs: Dict[str, Any] = {
                 "messages": full_messages,
                 "max_tokens": max_tokens,
@@ -118,6 +123,7 @@ class ProviderBridgeChatStreamingMixin:
             if timeout_seconds is not None:
                 chat_kwargs["timeout"] = timeout_seconds
             chat_kwargs = host._apply_provider_options(chat_kwargs, depth)
+            chat_kwargs = host._apply_cache_routing(chat_kwargs, event_context)
             if getattr(host.llm, "_client", None) is not None:
                 chat_kwargs["model"] = host.llm.model_name
                 stream = await host.llm._client.chat.completions.create(**chat_kwargs)

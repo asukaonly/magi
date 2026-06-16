@@ -205,10 +205,15 @@
     "connect": "Enable",
     "installAndConnect": "Install & enable",
     "installing": "Installing…",
+    "browseAll": "Browse all plugins →",
     "plugins": {
       "chromeHistory": {
         "title": "Chrome history",
         "value": "Lets magi see what you've been reading online"
+      },
+      "screenshotTimeline": {
+        "title": "Screen activity",
+        "value": "Lets magi see what's on your screen"
       },
       "calendar": {
         "title": "Calendar",

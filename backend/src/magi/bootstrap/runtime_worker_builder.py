@@ -53,6 +53,7 @@ from ..llm.lifecycle import LLMRuntimeModule, LLMUsageSubscriberModule
 from ..location.lifecycle import LocationModule
 from ..mcp.lifecycle import MCPModule
 from ..memory.lifecycle import (
+    L2DeriveScheduleRegistrationModule,
     L2MaintenanceScheduleRegistrationModule,
     L3SummaryScheduleRegistrationModule,
     L4MaintenanceScheduleRegistrationModule,
@@ -264,6 +265,7 @@ def _build_exports_and_maintenance_modules(context: RuntimeBootstrapContext) -> 
         RuntimeExportsModule(context),
         ControlPlaneModule(context),
         L2MaintenanceScheduleRegistrationModule(context),
+        L2DeriveScheduleRegistrationModule(context),
         L3SummaryScheduleRegistrationModule(context),
         L4MaintenanceScheduleRegistrationModule(context),
         TimelineSchedulersModule(context),  # NEW

@@ -24,6 +24,14 @@ class _FeedbackHostProtocol(Protocol):
     async def get_tom_assertion(self, *, assertion_id: str) -> Optional[Dict[str, Any]]:
         ...
 
+    async def refresh_entity_snapshot(
+        self,
+        *,
+        entity_id: str,
+        entity_type: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        ...
+
 
 class L2StoreFeedbackMixin:
     """Apply user feedback and user-initiated assertion corrections."""
@@ -128,9 +136,9 @@ class L2StoreFeedbackMixin:
                     inference_depth, validation_state, first_inferred_at, last_validated_at,
                     target_entity_id, target_entity_type, target_scope, temporal_scope,
                     decay_policy, decay_anchor_at, context_ref_id, expires_at,
-                    status, privacy_scope, user_feedback, user_feedback_at,
+                    status, user_feedback, user_feedback_at,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     new_assertion_id,
@@ -156,7 +164,6 @@ class L2StoreFeedbackMixin:
                     str(existing["context_ref_id"] or ""),
                     existing["expires_at"],
                     "stable",
-                    str(existing["privacy_scope"] if "privacy_scope" in existing.keys() else "private"),
                     "confirmed",
                     now,
                     now,
@@ -176,3 +183,126 @@ class L2StoreFeedbackMixin:
             reason=reason,
         )
         return await host.get_tom_assertion(assertion_id=new_assertion_id)
+
+    async def resolve_shadow_conflict(
+        self,
+        *,
+        shadow_id: str,
+        action: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve a profile conflict represented by a shadow assertion.
+
+        action == "reject": discard the shadow (status -> user_rejected); the
+            authoritative row is untouched.
+        action == "confirm": promote the shadow to the active, user-confirmed value
+            and supersede the prior authoritative row on the same key.
+
+        Returns the resulting assertion dict (the kept/promoted row), or None if the
+        shadow_id doesn't exist or isn't a shadow.
+        """
+        if action not in {"confirm", "reject"}:
+            raise ValueError(f"Invalid action value: {action!r}")
+
+        host = cast(_FeedbackHostProtocol, self)
+        await host.initialize()
+
+        # Load the shadow row to verify it exists and is still a shadow.
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM tom_trait_assertions WHERE assertion_id = ?",
+                (shadow_id,),
+            ) as cursor:
+                shadow_row = await cursor.fetchone()
+
+        if shadow_row is None or str(shadow_row["status"]) != "shadow":
+            # Missing or already resolved — idempotent return.
+            return None
+
+        if action == "reject":
+            # Delegate to the existing feedback path: user_rejected status + low confidence.
+            return await self.apply_user_feedback(assertion_id=shadow_id, feedback="rejected")
+
+        # action == "confirm": promote the shadow and supersede the live authoritative row.
+        now = time.time()
+        entity_id = str(shadow_row["entity_id"])
+        entity_type = str(shadow_row["entity_type"])
+        trait_name = str(shadow_row["trait_name"])
+        target_entity_id = str(shadow_row["target_entity_id"] or "")
+        current_confidence = float(shadow_row["confidence_score"])
+
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                # 1. Find the live authoritative owner on the same key (if any).
+                async with db.execute(
+                    """
+                    SELECT assertion_id FROM tom_trait_assertions
+                    WHERE entity_id = ? AND entity_type = ? AND trait_name = ? AND target_entity_id = ?
+                      AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected', 'shadow')
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    (entity_id, entity_type, trait_name, target_entity_id),
+                ) as cursor:
+                    old_authoritative = await cursor.fetchone()
+
+                # 2. Supersede the old authoritative FIRST to free the unique-index slot.
+                if old_authoritative is not None:
+                    old_id = str(old_authoritative["assertion_id"])
+                    await db.execute(
+                        """
+                        UPDATE tom_trait_assertions
+                        SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
+                        WHERE assertion_id = ?
+                        """,
+                        (shadow_id, now, now, old_id),
+                    )
+
+                # 3. Promote the shadow to active, authoritative, user-confirmed.
+                new_confidence = min(0.95, current_confidence + 0.20)
+                await db.execute(
+                    """
+                    UPDATE tom_trait_assertions
+                    SET status = 'stable',
+                        validation_state = 'stable',
+                        user_feedback = 'confirmed',
+                        user_feedback_at = ?,
+                        confidence_score = ?,
+                        updated_at = ?
+                    WHERE assertion_id = ?
+                    """,
+                    (now, new_confidence, now, shadow_id),
+                )
+
+                # 4. Commit the transaction.
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+
+        logger.info(
+            "L2 shadow conflict confirmed: shadow promoted to authoritative",
+            shadow_id=shadow_id,
+            old_authoritative_id=str(old_authoritative["assertion_id"]) if old_authoritative else None,
+            entity_id=entity_id,
+            entity_type=entity_type,
+            trait_name=trait_name,
+            promoted_value=str(shadow_row["trait_value"]),
+            new_confidence=new_confidence,
+        )
+
+        # 5. Refresh the entity snapshot (error-isolated).
+        try:
+            await host.refresh_entity_snapshot(entity_id=entity_id, entity_type=entity_type)
+        except Exception as exc:
+            logger.warning(
+                "L2 snapshot refresh after shadow confirmation failed",
+                shadow_id=shadow_id,
+                entity_id=entity_id,
+                error=str(exc),
+            )
+
+        # 6. Return the promoted row.
+        return await host.get_tom_assertion(assertion_id=shadow_id)

@@ -79,6 +79,7 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
                     json_mode=True,
                     temperature=0.3,
                     disable_thinking=True,
+                    cache_system=True,  # constant + per-language system prompt
                     timeout_seconds=self._llm_timeout_seconds,
                     event_context={
                         "request_kind": "memory:l3_episodic_summary",

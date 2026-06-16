@@ -398,6 +398,77 @@ async def test_upsert_knowledge_edge_accumulates_confidence_on_repeat(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_upsert_knowledge_edge_idempotent_on_identical_evidence_replay(tmp_path):
+    """Replaying the SAME evidence must not inflate confidence/observation_count (#137)."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    triple_id = ""
+    for _ in range(3):
+        triple_id = await store.upsert_knowledge_edge(
+            subject_id="user:u1",
+            subject_type="user",
+            predicate="LIKES",
+            object_id="food:ramen",
+            object_type="food",
+            evidence_event_ids=["evt-1"],  # identical evidence on every replay
+            confidence=0.3,
+            observed_at=1710000000.0,
+            source_type="chat",
+        )
+
+    edge = await store.get_relationship(triple_id=triple_id)
+    assert edge["observation_count"] == 1
+    assert abs(edge["confidence"] - 0.3) < 1e-6
+
+
+@pytest.mark.asyncio
+async def test_corroborate_edge_idempotent_on_identical_evidence_replay(tmp_path):
+    """corroborate_edge must bump only when new evidence arrives (#137)."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    triple_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:ramen",
+        object_type="food",
+        evidence_event_ids=["evt-1"],
+        confidence=0.3,
+        observed_at=1710000000.0,
+        source_type="chat",
+    )
+
+    # Replay with the SAME evidence id → no inflation.
+    ok = await store.corroborate_edge(
+        triple_id=triple_id,
+        evidence_event_ids=["evt-1"],
+        new_confidence=0.3,
+        observed_at=1710010000.0,
+    )
+    assert ok is True
+    edge = await store.get_relationship(triple_id=triple_id)
+    assert edge["observation_count"] == 1
+    assert abs(edge["confidence"] - 0.3) < 1e-6
+
+    # New evidence → genuine corroboration still bumps.
+    await store.corroborate_edge(
+        triple_id=triple_id,
+        evidence_event_ids=["evt-2"],
+        new_confidence=0.3,
+        observed_at=1710020000.0,
+    )
+    edge = await store.get_relationship(triple_id=triple_id)
+    assert edge["observation_count"] == 2
+    assert edge["confidence"] > 0.3
+
+
+@pytest.mark.asyncio
 async def test_upsert_knowledge_edge_keeps_first_and_last_observed_bounds_for_out_of_order_events(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
@@ -3422,7 +3493,7 @@ async def test_reconcile_entity_ignores_superseded_assertions(tmp_path):
 
 @pytest.mark.asyncio
 async def test_assertion_row_includes_status_columns(tmp_path):
-    """_assertion_row_to_dict includes status, superseded_by, superseded_at, privacy_scope."""
+    """_assertion_row_to_dict includes status, superseded_by, superseded_at."""
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
@@ -3436,16 +3507,14 @@ async def test_assertion_row_includes_status_columns(tmp_path):
     assert "status" in a
     assert "superseded_by" in a
     assert "superseded_at" in a
-    assert "privacy_scope" in a
-    assert a["privacy_scope"] == "private"
 
 
 @pytest.mark.asyncio
-async def test_knowledge_edge_persists_temporal_and_privacy_defaults(tmp_path):
-    """upsert_knowledge_edge writes valid_from / valid_to / privacy_scope.
+async def test_knowledge_edge_persists_temporal_defaults(tmp_path):
+    """upsert_knowledge_edge writes valid_from / valid_to.
 
-    Without explicit callers, valid_from defaults to observed_at, valid_to
-    stays NULL (unbounded), and privacy_scope defaults to 'private'.
+    Without explicit callers, valid_from defaults to observed_at and valid_to
+    stays NULL (unbounded).
     """
     import aiosqlite
 
@@ -3471,7 +3540,7 @@ async def test_knowledge_edge_persists_temporal_and_privacy_defaults(tmp_path):
     async with aiosqlite.connect(store.db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT valid_from, valid_to, privacy_scope FROM knowledge_graph WHERE triple_id = ?",
+            "SELECT valid_from, valid_to FROM knowledge_graph WHERE triple_id = ?",
             (triple_id,),
         ) as cursor:
             row = await cursor.fetchone()
@@ -3479,15 +3548,14 @@ async def test_knowledge_edge_persists_temporal_and_privacy_defaults(tmp_path):
     assert row is not None
     assert row["valid_from"] == observed_at
     assert row["valid_to"] is None
-    assert row["privacy_scope"] == "private"
 
 
 @pytest.mark.asyncio
-async def test_knowledge_edge_records_explicit_valid_range_and_privacy(tmp_path):
-    """Callers may pin a temporal window and a non-default privacy scope.
+async def test_knowledge_edge_records_explicit_valid_range(tmp_path):
+    """Callers may pin a temporal window.
 
-    Explicit valid_from / valid_to / privacy_scope flow through to the
-    knowledge_graph row exactly as supplied.
+    Explicit valid_from / valid_to flow through to the knowledge_graph row
+    exactly as supplied.
     """
     import aiosqlite
 
@@ -3511,13 +3579,12 @@ async def test_knowledge_edge_records_explicit_valid_range_and_privacy(tmp_path)
         source_type="chat",
         valid_from=valid_from,
         valid_to=valid_to,
-        privacy_scope="shared",
     )
 
     async with aiosqlite.connect(store.db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT valid_from, valid_to, privacy_scope FROM knowledge_graph WHERE triple_id = ?",
+            "SELECT valid_from, valid_to FROM knowledge_graph WHERE triple_id = ?",
             (triple_id,),
         ) as cursor:
             row = await cursor.fetchone()
@@ -3525,16 +3592,15 @@ async def test_knowledge_edge_records_explicit_valid_range_and_privacy(tmp_path)
     assert row is not None
     assert row["valid_from"] == valid_from
     assert row["valid_to"] == valid_to
-    assert row["privacy_scope"] == "shared"
 
 
 @pytest.mark.asyncio
-async def test_knowledge_edge_update_preserves_valid_range_and_privacy(tmp_path):
-    """A follow-up upsert without override keeps the original window/scope.
+async def test_knowledge_edge_update_preserves_valid_range(tmp_path):
+    """A follow-up upsert without override keeps the original window.
 
-    The first insert sets explicit valid_to and privacy_scope; the second
-    insert provides only fresh evidence and must not blank those fields.
-    Supplying new values on the third call overrides them.
+    The first insert sets an explicit valid_to; the second insert provides
+    only fresh evidence and must not blank that field. Supplying a new value
+    on the third call overrides it.
     """
     import aiosqlite
 
@@ -3556,7 +3622,6 @@ async def test_knowledge_edge_update_preserves_valid_range_and_privacy(tmp_path)
         source_type="chat",
         valid_from=1710000000.0,
         valid_to=1717776000.0,
-        privacy_scope="shared",
     )
 
     await store.upsert_knowledge_edge(
@@ -3575,7 +3640,7 @@ async def test_knowledge_edge_update_preserves_valid_range_and_privacy(tmp_path)
     async with aiosqlite.connect(store.db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT valid_from, valid_to, privacy_scope FROM knowledge_graph WHERE triple_id = ?",
+            "SELECT valid_from, valid_to FROM knowledge_graph WHERE triple_id = ?",
             (triple_id,),
         ) as cursor:
             preserved = await cursor.fetchone()
@@ -3583,7 +3648,6 @@ async def test_knowledge_edge_update_preserves_valid_range_and_privacy(tmp_path)
     assert preserved is not None
     assert preserved["valid_from"] == 1710000000.0
     assert preserved["valid_to"] == 1717776000.0
-    assert preserved["privacy_scope"] == "shared"
 
     await store.upsert_knowledge_edge(
         subject_id="user:u1",
@@ -3597,13 +3661,12 @@ async def test_knowledge_edge_update_preserves_valid_range_and_privacy(tmp_path)
         observed_at=1710002000.0,
         source_type="chat",
         valid_to=1720000000.0,
-        privacy_scope="private",
     )
 
     async with aiosqlite.connect(store.db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT valid_from, valid_to, privacy_scope FROM knowledge_graph WHERE triple_id = ?",
+            "SELECT valid_from, valid_to FROM knowledge_graph WHERE triple_id = ?",
             (triple_id,),
         ) as cursor:
             overridden = await cursor.fetchone()
@@ -3611,4 +3674,22 @@ async def test_knowledge_edge_update_preserves_valid_range_and_privacy(tmp_path)
     assert overridden is not None
     assert overridden["valid_from"] == 1710000000.0
     assert overridden["valid_to"] == 1720000000.0
-    assert overridden["privacy_scope"] == "private"
+
+
+@pytest.mark.asyncio
+async def test_privacy_scope_column_fully_dropped(tmp_path):
+    """privacy_scope was vestigial reserved schema; it must no longer exist (#138)."""
+    import aiosqlite
+
+    from _shared.memory_schema import apply_memory_shared_schema
+
+    # NB: not "l2.db" — the module-level autouse _ensure_test_store_schema
+    # fixture pre-migrates tmp_path/l2.db, so reusing that name would re-apply
+    # the schema on top of an already-migrated DB (duplicate-column error).
+    db_path = str(tmp_path / "drop_check.db")
+    await apply_memory_shared_schema(db_path)
+    async with aiosqlite.connect(db_path) as db:
+        for table in ("knowledge_graph", "entity_facets", "tom_trait_assertions", "episodes"):
+            cur = await db.execute(f"PRAGMA table_info({table})")
+            cols = {row[1] for row in await cur.fetchall()}
+            assert "privacy_scope" not in cols, f"{table} still has privacy_scope"

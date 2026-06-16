@@ -16,13 +16,22 @@ trace (so the UI chip reflects relevant count, not raw count).
 Design contract:
 
   - This is an **optimization** layer. Any failure (timeout, malformed
-    JSON, no bridge wired up, candidates too trivial to compare (0 or 1 events))
-    degrades silently to "no filtering" — the raw payload flows
-    through unchanged.
+    JSON, no bridge wired up, candidates too trivial to compare (combined
+    total of 0 or 1 items across l1_events + l2_relationships)) degrades
+    silently to "no filtering" — the raw payload flows through unchanged.
 
-  - We only filter ``l1_events``. L2 layers (relationships /
-    assertions / episodes) are already small and structurally
-    grounded; the user's pain point is L1 noise.
+  - ONE unified pass: ``l1_events`` and ``l2_relationships`` are judged
+    together in a single LLM call with a single keep-set and a single
+    trace key (``grounding_filter``). Global indices map back to either
+    type after the response arrives. The sub-counts per type are recorded
+    inside the trace. The ``grounding_filter_l2`` trace key is written
+    as a back-compat alias so callers that read both keys still get data.
+
+  - Consequence of unification: the two passes are NO LONGER independent.
+    If the single LLM call degrades (timeout / exception / bad response),
+    BOTH lists are returned unchanged together. The old per-type
+    failure-independence property is intentionally dropped in exchange
+    for halved latency and halved system-prompt token cost.
 
   - The model call uses ``IntentDecider``-style cheap LLM (qwen-flash
     or similar) injected by the caller. The grounding pass is short
@@ -43,22 +52,24 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Iterable
+from typing import Any
 
 from .models import RetrievalPayload, RetrievalQuery
 
 logger = logging.getLogger(__name__)
 
-# Minimum candidate count worth an LLM round-trip. A single candidate has
-# nothing to filter against; 2+ can carry noise. NOTE: low-recall sets are
-# the MOST important to filter (few hits, often all noise), so unlike the
-# previous design we do NOT skip moderate counts — only the trivial 0/1 case.
+# Minimum COMBINED candidate count worth an LLM round-trip. A single
+# candidate has nothing to filter against; 2+ can carry noise. NOTE:
+# low-recall sets are the MOST important to filter (few hits, often all
+# noise), so unlike the previous design we do NOT skip moderate counts —
+# only the trivial 0/1 case.
 MIN_CANDIDATES_TO_FILTER = 2
 
 # Hard cap on what we'll show the grounding LLM. If retrieval somehow
 # delivers 500 candidates, we trim to top SKIP_THRESHOLD_MAX by
 # original rank (the head of the RRF-fused list); the trimmed tail
 # never had a real chance of being scored by the answer LLM anyway.
+# Applied PER TYPE before building the unified candidate list.
 SKIP_THRESHOLD_MAX = 60
 
 # Per-candidate content cap. The grounding LLM MUST see the same
@@ -80,8 +91,12 @@ _SYSTEM_PROMPT = """\
 You are a relevance filter for a personal memory retrieval system.
 
 You receive (1) a user's natural-language query and (2) a numbered list
-of candidate memory events. Your job is to keep ONLY the candidates
-that genuinely help answer THAT query. Drop unrelated noise.
+of candidate items. Items are one of two types:
+  - type "event"        — a memory event (browsing, screenshot OCR, chat…)
+  - type "relationship" — a knowledge-graph relationship statement
+
+Your job is to keep ONLY the candidates that genuinely help answer THAT
+query. Drop unrelated noise, regardless of item type.
 
 Reply with a single JSON object:
 
@@ -101,33 +116,38 @@ Two worked examples (notice each rationale stays in the source
 language, and unrelated-but-superficially-matching candidates are
 dropped):
 
-Example 1 — Chinese query:
+Example 1 — Chinese query, mixed events + relationships:
 Input:
-{"query": "我之前在 chrome 看的那个 cat 表情包梗图来着，叫什么熬醒的",
+{"query": "我同事的老板是谁",
  "candidates": [
-   {"idx": 1, "source": "screenshot_timeline", "when": "2026-05-28 15:05",
-    "content": "屏幕快照时间线 屏幕截图 黎月风 上次猫熬我，我就请假熬了它三天，睡着就摇醒…"},
-   {"idx": 2, "source": "chrome_history", "when": "2026-05-28 11:20",
-    "content": "Chrome 浏览 GitHub - some-unrelated/repo PR #42"},
-   {"idx": 3, "source": "chat_projector", "when": "2026-05-28 15:01",
-    "content": "叫我子涵"},
-   {"idx": 4, "source": "screenshot_timeline", "when": "2026-05-28 15:13",
-    "content": "屏幕快照时间线 屏幕截图 VSCode magi/插件改造 grounding_filter.py"}
+   {"idx": 1, "type": "relationship", "predicate": "REPORTS_TO",
+    "statement": "用户的同事 王明 向 陈总 汇报"},
+   {"idx": 2, "type": "relationship", "predicate": "LIKES",
+    "statement": "用户喜欢听周杰伦的歌"},
+   {"idx": 3, "type": "event", "source": "chat_projector",
+    "when": "2026-05-28 09:00",
+    "content": "讨论了 K8s 集群规划"},
+   {"idx": 4, "type": "relationship", "predicate": "USES",
+    "statement": "用户使用 yacd 管理代理规则"}
  ]}
 Output:
-{"keep": [1], "why": "只有 1 是包含猫熬人梗图 OCR 的截图；2 是无关 PR、3 是无关聊天、4 是 IDE 截图。"}
+{"keep": [1], "why": "只有 1 描述了同事的汇报关系（即老板关系），2/3/4 均与查询无关。"}
 
-Example 2 — English query:
+Example 2 — English query, events only:
 Input:
 {"query": "what was that Tailscale config page I had open yesterday",
  "candidates": [
-   {"idx": 1, "source": "chrome_history", "when": "2026-05-27 22:14",
+   {"idx": 1, "type": "event", "source": "chrome_history",
+    "when": "2026-05-27 22:14",
     "content": "Chrome browse Tailscale - Subnet routers and traffic relay nodes"},
-   {"idx": 2, "source": "chrome_history", "when": "2026-05-27 22:18",
+   {"idx": 2, "type": "event", "source": "chrome_history",
+    "when": "2026-05-27 22:18",
     "content": "Chrome browse Hacker News - Show HN: a side project"},
-   {"idx": 3, "source": "screenshot_timeline", "when": "2026-05-27 22:15",
+   {"idx": 3, "type": "event", "source": "screenshot_timeline",
+    "when": "2026-05-27 22:15",
     "content": "Screenshot Timeline Screen Capture Chrome - Tailscale admin console MagicDNS settings page"},
-   {"idx": 4, "source": "chat_projector", "when": "2026-05-27 23:01",
+   {"idx": 4, "type": "event", "source": "chat_projector",
+    "when": "2026-05-27 23:01",
     "content": "讨论了 K8s 集群规划"}
  ]}
 Output:
@@ -136,11 +156,17 @@ Output:
 
 
 class GroundingFilter:
-    """Apply an LLM-as-listwise-filter to RetrievalPayload.l1_events.
+    """Apply an LLM-as-listwise-filter to RetrievalPayload.l1_events
+    and RetrievalPayload.l2_relationships in a SINGLE LLM call.
 
     Instantiated once at service setup; ``apply()`` is the per-query
     entry point. Stateless apart from the LLM bridge handle and the
     timeout knob.
+
+    Both item types are judged together. If the single call degrades
+    (timeout / exception / bad response), BOTH lists are returned
+    unchanged — the old per-type failure-independence is intentionally
+    dropped in exchange for halved latency.
     """
 
     def __init__(
@@ -159,39 +185,65 @@ class GroundingFilter:
         payload: RetrievalPayload,
         request: RetrievalQuery,
     ) -> RetrievalPayload:
-        """Filter ``payload.l1_events`` in place, return the same payload.
+        """Filter ``payload.l1_events`` and ``payload.l2_relationships``
+        in place with a SINGLE LLM call, return the same payload.
 
-        Records trace fields:
-          - ``grounding_filter.applied`` (bool)
-          - ``grounding_filter.input_count`` (int)
-          - ``grounding_filter.kept_count`` (int)
-          - ``grounding_filter.elapsed_ms`` (float)
-          - ``grounding_filter.why`` (str | None)
-          - ``grounding_filter.degraded_reason`` (str | None) — set on
-            failure path; payload still returned unchanged.
+        Degrades silently to pass-through on any failure path, leaving
+        BOTH lists unchanged.
+
+        Records trace fields under ``grounding_filter``:
+          - ``applied`` (bool)
+          - ``input_count`` (int) — total combined candidates shown to LLM
+          - ``input_events`` (int) — L1 events portion
+          - ``input_relationships`` (int) — L2 relationships portion
+          - ``kept_events`` (int) — on success
+          - ``kept_relationships`` (int) — on success
+          - ``kept_count`` (int) — total kept, on success
+          - ``elapsed_ms`` (float)
+          - ``why`` (str | None)
+          - ``degraded_reason`` (str | None) — set on failure path.
+
+        Also writes a minimal ``grounding_filter_l2`` alias for
+        backward compatibility:
+          - ``applied`` (bool)
+          - ``input_count`` (int)
+          - ``kept_count`` (int) — on success
+          - ``degraded_reason`` (str) — on failure
         """
         if not self._enabled:
             return payload
-        events = payload.l1_events or []
-        if len(events) < MIN_CANDIDATES_TO_FILTER:
-            payload.trace["grounding_filter"] = {
-                "applied": False,
-                "skipped_reason": "trivial_count",
-                "input_count": len(events),
-            }
-            return payload
 
         query = str(request.query or "").strip()
-        if not query:
-            payload.trace["grounding_filter"] = {
+
+        events = payload.l1_events or []
+        rels = payload.l2_relationships or []
+        sliced_events = events[:SKIP_THRESHOLD_MAX]
+        sliced_rels = rels[:SKIP_THRESHOLD_MAX]
+        total = len(sliced_events) + len(sliced_rels)
+
+        if total < MIN_CANDIDATES_TO_FILTER:
+            # Write the same skip trace on both keys so downstream
+            # readers that check either key behave consistently.
+            skip_trace = {
                 "applied": False,
-                "skipped_reason": "empty_query",
-                "input_count": len(events),
+                "skipped_reason": "trivial_count",
+                "input_count": total,
             }
+            payload.trace["grounding_filter"] = skip_trace
+            payload.trace["grounding_filter_l2"] = dict(skip_trace)
             return payload
 
-        sliced = events[:SKIP_THRESHOLD_MAX]
-        prompt_payload = _build_prompt_payload(query, sliced)
+        if not query:
+            skip_trace = {
+                "applied": False,
+                "skipped_reason": "empty_query",
+                "input_count": total,
+            }
+            payload.trace["grounding_filter"] = skip_trace
+            payload.trace["grounding_filter_l2"] = dict(skip_trace)
+            return payload
+
+        prompt_payload = _build_unified_prompt_payload(query, sliced_events, sliced_rels)
         t0 = time.monotonic()
         try:
             raw = await asyncio.wait_for(
@@ -211,67 +263,101 @@ class GroundingFilter:
                 timeout=self._timeout + 0.5,  # outer wait_for as belt+braces
             )
         except asyncio.TimeoutError:
-            payload.trace["grounding_filter"] = _degraded_trace(
-                len(events), reason="llm_timeout", elapsed_ms=(time.monotonic() - t0) * 1000
-            )
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            deg = _degraded_trace(total, reason="llm_timeout", elapsed_ms=elapsed_ms)
+            payload.trace["grounding_filter"] = deg
+            payload.trace["grounding_filter_l2"] = _compat_l2_trace(deg)
             logger.info("Grounding filter timed out; passing raw payload through.")
             return payload
         except Exception as exc:  # noqa: BLE001
-            payload.trace["grounding_filter"] = _degraded_trace(
-                len(events),
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            deg = _degraded_trace(
+                total,
                 reason=f"llm_exception:{type(exc).__name__}",
-                elapsed_ms=(time.monotonic() - t0) * 1000,
+                elapsed_ms=elapsed_ms,
             )
+            payload.trace["grounding_filter"] = deg
+            payload.trace["grounding_filter_l2"] = _compat_l2_trace(deg)
             logger.warning("Grounding filter failed; passing raw payload through.", exc_info=True)
             return payload
 
         elapsed_ms = (time.monotonic() - t0) * 1000
         kept_indices, why = _parse_keep_response(raw)
         if kept_indices is None:
-            payload.trace["grounding_filter"] = _degraded_trace(
-                len(events), reason="bad_response_shape", elapsed_ms=elapsed_ms
-            )
+            deg = _degraded_trace(total, reason="bad_response_shape", elapsed_ms=elapsed_ms)
+            payload.trace["grounding_filter"] = deg
+            payload.trace["grounding_filter_l2"] = _compat_l2_trace(deg)
             logger.info("Grounding filter response unparseable; passing raw payload through.")
             return payload
 
-        # Translate 1-based indices into actual events. Out-of-range
-        # indices are silently dropped (LLMs sometimes hallucinate
-        # indices past the list end).
-        kept_events = [
-            sliced[i - 1] for i in kept_indices if isinstance(i, int) and 1 <= i <= len(sliced)
+        # Global indices are 1-based, laid out as:
+        #   1 .. len(sliced_events)        → events
+        #   len(sliced_events)+1 .. total  → relationships
+        n_ev = len(sliced_events)
+        valid_ev_indices = [i for i in kept_indices if isinstance(i, int) and 1 <= i <= n_ev]
+        valid_rel_indices = [
+            i for i in kept_indices if isinstance(i, int) and n_ev < i <= total
         ]
-        if not kept_events:
+
+        all_valid_count = len(valid_ev_indices) + len(valid_rel_indices)
+
+        if all_valid_count == 0:
             if not kept_indices:
                 # LLM explicitly returned an empty keep set — a VALID
-                # "none of these are relevant" verdict. Trust it and drop all
-                # L1 events. (Timeout / exception / unparseable already fell
-                # back above — those are failures. An explicit empty verdict is
-                # a real judgment, so we must NOT silently restore the noise.)
+                # "none of these are relevant" verdict. Trust it and
+                # clear BOTH lists.
                 payload.l1_events = []
-                payload.trace["grounding_filter"] = {
+                payload.l2_relationships = []
+                success_trace: dict[str, Any] = {
                     "applied": True,
-                    "input_count": len(events),
+                    "input_count": total,
+                    "input_events": len(events),
+                    "input_relationships": len(rels),
+                    "kept_events": 0,
+                    "kept_relationships": 0,
                     "kept_count": 0,
                     "elapsed_ms": round(elapsed_ms, 1),
                     "why": why or None,
                     "all_dropped": True,
                 }
+                payload.trace["grounding_filter"] = success_trace
+                payload.trace["grounding_filter_l2"] = {
+                    "applied": True,
+                    "input_count": len(rels),
+                    "kept_count": 0,
+                    "all_dropped": True,
+                }
                 return payload
-            # kept_indices was non-empty but every index was out of range —
-            # the LLM hallucinated indices rather than giving a clean verdict.
-            # Treat as degraded and fall back to raw.
-            payload.trace["grounding_filter"] = _degraded_trace(
-                len(events), reason="no_valid_indices", elapsed_ms=elapsed_ms
-            )
+
+            # kept_indices was non-empty but every index was out of range
+            # (LLM hallucinated indices). Treat as degraded.
+            deg = _degraded_trace(total, reason="no_valid_indices", elapsed_ms=elapsed_ms)
+            payload.trace["grounding_filter"] = deg
+            payload.trace["grounding_filter_l2"] = _compat_l2_trace(deg)
             return payload
 
+        # At least one valid index: apply the filter.
+        kept_events = [sliced_events[i - 1] for i in valid_ev_indices]
+        kept_rels = [sliced_rels[i - n_ev - 1] for i in valid_rel_indices]
+
         payload.l1_events = kept_events
+        payload.l2_relationships = kept_rels
+
         payload.trace["grounding_filter"] = {
             "applied": True,
-            "input_count": len(events),
-            "kept_count": len(kept_events),
+            "input_count": total,
+            "input_events": len(events),
+            "input_relationships": len(rels),
+            "kept_events": len(kept_events),
+            "kept_relationships": len(kept_rels),
+            "kept_count": len(kept_events) + len(kept_rels),
             "elapsed_ms": round(elapsed_ms, 1),
             "why": why or None,
+        }
+        payload.trace["grounding_filter_l2"] = {
+            "applied": True,
+            "input_count": len(rels),
+            "kept_count": len(kept_rels),
         }
         return payload
 
@@ -279,38 +365,66 @@ class GroundingFilter:
 # ---------- helpers ----------
 
 
-def _build_prompt_payload(query: str, events: list[dict[str, Any]]) -> str:
-    """Construct the user-message JSON we feed to the filter LLM.
+def _build_unified_prompt_payload(
+    query: str,
+    events: list[dict[str, Any]],
+    rels: list[dict[str, Any]],
+) -> str:
+    """Build the user-message JSON for the unified grounding filter.
 
-    Each event carries its full ``content`` field (capped only by
-    CONTENT_CAP_CHARS as a defensive net against pathological 100KB+
-    rows). The filter LLM MUST see the same textual content the
-    answer LLM downstream will see — anything less risks the filter
-    dropping a candidate whose key signal lives past the cap, leaving
-    the answer LLM with no candidate that could have matched.
+    Events occupy global indices 1 .. len(events); relationships follow
+    at len(events)+1 .. len(events)+len(rels). Each candidate carries a
+    ``type`` field so the LLM can apply type-appropriate reasoning.
     """
     candidates: list[dict[str, Any]] = []
     for i, event in enumerate(events, start=1):
         content = str(event.get("content") or "")
         if len(content) > CONTENT_CAP_CHARS:
-            # Pathological-input guard. In normal use real OCR /
-            # chat events are well under this cap.
             content = content[:CONTENT_CAP_CHARS].rstrip() + "…[truncated]"
-        # Newlines preserved — the model can read a chunk of OCR as
-        # naturally as it would in the answer-LLM prompt. We don't
-        # collapse to a single line because OCR layout cues (line
-        # breaks) genuinely help relevance judgement.
         when_ts = event.get("timestamp") or event.get("occurred_at")
         candidates.append(
             {
                 "idx": i,
+                "type": "event",
                 "source": str(event.get("source") or "unknown"),
                 "when": _format_when(when_ts),
                 "content": content,
             }
         )
+
+    offset = len(events)
+    for j, rel in enumerate(rels, start=1):
+        natural = str(rel.get("natural_summary") or "").strip()
+        if not natural:
+            subj = rel.get("subject_name") or rel.get("subject_id") or ""
+            pred = rel.get("predicate") or ""
+            obj = rel.get("object_name") or rel.get("object_id") or ""
+            natural = f"{subj} --{pred}--> {obj}"
+        if len(natural) > CONTENT_CAP_CHARS:
+            natural = natural[:CONTENT_CAP_CHARS].rstrip() + "…[truncated]"
+        candidates.append(
+            {
+                "idx": offset + j,
+                "type": "relationship",
+                "predicate": str(rel.get("predicate") or ""),
+                "statement": natural,
+            }
+        )
+
     body = {"query": query, "candidates": candidates}
     return json.dumps(body, ensure_ascii=False)
+
+
+# Keep the old prompt-builder helpers around so any callers that import
+# them directly (e.g. tests that unit-test prompt shape) don't break.
+def _build_prompt_payload(query: str, events: list[dict[str, Any]]) -> str:
+    """Build a prompt payload for L1 events only (kept for backward compat / tests)."""
+    return _build_unified_prompt_payload(query, events, [])
+
+
+def _build_l2_prompt_payload(query: str, rels: list[dict[str, Any]]) -> str:
+    """Build a prompt payload for L2 relationships only (kept for backward compat / tests)."""
+    return _build_unified_prompt_payload(query, [], rels)
 
 
 def _format_when(ts: Any) -> str | None:
@@ -382,6 +496,18 @@ def _degraded_trace(input_count: int, *, reason: str, elapsed_ms: float) -> dict
         "input_count": input_count,
         "elapsed_ms": round(elapsed_ms, 1),
     }
+
+
+def _compat_l2_trace(main_trace: dict[str, Any]) -> dict[str, Any]:
+    """Build a minimal grounding_filter_l2 alias from the main degraded trace."""
+    result: dict[str, Any] = {"applied": False}
+    if "input_count" in main_trace:
+        result["input_count"] = main_trace["input_count"]
+    if "degraded_reason" in main_trace:
+        result["degraded_reason"] = main_trace["degraded_reason"]
+    if "elapsed_ms" in main_trace:
+        result["elapsed_ms"] = main_trace["elapsed_ms"]
+    return result
 
 
 __all__ = ["GroundingFilter", "MIN_CANDIDATES_TO_FILTER", "SKIP_THRESHOLD_MAX"]

@@ -151,6 +151,19 @@ class ChannelsModule(LifecycleModule):
             interaction_broker=(
                 cp_wiring.broker if cp_wiring else None
             ),
+            session_mapper=session_mapper,
+        )
+        from .control_commands import HostControlPort
+
+        # Unified control-command port (permission + session + /help). Bound to
+        # every channel so plugins can invoke control commands explicitly via the
+        # typed ChannelControlPortProtocol. Runs IN PARALLEL with the dispatcher's
+        # legacy inline command handling during migration — a command is handled by
+        # whichever path the plugin takes, never both.
+        control_port = HostControlPort(
+            session_mapper=session_mapper,
+            permission_registry=(cp_wiring.pending_permissions if cp_wiring else None),
+            interaction_broker=(cp_wiring.broker if cp_wiring else None),
         )
         attachment_store = ChannelAttachmentStore(runtime_paths=runtime_paths)
 
@@ -159,6 +172,7 @@ class ChannelsModule(LifecycleModule):
             channel.bind_session_mapper(session_mapper)
             channel.bind_message_dispatcher(message_dispatcher)
             channel.bind_attachment_store(attachment_store)
+            channel.bind_control_port(control_port)
             try:
                 registry.register(channel)
             except ValueError:

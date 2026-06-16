@@ -280,6 +280,87 @@ async def test_forget_episode_returns_event_ids_when_requested(store: L2Cognitio
     assert set(result["event_ids"]) == {"ev1", "ev2", "ev3"}
 
 
+# ── forgotten records must not leak back into retrieval (#134) ────
+
+
+async def _seed_assertion(store: L2CognitionStore, *, entity_id: str) -> str:
+    now = time.time()
+    return await store.upsert_assertion_candidate({
+        "entity_id": entity_id,
+        "entity_type": "user",
+        "trait_family": "preference",
+        "trait_name": "coffee",
+        "trait_value": "likes coffee",
+        "confidence_score": 0.8,
+        "evidence_events": ["e1"],
+        "volatility_index": 0.3,
+        "source_domain": "chat",
+        "inference_depth": "explicit",
+        "validation_state": "active",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+
+_ACTIVE_STATES = ["tentative", "corroborated", "stable"]
+
+
+@pytest.mark.asyncio
+async def test_forgotten_assertion_excluded_from_list(store: L2CognitionStore):
+    await _seed_assertion(store, entity_id="alice")
+
+    before = await store.list_tom_assertions(
+        entity_id="alice", validation_states=_ACTIVE_STATES
+    )
+    assert len(before) == 1
+
+    await store.forget_entity(entity_id="alice")
+
+    after = await store.list_tom_assertions(
+        entity_id="alice", validation_states=_ACTIVE_STATES
+    )
+    assert after == []
+
+
+@pytest.mark.asyncio
+async def test_forgotten_assertion_excluded_from_batch_list(store: L2CognitionStore):
+    await _seed_assertion(store, entity_id="alice")
+
+    before = await store.batch_list_tom_assertions(
+        entity_ids=["alice"], validation_states=_ACTIVE_STATES
+    )
+    assert len(before["alice"]) == 1
+
+    await store.forget_entity(entity_id="alice")
+
+    after = await store.batch_list_tom_assertions(
+        entity_ids=["alice"], validation_states=_ACTIVE_STATES
+    )
+    assert after["alice"] == []
+
+
+@pytest.mark.asyncio
+async def test_forgotten_episode_excluded_from_fts(store: L2CognitionStore):
+    now = time.time()
+    await store.create_episode(
+        episode_id="ep-fts",
+        time_start=now - 100,
+        time_end=now,
+        primary_entity_ids=["alice"],
+    )
+    await store.index_episode_fts(
+        episode_id="ep-fts", summary="hiking trip", label="Hiking", user_label=""
+    )
+
+    before = await store.search_episodes_fts(query="hiking")
+    assert len(before) == 1
+
+    await store.forget_episode(episode_id="ep-fts")
+
+    after = await store.search_episodes_fts(query="hiking")
+    assert after == []
+
+
 @pytest.mark.asyncio
 async def test_forget_episode_not_found(store: L2CognitionStore):
     result = await store.forget_episode(episode_id="nonexistent")

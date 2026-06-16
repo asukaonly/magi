@@ -4,11 +4,16 @@ The filter is an OPTIONAL layer that trims raw retrieval candidates
 down to what an LLM agrees is relevant before they're handed to the
 answer LLM. Every failure mode must degrade to "raw payload passes
 through" — never block retrieval.
+
+After the L1+L2 unification, one LLM call judges ALL candidates
+(events + relationships) together. This file covers the L1 event
+path; test_grounding_filter_l2.py covers L2 and mixed payloads.
 """
 from __future__ import annotations
 
 import asyncio
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -30,8 +35,10 @@ class _StaticBridge:
 
     def __init__(self, response: str) -> None:
         self._response = response
+        self.call_count = 0
 
     async def chat(self, **kwargs: Any) -> str:  # noqa: ARG002
+        self.call_count += 1
         return self._response
 
 
@@ -108,8 +115,8 @@ def test_parse_drops_booleans_in_keep() -> None:
 
 @pytest.mark.asyncio
 async def test_skips_trivial_count_below_min_candidates() -> None:
-    """0 or 1 candidate — not worth an LLM round-trip (nothing to compare against)."""
-    events = _make_events(MIN_CANDIDATES_TO_FILTER - 1)  # 0 or 1 event
+    """0 or 1 combined candidate — not worth an LLM round-trip."""
+    events = _make_events(MIN_CANDIDATES_TO_FILTER - 1)  # 0 or 1 event, no rels
     payload = RetrievalPayload(l1_events=events)
     bridge = _StaticBridge('{"keep": [1], "why": "x"}')  # must NOT be called
     f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
@@ -119,6 +126,18 @@ async def test_skips_trivial_count_below_min_candidates() -> None:
     trace = out.trace.get("grounding_filter") or {}
     assert trace.get("applied") is False
     assert trace.get("skipped_reason") == "trivial_count"
+    assert bridge.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_makes_exactly_one_bridge_call() -> None:
+    """Unified filter must make exactly ONE bridge call per apply(), not two."""
+    events = _make_events(5)
+    payload = RetrievalPayload(l1_events=events)
+    bridge = _StaticBridge('{"keep": [1, 2], "why": "match"}')
+    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
+    await f.apply(payload, _make_request())
+    assert bridge.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -156,7 +175,10 @@ async def test_explicit_empty_keep_clears_l1_events() -> None:
     """LLM explicitly returns keep=[] — a VALID 'none are relevant'
     verdict. The filter should TRUST it and clear l1_events, NOT fall
     back to raw (which would restore the noise the LLM correctly
-    judged irrelevant)."""
+    judged irrelevant).
+
+    In unified mode, empty keep clears BOTH lists. With no relationships
+    in this payload, the net effect on l1_events is the same."""
     events = _make_events(20)
     payload = RetrievalPayload(l1_events=events)
     bridge = _StaticBridge('{"keep": [], "why": "none relevant"}')

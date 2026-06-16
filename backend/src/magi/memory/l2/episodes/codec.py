@@ -34,7 +34,6 @@ class L2EpisodeStoreBaseMixin:
             "formation_method": str(row["formation_method"]),
             "confidence": float(row["confidence"]),
             "source_event_count": int(row["source_event_count"]),
-            "privacy_scope": str(row["privacy_scope"]),
             "user_label": str(row["user_label"]) if row["user_label"] else None,
             "user_note": str(row["user_note"]) if row["user_note"] else None,
             "user_pinned": bool(row["user_pinned"]),

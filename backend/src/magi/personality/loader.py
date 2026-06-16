@@ -49,6 +49,9 @@ class Idiolect:
     structural_quirks: List[str] = field(default_factory=list)
     """E.g. "drops subject pronouns", "never uses bullet lists in casual chat"."""
 
+    chattiness: float = 0.5
+    """Baseline conversational verbosity (0=terse, 1=chatty). Drives rhythm pacing."""
+
 
 @dataclass
 class Register:
@@ -254,6 +257,7 @@ class PersonalityConfig:
                 vocab_available=[str(v) for v in il_raw.get("vocab_available", [])],
                 vocab_avoided=[str(v) for v in il_raw.get("vocab_avoided", [])],
                 structural_quirks=[str(v) for v in il_raw.get("structural_quirks", [])],
+                chattiness=float(il_raw.get("chattiness", 0.5)),
             ),
             registers=registers,
             quiet_hours=quiet_hours,

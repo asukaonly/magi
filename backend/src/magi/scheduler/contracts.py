@@ -25,6 +25,7 @@ class ScheduledTargetType(str, Enum):
     LOCATION_IPGEO_POLL = "location_ipgeo_poll"
     LOCATION_WIFI_POLL = "location_wifi_poll"
     OUTREACH_OUTBOX_DRAIN = "outreach_outbox_drain"
+    MEMORY_L2_DERIVE = "memory_l2_derive"
 
 
 class TriggerType(str, Enum):
@@ -69,11 +70,11 @@ class ScheduledTargetState:
     last_error: Optional[str] = None
     last_cursor: Optional[str] = None
     watermark_ts: Optional[float] = None
-    # Derived display cache only — NOT authoritative. The single source of truth for
-    # next_run is the APScheduler jobstore (read via
-    # ScheduleRepository.get_schedule_next_run_at -> apscheduler_jobs.next_run_time);
-    # this mirror is written from it and used only as a status-display fallback.
-    # Do not build firing/decision logic on it. Tracked for removal in #89.
+    # Display-only field. NOT persisted in target_state (#89: redundant mirror removed).
+    # Single source of truth is the APScheduler jobstore, read via
+    # ScheduleRepository.get_schedule_next_run_at -> apscheduler_jobs.next_run_time.
+    # Populated by get_schedule_runtime_state; get_target_state always returns None here.
+    # Do NOT build firing/decision logic on it.
     next_run_at: Optional[float] = None
     scheduler_job_id: Optional[str] = None
     updated_at: Optional[float] = None

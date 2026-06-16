@@ -7,6 +7,18 @@ from typing import Any, Awaitable, Callable, Dict, TypeVar, cast
 
 from ..anthropic import AnthropicAdapter
 from ..base import LLMAdapter
+from .cache_routing import (
+    cache_routing_request_kwargs,
+    routing_key_from_event_context,
+)
+from .cache_policy import (
+    cache_marked_system_content,
+    inject_turn_context,
+    last_user_message_index,
+    mark_history_breakpoint,
+    mark_tool_loop_tail_breakpoint,
+    vendor_supports_cache_marker,
+)
 from ..concurrency_limiter import LLMConcurrencyLimiter
 from ..reasoning_dialect import (
     ANTHROPIC_THINKING_BUDGETS,
@@ -192,6 +204,113 @@ class ProviderBridgeOptionsMixin:
 
         payload = build_reasoning_payload(dialect, thinking_depth)
         return cast(Dict[str, Any], merge_payload(kwargs, payload))
+
+    def _cache_marked_system(self, system_prompt: str, *, cache_whole: bool = False) -> Any:
+        """Build the system content with a prompt-cache breakpoint.
+
+        For marker-capable vendors (Anthropic, Qwen/DashScope) the byte-stable
+        head — split at the renderer's boundary — gets an ``ephemeral``
+        cache_control marker; for automatic-only vendors the boundary is simply
+        stripped and a plain string returned. Used by every Anthropic ``system``
+        and OpenAI system-message construction site (#110).
+
+        ``cache_whole`` is for auxiliary calls (routing, memory extraction) whose
+        whole system prompt is byte-stable but carries no renderer boundary: the
+        entire system is marked as one cacheable block for marker vendors.
+        """
+        vendor = self._marker_vendor()
+        # The system head is stable across turns AND conversations, so a 1h TTL
+        # (2x write) amortizes far better than the 5m default; only Anthropic is
+        # known to honor the longer TTL, so keep DashScope on the default.
+        ttl = "1h" if vendor == ModelVendor.ANTHROPIC else None
+        return cache_marked_system_content(
+            system_prompt,
+            supports_marker=vendor_supports_cache_marker(vendor),
+            ttl=ttl,
+            cache_whole=cache_whole,
+        )
+
+    def _inject_turn_context(
+        self, messages: list[Dict[str, Any]], system_prompt: str
+    ) -> list[Dict[str, Any]]:
+        """Move the system prompt's per-turn tail into the message stream.
+
+        The dynamic tail (memory/profile/runtime-time/attachments, below the
+        renderer's boundary) is prepended — send-time only — to the last user
+        message so the system head + conversation history stay a stable cacheable
+        prefix (#100/P2a). Returns a new list; the input is not mutated. Call this
+        in every request builder before the Anthropic/OpenAI branch.
+        """
+        return inject_turn_context(messages, system_prompt)
+
+    def _mark_message_cache_breakpoints(
+        self,
+        injected_messages: list[Dict[str, Any]],
+        api_messages: list[Dict[str, Any]],
+    ) -> list[Dict[str, Any]]:
+        """Add message-stream cache breakpoints to converted request messages.
+
+        Marker vendors (Anthropic, DashScope — both honor inline ``cache_control``;
+        the latter verified by direct probe) cache by prefix and need explicit
+        markers. Two breakpoints, both 5m (they sit after the 1h system head,
+        satisfying Anthropic's 1h-before-5m ordering):
+
+        - **Rolling history**: after P2a the per-turn context rides on the last
+          user message, so the message *before* it is the stable history boundary
+          — mark it so older history is reused across turns.
+        - **Tool-loop tail**: when the raw turn ends in a tool result we are
+          mid-loop; mark the last message so the next loop iteration hits the
+          growing tool history (P2b made it append-only/cacheable).
+
+        ``tool``-role messages are never marked: OpenAI-compatible tool results
+        carry role ``tool`` with plain-string content, and not every compat
+        endpoint accepts a content-block list there. Anthropic converts tool
+        results to role ``user``, so this guard never skips on the native path —
+        the Anthropic behavior is unchanged.
+
+        Indices align 1:1 between ``injected_messages`` (raw, post turn-context
+        injection) and ``api_messages`` (converted) since conversion is
+        per-message. No-op for non-marker vendors or first turns.
+        """
+        if not vendor_supports_cache_marker(self._marker_vendor()):
+            return api_messages
+        boundary_index = last_user_message_index(injected_messages) - 1
+        if (
+            0 <= boundary_index < len(api_messages)
+            and api_messages[boundary_index].get("role") != "tool"
+        ):
+            api_messages = mark_history_breakpoint(api_messages, boundary_index)
+        tail_active = (
+            bool(injected_messages)
+            and injected_messages[-1].get("role") == "tool"
+            and bool(api_messages)
+            and api_messages[-1].get("role") != "tool"
+        )
+        return mark_tool_loop_tail_breakpoint(api_messages, active=tail_active)
+
+    def _marker_vendor(self) -> ModelVendor:
+        """Vendor used for cache-marker capability decisions (Anthropic if the
+        native path is active, else the resolved OpenAI-compatible vendor)."""
+        return ModelVendor.ANTHROPIC if self.is_anthropic() else self._resolve_model_vendor()
+
+    def _apply_cache_routing(
+        self, kwargs: Dict[str, Any], event_context: Dict[str, Any] | None
+    ) -> Dict[str, Any]:
+        """Merge provider cache-routing extras into OpenAI-compatible request kwargs.
+
+        OpenAI's ``prompt_cache_key`` (body) / xAI's ``x-grok-conv-id`` (header)
+        pin a conversation to a cache-warm backend node, lifting the hit rate.
+        Keyed on ``session_id``, vendor-gated, and merged so existing
+        ``extra_body``/``extra_headers`` (e.g. reasoning options) survive. No-op
+        when there's no key or the vendor has no hint. OpenAI-compatible path only
+        (#98).
+        """
+        extras = cache_routing_request_kwargs(
+            self._resolve_model_vendor(), routing_key_from_event_context(event_context)
+        )
+        for field, value in extras.items():
+            kwargs[field] = {**(kwargs.get(field) or {}), **value}
+        return kwargs
 
     def _build_concurrency_key(self, request_family: str) -> str:
         base_url = getattr(self.llm, "base_url", None)

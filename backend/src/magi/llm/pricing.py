@@ -32,6 +32,7 @@ def calculate_chat_cost(
     completion_tokens: int,
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
+    cache_write_1h_tokens: int = 0,
     registry: LLMProviderRegistryModel | None = None,
 ) -> tuple[float | None, str | None]:
     """Calculate a chat completion cost in the model's native billing currency.
@@ -69,14 +70,24 @@ def calculate_chat_cost(
     remaining_prompt_count = max(0, prompt_count - cache_read_count)
     cache_write_count = min(remaining_prompt_count, max(0, int(cache_write_tokens or 0)))
     uncached_input_count = max(0, remaining_prompt_count - cache_write_count)
+    # Split cache writes by TTL: Anthropic bills a 1h write at 2x base input vs
+    # the 1.25x 5m default (cache_write_rate). Only Anthropic reports a 1h
+    # breakdown, so the 2x derivation is never applied to other vendors.
+    cache_write_1h_count = min(cache_write_count, max(0, int(cache_write_1h_tokens or 0)))
+    cache_write_5m_count = cache_write_count - cache_write_1h_count
+
+    five_minute_write_rate = cache_write_rate if cache_write_rate is not None else input_rate or 0.0
+    one_hour_write_rate = (input_rate * 2) if input_rate is not None else five_minute_write_rate
 
     total = 0.0
     if input_rate is not None:
         total += uncached_input_count * input_rate
     if cache_read_count:
         total += cache_read_count * (cached_input_rate if cached_input_rate is not None else input_rate or 0.0)
-    if cache_write_count:
-        total += cache_write_count * (cache_write_rate if cache_write_rate is not None else input_rate or 0.0)
+    if cache_write_5m_count:
+        total += cache_write_5m_count * five_minute_write_rate
+    if cache_write_1h_count:
+        total += cache_write_1h_count * one_hour_write_rate
     if output_rate is not None:
         total += completion_count * output_rate
 

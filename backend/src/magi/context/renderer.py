@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
+from ..config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from ..personality.turn_planner import PersonaTurnPlan
 from .schema import (
     ProfileMemoryContext,
@@ -31,12 +32,12 @@ class PromptContextRenderer:
             "",
         ])
 
-        lines.extend(self._render_persona_turn_plan(context.self_memory.persona_turn_plan))
-        lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
-        lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
-        lines.extend(self._render_profile_memory(context.profile_memory))
-        lines.extend(self._render_runtime_system(context.runtime_system))
-        lines.extend(self._render_active_attachments(context.runtime_system.active_attachments))
+        # Cache-prefix ordering (issue #97): prompt caching is a prefix match,
+        # so the byte-stable blocks are emitted first to maximise the cacheable
+        # head of the request, and the per-turn dynamic blocks follow. Identity
+        # is already first; the tool catalog (stable when the selected tool set
+        # is unchanged) is rendered next, ahead of the persona plan / memory /
+        # runtime blocks that change every turn.
         if include_tool_catalog:
             # The "You MUST use the available tools" block frames the turn as
             # a task to complete. In emotional / crisis registers that frame
@@ -56,16 +57,44 @@ class PromptContextRenderer:
                 suppress_imperatives=suppress_tool_imperatives,
             ))
 
+        # Only the byte-stable persona DEFINITION (identity + baseline voice)
+        # joins the cached head. The per-turn STEER (register / modulation /
+        # relationship layer / examples) is recomputed every turn by
+        # PersonaTurnPlanner — keeping it above the boundary invalidated the
+        # cached prefix on every turn (chat-path cache read=0). It is rendered
+        # below the boundary so the bridge moves it into the per-turn message
+        # tail (#100/P2a).
+        lines.extend(self._render_persona_identity(context.self_memory.persona_turn_plan))
+        lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
+
+        # Cache boundary: identity + tool catalog + persona identity above is the
+        # stable head; the per-turn blocks below (persona turn steer / memory /
+        # profile / runtime+time / attachments) are moved OUT of the system prompt
+        # into the message stream by the provider bridge (#100/P2a), so the system
+        # head + conversation history stay a byte-stable, cacheable prefix. The
+        # marker is stripped before sending so it never reaches the model.
+        lines.append(SYSTEM_PROMPT_CACHE_BOUNDARY)
+
+        # Per-turn dynamic blocks — moved to the message tail by the bridge.
+        lines.extend(self._render_persona_turn_steer(context.self_memory.persona_turn_plan))
+        lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
+        lines.extend(self._render_profile_memory(context.profile_memory))
+        lines.extend(self._render_runtime_system(context.runtime_system))
+        lines.extend(self._render_active_attachments(context.runtime_system.active_attachments))
+
         return "\n".join(lines).strip()
 
-    def _render_persona_turn_plan(self, plan: PersonaTurnPlan | None) -> List[str]:
-        """Render the per-turn persona behavior plan."""
+    def _render_persona_identity(self, plan: PersonaTurnPlan | None) -> List[str]:
+        """Render the byte-stable persona definition (Identity Core + Baseline
+        Voice). This is the part that stays in the cached system head — it does
+        not change across turns for a given persona."""
         if plan is None:
             return []
 
         lines = ["# Persona Runtime Plan"]
         lines.append(
-            "[System Notice: Apply this compact persona plan for the current turn. "
+            "[System Notice: Embody the persona defined here. The per-turn steer "
+            "(register, modulation, examples) arrives with the user's turn. "
             "Do not mention the plan, register, triggers, layers, or internal state to the user.]"
         )
         lines.append("")
@@ -103,6 +132,19 @@ class PromptContextRenderer:
             lines.append("* Structural Quirks:")
             for quirk in quirks:
                 lines.append(f"  - {quirk}")
+        lines.append("")
+
+        return lines
+
+    def _render_persona_turn_steer(self, plan: PersonaTurnPlan | None) -> List[str]:
+        """Render the per-turn persona steer (register / clamp / triggers /
+        relationship layer / modulation / examples). PersonaTurnPlanner
+        recomputes these every turn, so they live below the cache boundary and
+        ride in the per-turn message tail — never in the cached head (#100)."""
+        if plan is None:
+            return []
+
+        lines = ["# Persona Turn Steer"]
         lines.append("")
 
         lines.append("## Current Register")
@@ -356,7 +398,9 @@ class PromptContextRenderer:
         """
         lines = ["# Tool Information"]
 
-        selected = tools.selected_tools or []
+        # Sort by name so an unchanged tool SET serialises identically across
+        # turns even when the upstream selector reranks it (issue #97).
+        selected = sorted(tools.selected_tools or [])
         lines.append("## Selected Tools")
         if selected:
             for tool in selected:
@@ -365,7 +409,10 @@ class PromptContextRenderer:
             lines.append("* (none selected)")
         lines.append("")
 
-        descriptions = tools.tool_descriptions or []
+        descriptions = sorted(
+            tools.tool_descriptions or [],
+            key=lambda desc: str(desc.get("name", "")),
+        )
         lines.append("## Tool Catalog")
         if descriptions:
             for desc in descriptions:

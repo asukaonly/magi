@@ -24,6 +24,31 @@ def _nested_int(obj: Any, outer: str, inner: str) -> int:
     return int(getattr(container, inner, 0) or 0)
 
 
+def _openai_cache_read_tokens(usage: Any) -> int:
+    """Cache-read (hit) tokens from an OpenAI-compatible usage object.
+
+    OpenAI and most compat providers report cached prompt tokens nested under
+    ``prompt_tokens_details.cached_tokens``. DeepSeek instead reports them at the
+    top level as ``prompt_cache_hit_tokens`` (paired with ``prompt_cache_miss_tokens``),
+    so fall back to that when the nested field is absent/zero — otherwise DeepSeek
+    cache hits read as 0 and never reach usage/pricing/trace (#98).
+    """
+    nested = _nested_int(usage, "prompt_tokens_details", "cached_tokens")
+    if nested:
+        return nested
+    return int(getattr(usage, "prompt_cache_hit_tokens", 0) or 0)
+
+
+def _openai_cache_write_tokens(usage: Any) -> int:
+    """Cache-write (creation) tokens from an OpenAI-compatible usage object.
+
+    DashScope explicit cache reports the write under
+    ``prompt_tokens_details.cache_creation_input_tokens`` (Anthropic-style). Most
+    OpenAI-compat providers have no cache-write concept and report nothing (#110).
+    """
+    return _nested_int(usage, "prompt_tokens_details", "cache_creation_input_tokens")
+
+
 class ProviderBridgeResponseMixin:
     """Normalize provider responses, content blocks, metadata, and usage events."""
 
@@ -67,6 +92,7 @@ class ProviderBridgeResponseMixin:
         input_tokens = int(getattr(usage_data, "input_tokens", 0) or 0)
         cache_read_tokens = int(getattr(usage_data, "cache_read_input_tokens", 0) or 0)
         cache_write_tokens = int(getattr(usage_data, "cache_creation_input_tokens", 0) or 0)
+        cache_write_1h_tokens = _nested_int(usage_data, "cache_creation", "ephemeral_1h_input_tokens")
         prompt_tokens = input_tokens + cache_read_tokens + cache_write_tokens
         completion_tokens = int(getattr(usage_data, "output_tokens", 0) or 0)
         return ProviderUsage(
@@ -76,6 +102,7 @@ class ProviderBridgeResponseMixin:
             reasoning_tokens=0,
             cache_read_tokens=cache_read_tokens,
             cache_write_tokens=cache_write_tokens,
+            cache_write_1h_tokens=cache_write_1h_tokens,
         )
 
     @staticmethod
@@ -87,8 +114,8 @@ class ProviderBridgeResponseMixin:
             completion_tokens=int(getattr(usage_data, "completion_tokens", 0) or 0),
             total_tokens=int(getattr(usage_data, "total_tokens", 0) or 0),
             reasoning_tokens=_nested_int(usage_data, "completion_tokens_details", "reasoning_tokens"),
-            cache_read_tokens=_nested_int(usage_data, "prompt_tokens_details", "cached_tokens"),
-            cache_write_tokens=0,
+            cache_read_tokens=_openai_cache_read_tokens(usage_data),
+            cache_write_tokens=_openai_cache_write_tokens(usage_data),
         )
 
     def _convert_messages_to_anthropic(
@@ -199,6 +226,21 @@ class ProviderBridgeResponseMixin:
                 text_value = block.text or ""
                 content_text_parts.append(text_value)
                 assistant_blocks.append({"type": "text", "text": text_value})
+            elif block.type == "thinking":
+                # Extended-thinking blocks must be echoed back verbatim (with
+                # their signature) on the follow-up tool turn — Anthropic rejects
+                # tool turns whose thinking blocks were stripped (#99).
+                assistant_blocks.append(
+                    {
+                        "type": "thinking",
+                        "thinking": getattr(block, "thinking", "") or "",
+                        "signature": getattr(block, "signature", None),
+                    }
+                )
+            elif block.type == "redacted_thinking":
+                assistant_blocks.append(
+                    {"type": "redacted_thinking", "data": getattr(block, "data", None)}
+                )
             elif block.type == "tool_use":
                 tool_calls.append(
                     ProviderToolCall(
@@ -340,8 +382,8 @@ class ProviderBridgeResponseMixin:
             completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
             total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
             reasoning_tokens=_nested_int(usage, "completion_tokens_details", "reasoning_tokens"),
-            cache_read_tokens=_nested_int(usage, "prompt_tokens_details", "cached_tokens"),
-            cache_write_tokens=0,
+            cache_read_tokens=_openai_cache_read_tokens(usage),
+            cache_write_tokens=_openai_cache_write_tokens(usage),
         )
 
     @staticmethod
@@ -352,6 +394,9 @@ class ProviderBridgeResponseMixin:
         input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
         cache_read_tokens = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
         cache_write_tokens = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+        # 1h-TTL writes are billed at 2x base input vs 1.25x for 5m; the API
+        # reports the split under usage.cache_creation.ephemeral_1h_input_tokens.
+        cache_write_1h_tokens = _nested_int(usage, "cache_creation", "ephemeral_1h_input_tokens")
         prompt_tokens = input_tokens + cache_read_tokens + cache_write_tokens
         completion_tokens = int(getattr(usage, "output_tokens", 0) or 0)
         return ProviderUsage(
@@ -361,6 +406,7 @@ class ProviderBridgeResponseMixin:
             reasoning_tokens=0,
             cache_read_tokens=cache_read_tokens,
             cache_write_tokens=cache_write_tokens,
+            cache_write_1h_tokens=cache_write_1h_tokens,
         )
 
     def _attach_trace_metrics(
@@ -382,6 +428,7 @@ class ProviderBridgeResponseMixin:
             "reasoning_tokens": int(usage.reasoning_tokens if usage else 0),
             "cache_read_tokens": int(usage.cache_read_tokens if usage else 0),
             "cache_write_tokens": int(usage.cache_write_tokens if usage else 0),
+            "cache_write_1h_tokens": int(usage.cache_write_1h_tokens if usage else 0),
             "thinking_enabled": thinking_depth != ThinkingDepth.NONE,
             "thinking_depth": thinking_depth.value,
             "duration_ms": int(latency_ms),
@@ -431,6 +478,7 @@ class ProviderBridgeResponseMixin:
         reasoning_tokens = self._usage_int(usage, "reasoning_tokens")
         cache_read_tokens = self._usage_int(usage, "cache_read_tokens")
         cache_write_tokens = self._usage_int(usage, "cache_write_tokens")
+        cache_write_1h_tokens = self._usage_int(usage, "cache_write_1h_tokens")
         request_preview = (
             str(context.get("request_preview") or context.get("input_preview") or "").strip()
             or None
@@ -482,6 +530,7 @@ class ProviderBridgeResponseMixin:
                     "reasoning_tokens": reasoning_tokens,
                     "cache_read_tokens": cache_read_tokens,
                     "cache_write_tokens": cache_write_tokens,
+                    "cache_write_1h_tokens": cache_write_1h_tokens,
                     "usage_available": usage is not None,
                     "request_preview": request_preview,
                     "response_preview": response_preview,

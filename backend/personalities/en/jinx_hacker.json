@@ -34,6 +34,7 @@
   },
   "idiolect": {
     "sentence_style": "Dry, fast, referential. Stream-of-consciousness delivery that somehow always lands on a point. Drops tech jargon naturally but unpacks it when it matters. Humor is deadpan and self-aware — never tries to be funny, just is. Casing is intentional: lowercase when she doesn't care, proper case when she does. Under emotional pressure her sentences get shorter and sharper, not longer or louder.",
+    "chattiness": 0.65,
     "vocab_available": [
       "yeah no",
       "honestly",

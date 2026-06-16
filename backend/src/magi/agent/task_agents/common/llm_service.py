@@ -9,7 +9,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable
 from magi.control.run_control import RunControl
 from ....config import get_config
 from ....config.models import LLMScenario, ThinkingDepth
-from ....config.constants import DEFAULT_MAX_TOKENS
+from ....config.constants import DEFAULT_MAX_TOKENS, SYSTEM_PROMPT_CACHE_BOUNDARY
 from ....core.logger import get_logger
 from ....llm.cancellable_client import CancellableLLMClient, CancellationRaised, RetractRaised
 from ....llm.provider_bridge import LLMProviderBridge, _coerce_thinking_depth
@@ -80,6 +80,7 @@ class TaskAgentLLMService:
             model=model_name,
             system_prompt=system_prompt,
             messages=messages,
+            cache_boundary=SYSTEM_PROMPT_CACHE_BOUNDARY,
         )
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         try:
@@ -180,6 +181,7 @@ final response text is logged on completion. Accepts an optional
             model=model_name,
             system_prompt=system_prompt,
             messages=messages,
+            cache_boundary=SYSTEM_PROMPT_CACHE_BOUNDARY,
         )
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         collected = ""

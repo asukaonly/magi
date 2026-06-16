@@ -86,7 +86,10 @@ async def handle_l2_entity_maintenance(
     return ScheduledExecutionResult(
         success=True,
         message="maintenance_ok",
-        stats={**asdict(stats), "promotion_counter_pruned": pruned},
+        stats={
+            **asdict(stats),
+            "promotion_counter_pruned": pruned,
+        },
     )
 
 

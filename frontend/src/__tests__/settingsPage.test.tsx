@@ -1101,17 +1101,48 @@ describe('settings page draft saving', () => {
     );
   });
 
-  it('saves cross-encoder controls from the general memory section', async () => {
+  it('disables the cross-encoder toggle when no cross-encoder model is configured', async () => {
     const user = userEvent.setup();
+    // Default config has managed_model_id: null → toggle must be disabled
     render(<SettingsPage />);
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
     await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
 
-    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.cross_encoder_enabled.label' }));
+    const crossEncoderSwitch = screen.getByRole('switch', { name: 'settings.memory.fields.cross_encoder_enabled.label' });
+    expect(crossEncoderSwitch).toBeDisabled();
+    expect(screen.getByText('settings.memory.fields.cross_encoder_no_model_hint')).toBeInTheDocument();
+  });
 
-    const topKInput = screen.getByLabelText('settings.memory.fields.reranker_top_k.label');
-    fireEvent.change(topKInput, { target: { value: '12' } });
+  it('enables the cross-encoder toggle when a cross-encoder model is configured', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        memory: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.memory),
+          reranker: {
+            ...structuredClone(DEFAULT_SYSTEM_CONFIG.memory.reranker),
+            cross_encoder: {
+              enabled: false,
+              managed_model_id: 'bge-reranker-v2',
+              variant: null,
+            },
+          },
+        },
+      },
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
+
+    const crossEncoderSwitch = screen.getByRole('switch', { name: 'settings.memory.fields.cross_encoder_enabled.label' });
+    expect(crossEncoderSwitch).not.toBeDisabled();
+    expect(screen.queryByText('settings.memory.fields.cross_encoder_no_model_hint')).not.toBeInTheDocument();
+
+    await user.click(crossEncoderSwitch);
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
@@ -1120,7 +1151,6 @@ describe('settings page draft saving', () => {
         expect.objectContaining({
           memory: expect.objectContaining({
             reranker: expect.objectContaining({
-              top_k: 12,
               cross_encoder: expect.objectContaining({
                 enabled: true,
               }),
@@ -1129,6 +1159,33 @@ describe('settings page draft saving', () => {
         })
       )
     );
+  });
+
+  it('does not render the reranker top_k field in the general memory section', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        memory: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.memory),
+          reranker: {
+            ...structuredClone(DEFAULT_SYSTEM_CONFIG.memory.reranker),
+            cross_encoder: {
+              enabled: true,
+              managed_model_id: 'bge-reranker-v2',
+              variant: null,
+            },
+          },
+        },
+      },
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
+
+    expect(screen.queryByLabelText('settings.memory.fields.reranker_top_k.label')).not.toBeInTheDocument();
   });
 
   it('saves query expansion control from the general memory section', async () => {

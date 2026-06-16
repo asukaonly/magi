@@ -1096,6 +1096,7 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await self.integration.stop()
         await self.bus.stop()
+        await self.memory.shutdown()
         self.temp_dir.cleanup()
 
     async def test_event_pipeline_from_bus(self):

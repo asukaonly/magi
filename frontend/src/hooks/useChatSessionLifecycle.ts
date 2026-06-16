@@ -183,7 +183,9 @@ export function useChatSessionLifecycle({
         messageId: BOOTSTRAP_PENDING_MESSAGE_ID,
         role: 'assistant',
         kind: 'status',
-        content: translate('chat.bootstrapInit.preparing'),
+        content: translate('chat.bootstrapInit.preparing', {
+          name: data.name || translate('chat.personaFallbackName'),
+        }),
         timestamp: Date.now(),
         turnId: BOOTSTRAP_PENDING_TURN_ID,
         traceAvailable: false,

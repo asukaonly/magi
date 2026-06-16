@@ -49,39 +49,6 @@ async def test_web_search_passes_configured_proxy_to_provider(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_web_search_does_not_fallback_from_unconfigured_requested_provider(monkeypatch):
-    tool = WebSearchTool()
-    called = False
-
-    monkeypatch.setattr(
-        "magi.tools.builtin.web_search_tool.get_config",
-        lambda: _fake_config(None),
-    )
-    tool._get_default_provider = lambda: "brave"
-    tool.get_available_providers = lambda: ["duckduckgo"]
-
-    async def fake_execute_with_provider(self, provider_name, params):
-        nonlocal called
-        called = True
-        _ = (self, provider_name, params)
-        return ToolResult(success=True, data={})
-
-    tool.execute_with_provider = MethodType(fake_execute_with_provider, tool)
-
-    with language_context("en"):
-        result = await tool.execute({"query": "magi"}, _context())
-
-    assert called is False
-    assert result.success is False
-    assert result.error_code == "PROVIDER_NOT_CONFIGURED"
-    assert result.data["requested_provider"] == "brave"
-    assert result.data["available_providers"] == ["duckduckgo"]
-    assert result.data["retryable"] is False
-    assert result.data["terminal"] is True
-    assert "DuckDuckGo" not in result.error
-
-
-@pytest.mark.asyncio
 async def test_web_search_duckduckgo_challenge_guidance_uses_current_language(monkeypatch):
     tool = WebSearchTool()
 

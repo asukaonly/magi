@@ -36,7 +36,7 @@ dependencies = [
     # variants triggered api-types-drift CI failures during the
     # v0.1.14 ship. Tighten the bounds; when you intentionally
     # upgrade, regen ``generated.ts`` in the same commit.
-    "fastapi>=0.136.0,<0.140.0",
+    "fastapi>=0.136.0,<0.138.0",
     # Pinned explicitly because fastapi declares no upper bound and pip
     # does not eagerly upgrade transitives; PYSEC-2026-161 is fixed in 1.0.1.
     "starlette>=1.0.1",
@@ -112,6 +112,7 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.8.0",
     "black>=24.1.0",
     "ruff>=0.2.0",
     "mypy>=1.8.0",

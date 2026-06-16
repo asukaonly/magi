@@ -18,6 +18,7 @@ from ..storage.utils import (
     normalize_store_entity_ref,
     normalize_store_entity_type,
 )
+from .source_tier import source_tier
 from .state_machine import compute_confidence, derive_validation_state
 
 logger = get_logger(__name__)
@@ -87,9 +88,9 @@ INSERT INTO tom_trait_assertions(
     inference_depth, validation_state, first_inferred_at, last_validated_at,
     target_entity_id, target_entity_type, target_scope, temporal_scope,
     decay_policy, decay_anchor_at, context_ref_id, expires_at,
-    status, privacy_scope, memory_subdomain, natural_summary,
+    status, memory_subdomain, natural_summary,
     created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -153,7 +154,7 @@ class L2StoreAssertionMixin:
                     """
                     SELECT * FROM tom_trait_assertions
                     WHERE entity_id = ? AND entity_type = ? AND trait_name = ? AND target_entity_id = ?
-                      AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected')
+                      AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected', 'shadow')
                     ORDER BY updated_at DESC
                     LIMIT 1
                     """,
@@ -206,6 +207,67 @@ class L2StoreAssertionMixin:
                         float(existing["last_validated_at"]),
                         float(normalized_candidate["last_validated_at"]),
                     )
+
+                    candidate_tier = source_tier(
+                        source_domain=normalized_candidate.get("source_domain"),
+                        user_feedback=None,  # a fresh candidate carries no feedback yet
+                    )
+                    existing_tier = source_tier(
+                        source_domain=existing["source_domain"],
+                        user_feedback=existing["user_feedback"],
+                    )
+                    if (
+                        candidate_tier == "inferred"
+                        and existing_tier == "authoritative"
+                        and existing_value != next_value
+                    ):
+                        # Inferred contradicts the user's own statement: never touch
+                        # the authoritative row. Persist as a 'shadow' sibling (the
+                        # active key stays owned by the authoritative assertion).
+                        shadow_id = f"assert_{uuid.uuid4().hex}"
+                        await db.execute(
+                            _INSERT_SQL,
+                            (
+                                shadow_id,
+                                normalized_candidate["entity_id"],
+                                normalized_candidate["entity_type"],
+                                normalized_candidate["trait_family"],
+                                trait_name,
+                                next_value,
+                                compute_confidence(len(normalized_candidate["evidence_events"])),
+                                json.dumps(normalized_candidate["evidence_events"], ensure_ascii=False),
+                                float(normalized_candidate["volatility_index"]),
+                                normalized_candidate["source_domain"],
+                                normalized_candidate["inference_depth"],
+                                "shadow",                                   # validation_state
+                                float(normalized_candidate["first_inferred_at"]),
+                                float(normalized_candidate["last_validated_at"]),
+                                normalized_candidate["target_entity_id"],
+                                normalized_candidate["target_entity_type"],
+                                normalized_candidate["target_scope"],
+                                normalized_candidate["temporal_scope"],
+                                normalized_candidate["decay_policy"],
+                                normalized_candidate["decay_anchor_at"],
+                                normalized_candidate["context_ref_id"],
+                                normalized_candidate["expires_at"],
+                                "shadow",                                   # status
+                                normalized_candidate["memory_subdomain"],
+                                normalized_candidate["natural_summary"],
+                                now,
+                                now,
+                            ),
+                        )
+                        await db.commit()
+                        logger.info(
+                            "L2 assertion shadowed (inferred vs authoritative conflict)",
+                            shadow_id=shadow_id,
+                            authoritative_id=str(existing["assertion_id"]),
+                            entity_id=normalized_candidate["entity_id"],
+                            trait_name=trait_name,
+                            authoritative_value=existing_value,
+                            inferred_value=next_value,
+                        )
+                        return shadow_id
 
                     if existing_value != next_value and existing_temporal_scope in ("session", "momentary"):
                         # In-place rewrite for volatile temporal traits.
@@ -303,7 +365,6 @@ class L2StoreAssertionMixin:
                                 normalized_candidate["context_ref_id"],
                                 normalized_candidate["expires_at"],
                                 validation_state,
-                                str(existing["privacy_scope"] or "private"),
                                 normalized_candidate["memory_subdomain"],
                                 normalized_candidate["natural_summary"],
                                 now,
@@ -451,7 +512,6 @@ class L2StoreAssertionMixin:
                 candidate["context_ref_id"],
                 candidate["expires_at"],
                 validation_state,
-                "private",
                 candidate["memory_subdomain"],
                 candidate["natural_summary"],
                 now,

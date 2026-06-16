@@ -87,6 +87,11 @@ const formatTokenCount = (input?: number, output?: number, reasoning?: number): 
   return parts.length > 0 ? parts.join(' / ') : '--';
 };
 
+const formatCacheTokens = (read?: number, write?: number): string =>
+  // Always show both counts (incl. 0) so a cache MISS is visible and
+  // distinguishable from "no data" — the whole point of the panel (#98).
+  `Read ${(read ?? 0).toLocaleString()} / Write ${(write ?? 0).toLocaleString()}`;
+
 const asRecord = (value: unknown): Record<string, unknown> => (
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 );
@@ -263,6 +268,12 @@ const NodeDetails = ({ node }: { node: NormalizedExecutionTraceNode }) => {
           <DetailField
             label={t('chat.trace.summaryTokens')}
             value={formatTokenCount(Number(meta.input_tokens || 0), Number(meta.output_tokens || 0), Number(meta.reasoning_tokens || 0))}
+          />
+        )}
+        {hasTokenInfo && (
+          <DetailField
+            label={t('chat.trace.cacheTokens')}
+            value={formatCacheTokens(Number(meta.cache_read_tokens || 0), Number(meta.cache_write_tokens || 0))}
           />
         )}
         {hasValue(meta.intent_label) && <DetailField label={t('chat.trace.intentLabel')} value={String(meta.intent_label)} />}

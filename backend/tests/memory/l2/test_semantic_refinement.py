@@ -33,7 +33,7 @@ async def test_knowledge_graph_lifecycle_columns_exist(tmp_path):
         async with db.execute("PRAGMA table_info(knowledge_graph)") as cur:
             cols = {row["name"] for row in await cur.fetchall()}
 
-    for col in ("valid_from", "valid_to", "status_reason", "privacy_scope"):
+    for col in ("valid_from", "valid_to", "status_reason"):
         assert col in cols, f"Missing column: {col}"
 
 
@@ -50,7 +50,7 @@ async def test_entity_facets_lifecycle_columns_exist(tmp_path):
         async with db.execute("PRAGMA table_info(entity_facets)") as cur:
             cols = {row["name"] for row in await cur.fetchall()}
 
-    for col in ("status", "privacy_scope"):
+    for col in ("status",):
         assert col in cols, f"Missing column: {col}"
 
 
@@ -233,37 +233,6 @@ async def test_fact_kind_defaults_to_explicit_fact(tmp_path):
         ) as cur:
             row = await cur.fetchone()
     assert row["fact_kind"] == "explicit_fact"
-
-
-@pytest.mark.asyncio
-async def test_knowledge_edge_privacy_scope_defaults_to_private(tmp_path):
-    """New knowledge edges have privacy_scope='private' by default."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-    now = time.time()
-
-    triple_id = await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="WORKS_AT",
-        object_id="org:xyz",
-        object_type="organization",
-        evidence_event_ids=["e1"],
-        confidence=0.9,
-        observed_at=now,
-        source_type="rule",
-        extraction_method="rule",
-    )
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT privacy_scope FROM knowledge_graph WHERE triple_id = ?", (triple_id,)
-        ) as cur:
-            row = await cur.fetchone()
-    assert row["privacy_scope"] == "private"
 
 
 # ---------------------------------------------------------------------------

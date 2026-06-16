@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from magi.chat.task_agent import rhythm as rhythm_module
-from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+from magi.chat.task_agent.rhythm import (
+    ResponseRhythmPlanner,
+    _compute_delay_ms,
+    _FLOOR_MS,
+    _CEIL_MS,
+)
 
 
 class _FakePromptService:
@@ -62,7 +68,8 @@ async def test_response_rhythm_planner_groups_existing_units(monkeypatch) -> Non
         "第三段给出下一步：今天先留出一小段安静时间，把要处理的事情写成一句话。然后只选其中最容易开始的一项做十分钟，先让事情重新动起来。",
     ]
     assert [segment.intent for segment in plan.segments] == ["acknowledge", "answer", "next_step"]
-    assert [segment.delay_ms for segment in plan.segments] == [0, 1000, 1000]
+    assert plan.segments[0].delay_ms == 0
+    assert all(_FLOOR_MS <= s.delay_ms <= _CEIL_MS for s in plan.segments[1:])
     assert prompt_service.calls[0]["json_mode"] is True
 
 
@@ -178,7 +185,8 @@ async def test_response_rhythm_planner_splits_short_cjk_sentence_units(monkeypat
         "先别把节奏规划当成第二个回答模型。",
         "主模型正常说完，保留原来的判断。\n然后只把自然断句拆成两三条气泡，让它像聊天而不是报告。",
     ]
-    assert [segment.delay_ms for segment in plan.segments] == [0, 1000]
+    assert plan.segments[0].delay_ms == 0
+    assert _FLOOR_MS <= plan.segments[1].delay_ms <= _CEIL_MS
     payload = json.loads(prompt_service.calls[0]["messages"][0]["content"])
     assert [unit["text"] for unit in payload["units"]] == [
         "先别把节奏规划当成第二个回答模型。",
@@ -353,3 +361,169 @@ async def test_response_rhythm_planner_keeps_markdown_lists_in_one_message(monke
 
     assert plan is None
     assert prompt_service.calls == []
+
+
+def test_extract_persona_rhythm_from_prompt_context() -> None:
+    from magi.agent.task_agents.handlers.direct_handler import _extract_persona_rhythm
+
+    plan = SimpleNamespace(
+        register="chat",
+        persona_intensity=2,
+        idiolect={"sentence_style": "爱用短句"},
+    )
+    ctx = SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=plan))
+
+    signal = _extract_persona_rhythm(ctx)
+    assert signal is not None
+    assert signal.register == "chat"
+    assert signal.persona_intensity == 2
+    assert signal.sentence_style == "爱用短句"
+
+    assert _extract_persona_rhythm(SimpleNamespace()) is None
+    assert _extract_persona_rhythm(SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=None))) is None
+
+    # persona_intensity == 0 (crisis/suppression) must be preserved, not coerced to 1
+    crisis_plan = SimpleNamespace(register="crisis", persona_intensity=0, idiolect={})
+    crisis_ctx = SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=crisis_plan))
+    crisis_signal = _extract_persona_rhythm(crisis_ctx)
+    assert crisis_signal is not None
+    assert crisis_signal.persona_intensity == 0
+    assert crisis_signal.register == "crisis"
+    assert crisis_signal.sentence_style == ""
+
+    # chattiness is extracted from idiolect (Step 2)
+    chat_plan = SimpleNamespace(
+        register="chat", persona_intensity=2, idiolect={"sentence_style": "x", "chattiness": 0.8}
+    )
+    chat_ctx = SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=chat_plan))
+    chat_signal = _extract_persona_rhythm(chat_ctx)
+    assert chat_signal.chattiness == 0.8
+    # missing chattiness defaults to 0.5; out-of-range is clamped
+    miss = _extract_persona_rhythm(
+        SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=SimpleNamespace(
+            register="chat", persona_intensity=1, idiolect={"sentence_style": ""})))
+    )
+    assert miss.chattiness == 0.5
+    clamped = _extract_persona_rhythm(
+        SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=SimpleNamespace(
+            register="chat", persona_intensity=1, idiolect={"chattiness": 9.0})))
+    )
+    assert clamped.chattiness == 1.0
+
+
+@pytest.mark.asyncio
+async def test_postprocess_forwards_persona_to_rhythm_planner() -> None:
+    from magi.agent.task_agents.common import (
+        ExecutionResult,
+        ExecutionMode,
+        RhythmPersonaSignal,
+    )
+    from magi.chat.task_agent.postprocess_service import ChatPostProcessService
+
+    received: dict = {}
+
+    class _RecordingPlanner:
+        async def plan(self, **kwargs):
+            received.update(kwargs)
+            return None
+
+    from magi.chat.task_agent.postprocess.utils import normalize_mode
+    service = object.__new__(ChatPostProcessService)
+    service._response_rhythm_planner = _RecordingPlanner()
+    service._normalize_mode = normalize_mode  # bare instance lacks the _operations chain
+
+    signal = RhythmPersonaSignal(register="chat", persona_intensity=2, sentence_style="爱用短句")
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="x",
+        root_user_message="hi",
+        persona_rhythm=signal,
+    )
+
+    await service._build_response_rhythm_plan(
+        context=SimpleNamespace(latest_user_message="hi"),
+        result=result,
+        response_text="x",
+        ux_plan={},
+    )
+    assert received.get("persona") is signal
+
+
+
+def test_rhythm_level_multiplies_scene_and_chattiness() -> None:
+    from magi.chat.task_agent.rhythm import _rhythm_level
+    from magi.agent.task_agents.common import RhythmPersonaSignal
+
+    assert abs(_rhythm_level(None) - 0.25) < 1e-9
+    crisis = RhythmPersonaSignal(register="crisis", persona_intensity=0, chattiness=0.9)
+    assert _rhythm_level(crisis) == 0.0
+    chatty = RhythmPersonaSignal(register="chat", persona_intensity=2, chattiness=0.75)
+    assert abs(_rhythm_level(chatty) - 0.75) < 1e-9
+    reserved = RhythmPersonaSignal(register="chat", persona_intensity=2, chattiness=0.30)
+    assert abs(_rhythm_level(reserved) - 0.30) < 1e-9
+
+
+def test_rhythm_profile_maps_level_to_bias_speed_maxgroups() -> None:
+    from magi.chat.task_agent.rhythm import _rhythm_profile
+
+    bias_lo, speed_lo, max_lo = _rhythm_profile(0.1)
+    assert "exactly one group" in bias_lo and max_lo == 1 and speed_lo > 1.0
+    bias_mid, speed_mid, max_mid = _rhythm_profile(0.6)
+    assert max_mid == 3 and speed_mid < 1.0
+    bias_hi, speed_hi, max_hi = _rhythm_profile(0.9)
+    assert max_hi == 5 and speed_hi < speed_mid
+    # thresholds are exclusive (<): exact boundary values fall into the higher band
+    assert _rhythm_profile(0.20)[2] == 2
+    assert _rhythm_profile(0.50)[2] == 3
+    assert _rhythm_profile(0.75)[2] == 5
+
+
+def test_build_system_prompt_uses_segmentation_bias_and_max_groups() -> None:
+    from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+
+    p = ResponseRhythmPlanner._build_system_prompt(
+        segmentation_bias="- Use exactly one group; do not split.",
+        max_groups=1,
+        sentence_style="爱用短句",
+    )
+    assert "Use exactly one group" in p
+    assert "at most 1 group." in p
+    assert "a single chat bubble" in p
+    assert "爱用短句" in p
+    p5 = ResponseRhythmPlanner._build_system_prompt(
+        segmentation_bias="- Prefer two or three short groups; up to five for a lively, bursty reply with distinct moves.",
+        max_groups=5,
+    )
+    assert "at most 5 groups" in p5
+    assert "爱用短句" not in p5
+
+
+def test_min_segments_chars_scales_with_group_count() -> None:
+    from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+
+    cjk = "字字字"
+    assert ResponseRhythmPlanner._min_segments_chars(3, cjk) == 120
+    assert ResponseRhythmPlanner._min_segments_chars(4, cjk) == 240
+    assert ResponseRhythmPlanner._min_segments_chars(5, cjk) == 360
+
+
+def test_compute_delay_ms_scales_with_length_and_clamps() -> None:
+    class _FixedRng:
+        @staticmethod
+        def uniform(_a: float, _b: float) -> float:
+            return 1.0
+
+    rng = _FixedRng()
+    # 极短 -> floor
+    assert _compute_delay_ms("嗯", rng=rng) == _FLOOR_MS
+    # 30 CJK 字 * 50ms = 1500ms(jitter=1.0)
+    mid = _compute_delay_ms("字" * 30, rng=rng)
+    assert mid == 1500
+    # 极长 -> ceil
+    assert _compute_delay_ms("字" * 1000, rng=rng) == _CEIL_MS
+    # 同字数下 latin 比 CJK 轻
+    assert _compute_delay_ms("a" * 100, rng=rng) < _compute_delay_ms("字" * 100, rng=rng)
+    # speed_factor 单调
+    slow = _compute_delay_ms("字" * 30, speed_factor=1.3, rng=rng)
+    fast = _compute_delay_ms("字" * 30, speed_factor=0.8, rng=rng)
+    assert fast < mid < slow

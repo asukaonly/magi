@@ -53,7 +53,9 @@
     "installing": "安装中…",
     "connectHint": "连接后 magi 就能读取这部分数据。",
     "dismissedTitle": "已忽略",
-    "restore": "恢复"
+    "restore": "恢复",
+    "conflictConfirm": "更新",
+    "conflictReject": "保持"
   },
   "nav": {
     "dashboard": "仪表盘",
@@ -778,8 +780,9 @@
     "loadHistoryFailed": "加载历史失败",
     "greetingFallback": "👋 欢迎使用 Magi AI Agent Framework！\n\n你可以在这里与 Agent 对话。发送消息后，Agent 会通过感知器接收消息，处理后实时推送回复。",
     "greetingSimpleFallback": "👋 欢迎使用 Magi AI Agent Framework！",
+    "personaFallbackName": "人格",
     "bootstrapInit": {
-      "preparing": "正在初始化 AI，并准备第一条消息..."
+      "preparing": "{{name}}正在赶来…"
     },
     "runtime": {
       "label": "运行态详情",
@@ -859,6 +862,7 @@
       "summaryStepsValue": "{{completed}} 个完成 / {{failed}} 个失败",
       "summaryMode": "模式",
       "summaryTokens": "Token 用量",
+      "cacheTokens": "缓存 Token",
       "summaryTokensValue": "输入 {{input}} / 输出 {{output}}",
       "summaryTokensWithReasoning": "输入 {{input}} / 输出 {{output}} / 思考 {{reasoning}}",
       "statusRunning": "running",
@@ -1610,7 +1614,7 @@
           "label": "启用查询扩写",
           "description": "使用 LLM 为记忆查询生成额外检索表达，提升召回率，但会增加一次额外模型调用。"
         },
-        "cross_encoder_model_hint": "精排模型可在「大模型配置 → 模型选择 → 精排模型」中选择和下载。",
+        "cross_encoder_no_model_hint": "请先在「大模型配置 → 模型选择 → 精排模型」中配置 Cross-Encoder 模型，再启用此功能。",
         "reranker_model": {
           "label": "精排模型",
           "placeholder": "选择一个 Cross-Encoder 模型"
@@ -2247,6 +2251,7 @@
     "nav": {
       "stories": "反思",
       "episodes": "经历",
+      "knowledge": "知识图谱",
       "portrait": "关于你",
       "recall": "找记忆",
       "governance": "整理",

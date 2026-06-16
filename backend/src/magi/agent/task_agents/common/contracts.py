@@ -415,6 +415,16 @@ class AssistantResponsePlan:
 
 
 @dataclass(slots=True)
+class RhythmPersonaSignal:
+    """Per-turn persona signals consumed by the conversation rhythm planner."""
+
+    register: str = "casual"
+    persona_intensity: int = 1
+    sentence_style: str = ""
+    chattiness: float = 0.5  # baseline conversational verbosity; drives rhythm pacing via _rhythm_level
+
+
+@dataclass(slots=True)
 class ExecutionResult:
     """Normalized execution result returned from a handler."""
 
@@ -432,6 +442,7 @@ class ExecutionResult:
     llm_trace: dict[str, Any] = field(default_factory=dict)
     ux_plan: Optional[dict[str, Any]] = None
     streamed: bool = False
+    persona_rhythm: Optional["RhythmPersonaSignal"] = None
 
 
 @dataclass(slots=True)

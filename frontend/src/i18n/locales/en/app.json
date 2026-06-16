@@ -53,7 +53,9 @@
     "installing": "Installing…",
     "connectHint": "Connect it so magi can use this data.",
     "dismissedTitle": "Dismissed",
-    "restore": "Restore"
+    "restore": "Restore",
+    "conflictConfirm": "Update",
+    "conflictReject": "Keep"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -778,8 +780,9 @@
     "loadHistoryFailed": "Failed to load history",
     "greetingFallback": "👋 Welcome to Magi AI Agent Framework!\n\nYou can chat with the agent here. After sending a message, the agent will process it and stream replies back in real time.",
     "greetingSimpleFallback": "👋 Welcome to Magi AI Agent Framework!",
+    "personaFallbackName": "Someone",
     "bootstrapInit": {
-      "preparing": "Initializing the AI and preparing the first message..."
+      "preparing": "{{name}} is on the way…"
     },
     "runtime": {
       "label": "Runtime activity",
@@ -860,6 +863,7 @@
       "summaryStepsValue": "{{completed}} done / {{failed}} failed",
       "summaryMode": "Mode",
       "summaryTokens": "Token Usage",
+      "cacheTokens": "Cache Tokens",
       "summaryTokensValue": "In {{input}} / Out {{output}}",
       "summaryTokensWithReasoning": "In {{input}} / Out {{output}} / Think {{reasoning}}",
       "statusRunning": "running",
@@ -1611,7 +1615,7 @@
           "label": "Enable Query Expansion",
           "description": "Use an LLM to generate additional retrieval phrasings for memory queries, improving recall at the cost of one extra model call."
         },
-        "cross_encoder_model_hint": "The reranker model can be selected and downloaded in LLM Configuration → Model Selection → Reranker.",
+        "cross_encoder_no_model_hint": "Configure a Cross-Encoder model first in LLM Configuration → Model Selection → Reranker.",
         "reranker_model": {
           "label": "Reranker Model",
           "placeholder": "Select a Cross-Encoder model"
@@ -2248,6 +2252,7 @@
     "nav": {
       "stories": "Reflections",
       "episodes": "Experiences",
+      "knowledge": "Knowledge",
       "portrait": "About you",
       "recall": "Search memories",
       "governance": "Manage",

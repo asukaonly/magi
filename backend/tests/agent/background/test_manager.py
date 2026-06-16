@@ -32,9 +32,15 @@ def _make_spec(*, origin_turn_id: str = "turn-1") -> BackgroundTaskSpec:
 async def _wait_until(
     predicate: Callable[[], bool | Awaitable[bool]],
     *,
-    timeout: float = 2.0,
+    timeout: float = 5.0,
 ) -> None:
-    """Poll ``predicate`` on a tight event-loop cycle until it is truthy."""
+    """Poll ``predicate`` on a tight event-loop cycle until it is truthy.
+
+    The timeout only bounds how long a *failing* wait blocks before raising — a satisfied
+    condition returns within a poll cycle. It is generous (5s) so that CPU contention under
+    parallel test runs (``pytest -n auto``) does not turn a slow-but-correct transition into
+    a spurious timeout; a genuinely stuck task still fails, just a little later.
+    """
     deadline = asyncio.get_running_loop().time() + timeout
     while True:
         result = predicate()
@@ -63,6 +69,28 @@ def _status_reaches(
         return (await _get_status(store, task_id)) == target
 
     return _check
+
+
+async def _wait_for_terminal_event(
+    store: BackgroundTaskStore,
+    task_id: str,
+    terminal: BackgroundTaskStatus,
+) -> None:
+    """Wait until the event log's last transition is ``terminal``.
+
+    The status column and the event-log rows are written on separate paths, so a
+    ``_status_reaches`` wait can return before the terminal event row is visible. Tests
+    that assert on ``list_events()`` must wait on the log itself, not the status column, or
+    they flake under parallel runs (the terminal event lags the status write). Use this only
+    for tasks whose transitions are strictly linear; for racy append orders (e.g. cancel,
+    where the executor's CANCELLED can precede the manager's CANCELLING) wait on membership.
+    """
+
+    async def _check() -> bool:
+        recorded = [e.to_status for e in await store.list_events(task_id)]
+        return bool(recorded) and recorded[-1] == terminal
+
+    await _wait_until(_check)
 
 
 # ----------------------------------------------------------------------
@@ -96,8 +124,9 @@ async def test_enqueued_task_runs_to_succeeded(runtime_paths_with_schema) -> Non
         assert fetched.started_at is not None
         assert fetched.finished_at is not None
 
-        events = await store.list_events(task.task_id)
-        transitions = [e.to_status for e in events]
+        # Wait for the SUCCEEDED event row, not just the status column (separate write paths).
+        await _wait_for_terminal_event(store, task.task_id, BackgroundTaskStatus.SUCCEEDED)
+        transitions = [e.to_status for e in await store.list_events(task.task_id)]
         assert transitions == [
             BackgroundTaskStatus.PENDING,
             BackgroundTaskStatus.RUNNING,
@@ -181,10 +210,25 @@ async def test_cancel_running_task_transitions_to_cancelled(runtime_paths_with_s
         assert fetched is not None
         assert fetched.cancel_reason == "user_stop"
 
-        events = await store.list_events(task.task_id)
-        transitions = [e.to_status for e in events]
+        # The status column and the event-log rows are written on separate paths, so
+        # status==CANCELLED does NOT guarantee the CANCELLED event row is visible yet.
+        # Both transitions are recorded, but their append-order is non-deterministic under
+        # load: manager.cancel() flips the token (waking the run loop) before it appends
+        # the CANCELLING event, so the executor can append CANCELLED first. Wait for the
+        # event log to actually contain both before asserting on its contents — polling the
+        # log (not the status) is what makes this robust under parallel test runs.
+        async def _events_have_both() -> bool:
+            recorded = [e.to_status for e in await store.list_events(task.task_id)]
+            return (
+                BackgroundTaskStatus.CANCELLING in recorded
+                and BackgroundTaskStatus.CANCELLED in recorded
+            )
+
+        await _wait_until(_events_have_both)
+
+        transitions = [e.to_status for e in await store.list_events(task.task_id)]
         assert BackgroundTaskStatus.CANCELLING in transitions
-        assert transitions[-1] == BackgroundTaskStatus.CANCELLED
+        assert BackgroundTaskStatus.CANCELLED in transitions
     finally:
         await manager.stop()
 
@@ -635,12 +679,11 @@ async def test_suspend_and_resume_waiting_user(runtime_paths_with_schema) -> Non
         assert fetched.status == BackgroundTaskStatus.RUNNING
 
         proceed.set()
-        await _wait_until(
-            _status_reaches(store, task.task_id, BackgroundTaskStatus.SUCCEEDED)
-        )
+        # Wait for the SUCCEEDED event row, not just the status column (separate write paths,
+        # so status==SUCCEEDED can precede the terminal event append and flake transitions[-1]).
+        await _wait_for_terminal_event(store, task.task_id, BackgroundTaskStatus.SUCCEEDED)
 
-        events = await store.list_events(task.task_id)
-        transitions = [e.to_status for e in events]
+        transitions = [e.to_status for e in await store.list_events(task.task_id)]
         assert BackgroundTaskStatus.SUSPENDED_WAITING_USER in transitions
         # After resume the task should be RUNNING again before succeeding.
         assert transitions.count(BackgroundTaskStatus.RUNNING) >= 2

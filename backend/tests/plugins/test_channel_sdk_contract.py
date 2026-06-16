@@ -138,5 +138,36 @@ def test_channel_message_dispatcher_protocol_supports_structural_typing() -> Non
     assert isinstance(StubChannelMessageDispatcher(), SdkChannelMessageDispatcherProtocol)
 
 
+def test_control_port_contract_reexport_and_structural_typing() -> None:
+    from magi.channels import (
+        ChannelControlCommandResult as BackendResult,
+        ChannelControlPortProtocol as BackendPort,
+    )
+    from magi.channels.contracts import (
+        ChannelControlPortProtocol as BackendContractsPort,
+    )
+    from magi_plugin_sdk.channels import (
+        ChannelControlCommandResult as SdkResult,
+        ChannelControlPortProtocol as SdkPort,
+    )
+
+    # Backend re-exports the SAME objects as the SDK (no divergent copy).
+    assert BackendResult is SdkResult
+    assert BackendPort is SdkPort
+    assert BackendContractsPort is SdkPort
+
+    # The port is structurally typed — a stub with handle_command satisfies it.
+    class _StubControlPort:
+        async def handle_command(
+            self, *, message, session_id, channel_type, external_chat_id, external_user_id,
+        ):
+            _ = message, session_id, channel_type, external_chat_id, external_user_id
+            return None
+
+    assert isinstance(_StubControlPort(), SdkPort)
+    assert SdkResult(ack="✨ done", kind="session").ack == "✨ done"
+    assert SdkResult().ack is None and SdkResult().kind == ""
+
+
 def test_channel_attachment_store_protocol_supports_structural_typing() -> None:
     assert isinstance(StubChannelAttachmentStore(), SdkChannelAttachmentStoreProtocol)

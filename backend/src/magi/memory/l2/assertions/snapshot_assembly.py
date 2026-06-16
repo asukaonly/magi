@@ -7,6 +7,7 @@ from typing import Any, Dict, List, cast
 
 from ..storage.utils import MOOD_TRAJECTORY_FAMILIES, MOOD_TRAJECTORY_LIMIT
 from .snapshot_protocols import _SnapshotHostProtocol
+from .source_tier import source_tier
 
 
 class L2SnapshotAssemblyMixin:
@@ -111,6 +112,10 @@ class L2SnapshotAssemblyMixin:
                 "value": assertion["trait_value"],
                 "affinity": affinity,
                 "family": family,
+                "source_tier": source_tier(
+                    source_domain=assertion.get("source_domain"),
+                    user_feedback=assertion.get("user_feedback"),
+                ),
             }
 
     def _add_relation_preferences(

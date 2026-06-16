@@ -451,7 +451,9 @@ def test_compact_message_history_preserves_protocol_for_multi_tool_blocks() -> N
     )
     messages: List[Dict[str, Any]] = [{"role": "user", "content": "analyze repo"}]
 
-    for index in range(1, 6):
+    # Enough completed tool blocks to cross the hysteresis high-water mark
+    # (_COMPACT_TRIGGER) so compaction actually fires (#100/P2b).
+    for index in range(1, 14):
         tool_name = f"tool_{index}"
         messages.append(
             {

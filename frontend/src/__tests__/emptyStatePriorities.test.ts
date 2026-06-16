@@ -16,6 +16,7 @@ describe('EMPTY_STATE_PRIORITY_PLUGINS', () => {
     expect(EMPTY_STATE_PRIORITY_PLUGINS).toEqual([
       'chrome-history',
       'coding_agent_history',
+      'screenshot_timeline',
       'calendar',
       'git-activity',
       'photo-library',

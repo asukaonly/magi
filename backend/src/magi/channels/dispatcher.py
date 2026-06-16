@@ -15,10 +15,8 @@ from magi_plugin_sdk.channels import (
 )
 
 from ..api.services.message_dispatch_service import dispatch_user_message
-from ..control.permission.slash_commands import (
-    ControlCommandOutcome,
-    try_handle_control_command,
-)
+from ..control.permission.slash_commands import try_handle_control_command
+from .session_commands import try_handle_session_command
 
 
 class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
@@ -29,6 +27,7 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
         *,
         permission_registry: object | None = None,
         interaction_broker: object | None = None,
+        session_mapper: object | None = None,
     ) -> None:
         # Optional Phase H+2 wiring — when both are provided, inbound
         # messages are checked for /approve|/deny slash commands before
@@ -37,6 +36,10 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
         # is disabled and every message dispatches normally.
         self._permission_registry = permission_registry
         self._interaction_broker = interaction_broker
+        # When provided, inbound messages are also checked for the
+        # new-session command (/新会话 …), which resets the channel→session
+        # binding so the next message starts fresh. None disables it.
+        self._session_mapper = session_mapper
 
     async def dispatch_user_message(
         self,
@@ -67,7 +70,23 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
                 return _control_command_outcome(
                     user_id=user_id,
                     session_id=session_id,
-                    control_outcome=control_outcome,
+                    ack_message=control_outcome.ack_message,
+                )
+
+        # New-session command short-circuit (channels layer): reset the
+        # session→channel binding so the NEXT message starts a fresh session.
+        # No LLM turn; the ack is surfaced to the user via the channel.
+        if self._session_mapper is not None:
+            session_outcome = await try_handle_session_command(
+                message=message,
+                session_id=session_id,
+                session_mapper=self._session_mapper,
+            )
+            if session_outcome.handled:
+                return _control_command_outcome(
+                    user_id=user_id,
+                    session_id=session_id,
+                    ack_message=session_outcome.ack_message,
                 )
 
         outcome = await dispatch_user_message(
@@ -98,18 +117,17 @@ def _control_command_outcome(
     *,
     user_id: str,
     session_id: str | None,
-    control_outcome: ControlCommandOutcome,
+    ack_message: str | None,
 ) -> ChannelMessageDispatchOutcome:
-    """Build a dispatch outcome for a control command that was handled
-    by the slash-command parser (no LLM dispatch occurred).
+    """Build a dispatch outcome for a control / session command that was
+    handled in the dispatcher (no LLM dispatch occurred).
 
     ``success`` is always True at the dispatch-layer (the message was
-    accepted; we DID something useful with it). Whether the underlying
-    permission was approved / denied / not-found is conveyed via
-    ``error_message`` (which carries ``ack_message`` so the channel
-    plugin can surface it to the user); ``error_code`` left None.
-    ``turn_id`` and ``message_id`` are None because no LLM turn / chat
-    message was created."""
+    accepted; we DID something useful with it). The user-facing result
+    (approved / denied / not-found / session reset) is conveyed via
+    ``error_message`` (carrying ``ack_message`` so the channel plugin can
+    surface it); ``error_code`` left None. ``turn_id`` and ``message_id`` are
+    None because no LLM turn / chat message was created."""
     return ChannelMessageDispatchOutcome(
         success=True,
         user_id=user_id,
@@ -117,6 +135,6 @@ def _control_command_outcome(
         turn_id=None,
         message_id=None,
         error_code=None,
-        error_message=control_outcome.ack_message,
+        error_message=ack_message,
         queue_size=0,
     )

@@ -8,7 +8,14 @@ from typing import Any, Dict, List, Optional, cast
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ..assertions.state_machine import RETRIEVAL_EXCLUDED_STATUSES
 from .common import L2RetrievalQueryHostProtocol
+
+
+def _excluded_status_clause() -> tuple[str, list[str]]:
+    """SQL fragment + params excluding forget/reject governance statuses."""
+    placeholders = ", ".join("?" for _ in RETRIEVAL_EXCLUDED_STATUSES)
+    return f" AND status NOT IN ({placeholders})", list(RETRIEVAL_EXCLUDED_STATUSES)
 
 
 class L2StoreAssertionQueryMixin:
@@ -31,12 +38,17 @@ class L2StoreAssertionQueryMixin:
         trait_families: Optional[List[str]] = None,
         validation_states: Optional[List[str]] = None,
         include_expired: bool = True,
+        include_inactive: bool = False,
         target_entity_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
     ) -> List[Dict[str, Any]]:
-        """List ToM assertions ordered by recency."""
+        """List ToM assertions ordered by recency.
+
+        By default forgotten/rejected records (``status`` in the governance set)
+        are excluded; pass ``include_inactive=True`` for admin/debug reads.
+        """
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
         query = "SELECT * FROM tom_trait_assertions WHERE 1=1"
@@ -62,6 +74,10 @@ class L2StoreAssertionQueryMixin:
             now = time.time()
             query += " AND (expires_at IS NULL OR expires_at > ?)"
             args.append(now)
+        if not include_inactive:
+            status_sql, status_args = _excluded_status_clause()
+            query += status_sql
+            args.extend(status_args)
         if temporal_clause:
             tc_sql, tc_params = temporal_clause
             if tc_sql:
@@ -105,6 +121,34 @@ class L2StoreAssertionQueryMixin:
             await db.commit()
         return count
 
+    async def list_assertions_by_status(
+        self,
+        status: str,
+        *,
+        entity_id: Optional[str] = None,
+        limit: int = 500,
+    ) -> List[Dict[str, Any]]:
+        """Return all assertion rows with the given ``status`` value.
+
+        This is a low-level admin/maintenance query that bypasses the normal
+        ``RETRIEVAL_EXCLUDED_STATUSES`` filter intentionally — for example, to
+        fetch ``status='shadow'`` rows that the normal read path hides.
+        """
+        host = cast(L2RetrievalQueryHostProtocol, self)
+        await host.initialize()
+        query = "SELECT * FROM tom_trait_assertions WHERE status = ?"
+        args: list[Any] = [status]
+        if entity_id:
+            query += " AND entity_id = ?"
+            args.append(entity_id)
+        query += " ORDER BY updated_at DESC LIMIT ?"
+        args.append(int(limit))
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [host._assertion_row_to_dict(row) for row in rows]
+
     async def get_tom_assertion(self, *, assertion_id: str) -> Optional[Dict[str, Any]]:
         """Fetch one ToM assertion by id."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -126,11 +170,16 @@ class L2StoreAssertionQueryMixin:
         trait_families: Optional[List[str]] = None,
         validation_states: Optional[List[str]] = None,
         include_expired: bool = False,
+        include_inactive: bool = False,
         target_entity_id: Optional[str] = None,
         limit_per_entity: int = 100,
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """Batch-fetch assertions for multiple entities in one query."""
+        """Batch-fetch assertions for multiple entities in one query.
+
+        Forgotten/rejected records are excluded by default; pass
+        ``include_inactive=True`` for admin/debug reads.
+        """
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
         if not entity_ids:
@@ -159,6 +208,10 @@ class L2StoreAssertionQueryMixin:
             now = time.time()
             query += " AND (expires_at IS NULL OR expires_at > ?)"
             args.append(now)
+        if not include_inactive:
+            status_sql, status_args = _excluded_status_clause()
+            query += status_sql
+            args.extend(status_args)
         if temporal_clause:
             tc_sql, tc_params = temporal_clause
             if tc_sql:

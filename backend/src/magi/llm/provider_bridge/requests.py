@@ -37,6 +37,26 @@ class _ProviderBridgeRequestHostProtocol(Protocol):
     ) -> Dict[str, Any]:
         ...
 
+    def _cache_marked_system(self, system_prompt: str, *, cache_whole: bool = False) -> Any:
+        ...
+
+    def _inject_turn_context(
+        self, messages: list[dict[str, Any]], system_prompt: str
+    ) -> list[dict[str, Any]]:
+        ...
+
+    def _mark_message_cache_breakpoints(
+        self,
+        injected_messages: list[dict[str, Any]],
+        api_messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        ...
+
+    def _apply_cache_routing(
+        self, kwargs: dict[str, Any], event_context: Optional[dict[str, Any]]
+    ) -> dict[str, Any]:
+        ...
+
     def _parse_anthropic_response(self, response: Any) -> ProviderResponse:
         ...
 
@@ -61,15 +81,18 @@ class ProviderBridgeRequestMixin:
         json_mode: bool,
         timeout_seconds: Optional[float],
         event_context: Optional[Dict[str, Any]],
+        cache_system: bool = False,
     ) -> ProviderResponse:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
+        messages = host._inject_turn_context(messages, system_prompt)
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
+            api_messages = host._mark_message_cache_breakpoints(messages, api_messages)
             anthropic_kwargs: Dict[str, Any] = {
                 "model": host.llm.model_name,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "system": system_prompt,
+                "system": host._cache_marked_system(system_prompt, cache_whole=cache_system),
                 "messages": api_messages,
             }
             if timeout_seconds is not None:
@@ -115,7 +138,12 @@ class ProviderBridgeRequestMixin:
                 )
             return parsed_response
 
-        full_messages = [{"role": "system", "content": system_prompt}] + host._convert_messages_to_openai(messages)
+        openai_messages = host._mark_message_cache_breakpoints(
+            messages, host._convert_messages_to_openai(messages)
+        )
+        full_messages = [
+            {"role": "system", "content": host._cache_marked_system(system_prompt, cache_whole=cache_system)}
+        ] + openai_messages
         chat_kwargs: Dict[str, Any] = {
             "messages": full_messages,
             "max_tokens": max_tokens,
@@ -126,6 +154,7 @@ class ProviderBridgeRequestMixin:
         if timeout_seconds is not None:
             chat_kwargs["timeout"] = timeout_seconds
         chat_kwargs = host._apply_provider_options(chat_kwargs, thinking_depth)
+        chat_kwargs = host._apply_cache_routing(chat_kwargs, event_context)
 
         if getattr(host.llm, "_client", None) is not None:
             chat_kwargs["model"] = host.llm.model_name
@@ -244,15 +273,18 @@ class ProviderBridgeRequestMixin:
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
+        event_context: Optional[Dict[str, Any]] = None,
     ) -> ProviderResponse:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
+        messages = host._inject_turn_context(messages, system_prompt)
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
+            api_messages = host._mark_message_cache_breakpoints(messages, api_messages)
             anthropic_kwargs: Dict[str, Any] = {
                 "model": host.llm.model_name,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "system": system_prompt,
+                "system": host._cache_marked_system(system_prompt),
                 "messages": api_messages,
                 "tools": tools if tools else None,
                 "timeout": timeout_seconds,
@@ -261,7 +293,10 @@ class ProviderBridgeRequestMixin:
             response = await host.llm._client.messages.create(**anthropic_kwargs)
             return host._parse_anthropic_response(response)
 
-        full_messages = [{"role": "system", "content": system_prompt}] + host._convert_messages_to_openai(messages)
+        openai_messages = host._mark_message_cache_breakpoints(
+            messages, host._convert_messages_to_openai(messages)
+        )
+        full_messages = [{"role": "system", "content": host._cache_marked_system(system_prompt)}] + openai_messages
         kwargs: Dict[str, Any] = {
             "model": host.llm.model_name,
             "messages": full_messages,
@@ -273,6 +308,7 @@ class ProviderBridgeRequestMixin:
         if timeout_seconds is not None:
             kwargs["timeout"] = timeout_seconds
         kwargs = host._apply_provider_options(kwargs, thinking_depth)
+        kwargs = host._apply_cache_routing(kwargs, event_context)
 
         response = await host.llm._client.chat.completions.create(**kwargs)
         return host._parse_openai_response(response)

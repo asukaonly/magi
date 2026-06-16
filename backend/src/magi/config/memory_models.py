@@ -99,6 +99,28 @@ class MemoryL2Settings(BaseModel):
         ge=1,
         description="Orphan prune keeps entities with at least this many resolved mentions (unless referenced in graph).",
     )
+    interest_aggregation_enabled: bool = Field(
+        default=True,
+        description="Run interest aggregation during L2 maintenance to surface INTERESTED_IN edges as inferred preference_profile assertions.",
+    )
+    interest_observation_threshold: int = Field(
+        default=3,
+        ge=1,
+        description="Minimum INTERESTED_IN edge observation count for a topic to be aggregated into a preference_profile assertion.",
+    )
+    shadow_conflict_notification_enabled: bool = Field(
+        default=True,
+        description="Emit a 'profile_conflict' notification for each active shadow assertion that conflicts with a user-authoritative row, prompting the user to resolve the discrepancy.",
+    )
+    derive_schedule_enabled: bool = Field(
+        default=True,
+        description="Register periodic L2 derived-data (interest aggregation + conflict notifications) task, independent of maintenance.",
+    )
+    derive_schedule_interval_seconds: float = Field(
+        default=21_600.0,
+        ge=300.0,
+        description="Interval between L2 derive runs (seconds). Minimum 300s.",
+    )
 
 
 class MemoryL3Settings(BaseModel):

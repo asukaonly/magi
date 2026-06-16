@@ -159,6 +159,212 @@ async def test_sensor_sync_executor_runs_jobs_on_owner_loop(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_sensor_sync_success_triggers_l3_backfill(tmp_path, monkeypatch):
+    """After a successful sync, the executor best-effort backfills L3 over the
+    synced source's L1 event window (min/max timestamp from summarize_event_sources)."""
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+
+    backfill_calls: list[dict[str, object]] = []
+    summarize_calls: list[dict[str, object]] = []
+
+    async def _fake_backfill(**kwargs):
+        backfill_calls.append(kwargs)
+        return {"generated": [], "skipped_existing": 0, "skipped_sparse": 0}
+
+    async def _fake_summarize_event_sources(**kwargs):
+        summarize_calls.append(kwargs)
+        return [
+            {
+                "source": "test-source",
+                "event_count": 5,
+                "avg_importance": 0.5,
+                "min_timestamp": 1000.0,
+                "max_timestamp": 2000.0,
+            }
+        ]
+
+    class _FakeL1:
+        summarize_event_sources = staticmethod(_fake_summarize_event_sources)
+
+    class _FakeUnifiedMemory:
+        l1 = _FakeL1()
+        backfill_l3_gaps = staticmethod(_fake_backfill)
+
+    fake_um = _FakeUnifiedMemory()
+    monkeypatch.setattr(
+        "magi.memory.provider.get_unified_memory",
+        lambda: fake_um,
+    )
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        assert job_record["job_id"] == job_id
+        return ScheduledExecutionResult(success=True, message="sensor_sync_completed")
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        poll_interval_seconds=0.01,
+        running_timeout_seconds=30.0,
+    )
+    await executor.start()
+    await _wait_for_job_status(repository, job_id, "success")
+    # Backfill is fired after the success commit; give the executor loop a beat.
+    deadline = time.time() + 2.0
+    while time.time() < deadline and not backfill_calls:
+        await asyncio.sleep(0.02)
+    await executor.stop()
+
+    assert summarize_calls, "summarize_event_sources was not called"
+    assert summarize_calls[0]["source_filters"] == ["test-source"]
+    assert len(backfill_calls) == 1
+    assert backfill_calls[0]["range_start"] == 1000.0
+    assert backfill_calls[0]["range_end"] == 2000.0
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_success_triggers_l2_derive(tmp_path, monkeypatch):
+    """After a successful sync, execute_schedule_async is called with SCHEDULE_ID_L2_DERIVE."""
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+
+    derive_calls: list[tuple] = []
+
+    async def _fake_execute_schedule_async(schedule_id: str, *, manual: bool = True, **kwargs):
+        derive_calls.append((schedule_id, manual))
+        return ScheduledExecutionResult(success=True, message="queued", stats={})
+
+    class _FakeSchedulerService:
+        execute_schedule_async = staticmethod(_fake_execute_schedule_async)
+
+    # Patch get_unified_memory to avoid RuntimeError in _backfill_l3_after_sync
+    class _FakeL1:
+        async def summarize_event_sources(self, **kwargs):
+            return []
+
+    class _FakeUnifiedMemory:
+        l1 = _FakeL1()
+
+    monkeypatch.setattr(
+        "magi.memory.provider.get_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        return ScheduledExecutionResult(success=True, message="sensor_sync_completed")
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        scheduler_service=_FakeSchedulerService(),
+        poll_interval_seconds=0.01,
+        running_timeout_seconds=30.0,
+    )
+    await executor.start()
+    await _wait_for_job_status(repository, job_id, "success")
+    # L2 trigger fires after the success commit; give the executor loop a beat.
+    deadline = time.time() + 2.0
+    while time.time() < deadline and not derive_calls:
+        await asyncio.sleep(0.02)
+    await executor.stop()
+
+    from magi.memory.l2.derive_schedule import SCHEDULE_ID_L2_DERIVE
+
+    assert len(derive_calls) == 1, f"Expected 1 L2 derive call, got {len(derive_calls)}"
+    assert derive_calls[0] == (SCHEDULE_ID_L2_DERIVE, True)
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_success_no_scheduler_service(tmp_path, monkeypatch):
+    """Sync succeeds and does not crash when scheduler_service is None."""
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+
+    class _FakeL1:
+        async def summarize_event_sources(self, **kwargs):
+            return []
+
+    class _FakeUnifiedMemory:
+        l1 = _FakeL1()
+
+    monkeypatch.setattr(
+        "magi.memory.provider.get_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        return ScheduledExecutionResult(success=True, message="sensor_sync_completed")
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        scheduler_service=None,  # explicitly no scheduler
+        poll_interval_seconds=0.01,
+        running_timeout_seconds=30.0,
+    )
+    await executor.start()
+    completed_job = await _wait_for_job_status(repository, job_id, "success")
+    await executor.stop()
+
+    assert completed_job["result_message"] == "sensor_sync_completed"
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_l2_derive_trigger_failure_does_not_fail_sync(tmp_path, monkeypatch):
+    """A raising scheduler does not fail the committed sync — trigger is fully guarded."""
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+
+    async def _raising_execute_schedule_async(schedule_id: str, **kwargs):
+        raise RuntimeError("scheduler exploded")
+
+    class _BrokenSchedulerService:
+        execute_schedule_async = staticmethod(_raising_execute_schedule_async)
+
+    class _FakeL1:
+        async def summarize_event_sources(self, **kwargs):
+            return []
+
+    class _FakeUnifiedMemory:
+        l1 = _FakeL1()
+
+    monkeypatch.setattr(
+        "magi.memory.provider.get_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        return ScheduledExecutionResult(success=True, message="sensor_sync_completed")
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        scheduler_service=_BrokenSchedulerService(),
+        poll_interval_seconds=0.01,
+        running_timeout_seconds=30.0,
+    )
+    await executor.start()
+    completed_job = await _wait_for_job_status(repository, job_id, "success")
+    await executor.stop()
+
+    # The sync must still be committed as success despite the scheduler crash
+    assert completed_job["result_message"] == "sensor_sync_completed"
+    assert completed_job["status"] == "success"
+
+
+@pytest.mark.asyncio
 async def test_sensor_sync_executor_requeues_stale_running_job_on_startup(tmp_path):
     db_path = tmp_path / "scheduler.db"
     repository = ScheduleRepository(db_path)

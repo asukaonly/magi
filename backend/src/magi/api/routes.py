@@ -26,6 +26,8 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l2/statistics": {"GET"},
         "/l2/relations": {"GET"},
         "/l2/assertions": {"GET"},
+        "/l2/assertions/{assertion_id}/feedback": {"PATCH"},
+        "/l2/assertions/{assertion_id}/correct": {"POST"},
         "/l2/entities": {"GET"},
         "/l2/mentions": {"GET"},
         "/l2/snapshots": {"GET"},
@@ -244,6 +246,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/notifications/dismiss-all": {"POST"},
         "/notifications/{notification_id}/dismiss": {"POST"},
         "/notifications/{notification_id}/action": {"POST"},
+        "/notifications/{notification_id}/resolve-conflict": {"POST"},
     },
     "channels_bindings": {
         "/bindings": {"GET"},
@@ -253,12 +256,31 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
 }
 
 
+def _iter_api_routes(router: APIRouter):
+    """Yield leaf APIRoutes, descending into included sub-routers.
+
+    fastapi <0.137 flattens ``include_router`` routes into ``router.routes`` as
+    plain ``APIRoute`` objects. fastapi >=0.137 instead appends one
+    ``_IncludedRouter`` wrapper per ``include_router`` call (no ``.path``),
+    exposing the child via ``original_router``. Recurse through both shapes so
+    route discovery is fastapi-version-agnostic. (magi's public sub-routers carry
+    no prefixes, so leaf ``route.path`` already matches the allowlist keys.)
+    """
+    for route in getattr(router, "routes", ()):  # default () guards non-router nodes
+        if isinstance(route, APIRoute):
+            yield route
+            continue
+        nested = getattr(route, "original_router", None)
+        if nested is None and hasattr(route, "routes"):
+            nested = route
+        if nested is not None and nested is not router:
+            yield from _iter_api_routes(nested)
+
+
 def _build_public_router(source_router: APIRouter, allowed_routes: Mapping[str, Set[str]]) -> APIRouter:
     """Create a filtered router that only exposes approved product endpoints."""
     public_routes = []
-    for route in source_router.routes:
-        if not isinstance(route, APIRoute):
-            continue
+    for route in _iter_api_routes(source_router):
         allowed_methods = allowed_routes.get(route.path)
         if not allowed_methods:
             continue

@@ -1424,6 +1424,46 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/memory/l2/assertions/{assertion_id}/correct": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Correct Assertion
+         * @description User-initiated value correction that supersedes an existing assertion.
+         */
+        readonly post: operations["correct_assertion_api_memory_l2_assertions__assertion_id__correct_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/assertions/{assertion_id}/feedback": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        /**
+         * Submit Assertion Feedback
+         * @description Apply user confirmation or rejection to an L2 assertion.
+         */
+        readonly patch: operations["submit_assertion_feedback_api_memory_l2_assertions__assertion_id__feedback_patch"];
+        readonly trace?: never;
+    };
     readonly "/api/memory/l2/conflict-rules": {
         readonly parameters: {
             readonly query?: never;
@@ -2247,6 +2287,29 @@ export interface paths {
         readonly put?: never;
         /** Dismiss */
         readonly post: operations["dismiss_api_notifications__notification_id__dismiss_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/notifications/{notification_id}/resolve-conflict": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Resolve Conflict
+         * @description Resolve a profile-conflict notification by confirming or rejecting the shadow assertion.
+         *
+         *     action="confirm" promotes the inferred shadow to the authoritative value.
+         *     action="reject"  discards the shadow; the existing authoritative value is kept.
+         */
+        readonly post: operations["resolve_conflict_api_notifications__notification_id__resolve_conflict_post"];
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -3535,6 +3598,21 @@ export interface components {
              */
             readonly name: string;
         };
+        /** AssertionCorrectionRequest */
+        readonly AssertionCorrectionRequest: {
+            /** New Value */
+            readonly new_value: string;
+            /** Reason */
+            readonly reason?: string | null;
+        };
+        /** AssertionFeedbackRequest */
+        readonly AssertionFeedbackRequest: {
+            /**
+             * Feedback
+             * @enum {string}
+             */
+            readonly feedback: "confirmed" | "rejected";
+        };
         /** AvailabilityEntry */
         readonly AvailabilityEntry: {
             /** Available */
@@ -4145,6 +4223,11 @@ export interface components {
         };
         /** IdiolectModel */
         readonly IdiolectModel: {
+            /**
+             * Chattiness
+             * @default 0.5
+             */
+            readonly chattiness: number;
             /**
              * Sentence Style
              * @default
@@ -6253,6 +6336,23 @@ export interface components {
              */
             readonly user_id: string;
         };
+        /** ResolveConflictRequest */
+        readonly ResolveConflictRequest: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            readonly action: "confirm" | "reject";
+        };
+        /** ResolveConflictResponse */
+        readonly ResolveConflictResponse: {
+            /** Action */
+            readonly action: string;
+            /** Resolved */
+            readonly resolved: boolean;
+            /** Status */
+            readonly status: string;
+        };
         /** ResourceReadPayload */
         readonly ResourceReadPayload: {
             /** Server Id */
@@ -6431,7 +6531,7 @@ export interface components {
          * @description Supported scheduler target families.
          * @enum {string}
          */
-        readonly ScheduledTargetType: "sensor_sync" | "memory_l2_maintenance" | "memory_l3_summary" | "memory_l4_maintenance" | "user_agent_task" | "timeline_diary_narrative" | "timeline_standout_rescore" | "timeline_mood_aggregate" | "timeline_representative_asset" | "location_ipgeo_poll" | "location_wifi_poll" | "outreach_outbox_drain";
+        readonly ScheduledTargetType: "sensor_sync" | "memory_l2_maintenance" | "memory_l3_summary" | "memory_l4_maintenance" | "user_agent_task" | "timeline_diary_narrative" | "timeline_standout_rescore" | "timeline_mood_aggregate" | "timeline_representative_asset" | "location_ipgeo_poll" | "location_wifi_poll" | "outreach_outbox_drain" | "memory_l2_derive";
         /** SeedPreviewResponse */
         readonly SeedPreviewResponse: {
             /** Data */
@@ -9922,6 +10022,76 @@ export interface operations {
             };
         };
     };
+    readonly correct_assertion_api_memory_l2_assertions__assertion_id__correct_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly assertion_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["AssertionCorrectionRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly submit_assertion_feedback_api_memory_l2_assertions__assertion_id__feedback_patch: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly assertion_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["AssertionFeedbackRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     readonly list_l2_conflict_rules_api_memory_l2_conflict_rules_get: {
         readonly parameters: {
             readonly query?: never;
@@ -11355,6 +11525,41 @@ export interface operations {
                     readonly "application/json": {
                         readonly [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly resolve_conflict_api_notifications__notification_id__resolve_conflict_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly notification_id: number;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["ResolveConflictRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ResolveConflictResponse"];
                 };
             };
             /** @description Validation Error */
