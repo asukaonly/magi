@@ -4201,6 +4201,11 @@ export interface components {
         /** IdiolectModel */
         readonly IdiolectModel: {
             /**
+             * Chattiness
+             * @default 0.5
+             */
+            readonly chattiness: number;
+            /**
              * Sentence Style
              * @default
              */
