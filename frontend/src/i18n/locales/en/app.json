@@ -778,8 +778,9 @@
     "loadHistoryFailed": "Failed to load history",
     "greetingFallback": "👋 Welcome to Magi AI Agent Framework!\n\nYou can chat with the agent here. After sending a message, the agent will process it and stream replies back in real time.",
     "greetingSimpleFallback": "👋 Welcome to Magi AI Agent Framework!",
+    "personaFallbackName": "Someone",
     "bootstrapInit": {
-      "preparing": "Initializing the AI and preparing the first message..."
+      "preparing": "{{name}} is on the way…"
     },
     "runtime": {
       "label": "Runtime activity",

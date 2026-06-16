@@ -778,8 +778,9 @@
     "loadHistoryFailed": "加载历史失败",
     "greetingFallback": "👋 欢迎使用 Magi AI Agent Framework！\n\n你可以在这里与 Agent 对话。发送消息后，Agent 会通过感知器接收消息，处理后实时推送回复。",
     "greetingSimpleFallback": "👋 欢迎使用 Magi AI Agent Framework！",
+    "personaFallbackName": "人格",
     "bootstrapInit": {
-      "preparing": "正在初始化 AI，并准备第一条消息..."
+      "preparing": "{{name}}正在赶来…"
     },
     "runtime": {
       "label": "运行态详情",
