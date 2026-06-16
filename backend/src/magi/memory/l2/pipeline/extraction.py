@@ -102,6 +102,8 @@ class L2PipelineExtractionMixin:
                 "relation_count": 0,
                 "assertion_count": 0,
                 "touched_entity_ids": [],
+                "touched_place_ids": [],
+                "touched_topic_keys": [],
                 "skipped": True,
             }
 
@@ -111,6 +113,8 @@ class L2PipelineExtractionMixin:
                 "relation_count": 0,
                 "assertion_count": 0,
                 "touched_entity_ids": [],
+                "touched_place_ids": [],
+                "touched_topic_keys": [],
                 "skipped": True,
                 "skip_reason": "empty_batch",
                 "evidence_class": None,
@@ -157,6 +161,8 @@ class L2PipelineExtractionMixin:
                 "relation_count": 0,
                 "assertion_count": 0,
                 "touched_entity_ids": [],
+                "touched_place_ids": [],
+                "touched_topic_keys": [],
                 "skipped": True,
                 "skip_reason": policy.skip_reason or "no_eligible_events",
                 "evidence_class": classification.evidence_class,
@@ -174,6 +180,8 @@ class L2PipelineExtractionMixin:
                 "relation_count": 0,
                 "assertion_count": 0,
                 "touched_entity_ids": [],
+                "touched_place_ids": [],
+                "touched_topic_keys": [],
                 "skipped": True,
                 "skip_reason": policy.skip_reason,
                 "evidence_class": classification.evidence_class,
@@ -269,6 +277,8 @@ class L2PipelineExtractionMixin:
                 "relation_count": direct_write_count,
                 "assertion_count": 0,
                 "touched_entity_ids": [],
+                "touched_place_ids": [],
+                "touched_topic_keys": [],
                 "snapshot_refresh_entity_ids": [],
                 "skipped": False,
                 "evidence_class": classification.evidence_class,
@@ -361,6 +371,8 @@ class L2PipelineExtractionMixin:
                 "relation_count": direct_write_count,
                 "assertion_count": 0,
                 "touched_entity_ids": [],
+                "touched_place_ids": [],
+                "touched_topic_keys": [],
                 "snapshot_refresh_entity_ids": [],
                 "skipped": False,
                 "evidence_class": classification.evidence_class,
@@ -408,6 +420,9 @@ class L2PipelineExtractionMixin:
             relation_count = await self._upsert_knowledge_edges(fast_track_candidates)
             facet_count = await self._upsert_entity_facets(facet_candidates)
             touched_entity_ids = self._collect_touched_entities(fast_track_candidates, [])
+            touched_place_ids, touched_topic_keys = self._derive_place_and_topic_hints(
+                touched_entity_ids
+            )
             logger.info(
                 "L2 fast-track: skipped Phase 2",
                 event_id=stored_event.event_id,
@@ -420,6 +435,8 @@ class L2PipelineExtractionMixin:
                 "relation_count": relation_count,
                 "assertion_count": 0,
                 "touched_entity_ids": touched_entity_ids,
+                "touched_place_ids": touched_place_ids,
+                "touched_topic_keys": touched_topic_keys,
                 "snapshot_refresh_entity_ids": [],
                 "skipped": False,
                 "evidence_class": classification.evidence_class,
@@ -566,6 +583,9 @@ class L2PipelineExtractionMixin:
             self_entity_id = self._resolve_self_entity_id(stored_event)
             if self_entity_id and self_entity_id not in touched_entity_ids:
                 touched_entity_ids.append(self_entity_id)
+        touched_place_ids, touched_topic_keys = self._derive_place_and_topic_hints(
+            touched_entity_ids
+        )
         snapshot_refresh_entity_ids = (
             touched_entity_ids
             if conflict_arbitration_decision == "mark_evolution" and relation_count > 0
@@ -576,6 +596,8 @@ class L2PipelineExtractionMixin:
             "relation_count": relation_count,
             "assertion_count": assertion_count,
             "touched_entity_ids": touched_entity_ids,
+            "touched_place_ids": touched_place_ids,
+            "touched_topic_keys": touched_topic_keys,
             "snapshot_refresh_entity_ids": snapshot_refresh_entity_ids,
             "skipped": False,
             "evidence_class": classification.evidence_class,

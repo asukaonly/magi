@@ -5517,3 +5517,59 @@ async def test_fast_track_claims_to_candidates_produces_valid_output():
         assert c["object_id"] == "food:ramen"
         assert c["extraction_method"] == "llm_phase1_fast_track"
         assert c["evidence_text"] == "I like ramen"
+
+
+# ── Episode formation hints: touched place ids + topic keys (Task 1.1) ──
+
+
+class TestDerivePlaceAndTopicHints:
+    """Pure derivation of touched_place_ids + touched_topic_keys from touched entities.
+
+    Episode formation needs place + topic hints so the worker can pass them into
+    EpisodeCandidateJob (today only entity_ids flow through, collapsing every
+    episode into 30-min activity buckets). Entity ids are formatted
+    ``{entity_type}:{slug}``, so the type is recoverable from the id prefix.
+    """
+
+    def _pipeline(self):
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        return L2Pipeline.__new__(L2Pipeline)
+
+    def test_place_ids_are_place_typed_touched_entities(self):
+        pipeline = self._pipeline()
+        place_ids, _topic_keys = pipeline._derive_place_and_topic_hints(
+            [
+                "place:shanghai",
+                "person:alice",
+                "place:tokyo",
+                "software:github",
+            ]
+        )
+        assert place_ids == ["place:shanghai", "place:tokyo"]
+
+    def test_topic_keys_are_sorted_unique_topic_typed_entities(self):
+        pipeline = self._pipeline()
+        _place_ids, topic_keys = pipeline._derive_place_and_topic_hints(
+            [
+                "topic:rust",
+                "topic:ai",
+                "topic:rust",
+                "person:bob",
+            ]
+        )
+        assert topic_keys == ["topic:ai", "topic:rust"]
+
+    def test_empty_touched_entities_yield_empty_hints(self):
+        pipeline = self._pipeline()
+        place_ids, topic_keys = pipeline._derive_place_and_topic_hints([])
+        assert place_ids == []
+        assert topic_keys == []
+
+    def test_no_place_or_topic_entities_yield_empty_hints(self):
+        pipeline = self._pipeline()
+        place_ids, topic_keys = pipeline._derive_place_and_topic_hints(
+            ["person:alice", "software:github", "user:local_user"]
+        )
+        assert place_ids == []
+        assert topic_keys == []
