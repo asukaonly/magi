@@ -43,6 +43,22 @@ class L2EpisodeMembershipMixin(L2EpisodeStoreBaseMixin):
             await db.commit()
         return added
 
+    async def count_episode_events(self, *, episode_id: str) -> int:
+        """Return the true distinct event membership count for an episode.
+
+        Derived from ``episode_events`` rather than hand-summed arithmetic, so
+        re-adding an already-present event (``INSERT OR IGNORE``) never inflates
+        the count.
+        """
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM episode_events WHERE episode_id = ?",
+                (episode_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
     async def list_episode_events(
         self, *, episode_id: str, limit: int = 500
     ) -> List[Dict[str, Any]]:

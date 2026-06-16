@@ -11,7 +11,24 @@ from fastapi import HTTPException, Query, status
 from ..dependencies import _resolve_unified_memory
 from ..helpers import memory_t
 from ..router import memory_router
-from ..schemas import EpisodeAnnotationRequest
+from ..schemas import EpisodeAnnotationRequest, EpisodeMergeRequest
+
+
+def _serialize_episode_inference(assertion: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the episode-detail shape for an inferred assertion."""
+    return {
+        "assertion_id": assertion.get("assertion_id"),
+        "entity_id": assertion.get("entity_id"),
+        "entity_type": assertion.get("entity_type"),
+        "trait_family": assertion.get("trait_family"),
+        "trait_name": assertion.get("trait_name"),
+        "trait_value": assertion.get("trait_value"),
+        "confidence_score": assertion.get("confidence_score"),
+        "natural_summary": assertion.get("natural_summary") or "",
+        "validation_state": assertion.get("validation_state"),
+        "user_feedback": assertion.get("user_feedback"),
+        "evidence_events": list(assertion.get("evidence_events") or []),
+    }
 
 
 @memory_router.get("/l2/episodes")
@@ -78,10 +95,11 @@ async def list_l2_episodes(
             "surface": "standout",
         }
 
-    # Default path: existing behavior unchanged.
+    # Experience page default: show formed experiences, not only standouts.
+    effective_status = status_filter if status_filter is not None else "active"
     items, total = await asyncio.gather(
         unified_memory.l2.list_episodes(
-            status=status_filter,
+            status=effective_status,
             episode_type=episode_type,
             time_start=time_start,
             time_end=time_end,
@@ -89,7 +107,7 @@ async def list_l2_episodes(
             limit=limit,
             offset=offset,
         ),
-        unified_memory.l2.count_episodes(status=status_filter),
+        unified_memory.l2.count_episodes(status=effective_status),
     )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
@@ -119,8 +137,15 @@ async def get_l2_episode(episode_id: str):
     episode = await unified_memory.l2.get_episode(episode_id=episode_id)
     if episode is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.episode_not_found", "Episode not found"))
-    events = await unified_memory.l2.list_episode_events(episode_id=episode_id)
-    return {**episode, "events": events}
+    events, inferred = await asyncio.gather(
+        unified_memory.l2.list_episode_events(episode_id=episode_id),
+        unified_memory.l2.list_assertions_for_episode(episode_id=episode_id),
+    )
+    return {
+        **episode,
+        "events": events,
+        "inferred": [_serialize_episode_inference(item) for item in inferred],
+    }
 
 
 @memory_router.patch("/l2/episodes/{episode_id}")
@@ -149,13 +174,45 @@ async def annotate_l2_episode(episode_id: str, body: EpisodeAnnotationRequest):
     return await unified_memory.l2.get_episode(episode_id=episode_id)
 
 
+@memory_router.post("/l2/episodes/{episode_id}/merge")
+async def merge_l2_episode(episode_id: str, body: EpisodeMergeRequest):
+    """Merge another episode into the target episode."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    if body.absorbed_id == episode_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=memory_t("memory.errors.same_episode_merge", "Cannot merge an episode into itself"),
+        )
+
+    merged = await unified_memory.l2.merge_episodes(
+        survivor_id=episode_id,
+        absorbed_id=body.absorbed_id,
+    )
+    if merged is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.episode_not_found", "Episode not found"),
+        )
+    return merged
+
+
 @memory_router.post("/l2/episodes/reconsolidate")
 async def reconsolidate_episodes_endpoint():
     """One-shot: consolidate candidate→active + mark standouts + generate L3 summaries.
 
     For the governance "立即整理" button. Synchronous: returns when all summary
     generation has finished. Each LLM call has a 30s timeout; in the worst case
-    this can take a while if many new standouts need summaries.
+    this can take a while if many active episodes still lack a summary.
+
+    Catch-up scope: every ``status='active'`` episode lacking an L3 episodic
+    summary gets one generated (widened from the old standout-only filter), so
+    pre-existing active episodes that never got a title are backfilled here.
+    Eager generation on new promotes is handled by the maintenance scheduler.
     """
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
@@ -171,28 +228,21 @@ async def reconsolidate_episodes_endpoint():
     summary_errors: list[str] = []
 
     if unified_memory.l3 is not None and unified_memory.l1 is not None:
-        # Find all standout episodes that lack an L3 episodic summary, and generate.
-        standouts = await unified_memory.l2.list_standout_episodes(limit=500)
-        for episode in standouts:
-            episode_id = str(episode.get("episode_id") or "")
-            if not episode_id:
-                continue
-            existing = await unified_memory.l3.get_episodic_summary_by_episode_id(episode_id)
-            if existing is not None:
-                continue
-            try:
-                event_links = await unified_memory.l2.list_episode_events(episode_id=episode_id)
-                event_ids = [str(link.get("event_id") or "").strip() for link in event_links if link.get("event_id")]
-                if not event_ids:
-                    continue
-                await unified_memory.l3.generate_episodic_summary(
-                    l1_store=unified_memory.l1,
-                    episode=episode,
-                    episode_event_ids=event_ids,
-                )
-                summaries_generated += 1
-            except Exception as exc:
-                summary_errors.append(f"{episode_id}: {exc}")
+        # Catch-up: every active episode lacking an L3 episodic summary (newly
+        # promoted ones are already 'active', so they are included here).
+        active_episodes = await unified_memory.l2.list_episodes(status="active", limit=500)
+        episode_ids = [
+            str(ep.get("episode_id") or "").strip()
+            for ep in active_episodes
+            if ep.get("episode_id")
+        ]
+        result = await unified_memory.l3.generate_missing_episodic_summaries(
+            l1_store=unified_memory.l1,
+            l2_store=unified_memory.l2,
+            episode_ids=episode_ids,
+        )
+        summaries_generated = int(result.get("generated") or 0)
+        summary_errors = list(result.get("errors") or [])
 
     return {
         "promoted": stats.promoted,

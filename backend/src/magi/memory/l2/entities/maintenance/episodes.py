@@ -16,6 +16,7 @@ class _EpisodeMaintenanceStatsProtocol(Protocol):
     episodes_promoted: int
     episodes_merged: int
     episodes_invalidated: int
+    promoted_episode_ids: list[str]
     errors: list[str]
 
 
@@ -41,6 +42,7 @@ class L2EntityEpisodeMaintenanceMixin:
             stats.episodes_promoted = result.promoted
             stats.episodes_merged = result.merged
             stats.episodes_invalidated = result.invalidated
+            stats.promoted_episode_ids = list(result.promoted_episode_ids)
         except Exception as exc:
             logger.warning("Episode consolidation failed: %s", exc)
             stats.errors.append(f"episode_consolidation: {exc}")

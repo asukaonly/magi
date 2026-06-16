@@ -30,6 +30,31 @@ EPISODE_MAX_GAP: Dict[str, float] = {
     "conversation": 10 * 60,  # 10 minutes
 }
 
+# Raw event_type (e.g. ``MemoryEvent.event_type`` like ``"UserMessage"``) →
+# gap-table category. Without this the multi-type gap table is dead: a raw
+# event_type is never a key in ``EPISODE_MAX_GAP`` and always falls to the
+# 30-min ``default`` gap. Keep this small and explicit.
+_EVENT_TYPE_TO_EPISODE_TYPE: Dict[str, str] = {
+    # Chat / message exchanges → tight conversation gap
+    "UserMessage": "conversation",
+    "AIResponse": "conversation",
+    "UserMessageReceived": "conversation",
+    "AssistantResponseProduced": "conversation",
+    # Location / visit events → loose visit gap
+    "LocationVisit": "visit",
+    "PlaceVisit": "visit",
+}
+
+
+def episode_type_for_event(event_type: str) -> str:
+    """Map a raw ``event_type`` to a gap-table category in ``EPISODE_MAX_GAP``.
+
+    Chat/message types cluster as ``"conversation"``; location/visit types as
+    ``"visit"``; anything unrecognized falls back to the safe ``"activity"``
+    default. The result is always a valid ``EPISODE_MAX_GAP`` key.
+    """
+    return _EVENT_TYPE_TO_EPISODE_TYPE.get(event_type, "activity")
+
 # ── Consolidation thresholds ─────────────────────────────────────
 
 MIN_EVENTS_TO_PROMOTE = 3
@@ -160,7 +185,15 @@ async def assign_events_to_episode(
             merged_entities = sorted(set(ep_entities) | set(unique_entity_ids))
             merged_places = sorted(set(candidate.get("primary_place_ids") or []) | set(unique_place_ids))
             merged_topics = sorted(set(ep_topics) | set(unique_topic_keys))
-            new_count = candidate["source_event_count"] + len(event_ids)
+
+            await store.add_episode_events(
+                episode_id=episode_id,
+                event_ids=event_ids,
+            )
+            # Derive the count from membership (not arithmetic): re-adding an
+            # already-present event is an INSERT OR IGNORE no-op, so summing
+            # len(event_ids) would drift the stored count above true membership.
+            new_count = await store.count_episode_events(episode_id=episode_id)
 
             await store.update_episode(
                 episode_id=episode_id,
@@ -170,10 +203,6 @@ async def assign_events_to_episode(
                 primary_place_ids=merged_places,
                 primary_topic_keys=merged_topics,
                 source_event_count=new_count,
-            )
-            await store.add_episode_events(
-                episode_id=episode_id,
-                event_ids=event_ids,
             )
             logger.debug(
                 "Episode candidate extended",
@@ -235,6 +264,7 @@ async def consolidate_episodes(
                 update_fields["magi_standout"] = True
             await store.update_episode(episode_id=ep["episode_id"], **update_fields)
             stats.promoted += 1
+            stats.promoted_episode_ids.append(ep["episode_id"])
             if standout:
                 stats.standouts += 1
             logger.debug(
@@ -278,7 +308,18 @@ async def consolidate_episodes(
             merged_entities = sorted(set(curr.get("primary_entity_ids") or []) | set(nxt.get("primary_entity_ids") or []))
             merged_places = sorted(set(curr.get("primary_place_ids") or []) | set(nxt.get("primary_place_ids") or []))
             merged_topics = sorted(set(curr.get("primary_topic_keys") or []) | set(nxt.get("primary_topic_keys") or []))
-            new_count = curr["source_event_count"] + nxt["source_event_count"]
+
+            # Move nxt's events to curr first, then derive the count from
+            # membership: duplicate events shared by both episodes are
+            # INSERT OR IGNORE no-ops, so curr + nxt arithmetic would drift the
+            # stored count above true membership.
+            nxt_events = await store.list_episode_events(episode_id=nxt["episode_id"])
+            if nxt_events:
+                await store.add_episode_events(
+                    episode_id=curr["episode_id"],
+                    event_ids=[e["event_id"] for e in nxt_events],
+                )
+            new_count = await store.count_episode_events(episode_id=curr["episode_id"])
 
             await store.update_episode(
                 episode_id=curr["episode_id"],
@@ -288,13 +329,6 @@ async def consolidate_episodes(
                 primary_topic_keys=merged_topics,
                 source_event_count=new_count,
             )
-            # Move nxt's events to curr
-            nxt_events = await store.list_episode_events(episode_id=nxt["episode_id"])
-            if nxt_events:
-                await store.add_episode_events(
-                    episode_id=curr["episode_id"],
-                    event_ids=[e["event_id"] for e in nxt_events],
-                )
             await store.update_episode(episode_id=nxt["episode_id"], status="merged")
             merged_ids.add(nxt["episode_id"])
             stats.merged += 1

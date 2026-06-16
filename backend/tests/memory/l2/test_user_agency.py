@@ -340,6 +340,40 @@ async def test_forgotten_assertion_excluded_from_batch_list(store: L2CognitionSt
 
 
 @pytest.mark.asyncio
+async def test_list_assertions_for_episode_intersects_evidence(store: L2CognitionStore):
+    now = time.time()
+    await store.create_episode(episode_id="ep", time_start=now - 10, time_end=now)
+    await store.add_episode_events(episode_id="ep", event_ids=["e1", "e2"])
+    assertion_id = await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user",
+            "entity_type": "user",
+            "trait_family": "preference",
+            "trait_name": "balance",
+            "trait_value": "values work-life balance",
+            "confidence_score": 0.7,
+            "evidence_events": ["e2"],
+            "volatility_index": 0.3,
+            "source_domain": "chat",
+            "inference_depth": "explicit",
+            "validation_state": "tentative",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+            "natural_summary": "User values balance.",
+        }
+    )
+
+    rows = await store.list_assertions_for_episode(episode_id="ep")
+
+    assert any(row["assertion_id"] == assertion_id for row in rows)
+    assert rows[0]["natural_summary"] == "User values balance."
+
+    await store.apply_user_feedback(assertion_id=assertion_id, feedback="rejected")
+    rows_after_reject = await store.list_assertions_for_episode(episode_id="ep")
+    assert rows_after_reject == []
+
+
+@pytest.mark.asyncio
 async def test_forgotten_episode_excluded_from_fts(store: L2CognitionStore):
     now = time.time()
     await store.create_episode(

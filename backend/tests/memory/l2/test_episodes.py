@@ -173,6 +173,60 @@ async def test_episode_events_crud(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_count_episode_events_dedups_and_matches_membership(l2_store_with_schema):
+    """count_episode_events reflects true distinct membership despite re-adds."""
+    store = l2_store_with_schema
+    await store.create_episode(
+        episode_id="a", time_start=1, time_end=2, source_event_count=0
+    )
+    await store.add_episode_events(episode_id="a", event_ids=["e1", "e2"])
+    await store.add_episode_events(
+        episode_id="a", event_ids=["e2", "e3"]
+    )  # e2 duplicate -> ignored
+    assert await store.count_episode_events(episode_id="a") == 3
+
+
+@pytest.mark.asyncio
+async def test_merge_episodes_moves_events_and_terminates_absorbed(l2_store_with_schema):
+    store = l2_store_with_schema
+    await store.create_episode(
+        episode_id="a",
+        status="active",
+        time_start=1,
+        time_end=2,
+        primary_entity_ids=["user:alice"],
+        primary_topic_keys=["work"],
+    )
+    await store.create_episode(
+        episode_id="b",
+        status="active",
+        time_start=3,
+        time_end=4,
+        primary_entity_ids=["user:bob"],
+        primary_place_ids=["place:office"],
+        primary_topic_keys=["launch"],
+    )
+    await store.add_episode_events(episode_id="a", event_ids=["e1", "e2"])
+    await store.add_episode_events(episode_id="b", event_ids=["e2", "e3"])
+
+    survivor = await store.merge_episodes(survivor_id="a", absorbed_id="b")
+
+    absorbed = await store.get_episode(episode_id="b")
+    assert survivor is not None
+    assert absorbed is not None
+    assert absorbed["status"] == "merged"
+    assert absorbed["parent_episode_id"] == "a"
+    assert survivor["time_start"] == 1
+    assert survivor["time_end"] == 4
+    assert survivor["source_event_count"] == 3
+    assert await store.count_episode_events(episode_id="a") == 3
+    assert await store.count_episode_events(episode_id="b") == 0
+    assert survivor["primary_entity_ids"] == ["user:alice", "user:bob"]
+    assert survivor["primary_place_ids"] == ["place:office"]
+    assert survivor["primary_topic_keys"] == ["work", "launch"]
+
+
+@pytest.mark.asyncio
 async def test_find_episode_for_event(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
@@ -307,6 +361,55 @@ async def test_streaming_candidate_formation_extends_existing(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_extend_path_source_event_count_does_not_drift_on_overlap(tmp_path):
+    """Re-including an already-member event must not inflate source_event_count.
+
+    ``episode_events`` has ``INSERT OR IGNORE`` on its PK, so re-adding an
+    existing event does NOT grow membership. The stored count must therefore be
+    derived from membership (``count_episode_events``), not summed arithmetically
+    — otherwise it drifts above the true distinct count (finding #28).
+    """
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.episode_formation import assign_events_to_episode
+    from magi.memory.l2.models import EpisodeCandidateJob
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+    # First batch creates an episode with evt-1, evt-2
+    first_jobs = [
+        EpisodeCandidateJob(
+            event_id="evt-1", event_timestamp=now, entity_ids=["user:alice"]
+        ),
+        EpisodeCandidateJob(
+            event_id="evt-2", event_timestamp=now + 1, entity_ids=["user:alice"]
+        ),
+    ]
+    ep1_id = await assign_events_to_episode(store, first_jobs)
+
+    # Second batch 10 min later lands on the SAME candidate, but re-includes
+    # evt-2 (already a member) alongside a fresh evt-3.
+    second_jobs = [
+        EpisodeCandidateJob(
+            event_id="evt-2", event_timestamp=now + 600, entity_ids=["user:alice"]
+        ),
+        EpisodeCandidateJob(
+            event_id="evt-3", event_timestamp=now + 601, entity_ids=["user:alice"]
+        ),
+    ]
+    ep2_id = await assign_events_to_episode(store, second_jobs)
+    assert ep2_id == ep1_id  # same candidate extended
+
+    ep = await store.get_episode(episode_id=ep1_id)
+    membership = await store.count_episode_events(episode_id=ep1_id)
+    # True distinct membership is {evt-1, evt-2, evt-3} == 3.
+    assert membership == 3
+    # Stored count must equal membership — no drift to 4 (2 + 2 arithmetic).
+    assert ep["source_event_count"] == membership == 3
+
+
+@pytest.mark.asyncio
 async def test_streaming_candidate_new_after_gap(tmp_path):
     """When the gap exceeds threshold, a new episode is created."""
     from magi.memory.l2.store import L2CognitionStore
@@ -339,6 +442,78 @@ async def test_streaming_candidate_new_after_gap(tmp_path):
 
     # Should be different episodes
     assert ep2_id != ep1_id
+
+
+@pytest.mark.asyncio
+async def test_formation_honors_episode_type_hint_gap(tmp_path):
+    """The episode_type_hint drives the merge gap.
+
+    Two events 20 min apart are split into TWO ``conversation`` episodes
+    (conversation gap = 10 min < 20 min) but merged into ONE ``activity``
+    episode (activity gap = 30 min > 20 min). This is the value Task 1.2
+    unlocks: the extract worker now passes the type hint, so formation
+    stops collapsing every kind of event into 30-min activity buckets.
+    """
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.episode_formation import assign_events_to_episode
+    from magi.memory.l2.models import EpisodeCandidateJob
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+    gap = 20 * 60  # 20 minutes
+
+    # conversation hint (10-min gap) → two separate episodes
+    conv1 = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="conv-1",
+                event_timestamp=now,
+                entity_ids=["user:alice"],
+                episode_type_hint="conversation",
+            ),
+        ],
+    )
+    conv2 = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="conv-2",
+                event_timestamp=now + gap,
+                entity_ids=["user:alice"],
+                episode_type_hint="conversation",
+            ),
+        ],
+    )
+    assert conv1 != conv2
+
+    # default activity hint (30-min gap) → same episode, proving the hint
+    # (not the timing) is what splits the conversation pair above.
+    act1 = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="act-1",
+                event_timestamp=now,
+                entity_ids=["user:bob"],
+                episode_type_hint="activity",
+            ),
+        ],
+    )
+    act2 = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="act-2",
+                event_timestamp=now + gap,
+                entity_ids=["user:bob"],
+                episode_type_hint="activity",
+            ),
+        ],
+    )
+    assert act1 == act2
 
 
 @pytest.mark.asyncio
@@ -426,12 +601,18 @@ async def test_consolidation_merges_adjacent(tmp_path):
         primary_entity_ids=["user:alice", "project:magi"],
         source_event_count=3,
     )
+    # Back each declared count with real, distinct membership so the merged
+    # count is derivable from episode_events (not hand-summed arithmetic).
+    await store.add_episode_events(
+        episode_id=eid1, event_ids=["evt-1", "evt-2", "evt-3", "evt-4", "evt-5"]
+    )
+    await store.add_episode_events(
+        episode_id=eid2, event_ids=["evt-a", "evt-b", "evt-c"]
+    )
+
     # Promote both manually
     await store.update_episode(episode_id=eid1, status="active")
     await store.update_episode(episode_id=eid2, status="active")
-
-    # Add events to eid2 so we can verify they're moved
-    await store.add_episode_events(episode_id=eid2, event_ids=["evt-a", "evt-b"])
 
     stats = await consolidate_episodes(store)
     assert stats.merged >= 1
@@ -440,7 +621,11 @@ async def test_consolidation_merges_adjacent(tmp_path):
     ep2 = await store.get_episode(episode_id=eid2)
     assert ep2["status"] == "merged"
     assert ep1["status"] == "active"
-    assert ep1["source_event_count"] == 8  # 5 + 3
+    # Survivor count is derived from true membership: 5 (eid1) + 3 moved (eid2).
+    assert ep1["source_event_count"] == 8
+    assert ep1["source_event_count"] == await store.count_episode_events(
+        episode_id=eid1
+    )
 
 
 @pytest.mark.asyncio
@@ -567,6 +752,161 @@ async def test_clear_includes_episodes(tmp_path):
     assert await store.count_episodes() == 0
     events = await store.list_episode_events(episode_id=eid)
     assert len(events) == 0
+
+
+async def _make_mature_candidate(store, *, episode_id, source_event_count, primary_entity_ids):
+    """Create a candidate old enough and rich enough that consolidate promotes it.
+
+    Backs the declared count with real distinct membership so the consolidation
+    invalidate/merge scans see a healthy episode, and backdates created_at so the
+    30-min promotion-age gate passes.
+    """
+    from magi.core.sqlite import sqlite_connection_async
+
+    now = time.time()
+    await store.create_episode(
+        episode_id=episode_id,
+        time_start=now - 7200,
+        time_end=now - 3600,  # 1 hour duration (> standout 20-min floor)
+        primary_entity_ids=primary_entity_ids,
+        source_event_count=source_event_count,
+    )
+    await store.add_episode_events(
+        episode_id=episode_id,
+        event_ids=[f"{episode_id}-evt-{i}" for i in range(source_event_count)],
+    )
+    async with sqlite_connection_async(store.db_path) as db:
+        await db.execute(
+            "UPDATE episodes SET created_at = ? WHERE episode_id = ?",
+            (now - 7200, episode_id),
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_promoted_non_standout_visible_via_status_active(l2_store_with_schema):
+    """Page visibility is decoupled from standout: list_episodes(status='active')
+    returns a promoted episode even when magi_standout is False (finding #14)."""
+    from magi.memory.l2.episode_formation import consolidate_episodes
+
+    store = l2_store_with_schema
+    # 4 events: above MIN_EVENTS_TO_PROMOTE (3), below STANDOUT_MIN_EVENTS (5) →
+    # gets promoted to active but NOT flagged standout.
+    await _make_mature_candidate(
+        store, episode_id="ep-plain", source_event_count=4,
+        primary_entity_ids=["a"],
+    )
+
+    await consolidate_episodes(store)
+
+    ep = await store.get_episode(episode_id="ep-plain")
+    assert ep["status"] == "active"
+    assert ep["magi_standout"] is False
+
+    active = await store.list_episodes(status="active")
+    assert "ep-plain" in {e["episode_id"] for e in active}
+
+
+@pytest.mark.asyncio
+async def test_consolidate_does_not_flip_standout_between_passes(l2_store_with_schema):
+    """Single-writer / idempotent: running consolidate_episodes twice must not
+    flip an episode's magi_standout (finding #14 — no double-write reversal)."""
+    from magi.memory.l2.episode_formation import consolidate_episodes
+
+    store = l2_store_with_schema
+    # 6 events + 2 entities + 1h duration → passes the standout gate.
+    await _make_mature_candidate(
+        store, episode_id="ep-standout", source_event_count=6,
+        primary_entity_ids=["a", "b"],
+    )
+
+    await consolidate_episodes(store)
+    first = await store.get_episode(episode_id="ep-standout")
+    assert first["status"] == "active"
+    assert first["magi_standout"] is True
+
+    # Second pass: the episode is already active; consolidate must not demote it.
+    await consolidate_episodes(store)
+    second = await store.get_episode(episode_id="ep-standout")
+    assert second["magi_standout"] is True
+
+
+@pytest.mark.asyncio
+async def test_rescore_does_not_demote_formation_flagged_standout(l2_store_with_schema):
+    """Single-writer invariant (finding #14): consolidate_episodes is the canonical
+    writer of magi_standout. The 2-hour standout rescore must never flip a
+    formation-flagged episode back to magi_standout=False, even when its own
+    heuristic score is below threshold."""
+    from magi.media.source_registry import MediaSourceRegistry
+    from magi.timeline.standout.scheduler_contrib import StandoutScoringSchedulerContrib
+
+    store = l2_store_with_schema
+    now = time.time()
+    # A SHORT episode that the formation gate flagged standout (e.g. it had >=5
+    # events and >=2 entities), but whose duration is below the rescore's 90-min
+    # WEIGHT_DURATION threshold and has no photos → rescore heuristic score = 0.
+    await store.create_episode(
+        episode_id="ep-flagged",
+        status="active",
+        time_start=now - 600,
+        time_end=now,  # 10 minutes — below rescore duration threshold
+        primary_entity_ids=[],  # no first-seen entity bonus either
+        source_event_count=5,
+        magi_standout=True,  # set by the canonical formation writer
+    )
+
+    registry = MediaSourceRegistry()  # empty — no photos
+    contrib = StandoutScoringSchedulerContrib(l2_store=store, media_registry=registry)
+
+    class _Ctx:
+        triggered_at = now
+        manual = False
+
+    await contrib._handle_rescore(_Ctx())
+
+    ep = await store.get_episode(episode_id="ep-flagged")
+    # Rescore may refresh standout_score/reason metadata, but must NOT demote the
+    # formation-set flag — otherwise the episode silently drops out of the reel.
+    assert ep["magi_standout"] is True
+
+
+@pytest.mark.asyncio
+async def test_invalidated_standout_not_returned_by_standout_query(l2_store_with_schema):
+    """Terminal-state leak (finding #16): an episode that was standout but later
+    became 'invalidated' (or 'merged') must NOT appear in the standout list."""
+    store = l2_store_with_schema
+    now = time.time()
+    await store.create_episode(
+        episode_id="ep-gone",
+        status="active",
+        time_start=now - 3600,
+        time_end=now - 1800,
+        primary_entity_ids=["a", "b"],
+        source_event_count=5,
+        magi_standout=True,
+    )
+    # Sanity: while active it IS a standout.
+    standouts = await store.list_standout_episodes(limit=50)
+    assert "ep-gone" in {e["episode_id"] for e in standouts}
+
+    # Terminal state — the standout query must drop it.
+    await store.update_episode(episode_id="ep-gone", status="invalidated")
+    standouts_after = await store.list_standout_episodes(limit=50)
+    assert "ep-gone" not in {e["episode_id"] for e in standouts_after}
+
+    # Same for a merged episode.
+    await store.create_episode(
+        episode_id="ep-merged",
+        status="active",
+        time_start=now - 3600,
+        time_end=now - 1800,
+        primary_entity_ids=["c", "d"],
+        source_event_count=5,
+        magi_standout=True,
+    )
+    await store.update_episode(episode_id="ep-merged", status="merged")
+    standouts_merged = await store.list_standout_episodes(limit=50)
+    assert "ep-merged" not in {e["episode_id"] for e in standouts_merged}
 
 
 @pytest.mark.asyncio

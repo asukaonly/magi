@@ -12,6 +12,25 @@ from ....core.sqlite import sqlite_connection_async
 from .codec import L2EpisodeStoreBaseMixin
 
 
+def _merge_json_lists(*raw_values: Any) -> list[str]:
+    """Merge stored JSON-list columns while preserving first-seen order."""
+    merged: list[str] = []
+    seen: set[str] = set()
+    for raw_value in raw_values:
+        try:
+            values = json.loads(raw_value or "[]") if isinstance(raw_value, str) else raw_value
+        except (TypeError, ValueError, json.JSONDecodeError):
+            values = []
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            text = str(value).strip()
+            if text and text not in seen:
+                seen.add(text)
+                merged.append(text)
+    return merged
+
+
 class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
     """Create, update, fetch, list, and count L2 episodes."""
 
@@ -214,6 +233,128 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
+    async def merge_episodes(
+        self,
+        *,
+        survivor_id: str,
+        absorbed_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Irreversibly merge one episode into another.
+
+        Event memberships are moved onto the survivor and removed from the
+        absorbed episode. The absorbed row remains as a terminal ``merged``
+        marker with ``parent_episode_id`` pointing at the survivor.
+        """
+        if survivor_id == absorbed_id:
+            return None
+
+        await self.initialize()
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    "SELECT * FROM episodes WHERE episode_id IN (?, ?)",
+                    (survivor_id, absorbed_id),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                episodes = {str(row["episode_id"]): row for row in rows}
+                survivor = episodes.get(survivor_id)
+                absorbed = episodes.get(absorbed_id)
+                if survivor is None or absorbed is None:
+                    await db.rollback()
+                    return None
+
+                async with db.execute(
+                    "SELECT event_id FROM episode_events WHERE episode_id = ? ORDER BY added_at ASC",
+                    (absorbed_id,),
+                ) as cursor:
+                    absorbed_event_rows = await cursor.fetchall()
+                absorbed_event_ids = [
+                    str(row["event_id"])
+                    for row in absorbed_event_rows
+                    if row and row["event_id"]
+                ]
+                for event_id in absorbed_event_ids:
+                    await db.execute(
+                        """
+                        INSERT OR IGNORE INTO episode_events(
+                            episode_id, event_id, membership_role, membership_confidence, added_at
+                        ) VALUES (?, ?, 'member', 0.5, ?)
+                        """,
+                        (survivor_id, event_id, now),
+                    )
+                await db.execute(
+                    "DELETE FROM episode_events WHERE episode_id = ?",
+                    (absorbed_id,),
+                )
+
+                async with db.execute(
+                    "SELECT COUNT(*) FROM episode_events WHERE episode_id = ?",
+                    (survivor_id,),
+                ) as cursor:
+                    count_row = await cursor.fetchone()
+                source_event_count = int(count_row[0]) if count_row else 0
+
+                primary_entity_ids = _merge_json_lists(
+                    survivor["primary_entity_ids"], absorbed["primary_entity_ids"]
+                )
+                primary_place_ids = _merge_json_lists(
+                    survivor["primary_place_ids"], absorbed["primary_place_ids"]
+                )
+                primary_topic_keys = _merge_json_lists(
+                    survivor["primary_topic_keys"], absorbed["primary_topic_keys"]
+                )
+                continuity_signals = _merge_json_lists(
+                    survivor["continuity_signals"], absorbed["continuity_signals"]
+                )
+
+                await db.execute(
+                    """
+                    UPDATE episodes
+                    SET time_start = ?, time_end = ?,
+                        primary_entity_ids = ?, primary_place_ids = ?,
+                        primary_topic_keys = ?, continuity_signals = ?,
+                        source_event_count = ?, updated_at = ?
+                    WHERE episode_id = ?
+                    """,
+                    (
+                        min(float(survivor["time_start"]), float(absorbed["time_start"])),
+                        max(float(survivor["time_end"]), float(absorbed["time_end"])),
+                        json.dumps(primary_entity_ids, ensure_ascii=False),
+                        json.dumps(primary_place_ids, ensure_ascii=False),
+                        json.dumps(primary_topic_keys, ensure_ascii=False),
+                        json.dumps(continuity_signals, ensure_ascii=False),
+                        source_event_count,
+                        now,
+                        survivor_id,
+                    ),
+                )
+                await db.execute(
+                    """
+                    UPDATE episodes
+                    SET status = 'merged',
+                        parent_episode_id = ?,
+                        source_event_count = 0,
+                        updated_at = ?
+                    WHERE episode_id = ?
+                    """,
+                    (survivor_id, now, absorbed_id),
+                )
+
+                async with db.execute(
+                    "SELECT * FROM episodes WHERE episode_id = ?",
+                    (survivor_id,),
+                ) as cursor:
+                    survivor_after = await cursor.fetchone()
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+
+        return self._episode_row_to_dict(survivor_after) if survivor_after else None
+
     async def find_recent_candidate_episode(
         self,
         *,
@@ -269,7 +410,13 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
         If both are None, returns the most-recent ``limit`` standouts regardless of date.
         """
         await self.initialize()
-        clauses: list[str] = ["(magi_standout = 1 OR user_pinned = 1)"]
+        # Terminal-state episodes (merged into a survivor / invalidated) must never
+        # leak into the standout sidebar even if their magi_standout flag is still 1
+        # — the merge/invalidate transitions only flip status, not the flag (#16).
+        clauses: list[str] = [
+            "(magi_standout = 1 OR user_pinned = 1)",
+            "status NOT IN ('merged', 'invalidated')",
+        ]
         params: list[Any] = []
         if period_start is not None:
             clauses.append("time_start >= ?")

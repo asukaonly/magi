@@ -142,6 +142,7 @@ def _build_maintenance_config_mock() -> Any:
         maintenance_enabled=True,
         interest_aggregation_enabled=True,  # even if True, maintenance must not run it
         interest_observation_threshold=3,
+        shadow_conflict_notification_enabled=False,
     )
     memory_cfg = SimpleNamespace(l2=l2_cfg)
     cfg = SimpleNamespace(agent=SimpleNamespace(memory=memory_cfg))
@@ -287,3 +288,58 @@ async def test_maintenance_handler_does_not_aggregate_interests(tmp_path):
     assert "shadow_notifications_emitted" not in result.stats, (
         f"maintenance still emits shadow_notifications_emitted: {result.stats}"
     )
+
+
+@pytest.mark.asyncio
+async def test_maintenance_handler_generates_summaries_for_promoted_episodes(tmp_path):
+    """Newly-promoted episodes trigger eager L3 episodic summary generation."""
+    from magi.memory.l2.entities.maintenance import L2EntityMaintenanceStats
+    from magi.memory.l2.maintenance_schedule import handle_l2_entity_maintenance
+
+    l2_store = MagicMock()
+    l1_store = MagicMock()
+    l3_store = MagicMock()
+    l3_store.generate_missing_episodic_summaries = AsyncMock(
+        return_value={"generated": 2, "errors": ["ep-b: timeout"]}
+    )
+
+    catalog_mock = MagicMock()
+    catalog_mock.db_path = str(tmp_path / "l2.db")
+    catalog_mock.embedding_service = None
+    catalog_mock.edge_vector_index = None
+
+    pipeline_mock = MagicMock()
+    pipeline_mock._cognition_store = l2_store
+
+    unified_mock = MagicMock()
+    unified_mock.l2_entity_catalog = catalog_mock
+    unified_mock.l2_promotion_counter = None
+    unified_mock.l2_pipeline = pipeline_mock
+    unified_mock.l1 = l1_store
+    unified_mock.l3 = l3_store
+
+    maintenance_stats = L2EntityMaintenanceStats(episodes_promoted=2)
+    maintenance_stats.promoted_episode_ids = ["ep-a", "ep-b"]
+
+    class _FakeMaintenance:
+        def __init__(self, **kwargs: Any) -> None:
+            self._cognition_store = kwargs["cognition_store"]
+
+        async def run(self, **_: Any) -> L2EntityMaintenanceStats:
+            return maintenance_stats
+
+    with (
+        patch("magi.memory.l2.maintenance_schedule.get_unified_memory", return_value=unified_mock),
+        patch("magi.memory.l2.maintenance_schedule.get_config", return_value=_build_maintenance_config_mock()),
+        patch("magi.memory.l2.maintenance_schedule.L2EntityMaintenance", _FakeMaintenance),
+    ):
+        result = await handle_l2_entity_maintenance(_make_dummy_context())
+
+    assert result.success is True
+    l3_store.generate_missing_episodic_summaries.assert_awaited_once()
+    call_kwargs = l3_store.generate_missing_episodic_summaries.await_args.kwargs
+    assert call_kwargs["l1_store"] is l1_store
+    assert call_kwargs["l2_store"] is l2_store
+    assert call_kwargs["episode_ids"] == ["ep-a", "ep-b"]
+    assert result.stats["episodic_summaries_generated"] == 2
+    assert result.stats["episodic_summary_errors"] == ["ep-b: timeout"]

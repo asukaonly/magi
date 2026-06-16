@@ -105,14 +105,28 @@ class StandoutScoringSchedulerContrib:
             )
             score, reason, is_standout = compute_standout_score(episode=ep, signals=signals)
 
+            # Single-writer invariant (#14): consolidate_episodes (episode_formation.py)
+            # is the ONLY writer that decides an episode's magi_standout flag, on the
+            # candidate→active promote transition. This rescore is a SECONDARY,
+            # OR-in-only writer: it may *raise* the flag for a high-scoring episode but
+            # must NEVER lower a flag the formation gate already set, or the formation
+            # decision would be silently reversed (the episode drops out of the reel).
+            # The numeric standout_score/standout_reason are pure metadata and are
+            # always refreshed; only the boolean flag is protected.
+            update_fields: dict[str, object] = {
+                "standout_score": score,
+                "standout_reason": reason,
+            }
+            already_standout = bool(ep.get("magi_standout"))
+            if is_standout and not already_standout:
+                update_fields["magi_standout"] = True
+
             await self._l2_store.update_episode(
                 episode_id=ep["episode_id"],
-                magi_standout=is_standout,
-                standout_score=score,
-                standout_reason=reason,
+                **update_fields,
             )
             scored += 1
-            if is_standout:
+            if is_standout or already_standout:
                 promoted += 1
 
         return ScheduledExecutionResult(

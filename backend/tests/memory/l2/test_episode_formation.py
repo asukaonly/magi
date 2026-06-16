@@ -8,13 +8,40 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from magi.memory.l2.episode_formation import (
+    EPISODE_MAX_GAP,
     EpisodeConsolidationStats,
     STANDOUT_MIN_DISTINCT_ENTITIES,
     STANDOUT_MIN_DURATION_SECONDS,
     STANDOUT_MIN_EVENTS,
     _passes_standout_gate,
     consolidate_episodes,
+    episode_type_for_event,
 )
+
+
+# ─── episode_type_for_event ──────────────────────────────────────────
+
+def test_episode_type_for_event_maps_user_message_to_conversation():
+    assert episode_type_for_event("UserMessage") == "conversation"
+
+
+def test_episode_type_for_event_maps_ai_response_to_conversation():
+    assert episode_type_for_event("AIResponse") == "conversation"
+
+
+def test_episode_type_for_event_maps_location_to_visit():
+    assert episode_type_for_event("LocationVisit") == "visit"
+
+
+def test_episode_type_for_event_maps_unknown_to_activity():
+    assert episode_type_for_event("ActionExecuted") == "activity"
+    assert episode_type_for_event("") == "activity"
+    assert episode_type_for_event("SomethingNobodyDefined") == "activity"
+
+
+def test_episode_type_for_event_returns_gap_table_keys():
+    for event_type in ("UserMessage", "LocationVisit", "anything"):
+        assert episode_type_for_event(event_type) in EPISODE_MAX_GAP
 
 
 # ─── _passes_standout_gate ───────────────────────────────────────────
@@ -111,3 +138,56 @@ async def test_consolidate_promotes_and_marks_standout():
     thin_calls = [c for c in store.update_episode.await_args_list if c.kwargs.get("episode_id") == "ep-thin"]
     assert any(call.kwargs.get("magi_standout") is True for call in rich_calls)
     assert all("magi_standout" not in call.kwargs for call in thin_calls)
+
+    # Both newly-promoted episodes (standout AND non-standout) are exposed so the
+    # caller can eagerly generate an L3 episodic summary for each.
+    assert set(stats.promoted_episode_ids) == {"ep-rich", "ep-thin"}
+
+
+@pytest.mark.asyncio
+async def test_consolidate_exposes_promoted_ids_real_store(tmp_path):
+    """Against a real L2CognitionStore: only mature candidates land in promoted_episode_ids."""
+    import sqlite3
+
+    from magi.memory.l2.store import L2CognitionStore
+
+    db_path = str(tmp_path / "l2.db")
+    store = L2CognitionStore(db_path=db_path)
+    await store.initialize()
+
+    now = _time.time()
+
+    # Mature candidate: enough events + old enough → should promote.
+    await store.create_episode(
+        episode_id="ep-mature",
+        episode_type="activity",
+        time_start=now - 7200,
+        time_end=now - 3600,
+        primary_entity_ids=["a", "b", "c"],
+        source_event_count=10,
+    )
+    # Fresh candidate: enough events but created_at is "now" → blocked by age gate.
+    await store.create_episode(
+        episode_id="ep-fresh",
+        episode_type="activity",
+        time_start=now - 600,
+        time_end=now,
+        primary_entity_ids=["a", "b"],
+        source_event_count=10,
+    )
+
+    # Backdate the mature candidate so it clears MIN_AGE_TO_PROMOTE (created_at is
+    # not an updatable field via the store API).
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE episodes SET created_at = ? WHERE episode_id = ?",
+        (now - 7200, "ep-mature"),
+    )
+    conn.commit()
+    conn.close()
+
+    stats = await consolidate_episodes(store)
+
+    assert "ep-mature" in stats.promoted_episode_ids
+    assert "ep-fresh" not in stats.promoted_episode_ids
+    assert stats.promoted == len(stats.promoted_episode_ids)
