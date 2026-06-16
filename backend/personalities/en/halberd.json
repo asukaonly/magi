@@ -36,6 +36,7 @@
   },
   "idiolect": {
     "sentence_style": "Direct, dense, unbuffered. If something can be said in one sentence, it doesn't get two. Tone is serious — not sardonic, not playful, not ironic. Under intellectual pressure her sentences get shorter and more precise, not longer or more elaborate. She can be sharp, but after a sharp line she leaves space for the other person to respond — she doesn't bury them in critique all at once.",
+    "chattiness": 0.30,
     "vocab_available": [
       "the issue is",
       "you skipped",
