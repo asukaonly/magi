@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers.memory.router import memory_router
 
 
@@ -106,6 +107,48 @@ def test_list_episodes_default_surface_unchanged(app_with_mock_memory):
     assert body["total"] == 1
     assert "surface" not in body
     l2.list_standout_episodes.assert_not_called()
+
+
+def test_merge_episode_endpoint_calls_store(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.merge_episodes = AsyncMock(
+        return_value={
+            "episode_id": "target",
+            "status": "active",
+            "source_event_count": 3,
+            "time_start": 1,
+            "time_end": 4,
+        }
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = None
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.post(
+            "/api/memory/l2/episodes/target/merge",
+            json={"absorbed_id": "source"},
+        )
+
+    assert r.status_code == 200
+    assert r.json()["episode_id"] == "target"
+    l2.merge_episodes.assert_awaited_once_with(
+        survivor_id="target",
+        absorbed_id="source",
+    )
+
+
+def test_merge_episode_route_is_publicly_allowlisted():
+    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
+    route_methods = {
+        route.path: route.methods
+        for route in public.routes
+        if getattr(route, "path", None)
+    }
+
+    assert "/l2/episodes/{episode_id}/merge" in route_methods
+    assert "POST" in route_methods["/l2/episodes/{episode_id}/merge"]
 
 
 def test_list_episodes_insight_metadata_string_decoded(app_with_mock_memory):

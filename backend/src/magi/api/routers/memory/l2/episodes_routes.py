@@ -11,7 +11,7 @@ from fastapi import HTTPException, Query, status
 from ..dependencies import _resolve_unified_memory
 from ..helpers import memory_t
 from ..router import memory_router
-from ..schemas import EpisodeAnnotationRequest
+from ..schemas import EpisodeAnnotationRequest, EpisodeMergeRequest
 
 
 @memory_router.get("/l2/episodes")
@@ -147,6 +147,33 @@ async def annotate_l2_episode(episode_id: str, body: EpisodeAnnotationRequest):
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.episode_not_found", "Episode not found"))
     return await unified_memory.l2.get_episode(episode_id=episode_id)
+
+
+@memory_router.post("/l2/episodes/{episode_id}/merge")
+async def merge_l2_episode(episode_id: str, body: EpisodeMergeRequest):
+    """Merge another episode into the target episode."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    if body.absorbed_id == episode_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=memory_t("memory.errors.same_episode_merge", "Cannot merge an episode into itself"),
+        )
+
+    merged = await unified_memory.l2.merge_episodes(
+        survivor_id=episode_id,
+        absorbed_id=body.absorbed_id,
+    )
+    if merged is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.episode_not_found", "Episode not found"),
+        )
+    return merged
 
 
 @memory_router.post("/l2/episodes/reconsolidate")

@@ -117,6 +117,10 @@ class EpisodeAnnotationRequest(BaseModel):
     user_pinned: Optional[bool] = None
 
 
+class EpisodeMergeRequest(BaseModel):
+    absorbed_id: str = Field(..., min_length=1, max_length=500)
+
+
 class ForgetEntityRequest(BaseModel):
     entity_id: str = Field(..., min_length=1, max_length=500)
     delete_l1_events: bool = Field(default=False, description="Also soft-delete L1 events mentioning this entity")

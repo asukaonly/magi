@@ -1539,9 +1539,34 @@ export interface paths {
          *
          *     For the governance "立即整理" button. Synchronous: returns when all summary
          *     generation has finished. Each LLM call has a 30s timeout; in the worst case
-         *     this can take a while if many new standouts need summaries.
+         *     this can take a while if many active episodes still lack a summary.
+         *
+         *     Catch-up scope: every ``status='active'`` episode lacking an L3 episodic
+         *     summary gets one generated (widened from the old standout-only filter), so
+         *     pre-existing active episodes that never got a title are backfilled here.
+         *     Eager generation on new promotes is handled by the maintenance scheduler.
          */
         readonly post: operations["reconsolidate_episodes_endpoint_api_memory_l2_episodes_reconsolidate_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/episodes/{episode_id}/merge": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Merge L2 Episode
+         * @description Merge another episode into the target episode.
+         */
+        readonly post: operations["merge_l2_episode_api_memory_l2_episodes__episode_id__merge_post"];
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -4001,6 +4026,11 @@ export interface components {
              * @default false
              */
             readonly enabled: boolean;
+        };
+        /** EpisodeMergeRequest */
+        readonly EpisodeMergeRequest: {
+            /** Absorbed Id */
+            readonly absorbed_id: string;
         };
         /** EvalFinalizeReplayRequest */
         readonly EvalFinalizeReplayRequest: {
@@ -10191,6 +10221,41 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": unknown;
+                };
+            };
+        };
+    };
+    readonly merge_l2_episode_api_memory_l2_episodes__episode_id__merge_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly episode_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["EpisodeMergeRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -187,6 +187,46 @@ async def test_count_episode_events_dedups_and_matches_membership(l2_store_with_
 
 
 @pytest.mark.asyncio
+async def test_merge_episodes_moves_events_and_terminates_absorbed(l2_store_with_schema):
+    store = l2_store_with_schema
+    await store.create_episode(
+        episode_id="a",
+        status="active",
+        time_start=1,
+        time_end=2,
+        primary_entity_ids=["user:alice"],
+        primary_topic_keys=["work"],
+    )
+    await store.create_episode(
+        episode_id="b",
+        status="active",
+        time_start=3,
+        time_end=4,
+        primary_entity_ids=["user:bob"],
+        primary_place_ids=["place:office"],
+        primary_topic_keys=["launch"],
+    )
+    await store.add_episode_events(episode_id="a", event_ids=["e1", "e2"])
+    await store.add_episode_events(episode_id="b", event_ids=["e2", "e3"])
+
+    survivor = await store.merge_episodes(survivor_id="a", absorbed_id="b")
+
+    absorbed = await store.get_episode(episode_id="b")
+    assert survivor is not None
+    assert absorbed is not None
+    assert absorbed["status"] == "merged"
+    assert absorbed["parent_episode_id"] == "a"
+    assert survivor["time_start"] == 1
+    assert survivor["time_end"] == 4
+    assert survivor["source_event_count"] == 3
+    assert await store.count_episode_events(episode_id="a") == 3
+    assert await store.count_episode_events(episode_id="b") == 0
+    assert survivor["primary_entity_ids"] == ["user:alice", "user:bob"]
+    assert survivor["primary_place_ids"] == ["place:office"]
+    assert survivor["primary_topic_keys"] == ["work", "launch"]
+
+
+@pytest.mark.asyncio
 async def test_find_episode_for_event(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
