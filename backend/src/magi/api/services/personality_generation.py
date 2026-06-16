@@ -517,6 +517,14 @@ def normalize_generated_personality_payload(payload: Dict[str, Any], target_lang
         idiolect["sentence_style"] = str(sentence_style)
     for key in ("vocab_available", "vocab_avoided", "structural_quirks"):
         idiolect[key] = _string_list(idiolect.get(key))
+    raw_chattiness = idiolect.get("chattiness")
+    if raw_chattiness is None:
+        idiolect["chattiness"] = 0.5
+    else:
+        try:
+            idiolect["chattiness"] = max(0.0, min(1.0, float(raw_chattiness)))
+        except (TypeError, ValueError):
+            idiolect["chattiness"] = 0.5
 
     _complete_registers(payload)
     _complete_quiet_hours(payload)

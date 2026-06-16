@@ -66,7 +66,7 @@ BASE_SPINE_SYSTEM_PROMPT = _build_stage_system_prompt(
   """Return exactly one JSON object with these top-level keys: name, avatar, description, _meta_design, identity_core, idiolect.
 _meta_design must include core_theme, failure_mode, and key_constraint. It is a generation-only design anchor, not runtime behavior.
 identity_core must include identity_statement, values_loved, values_rejected, and attention_biases.
-idiolect must include sentence_style, vocab_available, vocab_avoided, and structural_quirks.
+idiolect must include sentence_style, vocab_available, vocab_avoided, structural_quirks, and chattiness.
 Do not include registers, quiet_hours, signature_triggers, persona_layers, examples, bootstrap, appearance_prompt, or legacy fields.""",
   (
     "identity_statement should be grounded prose of 100 to 180 words, not a checklist or slogan. Include at least one concrete texture: a habit, priority, pressure reaction, or recurring attention pattern.",
@@ -76,6 +76,7 @@ Do not include registers, quiet_hours, signature_triggers, persona_layers, examp
     "Name and description should fit the user's request without overcommitting to unsupported lore.",
     "Values and attention biases should be durable psychological tendencies, three to five items each.",
     "Idiolect should describe low-intensity everyday speech: rhythm, directness, warmth, and subtle quirks, not mandatory catchphrases. vocab_avoided and structural_quirks should include archetype-specific anti-failure-mode rules.",
+    "Chattiness (0.0-1.0) reflects baseline verbosity: 0.0=minimal/terse, 0.5=balanced, 1.0=expansive/talkative. Calibrate to the persona's identity.",
     "Do not generate licensed professional backstories unless the user explicitly requested that fictional setup.",
     "If the user input is thin, infer conservatively and leave room for future relationship growth.",
   ),
