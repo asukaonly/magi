@@ -173,6 +173,20 @@ async def test_episode_events_crud(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_count_episode_events_dedups_and_matches_membership(l2_store_with_schema):
+    """count_episode_events reflects true distinct membership despite re-adds."""
+    store = l2_store_with_schema
+    await store.create_episode(
+        episode_id="a", time_start=1, time_end=2, source_event_count=0
+    )
+    await store.add_episode_events(episode_id="a", event_ids=["e1", "e2"])
+    await store.add_episode_events(
+        episode_id="a", event_ids=["e2", "e3"]
+    )  # e2 duplicate -> ignored
+    assert await store.count_episode_events(episode_id="a") == 3
+
+
+@pytest.mark.asyncio
 async def test_find_episode_for_event(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
@@ -304,6 +318,55 @@ async def test_streaming_candidate_formation_extends_existing(tmp_path):
     ep = await store.get_episode(episode_id=ep1_id)
     assert ep["source_event_count"] == 2
     assert ep["time_end"] == now + 600
+
+
+@pytest.mark.asyncio
+async def test_extend_path_source_event_count_does_not_drift_on_overlap(tmp_path):
+    """Re-including an already-member event must not inflate source_event_count.
+
+    ``episode_events`` has ``INSERT OR IGNORE`` on its PK, so re-adding an
+    existing event does NOT grow membership. The stored count must therefore be
+    derived from membership (``count_episode_events``), not summed arithmetically
+    — otherwise it drifts above the true distinct count (finding #28).
+    """
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.episode_formation import assign_events_to_episode
+    from magi.memory.l2.models import EpisodeCandidateJob
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+    # First batch creates an episode with evt-1, evt-2
+    first_jobs = [
+        EpisodeCandidateJob(
+            event_id="evt-1", event_timestamp=now, entity_ids=["user:alice"]
+        ),
+        EpisodeCandidateJob(
+            event_id="evt-2", event_timestamp=now + 1, entity_ids=["user:alice"]
+        ),
+    ]
+    ep1_id = await assign_events_to_episode(store, first_jobs)
+
+    # Second batch 10 min later lands on the SAME candidate, but re-includes
+    # evt-2 (already a member) alongside a fresh evt-3.
+    second_jobs = [
+        EpisodeCandidateJob(
+            event_id="evt-2", event_timestamp=now + 600, entity_ids=["user:alice"]
+        ),
+        EpisodeCandidateJob(
+            event_id="evt-3", event_timestamp=now + 601, entity_ids=["user:alice"]
+        ),
+    ]
+    ep2_id = await assign_events_to_episode(store, second_jobs)
+    assert ep2_id == ep1_id  # same candidate extended
+
+    ep = await store.get_episode(episode_id=ep1_id)
+    membership = await store.count_episode_events(episode_id=ep1_id)
+    # True distinct membership is {evt-1, evt-2, evt-3} == 3.
+    assert membership == 3
+    # Stored count must equal membership — no drift to 4 (2 + 2 arithmetic).
+    assert ep["source_event_count"] == membership == 3
 
 
 @pytest.mark.asyncio
@@ -498,12 +561,18 @@ async def test_consolidation_merges_adjacent(tmp_path):
         primary_entity_ids=["user:alice", "project:magi"],
         source_event_count=3,
     )
+    # Back each declared count with real, distinct membership so the merged
+    # count is derivable from episode_events (not hand-summed arithmetic).
+    await store.add_episode_events(
+        episode_id=eid1, event_ids=["evt-1", "evt-2", "evt-3", "evt-4", "evt-5"]
+    )
+    await store.add_episode_events(
+        episode_id=eid2, event_ids=["evt-a", "evt-b", "evt-c"]
+    )
+
     # Promote both manually
     await store.update_episode(episode_id=eid1, status="active")
     await store.update_episode(episode_id=eid2, status="active")
-
-    # Add events to eid2 so we can verify they're moved
-    await store.add_episode_events(episode_id=eid2, event_ids=["evt-a", "evt-b"])
 
     stats = await consolidate_episodes(store)
     assert stats.merged >= 1
@@ -512,7 +581,11 @@ async def test_consolidation_merges_adjacent(tmp_path):
     ep2 = await store.get_episode(episode_id=eid2)
     assert ep2["status"] == "merged"
     assert ep1["status"] == "active"
-    assert ep1["source_event_count"] == 8  # 5 + 3
+    # Survivor count is derived from true membership: 5 (eid1) + 3 moved (eid2).
+    assert ep1["source_event_count"] == 8
+    assert ep1["source_event_count"] == await store.count_episode_events(
+        episode_id=eid1
+    )
 
 
 @pytest.mark.asyncio
