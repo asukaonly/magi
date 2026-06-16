@@ -73,6 +73,26 @@ async def handle_l2_entity_maintenance(
             stats={"error": str(exc)},
         )
 
+    episodic_summaries_generated = 0
+    episodic_summary_errors: list[str] = []
+    promoted_episode_ids = list(getattr(stats, "promoted_episode_ids", []) or [])
+    if promoted_episode_ids:
+        l1_store = getattr(unified, "l1", None)
+        l3_store = getattr(unified, "l3", None)
+        cognition_store = maint._cognition_store or getattr(unified, "l2", None)
+        if l1_store is not None and l3_store is not None and cognition_store is not None:
+            try:
+                summary_result = await l3_store.generate_missing_episodic_summaries(
+                    l1_store=l1_store,
+                    l2_store=cognition_store,
+                    episode_ids=promoted_episode_ids,
+                )
+                episodic_summaries_generated = int(summary_result.get("generated") or 0)
+                episodic_summary_errors = list(summary_result.get("errors") or [])
+            except Exception as exc:
+                logger.warning("L2 episodic summary generation failed", error=str(exc))
+                episodic_summary_errors.append(str(exc))
+
     # P2 frequency gate: prune stale non-promoted promotion-counter keys (one-off noise that
     # never crossed threshold); promoted keys are kept. Bounds the counter table over time.
     pruned = 0
@@ -141,6 +161,8 @@ async def handle_l2_entity_maintenance(
         message="maintenance_ok",
         stats={
             **asdict(stats),
+            "episodic_summaries_generated": episodic_summaries_generated,
+            "episodic_summary_errors": episodic_summary_errors,
             "promotion_counter_pruned": pruned,
             "interest_topics_aggregated": interest_topics_aggregated,
             "shadow_notifications_emitted": shadow_notifications_emitted,

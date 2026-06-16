@@ -491,6 +491,66 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
         )
         return summary
 
+    async def generate_missing_episodic_summaries(
+        self,
+        *,
+        l1_store: L1EventStore,
+        l2_store: Any,
+        episode_ids: List[str],
+    ) -> Dict[str, Any]:
+        """Eagerly generate L3 episodic summaries for episodes that lack one.
+
+        For each ``episode_id``: skip if an episodic summary already exists
+        (dedup), resolve the episode + its event memberships from L2, then call
+        :meth:`generate_episodic_summary` (configured summary model, no extended
+        thinking). Generation failures are captured per-episode and never raised,
+        so one bad episode does not block the rest.
+
+        This is the caller-side seam for eager summary generation: callers that
+        hold L3/L1/L2 handles (the manual ``/reconsolidate`` route and the L2
+        maintenance scheduler) invoke this after consolidation. Keeping it on L3
+        preserves L2-purity — ``episode_formation`` must not depend on L3.
+
+        Returns ``{"generated": int, "errors": list[str]}``.
+        """
+        generated = 0
+        errors: List[str] = []
+        seen: set[str] = set()
+        for raw_id in episode_ids:
+            episode_id = str(raw_id or "").strip()
+            if not episode_id or episode_id in seen:
+                continue
+            seen.add(episode_id)
+            try:
+                existing = await self.get_episodic_summary_by_episode_id(episode_id)
+                if existing is not None:
+                    continue
+                episode = await l2_store.get_episode(episode_id=episode_id)
+                if episode is None:
+                    continue
+                event_links = await l2_store.list_episode_events(episode_id=episode_id)
+                event_ids = [
+                    str(link.get("event_id") or "").strip()
+                    for link in event_links
+                    if link.get("event_id")
+                ]
+                if not event_ids:
+                    continue
+                await self.generate_episodic_summary(
+                    l1_store=l1_store,
+                    episode=episode,
+                    episode_event_ids=event_ids,
+                )
+                generated += 1
+            except Exception as exc:  # non-blocking: log + continue
+                logger.warning(
+                    "Eager episodic summary generation failed for %s: %s",
+                    episode_id,
+                    exc,
+                )
+                errors.append(f"{episode_id}: {exc}")
+        return {"generated": generated, "errors": errors}
+
     def get_statistics(self) -> Dict[str, Any]:
         """Return lightweight metadata for reporting."""
         return {

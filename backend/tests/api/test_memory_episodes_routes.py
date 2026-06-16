@@ -132,28 +132,30 @@ def test_list_episodes_insight_metadata_string_decoded(app_with_mock_memory):
     assert r.json()["items"][0]["episode_summary"]["label"] == "from string"
 
 
-def test_reconsolidate_runs_consolidate_and_generates_missing_summaries(app_with_mock_memory):
-    """Reconsolidate: consolidate, then generate L3 summary for each standout missing one."""
+def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_mock_memory):
+    """Reconsolidate: consolidate, then generate L3 summary for every active episode
+    lacking one (widened from standout-only via l3.generate_missing_episodic_summaries)."""
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
-    l2.list_standout_episodes = AsyncMock(return_value=[
-        {"episode_id": "ep_has",  "primary_entity_ids": [], "time_start": 0, "time_end": 100},
-        {"episode_id": "ep_need", "primary_entity_ids": [], "time_start": 100, "time_end": 200},
+    # Catch-up scope is now ALL active episodes (not just standouts).
+    l2.list_episodes = AsyncMock(return_value=[
+        {"episode_id": "ep_has"},
+        {"episode_id": "ep_need"},
     ])
-    l2.list_episode_events = AsyncMock(return_value=[{"event_id": "evt1"}])
     l3 = MagicMock()
-    # ep_has already has summary; ep_need doesn't
-    l3.get_episodic_summary_by_episode_id = AsyncMock(
-        side_effect=lambda eid: {"summary_id": "x"} if eid == "ep_has" else None
+    l3.generate_missing_episodic_summaries = AsyncMock(
+        return_value={"generated": 1, "errors": []}
     )
-    l3.generate_episodic_summary = AsyncMock(return_value={"summary_id": "newly_generated"})
     l1 = MagicMock()
     unified = MagicMock(); unified.l2 = l2; unified.l3 = l3; unified.l1 = l1
 
     # consolidate_episodes is invoked from within the route; patch where it's imported.
     with build_patcher(unified), patch(
         "magi.memory.l2.episode_formation.consolidate_episodes",
-        new=AsyncMock(return_value=MagicMock(promoted=2, standouts=1, merged=0, invalidated=0)),
+        new=AsyncMock(return_value=MagicMock(
+            promoted=2, standouts=1, merged=0, invalidated=0,
+            promoted_episode_ids=["ep_need"],
+        )),
     ):
         client = TestClient(app)
         r = client.post("/api/memory/l2/episodes/reconsolidate")
@@ -161,56 +163,35 @@ def test_reconsolidate_runs_consolidate_and_generates_missing_summaries(app_with
     body = r.json()
     assert body["promoted"] == 2
     assert body["standouts"] == 1
-    assert body["summaries_generated"] == 1  # only ep_need got generated
+    assert body["summaries_generated"] == 1
     assert body["summary_errors"] == []
-    l3.generate_episodic_summary.assert_awaited_once()
-    call_kwargs = l3.generate_episodic_summary.await_args.kwargs
-    assert call_kwargs["episode_event_ids"] == ["evt1"]
-
-
-def test_reconsolidate_skips_summary_when_no_events(app_with_mock_memory):
-    """Episodes with no event memberships are skipped for summary generation."""
-    app, build_patcher = app_with_mock_memory
-    l2 = MagicMock()
-    l2.list_standout_episodes = AsyncMock(return_value=[
-        {"episode_id": "ep_empty", "primary_entity_ids": [], "time_start": 0, "time_end": 100},
-    ])
-    l2.list_episode_events = AsyncMock(return_value=[])  # no events
-    l3 = MagicMock()
-    l3.get_episodic_summary_by_episode_id = AsyncMock(return_value=None)
-    l3.generate_episodic_summary = AsyncMock()
-    l1 = MagicMock()
-    unified = MagicMock(); unified.l2 = l2; unified.l3 = l3; unified.l1 = l1
-
-    with build_patcher(unified), patch(
-        "magi.memory.l2.episode_formation.consolidate_episodes",
-        new=AsyncMock(return_value=MagicMock(promoted=0, standouts=0, merged=0, invalidated=0)),
-    ):
-        client = TestClient(app)
-        r = client.post("/api/memory/l2/episodes/reconsolidate")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["summaries_generated"] == 0
-    l3.generate_episodic_summary.assert_not_awaited()
+    # Active episodes (not list_standout_episodes) drive the catch-up.
+    l2.list_episodes.assert_awaited_once()
+    assert l2.list_episodes.await_args.kwargs["status"] == "active"
+    l3.generate_missing_episodic_summaries.assert_awaited_once()
+    gen_kwargs = l3.generate_missing_episodic_summaries.await_args.kwargs
+    assert gen_kwargs["episode_ids"] == ["ep_has", "ep_need"]
+    assert gen_kwargs["l2_store"] is l2
+    assert gen_kwargs["l1_store"] is l1
 
 
 def test_reconsolidate_captures_summary_errors(app_with_mock_memory):
-    """Summary generation errors are captured in summary_errors list, not raised."""
+    """Summary generation errors surface in summary_errors (from the L3 helper), not raised."""
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
-    l2.list_standout_episodes = AsyncMock(return_value=[
-        {"episode_id": "ep_fail", "primary_entity_ids": [], "time_start": 0, "time_end": 100},
-    ])
-    l2.list_episode_events = AsyncMock(return_value=[{"event_id": "evt1"}])
+    l2.list_episodes = AsyncMock(return_value=[{"episode_id": "ep_fail"}])
     l3 = MagicMock()
-    l3.get_episodic_summary_by_episode_id = AsyncMock(return_value=None)
-    l3.generate_episodic_summary = AsyncMock(side_effect=RuntimeError("LLM timeout"))
+    l3.generate_missing_episodic_summaries = AsyncMock(
+        return_value={"generated": 0, "errors": ["ep_fail: LLM timeout"]}
+    )
     l1 = MagicMock()
     unified = MagicMock(); unified.l2 = l2; unified.l3 = l3; unified.l1 = l1
 
     with build_patcher(unified), patch(
         "magi.memory.l2.episode_formation.consolidate_episodes",
-        new=AsyncMock(return_value=MagicMock(promoted=0, standouts=1, merged=0, invalidated=0)),
+        new=AsyncMock(return_value=MagicMock(
+            promoted=0, standouts=1, merged=0, invalidated=0, promoted_episode_ids=[],
+        )),
     ):
         client = TestClient(app)
         r = client.post("/api/memory/l2/episodes/reconsolidate")
@@ -219,6 +200,28 @@ def test_reconsolidate_captures_summary_errors(app_with_mock_memory):
     assert body["summaries_generated"] == 0
     assert len(body["summary_errors"]) == 1
     assert "ep_fail" in body["summary_errors"][0]
+
+
+def test_reconsolidate_no_generation_when_l3_missing(app_with_mock_memory):
+    """When L3 is unavailable, consolidation still runs and no summaries are generated."""
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.list_episodes = AsyncMock(return_value=[{"episode_id": "ep1"}])
+    unified = MagicMock(); unified.l2 = l2; unified.l3 = None; unified.l1 = None
+
+    with build_patcher(unified), patch(
+        "magi.memory.l2.episode_formation.consolidate_episodes",
+        new=AsyncMock(return_value=MagicMock(
+            promoted=1, standouts=0, merged=0, invalidated=0, promoted_episode_ids=["ep1"],
+        )),
+    ):
+        client = TestClient(app)
+        r = client.post("/api/memory/l2/episodes/reconsolidate")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["promoted"] == 1
+    assert body["summaries_generated"] == 0
+    assert body["summary_errors"] == []
 
 
 def test_reconsolidate_503_when_l2_missing(app_with_mock_memory):

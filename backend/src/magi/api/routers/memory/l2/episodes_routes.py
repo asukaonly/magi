@@ -155,7 +155,12 @@ async def reconsolidate_episodes_endpoint():
 
     For the governance "立即整理" button. Synchronous: returns when all summary
     generation has finished. Each LLM call has a 30s timeout; in the worst case
-    this can take a while if many new standouts need summaries.
+    this can take a while if many active episodes still lack a summary.
+
+    Catch-up scope: every ``status='active'`` episode lacking an L3 episodic
+    summary gets one generated (widened from the old standout-only filter), so
+    pre-existing active episodes that never got a title are backfilled here.
+    Eager generation on new promotes is handled by the maintenance scheduler.
     """
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
@@ -171,28 +176,21 @@ async def reconsolidate_episodes_endpoint():
     summary_errors: list[str] = []
 
     if unified_memory.l3 is not None and unified_memory.l1 is not None:
-        # Find all standout episodes that lack an L3 episodic summary, and generate.
-        standouts = await unified_memory.l2.list_standout_episodes(limit=500)
-        for episode in standouts:
-            episode_id = str(episode.get("episode_id") or "")
-            if not episode_id:
-                continue
-            existing = await unified_memory.l3.get_episodic_summary_by_episode_id(episode_id)
-            if existing is not None:
-                continue
-            try:
-                event_links = await unified_memory.l2.list_episode_events(episode_id=episode_id)
-                event_ids = [str(link.get("event_id") or "").strip() for link in event_links if link.get("event_id")]
-                if not event_ids:
-                    continue
-                await unified_memory.l3.generate_episodic_summary(
-                    l1_store=unified_memory.l1,
-                    episode=episode,
-                    episode_event_ids=event_ids,
-                )
-                summaries_generated += 1
-            except Exception as exc:
-                summary_errors.append(f"{episode_id}: {exc}")
+        # Catch-up: every active episode lacking an L3 episodic summary (newly
+        # promoted ones are already 'active', so they are included here).
+        active_episodes = await unified_memory.l2.list_episodes(status="active", limit=500)
+        episode_ids = [
+            str(ep.get("episode_id") or "").strip()
+            for ep in active_episodes
+            if ep.get("episode_id")
+        ]
+        result = await unified_memory.l3.generate_missing_episodic_summaries(
+            l1_store=unified_memory.l1,
+            l2_store=unified_memory.l2,
+            episode_ids=episode_ids,
+        )
+        summaries_generated = int(result.get("generated") or 0)
+        summary_errors = list(result.get("errors") or [])
 
     return {
         "promoted": stats.promoted,

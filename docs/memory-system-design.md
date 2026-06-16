@@ -338,6 +338,10 @@ Key properties:
 - Episode types: `activity`, `visit`, `session`, `conversation` (each with different time-gap thresholds)
 - Streaming formation: `assign_events_to_episode()` hooks into L2 pipeline extract workers; uses time-gap detection and entity/topic overlap for theme continuity
 - Status lifecycle: `candidate` → `active` (promotion), `invalidated`, `archived`
+- Promotion reports newly-active episode IDs to callers; L2 formation stays
+  L2-only, while runtime callers that hold L1/L2/L3 handles (periodic L2
+  maintenance and manual reconsolidation) generate missing L3 episodic summaries
+  for those episodes or for active backfill scope
 - User agency fields: `user_label`, `user_note`, `user_pinned`
 - Full-text search via FTS5 over `summary`, `label`, `user_label`
 - Episodes can overlap and nest via `parent_episode_id`

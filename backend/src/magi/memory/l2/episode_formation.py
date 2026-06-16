@@ -264,6 +264,7 @@ async def consolidate_episodes(
                 update_fields["magi_standout"] = True
             await store.update_episode(episode_id=ep["episode_id"], **update_fields)
             stats.promoted += 1
+            stats.promoted_episode_ids.append(ep["episode_id"])
             if standout:
                 stats.standouts += 1
             logger.debug(

@@ -59,6 +59,7 @@ class L2EntityMaintenanceStats:
     episodes_promoted: int = 0
     episodes_merged: int = 0
     episodes_invalidated: int = 0
+    promoted_episode_ids: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
 

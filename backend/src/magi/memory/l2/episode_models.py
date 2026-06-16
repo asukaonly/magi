@@ -157,6 +157,11 @@ class EpisodeConsolidationStats:
     invalidated: int = 0
     summaries_generated: int = 0
     embeddings_queued: int = 0
+    # IDs of episodes promoted candidate → active in this run. Callers that hold
+    # L3/L1 handles use this to eagerly generate the L3 episodic summary for each
+    # newly-promoted episode (kept on the caller side to preserve L2-purity:
+    # episode_formation must not depend on L3).
+    promoted_episode_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
