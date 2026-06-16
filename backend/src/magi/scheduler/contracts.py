@@ -25,6 +25,7 @@ class ScheduledTargetType(str, Enum):
     LOCATION_IPGEO_POLL = "location_ipgeo_poll"
     LOCATION_WIFI_POLL = "location_wifi_poll"
     OUTREACH_OUTBOX_DRAIN = "outreach_outbox_drain"
+    MEMORY_L2_DERIVE = "memory_l2_derive"
 
 
 class TriggerType(str, Enum):

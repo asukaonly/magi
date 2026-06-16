@@ -6531,7 +6531,7 @@ export interface components {
          * @description Supported scheduler target families.
          * @enum {string}
          */
-        readonly ScheduledTargetType: "sensor_sync" | "memory_l2_maintenance" | "memory_l3_summary" | "memory_l4_maintenance" | "user_agent_task" | "timeline_diary_narrative" | "timeline_standout_rescore" | "timeline_mood_aggregate" | "timeline_representative_asset" | "location_ipgeo_poll" | "location_wifi_poll" | "outreach_outbox_drain";
+        readonly ScheduledTargetType: "sensor_sync" | "memory_l2_maintenance" | "memory_l3_summary" | "memory_l4_maintenance" | "user_agent_task" | "timeline_diary_narrative" | "timeline_standout_rescore" | "timeline_mood_aggregate" | "timeline_representative_asset" | "location_ipgeo_poll" | "location_wifi_poll" | "outreach_outbox_drain" | "memory_l2_derive";
         /** SeedPreviewResponse */
         readonly SeedPreviewResponse: {
             /** Data */

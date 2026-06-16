@@ -13,8 +13,6 @@ from ...scheduler.contracts import (
 )
 from ...scheduler.service import SchedulerService
 from ..provider import get_unified_memory
-from .assertions.conflict_notifications import materialize_shadow_conflict_notifications
-from .assertions.interest_aggregation import aggregate_interests
 from .entities.maintenance import (
     L2EntityMaintenance,
     SCHEDULE_ID_L2_MAINTENANCE,
@@ -85,65 +83,12 @@ async def handle_l2_entity_maintenance(
         except Exception as exc:
             logger.warning("L2 promotion-counter prune failed", error=str(exc))
 
-    # Interest aggregation: surface INTERESTED_IN edges as inferred preference_profile assertions.
-    interest_topics_aggregated = 0
-    if l2_cfg.interest_aggregation_enabled:
-        # Reuse the cognition store already wired into the maintenance object when available;
-        # fall back to constructing one from the shared db_path (initialize() is idempotent).
-        cognition_store = maint._cognition_store
-        if cognition_store is None:
-            from .store import L2CognitionStore
-            cognition_store = L2CognitionStore(db_path=db_path)
-            await cognition_store.initialize()
-        try:
-            agg_stats = await aggregate_interests(
-                cognition_store,
-                entity_id="user:self",
-                min_observations=int(l2_cfg.interest_observation_threshold),
-            )
-            interest_topics_aggregated = agg_stats.get("topics_aggregated", 0)
-        except Exception as exc:
-            logger.warning("L2 interest aggregation failed", error=str(exc))
-
-        if interest_topics_aggregated > 0:
-            try:
-                await cognition_store.refresh_entity_snapshot(entity_id="user:self", entity_type="user")
-            except Exception:
-                logger.warning("interest aggregation: snapshot refresh failed", exc_info=True)
-
-    # Shadow-conflict notifications: surface assertion conflicts to the user.
-    shadow_notifications_emitted = 0
-    if l2_cfg.shadow_conflict_notification_enabled:
-        cognition_store_for_shadows = maint._cognition_store
-        if cognition_store_for_shadows is None:
-            # interest_aggregation may have already built one above; fall back
-            # to a fresh instance from the shared db_path.
-            from .store import L2CognitionStore
-            cognition_store_for_shadows = L2CognitionStore(db_path=db_path)
-            await cognition_store_for_shadows.initialize()
-        try:
-            from magi.notifications.service import NotificationService
-            from magi.notifications.store import get_notification_store
-            _notif_service = NotificationService(store=get_notification_store())
-            shadow_stats = await materialize_shadow_conflict_notifications(
-                cognition_store_for_shadows,
-                _notif_service,
-                user_id="default_user",
-                entity_id="user:self",
-                entity_type="user",
-            )
-            shadow_notifications_emitted = shadow_stats.get("notifications_emitted", 0)
-        except Exception as exc:
-            logger.warning("L2 shadow conflict notification scan failed", error=str(exc))
-
     return ScheduledExecutionResult(
         success=True,
         message="maintenance_ok",
         stats={
             **asdict(stats),
             "promotion_counter_pruned": pruned,
-            "interest_topics_aggregated": interest_topics_aggregated,
-            "shadow_notifications_emitted": shadow_notifications_emitted,
         },
     )
 

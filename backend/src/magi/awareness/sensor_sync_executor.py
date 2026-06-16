@@ -26,6 +26,7 @@ class SensorSyncExecutor:
         repository: ScheduleRepository,
         run_job: SensorSyncJobRunner,
         flush_state: SensorStateFlushRunner | None = None,
+        scheduler_service: object | None = None,
         poll_interval_seconds: float = 0.1,
         running_timeout_seconds: float = 1800.0,
         worker_id: str = "sensor-sync-executor",
@@ -33,6 +34,7 @@ class SensorSyncExecutor:
         self._repository = repository
         self._run_job = run_job
         self._flush_state = flush_state
+        self._scheduler_service = scheduler_service
         self._poll_interval_seconds = poll_interval_seconds
         self._running_timeout_seconds = running_timeout_seconds
         self._worker_id = worker_id
@@ -152,6 +154,9 @@ class SensorSyncExecutor:
             # never fail the sync. Gap-checked + min_events-gated → a near-no-op
             # for incremental syncs (no closed-past gaps).
             await self._backfill_l3_after_sync(str(job["source_type"]))
+            # Best-effort: kick the L2 derive task so newly-synced interests/
+            # conflicts refresh promptly instead of waiting for the 6 h interval.
+            await self._trigger_l2_derive_after_sync()
         except Exception as exc:
             finished_at = time.time()
             await self._repository.complete_sensor_sync_job_failure(
@@ -212,6 +217,26 @@ class SensorSyncExecutor:
                 "L3 backfill after sensor sync failed (non-fatal)",
                 source=source_name,
             )
+
+    async def _trigger_l2_derive_after_sync(self) -> None:
+        """Best-effort: kick the L2 derive task so a just-synced sensor's interests/
+        conflicts refresh promptly. Fully guarded — never breaks a committed sync.
+        Non-blocking: uses execute_schedule_async so the sync return isn't delayed.
+        Runs on the owner loop (where the scheduler service lives) via
+        _run_on_owner_loop.
+        """
+        if self._scheduler_service is None:
+            return
+        try:
+            from ..memory.l2.derive_schedule import SCHEDULE_ID_L2_DERIVE
+
+            await self._run_on_owner_loop(
+                self._scheduler_service.execute_schedule_async(  # type: ignore[union-attr]
+                    SCHEDULE_ID_L2_DERIVE, manual=True
+                )
+            )
+        except Exception:
+            logger.exception("post-sync L2 derive trigger failed (non-fatal)")
 
     async def flush_sensor_state(self, source_name: str) -> dict[str, Any]:
         if self._flush_state is None:
