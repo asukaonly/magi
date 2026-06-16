@@ -99,6 +99,15 @@ class MemoryL2Settings(BaseModel):
         ge=1,
         description="Orphan prune keeps entities with at least this many resolved mentions (unless referenced in graph).",
     )
+    interest_aggregation_enabled: bool = Field(
+        default=True,
+        description="Run interest aggregation during L2 maintenance to surface INTERESTED_IN edges as inferred preference_profile assertions.",
+    )
+    interest_observation_threshold: int = Field(
+        default=3,
+        ge=1,
+        description="Minimum INTERESTED_IN edge observation count for a topic to be aggregated into a preference_profile assertion.",
+    )
 
 
 class MemoryL3Settings(BaseModel):

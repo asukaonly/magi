@@ -18,7 +18,7 @@ HISTORICAL_VALIDATION_STATES: tuple[str, ...] = ACTIVE_VALIDATION_STATES + ("sup
 # Governance statuses set by forget/reject cascades. They leave validation_state
 # untouched, so read paths must exclude them by `status` regardless of
 # validation_state, or forgotten data leaks back into retrieval.
-RETRIEVAL_EXCLUDED_STATUSES: tuple[str, ...] = ("archived", "invalidated", "user_rejected")
+RETRIEVAL_EXCLUDED_STATUSES: tuple[str, ...] = ("archived", "invalidated", "user_rejected", "shadow")
 
 
 def compute_confidence(evidence_count: int) -> float:
