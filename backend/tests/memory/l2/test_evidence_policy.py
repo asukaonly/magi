@@ -89,7 +89,7 @@ def test_policy_skips_assistant_freeform():
     assert decision.skip_reason == "assistant_freeform"
 
 
-def test_policy_allows_interest_scope_for_external_observation():
+def test_policy_allows_topology_only_for_external_observation():
     decision = resolve_l2_policy(_classification("external_observation"))
 
     assert decision.allow_entity_extraction is True
@@ -98,7 +98,7 @@ def test_policy_allows_interest_scope_for_external_observation():
     assert decision.allow_snapshot_impact is False
     assert decision.l1_retrieval_scope == "fact_authoritative"
     assert decision.graph_scope == "full"
-    assert decision.assertion_scope == "interest"
+    assert decision.assertion_scope == "topology_only"
     assert decision.evidence_weight == 0.7
 
 
