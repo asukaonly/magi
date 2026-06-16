@@ -104,6 +104,12 @@ async def handle_l2_entity_maintenance(
         except Exception as exc:
             logger.warning("L2 interest aggregation failed", error=str(exc))
 
+        if interest_topics_aggregated > 0:
+            try:
+                await cognition_store.refresh_entity_snapshot(entity_id="user:self", entity_type="user")
+            except Exception:
+                logger.warning("interest aggregation: snapshot refresh failed", exc_info=True)
+
     return ScheduledExecutionResult(
         success=True,
         message="maintenance_ok",

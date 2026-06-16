@@ -9,7 +9,7 @@ Revision ID: 0013_tom_assertions_shadow_status
 Revises: 0012_drop_privacy_scope
 Create Date: 2026-06-15
 
-Named SCHEMA_SQL so the test schema helper (tests/_shared/memory_schema.py)
+migration 0013 — Named SCHEMA_SQL so the test schema helper (tests/_shared/memory_schema.py)
 applies it (via regex) after the 0001 CREATE on a fresh test DB — without it,
 the stale 0001 index (no 'shadow' exclusion) would reject the shadow sibling
 a source-aware upsert writes on the same active key. Mirrors 0012's convention.

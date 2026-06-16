@@ -162,11 +162,16 @@ async def test_maintenance_handler_aggregates_interests_when_enabled(tmp_path):
 
     assert result.success is True
     assert result.message == "maintenance_ok"
+    # The handler itself calls refresh_entity_snapshot when topics_aggregated > 0,
+    # so the aggregated interest must surface within the SAME maintenance run.
     assert result.stats.get("interest_topics_aggregated", 0) >= 1
 
-    # Snapshot must contain the inferred interest
-    snapshot = await store.refresh_entity_snapshot(entity_id="user:self", entity_type="user")
-    assert snapshot is not None, "refresh_entity_snapshot returned None"
+    # Verify the snapshot was written by the handler itself: use the read-only
+    # get_tom_snapshot (no rebuild) — if the handler's internal refresh_entity_snapshot
+    # fired, the row is already in tom_snapshots and we read it back here without
+    # triggering another refresh cycle.
+    snapshot = await store.get_tom_snapshot(entity_id="user:self", entity_type="user")
+    assert snapshot is not None, "tom_snapshots row not found — handler did not refresh"
     preferences = snapshot.get("preferences") or {}
     assert "interest.python" in preferences, (
         f"'interest.python' not found in snapshot preferences. Keys: {list(preferences.keys())}"

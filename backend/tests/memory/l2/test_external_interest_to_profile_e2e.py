@@ -10,9 +10,11 @@ assertion, not a ``shadow``, since there is no conflicting authoritative row).
 
 The chain under test:
     external (author_type="external") event
-      -> evidence class ``external_observation`` (policy ``assertion_scope=interest``)
+      -> evidence class ``external_observation`` (``allow_assertion_write=True``)
       -> stubbed phase2 emits a ``taste_profile`` ``assertion_candidate``
-      -> ``_validate_phase2_assertions`` accepts it (family is allowlisted)
+      -> ``_validate_phase2_assertions`` accepts it (``taste_profile`` / ``preference_profile``
+         families are allowlisted for external evidence; admission is NOT via
+         ``assertion_scope`` — the T4 ``AssertionScope.INTEREST`` design was reverted)
       -> ``_upsert_assertion`` writes it active with ``source_domain=external_activity``
       -> ``refresh_entity_snapshot`` -> ``preferences[...]["source_tier"] == "inferred"``
 
@@ -149,7 +151,9 @@ async def test_external_interest_surfaces_as_inferred_preference_in_snapshot():
             # normalize_runtime_event resolves this to
             # author_type="external" / memory_domain="external_activity", which
             # the evidence classifier maps to EXTERNAL_OBSERVATION
-            # (assertion_scope="interest", allow_assertion_write=True).
+            # (allow_assertion_write=True; the ``taste_profile``/``preference_profile``
+            # family allowlist in ``_validate_phase2_assertions`` controls admission,
+            # not ``assertion_scope`` — AssertionScope.INTEREST was reverted).
             ingest_result = await store.ingest_event(
                 {
                     "id": "evt-ext-interest-1",
@@ -171,9 +175,9 @@ async def test_external_interest_surfaces_as_inferred_preference_in_snapshot():
 
             rows = await _wait_for_assertions(store, entity_id="user:u1")
 
-            # 1) The phase2 candidate was persisted (the interest scope + the
-            #    allowlisted taste_profile family let it through the real
-            #    _validate_phase2_assertions path for an external event).
+            # 1) The phase2 candidate was persisted (EXTERNAL_OBSERVATION has
+            #    allow_assertion_write=True, and the allowlisted taste_profile
+            #    family passes _validate_phase2_assertions for external events).
             assert len(rows) == 1, f"expected exactly one assertion, got {rows!r}"
             row = rows[0]
             assert row["trait_family"] == "taste_profile"

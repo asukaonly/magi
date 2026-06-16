@@ -1,4 +1,4 @@
-"""Test migration 0012: 'shadow' status added to active-unique index exclusion.
+"""Test migration 0013: 'shadow' status added to active-unique index exclusion.
 
 Loads the migration module via importlib (its name starts with a digit, so
 normal import is not possible — mirrors the pattern in
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS tom_trait_assertions (
 
 def _load_migration(filename: str) -> ModuleType:
     migration_path = _VERSIONS_DIR / filename
-    spec = importlib.util.spec_from_file_location("migration_0012_shadow_status", migration_path)
+    spec = importlib.util.spec_from_file_location("migration_0013_shadow_status", migration_path)
     assert spec is not None, f"Could not create spec for {migration_path}"
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
