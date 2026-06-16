@@ -143,6 +143,11 @@ class L2PipelineWorkerMixin:
                                 entity_ids=touched_entity_ids
                                 if isinstance(touched_entity_ids, list)
                                 else [],
+                                place_ids=result.get("touched_place_ids", []) or [],
+                                topic_keys=result.get("touched_topic_keys", []) or [],
+                                episode_type_hint=str(
+                                    evt.get("event_type") or "activity"
+                                ),
                             )
                             for eid, evt in zip(job.event_ids, job.events)
                         ]

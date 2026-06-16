@@ -342,6 +342,78 @@ async def test_streaming_candidate_new_after_gap(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_formation_honors_episode_type_hint_gap(tmp_path):
+    """The episode_type_hint drives the merge gap.
+
+    Two events 20 min apart are split into TWO ``conversation`` episodes
+    (conversation gap = 10 min < 20 min) but merged into ONE ``activity``
+    episode (activity gap = 30 min > 20 min). This is the value Task 1.2
+    unlocks: the extract worker now passes the type hint, so formation
+    stops collapsing every kind of event into 30-min activity buckets.
+    """
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.episode_formation import assign_events_to_episode
+    from magi.memory.l2.models import EpisodeCandidateJob
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+    gap = 20 * 60  # 20 minutes
+
+    # conversation hint (10-min gap) → two separate episodes
+    conv1 = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="conv-1",
+                event_timestamp=now,
+                entity_ids=["user:alice"],
+                episode_type_hint="conversation",
+            ),
+        ],
+    )
+    conv2 = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="conv-2",
+                event_timestamp=now + gap,
+                entity_ids=["user:alice"],
+                episode_type_hint="conversation",
+            ),
+        ],
+    )
+    assert conv1 != conv2
+
+    # default activity hint (30-min gap) → same episode, proving the hint
+    # (not the timing) is what splits the conversation pair above.
+    act1 = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="act-1",
+                event_timestamp=now,
+                entity_ids=["user:bob"],
+                episode_type_hint="activity",
+            ),
+        ],
+    )
+    act2 = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="act-2",
+                event_timestamp=now + gap,
+                entity_ids=["user:bob"],
+                episode_type_hint="activity",
+            ),
+        ],
+    )
+    assert act1 == act2
+
+
+@pytest.mark.asyncio
 async def test_consolidation_promotes_mature_candidates(tmp_path):
     """Candidates with enough events and age get promoted to active."""
     from magi.memory.l2.store import L2CognitionStore
