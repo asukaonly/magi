@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers.memory.router import memory_router
+from magi.memory.l2.store import L2CognitionStore
 
 
 @pytest.fixture
@@ -148,6 +151,66 @@ def test_episode_detail_returns_events_and_inferred(app_with_mock_memory):
     assert body["inferred"][0]["assertion_id"] == "assert-1"
     assert body["inferred"][0]["trait_name"] == "balance"
     l2.list_assertions_for_episode.assert_awaited_once_with(episode_id="ep1")
+
+
+def test_rejecting_episode_inference_removes_it(tmp_path):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    async def _seed() -> tuple[L2CognitionStore, str]:
+        store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+        await store.initialize()
+        now = time.time()
+        await store.create_episode(
+            episode_id="ep1",
+            status="active",
+            time_start=now - 10,
+            time_end=now,
+        )
+        await store.add_episode_events(episode_id="ep1", event_ids=["e1"])
+        assertion_id = await store.upsert_assertion_candidate(
+            {
+                "entity_id": "user",
+                "entity_type": "user",
+                "trait_family": "preference",
+                "trait_name": "balance",
+                "trait_value": "values work-life balance",
+                "confidence_score": 0.7,
+                "evidence_events": ["e1"],
+                "volatility_index": 0.3,
+                "source_domain": "chat",
+                "inference_depth": "explicit",
+                "validation_state": "tentative",
+                "first_inferred_at": now,
+                "last_validated_at": now,
+                "natural_summary": "User values balance.",
+            }
+        )
+        return store, assertion_id
+
+    l2, assertion_id = asyncio.run(_seed())
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = None
+    with patch(
+        "magi.api.routers.memory.l2.episodes_routes._resolve_unified_memory",
+        return_value=unified,
+    ), patch(
+        "magi.api.routers.memory.l2.knowledge_routes._resolve_unified_memory",
+        return_value=unified,
+    ):
+        client = TestClient(app)
+        detail = client.get("/api/memory/l2/episodes/ep1").json()
+        assert detail["inferred"][0]["assertion_id"] == assertion_id
+
+        feedback = client.patch(
+            f"/api/memory/l2/assertions/{assertion_id}/feedback",
+            json={"feedback": "rejected"},
+        )
+        assert feedback.status_code == 200
+
+        after = client.get("/api/memory/l2/episodes/ep1").json()
+        assert all(item["assertion_id"] != assertion_id for item in after["inferred"])
 
 
 def test_merge_episode_endpoint_calls_store(app_with_mock_memory):
