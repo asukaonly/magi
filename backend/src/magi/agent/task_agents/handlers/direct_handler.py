@@ -70,13 +70,21 @@ def _extract_persona_rhythm(prompt_context: Any) -> "RhythmPersonaSignal | None"
         return None
     idiolect = getattr(plan, "idiolect", None)
     sentence_style = ""
+    chattiness = 0.5
     if isinstance(idiolect, dict):
         sentence_style = str(idiolect.get("sentence_style", "") or "")
+        raw_chattiness = idiolect.get("chattiness", 0.5)
+        if raw_chattiness is not None:
+            try:
+                chattiness = max(0.0, min(1.0, float(raw_chattiness)))
+            except (TypeError, ValueError):
+                chattiness = 0.5
     raw_intensity = getattr(plan, "persona_intensity", 1)
     return RhythmPersonaSignal(
         register=str(getattr(plan, "register", "casual") or "casual"),
         persona_intensity=int(raw_intensity) if raw_intensity is not None else 1,
         sentence_style=sentence_style,
+        chattiness=chattiness,
     )
 
 

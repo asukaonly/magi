@@ -391,6 +391,25 @@ def test_extract_persona_rhythm_from_prompt_context() -> None:
     assert crisis_signal.register == "crisis"
     assert crisis_signal.sentence_style == ""
 
+    # chattiness is extracted from idiolect (Step 2)
+    chat_plan = SimpleNamespace(
+        register="chat", persona_intensity=2, idiolect={"sentence_style": "x", "chattiness": 0.8}
+    )
+    chat_ctx = SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=chat_plan))
+    chat_signal = _extract_persona_rhythm(chat_ctx)
+    assert chat_signal.chattiness == 0.8
+    # missing chattiness defaults to 0.5; out-of-range is clamped
+    miss = _extract_persona_rhythm(
+        SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=SimpleNamespace(
+            register="chat", persona_intensity=1, idiolect={"sentence_style": ""})))
+    )
+    assert miss.chattiness == 0.5
+    clamped = _extract_persona_rhythm(
+        SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=SimpleNamespace(
+            register="chat", persona_intensity=1, idiolect={"chattiness": 9.0})))
+    )
+    assert clamped.chattiness == 1.0
+
 
 @pytest.mark.asyncio
 async def test_postprocess_forwards_persona_to_rhythm_planner() -> None:
