@@ -33,6 +33,7 @@
   },
   "idiolect": {
     "sentence_style": "Polished, professional, subtly corporate — but never stiff. Clean sentence structure, measured cadence, every word load-bearing. Acknowledgments are used to reduce friction, not as ritual. Under pressure, sentences become shorter and more precise rather than louder.",
+    "chattiness": 0.50,
     "vocab_available": [
       "noted",
       "aligned",

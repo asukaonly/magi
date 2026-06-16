@@ -421,7 +421,7 @@ class RhythmPersonaSignal:
     register: str = "casual"
     persona_intensity: int = 1
     sentence_style: str = ""
-    chattiness: float = 0.5  # reserved for Step 2; unused in Step 1
+    chattiness: float = 0.5  # baseline conversational verbosity; drives rhythm pacing via _rhythm_level
 
 
 @dataclass(slots=True)

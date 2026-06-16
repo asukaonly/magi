@@ -14,7 +14,7 @@ from magi.agent.task_agents.common import AssistantResponsePlan, AssistantRespon
 
 logger = get_logger(__name__)
 
-_MAX_SEGMENTS = 3
+_MAX_SEGMENTS = 5
 _MAX_UNITS = 12
 _MIN_CONTENT_CHARS = 120
 _MIN_CJK_CONTENT_CHARS = 48
@@ -57,6 +57,40 @@ def _compute_delay_ms(
     jitter = source.uniform(1.0 - _JITTER, 1.0 + _JITTER)
     value = base * speed_factor * jitter
     return int(max(_FLOOR_MS, min(value, _CEIL_MS)))
+
+
+def _rhythm_level(persona: "RhythmPersonaSignal | None") -> float:
+    """Combine scene intensity and persona chattiness into a 0–1 pacing level.
+
+    Multiplicative so a low scene base (crisis/task) suppresses even a chatty
+    persona — the "serious turns stay un-fragmented" guard comes for free.
+    """
+    if persona is None:
+        intensity, chattiness = 1, 0.5
+    else:
+        intensity = persona.persona_intensity
+        chattiness = persona.chattiness
+    scene_norm = max(0.0, min(1.0, intensity / 2.0))
+    return max(0.0, min(1.0, scene_norm * float(chattiness)))
+
+
+def _rhythm_profile(rhythm_level: float) -> tuple[str, float, int]:
+    """Map pacing level to (segmentation_bias line, delay speed_factor, max_groups)."""
+    if rhythm_level < 0.20:
+        return ("- Use exactly one group; do not split.", 1.3, 1)
+    if rhythm_level < 0.50:
+        return (
+            "- Prefer one group; use at most two only when the units are truly separate moves.",
+            1.1,
+            2,
+        )
+    if rhythm_level < 0.75:
+        return ("- Prefer two groups; use three only for genuinely distinct moves.", 0.95, 3)
+    return (
+        "- Prefer two or three short groups; up to five for a lively, bursty reply with distinct moves.",
+        0.8,
+        5,
+    )
 
 
 def is_conversation_rhythm_enabled() -> bool:
@@ -115,7 +149,8 @@ class ResponseRhythmPlanner:
         streamed: bool = False,
         persona: RhythmPersonaSignal | None = None,
     ) -> AssistantResponsePlan | None:
-        persona_intensity = persona.persona_intensity if persona is not None else None
+        rhythm_level = _rhythm_level(persona)
+        segmentation_bias, speed_factor, max_groups = _rhythm_profile(rhythm_level)
         persona_voice = persona.sentence_style if persona is not None else ""
         if streamed or not self._is_enabled():
             return None
@@ -135,7 +170,7 @@ class ResponseRhythmPlanner:
         try:
             raw_plan = await self._prompt_service.call_llm(
                 system_prompt=self._build_system_prompt(
-                    persona_intensity=persona_intensity, sentence_style=persona_voice
+                    segmentation_bias=segmentation_bias, max_groups=max_groups, sentence_style=persona_voice
                 ),
                 messages=[
                     {
@@ -161,9 +196,7 @@ class ResponseRhythmPlanner:
             logger.debug("Conversation rhythm planner call failed", error=str(exc))
             return None
         return self._parse_plan(
-            raw_plan,
-            units=units,
-            aggregate_text=normalized_response,
+            raw_plan, units=units, aggregate_text=normalized_response, speed_factor=speed_factor
         )
 
     @staticmethod
@@ -210,18 +243,7 @@ class ResponseRhythmPlanner:
         )
 
     @staticmethod
-    def _build_system_prompt(*, persona_intensity: int | None = None, sentence_style: str = "") -> str:
-        intensity = 1 if persona_intensity is None else int(persona_intensity)
-        if intensity <= 0:
-            segmentation_bias = "- Use exactly one group; do not split."
-        elif intensity == 1:
-            # Default path (no active persona triggers): conservative single-bubble
-            # bias; the legacy "prefer two groups" nudge is intentionally dropped here.
-            segmentation_bias = (
-                "- Prefer one group; use at most two only when units are truly separate moves."
-            )
-        else:
-            segmentation_bias = "- Prefer two groups for most splittable answers."
+    def _build_system_prompt(*, segmentation_bias: str, max_groups: int, sentence_style: str = "") -> str:
         stripped_style = sentence_style.strip()
         bias_lines = [segmentation_bias]
         if stripped_style:
@@ -230,20 +252,21 @@ class ResponseRhythmPlanner:
                 "Let it inform whether and where to split, without changing wording."
             )
         bias_block = "\n".join(bias_lines)
+        bubble_phrase = "a single chat bubble" if max_groups == 1 else f"one to {max_groups} chat bubbles"
+        group_word = "group" if max_groups == 1 else "groups"
         return f"""You are an internal chat presentation planner.
 
-You do not answer the user. You only decide how to display an already finished assistant answer as one to three chat bubbles.
+You do not answer the user. You only decide how to display an already finished assistant answer as {bubble_phrase}.
 
 Rules:
 - Output valid JSON only.
 - Do not rewrite, summarize, translate, add, or remove user-visible content.
 - Use only the provided unit ids.
 - Cover every unit exactly once, in the original order.
-- Use at most three groups.
+- Use at most {max_groups} {group_word}.
 {bias_block}
-- Use three groups only for long answers with three distinct moves; never split into three just because three sentence units exist.
 - Use one group when the answer is short, terse, transactional, or splitting would hurt meaning.
-- Technical explanations, architecture notes, implementation plans, API/protocol/configuration details, debugging analysis, and source-code-related answers should usually be one group. If a technical answer is conversational enough to split, use at most two groups and keep the technical body intact.
+- Technical explanations, architecture notes, implementation plans, API/protocol/configuration details, debugging analysis, and source-code-related answers should usually be one group. If a technical answer is conversational enough to split, keep the technical body intact.
 - Never add fake hesitation, filler, or dramatic pauses; every group must carry useful content.
 
 Schema:
@@ -285,6 +308,7 @@ Schema:
         *,
         units: list[_RhythmUnit],
         aggregate_text: str,
+        speed_factor: float = 1.0,
     ) -> AssistantResponsePlan | None:
         try:
             parsed = json.loads(str(raw_plan or "").strip())
@@ -296,9 +320,12 @@ Schema:
         groups = parsed.get("groups")
         if not isinstance(groups, list) or not groups:
             return None
+        # max_groups from _rhythm_profile is a soft, prompt-level bias; the hard
+        # ceiling is _MAX_SEGMENTS. Low-pacing turns stay single-bubble via the
+        # prompt ("exactly one group") plus the len(segments) < 2 guard below.
         if len(groups) > _MAX_SEGMENTS:
             return None
-        if len(groups) >= 3 and len(aggregate_text) < self._min_three_segment_chars(aggregate_text):
+        if len(groups) >= 3 and len(aggregate_text) < self._min_segments_chars(len(groups), aggregate_text):
             return None
 
         unit_lookup = {unit.unit_id: unit for unit in units}
@@ -318,7 +345,7 @@ Schema:
             content = self._join_group_content([unit_lookup[unit_id] for unit_id in unit_ids])
             if not content:
                 return None
-            delay_ms = 0 if index == 0 else _compute_delay_ms(content)
+            delay_ms = 0 if index == 0 else _compute_delay_ms(content, speed_factor=speed_factor)
             intent = self._normalize_intent(group.get("intent"))
             segments.append(
                 AssistantResponseSegment(
@@ -340,8 +367,9 @@ Schema:
         )
 
     @staticmethod
-    def _min_three_segment_chars(response_text: str) -> int:
-        return 120 if _CJK_RE.search(response_text) else 260
+    def _min_segments_chars(group_count: int, response_text: str) -> int:
+        base = 120 if _CJK_RE.search(response_text) else 260
+        return base * max(1, group_count - 2)
 
     @staticmethod
     def _normalize_intent(value: Any) -> str:

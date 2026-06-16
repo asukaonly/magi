@@ -75,6 +75,7 @@ class IdiolectModel(BaseModel):
     vocab_available: List[str] = Field(default_factory=list)
     vocab_avoided: List[str] = Field(default_factory=list)
     structural_quirks: List[str] = Field(default_factory=list)
+    chattiness: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class RegisterModel(BaseModel):

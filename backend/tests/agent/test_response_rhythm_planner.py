@@ -391,6 +391,25 @@ def test_extract_persona_rhythm_from_prompt_context() -> None:
     assert crisis_signal.register == "crisis"
     assert crisis_signal.sentence_style == ""
 
+    # chattiness is extracted from idiolect (Step 2)
+    chat_plan = SimpleNamespace(
+        register="chat", persona_intensity=2, idiolect={"sentence_style": "x", "chattiness": 0.8}
+    )
+    chat_ctx = SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=chat_plan))
+    chat_signal = _extract_persona_rhythm(chat_ctx)
+    assert chat_signal.chattiness == 0.8
+    # missing chattiness defaults to 0.5; out-of-range is clamped
+    miss = _extract_persona_rhythm(
+        SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=SimpleNamespace(
+            register="chat", persona_intensity=1, idiolect={"sentence_style": ""})))
+    )
+    assert miss.chattiness == 0.5
+    clamped = _extract_persona_rhythm(
+        SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=SimpleNamespace(
+            register="chat", persona_intensity=1, idiolect={"chattiness": 9.0})))
+    )
+    assert clamped.chattiness == 1.0
+
 
 @pytest.mark.asyncio
 async def test_postprocess_forwards_persona_to_rhythm_planner() -> None:
@@ -430,36 +449,62 @@ async def test_postprocess_forwards_persona_to_rhythm_planner() -> None:
     assert received.get("persona") is signal
 
 
-def test_build_system_prompt_segmentation_varies_with_intensity() -> None:
-    low = ResponseRhythmPlanner._build_system_prompt(persona_intensity=0)
-    mid = ResponseRhythmPlanner._build_system_prompt(persona_intensity=1)
-    high = ResponseRhythmPlanner._build_system_prompt(persona_intensity=2)
 
-    assert "exactly one group" in low
-    assert "Prefer one group" in mid
-    assert "Prefer two groups" in high
+def test_rhythm_level_multiplies_scene_and_chattiness() -> None:
+    from magi.chat.task_agent.rhythm import _rhythm_level
+    from magi.agent.task_agents.common import RhythmPersonaSignal
 
-    # None (no persona signal — the common path) must behave like intensity=1
-    none_default = ResponseRhythmPlanner._build_system_prompt(persona_intensity=None)
-    assert none_default == mid
-    # production clamps intensity to [0,3]; 3 falls through the >=2 branch
-    high3 = ResponseRhythmPlanner._build_system_prompt(persona_intensity=3)
-    assert "Prefer two groups" in high3
+    assert abs(_rhythm_level(None) - 0.25) < 1e-9
+    crisis = RhythmPersonaSignal(register="crisis", persona_intensity=0, chattiness=0.9)
+    assert _rhythm_level(crisis) == 0.0
+    chatty = RhythmPersonaSignal(register="chat", persona_intensity=2, chattiness=0.75)
+    assert abs(_rhythm_level(chatty) - 0.75) < 1e-9
+    reserved = RhythmPersonaSignal(register="chat", persona_intensity=2, chattiness=0.30)
+    assert abs(_rhythm_level(reserved) - 0.30) < 1e-9
 
 
-def test_build_system_prompt_includes_sentence_style() -> None:
-    with_voice = ResponseRhythmPlanner._build_system_prompt(
-        persona_intensity=2, sentence_style="爱用短句，碎碎念"
+def test_rhythm_profile_maps_level_to_bias_speed_maxgroups() -> None:
+    from magi.chat.task_agent.rhythm import _rhythm_profile
+
+    bias_lo, speed_lo, max_lo = _rhythm_profile(0.1)
+    assert "exactly one group" in bias_lo and max_lo == 1 and speed_lo > 1.0
+    bias_mid, speed_mid, max_mid = _rhythm_profile(0.6)
+    assert max_mid == 3 and speed_mid < 1.0
+    bias_hi, speed_hi, max_hi = _rhythm_profile(0.9)
+    assert max_hi == 5 and speed_hi < speed_mid
+    # thresholds are exclusive (<): exact boundary values fall into the higher band
+    assert _rhythm_profile(0.20)[2] == 2
+    assert _rhythm_profile(0.50)[2] == 3
+    assert _rhythm_profile(0.75)[2] == 5
+
+
+def test_build_system_prompt_uses_segmentation_bias_and_max_groups() -> None:
+    from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+
+    p = ResponseRhythmPlanner._build_system_prompt(
+        segmentation_bias="- Use exactly one group; do not split.",
+        max_groups=1,
+        sentence_style="爱用短句",
     )
-    without_voice = ResponseRhythmPlanner._build_system_prompt(
-        persona_intensity=2, sentence_style=""
+    assert "Use exactly one group" in p
+    assert "at most 1 group." in p
+    assert "a single chat bubble" in p
+    assert "爱用短句" in p
+    p5 = ResponseRhythmPlanner._build_system_prompt(
+        segmentation_bias="- Prefer two or three short groups; up to five for a lively, bursty reply with distinct moves.",
+        max_groups=5,
     )
-    assert "爱用短句，碎碎念" in with_voice
-    assert "爱用短句，碎碎念" not in without_voice
-    # no stray blank line in the no-voice (default) path
-    assert "\n\n- Use three groups only" not in without_voice
-    # with a voice, the hint sits directly between segmentation and the three-groups rule
-    assert "without changing wording.\n- Use three groups only" in with_voice
+    assert "at most 5 groups" in p5
+    assert "爱用短句" not in p5
+
+
+def test_min_segments_chars_scales_with_group_count() -> None:
+    from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+
+    cjk = "字字字"
+    assert ResponseRhythmPlanner._min_segments_chars(3, cjk) == 120
+    assert ResponseRhythmPlanner._min_segments_chars(4, cjk) == 240
+    assert ResponseRhythmPlanner._min_segments_chars(5, cjk) == 360
 
 
 def test_compute_delay_ms_scales_with_length_and_clamps() -> None:
