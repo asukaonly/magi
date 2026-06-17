@@ -777,7 +777,7 @@ Packaged desktop builds stage two generated runtime resources under `frontend/sr
 
 ### Frontend
 
-The marketplace UI lives in the Plugins settings section under "插件市场 / Marketplace". It shows available plugins with install/uninstall actions, version info, platform compatibility badges, and install progress with job logs. The onboarding sensor-selection step uses the same install job API for selected sensor plugins.
+The marketplace UI lives in the Plugins settings section under "插件市场 / Marketplace". It shows available plugins with manifest or registry icons, install/uninstall actions, version info, platform compatibility badges, and install progress with job logs. The onboarding sensor-selection step uses the same install job API for selected sensor plugins.
 
 ## Known Boundaries
 

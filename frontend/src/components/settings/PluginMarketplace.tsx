@@ -23,6 +23,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PluginIcon } from '@/components/plugins/PluginIcon';
 import { PluginInstallProgressPanel } from '@/components/plugins/PluginInstallProgressPanel';
 import { PluginConsentDialog, type ConsentMode } from '@/components/plugins/PluginConsentDialog';
 import { capabilitiesExceedingConsent } from '@/lib/pluginCapabilities';
@@ -334,46 +335,56 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                 className="rounded-lg border border-[hsl(var(--settings-subnav-border)/0.72)] p-4 space-y-3"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1.5 min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-foreground">
-                        {localized(entry.name, entry.name_i18n, i18n.language)}
-                      </span>
-                      <Badge variant="outline" className="text-xs">
-                        v{entry.version}
-                      </Badge>
-                      {entry.official && (
-                        <Badge variant="default" className="text-xs">
-                          {t('settings.marketplace.badge.official')}
-                        </Badge>
-                      )}
-                      {entry.data_locality === 'local_only' && (
-                        <Badge
-                          variant="outline"
-                          className="gap-1 border-transparent bg-emerald-500/15 text-xs text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300"
-                          title={t('settings.marketplace.badge.localOnlyHint', {
-                            defaultValue: 'All data stays on this device — nothing is uploaded.',
-                          })}
-                        >
-                          <Lock className="h-3 w-3" />
-                          {t('settings.marketplace.badge.localOnly', { defaultValue: 'Local only' })}
-                        </Badge>
-                      )}
+                  <div className="flex min-w-0 flex-1 gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[hsl(var(--settings-subnav-border)/0.72)] bg-[hsl(var(--settings-subnav-bg)/0.55)]">
+                      <PluginIcon
+                        iconId={entry.icon}
+                        pluginId={entry.plugin_id}
+                        sourceName={localized(entry.name, entry.name_i18n, i18n.language)}
+                        className="h-5 w-5"
+                      />
                     </div>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      {localized(entry.description, entry.description_i18n, i18n.language)}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      {entry.author && <span>{entry.author}</span>}
-                      {entry.contribution_types.length > 0 && (
-                        <div className="flex gap-1">
-                          {entry.contribution_types.map((type) => (
-                            <Badge key={type} variant="secondary" className="text-xs">
-                              {t(`settings.marketplace.contributionType.${type}`, { defaultValue: type })}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
+                    <div className="space-y-1.5 min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-foreground">
+                          {localized(entry.name, entry.name_i18n, i18n.language)}
+                        </span>
+                        <Badge variant="outline" className="text-xs">
+                          v{entry.version}
+                        </Badge>
+                        {entry.official && (
+                          <Badge variant="default" className="text-xs">
+                            {t('settings.marketplace.badge.official')}
+                          </Badge>
+                        )}
+                        {entry.data_locality === 'local_only' && (
+                          <Badge
+                            variant="outline"
+                            className="gap-1 border-transparent bg-emerald-500/15 text-xs text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300"
+                            title={t('settings.marketplace.badge.localOnlyHint', {
+                              defaultValue: 'All data stays on this device — nothing is uploaded.',
+                            })}
+                          >
+                            <Lock className="h-3 w-3" />
+                            {t('settings.marketplace.badge.localOnly', { defaultValue: 'Local only' })}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground leading-relaxed">
+                        {localized(entry.description, entry.description_i18n, i18n.language)}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        {entry.author && <span>{entry.author}</span>}
+                        {entry.contribution_types.length > 0 && (
+                          <div className="flex gap-1">
+                            {entry.contribution_types.map((type) => (
+                              <Badge key={type} variant="secondary" className="text-xs">
+                                {t(`settings.marketplace.contributionType.${type}`, { defaultValue: type })}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
