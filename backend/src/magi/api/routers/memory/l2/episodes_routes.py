@@ -4,14 +4,81 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import HTTPException, Query, status
+
+from magi.memory.l2.entities.maintenance import (
+    SCHEDULE_ID_L2_MAINTENANCE,
+    TARGET_KEY_L2_MAINTENANCE,
+)
+from magi.scheduler.contracts import ScheduledExecutionResult, ScheduledTargetType
+from magi.scheduler.repository import ScheduleRepository
+from magi.utils.runtime import get_runtime_paths
 
 from ..dependencies import _resolve_unified_memory
 from ..helpers import memory_t
 from ..router import memory_router
 from ..schemas import EpisodeAnnotationRequest, EpisodeMergeRequest
+
+
+def _l2_maintenance_lock_repository() -> ScheduleRepository:
+    runtime_paths = get_runtime_paths()
+    scheduler_db_path = getattr(
+        runtime_paths,
+        "scheduler_db_path",
+        Path(runtime_paths.base_dir) / "runtime" / "scheduler.db",
+    )
+    return ScheduleRepository(scheduler_db_path)
+
+
+async def _acquire_l2_maintenance_lock() -> ScheduleRepository:
+    repository = _l2_maintenance_lock_repository()
+    await repository.initialize()
+    acquired = await repository.acquire_target_lock(
+        ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+        TARGET_KEY_L2_MAINTENANCE,
+    )
+    if not acquired:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=memory_t(
+                "memory.errors.l2_maintenance_busy",
+                "L2 maintenance is already running",
+            ),
+        )
+    return repository
+
+
+async def _record_l2_maintenance_lock_success(
+    repository: ScheduleRepository,
+    *,
+    stats: dict[str, Any],
+) -> None:
+    await repository.record_target_success(
+        ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+        TARGET_KEY_L2_MAINTENANCE,
+        result=ScheduledExecutionResult(
+            success=True,
+            message="manual_reconsolidate_ok",
+            stats=stats,
+        ),
+        scheduler_job_id=SCHEDULE_ID_L2_MAINTENANCE,
+    )
+
+
+async def _record_l2_maintenance_lock_failure(
+    repository: ScheduleRepository,
+    *,
+    error: str,
+) -> None:
+    await repository.record_target_failure(
+        ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+        TARGET_KEY_L2_MAINTENANCE,
+        error=error,
+        scheduler_job_id=SCHEDULE_ID_L2_MAINTENANCE,
+    )
 
 
 def _serialize_episode_inference(assertion: Dict[str, Any]) -> Dict[str, Any]:
@@ -221,34 +288,48 @@ async def reconsolidate_episodes_endpoint():
             detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
         )
 
-    from magi.memory.l2.episode_formation import consolidate_episodes
-    stats = await consolidate_episodes(unified_memory.l2)
+    lock_repository = await _acquire_l2_maintenance_lock()
+    try:
+        from magi.memory.l2.episode_formation import consolidate_episodes
+        stats = await consolidate_episodes(unified_memory.l2)
 
-    summaries_generated = 0
-    summary_errors: list[str] = []
+        summaries_generated = 0
+        summary_errors: list[str] = []
 
-    if unified_memory.l3 is not None and unified_memory.l1 is not None:
-        # Catch-up: every active episode lacking an L3 episodic summary (newly
-        # promoted ones are already 'active', so they are included here).
-        active_episodes = await unified_memory.l2.list_episodes(status="active", limit=500)
-        episode_ids = [
-            str(ep.get("episode_id") or "").strip()
-            for ep in active_episodes
-            if ep.get("episode_id")
-        ]
-        result = await unified_memory.l3.generate_missing_episodic_summaries(
-            l1_store=unified_memory.l1,
-            l2_store=unified_memory.l2,
-            episode_ids=episode_ids,
+        if unified_memory.l3 is not None and unified_memory.l1 is not None:
+            # Catch-up: every active episode lacking an L3 episodic summary (newly
+            # promoted ones are already 'active', so they are included here).
+            active_episodes = await unified_memory.l2.list_episodes(status="active", limit=500)
+            episode_ids = [
+                str(ep.get("episode_id") or "").strip()
+                for ep in active_episodes
+                if ep.get("episode_id")
+            ]
+            result = await unified_memory.l3.generate_missing_episodic_summaries(
+                l1_store=unified_memory.l1,
+                l2_store=unified_memory.l2,
+                episode_ids=episode_ids,
+            )
+            summaries_generated = int(result.get("generated") or 0)
+            summary_errors = list(result.get("errors") or [])
+
+        response = {
+            "promoted": stats.promoted,
+            "standouts": stats.standouts,
+            "merged": stats.merged,
+            "invalidated": stats.invalidated,
+            "summaries_generated": summaries_generated,
+            "summary_errors": summary_errors,
+        }
+    except asyncio.CancelledError:
+        await _record_l2_maintenance_lock_failure(
+            lock_repository,
+            error="manual_reconsolidate_cancelled",
         )
-        summaries_generated = int(result.get("generated") or 0)
-        summary_errors = list(result.get("errors") or [])
+        raise
+    except Exception as exc:
+        await _record_l2_maintenance_lock_failure(lock_repository, error=str(exc))
+        raise
 
-    return {
-        "promoted": stats.promoted,
-        "standouts": stats.standouts,
-        "merged": stats.merged,
-        "invalidated": stats.invalidated,
-        "summaries_generated": summaries_generated,
-        "summary_errors": summary_errors,
-    }
+    await _record_l2_maintenance_lock_success(lock_repository, stats=response)
+    return response

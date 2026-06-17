@@ -249,6 +249,7 @@
       "session_not_found": "未找到会话",
       "scenario_llm_pool_uninitialized": "场景 LLM 池未初始化",
       "l2_store_uninitialized": "L2 存储未初始化",
+      "l2_maintenance_busy": "L2 记忆维护正在运行",
       "edge_not_found": "未找到边",
       "end_must_be_greater_than_start": "结束时间必须晚于开始时间",
       "episode_not_found": "未找到片段",

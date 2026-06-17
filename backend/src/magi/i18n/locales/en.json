@@ -249,6 +249,7 @@
       "session_not_found": "Session not found",
       "scenario_llm_pool_uninitialized": "Scenario LLM pool is not initialized",
       "l2_store_uninitialized": "L2 store not initialized",
+      "l2_maintenance_busy": "L2 maintenance is already running",
       "edge_not_found": "Edge not found",
       "end_must_be_greater_than_start": "end must be greater than start",
       "episode_not_found": "Episode not found",

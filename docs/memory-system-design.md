@@ -382,6 +382,7 @@ Batch policy:
 - Durable claim is subject to runtime backpressure
 - Plugin sync cursors only track "synced to L1", not L2 progress
 - The `runtime_worker` registers `memory_l2_maintenance` as a periodic task for offline entity catalog / knowledge graph maintenance, including ghost references, mergeable types, orphan entities, assertion reconciliation, edge embedding refresh, predicate consolidation, and episode consolidation
+- Manual `/l2/episodes/reconsolidate` uses the same scheduler target lock as `memory_l2_maintenance`; if maintenance is already running, the endpoint returns HTTP 409 instead of competing with scheduled episode consolidation.
 
 A rare set of runtime-only events without `L1` durable anchors can use the in-process dispatch path, but they are not considered regular inputs to `L2` durable projection.
 
