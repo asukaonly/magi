@@ -38,7 +38,7 @@ export function EpisodeEventList({
           <div className="px-4 py-3 text-sm text-[hsl(var(--memory-muted))]">{t('memory.episodes.noEvents')}</div>
         ) : events.map((event) => {
           const time = formatEventTime(event.timestamp ?? event.added_at, i18n.language);
-          const preview = String(event.content_preview || event.event_id || '').trim();
+          const preview = String(event.content_preview || '').trim();
           return (
             <article key={`${event.episode_id}-${event.event_id}`} className="border-t border-[hsl(var(--memory-divider)/0.54)] px-4 py-3 first:border-t-0">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -52,12 +52,13 @@ export function EpisodeEventList({
                         className="mt-1"
                       />
                     ) : null}
-                    <span className="whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-body))]">{preview}</span>
+                    <span className="whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-body))]">
+                      {preview || t('memory.episodes.eventPreviewUnavailable')}
+                    </span>
                   </label>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
                     {event.source ? <span>{event.source}</span> : null}
                     {event.event_type ? <span>{event.event_type}</span> : null}
-                    <span className="break-all font-mono">{event.event_id}</span>
                   </div>
                 </div>
                 {time ? <div className="shrink-0 text-xs text-[hsl(var(--memory-muted))]">{time}</div> : null}

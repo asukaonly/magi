@@ -11,12 +11,34 @@ import EpisodeDetail from '@/components/memory/episodes/EpisodeDetail';
 import EpisodeRow, { getEpisodeDisplayTitle } from '@/components/memory/episodes/EpisodeRow';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS, MEMORY_INFO_PANEL_CLASS } from './MemoryPageFrame';
+
+const CHAPTER_MIN_EVENTS = 12;
+const CHAPTER_MIN_SECONDS = 45 * 60;
+
+const isReadableChapter = (episode: L2EpisodeWithSummary): boolean => {
+  if (episode.user_pinned) {
+    return true;
+  }
+  const eventCount = Number(episode.source_event_count || 0);
+  const start = typeof episode.time_start === 'number' ? episode.time_start : null;
+  const end = typeof episode.time_end === 'number' ? episode.time_end : null;
+  const duration = start !== null && end !== null ? Math.max(0, end - start) : 0;
+  return eventCount >= CHAPTER_MIN_EVENTS || duration >= CHAPTER_MIN_SECONDS;
+};
 
 export const MemoryEpisodesPage = () => {
   const { t } = useTranslation('app');
   const [episodes, setEpisodes] = useState<L2EpisodeWithSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState<L2EpisodeReviewDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -26,13 +48,13 @@ export const MemoryEpisodesPage = () => {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const payload = await memoryApi.listEpisodes({ limit: 100, offset: 0 });
+      const payload = await memoryApi.listEpisodes({ surface: 'standout', limit: 100, offset: 0 });
       setEpisodes(payload.items);
       setSelectedId((current) => {
         if (current && payload.items.some((item) => item.episode_id === current)) {
           return current;
         }
-        return payload.items[0]?.episode_id ?? null;
+        return null;
       });
     } finally {
       setLoading(false);
@@ -44,8 +66,9 @@ export const MemoryEpisodesPage = () => {
   }, [refresh]);
 
   useEffect(() => {
-    if (!selectedId) {
+    if (!detailOpen || !selectedId) {
       setDetail(null);
+      setDetailLoading(false);
       return;
     }
     let cancelled = false;
@@ -65,12 +88,16 @@ export const MemoryEpisodesPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
+  }, [detailOpen, selectedId]);
 
   const selectedListEpisode = useMemo(
     () => episodes.find((episode) => episode.episode_id === selectedId) ?? null,
     [episodes, selectedId]
   );
+  const visibleEpisodes = useMemo(() => {
+    const chapters = episodes.filter(isReadableChapter);
+    return chapters.length > 0 ? chapters : episodes;
+  }, [episodes]);
   const selectedEpisode = detail ?? selectedListEpisode;
   const selectedTitle = selectedEpisode
     ? getEpisodeDisplayTitle(selectedEpisode, t('memory.episodes.awaitingLabel'))
@@ -101,6 +128,7 @@ export const MemoryEpisodesPage = () => {
     });
     setSelectedId(updated.episode_id);
     setDetail(updated);
+    setDetailOpen(true);
   }, []);
 
   const applySplitResult = useCallback((items: L2EpisodeReviewDetail[]) => {
@@ -114,7 +142,22 @@ export const MemoryEpisodesPage = () => {
     ]);
     setSelectedId(first.episode_id);
     setDetail(first);
+    setDetailOpen(true);
   }, [selectedEpisode]);
+
+  const openEpisode = (episodeId: string) => {
+    setSelectedId(episodeId);
+    setDetailOpen(true);
+  };
+
+  const handleDetailOpenChange = (open: boolean) => {
+    setDetailOpen(open);
+    if (!open) {
+      setSelectedId(null);
+      setDetail(null);
+      setDetailLoading(false);
+    }
+  };
 
   const renameSelectedEpisode = async (title: string) => {
     if (!selectedEpisode) {
@@ -191,48 +234,54 @@ export const MemoryEpisodesPage = () => {
           </div>
         </div>
       ) : (
-        <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(280px,420px)_minmax(0,1fr)]">
+        <>
           <section className="min-w-0 space-y-3">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">
                 {t('memory.episodes.sections.list')}
               </h2>
               <Badge variant="outline" className="rounded-md border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-tag-bg)/0.76)] text-[hsl(var(--memory-muted))]">
-                {t('memory.episodes.count', { count: episodes.length })}
+                {t('memory.episodes.count', { count: visibleEpisodes.length })}
               </Badge>
             </div>
-            <div className="space-y-2">
-              {episodes.map((episode) => (
+            <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {visibleEpisodes.map((episode) => (
                 <EpisodeRow
                   key={episode.episode_id}
                   episode={episode}
                   selected={episode.episode_id === selectedId}
-                  onOpen={() => setSelectedId(episode.episode_id)}
+                  onOpen={() => openEpisode(episode.episode_id)}
                 />
               ))}
             </div>
           </section>
 
-          <section className="min-w-0 rounded-2xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.7)]">
-            {selectedEpisode ? (
-              <EpisodeDetail
-                episode={selectedEpisode}
-                title={selectedTitle}
-                detailLoading={detailLoading}
-                onRenameTitle={renameSelectedEpisode}
-                onEditDescription={editSelectedDescription}
-                onRegenerate={regenerateSelectedDescription}
-                onEpisodeUpdated={applyReviewDetail}
-                onEpisodeSplit={applySplitResult}
-              />
-            ) : (
-              <div className={MEMORY_EMPTY_PANEL_CLASS}>
-                <div className="font-semibold text-[hsl(var(--memory-title))]">{t('memory.episodes.detailEmptyTitle')}</div>
-                <p className="mt-1 text-sm">{t('memory.episodes.detailEmptyBody')}</p>
-              </div>
-            )}
-          </section>
-        </div>
+          <Sheet open={detailOpen} onOpenChange={handleDetailOpenChange}>
+            <SheetContent
+              side="right"
+              className="w-[min(96vw,880px)] max-w-[880px] overflow-y-auto border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated))] p-0"
+            >
+              <SheetHeader className="sr-only">
+                <SheetTitle>{selectedTitle || t('memory.episodes.sections.detail')}</SheetTitle>
+                <SheetDescription>{t('memory.episodes.detailEmptyBody')}</SheetDescription>
+              </SheetHeader>
+              {selectedEpisode ? (
+                <EpisodeDetail
+                  episode={selectedEpisode}
+                  title={selectedTitle}
+                  detailLoading={detailLoading}
+                  onRenameTitle={renameSelectedEpisode}
+                  onEditDescription={editSelectedDescription}
+                  onRegenerate={regenerateSelectedDescription}
+                  onEpisodeUpdated={applyReviewDetail}
+                  onEpisodeSplit={applySplitResult}
+                />
+              ) : (
+                <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div>
+              )}
+            </SheetContent>
+          </Sheet>
+        </>
       )}
     </MemoryPageFrame>
   );

@@ -1,4 +1,4 @@
-import { CalendarRange, Pin } from 'lucide-react';
+import { BookOpen, CalendarRange, Pin, Tags } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { L2Episode, L2EpisodeWithSummary } from '@/api/modules/memory';
 import { Badge } from '@/components/ui/badge';
@@ -55,11 +55,41 @@ const getEpisodeSummary = (episode: L2Episode | L2EpisodeWithSummary): string =>
   return summary.length > 180 ? `${summary.slice(0, 177)}...` : summary;
 };
 
+const MACHINE_ID_PATTERN = /^[0-9a-f]{10,}$|^[0-9A-HJKMNP-TV-Z]{12,}$/i;
+
+const formatReviewTag = (value: string): string => {
+  const raw = String(value || '').trim();
+  if (!raw || raw === 'user' || raw === 'user:local_user' || raw === 'local_user') {
+    return '';
+  }
+  const [, suffix = raw] = raw.match(/^[^:]+:(.+)$/) || [];
+  const cleaned = suffix.trim();
+  if (!cleaned || MACHINE_ID_PATTERN.test(cleaned)) {
+    return '';
+  }
+  return cleaned.replace(/[-_]+/g, ' ');
+};
+
+const getEpisodeEntityLabels = (episode: L2Episode | L2EpisodeWithSummary): string[] => {
+  const entities = Array.isArray(episode.primary_entities) ? episode.primary_entities : [];
+  const names = entities
+    .map((entity) => String(entity.name || '').trim())
+    .filter(Boolean);
+  if (names.length > 0) {
+    return names.slice(0, 3);
+  }
+  return (episode.primary_entity_ids || [])
+    .map(formatReviewTag)
+    .filter(Boolean)
+    .slice(0, 3);
+};
+
 export const EpisodeRow = ({ episode, selected, onOpen }: EpisodeRowProps) => {
   const { t, i18n } = useTranslation('app');
   const title = getEpisodeDisplayTitle(episode, t('memory.episodes.awaitingLabel'));
   const summary = getEpisodeSummary(episode);
   const range = formatEpisodeTimeRange(episode.time_start, episode.time_end, i18n.language);
+  const entityLabels = getEpisodeEntityLabels(episode);
   const typeLabel = t(`memory.episodes.filters.${episode.episode_type || 'activity'}`, {
     defaultValue: episode.episode_type || '',
   });
@@ -70,7 +100,7 @@ export const EpisodeRow = ({ episode, selected, onOpen }: EpisodeRowProps) => {
       onClick={onOpen}
       aria-label={`${t('memory.episodes.actions.open')}: ${title}`}
       className={cn(
-        'group w-full rounded-xl border px-4 py-3 text-left transition-colors duration-200',
+        'group flex min-h-[220px] w-full flex-col justify-between rounded-lg border px-5 py-4 text-left transition-colors duration-200',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.24)]',
         selected
           ? 'border-[hsl(var(--memory-accent)/0.46)] bg-[hsl(var(--memory-accent-soft)/0.64)]'
@@ -80,7 +110,8 @@ export const EpisodeRow = ({ episode, selected, onOpen }: EpisodeRowProps) => {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="break-words text-sm font-semibold leading-5 text-[hsl(var(--memory-title))]">{title}</span>
+            <BookOpen className="h-4 w-4 shrink-0 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
+            <span className="break-words text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">{title}</span>
             {episode.user_pinned ? (
               <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[hsl(var(--memory-panel-elevated)/0.86)] text-[hsl(var(--memory-accent))]">
                 <Pin className="h-3.5 w-3.5" aria-hidden="true" />
@@ -88,9 +119,26 @@ export const EpisodeRow = ({ episode, selected, onOpen }: EpisodeRowProps) => {
             ) : null}
           </div>
           {summary ? (
-            <p className="mt-1 line-clamp-2 text-sm leading-5 text-[hsl(var(--memory-body))]">{summary}</p>
+            <p className="mt-3 line-clamp-4 text-sm leading-6 text-[hsl(var(--memory-body))]">{summary}</p>
           ) : null}
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
+        </div>
+      </div>
+      <div className="mt-5 space-y-3">
+        {entityLabels.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Tags className="h-3.5 w-3.5 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
+            {entityLabels.map((label) => (
+              <span
+                key={label}
+                className="rounded-md bg-[hsl(var(--memory-panel-subtle)/0.76)] px-2 py-1 text-xs text-[hsl(var(--memory-body))]"
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[hsl(var(--memory-muted))]">
+          <div className="flex flex-wrap items-center gap-2">
             {typeLabel ? (
               <Badge variant="outline" className="rounded-md border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-tag-bg)/0.74)] font-normal text-[hsl(var(--memory-body))]">
                 {typeLabel}
@@ -103,9 +151,9 @@ export const EpisodeRow = ({ episode, selected, onOpen }: EpisodeRowProps) => {
               </span>
             ) : null}
           </div>
-        </div>
-        <div className="shrink-0 text-xs tabular-nums text-[hsl(var(--memory-muted))]">
-          {episode.source_event_count ?? 0}
+          <span className="shrink-0 tabular-nums">
+            {t('memory.episodes.eventCount', { count: episode.source_event_count ?? 0 })}
+          </span>
         </div>
       </div>
     </button>

@@ -579,7 +579,10 @@ Users can interact with L2 artifacts directly:
 - **Episode annotation**: `update_episode()` supports `user_label`, `user_note`, `user_pinned` fields
 - **Episode review curation**: active episodes can regenerate their L3 recap,
   add or remove suggested member events, merge with a suggested active episode,
-  or split into two chronological child episodes by event breakpoint.
+  or split into two chronological child episodes by event breakpoint. User-facing
+  episode review surfaces should default to curated chapter-like episodes and
+  keep raw L1 event identifiers in evidence/debug paths rather than primary
+  reading views.
 - **Forget entity**: `forget_entity(entity_id)` — cascade soft-delete across KG edges, assertions, facets, and episodes
 - **Forget time range**: `forget_time_range(start, end)` — invalidates episodes and archives assertions/edges in the range
 - **Forget episode**: `forget_episode(episode_id)` — invalidates the episode, optionally returns member event IDs

@@ -262,12 +262,19 @@ export interface L2Episode {
   user_note?: string | null;
   user_pinned?: boolean;
   primary_entity_ids?: string[] | null;
+  primary_entities?: L2EpisodeEntityPreview[] | null;
   primary_place_ids?: string[] | null;
   primary_topic_keys?: string[] | null;
   continuity_signals?: string[] | null;
   formation_method?: string | null;
   created_at?: number | null;
   updated_at?: number | null;
+}
+
+export interface L2EpisodeEntityPreview {
+  id: string;
+  name: string;
+  type?: string | null;
 }
 
 export interface L2EpisodeSummary {

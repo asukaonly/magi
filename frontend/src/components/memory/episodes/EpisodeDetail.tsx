@@ -22,9 +22,34 @@ import { AddEventDialog, MergeEpisodeDialog, SplitEpisodeDialog } from './Episod
 
 type EpisodeReviewLike = L2Episode | L2EpisodeWithSummary | L2EpisodeReviewDetail;
 
+const MACHINE_ID_PATTERN = /^[0-9a-f]{10,}$|^[0-9A-HJKMNP-TV-Z]{12,}$/i;
+
+const formatReviewTag = (value: string): string => {
+  const raw = String(value || '').trim();
+  if (!raw || raw === 'user' || raw === 'user:local_user' || raw === 'local_user') {
+    return '';
+  }
+  const [, suffix = raw] = raw.match(/^[^:]+:(.+)$/) || [];
+  const cleaned = suffix.trim();
+  if (!cleaned || MACHINE_ID_PATTERN.test(cleaned)) {
+    return '';
+  }
+  return cleaned.replace(/[-_]+/g, ' ');
+};
+
 const normalizeList = (items: string[] | null | undefined): string[] => (
-  Array.isArray(items) ? items.filter((item) => Boolean(item && item.trim())) : []
+  Array.isArray(items)
+    ? items.map(formatReviewTag).filter((item) => Boolean(item && item.trim()))
+    : []
 );
+
+const getEntityLabels = (episode: EpisodeReviewLike): string[] => {
+  const entities = Array.isArray(episode.primary_entities) ? episode.primary_entities : [];
+  const names = entities
+    .map((entity) => String(entity.name || '').trim())
+    .filter(Boolean);
+  return names.length > 0 ? names : normalizeList(episode.primary_entity_ids);
+};
 
 const MEMORY_INFO_PANEL_CLASS = 'rounded-xl border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel-subtle)/0.5)] px-4 py-3 text-sm text-[hsl(var(--memory-muted))]';
 
@@ -180,8 +205,8 @@ export function EpisodeDetail({
         <div className="grid gap-3 md:grid-cols-3">
           <TagGroup
             icon={<UserRound className="h-4 w-4" aria-hidden="true" />}
-            title={t('memory.episodes.sections.people')}
-            values={normalizeList(episode.primary_entity_ids)}
+            title={t('memory.episodes.sections.entities')}
+            values={getEntityLabels(episode)}
           />
           <TagGroup
             icon={<MapPin className="h-4 w-4" aria-hidden="true" />}

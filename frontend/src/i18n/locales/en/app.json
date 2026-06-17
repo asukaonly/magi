@@ -2315,8 +2315,9 @@
     },
     "episodes": {
       "title": "Experiences",
-      "subtitle": "Active experiences Magi has formed from remembered events.",
-      "count": "{{count}} active",
+      "subtitle": "Curated experiences Magi has formed from remembered events.",
+      "count": "{{count}} experiences",
+      "eventCount": "{{count}} events",
       "emptyTitle": "No active experiences yet",
       "emptyBody": "Magi will form episodes as conversations and activity accumulate. If you already have remembered activity, run a refresh now.",
       "detailEmptyTitle": "Choose an experience",
@@ -2326,6 +2327,7 @@
       "noSummary": "No summary yet.",
       "noRecap": "No recap yet.",
       "noEvents": "No event memberships found.",
+      "eventPreviewUnavailable": "Event preview unavailable",
       "noInferred": "No inferred impressions for this episode.",
       "noTags": "None yet",
       "sections": {
@@ -2336,6 +2338,7 @@
         "narrative": "Narrative",
         "eventStream": "Event stream",
         "inferred": "Inferred impressions",
+        "entities": "Entities",
         "people": "People",
         "places": "Places",
         "topics": "Topics",
