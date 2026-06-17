@@ -5,12 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 import re
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from ....core.logger import get_logger
+from ..extraction_profiles import ExtractionProfile
 from ..entities.catalog.lookup import get_canonical_names
+from ..ontology import ASSERTION_FAMILY_ALLOWLIST, PREDICATE_REGISTRY
 
 logger = get_logger(__name__)
+
+_VALUE_STRATEGIES = frozenset({"canonical_name", "object_id", "object_slug"})
 
 
 @dataclass(slots=True, frozen=True)
@@ -23,6 +28,7 @@ class GraphDerivedAssertionRule:
     trait_name_template: str
     min_observations: int = 1
     min_distinct_days: int = 0
+    source_types: tuple[str, ...] = field(default_factory=tuple)
     source_domains: tuple[str, ...] = field(default_factory=lambda: ("external_activity",))
     value_strategy: str = "canonical_name"
 
@@ -41,6 +47,15 @@ class GraphDerivedAssertionRule:
         object.__setattr__(self, "trait_name_template", str(self.trait_name_template).strip())
         object.__setattr__(self, "min_observations", max(1, int(self.min_observations or 1)))
         object.__setattr__(self, "min_distinct_days", max(0, int(self.min_distinct_days or 0)))
+        object.__setattr__(
+            self,
+            "source_types",
+            tuple(
+                str(source_type).strip().casefold()
+                for source_type in self.source_types
+                if str(source_type).strip()
+            ),
+        )
         object.__setattr__(
             self,
             "source_domains",
@@ -64,6 +79,20 @@ def builtin_interest_rule(*, min_observations: int = 3) -> GraphDerivedAssertion
         source_domains=("external_activity",),
         value_strategy="canonical_name",
     )
+
+
+def build_graph_derived_rules_from_profiles(
+    profiles: Mapping[str, ExtractionProfile] | Iterable[ExtractionProfile],
+) -> tuple[GraphDerivedAssertionRule, ...]:
+    """Compile plugin-contributed derived assertion specs into host-owned rules."""
+    profile_values = profiles.values() if isinstance(profiles, Mapping) else profiles
+    rules: list[GraphDerivedAssertionRule] = []
+    for profile in profile_values:
+        for index, spec in enumerate(profile.derived_assertion_specs):
+            rule = _rule_from_profile_spec(profile=profile, spec=spec, index=index)
+            if rule is not None:
+                rules.append(rule)
+    return tuple(rules)
 
 
 async def evaluate_graph_derived_assertion_rule(
@@ -142,6 +171,10 @@ async def evaluate_graph_derived_assertion_rule(
 def _edge_meets_rule(*, edge: dict[str, Any], rule: GraphDerivedAssertionRule) -> bool:
     if int(edge.get("observation_count", 0) or 0) < rule.min_observations:
         return False
+    if rule.source_types:
+        source_type = str(edge.get("source_type") or "").strip().casefold()
+        if source_type not in rule.source_types:
+            return False
     if rule.min_distinct_days <= 1:
         return True
     first_observed_at = float(edge.get("first_observed_at", 0.0) or 0.0)
@@ -246,8 +279,133 @@ def _safe_slug(slug: str) -> str:
     return re.sub(r"[^a-z0-9_-]", "_", slug.lower())
 
 
+def _rule_from_profile_spec(
+    *,
+    profile: ExtractionProfile,
+    spec: dict[str, Any],
+    index: int,
+) -> GraphDerivedAssertionRule | None:
+    source_predicates = _normalize_predicates(spec.get("source_predicates") or spec.get("source_predicate"))
+    if not source_predicates or any(predicate not in PREDICATE_REGISTRY for predicate in source_predicates):
+        logger.warning(
+            "skipping invalid derived assertion spec predicate",
+            profile_id=profile.profile_id,
+            spec_index=index,
+        )
+        return None
+    if any(predicate not in profile.effective_structured_allowed_predicates for predicate in source_predicates):
+        logger.warning(
+            "skipping derived assertion spec outside profile predicates",
+            profile_id=profile.profile_id,
+            spec_index=index,
+        )
+        return None
+
+    trait_family = str(spec.get("trait_family") or "").strip().casefold()
+    if (
+        trait_family not in ASSERTION_FAMILY_ALLOWLIST
+        or trait_family not in profile.allowed_assertion_families
+    ):
+        logger.warning(
+            "skipping invalid derived assertion spec family",
+            profile_id=profile.profile_id,
+            spec_index=index,
+        )
+        return None
+
+    trait_name_template = str(spec.get("trait_name_template") or "").strip()
+    if not trait_name_template or not _trait_template_allowed_by_profile(
+        trait_name_template,
+        profile.allowed_assertion_traits,
+    ):
+        logger.warning(
+            "skipping derived assertion spec outside trait allowlist",
+            profile_id=profile.profile_id,
+            spec_index=index,
+        )
+        return None
+
+    source_types = _normalize_source_types(spec.get("source_types"), fallback=profile.source_types)
+    if not source_types or not set(source_types).issubset(profile.source_types):
+        logger.warning(
+            "skipping derived assertion spec outside profile source_types",
+            profile_id=profile.profile_id,
+            spec_index=index,
+        )
+        return None
+
+    value_strategy = str(spec.get("value_strategy") or "canonical_name").strip()
+    if value_strategy not in _VALUE_STRATEGIES:
+        logger.warning(
+            "skipping invalid derived assertion spec value_strategy",
+            profile_id=profile.profile_id,
+            spec_index=index,
+        )
+        return None
+
+    return GraphDerivedAssertionRule(
+        rule_id=str(spec.get("rule_id") or f"{profile.profile_id}.derived.{index}").strip(),
+        source_predicates=source_predicates,
+        source_types=source_types,
+        trait_family=trait_family,
+        trait_name_template=trait_name_template,
+        min_observations=max(1, int(spec.get("min_observations") or 1)),
+        min_distinct_days=max(0, int(spec.get("min_distinct_days") or 0)),
+        source_domains=_normalize_source_domains(spec.get("source_domains")),
+        value_strategy=value_strategy,
+    )
+
+
+def _normalize_predicates(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        values = list(value)
+    else:
+        return tuple()
+    return tuple(str(item).strip().upper() for item in values if str(item).strip())
+
+
+def _normalize_source_types(value: Any, *, fallback: frozenset[str]) -> tuple[str, ...]:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        values = list(value)
+    else:
+        values = list(fallback)
+    return tuple(str(item).strip().casefold() for item in values if str(item).strip())
+
+
+def _normalize_source_domains(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        values = list(value)
+    else:
+        values = ["external_activity"]
+    normalized = tuple(str(item).strip().casefold() for item in values if str(item).strip())
+    return normalized or ("external_activity",)
+
+
+def _trait_template_allowed_by_profile(
+    trait_name_template: str,
+    allowed_traits: frozenset[str] | None,
+) -> bool:
+    if allowed_traits is None:
+        return False
+    template = trait_name_template.casefold()
+    for allowed in allowed_traits:
+        pattern = str(allowed).strip().casefold()
+        if pattern.endswith(".*") and template.startswith(pattern[:-1]):
+            return True
+        if "{" not in template and template == pattern:
+            return True
+    return False
+
+
 __all__ = [
     "GraphDerivedAssertionRule",
+    "build_graph_derived_rules_from_profiles",
     "builtin_interest_rule",
     "evaluate_graph_derived_assertion_rule",
 ]
