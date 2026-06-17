@@ -293,6 +293,28 @@ def test_episode_read_and_annotation_routes_are_publicly_allowlisted():
     assert "PATCH" in route_methods["/l2/episodes/{episode_id}"]
 
 
+def test_annotate_episode_pin_does_not_change_status(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.update_episode = AsyncMock(return_value=True)
+    l2.get_episode = AsyncMock(
+        return_value={"episode_id": "ep1", "status": "active", "user_pinned": True}
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = None
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        response = client.patch("/api/memory/l2/episodes/ep1", json={"user_pinned": True})
+
+    assert response.status_code == 200
+    assert l2.update_episode.await_args.kwargs == {
+        "episode_id": "ep1",
+        "user_pinned": 1,
+    }
+
+
 def test_list_episodes_insight_metadata_string_decoded(app_with_mock_memory):
     """insight_metadata stored as a JSON string is decoded correctly."""
     app, build_patcher = app_with_mock_memory

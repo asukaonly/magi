@@ -231,8 +231,6 @@ async def annotate_l2_episode(episode_id: str, body: EpisodeAnnotationRequest):
         updates["user_note"] = body.user_note
     if body.user_pinned is not None:
         updates["user_pinned"] = 1 if body.user_pinned else 0
-        if body.user_pinned:
-            updates["status"] = "user_pinned"
     if not updates:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=memory_t("memory.errors.no_fields_to_update", "No fields to update"))
     ok = await unified_memory.l2.update_episode(episode_id=episode_id, **updates)
