@@ -2294,12 +2294,17 @@
       "sourceLastResult": "上次处理 {{count}} 条",
       "sourceColumns": {
         "source": "来源",
+        "status": "状态",
         "events": "已入库",
         "sync": "最近同步"
       },
       "sourceStatus": {
-        "ready": "已接入",
+        "ready": "正常",
         "running": "同步中",
+        "stale": "延迟",
+        "error": "异常",
+        "never_synced": "未同步",
+        "setup_required": "待配置",
         "disabled": "未启用",
         "noEvents": "暂无事件"
       },

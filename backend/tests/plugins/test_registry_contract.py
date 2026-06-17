@@ -26,6 +26,21 @@ def test_manifest_parses_data_locality():
     assert manifest.data_locality == "local_only"
 
 
+def test_manifest_and_registry_entry_parse_icon_id():
+    manifest = PluginManifest.model_validate({
+        "id": "chrome-history", "name": "Chrome History", "version": "0.1.0",
+        "icon": "brand:googlechrome",
+    })
+    entry = PluginRegistryEntry.model_validate({
+        "plugin_id": "chrome-history", "name": "Chrome History", "version": "0.1.0",
+        "path": "plugins/chrome-history", "platforms": ["macos"],
+        "icon": "brand:googlechrome",
+    })
+
+    assert manifest.icon == "brand:googlechrome"
+    assert entry.icon == "brand:googlechrome"
+
+
 def test_registry_entry_parses_suggestion_descriptor():
     entry = PluginRegistryEntry.model_validate({
         "plugin_id": "chrome-history", "name": "Chrome History", "version": "0.1.0",

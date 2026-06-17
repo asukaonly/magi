@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { PluginIcon } from '@/components/plugins/PluginIcon';
 
 export interface EmptyStateSensorCardProps {
   pluginId: string;
@@ -19,20 +20,17 @@ export function EmptyStateSensorCard({
   pluginId,
   titleKey,
   valueKey,
-  // `iconId` is intentionally accepted-but-unused: plugins don't ship real
-  // icons yet, so the placeholder slot was removed. Kept on the props so
-  // callers (and forward-compat) don't break.
+  iconId,
   onConnect,
   disabled,
   connectLabelKey,
 }: EmptyStateSensorCardProps): JSX.Element {
   const { t } = useTranslation('onboarding');
   return (
-    // One row per item: title + one-line value on the left, action on the right.
-    // Plugins don't ship real icons yet; the single-letter placeholder read as
-    // visual noise, so the icon slot is intentionally not rendered. `iconId` is
-    // kept on the props for callers/forward-compat.
     <div className="flex items-center gap-3 px-4 py-3">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background/80">
+        <PluginIcon iconId={iconId} pluginId={pluginId} className="h-4 w-4" />
+      </span>
       <div className="flex min-w-0 flex-col gap-0.5">
         <h3 className="truncate text-sm font-medium text-foreground">{t(titleKey)}</h3>
         <p className="truncate text-xs text-muted-foreground">{t(valueKey)}</p>

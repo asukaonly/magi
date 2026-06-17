@@ -19,8 +19,16 @@ vi.mock('react-i18next', () => ({
         'memory.overview.sections.pending': 'Pending review',
         'memory.overview.sections.recent': 'Latest summaries',
         'memory.overview.sourceColumns.source': 'Source',
+        'memory.overview.sourceColumns.status': 'Status',
         'memory.overview.sourceColumns.events': 'Stored',
         'memory.overview.sourceColumns.sync': 'Sync',
+        'memory.overview.sourceStatus.ready': 'Normal',
+        'memory.overview.sourceStatus.running': 'Syncing',
+        'memory.overview.sourceStatus.stale': 'Delayed',
+        'memory.overview.sourceStatus.error': 'Error',
+        'memory.overview.sourceStatus.never_synced': 'Never synced',
+        'memory.overview.sourceStatus.setup_required': 'Setup required',
+        'memory.overview.sourceStatus.disabled': 'Disabled',
         'memory.sources.chat_projector': 'Chat',
         'timeline.sources.chat': 'Chat',
         'memory.stories.categories.day': 'Daily summary',
@@ -202,10 +210,12 @@ const sensorPayload = {
       contribution_id: 'chrome-history',
       display_name: 'Chrome History',
       display_name_translated: 'Chrome History',
+      icon: 'brand:googlechrome',
       description: '',
       fields: [],
       current_settings: {},
       enabled: true,
+      status: 'ready',
       sync_mode: 'manual',
       sync_interval_minutes: 60,
       storage_mode: 'local',
@@ -222,10 +232,12 @@ const sensorPayload = {
       contribution_id: 'screen-time',
       display_name: 'Screen Time',
       display_name_translated: 'Screen Time',
+      icon: 'lucide:monitor',
       description: '',
       fields: [],
       current_settings: {},
       enabled: false,
+      status: 'disabled',
       sync_mode: 'manual',
       sync_interval_minutes: 60,
       storage_mode: 'local',
@@ -242,10 +254,12 @@ const sensorPayload = {
       contribution_id: 'safari-history',
       display_name: 'Safari History',
       display_name_translated: 'Safari History',
+      icon: 'brand:safari',
       description: '',
       fields: [],
       current_settings: {},
       enabled: true,
+      status: 'ready',
       sync_mode: 'manual',
       sync_interval_minutes: 60,
       storage_mode: 'local',
@@ -290,10 +304,13 @@ describe('MemoryOverviewPage', () => {
     expect(screen.getByText('1.5 KB')).toBeInTheDocument();
     expect(screen.getByText('Current')).toBeInTheDocument();
     expect(screen.getByText('Source')).toBeInTheDocument();
+    expect(screen.getByText('Status')).toBeInTheDocument();
     expect(screen.getAllByText('Stored').length).toBeGreaterThan(0);
     expect(screen.getByText('Sync')).toBeInTheDocument();
     expect(screen.getByText('memory.overview.processingBacklog:5')).toBeInTheDocument();
     expect(screen.getByText('Chrome History')).toBeInTheDocument();
+    expect(screen.getByTestId('plugin-icon-googlechrome')).toBeInTheDocument();
+    expect(screen.getAllByText('Normal').length).toBeGreaterThan(0);
     expect(screen.getByText('9')).toBeInTheDocument();
     expect(screen.getByText('Chat')).toBeInTheDocument();
     expect(screen.queryByText('Screen Time')).not.toBeInTheDocument();

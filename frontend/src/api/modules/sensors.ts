@@ -9,6 +9,7 @@ export interface SensorSourceStatusItem {
   source_name: string;
   plugin_id: string;
   contribution_id: string;
+  icon?: string | null;
   display_name: string;
   /**
    * Pre-translated display_name supplied by the backend from the plugin's own
@@ -33,6 +34,7 @@ export interface SensorSourceStatusItem {
   activation_flow?: ActivationFlowSpec | null;
   settings_ui_blocks?: PluginSettingsUiBlockSpec[];
   activation_required?: boolean;
+  status?: 'ready' | 'running' | 'stale' | 'error' | 'never_synced' | 'setup_required' | 'disabled' | string;
   running?: boolean;
   last_run_at?: number | string | null;
   last_result_count?: number;

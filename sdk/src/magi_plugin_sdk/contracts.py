@@ -322,6 +322,8 @@ class PluginManifest(BaseModel):
     version: str
     description: str = ""
     author: str = "Magi Team"
+    icon: str = ""
+    """Optional stable icon id for host UIs, for example ``brand:googlechrome`` or ``lucide:calendar-days``."""
     entry_module: str = "plugin"
     entry_class: str = "Plugin"
     official: bool = False
@@ -415,6 +417,8 @@ class PluginRegistryEntry(BaseModel):
     description: str = ""
     description_i18n: dict[str, str] = Field(default_factory=dict)
     author: str = ""
+    icon: str = ""
+    """Optional stable icon id for host UIs, copied from the plugin manifest."""
     official: bool = False
     data_locality: str = ""
     """Mirrors :attr:`PluginManifest.data_locality` — ``"local_only"`` renders a

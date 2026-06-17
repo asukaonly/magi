@@ -36,6 +36,7 @@ sensors_router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _SENSOR_INTERNAL_ERROR_MARKERS = ("<Queue at ", "MemoryEvent(", " is bound to a different event loop")
+_INTERVAL_STALE_FLOOR_SECONDS = 6 * 60 * 60
 
 
 class SensorSourceAuthorizationRequest(BaseModel):
@@ -96,6 +97,57 @@ def _sanitize_sensor_error(error: Any) -> str | None:
     if len(text) > 280:
         return f"{text[:277]}..."
     return text
+
+
+def _coerce_timestamp_seconds(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        if numeric <= 0:
+            return None
+        return numeric / 1000.0 if numeric > 1_000_000_000_000 else numeric
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return _coerce_timestamp_seconds(float(text))
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _derive_sensor_status(
+    *,
+    enabled: bool,
+    activation_required: bool,
+    running: bool,
+    last_error: str | None,
+    last_success_at: Any,
+    sync_mode: str,
+    sync_interval_minutes: int,
+    now: float | None = None,
+) -> str:
+    if activation_required:
+        return "setup_required"
+    if not enabled:
+        return "disabled"
+    if running:
+        return "running"
+    if last_error:
+        return "error"
+    last_success = _coerce_timestamp_seconds(last_success_at)
+    if last_success is None:
+        return "never_synced"
+    if str(sync_mode or "").lower() == "interval":
+        interval_seconds = max(int(sync_interval_minutes or 0), 1) * 60
+        stale_after = max(interval_seconds * 2, _INTERVAL_STALE_FLOOR_SECONDS)
+        if (now if now is not None else time.time()) - last_success > stale_after:
+            return "stale"
+    return "ready"
 
 
 @sensors_router.get("/status")
@@ -186,6 +238,39 @@ async def get_sensor_source_status():
             if (state is not None and supports_pull_sync)
             else None
         )
+        enabled = bool(
+            _get_nested_value(
+                current_settings,
+                f"sensors.{source_name}.enabled",
+                item.metadata.get("default_settings", {}).get("enabled", True),
+            )
+        )
+        sync_mode = str(
+            _get_nested_value(
+                current_settings,
+                f"sensors.{source_name}.sync_mode",
+                item.metadata.get("default_settings", {}).get("sync_mode", item.metadata.get("sync_mode", "manual")),
+            )
+        )
+        sync_interval_minutes = int(
+            _get_nested_value(
+                current_settings,
+                f"sensors.{source_name}.sync_interval_minutes",
+                item.metadata.get("default_settings", {}).get("sync_interval_minutes", 1),
+            )
+        )
+        activation_required = bool(
+            isinstance(item.metadata.get("activation_flow"), dict)
+            and not enabled
+            and not bool(
+                _get_nested_value(
+                    current_settings,
+                    str(item.metadata.get("activation_flow", {}).get("configured_key") or ""),
+                    False,
+                )
+            )
+        )
+        running = bool(state.running) if state is not None else False
         # next_run_at is exclusively sourced from the APScheduler jobstore (#89).
         # recurring_binding[1] carries next_run_time from apscheduler_jobs.
         resolved_next_run_at = recurring_binding[1] if recurring_binding is not None else None
@@ -198,11 +283,13 @@ async def get_sensor_source_status():
                 else (state.scheduler_job_id if state is not None else None)
             )
         )
+        package_icon = str(getattr(package.manifest, "icon", "") or "") if package is not None else ""
         sources.append(
             {
                 "source_name": source_name,
                 "plugin_id": item.plugin_id,
                 "contribution_id": item.contribution_id,
+                "icon": package_icon or str(item.metadata.get("icon") or ""),
                 "display_name": item.display_name,
                 "display_name_translated": display_name_translated,
                 "description": item.description,
@@ -212,27 +299,9 @@ async def get_sensor_source_status():
                     key: _get_nested_value(current_settings, key, default)
                     for key, default in _collect_source_setting_defaults(item).items()
                 },
-                "enabled": bool(
-                    _get_nested_value(
-                        current_settings,
-                        f"sensors.{source_name}.enabled",
-                        item.metadata.get("default_settings", {}).get("enabled", True),
-                    )
-                ),
-                "sync_mode": str(
-                    _get_nested_value(
-                        current_settings,
-                        f"sensors.{source_name}.sync_mode",
-                        item.metadata.get("default_settings", {}).get("sync_mode", item.metadata.get("sync_mode", "manual")),
-                    )
-                ),
-                "sync_interval_minutes": int(
-                    _get_nested_value(
-                        current_settings,
-                        f"sensors.{source_name}.sync_interval_minutes",
-                        item.metadata.get("default_settings", {}).get("sync_interval_minutes", 1),
-                    )
-                ),
+                "enabled": enabled,
+                "sync_mode": sync_mode,
+                "sync_interval_minutes": sync_interval_minutes,
                 "storage_mode": str(
                     _get_nested_value(
                         current_settings,
@@ -263,30 +332,23 @@ async def get_sensor_source_status():
                 "supports_state_flush": supports_state_flush,
                 "activation_flow": activation_flow_payload,
                 "settings_ui_blocks": settings_ui_blocks_payload,
-                "activation_required": bool(
-                    isinstance(item.metadata.get("activation_flow"), dict)
-                    and not bool(
-                        _get_nested_value(
-                            current_settings,
-                            f"sensors.{source_name}.enabled",
-                            item.metadata.get("default_settings", {}).get("enabled", True),
-                        )
-                    )
-                    and not bool(
-                        _get_nested_value(
-                            current_settings,
-                            str(item.metadata.get("activation_flow", {}).get("configured_key") or ""),
-                            False,
-                        )
-                    )
-                ),
-                "running": bool(state.running) if state is not None else False,
+                "activation_required": activation_required,
+                "running": running,
                 "last_run_at": state.last_run_at if state is not None else None,
                 "last_result_count": int((state.stats or {}).get("count", 0)) if state is not None else 0,
                 "last_raw_result_count": int((state.stats or {}).get("raw_count", 0)) if state is not None else 0,
                 "last_error": visible_last_error,
                 "last_success": state.last_success_at if state is not None else None,
                 "last_sync_at": state.last_success_at if state is not None else None,
+                "status": _derive_sensor_status(
+                    enabled=enabled,
+                    activation_required=activation_required,
+                    running=running,
+                    last_error=visible_last_error,
+                    last_success_at=state.last_success_at if state is not None else None,
+                    sync_mode=sync_mode,
+                    sync_interval_minutes=sync_interval_minutes,
+                ),
                 "next_run_at": resolved_next_run_at,
                 "scheduler_job_id": resolved_scheduler_job_id,
                 "runtime_base_dir": str(runtime_paths.base_dir),

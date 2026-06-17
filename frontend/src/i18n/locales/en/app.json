@@ -2295,12 +2295,17 @@
       "sourceLastResult": "{{count}} handled last run",
       "sourceColumns": {
         "source": "Source",
+        "status": "Status",
         "events": "Stored",
         "sync": "Last sync"
       },
       "sourceStatus": {
-        "ready": "Connected",
+        "ready": "Normal",
         "running": "Syncing",
+        "stale": "Delayed",
+        "error": "Error",
+        "never_synced": "Never synced",
+        "setup_required": "Setup required",
         "disabled": "Disabled",
         "noEvents": "No events"
       },

@@ -626,6 +626,15 @@ Plugins must not bypass the host L3 store by writing standalone summary records.
 
 This keeps summary generation source-aware without splitting L3 into per-plugin summary pipelines.
 
+## Plugin Display Metadata
+
+Plugin manifests may declare a stable `icon` id for host UI surfaces. The
+recommended format is `brand:<simple-icons-slug>` for recognizable brands and
+`lucide:<icon-name>` for generic capabilities. Plugins only declare the id; the
+host owns rendering, fallback behavior, and trademark-safe copy. Registry
+generation preserves this field so install-first marketplace entries and
+installed sensor status rows use the same visual identity.
+
 ## Settings Surfaces
 
 The current settings UI is intentionally split between global config and plugin-owned config.

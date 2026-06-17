@@ -185,6 +185,7 @@ export interface PluginManifest {
   version: string;
   description: string;
   author: string;
+  icon?: string;
   official: boolean;
   contribution_types: string[];
   source: string;
@@ -325,6 +326,7 @@ export interface PluginRegistryEntry {
   description: string;
   description_i18n: Record<string, string>;
   author: string;
+  icon?: string;
   official: boolean;
   /** Privacy signal: "local_only" renders a Local-only badge; "" is unspecified. */
   data_locality?: string;

@@ -443,6 +443,7 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
             version=entry.version,
             description=entry.description,
             author=entry.author,
+            icon=entry.icon,
             official=entry.official,
             kind=entry.kind,
             contribution_types=ctypes,

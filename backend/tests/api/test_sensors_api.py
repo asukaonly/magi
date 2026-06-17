@@ -10,7 +10,7 @@ from alembic import command
 from alembic.config import Config
 
 from magi.api.routers import sensors as sensors_module
-from magi.api.routers.sensors import sensors_router
+from magi.api.routers.sensors import _derive_sensor_status, sensors_router
 from magi.db import MIGRATION_TARGETS
 from magi.i18n import language_context
 from magi.plugins import ExtensionFieldSpec
@@ -77,7 +77,7 @@ def _build_client(monkeypatch):
         "PluginState",
         (),
         {
-            "manifest": type("Manifest", (), {"plugin_id": "screen-time", "plugin_dir": ""})(),
+            "manifest": type("Manifest", (), {"plugin_id": "screen-time", "plugin_dir": "", "icon": "lucide:monitor"})(),
             "current_settings": {
                 "sensors": {
                     "screen_time": {
@@ -203,8 +203,86 @@ def test_get_sensor_source_status(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["sources"][0]["source_name"] == "screen_time"
+    assert body["sources"][0]["icon"] == "lucide:monitor"
+    assert body["sources"][0]["status"] == "ready"
     assert body["sources"][0]["scheduler_job_id"] == "sensor-sync:screen-time:screen_time"
     assert body["sources"][0]["supports_state_flush"] is True
+
+
+def test_derive_sensor_status_prioritizes_operator_states():
+    assert _derive_sensor_status(
+        enabled=True,
+        activation_required=True,
+        running=False,
+        last_error=None,
+        last_success_at=None,
+        sync_mode="interval",
+        sync_interval_minutes=5,
+        now=100_000.0,
+    ) == "setup_required"
+    assert _derive_sensor_status(
+        enabled=False,
+        activation_required=False,
+        running=False,
+        last_error=None,
+        last_success_at=None,
+        sync_mode="interval",
+        sync_interval_minutes=5,
+        now=1_000.0,
+    ) == "disabled"
+    assert _derive_sensor_status(
+        enabled=True,
+        activation_required=False,
+        running=True,
+        last_error="boom",
+        last_success_at=990.0,
+        sync_mode="interval",
+        sync_interval_minutes=5,
+        now=1_000.0,
+    ) == "running"
+    assert _derive_sensor_status(
+        enabled=True,
+        activation_required=False,
+        running=False,
+        last_error="boom",
+        last_success_at=990.0,
+        sync_mode="interval",
+        sync_interval_minutes=5,
+        now=1_000.0,
+    ) == "error"
+
+
+def test_derive_sensor_status_reports_never_synced_and_stale_interval_sources():
+    assert _derive_sensor_status(
+        enabled=True,
+        activation_required=False,
+        running=False,
+        last_error=None,
+        last_success_at=None,
+        sync_mode="interval",
+        sync_interval_minutes=5,
+        now=1_000.0,
+    ) == "never_synced"
+    assert _derive_sensor_status(
+        enabled=True,
+        activation_required=False,
+        running=False,
+        last_error=None,
+        last_success_at=100_000.0 - (7 * 60 * 60),
+        sync_mode="interval",
+        sync_interval_minutes=5,
+        now=100_000.0,
+    ) == "stale"
+    assert _derive_sensor_status(
+        enabled=True,
+        activation_required=False,
+        running=False,
+        last_error=None,
+        last_success_at=900.0,
+        sync_mode="manual",
+        sync_interval_minutes=5,
+        now=1_000.0,
+    ) == "ready"
 
 
 def test_trigger_sensor_source_sync(monkeypatch):

@@ -3,6 +3,7 @@ import { Box, Check, FileText, HardDrive, UserRound, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { PluginIcon } from '@/components/plugins/PluginIcon';
 import { memoryApi, type L2Assertion, type MemoryDashboard, type MemorySourceCount } from '@/api/modules/memory';
 import { sensorsApi, type SensorSourceStatusItem, type SensorSourceStatusResponse } from '@/api/modules/sensors';
 import { memoryStoriesApi, type StoryItem } from '@/api/modules/memoryStories';
@@ -36,6 +37,9 @@ type PendingOverviewItem =
 interface SourceCoverageRow {
   key: string;
   label: string;
+  pluginId: string | null;
+  icon: string | null;
+  status: string;
   eventCount: number;
   lastResultCount: number | null;
   enabled: boolean | null;
@@ -154,6 +158,9 @@ const buildSourceRows = (
     return {
       key: source.source,
       label: getSensorLabel(sensor) || getMemorySourceLabel(t || ((key: string) => key), source.source),
+      pluginId: sensor?.plugin_id ?? null,
+      icon: sensor?.icon ?? null,
+      status: sensor?.status || (sensor ? (sensor.enabled === false ? 'disabled' : 'ready') : 'ready'),
       eventCount: source.event_count,
       lastResultCount: sensor?.last_result_count ?? sensor?.last_raw_result_count ?? null,
       enabled: sensor ? Boolean(sensor.enabled) : null,
@@ -215,6 +222,29 @@ const buildRecentStories = (stories: StoryItem[], t: OverviewTranslateFn): Story
       items.push(story);
     });
   return items.slice(0, 5);
+};
+
+const sourceStatusDotClassName = (status: string): string => {
+  switch (status) {
+    case 'running':
+      return 'bg-blue-500';
+    case 'stale':
+      return 'bg-amber-500';
+    case 'error':
+      return 'bg-red-500';
+    case 'disabled':
+    case 'setup_required':
+    case 'never_synced':
+      return 'bg-[hsl(var(--memory-muted))]';
+    default:
+      return 'bg-emerald-500';
+  }
+};
+
+const sourceStatusLabel = (status: string, t: OverviewTranslateFn): string => {
+  const key = `memory.overview.sourceStatus.${status}`;
+  const label = t(key);
+  return label === key ? t('memory.overview.sourceStatus.ready') : label;
 };
 
 export const MemoryOverviewPage = () => {
@@ -368,35 +398,45 @@ export const MemoryOverviewPage = () => {
             <div className="mt-3 divide-y divide-[hsl(var(--memory-divider)/0.6)]">
               {sourceRows.length > 0 ? (
                 <>
-                  <div className="hidden grid-cols-[minmax(0,1fr)_120px_180px] gap-2 pb-2 text-xs text-[hsl(var(--memory-muted))] md:grid">
+                  <div className="hidden grid-cols-[minmax(0,1fr)_120px_180px_140px] gap-2 pb-2 text-xs text-[hsl(var(--memory-muted))] md:grid">
                     <div>{t('memory.overview.sourceColumns.source')}</div>
-                    <div>{t('memory.overview.sourceColumns.events')}</div>
+                    <div>{t('memory.overview.sourceColumns.status')}</div>
                     <div>{t('memory.overview.sourceColumns.sync')}</div>
+                    <div>{t('memory.overview.sourceColumns.events')}</div>
                   </div>
                   {sourceRows.map((row) => {
                     const syncLabel = formatOverviewTimestamp(row.lastSyncAt ?? row.lastEventAt, i18n.language)
                       || t('memory.overview.sourceStatus.noEvents');
+                    const statusLabel = sourceStatusLabel(row.status, t);
                     return (
-                      <div key={row.key} className="grid gap-2 py-3 md:grid-cols-[minmax(0,1fr)_120px_180px] md:items-center">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-[hsl(var(--memory-title))]">{row.label}</div>
-                          <div className="text-xs text-[hsl(var(--memory-muted))]">
-                            {row.enabled === false
-                              ? t('memory.overview.sourceStatus.disabled')
-                              : row.running
-                                ? t('memory.overview.sourceStatus.running')
-                                : t('memory.overview.sourceStatus.ready')}
+                      <div key={row.key} className="grid gap-2 py-3 md:grid-cols-[minmax(0,1fr)_120px_180px_140px] md:items-center">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.72)]">
+                            <PluginIcon
+                              iconId={row.icon}
+                              pluginId={row.pluginId}
+                              sourceName={row.key}
+                              className="h-4 w-4 text-[hsl(var(--memory-body))]"
+                            />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-[hsl(var(--memory-title))]">{row.label}</div>
+                            <div className="text-xs text-[hsl(var(--memory-muted))] md:hidden">{statusLabel}</div>
                           </div>
                         </div>
-                        <div>
-                          <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{formatInteger(row.eventCount)}</div>
-                          <div className="text-xs text-[hsl(var(--memory-muted))] md:hidden">{t('memory.overview.sourceColumns.events')}</div>
+                        <div className="hidden items-center gap-2 text-xs text-[hsl(var(--memory-body))] md:flex">
+                          <span className={`h-2 w-2 rounded-full ${sourceStatusDotClassName(row.status)}`} aria-hidden="true" />
+                          <span>{statusLabel}</span>
                         </div>
                         <div className="text-xs leading-5 text-[hsl(var(--memory-muted))]">
                           <div>{syncLabel}</div>
                           {row.lastResultCount != null ? (
                             <div>{t('memory.overview.sourceLastResult', { count: row.lastResultCount })}</div>
                           ) : null}
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{formatInteger(row.eventCount)}</div>
+                          <div className="text-xs text-[hsl(var(--memory-muted))] md:hidden">{t('memory.overview.sourceColumns.events')}</div>
                         </div>
                       </div>
                     );
