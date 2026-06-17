@@ -20,8 +20,9 @@ import {
 } from '@/components/ui/sheet';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS, MEMORY_INFO_PANEL_CLASS } from './MemoryPageFrame';
 
-const CHAPTER_MIN_EVENTS = 12;
+const CHAPTER_MIN_EVENTS = 8;
 const CHAPTER_MIN_SECONDS = 45 * 60;
+const CHAPTER_DENSE_EVENTS = 20;
 
 const isReadableChapter = (episode: L2EpisodeWithSummary): boolean => {
   if (episode.user_pinned) {
@@ -31,7 +32,9 @@ const isReadableChapter = (episode: L2EpisodeWithSummary): boolean => {
   const start = typeof episode.time_start === 'number' ? episode.time_start : null;
   const end = typeof episode.time_end === 'number' ? episode.time_end : null;
   const duration = start !== null && end !== null ? Math.max(0, end - start) : 0;
-  return eventCount >= CHAPTER_MIN_EVENTS || duration >= CHAPTER_MIN_SECONDS;
+  return eventCount >= CHAPTER_MIN_EVENTS && (
+    duration >= CHAPTER_MIN_SECONDS || eventCount >= CHAPTER_DENSE_EVENTS
+  );
 };
 
 export const MemoryEpisodesPage = () => {

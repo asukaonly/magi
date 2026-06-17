@@ -285,10 +285,42 @@ describe('MemoryEpisodesPage', () => {
     renderPage();
 
     expect((await screen.findAllByText('Launch week')).length).toBeGreaterThan(0);
-    expect(screen.getByText('Generated research loop')).toBeInTheDocument();
+    expect(screen.queryByText('Generated research loop')).not.toBeInTheDocument();
     expect(memoryApi.listEpisodes).toHaveBeenCalledWith({ surface: 'standout', limit: 100, offset: 0 });
     expect(memoryApi.getEpisode).not.toHaveBeenCalled();
     expect(screen.queryByText('Visited Kyoto station')).not.toBeInTheDocument();
+  });
+
+  it('filters sparse short standout items when stronger chapters are available', async () => {
+    vi.mocked(memoryApi.listEpisodes).mockResolvedValueOnce({
+      items: [
+        {
+          ...activeEpisodes[0],
+          episode_id: 'ep-sparse',
+          user_pinned: false,
+          display_title: 'Short Gmail check',
+          source_event_count: 12,
+          time_start: 1700000000,
+          time_end: 1700000000 + 30 * 60,
+        },
+        {
+          ...activeEpisodes[1],
+          episode_id: 'ep-chapter',
+          display_title: 'Long research chapter',
+          source_event_count: 10,
+          time_start: 1700000000,
+          time_end: 1700000000 + 60 * 60,
+        },
+      ],
+      total: 2,
+      limit: 100,
+      offset: 0,
+    } as never);
+
+    renderPage();
+
+    expect(await screen.findByText('Long research chapter')).toBeInTheDocument();
+    expect(screen.queryByText('Short Gmail check')).not.toBeInTheDocument();
   });
 
   it('renders the Magi recap and event previews without inference feedback controls', async () => {
