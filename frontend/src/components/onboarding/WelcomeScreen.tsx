@@ -38,18 +38,22 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
       {/* Center content */}
       <motion.div
-        className="relative z-10 flex flex-col items-center px-6 text-center"
+        className="relative z-10 flex max-w-4xl flex-col items-center px-6 text-center"
         initial={shouldReduceMotion ? false : { opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: shouldReduceMotion ? 0 : 0.5, ease: 'easeOut' }}
       >
         {/* Logo / Brand */}
-        <div className="mb-4 rounded-[1.75rem] border border-[#ead9c8]/80 bg-[#fff7ef]/80 p-3 shadow-[0_18px_40px_-28px_rgba(120,80,44,0.35)] backdrop-blur-sm dark:border-[#584438]/70 dark:bg-[#241c18]/80 dark:shadow-[0_20px_42px_-30px_rgba(0,0,0,0.6)]">
+        <div className="mb-3 rounded-[1.75rem] border border-[#ead9c8]/80 bg-[#fff7ef]/80 p-3 shadow-[0_18px_40px_-28px_rgba(120,80,44,0.35)] backdrop-blur-sm dark:border-[#584438]/70 dark:bg-[#241c18]/80 dark:shadow-[0_20px_42px_-30px_rgba(0,0,0,0.6)]">
           <img src={magiMark} alt="Magi" className="h-16 w-16" />
         </div>
 
+        <div className="mb-5 text-base font-semibold text-[#8f5a38] dark:text-[#efb084] sm:text-lg">
+          {t('welcome.brand')}
+        </div>
+
         {/* Title */}
-        <h1 className="mb-2 text-4xl font-bold tracking-tight text-[#3b2b22] dark:text-[#f2e7db] sm:text-5xl">
+        <h1 className="mb-3 text-4xl font-bold tracking-normal text-[#3b2b22] dark:text-[#f2e7db] sm:text-5xl">
           {t('welcome.title')}
         </h1>
 
@@ -62,7 +66,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         <motion.button
           type="button"
           onClick={onContinue}
-          className="mt-12 inline-flex items-center justify-center rounded-full bg-[#a0623a] px-10 py-3 text-lg font-medium text-white shadow-[0_18px_36px_-20px_rgba(160,98,58,0.7)] transition hover:brightness-105 dark:bg-[#efb084] dark:text-[#2a1f1a]"
+          className="mt-10 inline-flex items-center justify-center rounded-full bg-[#a0623a] px-10 py-3 text-lg font-medium text-white shadow-[0_18px_36px_-20px_rgba(160,98,58,0.7)] transition hover:brightness-105 dark:bg-[#efb084] dark:text-[#2a1f1a]"
           whileHover={shouldReduceMotion ? undefined : { scale: 1.02 }}
           whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
           transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}

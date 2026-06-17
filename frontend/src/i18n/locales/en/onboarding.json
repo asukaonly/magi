@@ -47,6 +47,7 @@
     "expertDesc": "Configure all settings, including memory layers and tools."
   },
   "welcome": {
+    "brand": "Magi",
     "title": "Turning Time Into Context",
     "subtitle": "Magi gathers the scattered clues of your day into context that understands you. You decide what it can see, and you can change that anytime.",
     "getStarted": "Get Started"
