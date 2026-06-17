@@ -556,9 +556,14 @@ Each event source is mapped to an `ExtractionProfile` that controls L2 cognition
 - `allowed_predicates`: which predicates LLM may use (e.g., `USES`, `INTERESTED_IN`, `VIEWED`)
 - `allowed_assertion_families`: which ToM assertion families are permitted (empty disables assertions)
 - `allow_graph` / `allow_assertion`: master switches for graph and assertion writing
-- `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt
+- `assertion_mode`: `none`, `derived`, or `phase2_candidate`
+- `extraction_instructions` / `phase1_instructions`: free-text instructions injected into the LLM Phase 1 prompt
+- `phase2_instructions`: source-specific integration guidance injected into the Phase 2 prompt
+- `derived_assertion_specs`: host-validated graph-derived assertion specs for accumulated source evidence
 
-The extraction instructions are the primary mechanism for plugins to guide LLM behavior. They tell the LLM how to interpret source-specific content patterns, which entities to extract vs. skip, and how to choose predicates.
+Phase 1 instructions guide entity/fact extraction. Phase 2 instructions guide how the host should integrate those facts into graph edges, contradiction hints, and assertion candidates. Plugins can also declare derived assertion specs when they know source-specific evidence patterns better than the host, but the host still validates assertion families, traits, lifecycle, and source-tier conflict rules.
+
+Canonical assertion families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `routine_profile`, and `state_profile`. Use `preference_profile` for durable interests, affinities, tastes, and preferences. Use `routine_profile` for repeated behavior rhythms and habits. Do not use assertion family names as graph predicates or graph object refs.
 
 Plugins contribute source profiles with `get_extraction_profiles()`:
 
@@ -577,6 +582,7 @@ class ChromeHistoryPlugin(Plugin):
                 allow_graph=True,
                 allow_assertion=False,
                 extraction_instructions="Treat browser history as observed page titles, not user-authored text.",
+                phase2_instructions="Do not infer user preferences from one-off page visits.",
             )
         ]
 ```

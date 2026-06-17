@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Optional
 
+from ..assertion_family_policy import get_assertion_family_policy
 from ..storage.utils import MOMENTARY_TRAITS as _MOMENTARY_TRAITS
 from .state_machine import (
     _TEMPORARY_STATE_TRAITS,
@@ -25,8 +26,8 @@ class L2ReconcileStateMixin:
             return "engagement"
         if normalized.startswith("trigger."):
             return "trigger"
-        if normalized in {"taste_profile", "taste_preference"}:
-            return "taste_profile"
+        if normalized == "taste_preference":
+            return "preference_profile"
         if normalized.startswith("identity."):
             return "identity_profile"
         if normalized.startswith("communication."):
@@ -65,6 +66,9 @@ class L2ReconcileStateMixin:
             return anchor_at + 12 * 60 * 60
         if trait_family in {"group_atmosphere", "public_sentiment", "relationship_shift"}:
             return anchor_at + 6 * 60 * 60
+        policy = get_assertion_family_policy(trait_family)
+        if policy is not None and policy.default_ttl_seconds is not None:
+            return anchor_at + policy.default_ttl_seconds
         return None
 
     def _is_assertion_expired(self, assertion: Dict[str, Any], *, now: float | None = None) -> bool:

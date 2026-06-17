@@ -14,7 +14,6 @@ _TRAIT_LABELS_ZH = {
     "music.artists": "音乐艺人偏好",
     "preference.music.genres": "音乐类型偏好",
     "preference.music.artists": "常听艺人",
-    "taste.music.artists": "音乐艺人偏好",
     "stress_level": "压力水平",
     "mood": "情绪状态",
     "engagement": "投入度",
@@ -26,7 +25,6 @@ _TRAIT_LABELS_EN = {
     "music.artists": "music artists",
     "preference.music.genres": "music genres",
     "preference.music.artists": "frequent artists",
-    "taste.music.artists": "music artists",
     "stress_level": "stress level",
     "mood": "mood",
     "engagement": "engagement",
@@ -67,7 +65,6 @@ def trait_group(trait_name: str) -> str:
     if (
         normalized in {"music_interests", "music.artists", "music.genres"}
         or normalized.startswith("preference.music.")
-        or normalized.startswith("taste.music.")
     ):
         return "music_preferences"
     return normalized
@@ -98,7 +95,7 @@ _TRAIT_FAMILY_LABELS_ZH: dict[str, str] = {
     "trigger":               "触发因素",
     "communication_profile": "沟通偏好",
     "preference_profile":    "偏好",
-    "taste_profile":         "审美",
+    "routine_profile":       "行为节律",
     "identity_profile":      "身份信息",
     "relationship_shift":    "关系变化",
     "group_atmosphere":      "群体氛围",
@@ -113,7 +110,7 @@ _TRAIT_FAMILY_LABELS_EN: dict[str, str] = {
     "trigger":               "trigger",
     "communication_profile": "communication preference",
     "preference_profile":    "preference",
-    "taste_profile":         "taste",
+    "routine_profile":       "routine",
     "identity_profile":      "identity",
     "relationship_shift":    "relationship",
     "group_atmosphere":      "group atmosphere",

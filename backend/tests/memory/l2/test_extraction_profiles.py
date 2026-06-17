@@ -34,7 +34,7 @@ def _plugin_profile_specs() -> list[ExtractionProfileSpec]:
             source_types=["netease_music"],
             allowed_entity_types=["media", "person", "group"],
             allowed_predicates=["LISTENED", "LIKES", "INTERESTED_IN"],
-            allowed_assertion_families=["taste_profile", "preference_profile"],
+            allowed_assertion_families=["preference_profile"],
             allow_graph=True,
             allow_assertion=True,
             extraction_instructions="NetEase Cloud Music listening profile.",
@@ -191,7 +191,7 @@ def test_netease_music_source_uses_music_profile():
     assert profile.allow_graph is True
     assert profile.allow_assertion is True
     assert "LISTENED" in profile.allowed_predicates
-    assert "taste_profile" in profile.allowed_assertion_families
+    assert "preference_profile" in profile.allowed_assertion_families
     assert "media" in profile.allowed_entity_types
     assert "person" in profile.allowed_entity_types
 
@@ -255,13 +255,12 @@ def test_plugin_profiles_load_all_sensor_profiles():
         assert pid in profiles, f"Missing profile: {pid}"
 
 
-def test_netease_music_profile_allows_taste_assertions():
+def test_netease_music_profile_allows_preference_assertions():
     from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
     profiles = build_extraction_profile_registry(_plugin_profile_specs())
     music_profile = profiles["source.netease_music"]
     assert music_profile.allow_assertion is True
-    assert "taste_profile" in music_profile.allowed_assertion_families
     assert "preference_profile" in music_profile.allowed_assertion_families
     assert music_profile.extraction_instructions is not None
 

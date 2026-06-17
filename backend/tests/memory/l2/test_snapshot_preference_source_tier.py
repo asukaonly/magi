@@ -16,8 +16,8 @@ from magi.memory.l2.assertions.snapshot_assembly import L2SnapshotAssemblyMixin
 
 def _make_assertion(
     *,
-    trait_family: str = "taste_profile",
-    trait_name: str = "taste.music",
+    trait_family: str = "preference_profile",
+    trait_name: str = "music_genre",
     trait_value: str = "indie",
     confidence_score: float = 0.8,
     evidence_events: list[str] | None = None,
@@ -49,9 +49,9 @@ def test_inferred_source_domain_gives_inferred_source_tier():
     assertion = _make_assertion(source_domain="external_activity", user_feedback=None)
     host._add_assertion_preferences(preferences=preferences, assertions=[assertion])
 
-    assert "taste.music" in preferences
-    assert preferences["taste.music"]["value"] == "indie"
-    assert preferences["taste.music"]["source_tier"] == "inferred"
+    assert "music_genre" in preferences
+    assert preferences["music_genre"]["value"] == "indie"
+    assert preferences["music_genre"]["source_tier"] == "inferred"
 
 
 def test_user_authored_source_domain_gives_authoritative_source_tier():
@@ -61,8 +61,8 @@ def test_user_authored_source_domain_gives_authoritative_source_tier():
     assertion = _make_assertion(source_domain="user_authored", user_feedback=None)
     host._add_assertion_preferences(preferences=preferences, assertions=[assertion])
 
-    assert "taste.music" in preferences
-    assert preferences["taste.music"]["source_tier"] == "authoritative"
+    assert "music_genre" in preferences
+    assert preferences["music_genre"]["source_tier"] == "authoritative"
 
 
 def test_confirmed_feedback_promotes_to_authoritative():
@@ -72,7 +72,7 @@ def test_confirmed_feedback_promotes_to_authoritative():
     assertion = _make_assertion(source_domain="external_activity", user_feedback="confirmed")
     host._add_assertion_preferences(preferences=preferences, assertions=[assertion])
 
-    assert preferences["taste.music"]["source_tier"] == "authoritative"
+    assert preferences["music_genre"]["source_tier"] == "authoritative"
 
 
 def test_preference_profile_family_also_tagged():
@@ -98,7 +98,7 @@ def test_affinity_and_family_fields_still_present():
     assertion = _make_assertion(confidence_score=0.8, evidence_events=["e1", "e2"])
     host._add_assertion_preferences(preferences=preferences, assertions=[assertion])
 
-    pref = preferences["taste.music"]
+    pref = preferences["music_genre"]
     assert "value" in pref
     assert "affinity" in pref
     assert "family" in pref
@@ -106,7 +106,7 @@ def test_affinity_and_family_fields_still_present():
 
 
 def test_non_pref_families_not_included():
-    """Assertions with family not in pref_families are still excluded."""
+    """Assertions with a non-preference family are still excluded."""
     host = _MinimalHost()
     preferences: Dict[str, Any] = {}
     assertion = _make_assertion(trait_family="mood_state", trait_name="mood")
@@ -119,7 +119,7 @@ def test_preference_dot_prefix_still_skipped():
     """Assertions with trait_name starting with 'preference.' still skipped (legacy path)."""
     host = _MinimalHost()
     preferences: Dict[str, Any] = {}
-    assertion = _make_assertion(trait_name="preference.color", trait_family="taste_profile")
+    assertion = _make_assertion(trait_name="preference.color", trait_family="preference_profile")
     host._add_assertion_preferences(preferences=preferences, assertions=[assertion])
 
     assert "preference.color" not in preferences

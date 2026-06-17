@@ -3017,13 +3017,13 @@ async def test_snapshot_mood_trajectory_capped_at_limit(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Preference enrichment from taste_profile / preference_profile assertions
+# Preference enrichment from preference_profile assertions
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_snapshot_preferences_enriched_from_taste_profile_assertions(tmp_path):
-    """taste_profile assertions should appear in snapshot preferences with affinity."""
+async def test_snapshot_preferences_enriched_from_jazz_preference_assertions(tmp_path):
+    """preference_profile assertions should appear in snapshot preferences with affinity."""
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
@@ -3034,7 +3034,7 @@ async def test_snapshot_preferences_enriched_from_taste_profile_assertions(tmp_p
         {
             "entity_id": "user:u1",
             "entity_type": "user",
-            "trait_family": "taste_profile",
+            "trait_family": "preference_profile",
             "trait_name": "jazz_affinity",
             "trait_value": "enjoys jazz guitar",
             "confidence_score": 0.75,
@@ -3062,13 +3062,13 @@ async def test_snapshot_preferences_enriched_from_taste_profile_assertions(tmp_p
     pref = snapshot["preferences"].get("jazz_affinity")
     assert pref is not None
     assert pref["value"] == "enjoys jazz guitar"
-    assert pref["family"] == "taste_profile"
+    assert pref["family"] == "preference_profile"
     # affinity = min(1.0, 0.75 * (1 + 0.1 * 3)) = 0.75 * 1.3 = 0.975
     assert 0.9 < pref["affinity"] <= 1.0
 
 
 @pytest.mark.asyncio
-async def test_snapshot_preferences_enriched_from_preference_profile_assertions(tmp_path):
+async def test_snapshot_preferences_enriched_from_communication_preference_assertions(tmp_path):
     """preference_profile assertions should also appear in preferences with affinity."""
     from magi.memory.l2.store import L2CognitionStore
 
@@ -3135,7 +3135,7 @@ async def test_snapshot_preference_affinity_computation(tmp_path):
         {
             "entity_id": "user:u1",
             "entity_type": "user",
-            "trait_family": "taste_profile",
+            "trait_family": "preference_profile",
             "trait_name": "coffee_preference",
             "trait_value": "strong espresso",
             "confidence_score": 0.95,
@@ -3162,7 +3162,7 @@ async def test_snapshot_preference_affinity_computation(tmp_path):
         {
             "entity_id": "user:u1",
             "entity_type": "user",
-            "trait_family": "taste_profile",
+            "trait_family": "preference_profile",
             "trait_name": "tea_preference",
             "trait_value": "green tea",
             "confidence_score": 0.30,
