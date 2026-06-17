@@ -4400,6 +4400,129 @@ class TestExtractionInstructions:
         assert "Do NOT invent entity IDs" in PHASE2_INTEGRATE_SYSTEM_PROMPT
         assert "romanize" in PHASE2_INTEGRATE_SYSTEM_PROMPT
 
+    def test_phase2_prompt_includes_integration_instructions(self):
+        from magi.memory.l2.models import L2EventWindow
+        from magi.memory.l2.pipeline.prompts import render_phase2_integrate_prompt
+
+        phase2_prompt = render_phase2_integrate_prompt(
+            phase1_result={"entities": [], "fact_claims": []},
+            existing_graph_edges=[],
+            existing_assertions=[],
+            event_window=L2EventWindow(
+                events=[{"event_id": "evt-play", "content": "played Track A", "timestamp": 1.0}]
+            ),
+            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+            source_integration_instructions=(
+                "For play history, derive taste_profile only from repeated plays."
+            ),
+        )
+
+        assert "## Source-Specific Integration Instructions" in phase2_prompt
+        assert "derive taste_profile only from repeated plays" in phase2_prompt
+
+    def test_phase2_prompt_omits_integration_instructions_when_absent(self):
+        from magi.memory.l2.models import L2EventWindow
+        from magi.memory.l2.pipeline.prompts import render_phase2_integrate_prompt
+
+        phase2_prompt = render_phase2_integrate_prompt(
+            phase1_result={"entities": [], "fact_claims": []},
+            existing_graph_edges=[],
+            existing_assertions=[],
+            event_window=L2EventWindow(
+                events=[{"event_id": "evt-play", "content": "played Track A", "timestamp": 1.0}]
+            ),
+            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+        )
+
+        assert "## Source-Specific Integration Instructions" not in phase2_prompt
+
+    @pytest.mark.asyncio
+    async def test_pipeline_passes_profile_phase2_instructions(self):
+        phase2_instructions = "For play history, emit taste_profile only after repeated plays."
+        adapter = _FakeAdapter(
+            [
+                json.dumps(
+                    {
+                        "entities": [],
+                        "fact_claims": [
+                            {
+                                "subject_ref": "user:u1",
+                                "subject_type": "user",
+                                "predicate": "INTERESTED_IN",
+                                "object_ref": "Track A",
+                                "object_type": "media",
+                                "fact_kind": "stable_preference",
+                                "polarity": "positive",
+                                "specificity": "concrete",
+                                "evidence_text": "played Track A",
+                                "confidence": 0.9,
+                                "supporting_event_ids": ["evt-phase2-profile-1"],
+                            }
+                        ],
+                        "resolved_refs": [],
+                        "diagnostics": {"entity_status": "none"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "graph_edges": [],
+                        "refinements": [],
+                        "assertion_candidates": [],
+                        "contradiction_hints": [],
+                    }
+                ),
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            store = UnifiedMemoryStore(
+                l1_db_path=str(base / "l1_events.db"),
+                memory_db_path=str(base / "memory.db"),
+                persist_dir=str(base / "memories"),
+                l2_batch_flush_interval_seconds=0,
+                scenario_llm_pool=_FakeScenarioPool(adapter),
+                extraction_profile_provider=lambda: [
+                    ExtractionProfileSpec(
+                        profile_id="source.play_history",
+                        source_types=["play_history"],
+                        allowed_entity_types=["media", "topic"],
+                        allowed_predicates=["INTERESTED_IN"],
+                        allow_graph=True,
+                        allow_assertion=True,
+                        phase2_instructions=phase2_instructions,
+                    )
+                ],
+            )
+            await store.initialize()
+            try:
+                await store.ingest_event(
+                    {
+                        "id": "evt-phase2-profile-1",
+                        "type": EventTypes.USER_MESSAGE,
+                        "timestamp": time.time(),
+                        "source": "play_history",
+                        "level": EventLevel.INFO.value,
+                        "data": {
+                            "user_id": "u1",
+                            "session_id": "s1",
+                            "content": "played Track A",
+                        },
+                    }
+                )
+
+                for _ in range(50):
+                    if len(adapter.calls) >= 2:
+                        break
+                    await asyncio.sleep(0.01)
+
+                assert len(adapter.calls) >= 2
+                phase2_prompt = str(adapter.calls[-1]["prompt"])
+                assert "## Source-Specific Integration Instructions" in phase2_prompt
+                assert phase2_instructions in phase2_prompt
+            finally:
+                await store.shutdown()
+
     def test_override_replaces_extraction_instructions(self):
         from magi.memory.l2.extraction_profiles import ExtractionProfile, _apply_overrides
         profile = ExtractionProfile(profile_id="test", extraction_instructions="original")

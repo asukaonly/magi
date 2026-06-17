@@ -332,9 +332,17 @@ def render_phase2_integrate_prompt(
     existing_assertions: list[dict[str, Any]] | None = None,
     event_window: L2EventWindow,
     focal_subject: dict[str, Any],
+    source_integration_instructions: str | None = None,
 ) -> str:
     """Render a Markdown-formatted Phase 2 integration prompt."""
     parts: list[str] = []
+
+    if source_integration_instructions:
+        instructions = str(source_integration_instructions).strip()
+        if instructions:
+            parts.append("## Source-Specific Integration Instructions")
+            parts.append(instructions)
+            parts.append("")
 
     # Phase 1 results
     parts.append("## Phase 1 Extracted Results")
