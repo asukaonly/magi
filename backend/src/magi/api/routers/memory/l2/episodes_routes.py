@@ -992,6 +992,8 @@ async def reconsolidate_episodes_endpoint():
     Catch-up scope: every ``status='active'`` episode lacking an L3 episodic
     summary gets one generated (widened from the old standout-only filter), so
     pre-existing active episodes that never got a title are backfilled here.
+    Active experiences are also scanned so placeholder review titles from older
+    runs are repaired by the same button.
     Eager generation on new promotes is handled by the maintenance scheduler.
     """
     unified_memory = _resolve_unified_memory()
@@ -1038,7 +1040,6 @@ async def reconsolidate_episodes_endpoint():
                 l1_store=unified_memory.l1,
                 l2_store=unified_memory.l2,
                 l3_store=unified_memory.l3,
-                experience_ids=experience_stats.promoted_experience_ids,
             )
             experience_summaries_generated = int(experience_summary_result.get("generated") or 0)
             experience_summary_errors = list(experience_summary_result.get("errors") or [])

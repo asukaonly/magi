@@ -10,6 +10,14 @@ from magi.memory.event_contracts import normalize_runtime_event
 from magi.memory.l3.models import L3Candidate, ValidationDecision
 
 
+class _ExperienceSummaryL2Stub:
+    def __init__(self, event_ids: list[str]) -> None:
+        self._event_ids = list(event_ids)
+
+    async def list_episode_events(self, *, episode_id: str):
+        return [{"episode_id": episode_id, "event_id": event_id} for event_id in self._event_ids]
+
+
 class _BatchTrackingEmbeddingService:
     def __init__(self) -> None:
         self.single_calls: list[str] = []
@@ -109,6 +117,75 @@ async def test_l3_summary_excludes_runtime_telemetry_and_keeps_sources(tmp_path)
     assert len(event_links) == 1
     assert event_links[0]["event_id"] == "evt-1"
     assert await l1_store.count_events() == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_experience_summary_uses_evidence_when_title_is_untitled(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"), vector_enabled=False)
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await l1_store.initialize()
+    await l3_store.initialize()
+
+    gmail_event = normalize_runtime_event(
+        Event(
+            type=EventTypes.USER_MESSAGE,
+            data={
+                "user_id": "u1",
+                "session_id": "s1",
+                "content": "在 Gmail 查看 iKuuu VPN 流量重置通知。",
+            },
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id="evt-gmail",
+            timestamp=1710000000.0,
+            event_id="evt-gmail",
+        )
+    )
+    discord_event = normalize_runtime_event(
+        Event(
+            type=EventTypes.USER_MESSAGE,
+            data={
+                "user_id": "u1",
+                "session_id": "s1",
+                "content": "随后浏览 Discord announcements 里的 Midjourney 提及。",
+            },
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id="evt-discord",
+            timestamp=1710000300.0,
+            event_id="evt-discord",
+        )
+    )
+    await l1_store.store(gmail_event)
+    await l1_store.store(discord_event)
+
+    summary = await l3_store.generate_experience_summary(
+        l1_store=l1_store,
+        l2_store=_ExperienceSummaryL2Stub(["evt-gmail", "evt-discord"]),
+        experience={
+            "experience_id": "exp-untitled",
+            "title": "Untitled experience / Untitled exper",
+            "intent": "Untitled experience / Untitled exper",
+            "magi_interpretation": "Magi grouped related episode evidence into a narratable memory.",
+            "time_start": 1710000000.0,
+            "time_end": 1710000300.0,
+            "primary_entity_ids": ["software:gmail", "software:discord"],
+            "primary_topic_keys": ["midjourney"],
+        },
+        experience_members=[
+            {"member_type": "episode", "member_id": "ep-activity", "role": "core"},
+        ],
+    )
+
+    assert summary is not None
+    assert "Untitled" not in summary["insight_metadata"]["label"]
+    assert summary["insight_metadata"]["source_experience_id"] == "exp-untitled"
+    assert "source_episode_id" not in summary["insight_metadata"]
+    assert "Gmail" in summary["content"] or "Discord" in summary["content"]
+    assert summary["content"] != "Magi grouped related episode evidence into a narratable memory."
 
 
 @pytest.mark.asyncio

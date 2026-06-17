@@ -2,7 +2,58 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
+
+_PLACEHOLDER_LABELS = {
+    "untitled",
+    "untitled episode",
+    "untitled experience",
+    "experience",
+}
+_GENERIC_REVIEW_CONTENTS = {
+    "magi grouped related episode evidence into a narratable memory.",
+}
+
+
+def _decode_metadata(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            decoded = json.loads(value)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return {}
+
+
+def _is_placeholder_label(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    if not text:
+        return True
+    if text in _PLACEHOLDER_LABELS or text.startswith("untitled exper"):
+        return True
+    parts = [
+        part.strip()
+        for part in text.replace("|", "/").split("/")
+        if part.strip()
+    ]
+    return bool(parts) and all(
+        part in _PLACEHOLDER_LABELS or part.startswith("untitled exper")
+        for part in parts
+    )
+
+
+def _is_generic_review_content(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return not text or text in _GENERIC_REVIEW_CONTENTS
+
+
+def _review_needs_refresh(summary: dict[str, Any]) -> bool:
+    metadata = _decode_metadata(summary.get("insight_metadata"))
+    label = metadata.get("label") or summary.get("label")
+    return _is_placeholder_label(label) or _is_generic_review_content(summary.get("content"))
 
 
 async def _get_experience_ids(l2_store: Any, experience_ids: list[str] | None, limit: int) -> list[str]:
@@ -41,7 +92,8 @@ async def generate_missing_experience_summaries(
     errors: list[str] = []
     for experience_id in await _get_experience_ids(l2_store, experience_ids, limit):
         try:
-            if callable(get_review) and await get_review(experience_id):
+            existing_review = await get_review(experience_id) if callable(get_review) else None
+            if existing_review is not None and not _review_needs_refresh(existing_review):
                 continue
             experience = await get_experience(experience_id=experience_id)
             if not experience:

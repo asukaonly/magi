@@ -222,6 +222,53 @@ async def test_promote_adjacent_same_theme_episodes_to_one_experience(l2_store_w
 
 
 @pytest.mark.asyncio
+async def test_experience_promotion_ignores_untitled_episode_labels(l2_store_with_schema):
+    from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    await store.create_episode(
+        episode_id="ep-gmail",
+        status="active",
+        label="Untitled experience",
+        summary="",
+        time_start=100.0,
+        time_end=900.0,
+        primary_entity_ids=["software:gmail", "software:discord"],
+        primary_topic_keys=["midjourney"],
+        source_event_count=8,
+    )
+    await store.create_episode(
+        episode_id="ep-discord",
+        status="active",
+        label="Untitled exper",
+        summary="Untitled experience",
+        time_start=1200.0,
+        time_end=1800.0,
+        primary_entity_ids=["software:discord"],
+        primary_topic_keys=["midjourney"],
+        source_event_count=7,
+    )
+    await store.add_episode_events(
+        episode_id="ep-gmail",
+        event_ids=[f"gmail-{index}" for index in range(8)],
+    )
+    await store.add_episode_events(
+        episode_id="ep-discord",
+        event_ids=[f"discord-{index}" for index in range(7)],
+    )
+
+    stats = await promote_experiences_from_episodes(store)
+
+    assert stats.promoted == 1
+    experiences = await store.list_experiences(status="active")
+    assert len(experiences) == 1
+    title = experiences[0]["title"]
+    assert "Untitled" not in title
+    assert "gmail" in title.lower() or "discord" in title.lower()
+
+
+@pytest.mark.asyncio
 async def test_experience_promotion_rejects_sparse_generic_episode(l2_store_with_schema):
     from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
     from magi.memory.l2.store import L2CognitionStore

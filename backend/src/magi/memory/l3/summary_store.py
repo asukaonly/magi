@@ -54,6 +54,123 @@ _CHILD_PERIOD_CONTEXT_LIMIT_BY_PARENT = {
     "year": 5,
 }
 _CHILD_PERIOD_CONTEXT_LIMIT_DEFAULT = 6
+_EXPERIENCE_PLACEHOLDER_TEXTS = {
+    "untitled",
+    "untitled episode",
+    "untitled experience",
+    "experience",
+}
+_EXPERIENCE_GENERIC_TEXTS = {
+    "magi grouped related episode evidence into a narratable memory.",
+}
+
+
+def _is_placeholder_experience_text(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return True
+    lowered = text.lower()
+    if lowered in _EXPERIENCE_PLACEHOLDER_TEXTS or lowered.startswith("untitled exper"):
+        return True
+    parts = [
+        part.strip()
+        for part in lowered.replace("|", "/").split("/")
+        if part.strip()
+    ]
+    return bool(parts) and all(
+        part in _EXPERIENCE_PLACEHOLDER_TEXTS or part.startswith("untitled exper")
+        for part in parts
+    )
+
+
+def _is_generic_experience_text(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return text in _EXPERIENCE_GENERIC_TEXTS
+
+
+def _experience_text_is_usable(value: Any) -> bool:
+    return (
+        not _is_placeholder_experience_text(value)
+        and not _is_generic_experience_text(value)
+    )
+
+
+def _format_experience_label(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if ":" in text:
+        _, _, text = text.partition(":")
+    text = text.strip().replace("_", " ").replace("-", " ")
+    if not _experience_text_is_usable(text):
+        return ""
+    return text
+
+
+def _ordered_experience_labels(values: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        label = _format_experience_label(value)
+        key = label.casefold()
+        if label and key not in seen:
+            seen.add(key)
+            result.append(label)
+    return result
+
+
+def _experience_theme_labels(experience: dict[str, Any]) -> list[str]:
+    return _ordered_experience_labels([
+        value
+        for key in ("primary_entity_ids", "primary_place_ids", "primary_topic_keys")
+        for value in (experience.get(key) or [])
+    ])
+
+
+def _experience_fallback_label(
+    experience: dict[str, Any],
+    events: list[dict[str, Any]],
+) -> str:
+    for key in ("user_label", "title", "intent"):
+        value = str(experience.get(key) or "").strip()
+        if _experience_text_is_usable(value):
+            return value[:36]
+
+    labels = _experience_theme_labels(experience)
+    if labels:
+        return " / ".join(labels[:3])[:36]
+
+    for event in events:
+        content = str(event.get("content") or "").strip()
+        if content:
+            return content[:36]
+    return "Experience"
+
+
+def _experience_fallback_content(
+    experience: dict[str, Any],
+    events: list[dict[str, Any]],
+    event_count: int,
+) -> str:
+    user_note = str(experience.get("user_note") or "").strip()
+    if _experience_text_is_usable(user_note):
+        return user_note[:240]
+
+    snippets = [
+        str(event.get("content") or "").strip()
+        for event in events[:3]
+        if str(event.get("content") or "").strip()
+    ]
+    if snippets:
+        return "；".join(snippets)[:240]
+
+    for key in ("outcome", "intent", "magi_interpretation"):
+        value = str(experience.get(key) or "").strip()
+        if _experience_text_is_usable(value):
+            return value[:240]
+
+    return f"包含 {event_count} 个事件的经历"
+
 
 class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPersistenceMixin, L3ReviewOperationsMixin):
     """Stores reflection-oriented summaries that remain traceable to L1 evidence."""
@@ -590,40 +707,80 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
         if not event_ids:
             return None
 
-        snippets: list[str] = []
-        for event_id in event_ids[:8]:
+        events: list[Dict[str, Any]] = []
+        for event_id in event_ids:
             row = await l1_store.get_event(event_id)
-            content = str((row or {}).get("content") or "").strip()
-            if content:
-                snippets.append(content)
+            if row is not None:
+                events.append(row)
 
-        label = str(
-            experience.get("user_label")
-            or experience.get("title")
-            or experience.get("intent")
-            or "Experience"
-        ).strip()[:36]
-        content = str(
-            experience.get("user_note")
-            or experience.get("magi_interpretation")
-            or experience.get("outcome")
-            or experience.get("intent")
-            or "；".join(snippets)
-            or f"包含 {len(event_ids)} 个事件的经历"
-        ).strip()[:240]
+        fallback_label = _experience_fallback_label(experience, events)
+        fallback_content = _experience_fallback_content(
+            experience,
+            events,
+            len(event_ids),
+        )
+
+        timestamps = [
+            float(event["timestamp"])
+            for event in events
+            if event.get("timestamp") is not None
+        ]
+        period_start = float(
+            experience.get("time_start")
+            or (min(timestamps) if timestamps else time.time())
+        )
+        period_end = float(
+            experience.get("time_end")
+            or (max(timestamps) if timestamps else period_start)
+        )
+
+        if events:
+            pack = self._episodic_llm_service.build_episodic_evidence_pack(
+                episode={
+                    "episode_id": experience_id,
+                    "episode_type": experience.get("experience_type") or "experience",
+                    "time_start": period_start,
+                    "time_end": period_end,
+                    "primary_entity_ids": experience.get("primary_entity_ids") or [],
+                    "primary_topic_keys": experience.get("primary_topic_keys") or [],
+                },
+                events=events,
+            )
+            generation = await self._episodic_llm_service.generate_episodic_candidate(
+                pack,
+                fallback_label=fallback_label,
+                fallback_content=fallback_content,
+            )
+            source_event_ids = list(generation.candidate.source_event_ids)
+            content = str(generation.candidate.content or "").strip()
+            metadata = dict(generation.candidate.insight_metadata)
+        else:
+            source_event_ids = list(event_ids)
+            content = fallback_content
+            metadata = {"fallback": True}
+
+        if (
+            not content
+            or _is_generic_experience_text(content)
+            or _is_placeholder_experience_text(content)
+        ):
+            content = fallback_content
+
+        metadata.pop("source_episode_id", None)
+        metadata["source_experience_id"] = experience_id
+        metadata["source_episode_ids"] = list(episode_ids)
+        if not _experience_text_is_usable(metadata.get("label")):
+            metadata["label"] = fallback_label
+        else:
+            metadata["label"] = str(metadata["label"]).strip()[:36]
 
         candidate = L3Candidate(
             content=content,
-            source_event_ids=event_ids,
+            source_event_ids=source_event_ids or event_ids,
             summary_category="episodic",
             summary_type="thematic",
             insight_key=f"experience:{experience_id}:review",
-            insight_metadata={
-                "source_experience_id": experience_id,
-                "source_episode_ids": episode_ids,
-                "label": label,
-                "fallback": True,
-            },
+            insight_metadata=metadata,
         )
         return await self.upsert_candidate(
             candidate=candidate,
@@ -631,8 +788,8 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
                 "summary_id": f"summary_{uuid.uuid4().hex}",
                 "summary_type": "thematic",
                 "summary_category": "episodic",
-                "period_start": float(experience.get("time_start") or time.time()),
-                "period_end": float(experience.get("time_end") or time.time()),
+                "period_start": period_start,
+                "period_end": period_end,
                 "generation_reason": "experience:episodic",
             },
         )

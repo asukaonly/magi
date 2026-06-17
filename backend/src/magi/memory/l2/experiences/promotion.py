@@ -14,6 +14,12 @@ SINGLE_STRONG_MIN_DURATION_SECONDS = 45 * 60
 GROUP_MIN_EVENTS = 10
 GROUP_MAX_GAP_SECONDS = 2 * 60 * 60
 DUPLICATE_OVERLAP_RATIO = 0.8
+PLACEHOLDER_TITLES = {
+    "untitled",
+    "untitled episode",
+    "untitled experience",
+    "experience",
+}
 
 
 @dataclass(frozen=True)
@@ -40,12 +46,56 @@ def _ordered_unique(values: list[Any]) -> list[str]:
     return result
 
 
-def _episode_title(episode: dict[str, Any]) -> str:
+def _is_placeholder_title(value: str) -> bool:
+    lowered = value.strip().lower()
+    return lowered in PLACEHOLDER_TITLES or lowered.startswith("untitled exper")
+
+
+def _format_theme_label(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if ":" in text:
+        _, _, text = text.partition(":")
+    text = text.strip().replace("_", " ").replace("-", " ")
+    if not text or _is_placeholder_title(text):
+        return ""
+    return text
+
+
+def _episode_explicit_title(episode: dict[str, Any]) -> str:
     for key in ("user_label", "label", "summary"):
         value = str(episode.get(key) or "").strip()
-        if value:
+        if value and not _is_placeholder_title(value):
             return value
-    return "Untitled experience"
+    return ""
+
+
+def _episode_theme_labels(episode: dict[str, Any]) -> list[str]:
+    return _ordered_unique([
+        _format_theme_label(value)
+        for key in ("primary_entity_ids", "primary_place_ids", "primary_topic_keys")
+        for value in (episode.get(key) or [])
+    ])
+
+
+def _candidate_title(episodes: list[dict[str, Any]]) -> str:
+    explicit_titles = _ordered_unique([
+        title
+        for episode in episodes
+        if (title := _episode_explicit_title(episode))
+    ])
+    if explicit_titles:
+        return explicit_titles[0] if len(explicit_titles) == 1 else " / ".join(explicit_titles[:2])
+
+    theme_labels = _ordered_unique([
+        label
+        for episode in episodes
+        for label in _episode_theme_labels(episode)
+    ])
+    if theme_labels:
+        return " / ".join(theme_labels[:3])
+    return "Experience"
 
 
 def _shares_theme(a: dict[str, Any], b: dict[str, Any]) -> bool:
@@ -76,8 +126,7 @@ async def _candidate_from_episodes(
 ) -> _ExperienceCandidate:
     event_counts = [await _episode_event_count(store, episode) for episode in episodes]
     total_events = sum(event_counts)
-    titles = [_episode_title(episode) for episode in episodes]
-    title = titles[0] if len(titles) == 1 else " / ".join(titles[:2])
+    title = _candidate_title(episodes)
     entity_ids = _ordered_unique([
         entity
         for episode in episodes
