@@ -189,6 +189,62 @@ async def test_generate_experience_summary_uses_evidence_when_title_is_untitled(
 
 
 @pytest.mark.asyncio
+async def test_generate_experience_summary_ignores_machine_entity_ids_in_label(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"), vector_enabled=False)
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await l1_store.initialize()
+    await l3_store.initialize()
+
+    gmail_event = normalize_runtime_event(
+        Event(
+            type=EventTypes.USER_MESSAGE,
+            data={
+                "user_id": "u1",
+                "session_id": "s1",
+                "content": "Chrome 浏览 Gmail 收件箱，并查看一封产品通知。",
+            },
+            source="chrome_history",
+            level=EventLevel.INFO,
+            correlation_id="evt-gmail-readable",
+            timestamp=1710000000.0,
+            event_id="evt-gmail-readable",
+        )
+    )
+    await l1_store.store(gmail_event)
+
+    summary = await l3_store.generate_experience_summary(
+        l1_store=l1_store,
+        l2_store=_ExperienceSummaryL2Stub(["evt-gmail-readable"]),
+        experience={
+            "experience_id": "exp-machine-ids",
+            "title": "Untitled experience",
+            "intent": "Untitled experience",
+            "time_start": 1710000000.0,
+            "time_end": 1710000300.0,
+            "primary_entity_ids": [
+                "software:7e4eb50fae61",
+                "user:local_user",
+                "software:gmail",
+            ],
+            "primary_topic_keys": ["01KVABCDEF123"],
+        },
+        experience_members=[
+            {"member_type": "episode", "member_id": "ep-machine", "role": "core"},
+        ],
+    )
+
+    assert summary is not None
+    label = summary["insight_metadata"]["label"]
+    assert "gmail" in label.lower()
+    assert "7e4eb50fae61" not in label.lower()
+    assert "local" not in label.lower()
+    assert "01KV" not in label
+
+
+@pytest.mark.asyncio
 async def test_upsert_candidate_persists_event_and_task_links(tmp_path):
     from magi.memory.l3.summary_store import L3SummaryStore
 

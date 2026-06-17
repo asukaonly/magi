@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +20,14 @@ PLACEHOLDER_TITLES = {
     "untitled episode",
     "untitled experience",
     "experience",
+}
+MACHINE_ID_PATTERN = re.compile(r"^(?:[0-9a-f]{10,}|[0-9A-HJKMNP-TV-Z]{12,})$", re.IGNORECASE)
+LOW_VALUE_LABELS = {
+    "local_user",
+    "local user",
+    "self",
+    "user",
+    "user self",
 }
 
 
@@ -57,8 +66,16 @@ def _format_theme_label(value: Any) -> str:
         return ""
     if ":" in text:
         _, _, text = text.partition(":")
-    text = text.strip().replace("_", " ").replace("-", " ")
-    if not text or _is_placeholder_title(text):
+    raw_text = text.strip()
+    text = raw_text.replace("_", " ").replace("-", " ")
+    normalized = text.casefold()
+    if (
+        not text
+        or _is_placeholder_title(text)
+        or raw_text.isdigit()
+        or MACHINE_ID_PATTERN.fullmatch(raw_text)
+        or normalized in LOW_VALUE_LABELS
+    ):
         return ""
     return text
 

@@ -269,6 +269,42 @@ async def test_experience_promotion_ignores_untitled_episode_labels(l2_store_wit
 
 
 @pytest.mark.asyncio
+async def test_experience_promotion_ignores_machine_entity_ids(l2_store_with_schema):
+    from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    await store.create_episode(
+        episode_id="ep-readable",
+        status="active",
+        label="Untitled experience",
+        time_start=100.0,
+        time_end=3900.0,
+        primary_entity_ids=[
+            "software:7e4eb50fae61",
+            "user:local_user",
+            "software:gmail",
+        ],
+        primary_topic_keys=["01KVABCDEF123"],
+        source_event_count=25,
+    )
+    await store.add_episode_events(
+        episode_id="ep-readable",
+        event_ids=[f"readable-{index}" for index in range(25)],
+    )
+
+    stats = await promote_experiences_from_episodes(store)
+
+    assert stats.promoted == 1
+    experiences = await store.list_experiences(status="active")
+    title = experiences[0]["title"]
+    assert "gmail" in title.lower()
+    assert "7e4eb50fae61" not in title.lower()
+    assert "local" not in title.lower()
+    assert "01KV" not in title
+
+
+@pytest.mark.asyncio
 async def test_experience_promotion_rejects_sparse_generic_episode(l2_store_with_schema):
     from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
     from magi.memory.l2.store import L2CognitionStore

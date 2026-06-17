@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 _PLACEHOLDER_LABELS = {
@@ -13,6 +14,14 @@ _PLACEHOLDER_LABELS = {
 }
 _GENERIC_REVIEW_CONTENTS = {
     "magi grouped related episode evidence into a narratable memory.",
+}
+_MACHINE_LABEL_PATTERN = re.compile(r"^(?:[0-9a-f]{10,}|[0-9A-HJKMNP-TV-Z]{12,})$", re.IGNORECASE)
+_LOW_VALUE_LABELS = {
+    "local_user",
+    "local user",
+    "self",
+    "user",
+    "user self",
 }
 
 
@@ -45,6 +54,29 @@ def _is_placeholder_label(value: Any) -> bool:
     )
 
 
+def _has_low_value_label_part(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return True
+    parts = [
+        part.strip()
+        for part in text.replace("|", "/").split("/")
+        if part.strip()
+    ]
+    if not parts:
+        return True
+    for part in parts:
+        raw_part = part.strip()
+        normalized = raw_part.replace("_", " ").replace("-", " ").casefold()
+        if (
+            raw_part.isdigit()
+            or _MACHINE_LABEL_PATTERN.fullmatch(raw_part)
+            or normalized in _LOW_VALUE_LABELS
+        ):
+            return True
+    return False
+
+
 def _is_generic_review_content(value: Any) -> bool:
     text = str(value or "").strip().lower()
     return not text or text in _GENERIC_REVIEW_CONTENTS
@@ -53,7 +85,11 @@ def _is_generic_review_content(value: Any) -> bool:
 def _review_needs_refresh(summary: dict[str, Any]) -> bool:
     metadata = _decode_metadata(summary.get("insight_metadata"))
     label = metadata.get("label") or summary.get("label")
-    return _is_placeholder_label(label) or _is_generic_review_content(summary.get("content"))
+    return (
+        _is_placeholder_label(label)
+        or _has_low_value_label_part(label)
+        or _is_generic_review_content(summary.get("content"))
+    )
 
 
 async def _get_experience_ids(l2_store: Any, experience_ids: list[str] | None, limit: int) -> list[str]:

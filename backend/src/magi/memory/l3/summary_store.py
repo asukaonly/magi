@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import asyncio
+import re
 import time
 import uuid
 from pathlib import Path
@@ -63,6 +64,17 @@ _EXPERIENCE_PLACEHOLDER_TEXTS = {
 _EXPERIENCE_GENERIC_TEXTS = {
     "magi grouped related episode evidence into a narratable memory.",
 }
+_EXPERIENCE_MACHINE_ID_PATTERN = re.compile(
+    r"^(?:[0-9a-f]{10,}|[0-9A-HJKMNP-TV-Z]{12,})$",
+    re.IGNORECASE,
+)
+_EXPERIENCE_LOW_VALUE_LABELS = {
+    "local_user",
+    "local user",
+    "self",
+    "user",
+    "user self",
+}
 
 
 def _is_placeholder_experience_text(value: Any) -> bool:
@@ -101,8 +113,14 @@ def _format_experience_label(value: Any) -> str:
         return ""
     if ":" in text:
         _, _, text = text.partition(":")
-    text = text.strip().replace("_", " ").replace("-", " ")
-    if not _experience_text_is_usable(text):
+    raw_text = text.strip()
+    text = raw_text.replace("_", " ").replace("-", " ")
+    if (
+        not _experience_text_is_usable(text)
+        or raw_text.isdigit()
+        or _EXPERIENCE_MACHINE_ID_PATTERN.fullmatch(raw_text)
+        or text.casefold() in _EXPERIENCE_LOW_VALUE_LABELS
+    ):
         return ""
     return text
 
