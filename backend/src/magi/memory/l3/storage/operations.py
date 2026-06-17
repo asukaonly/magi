@@ -37,12 +37,25 @@ class _L3SummaryPersistenceHostProtocol(Protocol):
 class L3SummaryPersistenceMixin:
     """Summary row persistence, listing, deletion, and evidence link helpers."""
 
-    async def count_summaries(self) -> int:
-        """Count all summaries."""
+    async def count_summaries(
+        self,
+        *,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+    ) -> int:
+        """Count summaries, optionally filtered by creation time."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         await host.initialize()
+        query = "SELECT COUNT(*) FROM summaries WHERE 1=1"
+        args: list[Any] = []
+        if start_time is not None:
+            query += " AND created_at >= ?"
+            args.append(float(start_time))
+        if end_time is not None:
+            query += " AND created_at < ?"
+            args.append(float(end_time))
         async with sqlite_connection_async(host.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM summaries") as cursor:
+            async with db.execute(query, tuple(args)) as cursor:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 

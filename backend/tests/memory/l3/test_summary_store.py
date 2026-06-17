@@ -180,6 +180,44 @@ async def test_upsert_candidate_merges_existing_insight_key(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_count_summaries_can_filter_by_creation_time(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await l3_store.initialize()
+
+    for summary_id, created_at in [("older", 100.0), ("inside", 200.0), ("newer", 300.0)]:
+        await l3_store._store_summary(
+            {
+                "summary_id": summary_id,
+                "summary_type": "thematic",
+                "summary_category": "topic",
+                "period_start": created_at,
+                "period_end": created_at + 10.0,
+                "content": f"{summary_id} summary",
+                "key_topics": [],
+                "key_entities": [],
+                "sentiment_summary": None,
+                "change_and_pattern": None,
+                "source_event_ids": [],
+                "source_event_count": 0,
+                "importance_aggregate": 0.5,
+                "event_type_distribution": {},
+                "generated_by_model": "test",
+                "generation_prompt": None,
+                "generation_reason": "test",
+                "created_at": created_at,
+                "updated_at": created_at,
+            }
+        )
+
+    assert await l3_store.count_summaries() == 3
+    assert await l3_store.count_summaries(start_time=150.0, end_time=250.0) == 1
+    assert await l3_store.count_summaries(start_time=150.0) == 2
+    assert await l3_store.count_summaries(end_time=250.0) == 2
+
+
+@pytest.mark.asyncio
 async def test_search_summaries_fuses_bm25_and_vector_hits(tmp_path, monkeypatch: pytest.MonkeyPatch):
     from magi.memory.l3.summary_store import L3SummaryStore
 

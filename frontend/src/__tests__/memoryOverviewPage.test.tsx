@@ -10,9 +10,14 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) => {
       const translations: Record<string, string> = {
+        'memory.overview.metrics.totalMemories': 'Total memories',
+        'memory.overview.metrics.understanding': 'About you',
+        'memory.overview.metrics.summaries': 'Reviews & summaries',
+        'memory.overview.metrics.storage': 'Storage',
+        'memory.overview.metricDelta.current': 'Current',
         'memory.overview.sections.sources': 'Source coverage',
         'memory.overview.sections.pending': 'Pending review',
-        'memory.overview.sections.recent': 'Latest memories',
+        'memory.overview.sections.recent': 'Latest summaries',
         'memory.overview.sourceColumns.source': 'Source',
         'memory.overview.sourceColumns.events': 'Stored',
         'memory.overview.sourceColumns.sync': 'Sync',
@@ -22,6 +27,9 @@ vi.mock('react-i18next', () => ({
       };
       if (translations[key]) {
         return translations[key];
+      }
+      if (key === 'memory.overview.metricDelta.today') {
+        return `Today +${options?.value ?? 0}`;
       }
       if (options && typeof options.count === 'number') {
         return `${key}:${options.count}`;
@@ -97,6 +105,15 @@ const dashboardPayload = {
     l1_embeddings: { pending: 0, worker_running: false, vector_enabled: false, async_embeddings: false },
     l3_embeddings: { pending: 1, worker_running: true, vector_enabled: true, async_embeddings: true },
     l4_embeddings: { pending: 0, worker_running: false, vector_enabled: false, async_embeddings: false },
+  },
+  deltas: {
+    today: {
+      total_memories: 9,
+      l1_events: 4,
+      l2_assertions: 3,
+      l3_summaries: 2,
+      disk_usage_bytes: null,
+    },
   },
   attention: { pending_assertions: 1, open_circuit_breakers: 0 },
   pending_assertions: {
@@ -260,8 +277,18 @@ describe('MemoryOverviewPage', () => {
     render(<MemoryOverviewPage />);
 
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
+    expect(await screen.findByText('Total memories')).toBeInTheDocument();
     expect(await screen.findByText('28')).toBeInTheDocument();
+    expect(screen.getByText('Today +9')).toBeInTheDocument();
+    expect(screen.getByText('About you')).toBeInTheDocument();
+    expect(screen.getByText('6')).toBeInTheDocument();
+    expect(screen.getByText('Today +3')).toBeInTheDocument();
+    expect(screen.getByText('Reviews & summaries')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.getByText('Today +2')).toBeInTheDocument();
+    expect(screen.getByText('Storage')).toBeInTheDocument();
     expect(screen.getByText('1.5 KB')).toBeInTheDocument();
+    expect(screen.getByText('Current')).toBeInTheDocument();
     expect(screen.getByText('Source')).toBeInTheDocument();
     expect(screen.getAllByText('Stored').length).toBeGreaterThan(0);
     expect(screen.getByText('Sync')).toBeInTheDocument();
@@ -275,7 +302,7 @@ describe('MemoryOverviewPage', () => {
     expect(screen.getByText('favorite_language')).toBeInTheDocument();
     expect(screen.getByText('Python')).toBeInTheDocument();
     expect(screen.getByText('Sleep changed')).toBeInTheDocument();
-    expect(screen.getByText('Latest memories')).toBeInTheDocument();
+    expect(screen.getByText('Latest summaries')).toBeInTheDocument();
     expect(screen.getByText('Daily summary')).toBeInTheDocument();
     expect(screen.getAllByText('A normal Chat day.')).toHaveLength(1);
     expect(screen.queryByText(/chat projector/i)).not.toBeInTheDocument();
@@ -297,7 +324,7 @@ describe('MemoryOverviewPage', () => {
 
     render(<MemoryOverviewPage />);
 
-    expect(await screen.findByText('Latest memories')).toBeInTheDocument();
+    expect(await screen.findByText('Latest summaries')).toBeInTheDocument();
     expect(screen.queryByText('Pending review')).not.toBeInTheDocument();
     expect(screen.queryByText('memory.overview.empty.pending')).not.toBeInTheDocument();
   });

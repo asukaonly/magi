@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import Any
 
 from fastapi import HTTPException, Query, status
@@ -22,6 +23,11 @@ from .statistics import build_layer_statistics
 
 
 PENDING_ASSERTION_STATES = ["tentative", "contradicted"]
+
+
+def _start_of_local_today() -> float:
+    now = datetime.now().astimezone()
+    return now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
 
 
 def _project_source_count(row: dict[str, Any]) -> dict[str, Any]:
@@ -78,12 +84,24 @@ async def get_memory_dashboard(
     l2 = getattr(unified_memory, "l2", None)
     l3 = getattr(unified_memory, "l3", None)
     l4 = getattr(unified_memory, "l4", None)
+    today_start = _start_of_local_today()
 
     l1_count_coro = l1.count_events() if l1 else _zero()
     l2_rel_count_coro = l2.count_relationships() if l2 else _zero()
     l2_assertion_count_coro = l2.count_tom_assertions() if l2 else _zero()
     l3_count_coro = l3.count_summaries() if l3 else _zero()
     l4_count_coro = l4.count_skills() if l4 else _zero()
+    l1_today_count_coro = l1.count_events(start_time=today_start) if l1 else _zero()
+    l2_today_assertion_count_coro = (
+        l2.count_tom_assertions(
+            temporal_clause=("first_inferred_at >= ?", [today_start]),
+            include_expired=False,
+            include_inactive=False,
+        )
+        if l2
+        else _zero()
+    )
+    l3_today_count_coro = l3.count_summaries(start_time=today_start) if l3 else _zero()
     pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
     projection_backlog_coro = (
         unified_memory.get_l2_projection_backlog()
@@ -129,6 +147,9 @@ async def get_memory_dashboard(
         source_counts,
         pending_count,
         pending_items,
+        l1_today_count,
+        l2_today_assertion_count,
+        l3_today_count,
     ) = await asyncio.gather(
         l1_count_coro,
         l2_rel_count_coro,
@@ -139,6 +160,9 @@ async def get_memory_dashboard(
         source_counts_coro,
         pending_count_coro,
         pending_items_coro,
+        l1_today_count_coro,
+        l2_today_assertion_count_coro,
+        l3_today_count_coro,
     )
 
     statistics = build_layer_statistics(
@@ -169,6 +193,15 @@ async def get_memory_dashboard(
         "source_counts": [_project_source_count(row) for row in source_counts],
         "attention": attention,
         "processing_backlog": processing_backlog,
+        "deltas": {
+            "today": {
+                "total_memories": int(l1_today_count) + int(l2_today_assertion_count) + int(l3_today_count),
+                "l1_events": int(l1_today_count),
+                "l2_assertions": int(l2_today_assertion_count),
+                "l3_summaries": int(l3_today_count),
+                "disk_usage_bytes": None,
+            },
+        },
         "pending_assertions": {
             "items": pending_items,
             "total": int(pending_count),

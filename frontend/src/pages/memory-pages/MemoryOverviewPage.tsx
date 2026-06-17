@@ -1,5 +1,5 @@
 import { type ComponentType, useEffect, useMemo, useState } from 'react';
-import { Check, ClipboardCheck, Database, HardDrive, Plug, X } from 'lucide-react';
+import { Box, Check, FileText, HardDrive, UserRound, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -272,7 +272,6 @@ export const MemoryOverviewPage = () => {
     () => buildRecentStories(stories, t),
     [stories, t],
   );
-  const enabledSourceCount = sourceRows.filter((row) => row.enabled !== false).length;
   const processingBacklog = dashboard?.processing_backlog?.total_pending ?? 0;
 
   const dismissItem = (id: string) => {
@@ -293,32 +292,37 @@ export const MemoryOverviewPage = () => {
     }
   };
 
+  const todayDeltas = dashboard?.deltas?.today;
   const metrics = [
     {
       key: 'total',
       label: t('memory.overview.metrics.totalMemories'),
-      value: String(dashboard?.statistics.total_memories ?? 0),
-      icon: Database,
+      value: formatInteger(dashboard?.statistics.total_memories ?? 0),
+      secondary: t('memory.overview.metricDelta.today', { value: formatInteger(todayDeltas?.total_memories ?? 0) }),
+      icon: Box,
     },
     {
-      key: 'sources',
-      label: t('memory.overview.metrics.sources'),
-      value: String(enabledSourceCount),
-      icon: Plug,
+      key: 'understanding',
+      label: t('memory.overview.metrics.understanding'),
+      value: formatInteger(dashboard?.statistics.l2.assertion_count ?? 0),
+      secondary: t('memory.overview.metricDelta.today', { value: formatInteger(todayDeltas?.l2_assertions ?? 0) }),
+      icon: UserRound,
     },
     {
-      key: 'pending',
-      label: t('memory.overview.metrics.pending'),
-      value: String(pendingItems.length),
-      icon: ClipboardCheck,
+      key: 'summaries',
+      label: t('memory.overview.metrics.summaries'),
+      value: formatInteger(dashboard?.statistics.l3.summary_count ?? 0),
+      secondary: t('memory.overview.metricDelta.today', { value: formatInteger(todayDeltas?.l3_summaries ?? 0) }),
+      icon: FileText,
     },
     {
       key: 'storage',
       label: t('memory.overview.metrics.storage'),
       value: formatBytes(dashboard?.statistics.disk_usage_bytes),
+      secondary: t('memory.overview.metricDelta.current'),
       icon: HardDrive,
     },
-  ] satisfies Array<{ key: string; label: string; value: string; icon: ComponentType<{ className?: string }> }>;
+  ] satisfies Array<{ key: string; label: string; value: string; secondary: string; icon: ComponentType<{ className?: string }> }>;
 
   return (
     <MemoryPageFrame title={t('memory.overview.title')} description={t('memory.overview.subtitle')} hideHeader>
@@ -336,13 +340,14 @@ export const MemoryOverviewPage = () => {
           <section className="grid gap-3 md:grid-cols-4">
             {metrics.map((metric) => (
               <div key={metric.key} className={MEMORY_SECTION_CARD_CLASS}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-xs text-[hsl(var(--memory-muted))]">{metric.label}</div>
-                    <div className="mt-2 text-2xl font-semibold text-[hsl(var(--memory-title))]">{metric.value}</div>
-                  </div>
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.72)] text-[hsl(var(--memory-body))]">
+                <div className="flex min-h-[92px] items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.72)] text-[hsl(var(--memory-accent))]">
                     <metric.icon className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 pt-0.5">
+                    <div className="truncate text-sm font-medium text-[hsl(var(--memory-body))]">{metric.label}</div>
+                    <div className="mt-2 text-3xl font-semibold leading-none text-[hsl(var(--memory-title))]">{metric.value}</div>
+                    <div className="mt-3 text-xs leading-4 text-[hsl(var(--memory-muted))]">{metric.secondary}</div>
                   </div>
                 </div>
               </div>

@@ -585,11 +585,24 @@ export interface MemoryProcessingBacklog {
   l4_embeddings: MemoryEmbeddingBacklog;
 }
 
+export interface MemoryDashboardDeltaWindow {
+  total_memories: number;
+  l1_events: number;
+  l2_assertions: number;
+  l3_summaries: number;
+  disk_usage_bytes: number | null;
+}
+
+export interface MemoryDashboardDeltas {
+  today: MemoryDashboardDeltaWindow;
+}
+
 export interface MemoryDashboard {
   statistics: MemoryStatistics;
   source_counts: MemorySourceCount[];
   attention: MemoryAttention;
   processing_backlog: MemoryProcessingBacklog;
+  deltas: MemoryDashboardDeltas;
   pending_assertions: PaginatedResponse<L2Assertion>;
 }
 

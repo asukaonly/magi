@@ -2273,14 +2273,20 @@
       "subtitle": "看看 Magi 现在记住了什么、从哪里来，以及哪些内容需要你判断。",
       "metrics": {
         "totalMemories": "记忆总量",
+        "understanding": "关于你的理解",
+        "summaries": "回顾与总结",
         "sources": "活跃来源",
         "pending": "待确认",
         "storage": "占用空间"
       },
+      "metricDelta": {
+        "today": "今日新增 +{{value}}",
+        "current": "当前占用"
+      },
       "sections": {
         "sources": "来源覆盖",
         "pending": "待确认",
-        "recent": "最新记忆"
+        "recent": "最新总结"
       },
       "sourceCount": "{{count}} 个来源",
       "pendingCount": "{{count}} 条",

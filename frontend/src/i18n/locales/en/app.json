@@ -2274,14 +2274,20 @@
       "subtitle": "See what Magi remembers, where it came from, and what needs your judgment.",
       "metrics": {
         "totalMemories": "Total memories",
+        "understanding": "About you",
+        "summaries": "Reviews & summaries",
         "sources": "Active sources",
         "pending": "Pending",
         "storage": "Storage"
       },
+      "metricDelta": {
+        "today": "Today +{{value}}",
+        "current": "Current usage"
+      },
       "sections": {
         "sources": "Source coverage",
         "pending": "Pending review",
-        "recent": "Latest memories"
+        "recent": "Latest summaries"
       },
       "sourceCount": "{{count}} source(s)",
       "pendingCount": "{{count}} item(s)",

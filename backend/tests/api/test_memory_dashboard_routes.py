@@ -18,7 +18,9 @@ class _FakeL0Store:
 class _FakeL1Store:
     db_path = "/tmp/l1.db"
 
-    async def count_events(self):
+    async def count_events(self, **kwargs):
+        if kwargs.get("start_time") is not None:
+            return 4
         return 12
 
     async def summarize_event_sources(self, **kwargs):
@@ -46,7 +48,7 @@ class _FakeL2Store:
     db_path = "/tmp/l2.db"
 
     def __init__(self):
-        self.count_assertion_kwargs = None
+        self.count_assertion_kwargs: list[dict] = []
         self.list_assertion_kwargs = None
 
     async def count_relationships(self):
@@ -54,7 +56,9 @@ class _FakeL2Store:
 
     async def count_tom_assertions(self, **kwargs):
         if kwargs:
-            self.count_assertion_kwargs = kwargs
+            self.count_assertion_kwargs.append(kwargs)
+            if "temporal_clause" in kwargs:
+                return 3
             return 2
         return 6
 
@@ -86,7 +90,9 @@ class _FakeL2Store:
 class _FakeL3Store:
     db_path = "/tmp/l3.db"
 
-    async def count_summaries(self):
+    async def count_summaries(self, **kwargs):
+        if kwargs.get("start_time") is not None:
+            return 2
         return 5
 
     def get_statistics(self):
@@ -145,6 +151,15 @@ def test_memory_dashboard_reports_statistics_sources_and_pending(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["statistics"]["total_memories"] == 28
+    assert body["deltas"] == {
+        "today": {
+            "total_memories": 9,
+            "l1_events": 4,
+            "l2_assertions": 3,
+            "l3_summaries": 2,
+            "disk_usage_bytes": None,
+        }
+    }
     assert body["source_counts"][0] == {
         "source": "chrome-history",
         "event_count": 9,
@@ -185,11 +200,17 @@ def test_memory_dashboard_reports_statistics_sources_and_pending(monkeypatch):
             "async_embeddings": False,
         },
     }
-    assert fake_memory.l2.count_assertion_kwargs == {
+    assert {
         "validation_states": ["tentative", "contradicted"],
         "include_expired": False,
         "include_inactive": False,
-    }
+    } in fake_memory.l2.count_assertion_kwargs
+    assert any(
+        call.get("temporal_clause", (None, []))[0] == "first_inferred_at >= ?"
+        and call.get("include_expired") is False
+        and call.get("include_inactive") is False
+        for call in fake_memory.l2.count_assertion_kwargs
+    )
     assert fake_memory.l2.list_assertion_kwargs == {
         "validation_states": ["tentative", "contradicted"],
         "include_expired": False,
