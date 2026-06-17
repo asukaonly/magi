@@ -283,6 +283,92 @@ def test_episode_detail_returns_display_fields_summary_and_hydrated_events(app_w
     l1.get_events_by_ids.assert_awaited_once_with(["e1"])
 
 
+def test_episode_detail_hydrates_real_l1_events_and_entity_names(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(
+        return_value={
+            "episode_id": "ep1",
+            "status": "active",
+            "time_start": 1,
+            "time_end": 2,
+            "primary_entity_ids": ["software:gmail", "media:8ab2042a42e5", "user:local_user"],
+            "user_label": None,
+            "user_note": None,
+        }
+    )
+    l2.list_episode_events = AsyncMock(
+        return_value=[
+            {
+                "episode_id": "ep1",
+                "event_id": "e1",
+                "membership_role": "member",
+                "membership_confidence": 0.8,
+                "added_at": 3,
+            }
+        ]
+    )
+    l2.list_assertions_for_episode = AsyncMock(return_value=[])
+
+    class FetchOnlyL1:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        async def fetch_events(self, event_ids, **_kwargs):
+            self.calls.append(list(event_ids))
+            return [
+                {
+                    "event_id": "e1",
+                    "timestamp": 1.5,
+                    "event_type": "SENSOR_EVENT",
+                    "source": "chrome_history",
+                    "content": "Chrome 浏览 Gmail：iKuuu VPN 流量重置通知。",
+                }
+            ]
+
+    class EntityCatalog:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        async def list_entities(self, *, limit, entity_ids=None, **_kwargs):
+            self.calls.append(list(entity_ids or []))
+            return [
+                {
+                    "entity_id": "software:gmail",
+                    "canonical_name": "Gmail",
+                    "entity_type": "software",
+                },
+                {
+                    "entity_id": "media:8ab2042a42e5",
+                    "canonical_name": "张雪峰快跑",
+                    "entity_type": "media",
+                },
+            ][:limit]
+
+    l1 = FetchOnlyL1()
+    catalog = EntityCatalog()
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = None
+    unified.l1 = l1
+    unified.l2_entity_catalog = catalog
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.get("/api/memory/l2/episodes/ep1")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["events"][0]["content_preview"] == "Chrome 浏览 Gmail：iKuuu VPN 流量重置通知。"
+    assert body["events"][0]["source"] == "chrome_history"
+    assert body["primary_entities"] == [
+        {"id": "software:gmail", "name": "Gmail", "type": "software"},
+        {"id": "media:8ab2042a42e5", "name": "张雪峰快跑", "type": "media"},
+    ]
+    assert l1.calls == [["e1"]]
+    assert catalog.calls == [["software:gmail", "media:8ab2042a42e5", "user:local_user"]]
+
+
 def test_rejecting_episode_inference_removes_it(tmp_path):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

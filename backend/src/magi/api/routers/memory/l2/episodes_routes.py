@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import HTTPException, Query, status
 
+from magi.memory.l2.entities.catalog.lookup import get_canonical_names
 from magi.memory.l2.entities.maintenance import (
     SCHEDULE_ID_L2_MAINTENANCE,
     TARGET_KEY_L2_MAINTENANCE,
@@ -121,6 +123,126 @@ def _get_unified_layer(unified_memory: Any, name: str) -> Any:
     return layer
 
 
+def _get_configured_or_real_method(obj: Any, name: str) -> Any | None:
+    """Return an explicitly configured mock method or a real class method."""
+    if obj is None:
+        return None
+    attrs = getattr(obj, "__dict__", {})
+    if isinstance(attrs, dict) and name in attrs:
+        method = attrs[name]
+    elif hasattr(type(obj), name):
+        method = getattr(obj, name, None)
+    else:
+        return None
+    return method if callable(method) else None
+
+
+def _ordered_non_empty_strings(items: Any) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+    for item in items or []:
+        value = str(item or "").strip()
+        if not value or value in seen:
+            continue
+        values.append(value)
+        seen.add(value)
+    return values
+
+
+def _entity_type_from_id(entity_id: str) -> str:
+    if ":" not in entity_id:
+        return ""
+    return entity_id.split(":", 1)[0]
+
+
+def _fallback_entity_name(entity_id: str) -> str:
+    if entity_id in {"user", "user:local_user", "local_user"}:
+        return ""
+    value = entity_id.split(":", 1)[1] if ":" in entity_id else entity_id
+    value = value.strip()
+    if not value:
+        return ""
+    if re.fullmatch(r"[0-9a-fA-F]{10,}", value) or re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{12,}", value):
+        return ""
+    return value.replace("-", " ").replace("_", " ")
+
+
+async def _fetch_l1_events_by_ids(
+    unified_memory: Any,
+    event_ids: list[str],
+) -> list[dict[str, Any]]:
+    l1_store = _get_unified_layer(unified_memory, "l1")
+    if l1_store is None or not event_ids:
+        return []
+    fetch_events = _get_configured_or_real_method(l1_store, "fetch_events")
+    if fetch_events is not None:
+        return await fetch_events(event_ids)
+    legacy_get_events = _get_configured_or_real_method(l1_store, "get_events_by_ids")
+    if legacy_get_events is not None:
+        return await legacy_get_events(event_ids)
+    return []
+
+
+async def _lookup_primary_entity_previews(
+    unified_memory: Any,
+    entity_ids: list[str],
+) -> dict[str, dict[str, str]]:
+    if not entity_ids:
+        return {}
+
+    records: list[dict[str, Any]] = []
+    catalog = _get_unified_layer(unified_memory, "l2_entity_catalog")
+    list_entities = _get_configured_or_real_method(catalog, "list_entities")
+    if list_entities is not None:
+        records = await list_entities(limit=len(entity_ids), entity_ids=entity_ids)
+
+    if not records:
+        l2_store = _get_unified_layer(unified_memory, "l2")
+        db_path = str(getattr(l2_store, "db_path", "") or "")
+        if db_path:
+            names = await get_canonical_names(db_path, entity_ids)
+            records = [
+                {
+                    "entity_id": entity_id,
+                    "canonical_name": name,
+                    "entity_type": _entity_type_from_id(entity_id),
+                }
+                for entity_id, name in names.items()
+            ]
+
+    by_id = {str(item.get("entity_id") or ""): item for item in records if item.get("entity_id")}
+    previews: dict[str, dict[str, str]] = {}
+    for entity_id in entity_ids:
+        record = by_id.get(entity_id) or {}
+        name = str(record.get("canonical_name") or "").strip() or _fallback_entity_name(entity_id)
+        if not name:
+            continue
+        previews[entity_id] = {
+            "id": entity_id,
+            "name": name,
+            "type": str(record.get("entity_type") or _entity_type_from_id(entity_id) or ""),
+        }
+    return previews
+
+
+async def _attach_episode_entity_previews(
+    unified_memory: Any,
+    items: list[dict[str, Any]],
+) -> None:
+    entity_ids = _ordered_non_empty_strings(
+        entity_id
+        for item in items
+        for entity_id in item.get("primary_entity_ids") or []
+    )
+    previews_by_id = await _lookup_primary_entity_previews(unified_memory, entity_ids)
+    for item in items:
+        item["primary_entities"] = [
+            previews_by_id[entity_id]
+            for entity_id in _ordered_non_empty_strings(item.get("primary_entity_ids"))
+            if entity_id in previews_by_id
+        ]
+
+
 async def _attach_episode_review_fields(
     unified_memory: Any,
     items: list[dict[str, Any]],
@@ -136,6 +258,7 @@ async def _attach_episode_review_fields(
             )
         item["episode_summary"] = episode_summary
         item.update(build_episode_display_fields(item, episode_summary))
+    await _attach_episode_entity_previews(unified_memory, items)
     return items
 
 
@@ -149,14 +272,12 @@ async def _serialize_episode_event_previews(
         if item.get("event_id")
     ]
     l1_events_by_id: dict[str, dict[str, Any]] = {}
-    l1_store = _get_unified_layer(unified_memory, "l1")
-    if l1_store is not None and event_ids and hasattr(l1_store, "get_events_by_ids"):
-        hydrated_events = await l1_store.get_events_by_ids(event_ids)
-        l1_events_by_id = {
-            str(item.get("event_id") or ""): item
-            for item in hydrated_events
-            if item.get("event_id")
-        }
+    hydrated_events = await _fetch_l1_events_by_ids(unified_memory, event_ids)
+    l1_events_by_id = {
+        str(item.get("event_id") or ""): item
+        for item in hydrated_events
+        if item.get("event_id")
+    }
 
     events = [
         serialize_l1_event_preview(l1_events_by_id.get(str(item.get("event_id") or "")), membership=item)
@@ -221,6 +342,8 @@ async def _build_episode_review_response(
     event_memberships: list[dict[str, Any]],
     episode_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    episode = dict(episode)
+    await _attach_episode_entity_previews(unified_memory, [episode])
     if episode_summary is None:
         l3_store = _get_unified_layer(unified_memory, "l3")
         if l3_store is not None:
@@ -302,17 +425,15 @@ async def _refresh_episode_after_membership_change(
         if item.get("event_id")
     ]
     updates: dict[str, Any] = {"source_event_count": len(event_ids)}
-    l1_store = _get_unified_layer(unified_memory, "l1")
-    if l1_store is not None and event_ids and hasattr(l1_store, "get_events_by_ids"):
-        events = await l1_store.get_events_by_ids(event_ids)
-        timestamps = [
-            float(event.get("timestamp"))
-            for event in events
-            if isinstance(event.get("timestamp"), (int, float))
-        ]
-        if timestamps:
-            updates["time_start"] = min(timestamps)
-            updates["time_end"] = max(timestamps)
+    events = await _fetch_l1_events_by_ids(unified_memory, event_ids)
+    timestamps = [
+        float(event.get("timestamp"))
+        for event in events
+        if isinstance(event.get("timestamp"), (int, float))
+    ]
+    if timestamps:
+        updates["time_start"] = min(timestamps)
+        updates["time_end"] = max(timestamps)
     await unified_memory.l2.update_episode(episode_id=episode_id, **updates)
     episode = await unified_memory.l2.get_episode(episode_id=episode_id)
     return episode or {"episode_id": episode_id, **updates}
@@ -510,27 +631,12 @@ async def get_l2_episode(episode_id: str):
     episode = await unified_memory.l2.get_episode(episode_id=episode_id)
     if episode is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.episode_not_found", "Episode not found"))
-    event_memberships, inferred = await asyncio.gather(
-        unified_memory.l2.list_episode_events(episode_id=episode_id),
-        unified_memory.l2.list_assertions_for_episode(episode_id=episode_id),
+    event_memberships = await unified_memory.l2.list_episode_events(episode_id=episode_id)
+    return await _build_episode_review_response(
+        unified_memory,
+        episode=episode,
+        event_memberships=event_memberships,
     )
-    events = await _serialize_episode_event_previews(unified_memory, event_memberships)
-
-    episode_summary = None
-    l3_store = _get_unified_layer(unified_memory, "l3")
-    if l3_store is not None:
-        episode_summary = serialize_episodic_summary(
-            await l3_store.get_episodic_summary_by_episode_id(episode_id)
-        )
-    display_fields = build_episode_display_fields(episode, episode_summary)
-
-    return {
-        **episode,
-        **display_fields,
-        "episode_summary": episode_summary,
-        "events": events,
-        "inferred": [_serialize_episode_inference(item) for item in inferred],
-    }
 
 
 @memory_router.post("/l2/episodes/{episode_id}/regenerate")
@@ -551,16 +657,12 @@ async def regenerate_l2_episode(episode_id: str):
         episode=episode,
         event_memberships=event_memberships,
     )
-    display_fields = build_episode_display_fields(episode, episode_summary)
-    events = await _serialize_episode_event_previews(unified_memory, event_memberships)
-    inferred = await unified_memory.l2.list_assertions_for_episode(episode_id=episode_id)
-    return {
-        **episode,
-        **display_fields,
-        "episode_summary": episode_summary,
-        "events": events,
-        "inferred": [_serialize_episode_inference(item) for item in inferred],
-    }
+    return await _build_episode_review_response(
+        unified_memory,
+        episode=episode,
+        event_memberships=event_memberships,
+        episode_summary=episode_summary,
+    )
 
 
 @memory_router.get("/l2/episodes/{episode_id}/event-candidates")
