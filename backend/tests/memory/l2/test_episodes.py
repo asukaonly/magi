@@ -361,6 +361,81 @@ async def test_streaming_candidate_formation_extends_existing(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_streaming_candidate_formation_does_not_extend_without_theme(tmp_path):
+    """Events with no entity or topic signals must not attach by recency alone."""
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.episode_formation import assign_events_to_episode
+    from magi.memory.l2.models import EpisodeCandidateJob
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+    ep1_id = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="evt-themed",
+                event_timestamp=now,
+                entity_ids=["user:alice"],
+                topic_keys=["coding"],
+            ),
+        ],
+    )
+
+    ep2_id = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="evt-empty",
+                event_timestamp=now + 60,
+            ),
+        ],
+    )
+
+    assert ep2_id != ep1_id
+    assert await store.count_episode_events(episode_id=ep1_id) == 1
+    assert await store.count_episode_events(episode_id=ep2_id) == 1
+
+
+@pytest.mark.asyncio
+async def test_streaming_candidate_formation_extends_existing_by_topic(tmp_path):
+    """Topic overlap can extend a recent candidate even without entity overlap."""
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.episode_formation import assign_events_to_episode
+    from magi.memory.l2.models import EpisodeCandidateJob
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+    ep1_id = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="evt-topic-1",
+                event_timestamp=now,
+                topic_keys=["topic:coding"],
+            ),
+        ],
+    )
+
+    ep2_id = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="evt-topic-2",
+                event_timestamp=now + 60,
+                topic_keys=["topic:coding"],
+            ),
+        ],
+    )
+
+    assert ep2_id == ep1_id
+    assert await store.count_episode_events(episode_id=ep1_id) == 2
+
+
+@pytest.mark.asyncio
 async def test_extend_path_source_event_count_does_not_drift_on_overlap(tmp_path):
     """Re-including an already-member event must not inflate source_event_count.
 

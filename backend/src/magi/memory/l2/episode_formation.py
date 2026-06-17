@@ -2,7 +2,7 @@
 
 Streaming formation hooks into the L2 pipeline extract worker:
 after each extraction, events are assigned to an existing candidate
-episode or start a new one, based on time gap and entity overlap.
+episode or start a new one, based on time gap and entity/topic overlap.
 
 Periodic consolidation promotes mature candidates, merges adjacent
 episodes, and queues summaries/embeddings.
@@ -177,7 +177,7 @@ async def assign_events_to_episode(
     if candidate is not None:
         ep_entities = candidate.get("primary_entity_ids") or []
         ep_topics = candidate.get("primary_topic_keys") or []
-        if _shares_theme(ep_entities, unique_entity_ids, ep_topics, unique_topic_keys) or not unique_entity_ids:
+        if _shares_theme(ep_entities, unique_entity_ids, ep_topics, unique_topic_keys):
             # Extend existing candidate
             episode_id = candidate["episode_id"]
             new_end = max(candidate["time_end"], max_ts)
