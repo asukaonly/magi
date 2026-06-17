@@ -355,6 +355,157 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
 
         return self._episode_row_to_dict(survivor_after) if survivor_after else None
 
+    async def split_episode(
+        self,
+        *,
+        source_episode_id: str,
+        left_episode_id: str,
+        right_episode_id: str,
+        left_event_ids: List[str],
+        right_event_ids: List[str],
+        left_time_start: float,
+        left_time_end: float,
+        right_time_start: float,
+        right_time_end: float,
+    ) -> Optional[Dict[str, Any]]:
+        """Split one episode into two active child episodes."""
+        if (
+            not left_event_ids
+            or not right_event_ids
+            or source_episode_id in {left_episode_id, right_episode_id}
+            or left_episode_id == right_episode_id
+        ):
+            return None
+
+        await self.initialize()
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    "SELECT * FROM episodes WHERE episode_id = ?",
+                    (source_episode_id,),
+                ) as cursor:
+                    source = await cursor.fetchone()
+                if source is None:
+                    await db.rollback()
+                    return None
+
+                child_rows = [
+                    (
+                        left_episode_id,
+                        float(left_time_start),
+                        float(left_time_end),
+                        len(left_event_ids),
+                    ),
+                    (
+                        right_episode_id,
+                        float(right_time_start),
+                        float(right_time_end),
+                        len(right_event_ids),
+                    ),
+                ]
+                for episode_id, time_start, time_end, source_event_count in child_rows:
+                    await db.execute(
+                        """
+                        INSERT INTO episodes(
+                            episode_id, episode_type, status, time_start, time_end,
+                            parent_episode_id, label, summary, dominant_mode,
+                            primary_entity_ids, primary_place_ids, primary_topic_keys,
+                            continuity_signals, formation_method, confidence,
+                            source_event_count,
+                            slice_narrative, slice_sensory_detail, magi_standout,
+                            standout_score, standout_reason, representative_asset_ref,
+                            created_at, updated_at
+                        ) VALUES (?, ?, 'active', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 'user_split', ?, ?, NULL, NULL, 0, 0.0, NULL, NULL, ?, ?)
+                        """,
+                        (
+                            episode_id,
+                            str(source["episode_type"]),
+                            time_start,
+                            time_end,
+                            source_episode_id,
+                            source["dominant_mode"],
+                            source["primary_entity_ids"],
+                            source["primary_place_ids"],
+                            source["primary_topic_keys"],
+                            source["continuity_signals"],
+                            float(source["confidence"]),
+                            source_event_count,
+                            now,
+                            now,
+                        ),
+                    )
+
+                async with db.execute(
+                    "SELECT * FROM episode_events WHERE episode_id = ?",
+                    (source_episode_id,),
+                ) as cursor:
+                    membership_rows = await cursor.fetchall()
+                memberships = {str(row["event_id"]): row for row in membership_rows}
+                for episode_id, event_ids in (
+                    (left_episode_id, left_event_ids),
+                    (right_episode_id, right_event_ids),
+                ):
+                    for event_id in event_ids:
+                        membership = memberships.get(str(event_id))
+                        await db.execute(
+                            """
+                            INSERT OR IGNORE INTO episode_events(
+                                episode_id, event_id, membership_role, membership_confidence, added_at
+                            ) VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (
+                                episode_id,
+                                str(event_id),
+                                str(membership["membership_role"]) if membership else "member",
+                                (
+                                    float(membership["membership_confidence"])
+                                    if membership
+                                    else 0.5
+                                ),
+                                now,
+                            ),
+                        )
+
+                await db.execute(
+                    "DELETE FROM episode_events WHERE episode_id = ?",
+                    (source_episode_id,),
+                )
+                await db.execute(
+                    """
+                    UPDATE episodes
+                    SET status = 'invalidated',
+                        source_event_count = 0,
+                        updated_at = ?
+                    WHERE episode_id = ?
+                    """,
+                    (now, source_episode_id),
+                )
+
+                async with db.execute(
+                    "SELECT * FROM episodes WHERE episode_id = ?",
+                    (left_episode_id,),
+                ) as cursor:
+                    left_after = await cursor.fetchone()
+                async with db.execute(
+                    "SELECT * FROM episodes WHERE episode_id = ?",
+                    (right_episode_id,),
+                ) as cursor:
+                    right_after = await cursor.fetchone()
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+
+        if left_after is None or right_after is None:
+            return None
+        return {
+            "left": self._episode_row_to_dict(left_after),
+            "right": self._episode_row_to_dict(right_after),
+        }
+
     async def find_recent_candidate_episode(
         self,
         *,

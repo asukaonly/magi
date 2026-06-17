@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -19,7 +20,12 @@ from magi.utils.runtime import get_runtime_paths
 from ..dependencies import _resolve_unified_memory
 from ..helpers import memory_t
 from ..router import memory_router
-from ..schemas import EpisodeAnnotationRequest, EpisodeEventIdsRequest, EpisodeMergeRequest
+from ..schemas import (
+    EpisodeAnnotationRequest,
+    EpisodeEventIdsRequest,
+    EpisodeMergeRequest,
+    EpisodeSplitRequest,
+)
 from .episode_review_helpers import (
     build_episode_display_fields,
     score_episode_candidate,
@@ -328,6 +334,101 @@ async def _try_regenerate_episode_summary(
         )
     except Exception:
         return None
+
+
+def _event_time_bounds(
+    events: list[dict[str, Any]],
+    *,
+    fallback_start: float,
+    fallback_end: float,
+) -> tuple[float, float]:
+    values: list[float] = []
+    for event in events:
+        for key in ("timestamp", "added_at"):
+            value = event.get(key)
+            if isinstance(value, (int, float)):
+                values.append(float(value))
+                break
+    if not values:
+        return fallback_start, fallback_end
+    return min(values), max(values)
+
+
+def _public_split_side(side: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "event_count": side["event_count"],
+        "time_start": side["time_start"],
+        "time_end": side["time_end"],
+        "events": side["events"],
+    }
+
+
+async def _build_episode_split_preview(
+    unified_memory: Any,
+    *,
+    episode_id: str,
+    break_after_event_id: str,
+) -> dict[str, Any]:
+    episode = await unified_memory.l2.get_episode(episode_id=episode_id)
+    if episode is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.episode_not_found", "Episode not found"),
+        )
+
+    memberships = await unified_memory.l2.list_episode_events(episode_id=episode_id)
+    events = await _serialize_episode_event_previews(unified_memory, memberships)
+    if len(events) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=memory_t("memory.errors.episode_too_few_events", "Episode would have too few events"),
+        )
+
+    event_ids = [str(event.get("event_id") or "") for event in events]
+    try:
+        break_index = event_ids.index(break_after_event_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=memory_t("memory.errors.invalid_episode_split_breakpoint", "Invalid split breakpoint"),
+        ) from exc
+    if break_index >= len(events) - 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=memory_t("memory.errors.invalid_episode_split_breakpoint", "Invalid split breakpoint"),
+        )
+
+    left_events = events[: break_index + 1]
+    right_events = events[break_index + 1 :]
+    fallback_start = float(episode.get("time_start") or 0.0)
+    fallback_end = float(episode.get("time_end") or fallback_start)
+    left_time_start, left_time_end = _event_time_bounds(
+        left_events,
+        fallback_start=fallback_start,
+        fallback_end=fallback_start,
+    )
+    right_time_start, right_time_end = _event_time_bounds(
+        right_events,
+        fallback_start=fallback_end,
+        fallback_end=fallback_end,
+    )
+    return {
+        "episode": episode,
+        "left": {
+            "event_count": len(left_events),
+            "event_ids": [str(event.get("event_id") or "") for event in left_events],
+            "time_start": left_time_start,
+            "time_end": left_time_end,
+            "events": left_events,
+        },
+        "right": {
+            "event_count": len(right_events),
+            "event_ids": [str(event.get("event_id") or "") for event in right_events],
+            "time_start": right_time_start,
+            "time_end": right_time_end,
+            "events": right_events,
+        },
+    }
 
 
 @memory_router.get("/l2/episodes")
@@ -684,6 +785,98 @@ async def merge_l2_episode(episode_id: str, body: EpisodeMergeRequest):
         event_memberships=event_memberships,
         episode_summary=episode_summary,
     )
+
+
+@memory_router.post("/l2/episodes/{episode_id}/split-preview")
+async def preview_l2_episode_split(episode_id: str, body: EpisodeSplitRequest):
+    """Preview a chronological split without mutating episode storage."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    preview = await _build_episode_split_preview(
+        unified_memory,
+        episode_id=episode_id,
+        break_after_event_id=body.break_after_event_id,
+    )
+    return {
+        "left": _public_split_side(preview["left"]),
+        "right": _public_split_side(preview["right"]),
+    }
+
+
+@memory_router.post("/l2/episodes/{episode_id}/split")
+async def split_l2_episode(episode_id: str, body: EpisodeSplitRequest):
+    """Split an episode into two chronological child episodes."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    preview = await _build_episode_split_preview(
+        unified_memory,
+        episode_id=episode_id,
+        break_after_event_id=body.break_after_event_id,
+    )
+    split_token = uuid.uuid4().hex[:8]
+    left_id = f"{episode_id}_split_{split_token}_a"
+    right_id = f"{episode_id}_split_{split_token}_b"
+    result = await unified_memory.l2.split_episode(
+        source_episode_id=episode_id,
+        left_episode_id=left_id,
+        right_episode_id=right_id,
+        left_event_ids=preview["left"]["event_ids"],
+        right_event_ids=preview["right"]["event_ids"],
+        left_time_start=preview["left"]["time_start"],
+        left_time_end=preview["left"]["time_end"],
+        right_time_start=preview["right"]["time_start"],
+        right_time_end=preview["right"]["time_end"],
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.episode_not_found", "Episode not found"),
+        )
+
+    left_episode = result["left"]
+    right_episode = result["right"]
+    left_memberships, right_memberships = await asyncio.gather(
+        unified_memory.l2.list_episode_events(episode_id=str(left_episode["episode_id"])),
+        unified_memory.l2.list_episode_events(episode_id=str(right_episode["episode_id"])),
+    )
+    left_summary, right_summary = await asyncio.gather(
+        _try_regenerate_episode_summary(
+            unified_memory,
+            episode=left_episode,
+            event_memberships=left_memberships,
+        ),
+        _try_regenerate_episode_summary(
+            unified_memory,
+            episode=right_episode,
+            event_memberships=right_memberships,
+        ),
+    )
+    left_response, right_response = await asyncio.gather(
+        _build_episode_review_response(
+            unified_memory,
+            episode=left_episode,
+            event_memberships=left_memberships,
+            episode_summary=left_summary,
+        ),
+        _build_episode_review_response(
+            unified_memory,
+            episode=right_episode,
+            event_memberships=right_memberships,
+            episode_summary=right_summary,
+        ),
+    )
+    return {
+        "source_episode_id": episode_id,
+        "items": [left_response, right_response],
+    }
 
 
 @memory_router.post("/l2/episodes/reconsolidate")
