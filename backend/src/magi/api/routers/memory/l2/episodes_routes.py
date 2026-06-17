@@ -22,6 +22,7 @@ from ..router import memory_router
 from ..schemas import EpisodeAnnotationRequest, EpisodeEventIdsRequest, EpisodeMergeRequest
 from .episode_review_helpers import (
     build_episode_display_fields,
+    score_episode_candidate,
     score_event_candidate,
     serialize_episodic_summary,
     serialize_l1_event_preview,
@@ -603,6 +604,50 @@ async def annotate_l2_episode(episode_id: str, body: EpisodeAnnotationRequest):
     return await unified_memory.l2.get_episode(episode_id=episode_id)
 
 
+@memory_router.get("/l2/episodes/{episode_id}/merge-candidates")
+async def list_l2_episode_merge_candidates(
+    episode_id: str,
+    limit: int = Query(default=10, ge=1, le=50),
+):
+    """List nearby or similar active episodes that can be merged."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    episode = await unified_memory.l2.get_episode(episode_id=episode_id)
+    if episode is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.episode_not_found", "Episode not found"))
+
+    start = episode.get("time_start")
+    end = episode.get("time_end")
+    window_start = float(start) - 24 * 60 * 60 if isinstance(start, (int, float)) else None
+    window_end = float(end) + 24 * 60 * 60 if isinstance(end, (int, float)) else None
+    candidates = await unified_memory.l2.list_episodes(
+        status="active",
+        time_start=window_start,
+        time_end=window_end,
+        limit=max(50, limit * 5),
+    )
+    items: list[dict[str, Any]] = []
+    for candidate in candidates:
+        candidate_id = str(candidate.get("episode_id") or "")
+        if candidate_id == episode_id:
+            continue
+        score, reasons = score_episode_candidate(episode, candidate)
+        if score <= 0:
+            continue
+        item = dict(candidate)
+        item["candidate_score"] = score
+        item["candidate_reasons"] = reasons
+        items.append(item)
+    items.sort(key=lambda item: (-float(item.get("candidate_score") or 0.0), float(item.get("time_start") or 0.0)))
+    items = items[:limit]
+    await _attach_episode_review_fields(unified_memory, items)
+    return {"items": items}
+
+
 @memory_router.post("/l2/episodes/{episode_id}/merge")
 async def merge_l2_episode(episode_id: str, body: EpisodeMergeRequest):
     """Merge another episode into the target episode."""
@@ -627,7 +672,18 @@ async def merge_l2_episode(episode_id: str, body: EpisodeMergeRequest):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=memory_t("memory.errors.episode_not_found", "Episode not found"),
         )
-    return merged
+    event_memberships = await unified_memory.l2.list_episode_events(episode_id=episode_id)
+    episode_summary = await _try_regenerate_episode_summary(
+        unified_memory,
+        episode=merged,
+        event_memberships=event_memberships,
+    )
+    return await _build_episode_review_response(
+        unified_memory,
+        episode=merged,
+        event_memberships=event_memberships,
+        episode_summary=episode_summary,
+    )
 
 
 @memory_router.post("/l2/episodes/reconsolidate")
