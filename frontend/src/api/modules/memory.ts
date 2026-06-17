@@ -292,6 +292,46 @@ export interface L2EpisodeWithSummary extends L2Episode {
   display_source?: 'user_override' | 'generated' | 'fallback' | string;
 }
 
+export interface L2Experience {
+  experience_id: string;
+  status?: string;
+  title?: string | null;
+  experience_type?: string | null;
+  intent?: string | null;
+  outcome?: string | null;
+  magi_interpretation?: string | null;
+  time_start?: number | null;
+  time_end?: number | null;
+  narrative_score?: number | null;
+  primary_entity_ids?: string[] | null;
+  primary_entities?: L2EpisodeEntityPreview[] | null;
+  primary_place_ids?: string[] | null;
+  primary_topic_keys?: string[] | null;
+  source_episode_count?: number;
+  source_event_count?: number;
+  parent_experience_id?: string | null;
+  merged_into_experience_id?: string | null;
+  user_label?: string | null;
+  user_note?: string | null;
+  user_pinned?: boolean;
+  created_at?: number | null;
+  updated_at?: number | null;
+  last_recomputed_at?: number | null;
+}
+
+export interface L2ExperienceWithReview extends L2Experience {
+  experience_review?: L2EpisodeSummary | null;
+  display_title?: string;
+  display_description?: string;
+  display_source?: 'user_override' | 'generated' | 'fallback' | string;
+}
+
+export interface L2ExperienceSourceEpisode extends L2EpisodeWithSummary {
+  membership_role?: string | null;
+  membership_confidence?: number | null;
+  membership_added_at?: number | null;
+}
+
 export interface L2EpisodeEvent {
   episode_id: string;
   event_id: string;
@@ -336,6 +376,12 @@ export interface L2EpisodeReviewDetail extends Omit<L2EpisodeDetail, 'events'> {
   events: L2EpisodeEventPreview[];
 }
 
+export interface L2ExperienceReviewDetail extends L2ExperienceWithReview {
+  source_episodes: L2ExperienceSourceEpisode[];
+  events: L2EpisodeEventPreview[];
+  key_events?: L2EpisodeEventPreview[];
+}
+
 export interface L2EpisodeCandidate extends L2EpisodeWithSummary {
   candidate_score: number;
   candidate_reasons: string[];
@@ -369,6 +415,8 @@ export interface EpisodeAnnotationPayload {
   user_note?: string;
   user_pinned?: boolean;
 }
+
+export type ExperienceAnnotationPayload = EpisodeAnnotationPayload;
 
 export interface ForgetEpisodeResponse {
   episode_id: string;
@@ -676,6 +724,20 @@ export const memoryApi = {
     surface?: 'standout';
   }): Promise<PaginatedResponse<L2EpisodeWithSummary>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2EpisodeWithSummary>>('/memory/l2/episodes', { params })),
+  listExperiences: async (params?: PaginationParams & {
+    status?: string;
+    time_start?: number;
+    time_end?: number;
+  }): Promise<PaginatedResponse<L2ExperienceWithReview>> =>
+    unwrapMemoryResponse(await api.get<PaginatedResponse<L2ExperienceWithReview>>('/memory/l2/experiences', { params })),
+  getExperience: async (experienceId: string): Promise<L2ExperienceReviewDetail> =>
+    unwrapMemoryResponse(await api.get<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}`)),
+  annotateExperience: async (experienceId: string, payload: ExperienceAnnotationPayload): Promise<L2ExperienceReviewDetail> =>
+    unwrapMemoryResponse(await api.patch<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}`, payload)),
+  regenerateExperienceReview: async (experienceId: string): Promise<L2ExperienceReviewDetail> =>
+    unwrapMemoryResponse(await api.post<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}/regenerate`)),
+  hideExperience: async (experienceId: string): Promise<L2ExperienceReviewDetail> =>
+    unwrapMemoryResponse(await api.post<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}/hide`)),
   getEpisode: async (episodeId: string): Promise<L2EpisodeReviewDetail> =>
     unwrapMemoryResponse(await api.get<L2EpisodeReviewDetail>(`/memory/l2/episodes/${episodeId}`)),
   regenerateEpisode: async (episodeId: string): Promise<L2EpisodeReviewDetail> =>

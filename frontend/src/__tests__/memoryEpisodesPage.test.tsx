@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 import { MemoryEpisodesPage } from '@/pages/memory-pages/MemoryEpisodesPage';
 import { memoryApi } from '@/api/modules/memory';
-import type { L2EpisodeReviewDetail, L2EpisodeWithSummary } from '@/api/modules/memory';
+import type { L2ExperienceReviewDetail, L2ExperienceWithReview } from '@/api/modules/memory';
 
 vi.mock('react-i18next', async () => {
   const labels: Record<string, string> = {
@@ -15,18 +15,20 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.sections.detail': 'Experience detail',
     'memory.episodes.sections.recap': 'Recap',
     'memory.episodes.sections.whatHappened': 'What happened',
-    'memory.episodes.sections.people': 'People',
+    'memory.episodes.sections.sourceEpisodes': 'Source episodes',
     'memory.episodes.sections.entities': 'Entities',
     'memory.episodes.sections.places': 'Places',
     'memory.episodes.sections.topics': 'Topics',
     'memory.episodes.count': '{{count}} active',
     'memory.episodes.eventCount': '{{count}} events',
+    'memory.episodes.episodeCount': '{{count}} source episodes',
     'memory.episodes.emptyTitle': 'No active experiences yet',
-    'memory.episodes.emptyBody': 'Magi will form episodes as conversations and activity accumulate. If you already have remembered activity, run a refresh now.',
+    'memory.episodes.emptyBody': 'Magi will form experiences as conversations and activity accumulate. If you already have remembered activity, run a refresh now.',
     'memory.episodes.detailEmptyTitle': 'Choose an experience',
     'memory.episodes.detailEmptyBody': 'Open one from the list to inspect its events and impressions.',
     'memory.episodes.noRecap': 'No recap yet.',
     'memory.episodes.noEvents': 'No event memberships found.',
+    'memory.episodes.noSourceEpisodes': 'No source episodes found.',
     'memory.episodes.eventPreviewUnavailable': 'Event preview unavailable',
     'memory.episodes.noTags': 'None yet',
     'memory.episodes.awaitingLabel': 'Waiting for Magi to draft a title...',
@@ -37,39 +39,26 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.actions.rename': 'Rename',
     'memory.episodes.actions.editDescription': 'Edit recap',
     'memory.episodes.actions.regenerateDescription': 'Regenerate recap',
-    'memory.episodes.actions.addEvent': 'Add event',
-    'memory.episodes.actions.removeEvent': 'Remove event',
-    'memory.episodes.actions.addSelectedEvents': 'Add selected',
-    'memory.episodes.actions.removeSelectedEvents': 'Remove selected',
-    'memory.episodes.actions.mergeSelectedEpisode': 'Merge selected',
-    'memory.episodes.actions.splitNow': 'Split now',
-    'memory.episodes.actions.mergeEpisode': 'Merge',
-    'memory.episodes.actions.splitEpisode': 'Split',
+    'memory.episodes.actions.hide': 'Hide',
     'memory.episodes.actions.confirmRegenerate': 'Regenerate now',
+    'memory.episodes.actions.confirmHide': 'Hide experience',
     'memory.episodes.actions.reconsolidate': 'Build experiences now',
     'memory.episodes.actions.reconsolidating': 'Building...',
     'memory.episodes.reconsolidateResult': '{{promoted}} promoted · {{standouts}} standout · {{summaries}} summaries',
-    'memory.episodes.actions.confirmImpression': 'Confirm impression',
-    'memory.episodes.actions.rejectImpression': 'Reject impression',
     'memory.episodes.dialogs.renameTitle': 'Rename experience',
     'memory.episodes.dialogs.renameDescription': 'Update the title shown for this experience.',
     'memory.episodes.dialogs.editDescriptionTitle': 'Edit recap',
     'memory.episodes.dialogs.editDescriptionDescription': 'Update the recap shown on this experience.',
     'memory.episodes.dialogs.regenerateTitle': 'Replace current recap?',
     'memory.episodes.dialogs.regenerateDescription': 'Magi will draft a new recap for this experience.',
-    'memory.episodes.dialogs.addEventTitle': 'Add event',
-    'memory.episodes.dialogs.mergeEpisodeTitle': 'Merge experience',
-    'memory.episodes.dialogs.splitEpisodeTitle': 'Split experience',
-    'memory.episodes.empty.noEventCandidates': 'No event candidates',
-    'memory.episodes.empty.noMergeCandidates': 'No merge candidates',
+    'memory.episodes.dialogs.hideTitle': 'Hide this experience?',
+    'memory.episodes.dialogs.hideDescription': 'It will leave the main experience shelf but keep the underlying memories.',
     'memory.episodes.filters.activity': 'Activity',
     'memory.episodes.eventRole.member': 'Member',
-    'memory.episodes.feedback.confirmed': 'Confirmed',
-    'memory.episodes.feedback.rejected': 'Rejected',
-    'memory.episodes.feedback.pending': 'Needs review',
     'common.save': 'Save',
     'common.cancel': 'Cancel',
     'common.loading': 'Loading...',
+    'common.saving': 'Saving...',
   };
   return {
     useTranslation: () => ({
@@ -89,32 +78,27 @@ vi.mock('react-i18next', async () => {
 
 vi.mock('@/api/modules/memory', () => ({
   memoryApi: {
+    listExperiences: vi.fn(),
+    getExperience: vi.fn(),
+    annotateExperience: vi.fn(),
+    regenerateExperienceReview: vi.fn(),
+    hideExperience: vi.fn(),
     listEpisodes: vi.fn(),
-    getEpisode: vi.fn(),
-    annotateEpisode: vi.fn(),
-    regenerateEpisode: vi.fn(),
-    listEpisodeEventCandidates: vi.fn(),
-    addEpisodeEvents: vi.fn(),
-    removeEpisodeEvents: vi.fn(),
-    listEpisodeMergeCandidates: vi.fn(),
-    mergeEpisodes: vi.fn(),
-    previewEpisodeSplit: vi.fn(),
-    splitEpisode: vi.fn(),
     reconsolidateEpisodes: vi.fn(),
   },
 }));
 
-const activeEpisodes: L2EpisodeWithSummary[] = [
+const activeExperiences: L2ExperienceWithReview[] = [
   {
-    episode_id: 'ep-1',
-    episode_type: 'activity',
+    experience_id: 'exp-1',
+    experience_type: 'activity',
     status: 'active',
     user_pinned: true,
     user_label: 'Launch week',
     user_note: 'Keep this as the product kickoff.',
-    label: 'Launch cluster',
-    summary: 'Magi noticed a focused launch thread.',
-    episode_summary: {
+    title: 'Launch cluster',
+    magi_interpretation: 'Magi noticed a focused launch thread.',
+    experience_review: {
       summary_id: 'sum-1',
       content: 'Generated Japan recap',
       label: 'Japan launch trip',
@@ -124,26 +108,26 @@ const activeEpisodes: L2EpisodeWithSummary[] = [
     display_title: 'Launch week',
     display_description: 'Keep this as the product kickoff.',
     display_source: 'user_override',
-    slice_narrative: 'You spent the afternoon turning a vague launch idea into a concrete plan.',
+    intent: 'Turn a vague launch idea into a concrete plan.',
     time_start: 1700000000,
     time_end: 1700100000,
+    source_episode_count: 2,
     source_event_count: 3,
     primary_entity_ids: ['person:asuka'],
     primary_entities: [{ id: 'person:asuka', name: 'Asuka', type: 'person' }],
     primary_place_ids: ['place:studio'],
     primary_topic_keys: ['topic:launch'],
-    dominant_mode: 'planning',
   },
   {
-    episode_id: 'ep-2',
-    episode_type: 'activity',
+    experience_id: 'exp-2',
+    experience_type: 'activity',
     status: 'active',
     user_pinned: false,
     user_label: null,
     user_note: null,
-    label: 'Research loop',
-    summary: 'Researching competitor onboarding.',
-    episode_summary: {
+    title: 'Research loop',
+    magi_interpretation: 'Researching competitor onboarding.',
+    experience_review: {
       summary_id: 'sum-2',
       content: 'Generated research recap',
       label: 'Generated research loop',
@@ -153,23 +137,40 @@ const activeEpisodes: L2EpisodeWithSummary[] = [
     display_title: 'Generated research loop',
     display_description: 'Generated research recap',
     display_source: 'generated',
-    slice_narrative: '',
     time_start: 1700200000,
     time_end: 1700300000,
+    source_episode_count: 1,
     source_event_count: 2,
     primary_entity_ids: [],
     primary_place_ids: [],
     primary_topic_keys: ['topic:onboarding'],
-    dominant_mode: 'research',
   },
 ];
 
-const episodeDetail: L2EpisodeReviewDetail = {
-  ...activeEpisodes[0],
+const experienceDetail: L2ExperienceReviewDetail = {
+  ...activeExperiences[0],
   user_note: null,
   display_title: 'Launch week',
   display_description: 'Generated Japan recap',
   display_source: 'generated',
+  source_episodes: [
+    {
+      episode_id: 'ep-1',
+      episode_type: 'activity',
+      status: 'active',
+      label: 'Planning thread',
+      summary: 'Product launch planning.',
+      time_start: 1700000000,
+      time_end: 1700050000,
+      source_event_count: 2,
+      primary_entity_ids: [],
+      primary_place_ids: [],
+      primary_topic_keys: ['topic:launch'],
+      membership_role: 'core',
+      membership_confidence: 0.9,
+      membership_added_at: 1700100000,
+    },
+  ],
   events: [
     {
       episode_id: 'ep-1',
@@ -194,21 +195,7 @@ const episodeDetail: L2EpisodeReviewDetail = {
       content_preview: 'Booked the Shinkansen tickets',
     },
   ],
-  inferred: [
-    {
-      assertion_id: 'assert-1',
-      entity_id: 'person:asuka',
-      entity_type: 'person',
-      trait_family: 'preference_profile',
-      trait_name: 'work.mode',
-      trait_value: 'likes structured launch planning',
-      confidence_score: 0.81,
-      natural_summary: 'You seem to prefer structured launch planning.',
-      validation_state: 'tentative',
-      user_feedback: null,
-      evidence_events: ['evt-1'],
-    },
-  ],
+  key_events: [],
 };
 
 const renderPage = () =>
@@ -224,52 +211,25 @@ const openLaunchExperience = async (user: ReturnType<typeof userEvent.setup>) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(memoryApi.listEpisodes).mockResolvedValue({
-    items: activeEpisodes,
+  vi.mocked(memoryApi.listExperiences).mockResolvedValue({
+    items: activeExperiences,
     total: 2,
     limit: 100,
     offset: 0,
   } as never);
-  vi.mocked(memoryApi.getEpisode).mockResolvedValue(episodeDetail);
-  vi.mocked(memoryApi.annotateEpisode).mockResolvedValue(activeEpisodes[0]);
-  vi.mocked(memoryApi.regenerateEpisode).mockResolvedValue(episodeDetail);
-  vi.mocked(memoryApi.listEpisodeEventCandidates).mockResolvedValue({
-    items: [
-      {
-        episode_id: 'ep-1',
-        event_id: 'evt-3',
-        membership_role: 'candidate',
-        membership_confidence: 0.5,
-        added_at: null,
-        timestamp: 1700100600,
-        content_preview: 'Candidate lunch stop',
-        candidate_score: 4,
-        candidate_reasons: ['nearby_time'],
-      },
-    ],
+  vi.mocked(memoryApi.getExperience).mockResolvedValue(experienceDetail);
+  vi.mocked(memoryApi.annotateExperience).mockResolvedValue(experienceDetail);
+  vi.mocked(memoryApi.regenerateExperienceReview).mockResolvedValue(experienceDetail);
+  vi.mocked(memoryApi.hideExperience).mockResolvedValue({
+    ...experienceDetail,
+    status: 'hidden',
   });
-  vi.mocked(memoryApi.addEpisodeEvents).mockResolvedValue(episodeDetail);
-  vi.mocked(memoryApi.removeEpisodeEvents).mockResolvedValue(episodeDetail);
-  vi.mocked(memoryApi.listEpisodeMergeCandidates).mockResolvedValue({
-    items: [
-      {
-        ...activeEpisodes[1],
-        candidate_score: 4,
-        candidate_reasons: ['nearby_time'],
-      },
-    ],
-  });
-  vi.mocked(memoryApi.mergeEpisodes).mockResolvedValue(episodeDetail);
-  vi.mocked(memoryApi.previewEpisodeSplit).mockResolvedValue({
-    left: { event_count: 1, events: [episodeDetail.events[0]] },
-    right: { event_count: 1, events: [episodeDetail.events[1]] },
-  });
-  vi.mocked(memoryApi.splitEpisode).mockResolvedValue({
-    items: [
-      { ...episodeDetail, episode_id: 'ep-1-a', display_title: 'Launch week A' },
-      { ...episodeDetail, episode_id: 'ep-1-b', display_title: 'Launch week B' },
-    ],
-  });
+  vi.mocked(memoryApi.listEpisodes).mockResolvedValue({
+    items: [],
+    total: 0,
+    limit: 100,
+    offset: 0,
+  } as never);
   vi.mocked(memoryApi.reconsolidateEpisodes).mockResolvedValue({
     promoted: 1,
     standouts: 1,
@@ -281,70 +241,39 @@ beforeEach(() => {
 });
 
 describe('MemoryEpisodesPage', () => {
-  it('lists curated experience cards without opening detail automatically', async () => {
+  it('lists curated experience cards without reading raw episodes or opening detail automatically', async () => {
     renderPage();
 
     expect((await screen.findAllByText('Launch week')).length).toBeGreaterThan(0);
-    expect(screen.queryByText('Generated research loop')).not.toBeInTheDocument();
-    expect(memoryApi.listEpisodes).toHaveBeenCalledWith({ surface: 'standout', limit: 100, offset: 0 });
-    expect(memoryApi.getEpisode).not.toHaveBeenCalled();
+    expect(screen.getByText('Generated research loop')).toBeInTheDocument();
+    expect(memoryApi.listExperiences).toHaveBeenCalledWith({ status: 'active', limit: 100, offset: 0 });
+    expect(memoryApi.listEpisodes).not.toHaveBeenCalled();
+    expect(memoryApi.getExperience).not.toHaveBeenCalled();
     expect(screen.queryByText('Visited Kyoto station')).not.toBeInTheDocument();
   });
 
-  it('filters sparse short standout items when stronger chapters are available', async () => {
-    vi.mocked(memoryApi.listEpisodes).mockResolvedValueOnce({
-      items: [
-        {
-          ...activeEpisodes[0],
-          episode_id: 'ep-sparse',
-          user_pinned: false,
-          display_title: 'Short Gmail check',
-          source_event_count: 12,
-          time_start: 1700000000,
-          time_end: 1700000000 + 30 * 60,
-        },
-        {
-          ...activeEpisodes[1],
-          episode_id: 'ep-chapter',
-          display_title: 'Long research chapter',
-          source_event_count: 10,
-          time_start: 1700000000,
-          time_end: 1700000000 + 60 * 60,
-        },
-      ],
-      total: 2,
-      limit: 100,
-      offset: 0,
-    } as never);
-
-    renderPage();
-
-    expect(await screen.findByText('Long research chapter')).toBeInTheDocument();
-    expect(screen.queryByText('Short Gmail check')).not.toBeInTheDocument();
-  });
-
-  it('renders the Magi recap and event previews without inference feedback controls', async () => {
+  it('renders the Magi recap, source episodes, and readable event previews', async () => {
     const user = userEvent.setup();
     renderPage();
 
     await openLaunchExperience(user);
     expect(await screen.findByText('Generated Japan recap')).toBeInTheDocument();
+    expect(screen.getByText('Source episodes')).toBeInTheDocument();
+    expect(screen.getByText('Planning thread')).toBeInTheDocument();
 
     const events = screen.getByTestId('episode-event-stream');
     expect(within(events).getByText('Visited Kyoto station')).toBeInTheDocument();
     expect(within(events).getByText('Booked the Shinkansen tickets')).toBeInTheDocument();
     expect(within(events).queryByText('evt-1')).not.toBeInTheDocument();
 
-    expect(screen.queryByText('Confirm impression')).not.toBeInTheDocument();
-    expect(screen.queryByText('You seem to prefer structured launch planning.')).not.toBeInTheDocument();
     expect(screen.getAllByText('Asuka').length).toBeGreaterThan(0);
     expect(screen.queryByText('person:asuka')).not.toBeInTheDocument();
     expect(screen.getByText('studio')).toBeInTheDocument();
     expect(screen.getByText('launch')).toBeInTheDocument();
   });
 
-  it('offers reconsolidation when there are no active episodes', async () => {
-    vi.mocked(memoryApi.listEpisodes).mockResolvedValueOnce({
+  it('offers reconsolidation when there are no active experiences', async () => {
+    vi.mocked(memoryApi.listExperiences).mockResolvedValueOnce({
       items: [],
       total: 0,
       limit: 100,
@@ -353,13 +282,13 @@ describe('MemoryEpisodesPage', () => {
     renderPage();
 
     expect(await screen.findByText('No active experiences yet')).toBeInTheDocument();
-    expect(screen.getByText('Magi will form episodes as conversations and activity accumulate. If you already have remembered activity, run a refresh now.')).toBeInTheDocument();
+    expect(screen.getByText('Magi will form experiences as conversations and activity accumulate. If you already have remembered activity, run a refresh now.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Build experiences now' })).toBeInTheDocument();
   });
 
   it('reconsolidates experiences from the empty state', async () => {
     const user = userEvent.setup();
-    vi.mocked(memoryApi.listEpisodes)
+    vi.mocked(memoryApi.listExperiences)
       .mockResolvedValueOnce({
         items: [],
         total: 0,
@@ -367,7 +296,7 @@ describe('MemoryEpisodesPage', () => {
         offset: 0,
       } as never)
       .mockResolvedValueOnce({
-        items: activeEpisodes,
+        items: activeExperiences,
         total: 2,
         limit: 100,
         offset: 0,
@@ -384,8 +313,8 @@ describe('MemoryEpisodesPage', () => {
 
   it('renames the selected experience through the annotation API', async () => {
     const user = userEvent.setup();
-    vi.mocked(memoryApi.annotateEpisode).mockResolvedValue({
-      ...activeEpisodes[0],
+    vi.mocked(memoryApi.annotateExperience).mockResolvedValue({
+      ...experienceDetail,
       user_label: 'Launch sprint',
       display_title: 'Launch sprint',
     } as never);
@@ -399,7 +328,7 @@ describe('MemoryEpisodesPage', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
-      expect(memoryApi.annotateEpisode).toHaveBeenCalledWith('ep-1', {
+      expect(memoryApi.annotateExperience).toHaveBeenCalledWith('exp-1', {
         user_label: 'Launch sprint',
       });
     });
@@ -407,8 +336,8 @@ describe('MemoryEpisodesPage', () => {
 
   it('edits the selected recap through the annotation API', async () => {
     const user = userEvent.setup();
-    vi.mocked(memoryApi.annotateEpisode).mockResolvedValue({
-      ...activeEpisodes[0],
+    vi.mocked(memoryApi.annotateExperience).mockResolvedValue({
+      ...experienceDetail,
       user_note: 'This was more about launch prep than execution.',
       display_description: 'This was more about launch prep than execution.',
     } as never);
@@ -422,7 +351,7 @@ describe('MemoryEpisodesPage', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
-      expect(memoryApi.annotateEpisode).toHaveBeenCalledWith('ep-1', {
+      expect(memoryApi.annotateExperience).toHaveBeenCalledWith('exp-1', {
         user_note: 'This was more about launch prep than execution.',
       });
     });
@@ -430,16 +359,16 @@ describe('MemoryEpisodesPage', () => {
 
   it('confirms before regenerating over a user-edited recap', async () => {
     const user = userEvent.setup();
-    vi.mocked(memoryApi.getEpisode).mockResolvedValue({
-      ...episodeDetail,
+    vi.mocked(memoryApi.getExperience).mockResolvedValue({
+      ...experienceDetail,
       user_note: 'Manual recap',
       display_description: 'Manual recap',
       display_source: 'user_override',
     });
-    vi.mocked(memoryApi.regenerateEpisode).mockResolvedValue({
-      ...episodeDetail,
+    vi.mocked(memoryApi.regenerateExperienceReview).mockResolvedValue({
+      ...experienceDetail,
       display_description: 'Fresh generated recap',
-      episode_summary: {
+      experience_review: {
         summary_id: 'sum-new',
         content: 'Fresh generated recap',
         label: 'Fresh generated title',
@@ -453,89 +382,28 @@ describe('MemoryEpisodesPage', () => {
     await screen.findByText('Manual recap');
     await user.click(screen.getByRole('button', { name: 'Regenerate recap' }));
     expect(screen.getByText('Replace current recap?')).toBeInTheDocument();
-    expect(memoryApi.regenerateEpisode).not.toHaveBeenCalled();
+    expect(memoryApi.regenerateExperienceReview).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Regenerate now' }));
 
     await waitFor(() => {
-      expect(memoryApi.regenerateEpisode).toHaveBeenCalledWith('ep-1');
+      expect(memoryApi.regenerateExperienceReview).toHaveBeenCalledWith('exp-1');
     });
     expect((await screen.findAllByText('Fresh generated recap')).length).toBeGreaterThan(0);
   });
 
-  it('adds a nearby candidate event without a global search input', async () => {
+  it('hides the selected experience after confirmation', async () => {
     const user = userEvent.setup();
     renderPage();
 
     await openLaunchExperience(user);
     await screen.findByText('Generated Japan recap');
-    await user.click(screen.getByRole('button', { name: 'Add event' }));
-    expect(await screen.findByText('Candidate lunch stop')).toBeInTheDocument();
-    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('checkbox', { name: /Candidate lunch stop/ }));
-    await user.click(screen.getByRole('button', { name: 'Add selected' }));
+    await user.click(screen.getByRole('button', { name: 'Hide' }));
+    expect(screen.getByText('Hide this experience?')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Hide experience' }));
 
     await waitFor(() => {
-      expect(memoryApi.addEpisodeEvents).toHaveBeenCalledWith('ep-1', ['evt-3']);
+      expect(memoryApi.hideExperience).toHaveBeenCalledWith('exp-1');
     });
-  });
-
-  it('shows an empty state when there are no add-event candidates', async () => {
-    const user = userEvent.setup();
-    vi.mocked(memoryApi.listEpisodeEventCandidates).mockResolvedValue({ items: [] });
-    renderPage();
-
-    await openLaunchExperience(user);
-    await screen.findByText('Generated Japan recap');
-    await user.click(screen.getByRole('button', { name: 'Add event' }));
-
-    expect(await screen.findByText('No event candidates')).toBeInTheDocument();
-  });
-
-  it('removes selected events from the current episode', async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await openLaunchExperience(user);
-    await screen.findByText('Generated Japan recap');
-    await user.click(screen.getByRole('button', { name: 'Remove event' }));
-    await user.click(screen.getByRole('checkbox', { name: /Visited Kyoto station/ }));
-    await user.click(screen.getByRole('button', { name: 'Remove selected' }));
-
-    await waitFor(() => {
-      expect(memoryApi.removeEpisodeEvents).toHaveBeenCalledWith('ep-1', ['evt-1']);
-    });
-  });
-
-  it('merges the selected episode with a recommended candidate', async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await openLaunchExperience(user);
-    await screen.findByText('Generated Japan recap');
-    await user.click(screen.getByRole('button', { name: 'Merge' }));
-    expect((await screen.findAllByText('Generated research loop')).length).toBeGreaterThan(0);
-    await user.click(screen.getByRole('radio', { name: /Generated research loop/ }));
-    await user.click(screen.getByRole('button', { name: 'Merge selected' }));
-
-    await waitFor(() => {
-      expect(memoryApi.mergeEpisodes).toHaveBeenCalledWith('ep-1', 'ep-2');
-    });
-  });
-
-  it('splits the current episode by a chronological breakpoint', async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await openLaunchExperience(user);
-    await screen.findByText('Generated Japan recap');
-    await user.click(screen.getByRole('button', { name: 'Split' }));
-    await user.click(screen.getByRole('radio', { name: /Visited Kyoto station/ }));
-    expect(await screen.findByText('1 / 1')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Split now' }));
-
-    await waitFor(() => {
-      expect(memoryApi.previewEpisodeSplit).toHaveBeenCalledWith('ep-1', 'evt-1');
-      expect(memoryApi.splitEpisode).toHaveBeenCalledWith('ep-1', 'evt-1');
-    });
+    expect(screen.queryByText('Launch week')).not.toBeInTheDocument();
   });
 });
