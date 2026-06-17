@@ -31,6 +31,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.count': '{{count}} active',
     'memory.episodes.eventCount': '{{count}} events',
     'memory.episodes.episodeCount': '{{count}} source episodes',
+    'memory.episodes.sourceEpisodeFallback': 'Source chapter {{index}}',
     'memory.episodes.emptyTitle': 'No active experiences yet',
     'memory.episodes.emptyBody': 'Magi will form experiences as conversations and activity accumulate. If you already have remembered activity, run a refresh now.',
     'memory.episodes.detailEmptyTitle': 'Choose an experience',
@@ -210,6 +211,22 @@ const experienceDetail: L2ExperienceReviewDetail = {
       membership_confidence: 0.9,
       membership_added_at: 1700100000,
     },
+    {
+      episode_id: '2054f7ae-f6f2-4d9e-9c29-7af8760ffbbd',
+      episode_type: 'activity',
+      status: 'active',
+      label: null,
+      summary: null,
+      time_start: 1700060000,
+      time_end: 1700063000,
+      source_event_count: 1,
+      primary_entity_ids: [],
+      primary_place_ids: [],
+      primary_topic_keys: [],
+      membership_role: 'member',
+      membership_confidence: 0.8,
+      membership_added_at: 1700100000,
+    },
   ],
   events: [
     {
@@ -318,11 +335,20 @@ describe('MemoryEpisodesPage', () => {
     expect(within(events).getByText('Visited Kyoto station')).toBeInTheDocument();
     expect(within(events).getByText('Booked the Shinkansen tickets')).toBeInTheDocument();
     expect(within(events).queryByText('evt-1')).not.toBeInTheDocument();
+    expect(screen.getByText('Source chapter 2')).toBeInTheDocument();
+    expect(screen.queryByText('2054f7ae-f6f2-4d9e-9c29-7af8760ffbbd')).not.toBeInTheDocument();
 
     expect(screen.getAllByText('Asuka').length).toBeGreaterThan(0);
     expect(screen.queryByText('person:asuka')).not.toBeInTheDocument();
     expect(screen.getAllByText('studio').length).toBeGreaterThan(0);
     expect(screen.getAllByText('launch').length).toBeGreaterThan(0);
+  });
+
+  it('keeps the featured recap as content instead of a fixed cover image', async () => {
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: /Featured recap: Launch week/ })).toBeInTheDocument();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 
   it('offers reconsolidation when there are no active experiences', async () => {

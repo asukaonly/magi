@@ -2386,6 +2386,7 @@
       "count": "{{count}} experiences",
       "eventCount": "{{count}} events",
       "episodeCount": "{{count}} source episodes",
+      "sourceEpisodeFallback": "Source chapter {{index}}",
       "emptyTitle": "No active experiences yet",
       "emptyBody": "Magi will form experiences as conversations and activity accumulate. If you already have remembered activity, run a refresh now.",
       "detailEmptyTitle": "Choose an experience",

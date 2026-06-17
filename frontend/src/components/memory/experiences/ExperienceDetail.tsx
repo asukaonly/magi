@@ -31,10 +31,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import EpisodeEventList from '../episodes/EpisodeEventList';
-import {
-  formatEpisodeTimeRange,
-  getEpisodeDisplayTitle,
-} from '../episodes/EpisodeRow';
+import { formatEpisodeTimeRange } from '../episodes/EpisodeRow';
 import {
   formatExperienceTag,
   getExperienceDescription,
@@ -45,6 +42,7 @@ import { cn } from '@/lib/utils';
 type ExperienceReviewLike = L2ExperienceWithReview | L2ExperienceReviewDetail;
 
 const MEMORY_INFO_PANEL_CLASS = 'rounded-xl border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel-subtle)/0.5)] px-4 py-3 text-sm text-[hsl(var(--memory-muted))]';
+const MACHINE_TITLE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|^[0-9a-f]{16,}$|^[0-9A-HJKMNP-TV-Z]{12,}$/i;
 
 const normalizeList = (items: string[] | null | undefined): string[] => (
   Array.isArray(items)
@@ -62,6 +60,26 @@ const getEpisodeDescription = (episode: L2EpisodeWithSummary): string => (
     ''
   ).trim()
 );
+
+const getReadableSourceEpisodeTitle = (
+  episode: L2EpisodeWithSummary,
+  index: number,
+  fallbackTemplate: string
+): string => {
+  const values = [
+    episode.user_label,
+    episode.display_title,
+    episode.episode_summary?.label,
+    episode.label,
+    episode.summary,
+    episode.slice_narrative,
+  ];
+  const title = values.find((value) => typeof value === 'string' && value.trim())?.trim() ?? '';
+  if (!title || MACHINE_TITLE_PATTERN.test(title)) {
+    return fallbackTemplate.replace('{{index}}', String(index + 1));
+  }
+  return title;
+};
 
 export function ExperienceDetail({
   experience,
@@ -371,8 +389,12 @@ function SourceEpisodeList({ episodes }: { episodes: L2EpisodeWithSummary[] }) {
       <div className="mt-3 overflow-hidden rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel)/0.52)]">
         {episodes.length === 0 ? (
           <div className="px-4 py-3 text-sm text-[hsl(var(--memory-muted))]">{t('memory.episodes.noSourceEpisodes')}</div>
-        ) : episodes.map((episode) => {
-          const title = getEpisodeDisplayTitle(episode, t('memory.episodes.awaitingLabel'));
+        ) : episodes.map((episode, index) => {
+          const title = getReadableSourceEpisodeTitle(
+            episode,
+            index,
+            t('memory.episodes.sourceEpisodeFallback', { index: index + 1 })
+          );
           const summary = getEpisodeDescription(episode);
           const range = formatEpisodeTimeRange(episode.time_start, episode.time_end, i18n.language);
           return (

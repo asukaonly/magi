@@ -16,7 +16,6 @@ import {
   type L2ExperienceReviewDetail,
   type L2ExperienceWithReview,
 } from '@/api/modules/memory';
-import experienceCover from '@/assets/experience-cover-japan.png';
 import ExperienceDetail from '@/components/memory/experiences/ExperienceDetail';
 import {
   formatExperienceTag,
@@ -355,7 +354,7 @@ export const MemoryEpisodesPage = () => {
           <p className="mt-1 text-sm">{t('memory.episodes.emptyBody')}</p>
         </div>
       ) : (
-        <div className="grid min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(380px,520px)]">
+        <div className="grid min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,500px)]">
           <main className="min-w-0 space-y-6">
             {featuredExperience ? (
               <FeaturedExperienceCard
@@ -437,28 +436,28 @@ function FeaturedExperienceCard({
       onClick={onOpen}
       aria-label={`${t('memory.episodes.featuredLabel')}: ${title}`}
       className={cn(
-        'group grid w-full overflow-hidden rounded-lg border bg-[hsl(var(--memory-panel-elevated)/0.82)] text-left shadow-sm transition-colors duration-200 md:grid-cols-[minmax(0,1fr)_300px]',
+        'group w-full overflow-hidden rounded-lg border bg-[hsl(var(--memory-panel-elevated)/0.82)] px-6 py-6 text-left shadow-sm transition-colors duration-200',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.24)]',
         selected
           ? 'border-[hsl(var(--memory-accent)/0.44)]'
           : 'border-[hsl(var(--memory-border)/0.58)] hover:border-[hsl(var(--memory-accent)/0.28)]'
       )}
     >
-      <div className="flex min-h-[360px] flex-col justify-between px-7 py-7">
+      <div className="flex min-h-[260px] flex-col justify-between">
         <div className="min-w-0">
           <div className="inline-flex items-center gap-2 rounded-full bg-[hsl(var(--memory-accent-soft)/0.62)] px-3 py-1 text-xs font-medium text-[hsl(var(--memory-title))]">
             <Star className="h-4 w-4 fill-current text-[hsl(var(--memory-accent))]" aria-hidden="true" />
             {t('memory.episodes.featuredLabel')}
           </div>
-          <h2 className="mt-7 break-words text-[2rem] font-semibold leading-tight tracking-normal text-[hsl(var(--memory-title))] md:text-[2.55rem]">
+          <h2 className="mt-5 break-words text-[1.6rem] font-semibold leading-tight tracking-normal text-[hsl(var(--memory-title))] sm:text-[1.9rem]">
             {title}
           </h2>
-          <p className="mt-5 line-clamp-4 whitespace-pre-wrap text-base leading-8 text-[hsl(var(--memory-body))]">
+          <p className="mt-4 line-clamp-4 whitespace-pre-wrap text-base leading-7 text-[hsl(var(--memory-body))]">
             {description}
           </p>
         </div>
 
-        <div className="mt-8 space-y-4">
+        <div className="mt-7 space-y-4 border-t border-[hsl(var(--memory-divider)/0.62)] pt-4">
           {tags.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {tags.map((tag) => (
@@ -481,14 +480,6 @@ function FeaturedExperienceCard({
             </span>
           </div>
         </div>
-      </div>
-      <div className="hidden min-h-[360px] overflow-hidden border-l border-[hsl(var(--memory-divider)/0.64)] md:block">
-        <img
-          src={experienceCover}
-          alt=""
-          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
-          aria-hidden="true"
-        />
       </div>
     </button>
   );

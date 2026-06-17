@@ -2385,6 +2385,7 @@
       "count": "{{count}} 段经历",
       "eventCount": "{{count}} 个事件",
       "episodeCount": "{{count}} 个来源片段",
+      "sourceEpisodeFallback": "来源片段 {{index}}",
       "emptyTitle": "还没有活跃经历",
       "emptyBody": "随着对话和活动累积，Magi 会逐渐整理出完整经历。如果已经有记忆活动，可以现在整理一次。",
       "detailEmptyTitle": "选择一段经历",
