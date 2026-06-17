@@ -157,9 +157,11 @@ async def test_promote_single_strong_episode_to_experience(l2_store_with_schema)
     stats = await promote_experiences_from_episodes(store)
 
     assert stats.promoted == 1
+    assert len(stats.promoted_experience_ids) == 1
     experiences = await store.list_experiences(status="active")
     assert len(experiences) == 1
     experience = experiences[0]
+    assert experience["experience_id"] == stats.promoted_experience_ids[0]
     assert experience["title"] == "Debug CraftWorld module"
     assert experience["intent"] == "Debug CraftWorld module"
     assert experience["source_episode_count"] == 1
@@ -208,6 +210,7 @@ async def test_promote_adjacent_same_theme_episodes_to_one_experience(l2_store_w
     stats = await promote_experiences_from_episodes(store)
 
     assert stats.promoted == 1
+    assert len(stats.promoted_experience_ids) == 1
     experiences = await store.list_experiences(status="active")
     assert len(experiences) == 1
     experience = experiences[0]

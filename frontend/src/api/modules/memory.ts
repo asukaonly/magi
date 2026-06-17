@@ -408,6 +408,12 @@ export interface EpisodeReconsolidateResult {
   invalidated: number;
   summaries_generated: number;
   summary_errors: string[];
+  experience_candidates?: number;
+  experiences_promoted?: number;
+  experience_duplicates?: number;
+  experience_rejected?: number;
+  experience_summaries_generated?: number;
+  experience_summary_errors?: string[];
 }
 
 export interface EpisodeAnnotationPayload {

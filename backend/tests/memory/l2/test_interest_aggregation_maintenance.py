@@ -294,14 +294,29 @@ async def test_maintenance_handler_does_not_aggregate_interests(tmp_path):
 async def test_maintenance_handler_generates_summaries_for_promoted_episodes(tmp_path):
     """Newly-promoted episodes trigger eager L3 episodic summary generation."""
     from magi.memory.l2.entities.maintenance import L2EntityMaintenanceStats
+    from magi.memory.l2.experiences.models import ExperiencePromotionStats
     from magi.memory.l2.maintenance_schedule import handle_l2_entity_maintenance
 
     l2_store = MagicMock()
+    l2_store.get_experience = AsyncMock(return_value={
+        "experience_id": "exp-a",
+        "title": "Launch week",
+        "time_start": 1,
+        "time_end": 2,
+    })
+    l2_store.list_experience_members = AsyncMock(return_value=[
+        {"member_type": "episode", "member_id": "ep-a", "role": "core", "confidence": 0.8}
+    ])
     l1_store = MagicMock()
     l3_store = MagicMock()
     l3_store.generate_missing_episodic_summaries = AsyncMock(
         return_value={"generated": 2, "errors": ["ep-b: timeout"]}
     )
+    l3_store.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
+    l3_store.generate_experience_summary = AsyncMock(return_value={
+        "summary_id": "sum-exp-a",
+        "content": "Experience recap",
+    })
 
     catalog_mock = MagicMock()
     catalog_mock.db_path = str(tmp_path / "l2.db")
@@ -332,6 +347,14 @@ async def test_maintenance_handler_generates_summaries_for_promoted_episodes(tmp
         patch("magi.memory.l2.maintenance_schedule.get_unified_memory", return_value=unified_mock),
         patch("magi.memory.l2.maintenance_schedule.get_config", return_value=_build_maintenance_config_mock()),
         patch("magi.memory.l2.maintenance_schedule.L2EntityMaintenance", _FakeMaintenance),
+        patch(
+            "magi.memory.l2.experiences.promotion.promote_experiences_from_episodes",
+            new=AsyncMock(return_value=ExperiencePromotionStats(
+                candidates=1,
+                promoted=1,
+                promoted_experience_ids=["exp-a"],
+            )),
+        ),
     ):
         result = await handle_l2_entity_maintenance(_make_dummy_context())
 
@@ -343,3 +366,8 @@ async def test_maintenance_handler_generates_summaries_for_promoted_episodes(tmp
     assert call_kwargs["episode_ids"] == ["ep-a", "ep-b"]
     assert result.stats["episodic_summaries_generated"] == 2
     assert result.stats["episodic_summary_errors"] == ["ep-b: timeout"]
+    l3_store.generate_experience_summary.assert_awaited_once()
+    assert result.stats["experience_candidates"] == 1
+    assert result.stats["experiences_promoted"] == 1
+    assert result.stats["experience_summaries_generated"] == 1
+    assert result.stats["experience_summary_errors"] == []

@@ -960,6 +960,8 @@ def test_list_episodes_insight_metadata_string_decoded(app_with_mock_memory):
 def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_mock_memory):
     """Reconsolidate: consolidate, then generate L3 summary for every active episode
     lacking one (widened from standout-only via l3.generate_missing_episodic_summaries)."""
+    from magi.memory.l2.experiences.models import ExperiencePromotionStats
+
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     # Catch-up scope is now ALL active episodes (not just standouts).
@@ -967,10 +969,25 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
         {"episode_id": "ep_has"},
         {"episode_id": "ep_need"},
     ])
+    l2.get_experience = AsyncMock(return_value={
+        "experience_id": "exp_need",
+        "title": "Launch week",
+        "time_start": 1,
+        "time_end": 2,
+    })
+    l2.list_experience_members = AsyncMock(return_value=[
+        {"member_type": "episode", "member_id": "ep_need", "role": "core", "confidence": 0.8}
+    ])
     l3 = MagicMock()
     l3.generate_missing_episodic_summaries = AsyncMock(
         return_value={"generated": 1, "errors": []}
     )
+    l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
+    l3.generate_experience_summary = AsyncMock(return_value={
+        "summary_id": "sum-exp",
+        "content": "Experience recap",
+        "insight_metadata": {"source_experience_id": "exp_need"},
+    })
     l1 = MagicMock()
     unified = MagicMock(); unified.l2 = l2; unified.l3 = l3; unified.l1 = l1
 
@@ -985,6 +1002,14 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
                 promoted_episode_ids=["ep_need"],
             )),
         ),
+        patch(
+            "magi.memory.l2.experiences.promotion.promote_experiences_from_episodes",
+            new=AsyncMock(return_value=ExperiencePromotionStats(
+                candidates=1,
+                promoted=1,
+                promoted_experience_ids=["exp_need"],
+            )),
+        ),
     ):
         client = TestClient(app)
         r = client.post("/api/memory/l2/episodes/reconsolidate")
@@ -994,6 +1019,10 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
     assert body["standouts"] == 1
     assert body["summaries_generated"] == 1
     assert body["summary_errors"] == []
+    assert body["experience_candidates"] == 1
+    assert body["experiences_promoted"] == 1
+    assert body["experience_summaries_generated"] == 1
+    assert body["experience_summary_errors"] == []
     # Active episodes (not list_standout_episodes) drive the catch-up.
     l2.list_episodes.assert_awaited_once()
     assert l2.list_episodes.await_args.kwargs["status"] == "active"
@@ -1002,10 +1031,17 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
     assert gen_kwargs["episode_ids"] == ["ep_has", "ep_need"]
     assert gen_kwargs["l2_store"] is l2
     assert gen_kwargs["l1_store"] is l1
+    l3.generate_experience_summary.assert_awaited_once()
+    exp_kwargs = l3.generate_experience_summary.await_args.kwargs
+    assert exp_kwargs["l1_store"] is l1
+    assert exp_kwargs["l2_store"] is l2
+    assert exp_kwargs["experience"]["experience_id"] == "exp_need"
 
 
 def test_reconsolidate_captures_summary_errors(app_with_mock_memory):
     """Summary generation errors surface in summary_errors (from the L3 helper), not raised."""
+    from magi.memory.l2.experiences.models import ExperiencePromotionStats
+
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     l2.list_episodes = AsyncMock(return_value=[{"episode_id": "ep_fail"}])
@@ -1025,6 +1061,10 @@ def test_reconsolidate_captures_summary_errors(app_with_mock_memory):
                 promoted=0, standouts=1, merged=0, invalidated=0, promoted_episode_ids=[],
             )),
         ),
+        patch(
+            "magi.memory.l2.experiences.promotion.promote_experiences_from_episodes",
+            new=AsyncMock(return_value=ExperiencePromotionStats()),
+        ),
     ):
         client = TestClient(app)
         r = client.post("/api/memory/l2/episodes/reconsolidate")
@@ -1033,10 +1073,14 @@ def test_reconsolidate_captures_summary_errors(app_with_mock_memory):
     assert body["summaries_generated"] == 0
     assert len(body["summary_errors"]) == 1
     assert "ep_fail" in body["summary_errors"][0]
+    assert body["experiences_promoted"] == 0
+    assert body["experience_summaries_generated"] == 0
 
 
 def test_reconsolidate_no_generation_when_l3_missing(app_with_mock_memory):
     """When L3 is unavailable, consolidation still runs and no summaries are generated."""
+    from magi.memory.l2.experiences.models import ExperiencePromotionStats
+
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     l2.list_episodes = AsyncMock(return_value=[{"episode_id": "ep1"}])
@@ -1051,6 +1095,14 @@ def test_reconsolidate_no_generation_when_l3_missing(app_with_mock_memory):
                 promoted=1, standouts=0, merged=0, invalidated=0, promoted_episode_ids=["ep1"],
             )),
         ),
+        patch(
+            "magi.memory.l2.experiences.promotion.promote_experiences_from_episodes",
+            new=AsyncMock(return_value=ExperiencePromotionStats(
+                candidates=1,
+                promoted=1,
+                promoted_experience_ids=["exp1"],
+            )),
+        ),
     ):
         client = TestClient(app)
         r = client.post("/api/memory/l2/episodes/reconsolidate")
@@ -1059,6 +1111,8 @@ def test_reconsolidate_no_generation_when_l3_missing(app_with_mock_memory):
     assert body["promoted"] == 1
     assert body["summaries_generated"] == 0
     assert body["summary_errors"] == []
+    assert body["experiences_promoted"] == 1
+    assert body["experience_summaries_generated"] == 0
 
 
 def test_reconsolidate_returns_409_when_l2_maintenance_running(

@@ -1004,10 +1004,16 @@ async def reconsolidate_episodes_endpoint():
     lock_repository = await _acquire_l2_maintenance_lock()
     try:
         from magi.memory.l2.episode_formation import consolidate_episodes
+        from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
+        from magi.memory.l2.experiences.summary_generation import (
+            generate_missing_experience_summaries,
+        )
         stats = await consolidate_episodes(unified_memory.l2)
 
         summaries_generated = 0
         summary_errors: list[str] = []
+        experience_summaries_generated = 0
+        experience_summary_errors: list[str] = []
 
         if unified_memory.l3 is not None and unified_memory.l1 is not None:
             # Catch-up: every active episode lacking an L3 episodic summary (newly
@@ -1026,6 +1032,17 @@ async def reconsolidate_episodes_endpoint():
             summaries_generated = int(result.get("generated") or 0)
             summary_errors = list(result.get("errors") or [])
 
+        experience_stats = await promote_experiences_from_episodes(unified_memory.l2)
+        if unified_memory.l3 is not None and unified_memory.l1 is not None:
+            experience_summary_result = await generate_missing_experience_summaries(
+                l1_store=unified_memory.l1,
+                l2_store=unified_memory.l2,
+                l3_store=unified_memory.l3,
+                experience_ids=experience_stats.promoted_experience_ids,
+            )
+            experience_summaries_generated = int(experience_summary_result.get("generated") or 0)
+            experience_summary_errors = list(experience_summary_result.get("errors") or [])
+
         response = {
             "promoted": stats.promoted,
             "standouts": stats.standouts,
@@ -1033,6 +1050,12 @@ async def reconsolidate_episodes_endpoint():
             "invalidated": stats.invalidated,
             "summaries_generated": summaries_generated,
             "summary_errors": summary_errors,
+            "experience_candidates": experience_stats.candidates,
+            "experiences_promoted": experience_stats.promoted,
+            "experience_duplicates": experience_stats.skipped_duplicates,
+            "experience_rejected": experience_stats.rejected,
+            "experience_summaries_generated": experience_summaries_generated,
+            "experience_summary_errors": experience_summary_errors,
         }
     except asyncio.CancelledError:
         await _record_l2_maintenance_lock_failure(

@@ -260,13 +260,15 @@ async def promote_experiences_from_episodes(store: Any) -> ExperiencePromotionSt
     existing_sets = await _existing_active_episode_member_sets(store)
     promoted = 0
     skipped_duplicates = 0
+    promoted_experience_ids: list[str] = []
 
     for candidate in candidates:
         if _is_duplicate(candidate, existing_sets):
             skipped_duplicates += 1
             continue
-        await _promote_candidate(store, candidate)
+        experience_id = await _promote_candidate(store, candidate)
         existing_sets.append(set(candidate.episode_ids))
+        promoted_experience_ids.append(experience_id)
         promoted += 1
 
     rejected = max(0, len(sorted_episodes) - len(grouped_episode_ids) - len(single_candidates))
@@ -275,6 +277,7 @@ async def promote_experiences_from_episodes(store: Any) -> ExperiencePromotionSt
         promoted=promoted,
         skipped_duplicates=skipped_duplicates,
         rejected=rejected,
+        promoted_experience_ids=promoted_experience_ids,
     )
 
 
