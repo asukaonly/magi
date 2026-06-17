@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -114,6 +113,24 @@ def _get_unified_layer(unified_memory: Any, name: str) -> Any:
     return layer
 
 
+async def _attach_episode_review_fields(
+    unified_memory: Any,
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Attach L3 summary and display fields to episode rows."""
+    l3_store = _get_unified_layer(unified_memory, "l3")
+    for item in items:
+        episode_summary = None
+        episode_id = str(item.get("episode_id") or "").strip()
+        if l3_store is not None and episode_id:
+            episode_summary = serialize_episodic_summary(
+                await l3_store.get_episodic_summary_by_episode_id(episode_id)
+            )
+        item["episode_summary"] = episode_summary
+        item.update(build_episode_display_fields(item, episode_summary))
+    return items
+
+
 @memory_router.get("/l2/episodes")
 async def list_l2_episodes(
     status_filter: Optional[str] = Query(default=None, alias="status"),
@@ -141,35 +158,7 @@ async def list_l2_episodes(
             period_end=time_end,
             limit=limit,
         )
-        # Join L3 episodic summary per item.
-        if unified_memory.l3 is not None:
-            for item in items:
-                episode_id = str(item.get("episode_id") or "")
-                if not episode_id:
-                    item["episode_summary"] = None
-                    continue
-                l3_row = await unified_memory.l3.get_episodic_summary_by_episode_id(episode_id)
-                if l3_row is None:
-                    item["episode_summary"] = None
-                else:
-                    metadata = l3_row.get("insight_metadata") or {}
-                    if isinstance(metadata, str):
-                        try:
-                            metadata = json.loads(metadata)
-                        except (json.JSONDecodeError, ValueError):
-                            metadata = {}
-                    if not isinstance(metadata, dict):
-                        metadata = {}
-                    item["episode_summary"] = {
-                        "summary_id": l3_row.get("summary_id"),
-                        "content": l3_row.get("content") or "",
-                        "label": str(metadata.get("label") or ""),
-                        "updated_at": l3_row.get("updated_at"),
-                        "is_fallback": bool(metadata.get("fallback")),
-                    }
-        else:
-            for item in items:
-                item["episode_summary"] = None
+        await _attach_episode_review_fields(unified_memory, items)
         return {
             "items": items,
             "total": len(items),
@@ -192,6 +181,7 @@ async def list_l2_episodes(
         ),
         unified_memory.l2.count_episodes(status=effective_status),
     )
+    await _attach_episode_review_fields(unified_memory, items)
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 

@@ -141,6 +141,43 @@ def test_list_episodes_default_surface_lists_active(app_with_mock_memory):
     l2.list_standout_episodes.assert_not_called()
 
 
+def test_list_episodes_default_surface_includes_episodic_summary(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.list_episodes = AsyncMock(
+        return_value=[
+            {
+                "episode_id": "ep1",
+                "user_label": None,
+                "user_note": None,
+            }
+        ]
+    )
+    l2.count_episodes = AsyncMock(return_value=1)
+    l3 = MagicMock()
+    l3.get_episodic_summary_by_episode_id = AsyncMock(
+        return_value={
+            "summary_id": "sum1",
+            "content": "Generated recap",
+            "insight_metadata": {"label": "Generated title"},
+            "updated_at": 4,
+        }
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.get("/api/memory/l2/episodes")
+
+    assert r.status_code == 200
+    item = r.json()["items"][0]
+    assert item["episode_summary"]["label"] == "Generated title"
+    assert item["display_title"] == "Generated title"
+    assert item["display_description"] == "Generated recap"
+
+
 def test_episode_detail_returns_events_and_inferred(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
