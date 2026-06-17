@@ -1,0 +1,133 @@
+"""Memory dashboard API route."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from fastapi import HTTPException, Query, status
+
+from magi.memory.event_contracts import RetentionClass
+
+from .dependencies import _resolve_memory_integration, _resolve_unified_memory
+from .helpers import memory_t
+from .router import memory_router
+from .statistics import build_layer_statistics
+
+
+PENDING_ASSERTION_STATES = ["tentative", "contradicted"]
+
+
+def _project_source_count(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source": str(row.get("source") or ""),
+        "event_count": int(row.get("event_count") or 0),
+        "avg_importance": float(row.get("avg_importance") or 0.0),
+        "first_event_at": row.get("min_timestamp"),
+        "last_event_at": row.get("max_timestamp"),
+    }
+
+
+@memory_router.get("/dashboard")
+async def get_memory_dashboard(
+    pending_limit: int = Query(default=8, ge=1, le=25),
+) -> dict[str, Any]:
+    """Return the user-facing memory overview dashboard read model."""
+    unified_memory = _resolve_unified_memory()
+    memory_integration = _resolve_memory_integration()
+
+    if not unified_memory:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.system_uninitialized", "Memory system not initialized"),
+        )
+
+    async def _zero() -> int:
+        return 0
+
+    async def _empty_list() -> list[dict[str, Any]]:
+        return []
+
+    l1 = getattr(unified_memory, "l1", None)
+    l2 = getattr(unified_memory, "l2", None)
+    l3 = getattr(unified_memory, "l3", None)
+    l4 = getattr(unified_memory, "l4", None)
+
+    l1_count_coro = l1.count_events() if l1 else _zero()
+    l2_rel_count_coro = l2.count_relationships() if l2 else _zero()
+    l2_assertion_count_coro = l2.count_tom_assertions() if l2 else _zero()
+    l3_count_coro = l3.count_summaries() if l3 else _zero()
+    l4_count_coro = l4.count_skills() if l4 else _zero()
+    source_counts_coro = (
+        l1.summarize_event_sources(
+            cognition_eligible=True,
+            exclude_retention_class=RetentionClass.DISPOSABLE.label,
+        )
+        if l1
+        else _empty_list()
+    )
+    pending_count_coro = (
+        l2.count_tom_assertions(
+            validation_states=PENDING_ASSERTION_STATES,
+            include_expired=False,
+            include_inactive=False,
+        )
+        if l2
+        else _zero()
+    )
+    pending_items_coro = (
+        l2.list_tom_assertions(
+            validation_states=PENDING_ASSERTION_STATES,
+            include_expired=False,
+            include_inactive=False,
+            limit=pending_limit,
+            offset=0,
+        )
+        if l2
+        else _empty_list()
+    )
+
+    (
+        l1_count,
+        l2_rel_count,
+        l2_assertion_count,
+        l3_count,
+        l4_count,
+        source_counts,
+        pending_count,
+        pending_items,
+    ) = await asyncio.gather(
+        l1_count_coro,
+        l2_rel_count_coro,
+        l2_assertion_count_coro,
+        l3_count_coro,
+        l4_count_coro,
+        source_counts_coro,
+        pending_count_coro,
+        pending_items_coro,
+    )
+
+    statistics = build_layer_statistics(
+        unified_memory=unified_memory,
+        l1_count=l1_count,
+        l2_relation_count=l2_rel_count,
+        l2_assertion_count=l2_assertion_count,
+        l3_count=l3_count,
+        l4_count=l4_count,
+        integration_stats=memory_integration.get_statistics() if memory_integration else None,
+    )
+    attention = dict(statistics.get("attention") or {})
+    attention["pending_assertions"] = int(pending_count)
+    statistics["attention"] = attention
+
+    return {
+        "statistics": statistics,
+        "source_counts": [_project_source_count(row) for row in source_counts],
+        "attention": attention,
+        "pending_assertions": {
+            "items": pending_items,
+            "total": int(pending_count),
+            "limit": int(pending_limit),
+            "offset": 0,
+        },
+    }

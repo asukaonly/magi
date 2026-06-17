@@ -46,6 +46,7 @@ vi.mock('../pages/Onboarding', () => ({
 }));
 
 vi.mock('../pages/memory-pages', () => ({
+  MemoryOverviewPage: () => <div data-testid="memory-overview-page">memory-overview-page</div>,
   MemoryEventsPage: () => <div data-testid="memory-events-page">memory-events-page</div>,
   MemoryKnowledgePage: () => <div data-testid="memory-knowledge-page">memory-knowledge-page</div>,
   MemorySkillsPage: () => <div data-testid="memory-skills-page">memory-skills-page</div>,
@@ -67,8 +68,7 @@ describe('app shell routing', () => {
   });
 
   it('renders memory routes and personality as dedicated routes instead of through the chat page', async () => {
-    // /memory/stories is the primary narrative route (overview redirects here)
-    window.history.replaceState({}, '', '/memory/stories');
+    window.history.replaceState({}, '', '/memory/overview');
     vi.resetModules();
     const { default: AppRouter } = await import('@/router');
     let unmount!: () => void;
@@ -76,7 +76,7 @@ describe('app shell routing', () => {
       ({ unmount } = render(<AppRouter />));
     });
 
-    expect(await screen.findByTestId('memory-story-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('memory-overview-page')).toBeInTheDocument();
     expect(screen.queryByTestId('chat-page')).not.toBeInTheDocument();
 
     unmount();

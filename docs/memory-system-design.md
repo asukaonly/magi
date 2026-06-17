@@ -630,6 +630,13 @@ Users can interact with L2 artifacts directly:
 
 Privacy scope (`privacy_scope`) is a day-1 architecture concern carried on every durable L2 object (assertions, edges, facets, episodes, experiences).
 
+The default memory UI starts from a product overview rather than a raw layer
+workbench. That overview aggregates L1 source coverage, L2 reviewable
+assertions, L3 reviewable insights, storage usage, and recent memory formation.
+Raw L1 events, L2 graph inspection, and L4 skill memory remain available from
+Manage as operator/developer surfaces, not as the default mental model for
+ordinary memory review.
+
 ### L3 — Reflection and Summaries
 
 `L3` stores time-windowed or topic-compressed reflective memory.

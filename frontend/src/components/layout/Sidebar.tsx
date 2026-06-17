@@ -41,9 +41,10 @@ interface SidebarProps {
 type ActivityPanel = Exclude<ChatPanelType, 'none'>;
 
 const MEMORY_DESTINATIONS = [
+  { key: 'overview', path: '/memory/overview' },
+  { key: 'portrait', path: '/memory/portrait' },
   { key: 'stories', path: '/memory/stories' },
   { key: 'episodes', path: '/memory/episodes' },
-  { key: 'portrait', path: '/memory/portrait' },
   { key: 'recall', path: '/memory/recall' },
   { key: 'governance', path: '/memory/governance' },
 ] as const;
@@ -360,7 +361,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     if (panel === 'memory') {
       setActivePanel('memory');
       if (!isMemoryRoute) {
-        navigate('/memory/stories');
+        navigate('/memory/overview');
       }
       return;
     }
@@ -493,7 +494,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
           {MEMORY_DESTINATIONS.map((item) => {
             const destinationActive =
               location.pathname === item.path ||
-              (item.path === '/memory/stories' && (location.pathname === '/events' || location.pathname === '/memory/overview'));
+              (item.path === '/memory/stories' && location.pathname === '/events');
             return (
               <button
                 key={item.key}

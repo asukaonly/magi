@@ -498,6 +498,21 @@ export interface MemoryStatistics {
   attention?: MemoryAttention;
 }
 
+export interface MemorySourceCount {
+  source: string;
+  event_count: number;
+  avg_importance: number;
+  first_event_at: number | null;
+  last_event_at: number | null;
+}
+
+export interface MemoryDashboard {
+  statistics: MemoryStatistics;
+  source_counts: MemorySourceCount[];
+  attention: MemoryAttention;
+  pending_assertions: PaginatedResponse<L2Assertion>;
+}
+
 export interface ClearMemoryResult {
   cleared: boolean;
   count: number;
@@ -684,6 +699,8 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<PaginatedResponse<L4Skill>>('/memory/procedures', { params })),
 
   // Statistics & Search
+  getDashboard: async (params?: { pending_limit?: number }): Promise<MemoryDashboard> =>
+    unwrapMemoryResponse(await api.get<MemoryDashboard>('/memory/dashboard', { params })),
   getStatistics: async (): Promise<MemoryStatistics> =>
     unwrapMemoryResponse(await api.get<MemoryStatistics>('/memory/statistics')),
   getEmbeddingVectorStatus: async (): Promise<EmbeddingVectorStatus> =>

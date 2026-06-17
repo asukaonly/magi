@@ -14,6 +14,7 @@ from .dependencies import (
 from .router import memory_router
 
 # Import route modules for registration side effects.
+from . import dashboard_routes as _dashboard_routes
 from . import overview_routes as _overview_routes
 from . import search_routes as _search_routes
 from .eval import routes as _eval_routes
