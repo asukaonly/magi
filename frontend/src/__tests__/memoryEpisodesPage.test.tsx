@@ -20,7 +20,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.sections.topics': 'Topics',
     'memory.episodes.count': '{{count}} active',
     'memory.episodes.emptyTitle': 'No active experiences yet',
-    'memory.episodes.emptyBody': 'Magi will form episodes as conversations and activity accumulate.',
+    'memory.episodes.emptyBody': 'Magi will form episodes as conversations and activity accumulate. If you already have remembered activity, run a refresh now.',
     'memory.episodes.detailEmptyTitle': 'Choose an experience',
     'memory.episodes.detailEmptyBody': 'Open one from the list to inspect its events and impressions.',
     'memory.episodes.noRecap': 'No recap yet.',
@@ -43,6 +43,9 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.actions.mergeEpisode': 'Merge',
     'memory.episodes.actions.splitEpisode': 'Split',
     'memory.episodes.actions.confirmRegenerate': 'Regenerate now',
+    'memory.episodes.actions.reconsolidate': 'Build experiences now',
+    'memory.episodes.actions.reconsolidating': 'Building...',
+    'memory.episodes.reconsolidateResult': '{{promoted}} promoted · {{standouts}} standout · {{summaries}} summaries',
     'memory.episodes.actions.confirmImpression': 'Confirm impression',
     'memory.episodes.actions.rejectImpression': 'Reject impression',
     'memory.episodes.dialogs.renameTitle': 'Rename experience',
@@ -94,6 +97,7 @@ vi.mock('@/api/modules/memory', () => ({
     mergeEpisodes: vi.fn(),
     previewEpisodeSplit: vi.fn(),
     splitEpisode: vi.fn(),
+    reconsolidateEpisodes: vi.fn(),
   },
 }));
 
@@ -258,6 +262,14 @@ beforeEach(() => {
       { ...episodeDetail, episode_id: 'ep-1-b', display_title: 'Launch week B' },
     ],
   });
+  vi.mocked(memoryApi.reconsolidateEpisodes).mockResolvedValue({
+    promoted: 1,
+    standouts: 1,
+    merged: 0,
+    invalidated: 0,
+    summaries_generated: 1,
+    summary_errors: [],
+  } as never);
 });
 
 describe('MemoryEpisodesPage', () => {
@@ -285,6 +297,45 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.getAllByText('person:asuka').length).toBeGreaterThan(0);
     expect(screen.getByText('place:studio')).toBeInTheDocument();
     expect(screen.getByText('topic:launch')).toBeInTheDocument();
+  });
+
+  it('offers reconsolidation when there are no active episodes', async () => {
+    vi.mocked(memoryApi.listEpisodes).mockResolvedValueOnce({
+      items: [],
+      total: 0,
+      limit: 100,
+      offset: 0,
+    } as never);
+    renderPage();
+
+    expect(await screen.findByText('No active experiences yet')).toBeInTheDocument();
+    expect(screen.getByText('Magi will form episodes as conversations and activity accumulate. If you already have remembered activity, run a refresh now.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Build experiences now' })).toBeInTheDocument();
+  });
+
+  it('reconsolidates experiences from the empty state', async () => {
+    const user = userEvent.setup();
+    vi.mocked(memoryApi.listEpisodes)
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        limit: 100,
+        offset: 0,
+      } as never)
+      .mockResolvedValueOnce({
+        items: activeEpisodes,
+        total: 2,
+        limit: 100,
+        offset: 0,
+      } as never);
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Build experiences now' }));
+
+    await waitFor(() => {
+      expect(memoryApi.reconsolidateEpisodes).toHaveBeenCalledTimes(1);
+    });
+    expect((await screen.findAllByText('Launch week')).length).toBeGreaterThan(0);
   });
 
   it('renames the selected experience through the annotation API', async () => {

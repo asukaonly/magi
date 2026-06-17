@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   memoryApi,
+  type EpisodeReconsolidateResult,
   type L2Episode,
   type L2EpisodeReviewDetail,
   type L2EpisodeWithSummary,
@@ -9,6 +10,7 @@ import {
 import EpisodeDetail from '@/components/memory/episodes/EpisodeDetail';
 import EpisodeRow, { getEpisodeDisplayTitle } from '@/components/memory/episodes/EpisodeRow';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS, MEMORY_INFO_PANEL_CLASS } from './MemoryPageFrame';
 
 export const MemoryEpisodesPage = () => {
@@ -18,6 +20,8 @@ export const MemoryEpisodesPage = () => {
   const [detail, setDetail] = useState<L2EpisodeReviewDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [reconsolidating, setReconsolidating] = useState(false);
+  const [reconsolidateResult, setReconsolidateResult] = useState<EpisodeReconsolidateResult | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -146,6 +150,17 @@ export const MemoryEpisodesPage = () => {
     applyEpisodeUpdate(updated);
   };
 
+  const reconsolidateEpisodes = async () => {
+    setReconsolidating(true);
+    try {
+      const result = await memoryApi.reconsolidateEpisodes();
+      setReconsolidateResult(result);
+      await refresh();
+    } finally {
+      setReconsolidating(false);
+    }
+  };
+
   return (
     <MemoryPageFrame
       title={t('memory.episodes.title')}
@@ -158,6 +173,22 @@ export const MemoryEpisodesPage = () => {
         <div className={MEMORY_EMPTY_PANEL_CLASS}>
           <div className="font-semibold text-[hsl(var(--memory-title))]">{t('memory.episodes.emptyTitle')}</div>
           <p className="mt-1 text-sm">{t('memory.episodes.emptyBody')}</p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button onClick={reconsolidateEpisodes} disabled={reconsolidating}>
+              {reconsolidating
+                ? t('memory.episodes.actions.reconsolidating')
+                : t('memory.episodes.actions.reconsolidate')}
+            </Button>
+            {reconsolidateResult ? (
+              <span className="text-xs text-[hsl(var(--memory-muted))]">
+                {t('memory.episodes.reconsolidateResult', {
+                  promoted: reconsolidateResult.promoted,
+                  standouts: reconsolidateResult.standouts,
+                  summaries: reconsolidateResult.summaries_generated,
+                })}
+              </span>
+            ) : null}
+          </div>
         </div>
       ) : (
         <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(280px,420px)_minmax(0,1fr)]">
