@@ -6,8 +6,8 @@ type EpisodeReviewLike = L2Episode | L2EpisodeWithSummary | L2EpisodeReviewDetai
 
 export const getEpisodeReviewDescription = (episode: EpisodeReviewLike): string => (
   String(
-    (episode as L2EpisodeWithSummary).display_description ||
     episode.user_note ||
+    (episode as L2EpisodeWithSummary).display_description ||
     (episode as L2EpisodeWithSummary).episode_summary?.content ||
     episode.summary ||
     episode.slice_narrative ||

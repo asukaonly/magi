@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   memoryApi,
+  type L2Episode,
   type L2EpisodeReviewDetail,
   type L2EpisodeWithSummary,
 } from '@/api/modules/memory';
@@ -71,6 +72,53 @@ export const MemoryEpisodesPage = () => {
     ? getEpisodeDisplayTitle(selectedEpisode, t('memory.episodes.awaitingLabel'))
     : '';
 
+  const applyEpisodeUpdate = useCallback((updated: L2Episode | L2EpisodeReviewDetail) => {
+    setEpisodes((prev) => prev.map((item) => (
+      item.episode_id === updated.episode_id
+        ? { ...item, ...updated }
+        : item
+    )));
+    setDetail((prev) => (
+      prev && prev.episode_id === updated.episode_id
+        ? { ...prev, ...updated }
+        : prev
+    ));
+  }, []);
+
+  const renameSelectedEpisode = async (title: string) => {
+    if (!selectedEpisode) {
+      return;
+    }
+    const updated = await memoryApi.annotateEpisode(selectedEpisode.episode_id, {
+      user_label: title,
+    });
+    applyEpisodeUpdate({
+      ...updated,
+      display_title: updated.user_label || title,
+    } as L2EpisodeReviewDetail);
+  };
+
+  const editSelectedDescription = async (description: string) => {
+    if (!selectedEpisode) {
+      return;
+    }
+    const updated = await memoryApi.annotateEpisode(selectedEpisode.episode_id, {
+      user_note: description,
+    });
+    applyEpisodeUpdate({
+      ...updated,
+      display_description: updated.user_note || description,
+    } as L2EpisodeReviewDetail);
+  };
+
+  const regenerateSelectedDescription = async () => {
+    if (!selectedEpisode) {
+      return;
+    }
+    const updated = await memoryApi.regenerateEpisode(selectedEpisode.episode_id);
+    applyEpisodeUpdate(updated);
+  };
+
   return (
     <MemoryPageFrame
       title={t('memory.episodes.title')}
@@ -113,6 +161,9 @@ export const MemoryEpisodesPage = () => {
                 episode={selectedEpisode}
                 title={selectedTitle}
                 detailLoading={detailLoading}
+                onRenameTitle={renameSelectedEpisode}
+                onEditDescription={editSelectedDescription}
+                onRegenerate={regenerateSelectedDescription}
               />
             ) : (
               <div className={MEMORY_EMPTY_PANEL_CLASS}>

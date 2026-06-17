@@ -1,12 +1,23 @@
+import { useState } from 'react';
 import { MapPin, Tags, UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ReactNode } from 'react';
 import type { L2Episode, L2EpisodeReviewDetail, L2EpisodeWithSummary } from '@/api/modules/memory';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { formatEpisodeTimeRange } from './EpisodeRow';
 import EpisodeEventList from './EpisodeEventList';
-import EpisodeNarrative from './EpisodeNarrative';
+import EpisodeNarrative, { getEpisodeReviewDescription } from './EpisodeNarrative';
 
 type EpisodeReviewLike = L2Episode | L2EpisodeWithSummary | L2EpisodeReviewDetail;
 
@@ -20,17 +31,78 @@ export function EpisodeDetail({
   episode,
   title,
   detailLoading,
+  onRenameTitle,
+  onEditDescription,
+  onRegenerate,
 }: {
   episode: EpisodeReviewLike;
   title: string;
   detailLoading: boolean;
+  onRenameTitle: (title: string) => Promise<void>;
+  onEditDescription: (description: string) => Promise<void>;
+  onRegenerate: () => Promise<void>;
 }) {
   const { t, i18n } = useTranslation('app');
   const events = 'events' in episode ? episode.events : [];
+  const description = getEpisodeReviewDescription(episode);
   const range = formatEpisodeTimeRange(episode.time_start, episode.time_end, i18n.language);
   const typeLabel = t(`memory.episodes.filters.${episode.episode_type || 'activity'}`, {
     defaultValue: episode.episode_type || '',
   });
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [descriptionOpen, setDescriptionOpen] = useState(false);
+  const [regenerateOpen, setRegenerateOpen] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(title);
+  const [descriptionDraft, setDescriptionDraft] = useState(description);
+  const [saving, setSaving] = useState(false);
+
+  const openRename = () => {
+    setTitleDraft(title);
+    setRenameOpen(true);
+  };
+
+  const openDescription = () => {
+    setDescriptionDraft(description);
+    setDescriptionOpen(true);
+  };
+
+  const saveTitle = async () => {
+    setSaving(true);
+    try {
+      await onRenameTitle(titleDraft.trim());
+      setRenameOpen(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveDescription = async () => {
+    setSaving(true);
+    try {
+      await onEditDescription(descriptionDraft.trim());
+      setDescriptionOpen(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runRegenerate = async () => {
+    setSaving(true);
+    try {
+      await onRegenerate();
+      setRegenerateOpen(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const requestRegenerate = () => {
+    if (episode.user_note) {
+      setRegenerateOpen(true);
+      return;
+    }
+    void runRegenerate();
+  };
 
   return (
     <div className="min-w-0">
@@ -53,9 +125,9 @@ export function EpisodeDetail({
             {range ? <p className="mt-1 text-sm text-[hsl(var(--memory-muted))]">{range}</p> : null}
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm">{t('memory.episodes.actions.rename')}</Button>
-            <Button variant="outline" size="sm">{t('memory.episodes.actions.editDescription')}</Button>
-            <Button variant="outline" size="sm">{t('memory.episodes.actions.regenerateDescription')}</Button>
+            <Button variant="outline" size="sm" onClick={openRename}>{t('memory.episodes.actions.rename')}</Button>
+            <Button variant="outline" size="sm" onClick={openDescription}>{t('memory.episodes.actions.editDescription')}</Button>
+            <Button variant="outline" size="sm" onClick={requestRegenerate}>{t('memory.episodes.actions.regenerateDescription')}</Button>
           </div>
         </div>
       </header>
@@ -82,6 +154,77 @@ export function EpisodeDetail({
         </div>
         <EpisodeEventList events={events} />
       </div>
+
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('memory.episodes.dialogs.renameTitle')}</DialogTitle>
+            <DialogDescription>{t('memory.episodes.dialogs.renameDescription')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 px-6 pb-2">
+            <label className="block space-y-2">
+              <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.fields.title')}</span>
+              <Input
+                value={titleDraft}
+                onChange={(event) => setTitleDraft(event.target.value)}
+                className="border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))]"
+              />
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRenameOpen(false)} disabled={saving}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={() => void saveTitle()} disabled={saving}>
+              {saving ? t('common.saving') : t('common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={descriptionOpen} onOpenChange={setDescriptionOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('memory.episodes.dialogs.editDescriptionTitle')}</DialogTitle>
+            <DialogDescription>{t('memory.episodes.dialogs.editDescriptionDescription')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 px-6 pb-2">
+            <label className="block space-y-2">
+              <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.fields.description')}</span>
+              <Textarea
+                value={descriptionDraft}
+                onChange={(event) => setDescriptionDraft(event.target.value)}
+                className="min-h-[160px] border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))]"
+              />
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDescriptionOpen(false)} disabled={saving}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={() => void saveDescription()} disabled={saving}>
+              {saving ? t('common.saving') : t('common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={regenerateOpen} onOpenChange={setRegenerateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('memory.episodes.dialogs.regenerateTitle')}</DialogTitle>
+            <DialogDescription>{t('memory.episodes.dialogs.regenerateDescription')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRegenerateOpen(false)} disabled={saving}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={() => void runRegenerate()} disabled={saving}>
+              {saving ? t('common.saving') : t('memory.episodes.actions.confirmRegenerate')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

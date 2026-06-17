@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
 import { MemoryEpisodesPage } from '@/pages/memory-pages/MemoryEpisodesPage';
@@ -26,6 +27,8 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.noEvents': 'No event memberships found.',
     'memory.episodes.noTags': 'None yet',
     'memory.episodes.awaitingLabel': 'Waiting for Magi to draft a title...',
+    'memory.episodes.fields.title': 'Title',
+    'memory.episodes.fields.description': 'Recap',
     'memory.episodes.fields.pinned': 'Pinned',
     'memory.episodes.actions.open': 'Open experience',
     'memory.episodes.actions.rename': 'Rename',
@@ -35,8 +38,15 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.actions.removeEvent': 'Remove event',
     'memory.episodes.actions.mergeEpisode': 'Merge',
     'memory.episodes.actions.splitEpisode': 'Split',
+    'memory.episodes.actions.confirmRegenerate': 'Regenerate now',
     'memory.episodes.actions.confirmImpression': 'Confirm impression',
     'memory.episodes.actions.rejectImpression': 'Reject impression',
+    'memory.episodes.dialogs.renameTitle': 'Rename experience',
+    'memory.episodes.dialogs.renameDescription': 'Update the title shown for this experience.',
+    'memory.episodes.dialogs.editDescriptionTitle': 'Edit recap',
+    'memory.episodes.dialogs.editDescriptionDescription': 'Update the recap shown on this experience.',
+    'memory.episodes.dialogs.regenerateTitle': 'Replace current recap?',
+    'memory.episodes.dialogs.regenerateDescription': 'Magi will draft a new recap for this experience.',
     'memory.episodes.filters.activity': 'Activity',
     'memory.episodes.eventRole.member': 'Member',
     'memory.episodes.feedback.confirmed': 'Confirmed',
@@ -139,6 +149,7 @@ const activeEpisodes: L2EpisodeWithSummary[] = [
 
 const episodeDetail: L2EpisodeReviewDetail = {
   ...activeEpisodes[0],
+  user_note: null,
   display_title: 'Launch week',
   display_description: 'Generated Japan recap',
   display_source: 'generated',
@@ -200,6 +211,7 @@ beforeEach(() => {
   } as never);
   vi.mocked(memoryApi.getEpisode).mockResolvedValue(episodeDetail);
   vi.mocked(memoryApi.annotateEpisode).mockResolvedValue(activeEpisodes[0]);
+  vi.mocked(memoryApi.regenerateEpisode).mockResolvedValue(episodeDetail);
 });
 
 describe('MemoryEpisodesPage', () => {
@@ -227,5 +239,82 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.getAllByText('person:asuka').length).toBeGreaterThan(0);
     expect(screen.getByText('place:studio')).toBeInTheDocument();
     expect(screen.getByText('topic:launch')).toBeInTheDocument();
+  });
+
+  it('renames the selected experience through the annotation API', async () => {
+    const user = userEvent.setup();
+    vi.mocked(memoryApi.annotateEpisode).mockResolvedValue({
+      ...activeEpisodes[0],
+      user_label: 'Launch sprint',
+      display_title: 'Launch sprint',
+    } as never);
+    renderPage();
+
+    await screen.findByText('Generated Japan recap');
+    await user.click(screen.getByRole('button', { name: 'Rename' }));
+    await user.clear(screen.getByLabelText('Title'));
+    await user.type(screen.getByLabelText('Title'), 'Launch sprint');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(memoryApi.annotateEpisode).toHaveBeenCalledWith('ep-1', {
+        user_label: 'Launch sprint',
+      });
+    });
+  });
+
+  it('edits the selected recap through the annotation API', async () => {
+    const user = userEvent.setup();
+    vi.mocked(memoryApi.annotateEpisode).mockResolvedValue({
+      ...activeEpisodes[0],
+      user_note: 'This was more about launch prep than execution.',
+      display_description: 'This was more about launch prep than execution.',
+    } as never);
+    renderPage();
+
+    await screen.findByText('Generated Japan recap');
+    await user.click(screen.getByRole('button', { name: 'Edit recap' }));
+    await user.clear(screen.getByLabelText('Recap'));
+    await user.type(screen.getByLabelText('Recap'), 'This was more about launch prep than execution.');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(memoryApi.annotateEpisode).toHaveBeenCalledWith('ep-1', {
+        user_note: 'This was more about launch prep than execution.',
+      });
+    });
+  });
+
+  it('confirms before regenerating over a user-edited recap', async () => {
+    const user = userEvent.setup();
+    vi.mocked(memoryApi.getEpisode).mockResolvedValue({
+      ...episodeDetail,
+      user_note: 'Manual recap',
+      display_description: 'Manual recap',
+      display_source: 'user_override',
+    });
+    vi.mocked(memoryApi.regenerateEpisode).mockResolvedValue({
+      ...episodeDetail,
+      display_description: 'Fresh generated recap',
+      episode_summary: {
+        summary_id: 'sum-new',
+        content: 'Fresh generated recap',
+        label: 'Fresh generated title',
+        updated_at: 1700200000,
+        is_fallback: false,
+      },
+    });
+    renderPage();
+
+    await screen.findByText('Manual recap');
+    await user.click(screen.getByRole('button', { name: 'Regenerate recap' }));
+    expect(screen.getByText('Replace current recap?')).toBeInTheDocument();
+    expect(memoryApi.regenerateEpisode).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Regenerate now' }));
+
+    await waitFor(() => {
+      expect(memoryApi.regenerateEpisode).toHaveBeenCalledWith('ep-1');
+    });
+    expect((await screen.findAllByText('Fresh generated recap')).length).toBeGreaterThan(0);
   });
 });
