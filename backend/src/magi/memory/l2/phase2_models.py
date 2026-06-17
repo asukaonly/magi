@@ -63,26 +63,6 @@ class L2Phase2GraphEdge:
 
 
 @dataclass(slots=True)
-class L2Phase2Refinement:
-    """Refinement link produced by Phase 2 when a concrete fact refines a vague one."""
-
-    existing_triple_id: str = ""
-    refined_by_object: str = ""
-    explanation: str = ""
-
-    @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "L2Phase2Refinement":
-        return cls(
-            existing_triple_id=payload.get("existing_triple_id", ""),
-            refined_by_object=payload.get("refined_by_object", ""),
-            explanation=payload.get("explanation", ""),
-        )
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(slots=True)
 class L2Phase2AssertionCandidate:
     """ToM assertion candidate produced by Phase 2."""
 
@@ -171,7 +151,6 @@ class L2Phase2Result:
     """Full Phase 2 integration result."""
 
     graph_edges: list[L2Phase2GraphEdge] = field(default_factory=list)
-    refinements: list[L2Phase2Refinement] = field(default_factory=list)
     assertion_candidates: list[L2Phase2AssertionCandidate] = field(default_factory=list)
     contradiction_hints: list[L2Phase2ContradictionHint] = field(default_factory=list)
 
@@ -182,11 +161,6 @@ class L2Phase2Result:
                 L2Phase2GraphEdge.from_dict(e)
                 for e in payload.get("graph_edges", [])
                 if isinstance(e, dict)
-            ],
-            refinements=[
-                L2Phase2Refinement.from_dict(r)
-                for r in payload.get("refinements", [])
-                if isinstance(r, dict)
             ],
             assertion_candidates=[
                 L2Phase2AssertionCandidate.from_dict(a)
@@ -209,14 +183,6 @@ class L2Phase2Result:
                 normalized_edges.append(L2Phase2GraphEdge.from_dict(edge_item))
         self.graph_edges = normalized_edges
 
-        normalized_refinements: list[L2Phase2Refinement] = []
-        for refinement_item in self.refinements:
-            if isinstance(refinement_item, L2Phase2Refinement):
-                normalized_refinements.append(refinement_item)
-            elif isinstance(refinement_item, dict):
-                normalized_refinements.append(L2Phase2Refinement.from_dict(refinement_item))
-        self.refinements = normalized_refinements
-
         normalized_assertions: list[L2Phase2AssertionCandidate] = []
         for assertion_item in self.assertion_candidates:
             if isinstance(assertion_item, L2Phase2AssertionCandidate):
@@ -236,7 +202,6 @@ class L2Phase2Result:
     def to_dict(self) -> dict[str, Any]:
         return {
             "graph_edges": [e.to_dict() for e in self.graph_edges],
-            "refinements": [r.to_dict() for r in self.refinements],
             "assertion_candidates": [a.to_dict() for a in self.assertion_candidates],
             "contradiction_hints": [h.to_dict() for h in self.contradiction_hints],
         }
@@ -250,6 +215,5 @@ __all__ = [
     "L2Phase2AssertionCandidate",
     "L2Phase2ContradictionHint",
     "L2Phase2GraphEdge",
-    "L2Phase2Refinement",
     "L2Phase2Result",
 ]

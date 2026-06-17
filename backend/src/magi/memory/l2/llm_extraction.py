@@ -152,7 +152,6 @@ class L2LLMExtractionMixin:
             graph_edge_count=len(result.graph_edges),
             assertion_count=len(result.assertion_candidates),
             contradiction_hint_count=len(result.contradiction_hints),
-            refinement_count=len(result.refinements),
         )
         logger.info(
             "L2 Phase 2 candidate summary",

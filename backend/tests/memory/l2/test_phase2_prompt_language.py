@@ -6,6 +6,7 @@ from magi.memory.l2.pipeline.prompts import (
     PHASE2_INTEGRATE_SYSTEM_PROMPT,
     build_phase2_integrate_system_prompt,
 )
+from magi.memory.l2.models import L2Phase2Result
 
 
 def test_baseline_when_language_is_none():
@@ -26,3 +27,26 @@ def test_directive_is_appended_not_inlined():
     prompt = build_phase2_integrate_system_prompt("ja")
     baseline_end = prompt.index(PHASE2_INTEGRATE_SYSTEM_PROMPT) + len(PHASE2_INTEGRATE_SYSTEM_PROMPT)
     assert "## Language directive" in prompt[baseline_end:]
+
+
+def test_phase2_contract_does_not_request_unused_refinements():
+    assert '"refinements"' not in PHASE2_INTEGRATE_SYSTEM_PROMPT
+
+
+def test_phase2_result_ignores_unused_refinements_payload():
+    result = L2Phase2Result.from_dict(
+        {
+            "graph_edges": [],
+            "refinements": [
+                {
+                    "existing_triple_id": "triple-1",
+                    "refined_by_object": "topic:rainy-weather",
+                    "explanation": "unused",
+                }
+            ],
+            "assertion_candidates": [],
+            "contradiction_hints": [],
+        }
+    )
+
+    assert "refinements" not in result.to_dict()
