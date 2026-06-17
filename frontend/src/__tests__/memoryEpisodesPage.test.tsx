@@ -298,7 +298,7 @@ beforeEach(() => {
 });
 
 describe('MemoryEpisodesPage', () => {
-  it('lists experiences and opens the first one in the detail rail', async () => {
+  it('lists experiences without opening the detail rail automatically', async () => {
     renderPage();
 
     expect((await screen.findAllByText('Launch week')).length).toBeGreaterThan(0);
@@ -315,10 +315,8 @@ describe('MemoryEpisodesPage', () => {
     ]);
     expect(memoryApi.listExperiences).toHaveBeenCalledWith({ status: 'active', limit: 100, offset: 0 });
     expect(memoryApi.listEpisodes).not.toHaveBeenCalled();
-    await waitFor(() => {
-      expect(memoryApi.getExperience).toHaveBeenCalledWith('exp-1');
-    });
-    expect(await screen.findByText('Visited Kyoto station')).toBeInTheDocument();
+    expect(memoryApi.getExperience).not.toHaveBeenCalled();
+    expect(screen.queryByText('Visited Kyoto station')).not.toBeInTheDocument();
   });
 
   it('renders the Magi recap, source episodes, and readable event previews', async () => {

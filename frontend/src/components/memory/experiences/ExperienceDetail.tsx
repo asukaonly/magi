@@ -213,7 +213,7 @@ export function ExperienceDetail({
             <h2
               className={cn(
                 'mt-4 max-w-3xl break-words font-semibold leading-tight text-[hsl(var(--memory-title))]',
-                isInline ? 'text-2xl md:text-[1.7rem]' : 'text-3xl md:text-4xl'
+                isInline ? 'text-xl md:text-[1.35rem]' : 'text-3xl md:text-4xl'
               )}
             >
               {title}
@@ -257,7 +257,7 @@ export function ExperienceDetail({
               <Sparkles className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
               {t('memory.episodes.sections.recap')}
             </h3>
-            <p className="mt-4 whitespace-pre-wrap break-words text-base leading-8 text-[hsl(var(--memory-body))]">
+            <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-7 text-[hsl(var(--memory-body))]">
               {description || t('memory.episodes.noRecap')}
             </p>
           </section>

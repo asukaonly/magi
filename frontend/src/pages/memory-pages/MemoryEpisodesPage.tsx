@@ -134,7 +134,7 @@ export const MemoryEpisodesPage = () => {
         if (current && nextItems.some((item) => item.experience_id === current)) {
           return current;
         }
-        return sortExperiencesForReview(nextItems)[0]?.experience_id ?? null;
+        return null;
       });
     } finally {
       setLoading(false);
@@ -186,11 +186,11 @@ export const MemoryEpisodesPage = () => {
   }, [pinnedOnly, searchQuery, sortedExperiences, t]);
 
   useEffect(() => {
-    if (filteredExperiences.length === 0) {
+    if (!selectedId) {
       return;
     }
-    if (!selectedId || !filteredExperiences.some((experience) => experience.experience_id === selectedId)) {
-      setSelectedId(filteredExperiences[0].experience_id);
+    if (!filteredExperiences.some((experience) => experience.experience_id === selectedId)) {
+      setSelectedId(null);
     }
   }, [filteredExperiences, selectedId]);
 
@@ -204,7 +204,7 @@ export const MemoryEpisodesPage = () => {
     [experiences, selectedId]
   );
   const selectedExperience = detail ?? selectedListExperience;
-  const featuredExperience = selectedListExperience ?? filteredExperiences[0] ?? sortedExperiences[0] ?? null;
+  const featuredExperience = filteredExperiences[0] ?? sortedExperiences[0] ?? null;
   const selectedTitle = selectedExperience
     ? getExperienceDisplayTitle(selectedExperience, t('memory.episodes.awaitingLabel'))
     : '';
@@ -269,7 +269,7 @@ export const MemoryEpisodesPage = () => {
     const nextItems = experiences.filter((item) => item.experience_id !== hiddenId);
     setExperiences(nextItems);
     setDetail(null);
-    setSelectedId(sortExperiencesForReview(nextItems)[0]?.experience_id ?? null);
+    setSelectedId(null);
   };
 
   const reconsolidateEpisodes = async () => {
@@ -293,7 +293,7 @@ export const MemoryEpisodesPage = () => {
     >
       <header className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <h1 className="text-[2.55rem] font-semibold leading-tight tracking-normal text-[hsl(var(--memory-title))]">
+          <h1 className="text-[2rem] font-semibold leading-tight tracking-normal text-[hsl(var(--memory-title))]">
             {t('memory.episodes.title')}
           </h1>
           <p className="mt-2 max-w-3xl text-base leading-7 text-[hsl(var(--memory-body))]">
@@ -354,7 +354,12 @@ export const MemoryEpisodesPage = () => {
           <p className="mt-1 text-sm">{t('memory.episodes.emptyBody')}</p>
         </div>
       ) : (
-        <div className="grid min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,500px)]">
+        <div
+          className={cn(
+            'grid min-h-0 gap-5',
+            selectedExperience ? 'xl:grid-cols-[minmax(0,1fr)_minmax(360px,500px)]' : 'xl:grid-cols-1'
+          )}
+        >
           <main className="min-w-0 space-y-6">
             {featuredExperience ? (
               <FeaturedExperienceCard
@@ -391,8 +396,8 @@ export const MemoryEpisodesPage = () => {
             </section>
           </main>
 
-          <aside className="min-w-0 xl:sticky xl:top-0 xl:self-start">
-            {selectedExperience ? (
+          {selectedExperience ? (
+            <aside className="min-w-0 xl:sticky xl:top-0 xl:self-start">
               <ExperienceDetail
                 experience={selectedExperience}
                 title={selectedTitle}
@@ -403,12 +408,8 @@ export const MemoryEpisodesPage = () => {
                 onHide={hideSelectedExperience}
                 variant="inline"
               />
-            ) : (
-              <div className={MEMORY_INFO_PANEL_CLASS}>
-                {t('memory.episodes.detailEmptyBody')}
-              </div>
-            )}
-          </aside>
+            </aside>
+          ) : null}
         </div>
       )}
     </MemoryPageFrame>
@@ -443,21 +444,21 @@ function FeaturedExperienceCard({
           : 'border-[hsl(var(--memory-border)/0.58)] hover:border-[hsl(var(--memory-accent)/0.28)]'
       )}
     >
-      <div className="flex min-h-[260px] flex-col justify-between">
+      <div className="flex min-h-[210px] flex-col justify-between">
         <div className="min-w-0">
           <div className="inline-flex items-center gap-2 rounded-full bg-[hsl(var(--memory-accent-soft)/0.62)] px-3 py-1 text-xs font-medium text-[hsl(var(--memory-title))]">
             <Star className="h-4 w-4 fill-current text-[hsl(var(--memory-accent))]" aria-hidden="true" />
             {t('memory.episodes.featuredLabel')}
           </div>
-          <h2 className="mt-5 break-words text-[1.6rem] font-semibold leading-tight tracking-normal text-[hsl(var(--memory-title))] sm:text-[1.9rem]">
+          <h2 className="mt-4 break-words text-[1.35rem] font-semibold leading-8 tracking-normal text-[hsl(var(--memory-title))]">
             {title}
           </h2>
-          <p className="mt-4 line-clamp-4 whitespace-pre-wrap text-base leading-7 text-[hsl(var(--memory-body))]">
+          <p className="mt-3 line-clamp-3 whitespace-pre-wrap text-sm leading-7 text-[hsl(var(--memory-body))]">
             {description}
           </p>
         </div>
 
-        <div className="mt-7 space-y-4 border-t border-[hsl(var(--memory-divider)/0.62)] pt-4">
+        <div className="mt-5 space-y-3 border-t border-[hsl(var(--memory-divider)/0.62)] pt-4">
           {tags.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {tags.map((tag) => (
@@ -467,7 +468,7 @@ function FeaturedExperienceCard({
               ))}
             </div>
           ) : null}
-          <div className="flex flex-wrap items-center gap-4 text-sm text-[hsl(var(--memory-muted))]">
+          <div className="flex flex-wrap items-center gap-4 text-xs text-[hsl(var(--memory-muted))]">
             {range ? (
               <span className="inline-flex items-center gap-2">
                 <CalendarRange className="h-4 w-4" aria-hidden="true" />
