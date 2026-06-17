@@ -221,13 +221,13 @@ def test_integrate_phase2_passes_source_integration_instructions():
                 summary=L2EventWindowSummary(session_id="s1"),
             ),
             focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
-            phase2_instructions="For play history, emit taste_profile only after repeated plays.",
+            phase2_instructions="For play history, emit preference_profile only after repeated plays.",
         )
     )
 
     user_prompt = adapter._client.completions.kwargs["messages"][-1]["content"]
     assert "## Source-Specific Integration Instructions" in user_prompt
-    assert "taste_profile only after repeated plays" in user_prompt
+    assert "preference_profile only after repeated plays" in user_prompt
 
 
 def test_conflict_arbitration_uses_core_scenario_adapter():

@@ -436,13 +436,14 @@ Key fields:
 - `structured_allowed_*`: allowlists for source-owned structured hints; these can be broader or narrower than LLM-facing extraction allowlists.
 - `allow_assertion`: master switch for assertion writes from this profile.
 - `assertion_mode`: `none` rejects assertions, `derived` allows only host-owned graph-derived assertion rules, and `phase2_candidate` allows Phase 2 LLM candidates subject to policy/family/trait gates.
+- `allowed_assertion_families`: canonical assertion families this source may emit or derive. Current families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `routine_profile`, and `state_profile`.
 - `allowed_assertion_traits`: optional exact or namespace allowlist (`music.*`) for assertion trait names.
 - `source_types`: normalized event sources routed to this profile.
 - `phase1_instructions` / `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt under a `## Source-Specific Instructions` section.
 - `phase2_instructions`: source-specific integration instructions injected into the Phase 2 prompt.
 - `derived_assertion_specs`: plugin-declared graph-derived assertion specs. The host compiles these into validated rules and runs them in the L2 derive schedule; plugins never bypass assertion lifecycle, source-tier, or conflict protection.
 
-Assertion families and assertion trait/schema identifiers are assertion-only. They must not be emitted as graph predicates, graph object refs, or concept nodes; graph admission validates this boundary before persistence.
+Assertion families and assertion trait/schema identifiers are assertion-only. They must not be emitted as graph predicates, graph object refs, or concept nodes; graph admission validates this boundary before persistence. `preference_profile` covers durable interests, affinities, tastes, and preferences; `routine_profile` covers repeated behavior rhythms and habits. Family policy is host-owned and determines Phase 2 guidance, default lifecycle/decay, snapshot placement, and value-localization expectations. Trust and conflict decisions remain source-tier governed, so plugin-derived inference cannot overwrite user-authored assertions.
 
 Profile mapping uses the normalized event source. Source-specific profiles are contributed by loaded plugins through `Plugin.get_extraction_profiles()` using the SDK `ExtractionProfileSpec` contract. The host owns ontology, schema validation, prompt assembly, and final write guards. Profile IDs use the `source.*` namespace for external/source-specific events so they are not confused with the product Timeline surface. New source types fall back to the unrestricted `chat.user_message` default profile.
 

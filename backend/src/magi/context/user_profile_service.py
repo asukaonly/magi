@@ -25,7 +25,7 @@ _DEFAULT_EMPTY_CACHE_TTL = 5  # Refresh empty profile reads quickly while L2 cat
 _ADDRESS_PREFERRED_KEY = "address.preferred"
 _ADDRESS_DISALLOWED_KEY = "address.disallowed"
 _ADDRESS_REAL_NAME_KEY = "address.real_name"
-_PROFILE_ASSERTION_FAMILIES = ["preference_profile", "taste_profile"]
+_PROFILE_ASSERTION_FAMILIES = ["preference_profile"]
 _PROFILE_ASSERTION_STATES = ["stable", "corroborated", "tentative"]
 
 

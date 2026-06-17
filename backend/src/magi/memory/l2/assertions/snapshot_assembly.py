@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, cast
 
 
+from ..assertion_family_policy import get_assertion_family_policy
 from ..storage.utils import MOOD_TRAJECTORY_FAMILIES, MOOD_TRAJECTORY_LIMIT
 from .snapshot_protocols import _SnapshotHostProtocol
 from .source_tier import source_tier
@@ -97,10 +98,10 @@ class L2SnapshotAssemblyMixin:
         preferences: dict[str, Any],
         assertions: List[Dict[str, Any]],
     ) -> None:
-        pref_families = {"taste_profile", "preference_profile"}
         for assertion in assertions:
-            family = assertion.get("trait_family", "")
-            if family not in pref_families:
+            family = str(assertion.get("trait_family") or "").strip().casefold()
+            policy = get_assertion_family_policy(family)
+            if policy is None or policy.snapshot_bucket != "preferences":
                 continue
             trait_name = str(assertion.get("trait_name", ""))
             if trait_name.startswith("preference."):

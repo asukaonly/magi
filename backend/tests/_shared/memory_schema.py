@@ -34,6 +34,7 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "0010_kg_evidence_class.py",
     "0012_drop_privacy_scope.py",
     "0013_tom_assertions_shadow_status.py",
+    "0014_preference_profile_family.py",
 )
 
 

@@ -6,6 +6,8 @@ import re
 from functools import lru_cache
 from typing import Any
 
+from .assertion_family_policy import ASSERTION_FAMILY_ALLOWLIST
+
 ENTITY_TYPE_REGISTRY: frozenset[str] = frozenset(
     {
         "person",
@@ -59,23 +61,6 @@ ENTITY_TYPE_ALIASES: dict[str, str] = {
     "principle": "concept",
     "theory": "concept",
 }
-
-ASSERTION_FAMILY_ALLOWLIST: frozenset[str] = frozenset(
-    {
-        "stress",
-        "mood",
-        "engagement",
-        "trigger",
-        "relationship_shift",
-        "group_atmosphere",
-        "public_sentiment",
-        "identity_profile",
-        "communication_profile",
-        "preference_profile",
-        "state_profile",
-        "taste_profile",
-    }
-)
 
 _ASSERTION_FAMILY_ROOTS: frozenset[str] = frozenset(
     family.split("_", 1)[0] for family in ASSERTION_FAMILY_ALLOWLIST

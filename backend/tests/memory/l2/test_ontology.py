@@ -188,6 +188,19 @@ def test_validator_rejects_unsupported_assertion_family():
     assert reason == "invalid_trait_family"
 
 
+def test_validator_rejects_removed_taste_profile_family():
+    from magi.memory.l2.ontology import validate_assertion_candidate
+
+    is_valid, reason = validate_assertion_candidate(
+        {
+            "trait_family": "taste_profile",
+        }
+    )
+
+    assert is_valid is False
+    assert reason == "invalid_trait_family"
+
+
 def test_validator_can_identify_leaf_level_duplicates():
     from magi.memory.l2.ontology import is_leaf_fact_duplicate
 
@@ -237,7 +250,7 @@ def test_validator_allows_higher_order_assertion_alongside_graph_fact():
             }
         ],
         assertion_candidate={
-            "trait_name": "taste_profile",
+            "trait_name": "preference.food.pattern",
             "trait_value": "avoids_vinegar_heavy_dishes",
         },
     )

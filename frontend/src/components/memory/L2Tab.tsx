@@ -95,6 +95,21 @@ type KnowledgeStatusGroup = 'active' | 'needsReview' | 'conflicted' | 'deprecate
 type KnowledgeBaseGroupId = 'all' | 'aboutSelf' | 'preferences' | 'relationships' | 'workProjects' | 'interests' | 'other';
 type MemoryTranslateFn = (key: string, options?: Record<string, unknown>) => string;
 
+const ASSERTION_FAMILY_VALUE_I18N: Record<string, 'literal' | 'controlled'> = {
+  stress: 'controlled',
+  mood: 'controlled',
+  engagement: 'controlled',
+  group_atmosphere: 'controlled',
+  public_sentiment: 'controlled',
+  state_profile: 'controlled',
+  trigger: 'literal',
+  relationship_shift: 'literal',
+  identity_profile: 'literal',
+  communication_profile: 'literal',
+  preference_profile: 'literal',
+  routine_profile: 'literal',
+};
+
 const KNOWLEDGE_BASE_GROUP_IDS: Exclude<KnowledgeBaseGroupId, 'all'>[] = [
   'aboutSelf',
   'preferences',
@@ -268,14 +283,21 @@ const coerceKnowledgeEventIds = (value: unknown): string[] => {
 
 const getAssertionKnowledgeGroupId = (assertion: L2Assertion): KnowledgeBaseGroupId => {
   const trait = normalizeLabelKey(assertion.trait_name);
+  const family = normalizeLabelKey(assertion.trait_family || '');
   const entityType = normalizeLabelKey(assertion.entity_type || '');
   const sourceDomain = normalizeLabelKey(assertion.source_domain || '');
   const text = `${trait} ${entityType} ${sourceDomain}`;
 
-  if (textIncludesAny(trait, ['identity', 'self', 'name', 'address', 'profile', 'personal', 'birthday', 'timezone', 'language'])) {
+  if (
+    textIncludesAny(trait, ['identity', 'self', 'name', 'address', 'profile', 'personal', 'birthday', 'timezone', 'language']) ||
+    ['identity_profile', 'communication_profile', 'routine_profile', 'state_profile', 'mood', 'stress', 'engagement'].includes(family)
+  ) {
     return 'aboutSelf';
   }
-  if (textIncludesAny(trait, ['preference', 'prefers', 'favorite', 'favourite', 'like', 'dislike', 'coffee', 'music', 'artist', 'food', 'taste', 'style', 'habit'])) {
+  if (
+    family === 'preference_profile' ||
+    textIncludesAny(trait, ['preference', 'prefers', 'favorite', 'favourite', 'like', 'dislike', 'coffee', 'music', 'artist', 'food', 'taste', 'style', 'habit'])
+  ) {
     return 'preferences';
   }
   if (textIncludesAny(text, ['work', 'project', 'task', 'job', 'company', 'team', 'role', 'repo', 'code'])) {
@@ -386,6 +408,35 @@ const getCuratedTraitLabel = (t: MemoryTranslateFn, traitName: string) => (
   translateOptional(t, `memory.pages.knowledge.traitLabels.${normalizeLabelKey(traitName)}`)
 );
 
+const getAssertionValueI18nMode = (assertion: L2Assertion) => {
+  const explicitMode = String(assertion.trait_value_i18n || '').trim();
+  if (explicitMode) {
+    return explicitMode;
+  }
+  return ASSERTION_FAMILY_VALUE_I18N[normalizeLabelKey(assertion.trait_family || '')] || 'literal';
+};
+
+const getReadableAssertionValue = (t: MemoryTranslateFn, assertion: L2Assertion) => {
+  const rawValue = coerceKnowledgeText(assertion.trait_value);
+  if (getAssertionValueI18nMode(assertion) !== 'controlled') {
+    return rawValue;
+  }
+
+  const valueKey = normalizeLabelKey(rawValue);
+  if (!valueKey) {
+    return rawValue;
+  }
+
+  const familyKey = normalizeLabelKey(assertion.trait_family || '');
+  const traitKey = normalizeLabelKey(assertion.trait_name);
+  return (
+    (familyKey ? translateOptional(t, `memory.pages.knowledge.traitValues.${familyKey}.${valueKey}`) : null) ||
+    (traitKey ? translateOptional(t, `memory.pages.knowledge.traitValues.${traitKey}.${valueKey}`) : null) ||
+    translateOptional(t, `memory.pages.knowledge.traitValues.common.${valueKey}`) ||
+    rawValue
+  );
+};
+
 const getReadablePredicateLabel = (t: MemoryTranslateFn, predicate: string) => (
   translateOptional(t, `memory.pages.knowledge.predicateLabels.${normalizeLabelKey(predicate)}`) || humanizeToken(predicate).toLowerCase()
 );
@@ -395,7 +446,7 @@ const getReadableAssertionTitle = (
   entityName: string,
   assertion: L2Assertion,
 ) => {
-  const traitValue = coerceKnowledgeText(assertion.trait_value);
+  const traitValue = getReadableAssertionValue(t, assertion);
   const traitKey = normalizeLabelKey(assertion.trait_name);
   const specificTitle = translateOptionalWithOptions(
     t,
@@ -743,7 +794,8 @@ export const L2Tab: React.FC<L2TabProps> = ({
     const assertionItems = assertions.map((assertion): KnowledgeItem => {
       const entityName = getEntityName(assertion.entity_id);
       const traitLabel = getReadableTraitLabel(t, assertion.trait_name);
-      const traitValue = coerceKnowledgeText(assertion.trait_value);
+      const rawTraitValue = coerceKnowledgeText(assertion.trait_value);
+      const traitValue = getReadableAssertionValue(t, assertion);
       const evidenceIds = coerceKnowledgeEventIds(assertion.evidence_events);
       const evidenceCount = evidenceIds.length;
       const statusGroup = getAssertionStatusGroup(assertion);
@@ -773,9 +825,9 @@ export const L2Tab: React.FC<L2TabProps> = ({
           { label: t('memory.pages.knowledge.fields.inferenceDepth'), value: assertion.inference_depth },
           { label: t('memory.pages.knowledge.fields.technicalId'), value: assertion.assertion_id },
         ],
-        searchableText: [entityName, assertion.entity_id, assertion.entity_type, traitLabel, assertion.trait_name, traitValue, assertion.validation_state, assertion.source_domain].join(' '),
+        searchableText: [entityName, assertion.entity_id, assertion.entity_type, traitLabel, assertion.trait_name, traitValue, rawTraitValue, assertion.validation_state, assertion.source_domain].join(' '),
         assertionId: assertion.assertion_id,
-        correctionValue: traitValue,
+        correctionValue: rawTraitValue,
         userFeedback: assertion.user_feedback,
       };
     });
@@ -1198,7 +1250,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
                 <Badge variant="outline">{assertion.validation_state}</Badge>
               </div>
               <div className="mt-2 text-[hsl(var(--memory-body))]">
-                {assertion.trait_name}: {assertion.trait_value}
+                {getReadableTraitLabel(t, assertion.trait_name)}: {getReadableAssertionValue(t, assertion)}
               </div>
               <div className="mt-3 flex items-center justify-between gap-2">
                 <div className="flex flex-wrap gap-2">
