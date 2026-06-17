@@ -19,6 +19,27 @@ import {
 } from '@/components/ui/sheet';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS, MEMORY_INFO_PANEL_CLASS } from './MemoryPageFrame';
 
+const getExperienceReviewTimestamp = (experience: L2ExperienceWithReview): number => Math.max(
+  Number(experience.updated_at ?? 0),
+  Number(experience.experience_review?.updated_at ?? 0),
+  Number(experience.time_end ?? 0),
+  Number(experience.time_start ?? 0),
+  0
+);
+
+export const sortExperiencesForReview = (
+  items: L2ExperienceWithReview[]
+): L2ExperienceWithReview[] => [...items].sort((a, b) => {
+  if (Boolean(a.user_pinned) !== Boolean(b.user_pinned)) {
+    return a.user_pinned ? -1 : 1;
+  }
+  const updatedDiff = getExperienceReviewTimestamp(b) - getExperienceReviewTimestamp(a);
+  if (updatedDiff !== 0) {
+    return updatedDiff;
+  }
+  return Number(b.narrative_score ?? 0) - Number(a.narrative_score ?? 0);
+});
+
 export const MemoryEpisodesPage = () => {
   const { t } = useTranslation('app');
   const [experiences, setExperiences] = useState<L2ExperienceWithReview[]>([]);
@@ -79,6 +100,7 @@ export const MemoryEpisodesPage = () => {
     () => experiences.find((experience) => experience.experience_id === selectedId) ?? null,
     [experiences, selectedId]
   );
+  const sortedExperiences = useMemo(() => sortExperiencesForReview(experiences), [experiences]);
   const selectedExperience = detail ?? selectedListExperience;
   const selectedTitle = selectedExperience
     ? getExperienceDisplayTitle(selectedExperience, t('memory.episodes.awaitingLabel'))
@@ -172,6 +194,22 @@ export const MemoryEpisodesPage = () => {
     <MemoryPageFrame
       title={t('memory.episodes.title')}
       description={t('memory.episodes.subtitle')}
+      actions={(
+        <Button variant="outline" onClick={reconsolidateEpisodes} disabled={reconsolidating}>
+          {reconsolidating
+            ? t('memory.episodes.actions.reconsolidating')
+            : t('memory.episodes.actions.reconsolidate')}
+        </Button>
+      )}
+      headerMeta={reconsolidateResult ? (
+        <span className="text-xs text-[hsl(var(--memory-muted))]">
+          {t('memory.episodes.reconsolidateResult', {
+            promoted: reconsolidateResult.promoted,
+            standouts: reconsolidateResult.standouts,
+            summaries: reconsolidateResult.summaries_generated,
+          })}
+        </span>
+      ) : null}
       contentClassName="min-h-0"
     >
       {loading ? (
@@ -180,36 +218,25 @@ export const MemoryEpisodesPage = () => {
         <div className={MEMORY_EMPTY_PANEL_CLASS}>
           <div className="font-semibold text-[hsl(var(--memory-title))]">{t('memory.episodes.emptyTitle')}</div>
           <p className="mt-1 text-sm">{t('memory.episodes.emptyBody')}</p>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <Button onClick={reconsolidateEpisodes} disabled={reconsolidating}>
-              {reconsolidating
-                ? t('memory.episodes.actions.reconsolidating')
-                : t('memory.episodes.actions.reconsolidate')}
-            </Button>
-            {reconsolidateResult ? (
-              <span className="text-xs text-[hsl(var(--memory-muted))]">
-                {t('memory.episodes.reconsolidateResult', {
-                  promoted: reconsolidateResult.promoted,
-                  standouts: reconsolidateResult.standouts,
-                  summaries: reconsolidateResult.summaries_generated,
-                })}
-              </span>
-            ) : null}
-          </div>
         </div>
       ) : (
         <>
-          <section className="min-w-0 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">
-                {t('memory.episodes.sections.list')}
-              </h2>
-              <Badge variant="outline" className="rounded-md border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-tag-bg)/0.76)] text-[hsl(var(--memory-muted))]">
-                {t('memory.episodes.count', { count: experiences.length })}
+          <section className="min-w-0 space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="space-y-1">
+                <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">
+                  {t('memory.episodes.sections.list')}
+                </h2>
+                <p className="text-xs text-[hsl(var(--memory-muted))]">
+                  {t('memory.episodes.sortNote')}
+                </p>
+              </div>
+              <Badge variant="outline" className="w-fit rounded-md border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-tag-bg)/0.76)] text-[hsl(var(--memory-muted))]">
+                {t('memory.episodes.count', { count: sortedExperiences.length })}
               </Badge>
             </div>
-            <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {experiences.map((experience) => (
+            <div className="grid auto-rows-fr gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {sortedExperiences.map((experience) => (
                 <ExperienceRow
                   key={experience.experience_id}
                   experience={experience}
@@ -223,7 +250,7 @@ export const MemoryEpisodesPage = () => {
           <Sheet open={detailOpen} onOpenChange={handleDetailOpenChange}>
             <SheetContent
               side="right"
-              className="w-[min(96vw,880px)] max-w-[880px] overflow-y-auto border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated))] p-0"
+              className="w-[100vw] max-w-[1120px] overflow-y-auto rounded-l-2xl border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated))] p-0 sm:w-[min(94vw,1120px)]"
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>{selectedTitle || t('memory.episodes.sections.detail')}</SheetTitle>

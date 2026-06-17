@@ -1,4 +1,4 @@
-import { BookOpen, CalendarRange, Pin, Tags } from 'lucide-react';
+import { BookOpen, CalendarRange, Layers, Pin, Tags } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { L2Experience, L2ExperienceWithReview } from '@/api/modules/memory';
 import { Badge } from '@/components/ui/badge';
@@ -88,60 +88,70 @@ export function ExperienceRow({ experience, selected, onOpen }: ExperienceRowPro
       onClick={onOpen}
       aria-label={`${t('memory.episodes.actions.open')}: ${title}`}
       className={cn(
-        'group flex min-h-[220px] w-full flex-col justify-between rounded-lg border px-5 py-4 text-left transition-colors duration-200',
+        'group relative flex min-h-[264px] w-full overflow-hidden rounded-lg border px-5 py-5 text-left transition-colors duration-200',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.24)]',
         selected
           ? 'border-[hsl(var(--memory-accent)/0.46)] bg-[hsl(var(--memory-accent-soft)/0.64)]'
           : 'border-[hsl(var(--memory-border)/0.54)] bg-[hsl(var(--memory-panel-elevated)/0.72)] hover:border-[hsl(var(--memory-accent)/0.26)] hover:bg-[hsl(var(--memory-panel-elevated)/0.9)]'
       )}
     >
-      <div className="flex items-start justify-between gap-3">
+      <span
+        className={cn(
+          'absolute inset-y-0 left-0 w-1',
+          selected ? 'bg-[hsl(var(--memory-accent))]' : 'bg-[hsl(var(--memory-accent)/0.34)]'
+        )}
+        aria-hidden="true"
+      />
+      <div className="flex min-w-0 flex-1 flex-col justify-between pl-1">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
             <BookOpen className="h-4 w-4 shrink-0 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
-            <span className="break-words text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">{title}</span>
+            {typeLabel ? <span>{typeLabel}</span> : null}
             {experience.user_pinned ? (
-              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[hsl(var(--memory-panel-elevated)/0.86)] text-[hsl(var(--memory-accent))]">
+              <span className="inline-flex items-center gap-1 rounded-md bg-[hsl(var(--memory-accent-soft)/0.62)] px-2 py-0.5 text-[hsl(var(--memory-title))]">
                 <Pin className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('memory.episodes.fields.pinned')}
               </span>
             ) : null}
           </div>
-          {summary ? (
-            <p className="mt-3 line-clamp-4 text-sm leading-6 text-[hsl(var(--memory-body))]">{summary}</p>
-          ) : null}
+          <h3 className="mt-3 break-words text-lg font-semibold leading-7 text-[hsl(var(--memory-title))]">
+            {title}
+          </h3>
+          <p className="mt-4 line-clamp-5 whitespace-pre-wrap text-[0.95rem] leading-7 text-[hsl(var(--memory-body))]">
+            {summary || t('memory.episodes.noRecap')}
+          </p>
         </div>
-      </div>
-      <div className="mt-5 space-y-3">
-        {entityLabels.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <Tags className="h-3.5 w-3.5 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
-            {entityLabels.map((label) => (
-              <span
-                key={label}
-                className="rounded-md bg-[hsl(var(--memory-panel-subtle)/0.76)] px-2 py-1 text-xs text-[hsl(var(--memory-body))]"
-              >
-                {label}
+        <div className="mt-6 space-y-3 border-t border-[hsl(var(--memory-divider)/0.62)] pt-4">
+          {entityLabels.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Tags className="h-3.5 w-3.5 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
+              {entityLabels.map((label) => (
+                <span
+                  key={label}
+                  className="rounded-md bg-[hsl(var(--memory-panel-subtle)/0.76)] px-2 py-1 text-xs text-[hsl(var(--memory-body))]"
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[hsl(var(--memory-muted))]">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              {range ? (
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <CalendarRange className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{range}</span>
+                </span>
+              ) : null}
+              <span className="inline-flex items-center gap-1 tabular-nums">
+                <Layers className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('memory.episodes.episodeCount', { count: experience.source_episode_count ?? 0 })}
               </span>
-            ))}
+            </div>
+            <Badge variant="outline" className="shrink-0 rounded-md border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-tag-bg)/0.74)] font-normal text-[hsl(var(--memory-body))]">
+              {t('memory.episodes.eventCount', { count: experience.source_event_count ?? 0 })}
+            </Badge>
           </div>
-        ) : null}
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[hsl(var(--memory-muted))]">
-          <div className="flex flex-wrap items-center gap-2">
-            {typeLabel ? (
-              <Badge variant="outline" className="rounded-md border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-tag-bg)/0.74)] font-normal text-[hsl(var(--memory-body))]">
-                {typeLabel}
-              </Badge>
-            ) : null}
-            {range ? (
-              <span className="inline-flex min-w-0 items-center gap-1">
-                <CalendarRange className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                <span className="truncate">{range}</span>
-              </span>
-            ) : null}
-          </div>
-          <span className="shrink-0 tabular-nums">
-            {t('memory.episodes.eventCount', { count: experience.source_event_count ?? 0 })}
-          </span>
         </div>
       </div>
     </button>

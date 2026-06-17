@@ -10,15 +10,17 @@ import type { L2ExperienceReviewDetail, L2ExperienceWithReview } from '@/api/mod
 vi.mock('react-i18next', async () => {
   const labels: Record<string, string> = {
     'memory.episodes.title': 'Experiences',
-    'memory.episodes.subtitle': 'Curated experiences Magi has formed from remembered events.',
-    'memory.episodes.sections.list': 'Active experiences',
-    'memory.episodes.sections.detail': 'Experience detail',
-    'memory.episodes.sections.recap': 'Recap',
-    'memory.episodes.sections.whatHappened': 'What happened',
-    'memory.episodes.sections.sourceEpisodes': 'Source episodes',
+    'memory.episodes.subtitle': 'Recently formed and updated experiences from remembered events.',
+    'memory.episodes.sections.list': 'Recently updated experiences',
+    'memory.episodes.sections.detail': 'Experience review',
+    'memory.episodes.sections.recap': "Magi's recap",
+    'memory.episodes.sections.whatHappened': 'Event trail',
+    'memory.episodes.sections.sourceEpisodes': 'Source chapters',
     'memory.episodes.sections.entities': 'Entities',
     'memory.episodes.sections.places': 'Places',
     'memory.episodes.sections.topics': 'Topics',
+    'memory.episodes.sections.keywords': 'Keywords',
+    'memory.episodes.sortNote': 'Pinned first · Recently updated',
     'memory.episodes.count': '{{count}} active',
     'memory.episodes.eventCount': '{{count}} events',
     'memory.episodes.episodeCount': '{{count}} source episodes',
@@ -111,6 +113,7 @@ const activeExperiences: L2ExperienceWithReview[] = [
     intent: 'Turn a vague launch idea into a concrete plan.',
     time_start: 1700000000,
     time_end: 1700100000,
+    updated_at: 1700100000,
     source_episode_count: 2,
     source_event_count: 3,
     primary_entity_ids: ['person:asuka'],
@@ -139,11 +142,40 @@ const activeExperiences: L2ExperienceWithReview[] = [
     display_source: 'generated',
     time_start: 1700200000,
     time_end: 1700300000,
+    updated_at: 1700300000,
     source_episode_count: 1,
     source_event_count: 2,
     primary_entity_ids: [],
     primary_place_ids: [],
     primary_topic_keys: ['topic:onboarding'],
+  },
+  {
+    experience_id: 'exp-3',
+    experience_type: 'activity',
+    status: 'active',
+    user_pinned: false,
+    user_label: 'Earlier browsing',
+    user_note: null,
+    title: 'Earlier browsing',
+    magi_interpretation: 'A quieter earlier reading session.',
+    experience_review: {
+      summary_id: 'sum-3',
+      content: 'Generated earlier recap',
+      label: 'Earlier browsing',
+      updated_at: 1700150000,
+      is_fallback: false,
+    },
+    display_title: 'Earlier browsing',
+    display_description: 'Generated earlier recap',
+    display_source: 'generated',
+    time_start: 1700120000,
+    time_end: 1700150000,
+    updated_at: 1700150000,
+    source_episode_count: 1,
+    source_event_count: 4,
+    primary_entity_ids: [],
+    primary_place_ids: [],
+    primary_topic_keys: ['topic:archive'],
   },
 ];
 
@@ -212,8 +244,8 @@ const openLaunchExperience = async (user: ReturnType<typeof userEvent.setup>) =>
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(memoryApi.listExperiences).mockResolvedValue({
-    items: activeExperiences,
-    total: 2,
+    items: [activeExperiences[1], activeExperiences[2], activeExperiences[0]],
+    total: 3,
     limit: 100,
     offset: 0,
   } as never);
@@ -241,11 +273,20 @@ beforeEach(() => {
 });
 
 describe('MemoryEpisodesPage', () => {
-  it('lists curated experience cards without reading raw episodes or opening detail automatically', async () => {
+  it('lists recent experience cards without reading raw episodes or opening detail automatically', async () => {
     renderPage();
 
     expect((await screen.findAllByText('Launch week')).length).toBeGreaterThan(0);
     expect(screen.getByText('Generated research loop')).toBeInTheDocument();
+    expect(screen.getByText('Pinned first · Recently updated')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Build experiences now' })).toBeInTheDocument();
+
+    const experienceButtons = screen.getAllByRole('button', { name: /Open experience:/ });
+    expect(experienceButtons.map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Open experience: Launch week',
+      'Open experience: Generated research loop',
+      'Open experience: Earlier browsing',
+    ]);
     expect(memoryApi.listExperiences).toHaveBeenCalledWith({ status: 'active', limit: 100, offset: 0 });
     expect(memoryApi.listEpisodes).not.toHaveBeenCalled();
     expect(memoryApi.getExperience).not.toHaveBeenCalled();
@@ -258,7 +299,8 @@ describe('MemoryEpisodesPage', () => {
 
     await openLaunchExperience(user);
     expect(await screen.findByText('Generated Japan recap')).toBeInTheDocument();
-    expect(screen.getByText('Source episodes')).toBeInTheDocument();
+    expect(screen.getByText("Magi's recap")).toBeInTheDocument();
+    expect(screen.getByText('Source chapters')).toBeInTheDocument();
     expect(screen.getByText('Planning thread')).toBeInTheDocument();
 
     const events = screen.getByTestId('episode-event-stream');

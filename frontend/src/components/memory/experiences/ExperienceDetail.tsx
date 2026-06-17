@@ -1,5 +1,16 @@
 import { useState } from 'react';
-import { EyeOff, Layers, MapPin, Sparkles, Tags, UserRound } from 'lucide-react';
+import {
+  BookOpen,
+  CalendarRange,
+  EyeOff,
+  Layers,
+  MapPin,
+  Pencil,
+  RefreshCw,
+  Sparkles,
+  Tags,
+  UserRound,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ReactNode } from 'react';
 import type {
@@ -145,10 +156,11 @@ export function ExperienceDetail({
 
   return (
     <div className="min-w-0">
-      <header className="border-b border-[hsl(var(--memory-divider)/0.62)] px-5 py-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <header className="border-b border-[hsl(var(--memory-divider)/0.62)] bg-[hsl(var(--memory-panel-elevated))] px-6 py-6 md:px-8">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
+              <BookOpen className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
               {typeLabel ? (
                 <Badge variant="outline" className="rounded-md border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-tag-bg)/0.76)] text-[hsl(var(--memory-body))]">
                   {typeLabel}
@@ -159,14 +171,34 @@ export function ExperienceDetail({
                   {t('memory.episodes.fields.pinned')}
                 </Badge>
               ) : null}
+              {range ? (
+                <span className="inline-flex items-center gap-1">
+                  <CalendarRange className="h-3.5 w-3.5" aria-hidden="true" />
+                  {range}
+                </span>
+              ) : null}
             </div>
-            <h2 className="mt-2 break-words text-xl font-semibold leading-7 text-[hsl(var(--memory-title))]">{title}</h2>
-            {range ? <p className="mt-1 text-sm text-[hsl(var(--memory-muted))]">{range}</p> : null}
+            <h2 className="mt-4 max-w-3xl break-words text-3xl font-semibold leading-tight text-[hsl(var(--memory-title))] md:text-4xl">
+              {title}
+            </h2>
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-[hsl(var(--memory-muted))]">
+              <span>{t('memory.episodes.episodeCount', { count: experience.source_episode_count ?? 0 })}</span>
+              <span>{t('memory.episodes.eventCount', { count: experience.source_event_count ?? 0 })}</span>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={openRename}>{t('memory.episodes.actions.rename')}</Button>
-            <Button variant="outline" size="sm" onClick={openDescription}>{t('memory.episodes.actions.editDescription')}</Button>
-            <Button variant="outline" size="sm" onClick={requestRegenerate}>{t('memory.episodes.actions.regenerateDescription')}</Button>
+          <div className="flex flex-wrap gap-2 lg:justify-end">
+            <Button variant="outline" size="sm" onClick={openRename}>
+              <Pencil className="h-4 w-4" aria-hidden="true" />
+              {t('memory.episodes.actions.rename')}
+            </Button>
+            <Button variant="outline" size="sm" onClick={openDescription}>
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+              {t('memory.episodes.actions.editDescription')}
+            </Button>
+            <Button variant="outline" size="sm" onClick={requestRegenerate}>
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              {t('memory.episodes.actions.regenerateDescription')}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setHideOpen(true)}>
               <EyeOff className="h-4 w-4" aria-hidden="true" />
               {t('memory.episodes.actions.hide')}
@@ -175,19 +207,24 @@ export function ExperienceDetail({
         </div>
       </header>
 
-      <div className="space-y-5 px-5 py-5">
-        {detailLoading ? <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div> : null}
-        <section>
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">
-            <Sparkles className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
-            {t('memory.episodes.sections.recap')}
-          </h3>
-          <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-body))]">
-            {description || t('memory.episodes.noRecap')}
-          </p>
-        </section>
+      <div className="grid gap-8 px-6 py-6 md:px-8 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <main className="min-w-0 space-y-8">
+          {detailLoading ? <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div> : null}
+          <section className="rounded-lg border border-[hsl(var(--memory-border)/0.5)] bg-[hsl(var(--memory-panel)/0.72)] px-5 py-5">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">
+              <Sparkles className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
+              {t('memory.episodes.sections.recap')}
+            </h3>
+            <p className="mt-4 whitespace-pre-wrap break-words text-base leading-8 text-[hsl(var(--memory-body))]">
+              {description || t('memory.episodes.noRecap')}
+            </p>
+          </section>
 
-        <div className="grid gap-3 md:grid-cols-3">
+          <SourceEpisodeList episodes={sourceEpisodes} />
+          <EpisodeEventList events={events} />
+        </main>
+
+        <aside className="min-w-0 space-y-5 lg:sticky lg:top-5 lg:self-start">
           <TagGroup
             icon={<UserRound className="h-4 w-4" aria-hidden="true" />}
             title={t('memory.episodes.sections.entities')}
@@ -203,10 +240,7 @@ export function ExperienceDetail({
             title={t('memory.episodes.sections.topics')}
             values={normalizeList(experience.primary_topic_keys)}
           />
-        </div>
-
-        <SourceEpisodeList episodes={sourceEpisodes} />
-        <EpisodeEventList events={events} />
+        </aside>
       </div>
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
@@ -310,7 +344,7 @@ function SourceEpisodeList({ episodes }: { episodes: L2EpisodeWithSummary[] }) {
         <Layers className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
         {t('memory.episodes.sections.sourceEpisodes')}
       </h3>
-      <div className="mt-3 overflow-hidden rounded-xl border border-[hsl(var(--memory-border)/0.52)]">
+      <div className="mt-3 overflow-hidden rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel)/0.52)]">
         {episodes.length === 0 ? (
           <div className="px-4 py-3 text-sm text-[hsl(var(--memory-muted))]">{t('memory.episodes.noSourceEpisodes')}</div>
         ) : episodes.map((episode) => {
@@ -341,7 +375,7 @@ function SourceEpisodeList({ episodes }: { episodes: L2EpisodeWithSummary[] }) {
 function TagGroup({ icon, title, values }: { icon: ReactNode; title: string; values: string[] }) {
   const { t } = useTranslation('app');
   return (
-    <section className="min-w-0 rounded-xl border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel-subtle)/0.46)] px-3 py-3">
+    <section className="min-w-0 border-t border-[hsl(var(--memory-divider)/0.7)] pt-4 first:border-t-0 first:pt-0">
       <h3 className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">
         <span className="text-[hsl(var(--memory-accent))]">{icon}</span>
         {title}
