@@ -346,6 +346,16 @@ Key properties:
 - Product episode lists default to `status='active'`; episode detail reads join
   event memberships with live L2 assertions whose `evidence_events` intersect
   those events, while corrections reuse the assertion feedback path
+- The episode review surface is reading-first: it presents Magi's natural
+  language recap from the linked L3 episodic summary, then lets the user edit
+  the display title, edit or regenerate the recap, and curate the member event
+  boundary with explicit buttons. V1 keeps confidence-style reactions out of the
+  surface until a dedicated feedback/confidence system exists.
+- Add/remove event curation operates on system-suggested nearby candidate
+  events, not a global event search. Merge curation chooses a suggested active
+  episode and folds it into the current survivor. Split curation uses a
+  chronological breakpoint between member events, creates two active child
+  episodes, invalidates the source episode, and regenerates child recaps.
 - Explicit merges move event memberships to the survivor, mark the absorbed
   episode `merged`, and recompute the survivor `source_event_count` from
   `episode_events`
@@ -559,6 +569,9 @@ Users can interact with L2 artifacts directly:
 - **Assertion correction**: `correct_assertion(assertion_id, new_value)` — supersedes old assertion, creates a corrected one at high confidence
 - **Edge rejection**: `reject_edge(triple_id)` — marks a knowledge graph edge as `user_rejected`
 - **Episode annotation**: `update_episode()` supports `user_label`, `user_note`, `user_pinned` fields
+- **Episode review curation**: active episodes can regenerate their L3 recap,
+  add or remove suggested member events, merge with a suggested active episode,
+  or split into two chronological child episodes by event breakpoint.
 - **Forget entity**: `forget_entity(entity_id)` — cascade soft-delete across KG edges, assertions, facets, and episodes
 - **Forget time range**: `forget_time_range(start, end)` — invalidates episodes and archives assertions/edges in the range
 - **Forget episode**: `forget_episode(episode_id)` — invalidates the episode, optionally returns member event IDs
