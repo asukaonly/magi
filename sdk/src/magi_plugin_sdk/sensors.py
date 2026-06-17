@@ -186,8 +186,21 @@ class SensorOutputMetadata:
     """Extracted metadata for a sensor output item."""
 
     entities: list[dict[str, Any]] = field(default_factory=list)
+    # Tags are classification/search labels only. Do not use tags, weak
+    # co-occurrence, or category membership as evidence that the user likes or
+    # believes something; emit a fact_hints item only when the source has a
+    # stable, explainable fact.
     tags: list[str] = field(default_factory=list)
+    # Preferred L2 structured-fact path. The host validates fact_kind,
+    # predicate, origin_mode, evidence, and extraction profiles before any graph
+    # write. Passive observations should usually emit interaction evidence
+    # (for example VIEWED/LISTENED/USED), while durable preferences require an
+    # explicit source signal such as a user-authored statement, favorites list,
+    # or configuration export.
     fact_hints: list[dict[str, Any]] = field(default_factory=list)
+    # Legacy/timeline compatibility path for older relation projections. New
+    # sensors should prefer fact_hints for L2 cognition so source facts pass
+    # through the same evidence-governed admission and conflict handling.
     relation_candidates: list[dict[str, Any]] = field(default_factory=list)
 
 
