@@ -276,6 +276,9 @@ export interface L2EpisodeSummary {
 
 export interface L2EpisodeWithSummary extends L2Episode {
   episode_summary?: L2EpisodeSummary | null;
+  display_title?: string;
+  display_description?: string;
+  display_source?: 'user_override' | 'generated' | 'fallback' | string;
 }
 
 export interface L2EpisodeEvent {
@@ -283,7 +286,16 @@ export interface L2EpisodeEvent {
   event_id: string;
   membership_role: string;
   membership_confidence: number;
-  added_at: number;
+  added_at: number | null;
+}
+
+export interface L2EpisodeEventPreview extends L2EpisodeEvent {
+  timestamp?: number | null;
+  event_type?: string | null;
+  source?: string | null;
+  content_preview?: string | null;
+  candidate_score?: number;
+  candidate_reasons?: string[];
 }
 
 export interface L2EpisodeInference {
@@ -303,6 +315,33 @@ export interface L2EpisodeInference {
 export interface L2EpisodeDetail extends L2Episode {
   events: L2EpisodeEvent[];
   inferred: L2EpisodeInference[];
+}
+
+export interface L2EpisodeReviewDetail extends Omit<L2EpisodeDetail, 'events'> {
+  episode_summary?: L2EpisodeSummary | null;
+  display_title?: string;
+  display_description?: string;
+  display_source?: 'user_override' | 'generated' | 'fallback' | string;
+  events: L2EpisodeEventPreview[];
+}
+
+export interface L2EpisodeCandidate extends L2EpisodeWithSummary {
+  candidate_score: number;
+  candidate_reasons: string[];
+}
+
+export interface L2EpisodeSplitSide {
+  event_count: number;
+  time_start?: number | null;
+  time_end?: number | null;
+  events: L2EpisodeEventPreview[];
+  display_title?: string;
+  display_description?: string;
+}
+
+export interface L2EpisodeSplitPreview {
+  left: L2EpisodeSplitSide;
+  right: L2EpisodeSplitSide;
 }
 
 export interface EpisodeReconsolidateResult {
@@ -585,14 +624,32 @@ export const memoryApi = {
     surface?: 'standout';
   }): Promise<PaginatedResponse<L2EpisodeWithSummary>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2EpisodeWithSummary>>('/memory/l2/episodes', { params })),
-  getEpisode: async (episodeId: string): Promise<L2EpisodeDetail> =>
-    unwrapMemoryResponse(await api.get<L2EpisodeDetail>(`/memory/l2/episodes/${episodeId}`)),
+  getEpisode: async (episodeId: string): Promise<L2EpisodeReviewDetail> =>
+    unwrapMemoryResponse(await api.get<L2EpisodeReviewDetail>(`/memory/l2/episodes/${episodeId}`)),
+  regenerateEpisode: async (episodeId: string): Promise<L2EpisodeReviewDetail> =>
+    unwrapMemoryResponse(await api.post<L2EpisodeReviewDetail>(`/memory/l2/episodes/${episodeId}/regenerate`)),
+  listEpisodeEventCandidates: async (episodeId: string): Promise<{ items: L2EpisodeEventPreview[] }> =>
+    unwrapMemoryResponse(await api.get<{ items: L2EpisodeEventPreview[] }>(`/memory/l2/episodes/${episodeId}/event-candidates`)),
+  addEpisodeEvents: async (episodeId: string, eventIds: string[]): Promise<L2EpisodeReviewDetail> =>
+    unwrapMemoryResponse(await api.post<L2EpisodeReviewDetail>(`/memory/l2/episodes/${episodeId}/events`, { event_ids: eventIds })),
+  removeEpisodeEvents: async (episodeId: string, eventIds: string[]): Promise<L2EpisodeReviewDetail> =>
+    unwrapMemoryResponse(await api.delete<L2EpisodeReviewDetail>(`/memory/l2/episodes/${episodeId}/events`, { data: { event_ids: eventIds } })),
+  listEpisodeMergeCandidates: async (episodeId: string): Promise<{ items: L2EpisodeCandidate[] }> =>
+    unwrapMemoryResponse(await api.get<{ items: L2EpisodeCandidate[] }>(`/memory/l2/episodes/${episodeId}/merge-candidates`)),
+  previewEpisodeSplit: async (episodeId: string, breakAfterEventId: string): Promise<L2EpisodeSplitPreview> =>
+    unwrapMemoryResponse(await api.post<L2EpisodeSplitPreview>(`/memory/l2/episodes/${episodeId}/split-preview`, {
+      break_after_event_id: breakAfterEventId,
+    })),
+  splitEpisode: async (episodeId: string, breakAfterEventId: string): Promise<{ items: L2EpisodeReviewDetail[] }> =>
+    unwrapMemoryResponse(await api.post<{ items: L2EpisodeReviewDetail[] }>(`/memory/l2/episodes/${episodeId}/split`, {
+      break_after_event_id: breakAfterEventId,
+    })),
   reconsolidateEpisodes: async (): Promise<EpisodeReconsolidateResult> =>
     unwrapMemoryResponse(await api.post<EpisodeReconsolidateResult>('/memory/l2/episodes/reconsolidate')),
   annotateEpisode: async (episodeId: string, payload: EpisodeAnnotationPayload): Promise<L2Episode> =>
     unwrapMemoryResponse(await api.patch<L2Episode>(`/memory/l2/episodes/${episodeId}`, payload)),
-  mergeEpisodes: async (episodeId: string, absorbedId: string): Promise<L2Episode> =>
-    unwrapMemoryResponse(await api.post<L2Episode>(`/memory/l2/episodes/${episodeId}/merge`, { absorbed_id: absorbedId })),
+  mergeEpisodes: async (episodeId: string, absorbedId: string): Promise<L2EpisodeReviewDetail> =>
+    unwrapMemoryResponse(await api.post<L2EpisodeReviewDetail>(`/memory/l2/episodes/${episodeId}/merge`, { absorbed_id: absorbedId })),
   forgetEpisode: async (episodeId: string, deleteEvents = false): Promise<ForgetEpisodeResponse> =>
     unwrapMemoryResponse(await api.post<ForgetEpisodeResponse>('/memory/forget/episode', {
       episode_id: episodeId,
