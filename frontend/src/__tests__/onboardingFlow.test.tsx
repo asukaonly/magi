@@ -172,6 +172,7 @@ describe('OnboardingFlow (linear 4-step)', () => {
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
 
+    expect(screen.getByText('welcome.brand')).toBeInTheDocument();
     expect(screen.getByText('welcome.title')).toBeInTheDocument();
     expect(screen.getByText('welcome.subtitle')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /welcome\.getStarted/ })).toBeInTheDocument();
