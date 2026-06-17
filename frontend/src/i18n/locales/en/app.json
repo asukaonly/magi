@@ -2644,6 +2644,49 @@
           "coffee_roast_preference": "coffee roast preference",
           "music_artist_preference": "favorite music artist"
         },
+        "traitValues": {
+          "common": {
+            "high": "high",
+            "medium": "medium",
+            "low": "low",
+            "positive": "positive",
+            "negative": "negative",
+            "neutral": "neutral",
+            "focused": "focused",
+            "calm": "calm"
+          },
+          "mood": {
+            "high": "high",
+            "medium": "medium",
+            "low": "low",
+            "positive": "positive",
+            "negative": "negative",
+            "neutral": "neutral",
+            "focused": "focused",
+            "calm": "calm"
+          },
+          "stress": {
+            "high": "high",
+            "medium": "medium",
+            "low": "low"
+          },
+          "engagement": {
+            "high": "high",
+            "medium": "medium",
+            "low": "low",
+            "focused": "focused"
+          },
+          "group_atmosphere": {
+            "positive": "positive",
+            "negative": "negative",
+            "neutral": "neutral"
+          },
+          "public_sentiment": {
+            "positive": "positive",
+            "negative": "negative",
+            "neutral": "neutral"
+          }
+        },
         "predicateLabels": {
           "listened": "listened to",
           "viewed": "viewed",

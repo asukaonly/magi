@@ -146,7 +146,7 @@ async def test_build_state_change_candidate_ignores_weak_emerging_signal() -> No
                     evidence_event_ids=["evt-1"],
                     time_span_hours=1.0,
                     stability_kind="emerging_pattern",
-                    trait_family="taste_profile",
+                    trait_family="preference_profile",
                 )
             ],
         )
@@ -171,7 +171,7 @@ async def test_state_change_insight_key_is_stable_for_trait_value_updates() -> N
                     evidence_event_ids=["evt-1", "evt-2"],
                     time_span_hours=12.0,
                     stability_kind="emerging_pattern",
-                    trait_family="taste_profile",
+                    trait_family="preference_profile",
                 )
             ],
         )
@@ -189,7 +189,7 @@ async def test_state_change_insight_key_is_stable_for_trait_value_updates() -> N
                     evidence_event_ids=["evt-3", "evt-4"],
                     time_span_hours=12.0,
                     stability_kind="emerging_pattern",
-                    trait_family="taste_profile",
+                    trait_family="preference_profile",
                 )
             ],
         )
@@ -216,7 +216,7 @@ async def test_state_change_insight_key_groups_related_music_traits() -> None:
                     evidence_event_ids=["evt-1", "evt-2"],
                     time_span_hours=12.0,
                     stability_kind="emerging_pattern",
-                    trait_family="taste_profile",
+                    trait_family="preference_profile",
                 )
             ],
         )
@@ -234,7 +234,7 @@ async def test_state_change_insight_key_groups_related_music_traits() -> None:
                     evidence_event_ids=["evt-1", "evt-2"],
                     time_span_hours=12.0,
                     stability_kind="emerging_pattern",
-                    trait_family="taste_profile",
+                    trait_family="preference_profile",
                 ),
                 _outcome(
                     trait_name="preference.music.artists",
@@ -244,7 +244,7 @@ async def test_state_change_insight_key_groups_related_music_traits() -> None:
                     evidence_event_ids=["evt-3", "evt-4"],
                     time_span_hours=12.0,
                     stability_kind="emerging_pattern",
-                    trait_family="taste_profile",
+                    trait_family="preference_profile",
                 ),
             ],
         )
@@ -273,7 +273,7 @@ async def test_state_change_content_uses_readable_labels_not_raw_trait_name(monk
                     evidence_event_ids=["evt-1", "evt-2"],
                     time_span_hours=12.0,
                     stability_kind="emerging_pattern",
-                    trait_family="taste_profile",
+                    trait_family="preference_profile",
                 )
             ],
         )
@@ -281,5 +281,5 @@ async def test_state_change_content_uses_readable_labels_not_raw_trait_name(monk
 
     assert candidate is not None
     assert "preference.music.genres" not in candidate.content
-    # Family label "审美" should appear (taste_profile)
-    assert "审美" in candidate.content
+    # Family label "偏好" should appear (preference_profile)
+    assert "偏好" in candidate.content

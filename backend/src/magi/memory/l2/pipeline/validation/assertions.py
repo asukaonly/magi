@@ -9,6 +9,7 @@ from ....event_contracts import MemoryEvent
 from ...context_bundle import ResolvedContextRef
 from ...extraction_profiles import ExtractionProfile
 from ...models import L2AssertionCandidate, L2Phase1Result
+from ...assertion_family_policy import get_assertion_family_policy
 from ...ontology import is_leaf_fact_duplicate, validate_assertion_candidate
 from ...ontology_aliases import canonicalize_predicate
 from ...storage.utils import normalize_event_ids
@@ -205,14 +206,14 @@ class L2AssertionValidationMixin:
         name_lower = trait_name.casefold()
         if name_lower in {"annoyance", "irritation", "frustration"}:
             return "momentary", "fast_decay", event.timestamp + 2 * 60 * 60
-        if trait_family == "mood":
-            return "session", "session_decay", event.timestamp + 12 * 60 * 60
-        if trait_family == "stress":
-            return "daily", "time_window", event.timestamp + 24 * 60 * 60
-        if trait_family == "engagement":
-            return "session", "session_decay", event.timestamp + 12 * 60 * 60
-        if trait_family in {"group_atmosphere", "public_sentiment", "relationship_shift"}:
-            return "session", "session_decay", event.timestamp + 6 * 60 * 60
+        policy = get_assertion_family_policy(trait_family)
+        if policy is not None:
+            expires_at = (
+                event.timestamp + policy.default_ttl_seconds
+                if policy.default_ttl_seconds is not None
+                else None
+            )
+            return policy.default_temporal_scope, policy.default_decay_policy, expires_at
         return "stable", "evidence_only", None
 
     def _prepare_unified_assertion_candidates(
@@ -368,14 +369,14 @@ class L2AssertionValidationMixin:
         trait_name = candidate.trait_name.casefold()
         if target_entity_id and trait_name in {"annoyance", "irritation", "frustration"}:
             return "momentary", "fast_decay", event.timestamp + 2 * 60 * 60
-        if trait_family == "mood":
-            return "session", "session_decay", event.timestamp + 12 * 60 * 60
-        if trait_family == "stress":
-            return "daily", "time_window", event.timestamp + 24 * 60 * 60
-        if trait_family == "engagement":
-            return "session", "session_decay", event.timestamp + 12 * 60 * 60
-        if trait_family in {"group_atmosphere", "public_sentiment", "relationship_shift"}:
-            return "session", "session_decay", event.timestamp + 6 * 60 * 60
+        policy = get_assertion_family_policy(trait_family)
+        if policy is not None:
+            expires_at = (
+                event.timestamp + policy.default_ttl_seconds
+                if policy.default_ttl_seconds is not None
+                else None
+            )
+            return policy.default_temporal_scope, policy.default_decay_policy, expires_at
         return "stable", "evidence_only", None
 
     def _apply_assertion_scope(
