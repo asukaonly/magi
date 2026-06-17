@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 
 class MemoryBackend(str, Enum):
     """Memory storage backend type."""
+
     MEMORY = "memory"
     CHROMADB = "chromadb"
     FAISS = "faiss"
@@ -17,12 +18,14 @@ class MemoryBackend(str, Enum):
 
 class EmbeddingBackend(str, Enum):
     """Embedding vector backend type."""
+
     SQLITE_VEC = "sqlite_vec"
     OPENAI = "openai"
 
 
 class EmbeddingMode(str, Enum):
     """Embedding execution mode."""
+
     OFF = "off"
     REMOTE = "remote"
     LOCAL = "local"
@@ -30,6 +33,7 @@ class EmbeddingMode(str, Enum):
 
 class LocalEmbeddingModelSource(str, Enum):
     """How a local embedding model is referenced."""
+
     MANAGED = "managed"
     EXTERNAL = "external"
 
@@ -41,10 +45,19 @@ class LocalEmbeddingSettings(BaseModel):
     managed_model_id: Optional[str] = Field(default=None)
     model_dir_path: Optional[str] = Field(default=None)
     idle_timeout_seconds: int = Field(default=1800, ge=60)
+    variant: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional ONNX quantization variant override (e.g. 'fp32', 'fp16', "
+            "'quantized', 'int8'). When None, the platform default from the "
+            "model's registry entry is used."
+        ),
+    )
 
 
 class EmbeddingSettings(BaseModel):
     """Embedding configuration. Note: embedding model is configured via LLM EMBEDDING scenario."""
+
     backend: EmbeddingBackend = Field(default=EmbeddingBackend.SQLITE_VEC)
     mode: EmbeddingMode = Field(default=EmbeddingMode.OFF)
     local: LocalEmbeddingSettings = Field(default_factory=LocalEmbeddingSettings)
@@ -62,12 +75,15 @@ class MemoryL0Settings(BaseModel):
 
     enabled: bool = Field(default=True)
     checkpoint_interval_seconds: int = Field(default=30, ge=1)
+    runtime_replay_include_l0_only: bool = Field(default=False)
 
 
 class MemoryL1Settings(BaseModel):
     """L1 long-term event memory settings."""
 
     enabled: bool = Field(default=True)
+    retention_days: int = Field(default=7, ge=1)
+    t1_importance_enabled: bool = Field(default=True)
     vectors_enabled: bool = Field(default=True)
 
 
@@ -77,6 +93,7 @@ class MemoryL2Settings(BaseModel):
     enabled: bool = Field(default=True)
     vectors_enabled: bool = Field(default=True)
     batch_flush_interval_seconds: int = Field(default=60, ge=30)
+    llm_extraction_enabled: bool = Field(default=True)
     auto_extract_relations: bool = Field(default=True)
     conflict_arbitration_enabled: bool = Field(default=True)
     conflict_arbitration_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
@@ -132,6 +149,8 @@ class MemoryL3Settings(BaseModel):
     temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
     temporal_llm_min_event_count: int = Field(default=2, ge=1)
     summary_interval_minutes: int = Field(default=60, ge=1)
+    digest_enabled: bool = Field(default=True)
+    digest_interval_hours: int = Field(default=24, ge=1)
 
 
 class MemoryL4Settings(BaseModel):
@@ -139,15 +158,28 @@ class MemoryL4Settings(BaseModel):
 
     enabled: bool = Field(default=True)
     vectors_enabled: bool = Field(default=True)
+    skill_extraction_enabled: bool = Field(default=True)
     strategy_extraction_threshold: int = Field(
         default=5,
         description="Number of new traces before triggering LLM strategy extraction.",
     )
-    maintenance_enabled: bool = Field(default=True, description="Run periodic L4 maintenance loops.")
-    breaker_open_timeout_seconds: int = Field(default=600, description="Seconds an open breaker must be held before transitioning to half-open.")
-    breaker_halfopen_idle_seconds: int = Field(default=1800, description="Idle window in half-open before closing the breaker.")
-    inactive_skill_retention_days: int = Field(default=30, description="Soft-delete skills with last_seen older than this and below the activity threshold.")
-    inactive_skill_min_attempts: int = Field(default=5, description="Minimum total_attempts to keep a skill regardless of last_seen.")
+    maintenance_enabled: bool = Field(
+        default=True, description="Run periodic L4 maintenance loops."
+    )
+    breaker_open_timeout_seconds: int = Field(
+        default=600,
+        description="Seconds an open breaker must be held before transitioning to half-open.",
+    )
+    breaker_halfopen_idle_seconds: int = Field(
+        default=1800, description="Idle window in half-open before closing the breaker."
+    )
+    inactive_skill_retention_days: int = Field(
+        default=30,
+        description="Soft-delete skills with last_seen older than this and below the activity threshold.",
+    )
+    inactive_skill_min_attempts: int = Field(
+        default=5, description="Minimum total_attempts to keep a skill regardless of last_seen."
+    )
 
 
 class CrossEncoderSettings(BaseModel):
@@ -155,6 +187,14 @@ class CrossEncoderSettings(BaseModel):
 
     enabled: bool = Field(default=False)
     managed_model_id: Optional[str] = Field(default=None)
+    variant: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional ONNX quantization variant override (e.g. 'fp32', 'fp16', "
+            "'quantized', 'arm64_int8', 'x86_avx512_int8'). When None, the "
+            "platform default from the model's registry entry is used."
+        ),
+    )
 
 
 class MemoryRerankerSettings(BaseModel):
@@ -189,6 +229,7 @@ class EntitySemanticEdgeSettings(BaseModel):
 
 class MemorySettings(BaseModel):
     """Memory configuration."""
+
     db_path: str = Field(default="~/.magi/data/memory")
     retention_days: int = Field(default=90, ge=1)
     history_behavior: MemoryHistoryBehavior = Field(default=MemoryHistoryBehavior.DELETE)
@@ -197,7 +238,9 @@ class MemorySettings(BaseModel):
     reranker: MemoryRerankerSettings = Field(default_factory=MemoryRerankerSettings)
     query_expansion: QueryExpansionSettings = Field(default_factory=QueryExpansionSettings)
     graph_spreading: GraphSpreadingSettings = Field(default_factory=GraphSpreadingSettings)
-    entity_semantic_edges: EntitySemanticEdgeSettings = Field(default_factory=EntitySemanticEdgeSettings)
+    entity_semantic_edges: EntitySemanticEdgeSettings = Field(
+        default_factory=EntitySemanticEdgeSettings
+    )
     l0: MemoryL0Settings = Field(default_factory=MemoryL0Settings)
     l1: MemoryL1Settings = Field(default_factory=MemoryL1Settings)
     l2: MemoryL2Settings = Field(default_factory=MemoryL2Settings)
