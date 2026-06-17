@@ -4976,6 +4976,80 @@ class TestEntityTypeFiltering:
         assert rejected_count == 1
         assert [item["trait_name"] for item in prepared] == ["taste.music"]
 
+    def test_phase2_assertions_allow_trait_namespace_wildcard(self):
+        from magi.memory.l2.models import L2Phase2AssertionCandidate
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        event = _make_memory_event(event_id="evt-trait-wildcard", content="played Track A")
+
+        prepared, rejected_count = pipeline._validate_phase2_assertions(
+            event=event,
+            profile=SimpleNamespace(
+                allow_assertion=True,
+                assertion_mode="phase2_candidate",
+                allowed_assertion_families={"taste_profile"},
+                allowed_assertion_traits=frozenset({"taste.*"}),
+            ),
+            policy=SimpleNamespace(allow_assertion_write=True),
+            graph_candidates=[],
+            default_event_ids=["evt-trait-wildcard"],
+            phase2_assertions=[
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="taste_profile",
+                    trait_name="taste.music",
+                    trait_value="Track A",
+                    confidence=0.7,
+                ),
+            ],
+        )
+
+        assert rejected_count == 0
+        assert [item["trait_name"] for item in prepared] == ["taste.music"]
+
+    def test_phase2_assertions_respect_policy_assertion_scope(self):
+        from magi.memory.l2.models import L2Phase2AssertionCandidate
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        event = _make_memory_event(event_id="evt-assertion-scope", content="Chrome users discussed Magi")
+
+        prepared, rejected_count = pipeline._validate_phase2_assertions(
+            event=event,
+            profile=SimpleNamespace(
+                allow_assertion=True,
+                assertion_mode="phase2_candidate",
+                allowed_assertion_families={"taste_profile", "public_sentiment"},
+                allowed_assertion_traits=None,
+            ),
+            policy=SimpleNamespace(
+                allow_assertion_write=True,
+                assertion_scope="topology_only",
+            ),
+            graph_candidates=[],
+            default_event_ids=["evt-assertion-scope"],
+            phase2_assertions=[
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="taste_profile",
+                    trait_name="taste.music",
+                    trait_value="Track A",
+                    confidence=0.7,
+                ),
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="public_sentiment",
+                    trait_name="sentiment.magi",
+                    trait_value="positive",
+                    confidence=0.7,
+                ),
+            ],
+        )
+
+        assert rejected_count == 1
+        assert [item["trait_family"] for item in prepared] == ["public_sentiment"]
+
 
 class TestEntityNameQuality:
     """Tests for _is_quality_entity_name noise filter."""

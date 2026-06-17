@@ -59,13 +59,17 @@ def _profile_allows_assertion_trait(profile: ExtractionProfile, trait_name: str)
     allowed_traits = getattr(profile, "allowed_assertion_traits", None)
     if allowed_traits is None or allowed_traits == "all":
         return True
+    allowed_iterable = [allowed_traits] if isinstance(allowed_traits, str) else allowed_traits
     normalized_trait = str(trait_name or "").strip().casefold()
-    normalized_allowed = {
-        str(item).strip().casefold()
-        for item in allowed_traits
-        if str(item).strip()
-    }
-    return normalized_trait in normalized_allowed
+    for item in allowed_iterable:
+        pattern = str(item).strip().casefold()
+        if not pattern:
+            continue
+        if pattern.endswith(".*") and normalized_trait.startswith(pattern[:-1]):
+            return True
+        if normalized_trait == pattern:
+            return True
+    return False
 
 
 class _L2AssertionHostProtocol(Protocol):
@@ -93,17 +97,23 @@ class L2AssertionValidationMixin:
         """Validate Phase 2 assertion candidates."""
         if not policy.allow_assertion_write or not profile.allow_assertion:
             return [], 0
+        raw_assertions = list(phase2_assertions or [])
         if not _profile_accepts_phase2_assertions(profile):
-            return [], len(phase2_assertions or [])
+            return [], len(raw_assertions)
+
+        scoped_assertions = self._apply_assertion_scope(
+            raw_candidates=raw_assertions,
+            assertion_scope=getattr(policy, "assertion_scope", None) or "full",
+        )
 
         host = self._assertion_host()
         prepared: list[dict[str, Any]] = []
-        rejected_count = 0
+        rejected_count = max(0, len(raw_assertions) - len(scoped_assertions))
         duplicate_check_candidates = [
             {"predicate": c["predicate"], "object_ref": c["object_id"]} for c in graph_candidates
         ]
         profile_values_by_trait = _profile_values_by_trait(phase1_result)
-        for assertion in phase2_assertions:
+        for assertion in scoped_assertions:
             trait_family = str(getattr(assertion, "trait_family", "") or "").casefold()
             if trait_family not in profile.allowed_assertion_families:
                 rejected_count += 1
@@ -371,9 +381,9 @@ class L2AssertionValidationMixin:
     def _apply_assertion_scope(
         self,
         *,
-        raw_candidates: list[L2AssertionCandidate],
+        raw_candidates: list[Any],
         assertion_scope: str,
-    ) -> list[L2AssertionCandidate]:
+    ) -> list[Any]:
         if assertion_scope == "none":
             return []
         if assertion_scope == "full":
