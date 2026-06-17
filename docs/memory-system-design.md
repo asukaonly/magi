@@ -241,7 +241,8 @@ L2 holds:
 - Entity facets (sidecar structured attributes)
 - ToM trait assertions (versioned, with lifecycle states and supersession)
 - ToM snapshots (periodically refreshed entity portraits)
-- Episodes (bounded activity segments formed from L1 events)
+- Episodes (bounded activity and theme segments formed from L1 events)
+- Experiences (product-grade, evidence-backed narrative memories promoted from episodes and events)
 - Durable projection job queue
 
 Sensor-derived relation candidates reach the L2 knowledge graph through the awareness-owned knowledge graph write queue. That queue is the backpressure boundary for bursty sensor catch-up runs: it batches edge writes before calling the unified memory facade, while the memory layer remains the owner of graph schema, conflict resolution, evidence merging, and embedding status updates.
@@ -338,7 +339,7 @@ Family choice shapes downstream handling but does not by itself decide trust. Co
 
 Assertion API rows expose family display metadata, including `trait_value_i18n`, so the frontend can localize controlled state values while preserving literal user-authored profile and preference values.
 
-**Episodic Memory** stores bounded historical experiences:
+**Episodic Memory** stores bounded historical activity, episode, and experience structure:
 
 - Three tables: `episodes`, `episode_events`, `episodes_fts` (FTS5)
 - Episode types: `activity`, `visit`, `session`, `conversation` (each with different time-gap thresholds)
@@ -370,11 +371,46 @@ Assertion API rows expose family display metadata, including `trait_value_i18n`,
 - Episodes can overlap and nest via `parent_episode_id`
 - Each episode carries `primary_entity_ids`, `primary_place_ids`, `primary_topic_keys`, `continuity_signals`, `dominant_mode`
 
+Episodes are the L2 episodic substrate, not necessarily the final
+user-facing memory object. They organize L1 evidence into bounded activity or
+theme segments such as browsing bursts, search sessions, debugging windows, or
+conversation spans. They may be useful evidence even when they are too shallow,
+generic, or source-driven to feel like a meaningful life/work experience.
+
+**Experiences** are the product-grade episodic object surfaced in the review
+page and timeline. An experience is promoted only when one or more substrate
+episodes/events form a narratable memory with a clear theme, evidence boundary,
+user involvement, and some change, outcome, decision, discovery, or unresolved
+thread worth revisiting. L2 owns the experience identity, membership, lifecycle,
+curation state, and evidence backlinks. L3 owns the natural-language review and
+Magi interpretation attached to that experience. Timeline and review surfaces
+consume experiences; they do not define or persist them.
+
+Experience membership must remain evidence anchored. The durable model should
+allow membership rows to reference source episodes first and direct L1 events
+when finer curation is needed. The source episode remains a supporting segment;
+it does not become a new fact source. Any user/profile claim inferred from an
+experience must enter the normal assertion pipeline with source policy,
+confidence, and evidence links instead of being treated as true because an
+experience summary said it.
+
+Experience promotion is a second-stage process over active episodes:
+
+- Build candidates from a single strong episode, adjacent same-theme episodes,
+  or repeated cross-day themes.
+- Score candidates for narrative quality: theme coherence, user involvement,
+  boundary clarity, outcome or turning point, long-term relevance, and duplicate
+  overlap with existing experiences.
+- Promote only candidates that can be expressed as a concrete natural-language
+  memory, not merely as a source/app cluster.
+- Generate the L3 experience review after promotion so the prose is attached to
+  a stable L2 object with traceable evidence.
+
 **Semantic Memory** stores durable entities, relations, and preferences:
 
 - Knowledge graph edges carry `fact_kind` (`explicit_fact`, `public_topology`, `interaction_evidence`, `stable_preference`) for admission policy enforcement
 - Temporal validity: `valid_from` / `valid_to` on edges
-- Privacy scope: `privacy_scope` on edges, facets, assertions, and episodes
+- Privacy scope: `privacy_scope` on edges, facets, assertions, episodes, and experiences
 - Synonym-aware edge dedup prevents predicate drift
 - Confidence accumulation uses noisy-OR: `1 - (1-old)(1-new)`, capped at 0.99
 
@@ -583,11 +619,16 @@ Users can interact with L2 artifacts directly:
   episode review surfaces should default to curated chapter-like episodes and
   keep raw L1 event identifiers in evidence/debug paths rather than primary
   reading views.
+- **Experience review curation**: active experiences can be renamed, annotated,
+  hidden, regenerated, merged, split, and eventually curated at either source
+  episode or direct event granularity. Experience edits update the L2 experience
+  object and its membership; the L3 review is regenerated or superseded from the
+  updated evidence boundary.
 - **Forget entity**: `forget_entity(entity_id)` — cascade soft-delete across KG edges, assertions, facets, and episodes
 - **Forget time range**: `forget_time_range(start, end)` — invalidates episodes and archives assertions/edges in the range
 - **Forget episode**: `forget_episode(episode_id)` — invalidates the episode, optionally returns member event IDs
 
-Privacy scope (`privacy_scope`) is a day-1 architecture concern carried on every durable L2 object (assertions, edges, facets, episodes).
+Privacy scope (`privacy_scope`) is a day-1 architecture concern carried on every durable L2 object (assertions, edges, facets, episodes, experiences).
 
 ### L3 — Reflection and Summaries
 
@@ -1159,7 +1200,7 @@ On this foundation:
 
 - `L0` supports current execution
 - `L1` stores canonical durable facts
-- `L2` provides structured cognition across three subdomains: semantic memory (entities, relations, preferences), state memory (versioned latest-truth with supersession), and episodic memory (bounded experiences)
+- `L2` provides structured cognition across three subdomains: semantic memory (entities, relations, preferences), state memory (versioned latest-truth with supersession), and episodic memory (episode substrates plus promoted experiences)
 - `L3` compresses and reflects
 - `L4` distills reusable execution experience
 
