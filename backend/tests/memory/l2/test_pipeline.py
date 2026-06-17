@@ -1219,6 +1219,151 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
 
 
 @pytest.mark.asyncio
+async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
+    """The extract worker passes place + type hints into episode formation.
+
+    Task 1.2: after extraction the worker builds ``EpisodeCandidateJob``s from
+    the touched place/topic hints and the event's ``event_type`` (no longer a
+    hardcoded ``"activity"``). This drives the streaming formation so the
+    created candidate episode carries the touched place in ``primary_place_ids``
+    and an ``episode_type`` matching the ingested event's ``event_type``.
+    """
+    responses = [
+        # Phase 1: extract place entity
+        json.dumps(
+            {
+                "entities": [
+                    {
+                        "surface": "魔都",
+                        "normalized_name": "上海",
+                        "entity_type": "place",
+                        "specificity": "concrete",
+                        "resolved_id": "place:shanghai",
+                        "is_new": False,
+                        "alias_signals": ["魔都"],
+                        "confidence": 0.96,
+                    }
+                ],
+                "fact_claims": [
+                    {
+                        "subject_ref": "user:self",
+                        "predicate": "LIKES",
+                        "object_ref": "魔都",
+                        "object_type": "place",
+                        "fact_kind": "stable_preference",
+                        "polarity": "positive",
+                        "specificity": "concrete",
+                        "evidence_text": "我好喜欢魔都",
+                        "confidence": 0.96,
+                        "supporting_event_ids": ["evt-episode-hint-1"],
+                    }
+                ],
+                "resolved_refs": [],
+                "diagnostics": {"entity_status": "found"},
+            }
+        ),
+        # Phase 2: produce graph edge so place:shanghai becomes a touched entity
+        json.dumps(
+            {
+                "graph_edges": [
+                    {
+                        "subject_ref": "user:u1",
+                        "subject_type": "user",
+                        "predicate": "LIKES",
+                        "object_ref": "place:shanghai",
+                        "object_type": "place",
+                        "fact_kind": "stable_preference",
+                        "polarity": "positive",
+                        "confidence": 0.96,
+                        "evidence_text": "我好喜欢魔都",
+                        "supporting_event_ids": ["evt-episode-hint-1"],
+                        "relationship_to_existing": "new",
+                        "related_existing_triple_id": None,
+                    }
+                ],
+                "refinements": [],
+                "assertion_candidates": [],
+                "contradiction_hints": [],
+            }
+        ),
+    ]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(responses)),
+        )
+        await store.initialize()
+        try:
+            assert store.l2_entity_catalog is not None
+            await store.l2_entity_catalog.upsert_entity(
+                entity_id="place:shanghai",
+                canonical_name="Shanghai",
+                entity_type="place",
+            )
+            await store.l2_entity_catalog.add_alias(
+                entity_id="place:shanghai",
+                alias_text="魔都",
+                confidence=0.98,
+            )
+
+            await store.ingest_event(
+                {
+                    "id": "evt-episode-hint-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "content": "我好喜欢魔都",
+                    },
+                }
+            )
+
+            assert store.l2 is not None
+            # Episode formation runs *after* extract_completed is incremented,
+            # so poll on the candidate episode itself rather than the stat to
+            # avoid a read-before-write race.
+            episodes: list[dict] = []
+            for _ in range(100):
+                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
+                    episodes = await store.l2.list_episodes(status="candidate", limit=10)
+                    if episodes:
+                        break
+                await asyncio.sleep(0.01)
+
+            # The extract worker should have formed a candidate episode.
+            assert episodes, "extract worker did not form a candidate episode"
+            episode = episodes[0]
+
+            # place hint plumbed through: touched place flows into primary_place_ids
+            assert "place:shanghai" in (episode.get("primary_place_ids") or [])
+
+            # type hint plumbed through: episode_type follows the event's
+            # event_type, MAPPED to a gap-table category, rather than the old
+            # hardcoded "activity". A UserMessage maps to "conversation", which
+            # is distinct from the "activity" default — so this proves the hint
+            # is both plumbed and mapped (not silently falling back).
+            from magi.memory.l2.episode_formation import episode_type_for_event
+
+            stored_event = await store.l1.get_memory_event("evt-episode-hint-1")
+            assert stored_event is not None
+            assert stored_event.event_type == EventTypes.USER_MESSAGE
+            expected_type = episode_type_for_event(stored_event.event_type)
+            assert expected_type == "conversation"
+            assert expected_type != "activity"
+            assert episode["episode_type"] == expected_type
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_resolve_mentions_returns_typed_mentions():
     from magi.memory.l2.models import ResolvedEntityMention
 
@@ -5517,3 +5662,59 @@ async def test_fast_track_claims_to_candidates_produces_valid_output():
         assert c["object_id"] == "food:ramen"
         assert c["extraction_method"] == "llm_phase1_fast_track"
         assert c["evidence_text"] == "I like ramen"
+
+
+# ── Episode formation hints: touched place ids + topic keys (Task 1.1) ──
+
+
+class TestDerivePlaceAndTopicHints:
+    """Pure derivation of touched_place_ids + touched_topic_keys from touched entities.
+
+    Episode formation needs place + topic hints so the worker can pass them into
+    EpisodeCandidateJob (today only entity_ids flow through, collapsing every
+    episode into 30-min activity buckets). Entity ids are formatted
+    ``{entity_type}:{slug}``, so the type is recoverable from the id prefix.
+    """
+
+    def _pipeline(self):
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        return L2Pipeline.__new__(L2Pipeline)
+
+    def test_place_ids_are_place_typed_touched_entities(self):
+        pipeline = self._pipeline()
+        place_ids, _topic_keys = pipeline._derive_place_and_topic_hints(
+            [
+                "place:shanghai",
+                "person:alice",
+                "place:tokyo",
+                "software:github",
+            ]
+        )
+        assert place_ids == ["place:shanghai", "place:tokyo"]
+
+    def test_topic_keys_are_sorted_unique_topic_typed_entities(self):
+        pipeline = self._pipeline()
+        _place_ids, topic_keys = pipeline._derive_place_and_topic_hints(
+            [
+                "topic:rust",
+                "topic:ai",
+                "topic:rust",
+                "person:bob",
+            ]
+        )
+        assert topic_keys == ["topic:ai", "topic:rust"]
+
+    def test_empty_touched_entities_yield_empty_hints(self):
+        pipeline = self._pipeline()
+        place_ids, topic_keys = pipeline._derive_place_and_topic_hints([])
+        assert place_ids == []
+        assert topic_keys == []
+
+    def test_no_place_or_topic_entities_yield_empty_hints(self):
+        pipeline = self._pipeline()
+        place_ids, topic_keys = pipeline._derive_place_and_topic_hints(
+            ["person:alice", "software:github", "user:local_user"]
+        )
+        assert place_ids == []
+        assert topic_keys == []

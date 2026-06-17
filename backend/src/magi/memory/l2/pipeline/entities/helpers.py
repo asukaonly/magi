@@ -192,6 +192,36 @@ class L2EntityResolutionHelperMixin:
                 touched.add(str(entity_id))
         return sorted(touched)
 
+    def _derive_place_and_topic_hints(
+        self,
+        touched_entity_ids: list[str],
+    ) -> tuple[list[str], list[str]]:
+        """Split touched entity ids into place + topic hints for episode formation.
+
+        Entity ids are formatted ``{entity_type}:{slug}`` (see
+        ``_build_canonical_entity_id``), so the catalog type is recoverable from
+        the id prefix. The episode worker passes these through to
+        ``EpisodeCandidateJob`` (``place_ids`` / ``topic_keys``) so multi-type gap
+        + topic matching in ``episode_formation`` can fire instead of collapsing
+        every batch into a 30-min activity bucket.
+
+        Returns ``(place_ids, topic_keys)`` — both deduped and sorted:
+        - ``place_ids``: touched entities whose ``entity_type == "place"``.
+        - ``topic_keys``: touched entities whose ``entity_type == "topic"``.
+        """
+        place_ids: set[str] = set()
+        topic_keys: set[str] = set()
+        for raw in touched_entity_ids:
+            entity_id = str(raw).strip()
+            if not entity_id:
+                continue
+            entity_type, _, _ = entity_id.partition(":")
+            if entity_type == "place":
+                place_ids.add(entity_id)
+            elif entity_type == "topic":
+                topic_keys.add(entity_id)
+        return sorted(place_ids), sorted(topic_keys)
+
     def _resolve_self_entity_id(self, event: MemoryEvent) -> str | None:
         if event.user_id:
             raw = str(event.user_id).strip()
