@@ -50,7 +50,8 @@
   "welcome": {
     "brand": "Magi",
     "title": "让时间沉淀为上下文",
-    "subtitle": "把散落在日常里的线索，慢慢整理成懂你的来龙去脉。你决定它看见什么，也随时可以改掉。",
+    "subtitleLine1": "把散落在日常里的线索，慢慢整理成懂你的来龙去脉。",
+    "subtitleLine2": "让之后的每一次对话，都不必从零开始。",
     "getStarted": "开始"
   },
   "scenario": {

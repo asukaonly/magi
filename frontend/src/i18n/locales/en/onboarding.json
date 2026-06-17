@@ -49,7 +49,8 @@
   "welcome": {
     "brand": "Magi",
     "title": "Turning Time Into Context",
-    "subtitle": "Magi gathers the scattered clues of your day into context that understands you. You decide what it can see, and you can change that anytime.",
+    "subtitleLine1": "Scattered clues from everyday life become context that understands you.",
+    "subtitleLine2": "Every conversation can pick up where you left off.",
     "getStarted": "Get Started"
   },
   "scenario": {
