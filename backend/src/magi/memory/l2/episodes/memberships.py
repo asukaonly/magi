@@ -28,18 +28,15 @@ class L2EpisodeMembershipMixin(L2EpisodeStoreBaseMixin):
         added = 0
         async with sqlite_connection_async(self.db_path) as db:
             for event_id in event_ids:
-                try:
-                    await db.execute(
-                        """
-                        INSERT OR IGNORE INTO episode_events(
-                            episode_id, event_id, membership_role, membership_confidence, added_at
-                        ) VALUES (?, ?, ?, ?, ?)
-                        """,
-                        (episode_id, event_id, membership_role, membership_confidence, now),
-                    )
-                    added += 1
-                except Exception:
-                    pass
+                cursor = await db.execute(
+                    """
+                    INSERT OR IGNORE INTO episode_events(
+                        episode_id, event_id, membership_role, membership_confidence, added_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (episode_id, event_id, membership_role, membership_confidence, now),
+                )
+                added += int(cursor.rowcount > 0)
             await db.commit()
         return added
 

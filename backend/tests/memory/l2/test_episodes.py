@@ -160,6 +160,7 @@ async def test_episode_events_crud(tmp_path):
         episode_id=eid,
         event_ids=["evt-2", "evt-4"],
     )
+    assert added2 == 1
     events_after = await store.list_episode_events(episode_id=eid)
     assert len(events_after) == 4
 
