@@ -10,6 +10,7 @@ interface MemoryPageFrameProps {
   children: ReactNode;
   className?: string;
   contentClassName?: string;
+  hideHeader?: boolean;
   scrollable?: boolean;
 }
 
@@ -22,6 +23,7 @@ export const MemoryPageFrame = ({
   children,
   className,
   contentClassName,
+  hideHeader = false,
   scrollable = true,
 }: MemoryPageFrameProps) => (
   <div
@@ -32,32 +34,34 @@ export const MemoryPageFrame = ({
       className
     )}
   >
-    <section
-      data-testid="memory-page-header"
-      className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-4 py-4"
-    >
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 space-y-1.5">
-          <h1 className="text-[1.85rem] font-semibold tracking-[-0.03em] text-[hsl(var(--memory-title))]">{title}</h1>
-          <p className="max-w-3xl text-sm leading-6 text-[hsl(var(--memory-body))]">{description}</p>
+    {!hideHeader ? (
+      <section
+        data-testid="memory-page-header"
+        className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-4 py-4"
+      >
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 space-y-1.5">
+            <h1 className="text-[1.85rem] font-semibold tracking-[-0.03em] text-[hsl(var(--memory-title))]">{title}</h1>
+            <p className="max-w-3xl text-sm leading-6 text-[hsl(var(--memory-body))]">{description}</p>
+          </div>
+          {actions || headerMeta ? (
+            <div className="flex flex-col gap-2 lg:min-w-fit lg:self-stretch lg:items-end lg:justify-between">
+              {actions ? <div className="flex flex-wrap items-center gap-2 lg:justify-end">{actions}</div> : null}
+              {headerMeta ? <div className="max-w-full">{headerMeta}</div> : null}
+            </div>
+          ) : null}
         </div>
-        {actions || headerMeta ? (
-          <div className="flex flex-col gap-2 lg:min-w-fit lg:self-stretch lg:items-end lg:justify-between">
-            {actions ? <div className="flex flex-wrap items-center gap-2 lg:justify-end">{actions}</div> : null}
-            {headerMeta ? <div className="max-w-full">{headerMeta}</div> : null}
+
+        {filters ? (
+          <div
+            data-testid="memory-page-filters"
+            className="mt-3 border-t border-[hsl(var(--memory-divider)/0.68)] pt-3"
+          >
+            {filters}
           </div>
         ) : null}
-      </div>
-
-      {filters ? (
-        <div
-          data-testid="memory-page-filters"
-          className="mt-3 border-t border-[hsl(var(--memory-divider)/0.68)] pt-3"
-        >
-          {filters}
-        </div>
-      ) : null}
-    </section>
+      </section>
+    ) : null}
 
     <div className={cn('pb-5', contentClassName)}>{children}</div>
   </div>

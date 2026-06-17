@@ -506,10 +506,36 @@ export interface MemorySourceCount {
   last_event_at: number | null;
 }
 
+export interface MemoryEmbeddingBacklog {
+  pending: number;
+  worker_running: boolean;
+  vector_enabled: boolean;
+  async_embeddings: boolean;
+}
+
+export interface MemoryL2ProcessingBacklog {
+  extract_pending: number;
+  reconcile_pending: number;
+  snapshot_pending: number;
+  projection_pending: number;
+  projection_claimed: number;
+  projection_failed: number;
+}
+
+export interface MemoryProcessingBacklog {
+  all_idle: boolean;
+  total_pending: number;
+  l2: MemoryL2ProcessingBacklog;
+  l1_embeddings: MemoryEmbeddingBacklog;
+  l3_embeddings: MemoryEmbeddingBacklog;
+  l4_embeddings: MemoryEmbeddingBacklog;
+}
+
 export interface MemoryDashboard {
   statistics: MemoryStatistics;
   source_counts: MemorySourceCount[];
   attention: MemoryAttention;
+  processing_backlog: MemoryProcessingBacklog;
   pending_assertions: PaginatedResponse<L2Assertion>;
 }
 

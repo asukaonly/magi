@@ -89,6 +89,14 @@ class _FakeL3Store:
     async def count_summaries(self):
         return 5
 
+    def get_statistics(self):
+        return {
+            "embedding_queue_size": 3,
+            "embedding_worker_running": True,
+            "vector_enabled": True,
+            "async_embeddings": True,
+        }
+
 
 class _FakeL4Store:
     db_path = "/tmp/l4.db"
@@ -104,6 +112,19 @@ class _FakeUnifiedMemory:
         self.l2 = _FakeL2Store()
         self.l3 = _FakeL3Store()
         self.l4 = _FakeL4Store()
+
+    def get_l2_pipeline_stats(self):
+        return {
+            "reconcile_enqueued": 6,
+            "reconcile_completed": 2,
+            "reconcile_failed": 1,
+            "snapshot_enqueued": 4,
+            "snapshot_completed": 1,
+            "snapshot_failed": 0,
+        }
+
+    async def get_l2_projection_backlog(self):
+        return {"pending": 5, "claimed": 2, "completed": 8, "failed": 1}
 
 
 def test_memory_dashboard_route_is_public():
@@ -134,6 +155,36 @@ def test_memory_dashboard_reports_statistics_sources_and_pending(monkeypatch):
     assert body["attention"]["pending_assertions"] == 2
     assert body["pending_assertions"]["total"] == 2
     assert body["pending_assertions"]["items"][0]["assertion_id"] == "assert-1"
+    assert body["processing_backlog"] == {
+        "all_idle": False,
+        "total_pending": 16,
+        "l2": {
+            "extract_pending": 7,
+            "reconcile_pending": 3,
+            "snapshot_pending": 3,
+            "projection_pending": 5,
+            "projection_claimed": 2,
+            "projection_failed": 1,
+        },
+        "l1_embeddings": {
+            "pending": 0,
+            "worker_running": False,
+            "vector_enabled": False,
+            "async_embeddings": False,
+        },
+        "l3_embeddings": {
+            "pending": 3,
+            "worker_running": True,
+            "vector_enabled": True,
+            "async_embeddings": True,
+        },
+        "l4_embeddings": {
+            "pending": 0,
+            "worker_running": False,
+            "vector_enabled": False,
+            "async_embeddings": False,
+        },
+    }
     assert fake_memory.l2.count_assertion_kwargs == {
         "validation_states": ["tentative", "contradicted"],
         "include_expired": False,

@@ -10,6 +10,9 @@ from ..events.domain_payloads import (
 from ..events.events import Event, EventLevel, EventTypes
 
 
+CHAT_MEMORY_SOURCE = "chat"
+
+
 class ChatProjector:
     """Project committed chat transcript entries onto the runtime event bus."""
 
@@ -52,7 +55,7 @@ class ChatProjector:
         await self._event_bus.publish(Event(
             type=EventTypes.USER_MESSAGE_RECEIVED,
             data=payload,
-            source="chat_projector",
+            source=CHAT_MEMORY_SOURCE,
             level=EventLevel.INFO,
             timestamp=float(created_at_ms) / 1000.0,
             correlation_id=turn_id,
@@ -94,7 +97,7 @@ class ChatProjector:
         await self._event_bus.publish(Event(
             type=EventTypes.ASSISTANT_RESPONSE_PRODUCED,
             data=payload,
-            source="chat_projector",
+            source=CHAT_MEMORY_SOURCE,
             level=EventLevel.INFO,
             timestamp=float(created_at_ms) / 1000.0,
             correlation_id=turn_id,

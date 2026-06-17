@@ -2280,10 +2280,17 @@
       "sections": {
         "sources": "来源覆盖",
         "pending": "待确认",
-        "recent": "最近形成"
+        "recent": "最新记忆"
       },
       "sourceCount": "{{count}} 个来源",
       "pendingCount": "{{count}} 条",
+      "processingBacklog": "待处理 {{count}} 条",
+      "sourceLastResult": "上次处理 {{count}} 条",
+      "sourceColumns": {
+        "source": "来源",
+        "events": "已入库",
+        "sync": "最近同步"
+      },
       "sourceStatus": {
         "ready": "已接入",
         "running": "同步中",

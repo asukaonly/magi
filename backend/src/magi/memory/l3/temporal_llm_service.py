@@ -163,12 +163,18 @@ _PERIOD_LABELS_ZH = {
 }
 _SOURCE_LABELS_ZH = {
     "chat": "对话",
+    "chat_projector": "对话",
     "chrome_history": "浏览记录",
+    "chrome-history": "浏览记录",
     "git_activity": "Git 活动",
+    "git-activity": "Git 活动",
     "system_media": "媒体播放",
+    "system-media": "媒体播放",
     "netease_music": "网易云音乐",
+    "netease-music": "网易云音乐",
     "calendar": "日历",
     "terminal_history": "终端记录",
+    "terminal-history": "终端记录",
 }
 
 

@@ -11,6 +11,12 @@ from magi.memory.event_contracts import RetentionClass
 
 from .dependencies import _resolve_memory_integration, _resolve_unified_memory
 from .helpers import memory_t
+from .l2.status import (
+    build_background_pending_response,
+    build_embedding_pending_from_store,
+    build_l2_pending_payload,
+    default_projection_backlog,
+)
 from .router import memory_router
 from .statistics import build_layer_statistics
 
@@ -26,6 +32,26 @@ def _project_source_count(row: dict[str, Any]) -> dict[str, Any]:
         "first_event_at": row.get("min_timestamp"),
         "last_event_at": row.get("max_timestamp"),
     }
+
+
+async def _default_projection_backlog() -> dict[str, int]:
+    return default_projection_backlog()
+
+
+def _total_processing_pending(backlog: dict[str, Any]) -> int:
+    l2 = dict(backlog.get("l2") or {})
+    layers = [
+        dict(backlog.get("l1_embeddings") or {}),
+        dict(backlog.get("l3_embeddings") or {}),
+        dict(backlog.get("l4_embeddings") or {}),
+    ]
+    return max(
+        int(l2.get("extract_pending", 0))
+        + int(l2.get("reconcile_pending", 0))
+        + int(l2.get("snapshot_pending", 0))
+        + sum(int(layer.get("pending", 0) or 0) for layer in layers),
+        0,
+    )
 
 
 @memory_router.get("/dashboard")
@@ -58,6 +84,12 @@ async def get_memory_dashboard(
     l2_assertion_count_coro = l2.count_tom_assertions() if l2 else _zero()
     l3_count_coro = l3.count_summaries() if l3 else _zero()
     l4_count_coro = l4.count_skills() if l4 else _zero()
+    pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
+    projection_backlog_coro = (
+        unified_memory.get_l2_projection_backlog()
+        if hasattr(unified_memory, "get_l2_projection_backlog")
+        else _default_projection_backlog()
+    )
     source_counts_coro = (
         l1.summarize_event_sources(
             cognition_eligible=True,
@@ -93,6 +125,7 @@ async def get_memory_dashboard(
         l2_assertion_count,
         l3_count,
         l4_count,
+        projection_backlog,
         source_counts,
         pending_count,
         pending_items,
@@ -102,6 +135,7 @@ async def get_memory_dashboard(
         l2_assertion_count_coro,
         l3_count_coro,
         l4_count_coro,
+        projection_backlog_coro,
         source_counts_coro,
         pending_count_coro,
         pending_items_coro,
@@ -119,11 +153,22 @@ async def get_memory_dashboard(
     attention = dict(statistics.get("attention") or {})
     attention["pending_assertions"] = int(pending_count)
     statistics["attention"] = attention
+    processing_backlog = build_background_pending_response(
+        l2_pending=build_l2_pending_payload(
+            pipeline_stats=pipeline_stats,
+            projection_backlog=projection_backlog,
+        ),
+        l1_pending=build_embedding_pending_from_store(l1),
+        l3_pending=build_embedding_pending_from_store(l3),
+        l4_pending=build_embedding_pending_from_store(l4),
+    )
+    processing_backlog["total_pending"] = _total_processing_pending(processing_backlog)
 
     return {
         "statistics": statistics,
         "source_counts": [_project_source_count(row) for row in source_counts],
         "attention": attention,
+        "processing_backlog": processing_backlog,
         "pending_assertions": {
             "items": pending_items,
             "total": int(pending_count),

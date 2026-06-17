@@ -67,7 +67,8 @@ async def test_chat_projector_publishes_canonical_user_and_assistant_events() ->
     assert user_event.timestamp == 1.0
     assert assistant_event.timestamp == 1.2
     assert user_event.correlation_id == "turn-1"
-    assert user_event.source == "chat_projector"
+    assert user_event.source == "chat"
+    assert assistant_event.source == "chat"
 
 
 @pytest.mark.asyncio

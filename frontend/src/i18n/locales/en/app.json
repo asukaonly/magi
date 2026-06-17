@@ -2281,10 +2281,17 @@
       "sections": {
         "sources": "Source coverage",
         "pending": "Pending review",
-        "recent": "Recently formed"
+        "recent": "Latest memories"
       },
       "sourceCount": "{{count}} source(s)",
       "pendingCount": "{{count}} item(s)",
+      "processingBacklog": "{{count}} queued",
+      "sourceLastResult": "{{count}} handled last run",
+      "sourceColumns": {
+        "source": "Source",
+        "events": "Stored",
+        "sync": "Last sync"
+      },
       "sourceStatus": {
         "ready": "Connected",
         "running": "Syncing",

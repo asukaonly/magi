@@ -9,6 +9,20 @@ import { memoryStoriesApi } from '@/api/modules/memoryStories';
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) => {
+      const translations: Record<string, string> = {
+        'memory.overview.sections.sources': 'Source coverage',
+        'memory.overview.sections.pending': 'Pending review',
+        'memory.overview.sections.recent': 'Latest memories',
+        'memory.overview.sourceColumns.source': 'Source',
+        'memory.overview.sourceColumns.events': 'Stored',
+        'memory.overview.sourceColumns.sync': 'Sync',
+        'memory.sources.chat_projector': 'Chat',
+        'timeline.sources.chat': 'Chat',
+        'memory.stories.categories.day': 'Daily summary',
+      };
+      if (translations[key]) {
+        return translations[key];
+      }
       if (options && typeof options.count === 'number') {
         return `${key}:${options.count}`;
       }
@@ -62,13 +76,28 @@ const dashboardPayload = {
       last_event_at: 1710003600,
     },
     {
-      source: 'chat',
+      source: 'chat_projector',
       event_count: 3,
       avg_importance: 0.8,
       first_event_at: 1710000100,
       last_event_at: 1710000200,
     },
   ],
+  processing_backlog: {
+    all_idle: false,
+    total_pending: 5,
+    l2: {
+      extract_pending: 2,
+      reconcile_pending: 1,
+      snapshot_pending: 1,
+      projection_pending: 1,
+      projection_claimed: 1,
+      projection_failed: 0,
+    },
+    l1_embeddings: { pending: 0, worker_running: false, vector_enabled: false, async_embeddings: false },
+    l3_embeddings: { pending: 1, worker_running: true, vector_enabled: true, async_embeddings: true },
+    l4_embeddings: { pending: 0, worker_running: false, vector_enabled: false, async_embeddings: false },
+  },
   attention: { pending_assertions: 1, open_circuit_breakers: 0 },
   pending_assertions: {
     items: [
@@ -118,11 +147,25 @@ const storyPayload = {
       summary_id: 'story-2',
       summary_type: 'temporal',
       summary_category: 'day',
-      title: 'Yesterday',
-      content: 'A normal day.',
+      title: '',
+      content: 'A normal chat projector day.',
       period_start: 1710000000,
       period_end: 1710003600,
       updated_at: 1710003500,
+      review_state: 'neutral',
+      insight_key: null,
+      insight_metadata: {},
+      evidence_event_count: 2,
+    },
+    {
+      summary_id: 'story-duplicate',
+      summary_type: 'temporal',
+      summary_category: 'day',
+      title: 'Yesterday copy',
+      content: 'A normal chat projector day.',
+      period_start: 1710000000,
+      period_end: 1710003400,
+      updated_at: 1710003400,
       review_state: 'neutral',
       insight_key: null,
       insight_metadata: {},
@@ -176,18 +219,45 @@ describe('MemoryOverviewPage', () => {
   it('renders dashboard metrics, source coverage, pending review, and recent memory', async () => {
     render(<MemoryOverviewPage />);
 
+    expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
     expect(await screen.findByText('28')).toBeInTheDocument();
     expect(screen.getByText('1.5 KB')).toBeInTheDocument();
+    expect(screen.getByText('Source')).toBeInTheDocument();
+    expect(screen.getAllByText('Stored').length).toBeGreaterThan(0);
+    expect(screen.getByText('Sync')).toBeInTheDocument();
+    expect(screen.getByText('memory.overview.processingBacklog:5')).toBeInTheDocument();
     expect(screen.getByText('Chrome History')).toBeInTheDocument();
     expect(screen.getByText('9')).toBeInTheDocument();
-    expect(screen.getByText('chat')).toBeInTheDocument();
+    expect(screen.getByText('Chat')).toBeInTheDocument();
+    expect(screen.queryByText('chat_projector')).not.toBeInTheDocument();
     expect(screen.getByText('favorite_language')).toBeInTheDocument();
     expect(screen.getByText('Python')).toBeInTheDocument();
     expect(screen.getByText('Sleep changed')).toBeInTheDocument();
-    expect(screen.getByText('Yesterday')).toBeInTheDocument();
+    expect(screen.getByText('Latest memories')).toBeInTheDocument();
+    expect(screen.getByText('Daily summary')).toBeInTheDocument();
+    expect(screen.getAllByText('A normal Chat day.')).toHaveLength(1);
+    expect(screen.queryByText(/chat projector/i)).not.toBeInTheDocument();
     expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 8 });
     expect(sensorsApi.getStatus).toHaveBeenCalled();
     expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 12, offset: 0 });
+  });
+
+  it('hides the pending section when nothing needs review', async () => {
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({
+      ...dashboardPayload,
+      attention: { pending_assertions: 0, open_circuit_breakers: 0 },
+      pending_assertions: { items: [], total: 0, limit: 8, offset: 0 },
+    } as any);
+    vi.mocked(memoryStoriesApi.list).mockResolvedValue({
+      ...storyPayload,
+      items: storyPayload.items.filter((story) => story.review_state !== 'pending_confirmation'),
+    } as any);
+
+    render(<MemoryOverviewPage />);
+
+    expect(await screen.findByText('Latest memories')).toBeInTheDocument();
+    expect(screen.queryByText('Pending review')).not.toBeInTheDocument();
+    expect(screen.queryByText('memory.overview.empty.pending')).not.toBeInTheDocument();
   });
 
   it('routes pending item actions to their owning memory APIs', async () => {
