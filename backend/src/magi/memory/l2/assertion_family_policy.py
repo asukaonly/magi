@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,10 +168,24 @@ def render_assertion_family_semantics() -> str:
     return "\n".join(lines)
 
 
+def decorate_assertion_family_metadata(assertion: dict[str, Any]) -> dict[str, Any]:
+    """Return an assertion payload enriched with family policy display metadata."""
+
+    decorated = dict(assertion)
+    policy = get_assertion_family_policy(str(decorated.get("trait_family") or ""))
+    if policy is None:
+        return decorated
+    decorated["trait_value_i18n"] = policy.value_i18n
+    decorated["assertion_family_snapshot_bucket"] = policy.snapshot_bucket
+    decorated["assertion_family_description"] = policy.description
+    return decorated
+
+
 __all__ = [
     "ASSERTION_FAMILY_ALLOWLIST",
     "ASSERTION_FAMILY_POLICIES",
     "AssertionFamilyPolicy",
+    "decorate_assertion_family_metadata",
     "get_assertion_family_policy",
     "render_assertion_family_list",
     "render_assertion_family_semantics",

@@ -336,6 +336,8 @@ Assertion family semantics are centralized in `backend/src/magi/memory/l2/assert
 
 Family choice shapes downstream handling but does not by itself decide trust. Conflict decisions are primarily source-tier and active-key based: user-authored assertions remain authoritative over behavioral or plugin-derived inference unless the user explicitly corrects or rejects them. Family policy determines whether a value behaves like short-lived state, durable semantic profile, preference snapshot content, or core-trait context after it has passed source-tier and evidence gates.
 
+Assertion API rows expose family display metadata, including `trait_value_i18n`, so the frontend can localize controlled state values while preserving literal user-authored profile and preference values.
+
 **Episodic Memory** stores bounded historical experiences:
 
 - Three tables: `episodes`, `episode_events`, `episodes_fts` (FTS5)

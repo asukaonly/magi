@@ -35,3 +35,21 @@ def test_phase2_prompt_explains_assertion_family_semantics() -> None:
     assert "`routine_profile`" in PHASE2_INTEGRATE_SYSTEM_PROMPT
     assert "`preference_profile`" in PHASE2_INTEGRATE_SYSTEM_PROMPT
     assert "`taste_profile`" not in PHASE2_INTEGRATE_SYSTEM_PROMPT
+
+
+def test_decorate_assertion_family_metadata_exposes_value_i18n_policy() -> None:
+    from magi.memory.l2.assertion_family_policy import decorate_assertion_family_metadata
+
+    assertion = {
+        "assertion_id": "a1",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "high",
+    }
+
+    decorated = decorate_assertion_family_metadata(assertion)
+
+    assert decorated is not assertion
+    assert decorated["trait_value_i18n"] == "controlled"
+    assert decorated["assertion_family_snapshot_bucket"] == "state"
+    assert decorated["assertion_family_description"]

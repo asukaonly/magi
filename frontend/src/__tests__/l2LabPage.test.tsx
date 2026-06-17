@@ -4,9 +4,20 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { L2Tab } from '@/components/memory/L2Tab';
 
+const TEST_TRANSLATIONS: Record<string, string> = {
+  'memory.pages.knowledge.traitValues.mood.high': 'localized high',
+};
+
+const interpolate = (template: string, options?: Record<string, unknown>) => template.replace(
+  /\{\{\s*(\w+)\s*\}\}/g,
+  (_match, key: string) => String(options?.[key] ?? '')
+);
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, options?: Record<string, unknown>) => (
+      TEST_TRANSLATIONS[key] ? interpolate(TEST_TRANSLATIONS[key], options) : key
+    ),
   }),
 }));
 
@@ -527,5 +538,66 @@ describe('L2Tab lab', () => {
     expect(screen.getByText('memory.pages.knowledge.sections.knowledgeDirectory')).toBeInTheDocument();
     expect(screen.getByText('User U1\'s preference music may be "{"genre":"jazz"}".')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.l2.correctAssertion' })).toBeInTheDocument();
+  });
+
+  it('localizes controlled assertion values without changing correction payloads', async () => {
+    const user = userEvent.setup();
+    const onCorrectAssertion = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <L2Tab
+        section="knowledgeBase"
+        stats={{ relation_count: 0, assertion_count: 1 }}
+        relations={[]}
+        assertions={[
+          {
+            assertion_id: 'assert-mood',
+            entity_id: 'user:u1',
+            entity_type: 'user',
+            trait_family: 'mood',
+            trait_name: 'mood',
+            trait_value: 'high',
+            trait_value_i18n: 'controlled',
+            confidence_score: 0.7,
+            evidence_events: ['evt-2'],
+            validation_state: 'tentative',
+            volatility_index: 0.2,
+            source_domain: 'chat',
+            inference_depth: 'explicit',
+            first_inferred_at: 1710000000,
+            last_validated_at: 1710000000,
+            user_feedback: null,
+            user_feedback_at: null,
+          },
+        ]}
+        identityLinks={[]}
+        entities={[
+          {
+            entity_id: 'user:u1',
+            canonical_name: 'User U1',
+            entity_type: 'user',
+            aliases: ['me'],
+          },
+        ]}
+        mentions={[]}
+        snapshots={[]}
+        conflictRules={[]}
+        events={[]}
+        knowledgeStatusFilter="needsReview"
+        actionLoading={false}
+        onSubmitManualEvent={vi.fn().mockResolvedValue(undefined)}
+        onReplayExtraction={vi.fn().mockResolvedValue(undefined)}
+        onRunReconcile={vi.fn().mockResolvedValue(undefined)}
+        onRunSnapshotRefresh={vi.fn().mockResolvedValue(undefined)}
+        onUpsertGraphConflictRule={vi.fn().mockResolvedValue(undefined)}
+        onSubmitAssertionFeedback={vi.fn().mockResolvedValue(undefined)}
+        onCorrectAssertion={onCorrectAssertion}
+      />
+    );
+
+    expect(screen.getByText('User U1\'s mood may be "localized high".')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'memory.l2.correctAssertion' }));
+    expect(screen.getByLabelText('memory.l2.correctionValue')).toHaveValue('high');
   });
 });
