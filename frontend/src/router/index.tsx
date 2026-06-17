@@ -23,6 +23,9 @@ const MemoryStoryPage = React.lazy(() =>
 const MemoryEpisodesPage = React.lazy(() =>
   import('../pages/memory-pages').then((m) => ({ default: m.MemoryEpisodesPage }))
 );
+const MemoryExperienceDetailPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryExperienceDetailPage }))
+);
 const MemoryPortraitPage = React.lazy(() =>
   import('../pages/memory-pages').then((m) => ({ default: m.MemoryPortraitPage }))
 );
@@ -197,6 +200,14 @@ const router = createBrowserRouter([
             element: (
               <React.Suspense fallback={<LoadingFallback />}>
                 <MemoryEpisodesPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'episodes/:experienceId',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryExperienceDetailPage />
               </React.Suspense>
             ),
           },

@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
-import { MemoryEpisodesPage } from '@/pages/memory-pages/MemoryEpisodesPage';
+import { MemoryEpisodesPage, MemoryExperienceDetailPage } from '@/pages/memory-pages/MemoryEpisodesPage';
 import { memoryApi } from '@/api/modules/memory';
 import type { L2ExperienceReviewDetail, L2ExperienceWithReview } from '@/api/modules/memory';
 
@@ -17,6 +17,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.sections.recap': "Magi's recap",
     'memory.episodes.sections.whatHappened': 'Event trail',
     'memory.episodes.sections.sourceEpisodes': 'Source chapters',
+    'memory.episodes.sections.featured': 'Worth revisiting',
     'memory.episodes.sections.entities': 'Entities',
     'memory.episodes.sections.places': 'Places',
     'memory.episodes.sections.topics': 'Topics',
@@ -33,13 +34,14 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.episodeCount': '{{count}} source episodes',
     'memory.episodes.sourceEpisodeFallback': 'Source chapter {{index}}',
     'memory.episodes.emptyTitle': 'No active experiences yet',
-    'memory.episodes.emptyBody': 'Magi will form experiences as conversations and activity accumulate. If you already have remembered activity, run a refresh now.',
+    'memory.episodes.emptyBody': 'Magi will form experiences as conversations and activity accumulate. If you need to refresh them manually, use the Manage page.',
     'memory.episodes.detailEmptyTitle': 'Choose an experience',
     'memory.episodes.detailEmptyBody': 'Open one from the list to inspect its events and impressions.',
     'memory.episodes.noRecap': 'No recap yet.',
     'memory.episodes.noEvents': 'No event memberships found.',
     'memory.episodes.noSourceEpisodes': 'No source episodes found.',
     'memory.episodes.noSearchResults': 'No experiences match those filters.',
+    'memory.episodes.detailNotFound': 'Experience not found.',
     'memory.episodes.eventPreviewUnavailable': 'Event preview unavailable',
     'memory.episodes.noTags': 'None yet',
     'memory.episodes.awaitingLabel': 'Waiting for Magi to draft a title...',
@@ -47,6 +49,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.fields.description': 'Recap',
     'memory.episodes.fields.pinned': 'Pinned',
     'memory.episodes.actions.open': 'Open experience',
+    'memory.episodes.actions.backToList': 'Back to experiences',
     'memory.episodes.actions.rename': 'Rename',
     'memory.episodes.actions.editDescription': 'Edit recap',
     'memory.episodes.actions.regenerateDescription': 'Regenerate recap',
@@ -257,8 +260,21 @@ const experienceDetail: L2ExperienceReviewDetail = {
 
 const renderPage = () =>
   render(
-    <MemoryRouter>
-      <MemoryEpisodesPage />
+    <MemoryRouter initialEntries={['/memory/episodes']}>
+      <Routes>
+        <Route path="/memory/episodes" element={<MemoryEpisodesPage />} />
+        <Route path="/memory/episodes/:experienceId" element={<MemoryExperienceDetailPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+
+const renderDetailPage = (experienceId = 'exp-1') =>
+  render(
+    <MemoryRouter initialEntries={[`/memory/episodes/${experienceId}`]}>
+      <Routes>
+        <Route path="/memory/episodes" element={<MemoryEpisodesPage />} />
+        <Route path="/memory/episodes/:experienceId" element={<MemoryExperienceDetailPage />} />
+      </Routes>
     </MemoryRouter>
   );
 
@@ -298,14 +314,16 @@ beforeEach(() => {
 });
 
 describe('MemoryEpisodesPage', () => {
-  it('lists experiences without opening the detail rail automatically', async () => {
+  it('lists experiences as a focused review index without management controls', async () => {
     renderPage();
 
     expect((await screen.findAllByText('Launch week')).length).toBeGreaterThan(0);
     expect(screen.getByText('Generated research loop')).toBeInTheDocument();
     expect(screen.getByText('Pinned first · Recently updated')).toBeInTheDocument();
     expect(screen.getByText('All experiences')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Build experiences now' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Build experiences now' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Search experiences')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Filter' })).not.toBeInTheDocument();
 
     const experienceButtons = screen.getAllByRole('button', { name: /Open experience:/ });
     expect(experienceButtons.map((button) => button.getAttribute('aria-label'))).toEqual([
@@ -319,11 +337,19 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.queryByText('Visited Kyoto station')).not.toBeInTheDocument();
   });
 
-  it('renders the Magi recap, source episodes, and readable event previews', async () => {
+  it('opens experience details on a dedicated page', async () => {
     const user = userEvent.setup();
     renderPage();
 
     await openLaunchExperience(user);
+    expect(await screen.findByRole('button', { name: 'Back to experiences' })).toBeInTheDocument();
+    expect(await screen.findByText('Generated Japan recap')).toBeInTheDocument();
+    expect(screen.queryByText('Worth revisiting')).not.toBeInTheDocument();
+  });
+
+  it('renders the Magi recap, source episodes, and readable event previews on the detail page', async () => {
+    renderDetailPage();
+
     expect(await screen.findByText('Generated Japan recap')).toBeInTheDocument();
     expect(screen.getByText("Magi's recap")).toBeInTheDocument();
     expect(screen.getByText('Source chapters')).toBeInTheDocument();
@@ -342,10 +368,11 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.getAllByText('launch').length).toBeGreaterThan(0);
   });
 
-  it('keeps the featured recap as content instead of a fixed cover image', async () => {
+  it('does not force a featured card above the experience list', async () => {
     renderPage();
 
-    expect(await screen.findByRole('button', { name: /Featured recap: Launch week/ })).toBeInTheDocument();
+    expect((await screen.findAllByText('Launch week')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Featured recap')).not.toBeInTheDocument();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 
@@ -359,33 +386,8 @@ describe('MemoryEpisodesPage', () => {
     renderPage();
 
     expect(await screen.findByText('No active experiences yet')).toBeInTheDocument();
-    expect(screen.getByText('Magi will form experiences as conversations and activity accumulate. If you already have remembered activity, run a refresh now.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Build experiences now' })).toBeInTheDocument();
-  });
-
-  it('reconsolidates experiences from the empty state', async () => {
-    const user = userEvent.setup();
-    vi.mocked(memoryApi.listExperiences)
-      .mockResolvedValueOnce({
-        items: [],
-        total: 0,
-        limit: 100,
-        offset: 0,
-      } as never)
-      .mockResolvedValueOnce({
-        items: activeExperiences,
-        total: 2,
-        limit: 100,
-        offset: 0,
-      } as never);
-    renderPage();
-
-    await user.click(await screen.findByRole('button', { name: 'Build experiences now' }));
-
-    await waitFor(() => {
-      expect(memoryApi.reconsolidateEpisodes).toHaveBeenCalledTimes(1);
-    });
-    expect((await screen.findAllByText('Launch week')).length).toBeGreaterThan(0);
+    expect(screen.getByText('Magi will form experiences as conversations and activity accumulate. If you need to refresh them manually, use the Manage page.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Build experiences now' })).not.toBeInTheDocument();
   });
 
   it('renames the selected experience through the annotation API', async () => {
@@ -395,9 +397,8 @@ describe('MemoryEpisodesPage', () => {
       user_label: 'Launch sprint',
       display_title: 'Launch sprint',
     } as never);
-    renderPage();
+    renderDetailPage();
 
-    await openLaunchExperience(user);
     await screen.findByText('Generated Japan recap');
     await user.click(screen.getByRole('button', { name: 'Rename' }));
     await user.clear(screen.getByLabelText('Title'));
@@ -418,9 +419,8 @@ describe('MemoryEpisodesPage', () => {
       user_note: 'This was more about launch prep than execution.',
       display_description: 'This was more about launch prep than execution.',
     } as never);
-    renderPage();
+    renderDetailPage();
 
-    await openLaunchExperience(user);
     await screen.findByText('Generated Japan recap');
     await user.click(screen.getByRole('button', { name: 'Edit recap' }));
     await user.clear(screen.getByLabelText('Recap'));
@@ -453,9 +453,8 @@ describe('MemoryEpisodesPage', () => {
         is_fallback: false,
       },
     });
-    renderPage();
+    renderDetailPage();
 
-    await openLaunchExperience(user);
     await screen.findByText('Manual recap');
     await user.click(screen.getByRole('button', { name: 'Regenerate recap' }));
     expect(screen.getByText('Replace current recap?')).toBeInTheDocument();
@@ -470,9 +469,8 @@ describe('MemoryEpisodesPage', () => {
 
   it('hides the selected experience after confirmation', async () => {
     const user = userEvent.setup();
-    renderPage();
+    renderDetailPage();
 
-    await openLaunchExperience(user);
     await screen.findByText('Generated Japan recap');
     await user.click(screen.getByRole('button', { name: 'Hide' }));
     expect(screen.getByText('Hide this experience?')).toBeInTheDocument();
@@ -481,6 +479,30 @@ describe('MemoryEpisodesPage', () => {
     await waitFor(() => {
       expect(memoryApi.hideExperience).toHaveBeenCalledWith('exp-1');
     });
-    expect(screen.queryByText('Launch week')).not.toBeInTheDocument();
+    expect(await screen.findByText('All experiences')).toBeInTheDocument();
+  });
+
+  it('does not display slash-separated fallback labels as experience titles', async () => {
+    vi.mocked(memoryApi.listExperiences).mockResolvedValueOnce({
+      items: [{
+        ...activeExperiences[1],
+        display_title: 'gt new horizons / claude code / disc',
+        title: 'Untitled experience / Untitled experience',
+        magi_interpretation: 'Magi grouped related episode evidence into a narratable memory.',
+        experience_review: {
+          ...activeExperiences[1].experience_review!,
+          label: 'gt new horizons / claude code / disc',
+          is_fallback: true,
+        },
+      }],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    } as never);
+
+    renderPage();
+
+    expect(await screen.findByText('Activity around onboarding')).toBeInTheDocument();
+    expect(screen.queryByText('gt new horizons / claude code / disc')).not.toBeInTheDocument();
   });
 });

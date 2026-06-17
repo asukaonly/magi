@@ -14,6 +14,8 @@ interface ExperienceRowProps {
 type ExperienceReviewLike = L2Experience | L2ExperienceWithReview;
 
 const MACHINE_ID_PATTERN = /^[0-9a-f]{10,}$|^[0-9A-HJKMNP-TV-Z]{12,}$/i;
+const PLACEHOLDER_TITLE_PATTERN = /^(untitled|untitled episode|untitled experience|experience)$/i;
+const GENERIC_EXPERIENCE_TEXT = 'magi grouped related episode evidence into a narratable memory.';
 
 export const formatExperienceTag = (value: string): string => {
   const raw = String(value || '').trim();
@@ -28,17 +30,88 @@ export const formatExperienceTag = (value: string): string => {
   return cleaned.replace(/[-_]+/g, ' ');
 };
 
-export const getExperienceDisplayTitle = (experience: ExperienceReviewLike, fallback: string): string => {
+const isSlashSeparatedTagTitle = (value: string): boolean => {
+  const parts = value.split('/').map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) {
+    return false;
+  }
+  return parts.every((part) => part.length <= 32 && !/[。！？.!?]/.test(part));
+};
+
+const isGeneratedTitleUsable = (value: unknown): value is string => {
+  const text = String(value || '').trim();
+  if (!text) {
+    return false;
+  }
+  const normalized = text.toLowerCase();
+  return (
+    !PLACEHOLDER_TITLE_PATTERN.test(normalized)
+    && !normalized.startsWith('untitled exper')
+    && normalized !== GENERIC_EXPERIENCE_TEXT
+    && !MACHINE_ID_PATTERN.test(text)
+    && !isSlashSeparatedTagTitle(text)
+  );
+};
+
+const compactDateRange = (experience: ExperienceReviewLike, locale: string): string => {
+  const start = Number(experience.time_start ?? 0);
+  const end = Number(experience.time_end ?? 0);
+  if (!start && !end) {
+    return '';
+  }
+  const formatter = new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    day: 'numeric',
+  });
+  const startText = start ? formatter.format(new Date(start * 1000)) : '';
+  const endText = end ? formatter.format(new Date(end * 1000)) : '';
+  if (startText && endText && startText !== endText) {
+    return `${startText} - ${endText}`;
+  }
+  return startText || endText;
+};
+
+const getExperienceFallbackTitle = (
+  experience: ExperienceReviewLike,
+  fallback: string,
+  locale: string
+): string => {
+  const labels = [
+    ...getExperienceEntityLabels(experience),
+    ...((experience.primary_topic_keys || []).map(formatExperienceTag).filter(Boolean)),
+    ...((experience.primary_place_ids || []).map(formatExperienceTag).filter(Boolean)),
+  ];
+  const firstLabel = Array.from(new Set(labels))[0];
+  if (firstLabel) {
+    return locale.startsWith('zh')
+      ? `围绕 ${firstLabel} 的活动`
+      : `Activity around ${firstLabel}`;
+  }
+  const range = compactDateRange(experience, locale);
+  if (range) {
+    return locale.startsWith('zh') ? `${range} 的活动` : `Activity from ${range}`;
+  }
+  return fallback;
+};
+
+export const getExperienceDisplayTitle = (
+  experience: ExperienceReviewLike,
+  fallback: string,
+  locale = 'zh-CN'
+): string => {
+  const userTitle = String(experience.user_label || '').trim();
+  if (userTitle) {
+    return userTitle;
+  }
   const values = [
-    experience.user_label,
     (experience as L2ExperienceWithReview).display_title,
     (experience as L2ExperienceWithReview).experience_review?.label,
     experience.title,
     experience.intent,
     experience.magi_interpretation,
-    experience.experience_id,
   ];
-  return values.find((value) => typeof value === 'string' && value.trim())?.trim() ?? fallback;
+  const generatedTitle = values.find(isGeneratedTitleUsable)?.trim();
+  return generatedTitle || getExperienceFallbackTitle(experience, fallback, locale);
 };
 
 export const getExperienceDescription = (experience: ExperienceReviewLike): string => (
@@ -74,7 +147,7 @@ export const getExperienceEntityLabels = (experience: ExperienceReviewLike): str
 
 export function ExperienceRow({ experience, selected, onOpen }: ExperienceRowProps) {
   const { t, i18n } = useTranslation('app');
-  const title = getExperienceDisplayTitle(experience, t('memory.episodes.awaitingLabel'));
+  const title = getExperienceDisplayTitle(experience, t('memory.episodes.awaitingLabel'), i18n.language);
   const summary = getExperienceSummary(experience);
   const range = formatEpisodeTimeRange(experience.time_start, experience.time_end, i18n.language);
   const entityLabels = getExperienceEntityLabels(experience);
