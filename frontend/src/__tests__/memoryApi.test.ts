@@ -31,4 +31,28 @@ describe('memoryApi episode endpoints', () => {
 
     expect(postSpy).toHaveBeenCalledWith('/memory/l2/episodes/ep-1/merge', { absorbed_id: 'ep-2' });
   });
+
+  it('loads the memory dashboard read model', async () => {
+    const getSpy = vi.spyOn(api, 'get').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: {
+        statistics: {
+          l0: { active_sessions: 0, total_goals: 0, total_entities: 0, total_tactics: 0 },
+          l1: { event_count: 0 },
+          l2: { relation_count: 0, assertion_count: 0 },
+          l3: { summary_count: 0 },
+          l4: { skill_count: 0, open_circuit_breakers: 0 },
+          attention: { pending_assertions: 0, open_circuit_breakers: 0 },
+        },
+        source_counts: [],
+        attention: { pending_assertions: 0, open_circuit_breakers: 0 },
+        pending_assertions: { items: [], total: 0, limit: 8, offset: 0 },
+      },
+    });
+
+    await memoryApi.getDashboard({ pending_limit: 8 });
+
+    expect(getSpy).toHaveBeenCalledWith('/memory/dashboard', { params: { pending_limit: 8 } });
+  });
 });

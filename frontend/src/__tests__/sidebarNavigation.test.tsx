@@ -585,9 +585,14 @@ describe('sidebar navigation', () => {
     );
 
     await user.click(await screen.findByRole('button', { name: 'shell.memory' }));
+
+    expect(screen.getByTestId('location')).toHaveTextContent('/memory/overview');
+    expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
+
     await user.click(screen.getByRole('button', { name: 'memory.nav.episodes' }));
 
     expect(screen.getByTestId('sidebar-memory-panel')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.stories' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.episodes' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'memory.nav.knowledge' })).not.toBeInTheDocument();
@@ -619,6 +624,7 @@ describe('sidebar navigation', () => {
 
     expect(configApi.get).not.toHaveBeenCalled();
     expect(screen.getByTestId('sidebar-memory-panel')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.stories' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.episodes' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'memory.nav.knowledge' })).not.toBeInTheDocument();

@@ -2252,12 +2252,13 @@
     "title": "记忆查看",
     "subtitle": "L0-L4 分层记忆系统",
     "nav": {
-      "stories": "反思",
+      "overview": "总览",
+      "stories": "回顾",
       "episodes": "经历",
       "knowledge": "知识图谱",
       "portrait": "关于你",
       "recall": "找记忆",
-      "governance": "整理",
+      "governance": "管理",
       "devSubtreeLabel": "开发者视图",
       "dev": {
         "events": "原始事件 (L1)",
@@ -2265,6 +2266,13 @@
         "workbench": "工作台记忆 (L0)",
         "skills": "工具技能 (L4)",
         "stats": "存储统计"
+      }
+    },
+    "overview": {
+      "title": "总览",
+      "subtitle": "看看 Magi 现在记住了什么、从哪里来，以及哪些内容需要你判断。",
+      "empty": {
+        "loading": "正在整理你的记忆概况。"
       }
     },
     "stories": {

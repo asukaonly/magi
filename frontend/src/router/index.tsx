@@ -14,6 +14,9 @@ const ChatPage = React.lazy(() =>
 const TimelinePage = React.lazy(() =>
   import('../pages/Timeline').then((m) => ({ default: m.TimelinePage }))
 );
+const MemoryOverviewPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryOverviewPage }))
+);
 const MemoryStoryPage = React.lazy(() =>
   import('../pages/memory-pages').then((m) => ({ default: m.MemoryStoryPage }))
 );
@@ -163,8 +166,22 @@ const router = createBrowserRouter([
       {
         path: 'memory',
         children: [
-          { index: true, element: <Navigate to="/memory/stories" replace /> },
-          { path: 'overview', element: <Navigate to="/memory/stories" replace /> },
+          {
+            index: true,
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryOverviewPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'overview',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryOverviewPage />
+              </React.Suspense>
+            ),
+          },
           { path: 'workbench', element: <Navigate to="/memory/recall" replace /> },
           { path: 'reflection', element: <Navigate to="/memory/stories" replace /> },
           {

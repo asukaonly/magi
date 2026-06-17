@@ -2253,7 +2253,8 @@
     "title": "Memory Viewer",
     "subtitle": "L0-L4 Layered Memory System",
     "nav": {
-      "stories": "Reflections",
+      "overview": "Overview",
+      "stories": "Review",
       "episodes": "Experiences",
       "knowledge": "Knowledge",
       "portrait": "About you",
@@ -2266,6 +2267,13 @@
         "workbench": "Working memory (L0)",
         "skills": "Procedural skills (L4)",
         "stats": "Storage stats"
+      }
+    },
+    "overview": {
+      "title": "Overview",
+      "subtitle": "See what Magi remembers, where it came from, and what needs your judgment.",
+      "empty": {
+        "loading": "Preparing your memory overview."
       }
     },
     "stories": {
