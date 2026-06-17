@@ -4905,6 +4905,77 @@ class TestEntityTypeFiltering:
         assert prepared == []
         assert rejected_count == 1
 
+    def test_phase2_assertions_rejected_when_mode_is_derived(self):
+        from magi.memory.l2.models import L2Phase2AssertionCandidate
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        event = _make_memory_event(event_id="evt-derived-mode", content="played Track A repeatedly")
+
+        prepared, rejected_count = pipeline._validate_phase2_assertions(
+            event=event,
+            profile=SimpleNamespace(
+                allow_assertion=True,
+                assertion_mode="derived",
+                allowed_assertion_families={"taste_profile"},
+                allowed_assertion_traits=None,
+            ),
+            policy=SimpleNamespace(allow_assertion_write=True),
+            graph_candidates=[],
+            default_event_ids=["evt-derived-mode"],
+            phase2_assertions=[
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="taste_profile",
+                    trait_name="taste.music",
+                    trait_value="Track A",
+                    confidence=0.7,
+                )
+            ],
+        )
+
+        assert prepared == []
+        assert rejected_count == 1
+
+    def test_phase2_assertions_respect_trait_allowlist(self):
+        from magi.memory.l2.models import L2Phase2AssertionCandidate
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        event = _make_memory_event(event_id="evt-trait-allowlist", content="played Track A")
+
+        prepared, rejected_count = pipeline._validate_phase2_assertions(
+            event=event,
+            profile=SimpleNamespace(
+                allow_assertion=True,
+                assertion_mode="phase2_candidate",
+                allowed_assertion_families={"taste_profile"},
+                allowed_assertion_traits=frozenset({"taste.music"}),
+            ),
+            policy=SimpleNamespace(allow_assertion_write=True),
+            graph_candidates=[],
+            default_event_ids=["evt-trait-allowlist"],
+            phase2_assertions=[
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="taste_profile",
+                    trait_name="taste.music",
+                    trait_value="Track A",
+                    confidence=0.7,
+                ),
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="taste_profile",
+                    trait_name="taste.movie",
+                    trait_value="Movie B",
+                    confidence=0.7,
+                ),
+            ],
+        )
+
+        assert rejected_count == 1
+        assert [item["trait_name"] for item in prepared] == ["taste.music"]
+
 
 class TestEntityNameQuality:
     """Tests for _is_quality_entity_name noise filter."""
