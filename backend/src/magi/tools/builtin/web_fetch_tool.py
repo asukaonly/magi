@@ -147,6 +147,18 @@ class WebFetchTool(MultiProviderTool):
     def list_config_specs(self) -> List[ToolConfigSpec]:
         return []
 
+    def list_system_config_specs(self) -> List[ToolConfigSpec]:
+        """Describe advanced config entries managed through system-settings."""
+        return [
+            ToolConfigSpec(
+                path="default_provider",
+                type="string",
+                description="Default web-fetch provider for direct mode (http/browser/curl)",
+                required=True,
+                enum=self.get_all_provider_names(),
+            ),
+        ]
+
     async def get_config_value(self, path: str, context: ToolExecutionContext) -> ToolResult:
         config = get_config().tools.web_fetch
         if path == "default_provider":

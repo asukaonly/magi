@@ -16,6 +16,16 @@ def _context() -> ToolExecutionContext:
     return ToolExecutionContext(agent_id="test-agent")
 
 
+def _allow_tool_network_safety(monkeypatch) -> None:
+    async def allow(_url, *, allow_private_network=False, private_network_allowlist=None):
+        return None
+
+    monkeypatch.setattr(
+        "magi.tools.builtin.web_fetch_tool.blocked_url_target_reason",
+        allow,
+    )
+
+
 @pytest.mark.asyncio
 async def test_network_safety_blocks_private_targets():
     assert await blocked_url_target_reason("http://localhost:3000")
@@ -136,7 +146,8 @@ async def test_private_network_allowlist_passes_policy_to_provider(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_web_fetch_reuses_cached_success():
+async def test_web_fetch_reuses_cached_success(monkeypatch):
+    _allow_tool_network_safety(monkeypatch)
     tool = WebFetchTool()
     calls = 0
 
@@ -170,7 +181,8 @@ async def test_web_fetch_reuses_cached_success():
 
 
 @pytest.mark.asyncio
-async def test_auto_fallback_uses_browser_for_js_shell():
+async def test_auto_fallback_uses_browser_for_js_shell(monkeypatch):
+    _allow_tool_network_safety(monkeypatch)
     tool = WebFetchTool()
 
     async def fake_execute_with_provider(self, provider_name, params):
@@ -214,7 +226,8 @@ async def test_auto_fallback_uses_browser_for_js_shell():
 
 
 @pytest.mark.asyncio
-async def test_auto_fallback_to_curl_when_browser_fails():
+async def test_auto_fallback_to_curl_when_browser_fails(monkeypatch):
+    _allow_tool_network_safety(monkeypatch)
     tool = WebFetchTool()
 
     async def fake_execute_with_provider(self, provider_name, params):
@@ -260,7 +273,8 @@ async def test_auto_fallback_to_curl_when_browser_fails():
 
 
 @pytest.mark.asyncio
-async def test_default_output_is_markdown():
+async def test_default_output_is_markdown(monkeypatch):
+    _allow_tool_network_safety(monkeypatch)
     tool = WebFetchTool()
 
     async def fake_execute_with_provider(self, provider_name, params):
@@ -289,6 +303,7 @@ async def test_default_output_is_markdown():
 
 @pytest.mark.asyncio
 async def test_web_fetch_passes_configured_proxy_to_provider(monkeypatch):
+    _allow_tool_network_safety(monkeypatch)
     tool = WebFetchTool()
     captured = {}
 

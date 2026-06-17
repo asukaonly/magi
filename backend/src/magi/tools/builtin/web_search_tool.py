@@ -57,7 +57,7 @@ class WebSearchTool(MultiProviderTool):
     def __init__(self) -> None:
         self._turn_query_cache: dict[str, dict[tuple[str, str, int], float]] = {}
         self._query_result_counts: dict[tuple[str, str, int], tuple[float, int]] = {}
-        self._result_cache: dict[tuple[str, tuple[str, ...], str, int], tuple[float, dict[str, Any]]] = {}
+        self._result_cache: dict[tuple[str, str, tuple[str, ...], str, int], tuple[float, dict[str, Any]]] = {}
         super().__init__()
 
     def _init_schema(self) -> None:
@@ -347,17 +347,6 @@ class WebSearchTool(MultiProviderTool):
             candidates = list(available_providers)
         primary_provider = candidates[0]
 
-        cached_result = self._build_cached_result(
-            configured_provider=configured_provider,
-            candidates=candidates,
-            query=str(query),
-            executed_query=executed_query,
-            num_results=num_results,
-            date_range_applied=date_range_applied,
-        )
-        if cached_result is not None:
-            return cached_result
-
         # Dedup is keyed on the primary provider so a repeated identical search in
         # the same turn short-circuits regardless of which provider ultimately served.
         duplicate_result = self._build_duplicate_turn_result(
@@ -370,6 +359,18 @@ class WebSearchTool(MultiProviderTool):
         )
         if duplicate_result is not None:
             return duplicate_result
+
+        cached_result = self._build_cached_result(
+            context=context,
+            configured_provider=configured_provider,
+            candidates=candidates,
+            query=str(query),
+            executed_query=executed_query,
+            num_results=num_results,
+            date_range_applied=date_range_applied,
+        )
+        if cached_result is not None:
+            return cached_result
 
         attempts: List[Dict[str, Any]] = []
         ddg_challenge_seen = False
@@ -393,6 +394,7 @@ class WebSearchTool(MultiProviderTool):
                 if date_range_applied is not None:
                     result.data["date_range_applied"] = date_range_applied
                 self._record_successful_result(
+                    context=context,
                     configured_provider=configured_provider,
                     candidates=candidates,
                     executed_query=executed_query,
@@ -487,6 +489,7 @@ class WebSearchTool(MultiProviderTool):
     def _build_cached_result(
         self,
         *,
+        context: ToolExecutionContext,
         configured_provider: str,
         candidates: list[str],
         query: str,
@@ -496,6 +499,7 @@ class WebSearchTool(MultiProviderTool):
     ) -> ToolResult | None:
         self._prune_result_cache()
         cache_key = self._result_cache_key(
+            cache_scope=self._result_cache_scope(context),
             configured_provider=configured_provider,
             candidates=candidates,
             executed_query=executed_query,
@@ -517,6 +521,7 @@ class WebSearchTool(MultiProviderTool):
     def _record_successful_result(
         self,
         *,
+        context: ToolExecutionContext,
         configured_provider: str,
         candidates: list[str],
         executed_query: str,
@@ -524,6 +529,7 @@ class WebSearchTool(MultiProviderTool):
         data: Dict[str, Any],
     ) -> None:
         cache_key = self._result_cache_key(
+            cache_scope=self._result_cache_scope(context),
             configured_provider=configured_provider,
             candidates=candidates,
             executed_query=executed_query,
@@ -544,18 +550,24 @@ class WebSearchTool(MultiProviderTool):
     @staticmethod
     def _result_cache_key(
         *,
+        cache_scope: str,
         configured_provider: str,
         candidates: list[str],
         executed_query: str,
         num_results: int,
-    ) -> tuple[str, tuple[str, ...], str, int]:
+    ) -> tuple[str, str, tuple[str, ...], str, int]:
         normalized_query = " ".join(str(executed_query or "").lower().split())
         return (
+            str(cache_scope or "").strip().lower(),
             str(configured_provider or "").strip().lower(),
             tuple(str(item).strip().lower() for item in candidates),
             normalized_query,
             int(num_results),
         )
+
+    @staticmethod
+    def _result_cache_scope(context: ToolExecutionContext) -> str:
+        return str(context.agent_id or "unknown").strip() or "unknown"
 
     def _prune_dedup_cache(self) -> None:
         cutoff = time.time() - _DEDUP_CACHE_TTL_SECONDS

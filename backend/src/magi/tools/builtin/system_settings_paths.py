@@ -55,7 +55,9 @@ class SystemSettingsPathMixin:
             if not tool:
                 continue
 
-            for item in tool.list_config_specs():
+            list_specs = getattr(tool, "list_system_config_specs", None)
+            config_specs = list_specs() if callable(list_specs) else tool.list_config_specs()
+            for item in config_specs:
                 full_path = f"tool.{tool_name}.{item.path}"
                 specs.append(
                     {
