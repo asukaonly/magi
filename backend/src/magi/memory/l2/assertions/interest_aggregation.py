@@ -27,28 +27,12 @@ Design:
 
 from __future__ import annotations
 
-import hashlib
-import re
 from typing import Any
 
 from ....core.logger import get_logger
-from ..entities.catalog.lookup import get_canonical_names
+from .derived_rules import builtin_interest_rule, evaluate_graph_derived_assertion_rule
 
 logger = get_logger(__name__)
-
-_TOPIC_PREFIX = "topic:"
-
-
-def _topic_slug(object_id: str) -> str:
-    """Strip the ``topic:`` prefix to get a stable, unique slug."""
-    if object_id.startswith(_TOPIC_PREFIX):
-        return object_id[len(_TOPIC_PREFIX):]
-    return object_id
-
-
-def _safe_slug(slug: str) -> str:
-    """Return a filesystem/key-safe slug (lower, alnum+hyphen/underscore)."""
-    return re.sub(r"[^a-z0-9_-]", "_", slug.lower())
 
 
 async def aggregate_interests(
@@ -75,108 +59,18 @@ async def aggregate_interests(
             - ``edges_seen``: total INTERESTED_IN edges found (any count)
             - ``topics_aggregated``: edges that met min_observations threshold
     """
-    # -- 1. Fetch all active INTERESTED_IN edges for this entity --------------
-    edges: list[dict[str, Any]] = await store.get_relationships(
-        subject_id=entity_id,
-        predicates=["INTERESTED_IN"],
-        status="active",
-        limit=500,
+    stats = await evaluate_graph_derived_assertion_rule(
+        store,
+        builtin_interest_rule(min_observations=min_observations),
+        entity_id=entity_id,
+        entity_type=entity_type,
     )
-
-    edges_seen = len(edges)
-    if edges_seen >= 500:
-        logger.warning(
-            "aggregate_interests: edge result hit limit=500; some topics may be skipped",
-            entity_id=entity_id,
-        )
-
-    # -- 2. Filter to high-frequency edges ------------------------------------
-    qualifying = [e for e in edges if int(e.get("observation_count", 0)) >= min_observations]
-
-    if not qualifying:
-        logger.debug(
-            "aggregate_interests: no qualifying edges",
-            entity_id=entity_id,
-            edges_seen=edges_seen,
-            min_observations=min_observations,
-        )
-        return {"edges_seen": edges_seen, "topics_aggregated": 0}
-
-    # -- 3. Batch-resolve canonical names from entity_catalog -----------------
-    object_ids = [e["object_id"] for e in qualifying]
-    canonical_names: dict[str, str] = await get_canonical_names(store.db_path, object_ids)
-
-    # -- 4. Build and persist one assertion per qualifying topic --------------
-    topics_aggregated = 0
-    for edge in qualifying:
-        object_id: str = edge["object_id"]
-        object_type: str = edge.get("object_type") or "topic"
-        raw_slug = _topic_slug(object_id)
-        slug = _safe_slug(raw_slug)
-
-        # Fix 1: skip degenerate topics whose slug sanitizes to empty string
-        # (e.g. object_id == "topic:" → raw_slug="" → slug="").
-        if not slug:
-            logger.warning(
-                "aggregate_interests: skipping topic with empty slug",
-                object_id=object_id,
-            )
-            continue
-
-        # Fix 2: if sanitization was lossy, two distinct object_ids could map to
-        # the same trait_name.  Append a short stable hash of object_id to keep
-        # them distinct while still surfacing clean slugs for clean topics.
-        if slug != raw_slug.lower():
-            slug = f"{slug}-{hashlib.sha1(object_id.encode('utf-8')).hexdigest()[:6]}"
-
-        canonical_name = canonical_names.get(object_id, raw_slug)
-
-        # Confidence derivation: base from edge confidence, boosted by
-        # observation count (capped at 5 extra observations → +0.5, max 0.9).
-        obs_count = int(edge.get("observation_count", 1))
-        confidence_score = min(0.9, float(edge.get("confidence", 0.5)) * (1 + 0.1 * min(obs_count, 5)))
-
-        evidence_events: list[str] = list(edge.get("evidence_event_ids") or [])
-
-        candidate: dict[str, Any] = {
-            "entity_id": entity_id,
-            "entity_type": entity_type,
-            "trait_family": "preference_profile",
-            "trait_name": f"interest.{slug}",
-            "trait_value": canonical_name,
-            "confidence_score": confidence_score,
-            "evidence_events": evidence_events,
-            "volatility_index": 0.2,
-            "source_domain": "external_activity",
-            "inference_depth": "topology_only",
-            "validation_state": "tentative",
-            "first_inferred_at": float(edge.get("first_observed_at", 0)),
-            "last_validated_at": float(edge.get("last_observed_at", 0)),
-            "target_entity_id": object_id,
-            "target_entity_type": object_type,
-            "target_scope": "entity_bound",
-            "temporal_scope": "stable",
-            "decay_policy": "evidence_only",
-            "natural_summary": f"Recurring interest in {canonical_name}",
-        }
-
-        await store.upsert_assertion_candidate(candidate)
-        topics_aggregated += 1
-        logger.debug(
-            "aggregate_interests: wrote assertion",
-            entity_id=entity_id,
-            trait_name=candidate["trait_name"],
-            canonical_name=canonical_name,
-            observation_count=obs_count,
-            evidence_count=len(evidence_events),
-            confidence_score=round(confidence_score, 4),
-        )
-
+    topics_aggregated = stats.get("assertions_written", 0)
     logger.info(
         "aggregate_interests: completed",
         entity_id=entity_id,
-        edges_seen=edges_seen,
+        edges_seen=stats.get("edges_seen", 0),
         topics_aggregated=topics_aggregated,
         min_observations=min_observations,
     )
-    return {"edges_seen": edges_seen, "topics_aggregated": topics_aggregated}
+    return {"edges_seen": stats.get("edges_seen", 0), "topics_aggregated": topics_aggregated}
