@@ -184,12 +184,12 @@
     "hideAdvanced": "Hide optional settings"
   },
   "personaPreview": {
-    "chip1": "I'm anxious, but I don't want too much comfort",
-    "chip2": "Break down something I've been avoiding",
-    "chip3": "Tell me the truth, but don't be too harsh",
-    "chip4": "Don't explain, just help me choose",
-    "emptyHint": "Pick a chip below or type a message to hear this persona.",
-    "composerPlaceholder": "Say something to try this persona…",
+    "chip1": "How would you work with me if we just met?",
+    "chip2": "How would you help when my thoughts are messy?",
+    "chip3": "How would you nudge me through a hard choice?",
+    "chip4": "What are you not the right persona for?",
+    "emptyHint": "Pick an opening question below, or type your own to hear this persona.",
+    "composerPlaceholder": "Ask an opening question to try this persona...",
     "send": "Send",
     "confirm": "Choose",
     "capReached": "You've tried this persona enough — choose it or try another.",
