@@ -168,16 +168,82 @@ def test_episode_detail_returns_events_and_inferred(app_with_mock_memory):
     unified = MagicMock()
     unified.l2 = l2
     unified.l3 = None
+    unified.l1 = None
     with build_patcher(unified):
         client = TestClient(app)
         r = client.get("/api/memory/l2/episodes/ep1")
 
     assert r.status_code == 200
     body = r.json()
-    assert body["events"] == [{"event_id": "e1"}]
+    assert body["events"][0]["event_id"] == "e1"
     assert body["inferred"][0]["assertion_id"] == "assert-1"
     assert body["inferred"][0]["trait_name"] == "balance"
     l2.list_assertions_for_episode.assert_awaited_once_with(episode_id="ep1")
+
+
+def test_episode_detail_returns_display_fields_summary_and_hydrated_events(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(
+        return_value={
+            "episode_id": "ep1",
+            "status": "active",
+            "time_start": 1,
+            "time_end": 2,
+            "user_label": None,
+            "user_note": None,
+        }
+    )
+    l2.list_episode_events = AsyncMock(
+        return_value=[
+            {
+                "episode_id": "ep1",
+                "event_id": "e1",
+                "membership_role": "member",
+                "membership_confidence": 0.8,
+                "added_at": 3,
+            }
+        ]
+    )
+    l2.list_assertions_for_episode = AsyncMock(return_value=[])
+    l3 = MagicMock()
+    l3.get_episodic_summary_by_episode_id = AsyncMock(
+        return_value={
+            "summary_id": "sum1",
+            "content": "Generated recap",
+            "insight_metadata": {"label": "Generated title"},
+            "updated_at": 4,
+        }
+    )
+    l1 = MagicMock()
+    l1.get_events_by_ids = AsyncMock(
+        return_value=[
+            {
+                "event_id": "e1",
+                "timestamp": 1.5,
+                "event_type": "UserMessage",
+                "source": "chat",
+                "content": "Talked about the trip.",
+            }
+        ]
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+    unified.l1 = l1
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.get("/api/memory/l2/episodes/ep1")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["episode_summary"]["content"] == "Generated recap"
+    assert body["display_title"] == "Generated title"
+    assert body["display_description"] == "Generated recap"
+    assert body["display_source"] == "generated"
+    assert body["events"][0]["content_preview"] == "Talked about the trip."
+    l1.get_events_by_ids.assert_awaited_once_with(["e1"])
 
 
 def test_rejecting_episode_inference_removes_it(tmp_path):

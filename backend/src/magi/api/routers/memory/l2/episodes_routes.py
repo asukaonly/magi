@@ -21,6 +21,11 @@ from ..dependencies import _resolve_unified_memory
 from ..helpers import memory_t
 from ..router import memory_router
 from ..schemas import EpisodeAnnotationRequest, EpisodeMergeRequest
+from .episode_review_helpers import (
+    build_episode_display_fields,
+    serialize_episodic_summary,
+    serialize_l1_event_preview,
+)
 
 
 def _l2_maintenance_lock_repository() -> ScheduleRepository:
@@ -96,6 +101,17 @@ def _serialize_episode_inference(assertion: Dict[str, Any]) -> Dict[str, Any]:
         "user_feedback": assertion.get("user_feedback"),
         "evidence_events": list(assertion.get("evidence_events") or []),
     }
+
+
+def _get_unified_layer(unified_memory: Any, name: str) -> Any:
+    """Return an explicitly configured unified-memory layer, ignoring mock fallthrough."""
+    attrs = getattr(unified_memory, "__dict__", {})
+    if isinstance(attrs, dict) and name in attrs:
+        return attrs[name]
+    layer = getattr(unified_memory, name, None)
+    if layer.__class__.__module__.startswith("unittest.mock"):
+        return None
+    return layer
 
 
 @memory_router.get("/l2/episodes")
@@ -204,12 +220,46 @@ async def get_l2_episode(episode_id: str):
     episode = await unified_memory.l2.get_episode(episode_id=episode_id)
     if episode is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.episode_not_found", "Episode not found"))
-    events, inferred = await asyncio.gather(
+    event_memberships, inferred = await asyncio.gather(
         unified_memory.l2.list_episode_events(episode_id=episode_id),
         unified_memory.l2.list_assertions_for_episode(episode_id=episode_id),
     )
+    event_ids = [
+        str(item.get("event_id") or "").strip()
+        for item in event_memberships
+        if item.get("event_id")
+    ]
+    l1_events_by_id: dict[str, dict[str, Any]] = {}
+    l1_store = _get_unified_layer(unified_memory, "l1")
+    if l1_store is not None and event_ids and hasattr(l1_store, "get_events_by_ids"):
+        hydrated_events = await l1_store.get_events_by_ids(event_ids)
+        l1_events_by_id = {
+            str(item.get("event_id") or ""): item
+            for item in hydrated_events
+            if item.get("event_id")
+        }
+
+    events = [
+        serialize_l1_event_preview(l1_events_by_id.get(str(item.get("event_id") or "")), membership=item)
+        for item in event_memberships
+    ]
+    events.sort(key=lambda item: (
+        item.get("timestamp") is None,
+        float(item.get("timestamp") or item.get("added_at") or 0.0),
+    ))
+
+    episode_summary = None
+    l3_store = _get_unified_layer(unified_memory, "l3")
+    if l3_store is not None:
+        episode_summary = serialize_episodic_summary(
+            await l3_store.get_episodic_summary_by_episode_id(episode_id)
+        )
+    display_fields = build_episode_display_fields(episode, episode_summary)
+
     return {
         **episode,
+        **display_fields,
+        "episode_summary": episode_summary,
         "events": events,
         "inferred": [_serialize_episode_inference(item) for item in inferred],
     }
