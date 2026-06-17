@@ -199,6 +199,46 @@ const sensorPayload = {
       last_result_count: 2,
       last_sync_at: 1710003600,
     },
+    {
+      source_name: 'screen-time',
+      plugin_id: 'screen-time',
+      contribution_id: 'screen-time',
+      display_name: 'Screen Time',
+      display_name_translated: 'Screen Time',
+      description: '',
+      fields: [],
+      current_settings: {},
+      enabled: false,
+      sync_mode: 'manual',
+      sync_interval_minutes: 60,
+      storage_mode: 'local',
+      fetch_page_content: false,
+      edge_whitelist: [],
+      supports_pull_sync: true,
+      running: false,
+      last_result_count: 0,
+      last_sync_at: null,
+    },
+    {
+      source_name: 'safari-history',
+      plugin_id: 'safari-history',
+      contribution_id: 'safari-history',
+      display_name: 'Safari History',
+      display_name_translated: 'Safari History',
+      description: '',
+      fields: [],
+      current_settings: {},
+      enabled: true,
+      sync_mode: 'manual',
+      sync_interval_minutes: 60,
+      storage_mode: 'local',
+      fetch_page_content: false,
+      edge_whitelist: [],
+      supports_pull_sync: true,
+      running: false,
+      last_result_count: 0,
+      last_sync_at: 1710003600,
+    },
   ],
 };
 
@@ -229,6 +269,8 @@ describe('MemoryOverviewPage', () => {
     expect(screen.getByText('Chrome History')).toBeInTheDocument();
     expect(screen.getByText('9')).toBeInTheDocument();
     expect(screen.getByText('Chat')).toBeInTheDocument();
+    expect(screen.queryByText('Screen Time')).not.toBeInTheDocument();
+    expect(screen.queryByText('Safari History')).not.toBeInTheDocument();
     expect(screen.queryByText('chat_projector')).not.toBeInTheDocument();
     expect(screen.getByText('favorite_language')).toBeInTheDocument();
     expect(screen.getByText('Python')).toBeInTheDocument();

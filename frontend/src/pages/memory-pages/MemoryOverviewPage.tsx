@@ -149,7 +149,7 @@ const buildSourceRows = (
   t?: OverviewTranslateFn,
 ): SourceCoverageRow[] => {
   const sensors = status?.sources || [];
-  const rows = counts.map((source) => {
+  return counts.map((source) => {
     const sensor = findSensorForSource(source, sensors);
     return {
       key: source.source,
@@ -161,25 +161,7 @@ const buildSourceRows = (
       lastSyncAt: sensor?.last_sync_at ?? sensor?.last_run_at ?? null,
       lastEventAt: source.last_event_at,
     };
-  });
-  const known = new Set(counts.map((item) => sourceKey(item.source)));
-  sensors.forEach((sensor) => {
-    const keys = [sensor.source_name, sensor.contribution_id, sensor.plugin_id].map(sourceKey);
-    if (keys.some((key) => key && known.has(key))) {
-      return;
-    }
-    rows.push({
-      key: sensor.source_name,
-      label: getSensorLabel(sensor) || getMemorySourceLabel(t || ((key: string) => key), sensor.source_name),
-      eventCount: 0,
-      lastResultCount: sensor.last_result_count ?? sensor.last_raw_result_count ?? null,
-      enabled: Boolean(sensor.enabled),
-      running: sensor.running == null ? null : Boolean(sensor.running),
-      lastSyncAt: sensor.last_sync_at ?? sensor.last_run_at ?? null,
-      lastEventAt: null,
-    });
-  });
-  return rows.sort((left, right) => right.eventCount - left.eventCount || left.label.localeCompare(right.label));
+  }).sort((left, right) => right.eventCount - left.eventCount || left.label.localeCompare(right.label));
 };
 
 const buildPendingItems = (
