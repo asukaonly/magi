@@ -303,3 +303,66 @@ def test_plugin_profile_cannot_override_host_chat_profile():
     ])
 
     assert profiles["chat.user_message"].allowed_entity_types != frozenset({"software"})
+
+
+def test_legacy_allow_assertion_derives_assertion_mode():
+    from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
+
+    profiles = build_extraction_profile_registry(_plugin_profile_specs())
+
+    assert profiles["source.calendar"].assertion_mode == "none"
+    assert profiles["source.netease_music"].assertion_mode == "phase2_candidate"
+
+
+def test_phase1_instructions_override_legacy_extraction_instructions():
+    from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
+
+    profiles = build_extraction_profile_registry([
+        {
+            "profile_id": "source.custom_sensor",
+            "source_types": ["custom_sensor"],
+            "allowed_entity_types": ["topic"],
+            "allowed_predicates": ["INTERESTED_IN"],
+            "extraction_instructions": "legacy instructions",
+            "phase1_instructions": "new phase one instructions",
+            "phase2_instructions": "phase two integration instructions",
+            "allow_assertion": False,
+        }
+    ])
+
+    profile = profiles["source.custom_sensor"]
+    assert profile.extraction_instructions == "new phase one instructions"
+    assert profile.phase1_instructions == "new phase one instructions"
+    assert profile.phase2_instructions == "phase two integration instructions"
+
+
+def test_invalid_assertion_mode_profile_is_skipped():
+    from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
+
+    profiles = build_extraction_profile_registry([
+        {
+            "profile_id": "source.bad_mode",
+            "source_types": ["bad_mode"],
+            "allowed_entity_types": ["topic"],
+            "allowed_predicates": ["INTERESTED_IN"],
+            "assertion_mode": "direct_write",
+        }
+    ])
+
+    assert "source.bad_mode" not in profiles
+
+
+def test_allowed_assertion_traits_default_to_all():
+    from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
+
+    profiles = build_extraction_profile_registry([
+        {
+            "profile_id": "source.trait_defaults",
+            "source_types": ["trait_defaults"],
+            "allowed_entity_types": ["topic"],
+            "allowed_predicates": ["INTERESTED_IN"],
+            "allow_assertion": True,
+        }
+    ])
+
+    assert profiles["source.trait_defaults"].allowed_assertion_traits is None
