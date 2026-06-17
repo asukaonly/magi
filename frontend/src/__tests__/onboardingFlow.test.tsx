@@ -47,87 +47,6 @@ vi.mock('@/api/modules/chatPreview', () => ({
   ),
 }));
 
-// LLMSetupStep now delegates to LLMForm (the same component Settings uses).
-// LLMForm self-loads the provider catalog + renders its own provider/model
-// UI, which is exercised by its own tests. For the onboarding orchestration
-// test we mock LLMForm to a simple provider-picker + api-key input that drives
-// the controlled `value`/`onChange` to a valid state.
-vi.mock('@/components/config-forms/LLMForm', () => ({
-  default: ({ value, onChange }: any) => {
-    const coreProviderId = value?.selections?.core?.provider_id ?? '';
-    return (
-      <div>
-        <label htmlFor="provider-select">provider</label>
-        <select
-          id="provider-select"
-          value={coreProviderId}
-          onChange={(e) => {
-            const pid = e.target.value;
-            if (!pid) return;
-            onChange?.({
-              ...value,
-              providers: {
-                ...(value?.providers ?? {}),
-                [pid]: {
-                  enabled: true,
-                  provider_type: pid,
-                  display_name: pid,
-                  api_key: '',
-                  base_url: '',
-                  services: {
-                    chat: { enabled: true, api_key: '', base_url: '' },
-                    embedding: { enabled: false, api_key: '', base_url: '' },
-                    image_generation: { enabled: false, api_key: '', base_url: '' },
-                    tts: { enabled: false, api_key: '', base_url: '' },
-                  },
-                  api_format: 'openai',
-                  custom_models: [],
-                  custom_default_model: '',
-                  model_metadata_overrides: {},
-                },
-              },
-              selections: {
-                ...(value?.selections ?? {}),
-                core: { provider_id: pid, model: `${pid}-core` },
-                context_decider: { provider_id: pid, model: `${pid}-fast` },
-              },
-            });
-          }}
-        >
-          <option value="">--</option>
-          <option value="openai">openai</option>
-          <option value="anthropic">anthropic</option>
-        </select>
-        <label htmlFor="api-key-input">api key</label>
-        <input
-          id="api-key-input"
-          value={value?.providers?.[coreProviderId]?.api_key ?? ''}
-          onChange={(e) => {
-            const pid = coreProviderId;
-            if (!pid) return;
-            const prov = value.providers[pid];
-            onChange?.({
-              ...value,
-              providers: {
-                ...value.providers,
-                [pid]: {
-                  ...prov,
-                  api_key: e.target.value,
-                  enabled: e.target.value.length > 0,
-                  services: {
-                    ...prov.services,
-                    chat: { ...prov.services.chat, api_key: e.target.value },
-                  },
-                },
-              },
-            });
-          }}
-        />
-      </div>
-    );
-  },
-}));
-
 const stubCatalog = () => ({
   providers: [
     {
@@ -135,12 +54,24 @@ const stubCatalog = () => ({
       provider_type: 'anthropic',
       source: 'builtin',
       display_name: 'Anthropic',
+      default_model: 'claude-sonnet-4-5',
+      default_classify_model: 'claude-haiku-4-5',
+      default_base_url: 'https://api.anthropic.com/v1',
+      api_format: 'anthropic',
+      resolved_chat_models: [],
+      resolved_embedding_models: [],
     },
     {
       id: 'openai',
       provider_type: 'openai',
       source: 'builtin',
       display_name: 'OpenAI',
+      default_model: 'gpt-4o',
+      default_classify_model: 'gpt-4o-mini',
+      default_base_url: 'https://api.openai.com/v1',
+      api_format: 'openai',
+      resolved_chat_models: [],
+      resolved_embedding_models: [{ id: 'text-embedding-3-small', dimensions: [1536] }],
     },
   ],
 });
@@ -263,13 +194,12 @@ describe('OnboardingFlow (linear 4-step)', () => {
     // Step 0: Welcome → Get Started
     await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
 
-    // Step 1: LLM setup — wait for the registry-loaded provider picker
-    const providerSelect = await screen.findByLabelText(/provider/i);
-    await user.selectOptions(providerSelect, 'openai');
+    // Step 1: LLM setup — choose a flat provider card and paste the key.
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
     const nextBtn = screen.getByRole('button', { name: 'actions.next' });
     // Until an API key is typed, the LLM step is invalid and Next stays disabled.
     expect(nextBtn).toBeDisabled();
-    await user.type(screen.getByLabelText(/api key/i), 'sk-test');
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
     await waitFor(() => expect(nextBtn).toBeEnabled());
     await user.click(nextBtn);
 
@@ -301,8 +231,7 @@ describe('OnboardingFlow (linear 4-step)', () => {
 
     await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
 
-    const providerSelect = await screen.findByLabelText(/provider/i);
-    await user.selectOptions(providerSelect, 'anthropic');
+    await user.click(await screen.findByTestId('llm-setup-provider-anthropic'));
 
     await waitFor(() =>
       expect(screen.getByTestId('llm-setup-embedding-row')).toBeInTheDocument(),
@@ -321,9 +250,8 @@ describe('OnboardingFlow (linear 4-step)', () => {
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
 
     await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    const providerSelect = await screen.findByLabelText(/provider/i);
-    await user.selectOptions(providerSelect, 'openai');
-    await user.type(screen.getByLabelText(/api key/i), 'sk-test');
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
     const nextBtn = screen.getByRole('button', { name: 'actions.next' });
     await waitFor(() => expect(nextBtn).toBeEnabled());
     await user.click(nextBtn);
@@ -387,9 +315,8 @@ describe('OnboardingFlow (linear 4-step)', () => {
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
 
     await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    const providerSelect = await screen.findByLabelText(/provider/i);
-    await user.selectOptions(providerSelect, 'openai');
-    await user.type(screen.getByLabelText(/api key/i), 'sk-test');
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
     const nextBtn = screen.getByRole('button', { name: 'actions.next' });
     await waitFor(() => expect(nextBtn).toBeEnabled());
     await user.click(nextBtn);
@@ -426,9 +353,8 @@ describe('OnboardingFlow (linear 4-step)', () => {
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
 
     await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    const providerSelect = await screen.findByLabelText(/provider/i);
-    await user.selectOptions(providerSelect, 'openai');
-    await user.type(screen.getByLabelText(/api key/i), 'sk-test');
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
     const nextBtn = screen.getByRole('button', { name: 'actions.next' });
     await waitFor(() => expect(nextBtn).toBeEnabled());
     await user.click(nextBtn);

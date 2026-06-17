@@ -54,7 +54,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         </h1>
 
         {/* Subtitle */}
-        <p className="mb-4 text-lg text-[#7b6557] dark:text-[#c8b8aa] sm:text-xl">
+        <p className="mb-4 max-w-2xl text-lg leading-8 text-[#7b6557] dark:text-[#c8b8aa] sm:text-xl sm:leading-9">
           {t('welcome.subtitle')}
         </p>
 

@@ -16,7 +16,7 @@
     "finish": "Finish",
     "saving": "Saving...",
     "startingRuntime": "Starting runtime...",
-    "enterApp": "Enter App",
+    "enterApp": "Enter Magi",
     "enableL1": "Enable L1"
   },
   "common": {
@@ -26,8 +26,8 @@
     "saveFailed": "Save failed",
     "requiredFieldMissing": "Please complete required fields before continuing.",
     "chooseModeFirst": "Please select a mode before continuing.",
-    "completedTitle": "Setup Complete",
-    "completedDesc": "You can update these settings anytime later.",
+    "completedTitle": "Magi has found its voice",
+    "completedDesc": "Next, you can connect one data source you are comfortable sharing. Magi will use it to build the first layer of context, so the first conversation does not have to start from zero.",
     "runtimeStartingSlow": "Setup finished, but the runtime is still starting. You can enter now and it will finish warming up in the background."
   },
   "language": {
@@ -47,8 +47,8 @@
     "expertDesc": "Configure all settings, including memory layers and tools."
   },
   "welcome": {
-    "title": "Welcome to Magi",
-    "subtitle": "Your Intelligent Life Companion",
+    "title": "Turning Time Into Context",
+    "subtitle": "Magi starts with a stable personality, then learns from the traces you choose to share: timelines, memories, and everyday context. So future conversations do not have to begin from zero.",
     "getStarted": "Get Started"
   },
   "scenario": {
@@ -157,14 +157,35 @@
   },
   "llmSetup": {
     "embeddingFallbackHint": "This provider has no embedding model. Configure one separately below.",
-    "showAdvanced": "Configure each scenario separately",
-    "hideAdvanced": "Hide advanced model settings"
+    "providerTitle": "Choose a model provider",
+    "providerDesc": "Connect one usable model first. You can still tune advanced model routing later in Settings.",
+    "customRelayTitle": "OpenAI-compatible / Relay",
+    "customRelayDesc": "For OpenRouter, OneAPI, NewAPI, or a self-hosted compatible endpoint.",
+    "selectedProvider": "Selected provider",
+    "builtinSelectedHint": "Add your API key and Magi will use recommended core and fast models.",
+    "customRelaySelectedHint": "Enter your relay endpoint and model ID. API key can be left empty for local or private endpoints.",
+    "apiKeyLabel": "API Key",
+    "apiKeyOptionalLabel": "API Key (optional)",
+    "apiKeyPlaceholder": "Paste your API key",
+    "customNameLabel": "Provider name",
+    "baseUrlLabel": "Base URL",
+    "baseUrlOptionalLabel": "Base URL (optional)",
+    "baseUrlPlaceholder": "https://api.example.com/v1",
+    "baseUrlDefaultPlaceholder": "Leave empty to use the default endpoint",
+    "coreModelLabel": "Core model ID",
+    "coreModelPlaceholder": "e.g. gpt-4o or claude-sonnet-4-5",
+    "fastModelLabel": "Fast model ID",
+    "fastModelPlaceholder": "Leave empty to reuse the core model",
+    "apiFormatLabel": "API format",
+    "pickProviderHint": "Choose a provider first, then fill in the connection details.",
+    "showAdvanced": "Show optional settings",
+    "hideAdvanced": "Hide optional settings"
   },
   "personaPreview": {
-    "chip1": "Tell me an embarrassing story",
-    "chip2": "I'm feeling a bit low",
-    "chip3": "What do you think about AI?",
-    "chip4": "Just say hi for a moment",
+    "chip1": "I'm anxious, but I don't want too much comfort",
+    "chip2": "Break down something I've been avoiding",
+    "chip3": "Tell me the truth, but don't be too harsh",
+    "chip4": "Don't explain, just help me choose",
     "emptyHint": "Pick a chip below or type a message to hear this persona.",
     "composerPlaceholder": "Say something to try this persona…",
     "send": "Send",

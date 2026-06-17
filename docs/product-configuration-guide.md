@@ -100,10 +100,14 @@ Quick mode is intended to reduce friction for first-time users.
 
 It should focus on:
 
-- language
-- LLM configuration
-- AI personality
-- scenario-specific defaults that clearly distinguish lightweight chat, life logging, research-oriented memory, and a balanced neutral setup
+- language selection through the welcome screen
+- a first-run LLM setup surface that asks for one provider, one API key, and only the minimal endpoint/model fields needed for OpenAI-compatible relays
+- AI persona selection or lightweight persona creation
+- a completion handoff that explains the next optional step: connecting one user-approved data source so Magi can build its first useful context
+
+Quick onboarding should not reuse the full Settings LLM editor as the default path. Expert fields such as service-specific endpoints, image generation services, per-scenario model routing, model metadata overrides, and detailed memory/tool settings should remain collapsed or move to Settings after onboarding.
+
+Plugin and sensor activation should stay progressive. The first-run flow may explain that data sources improve context, but it should guide source connection after the essential LLM and persona setup rather than requiring plugin choices up front.
 
 ### Expert Mode
 

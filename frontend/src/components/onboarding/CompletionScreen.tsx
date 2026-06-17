@@ -23,7 +23,9 @@ export const CompletionScreen: React.FC<CompletionScreenProps> = ({
         <CheckCircle2 className="h-12 w-12 text-emerald-600" />
         <div>
           <h3 className="text-lg font-semibold">{t('messages.completedTitle')}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{t('messages.completedDesc')}</p>
+          <p className="mt-1 max-w-md text-sm leading-6 text-muted-foreground">
+            {t('messages.completedDesc')}
+          </p>
         </div>
         <Button onClick={onFinish} disabled={loading}>
           {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}

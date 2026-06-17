@@ -1,68 +1,291 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import {
-  type LLMConfig,
-  type LLMScenario,
-  type LLMSelectionConfig,
-} from '@/api/modules/config';
-import { getRecommendedModels } from '@/constants/llm';
-import LLMForm from '@/components/config-forms/LLMForm';
 
-/**
- * Folded LLM setup step for the redesigned onboarding flow.
- *
- * This is a thin wrapper over {@link LLMForm} — the same component Settings
- * uses — so the provider config gets the real "test connection" handler,
- * model discovery, and (behind the advanced toggle) the real
- * `LLMModelSelectionSection`. LLMForm self-loads the provider catalog and
- * auto-normalizes model selections when a provider is added, so the onboarding
- * happy path needs no extra defaulting.
- *
- * The wrapper adds two onboarding-specific concerns on top of LLMForm:
- *   1. `onValid` — reports whether the config is ready to proceed (an enabled
- *      provider with an API key + core/context_decider selections). LLMForm's
- *      own validation only covers custom-provider model readiness, which is a
- *      different signal.
- *   2. The embedding-fallback hint, shown when the chosen core provider has no
- *      native embedding model (e.g. Anthropic) and no embedding selection is
- *      configured yet.
- */
+import {
+  configApi,
+  type ApiFormat,
+  type LLMConfig,
+  type LLMCustomProviderTemplateData,
+  type LLMProvider,
+  type LLMProviderConfig,
+  type LLMProviderMeta,
+  type LLMProviderRegistry,
+  type LLMScenario,
+} from '@/api/modules/config';
+import { ProviderIcon } from '@/components/config-forms/provider-icons';
+import {
+  applySelectionDefaults,
+  buildRegistryFromCatalog,
+  cloneLLMConfig,
+  cloneProvider,
+  cloneSelection,
+  resolveProviderDefaultModel,
+} from '@/components/config-forms/llm-form-state';
+import { getRecommendedModels } from '@/constants/llm';
+import { cn } from '@/lib/utils';
+
 export interface LLMSetupStepProps {
   value: LLMConfig;
   onChange: (next: LLMConfig) => void;
   onValid?: (valid: boolean) => void;
 }
 
-function isValidConfig(value: LLMConfig): boolean {
-  const providers = value.providers ?? {};
-  const selections = value.selections ?? ({} as Record<LLMScenario, LLMSelectionConfig>);
+type QuickProviderCard = {
+  id: string;
+  providerType: LLMProvider | 'custom';
+  title: string;
+  description: string;
+  iconName?: string;
+  meta?: LLMProviderMeta;
+};
 
-  const anyEnabledWithKey = Object.values(providers).some(
-    (p) =>
-      p?.enabled &&
-      ((p.api_key?.length ?? 0) > 0 || (p.services?.chat?.api_key?.length ?? 0) > 0),
-  );
-  if (!anyEnabledWithKey) return false;
-  if (!selections.core?.provider_id || !selections.core?.model) return false;
-  if (!selections.context_decider?.provider_id || !selections.context_decider?.model) return false;
-  return true;
+const QUICK_PROVIDER_PRIORITY = [
+  'openai',
+  'anthropic',
+  'gemini',
+  'deepseek',
+  'dashscope',
+  'glm',
+  'glm_codeplan',
+  'kimi',
+  'grok',
+  'minimax',
+];
+
+const fieldClassName =
+  'h-10 w-full rounded-lg bg-background px-3 text-sm ring-1 ring-inset ring-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
+
+const secretFieldButtonClassName =
+  'absolute inset-y-0 right-2 inline-flex items-center justify-center text-muted-foreground transition hover:text-foreground';
+
+function isValidConfig(value: LLMConfig): boolean {
+  const coreProviderId = value.selections?.core?.provider_id || '';
+  const provider = value.providers?.[coreProviderId];
+  if (!provider?.enabled || !provider.services?.chat?.enabled) {
+    return false;
+  }
+
+  const hasCore = Boolean(value.selections?.core?.model);
+  const hasContextDecider = Boolean(value.selections?.context_decider?.model);
+  if (!hasCore || !hasContextDecider) {
+    return false;
+  }
+
+  if (provider.provider_type === 'custom') {
+    return Boolean((provider.base_url || provider.services.chat.base_url || '').trim());
+  }
+
+  return Boolean((provider.api_key || provider.services.chat.api_key || '').trim());
 }
 
-/**
- * True when the core scenario points at a known provider that has no native
- * embedding model and the embedding scenario hasn't been given a model yet.
- * Looks up by the provider's `provider_type` (the template id used as the key
- * in RECOMMENDED_MODELS), falling back to the instance id.
- */
-/**
- * True when any configured provider is a custom (OpenAI-compatible) provider.
- * Custom providers require the user to pick concrete models per scenario, so we
- * auto-expand the advanced model config when one is present.
- */
-function hasCustomProvider(value: LLMConfig): boolean {
-  return Object.values(value.providers ?? {}).some(
-    (p) => p?.provider_type === 'custom',
+function cloneServiceConnection(
+  value?: Partial<LLMProviderConfig['services']['chat']>,
+  defaultEnabled = true
+): LLMProviderConfig['services']['chat'] {
+  return {
+    enabled: value?.enabled ?? defaultEnabled,
+    api_key: value?.api_key || '',
+    base_url: value?.base_url || '',
+  };
+}
+
+function cloneImageService(
+  value?: Partial<LLMProviderConfig['services']['image_generation']>
+): LLMProviderConfig['services']['image_generation'] {
+  return {
+    ...cloneServiceConnection(value, false),
+    timeout: value?.timeout ?? 180,
+    native_protocol: value?.native_protocol ?? null,
+  };
+}
+
+function cloneTtsService(
+  value?: Partial<LLMProviderConfig['services']['tts']>
+): LLMProviderConfig['services']['tts'] {
+  return {
+    ...cloneServiceConnection(value, false),
+    model: value?.model || '',
+    voice: value?.voice || '',
+    response_format: value?.response_format || '',
+  };
+}
+
+function getProviderType(meta: LLMProviderMeta): LLMProvider {
+  return (meta.provider_type || meta.id) as LLMProvider;
+}
+
+function createProviderFromMeta(meta: LLMProviderMeta, existing?: LLMProviderConfig): LLMProviderConfig {
+  const providerType = getProviderType(meta);
+  const apiKey = existing?.api_key || existing?.services?.chat?.api_key || '';
+  const baseUrl = existing?.base_url || meta.default_base_url || '';
+
+  return cloneProvider({
+    enabled: true,
+    provider_type: providerType,
+    display_name: existing?.display_name || meta.display_name || meta.id,
+    api_key: apiKey,
+    base_url: baseUrl,
+    services: {
+      chat: { enabled: true, api_key: apiKey, base_url: existing?.services?.chat?.base_url || '' },
+      embedding: {
+        enabled: existing?.services?.embedding?.enabled ?? Boolean(meta.resolved_embedding_models?.length),
+        api_key: existing?.services?.embedding?.api_key || '',
+        base_url: existing?.services?.embedding?.base_url || '',
+      },
+      image_generation: cloneImageService(existing?.services?.image_generation),
+      tts: cloneTtsService(existing?.services?.tts),
+    },
+    api_format: existing?.api_format || meta.api_format || 'openai',
+    custom_models: existing?.custom_models || [],
+    custom_default_model: existing?.custom_default_model || '',
+    model_metadata_overrides: existing?.model_metadata_overrides || {},
+  });
+}
+
+function createCustomProvider(
+  displayName: string,
+  defaults?: LLMProviderConfig | null,
+  existing?: LLMProviderConfig
+): LLMProviderConfig {
+  const source = existing || defaults || undefined;
+  const apiKey = source?.api_key || source?.services?.chat?.api_key || '';
+  const baseUrl = source?.base_url || source?.services?.chat?.base_url || '';
+
+  return cloneProvider({
+    enabled: true,
+    provider_type: 'custom',
+    display_name: source?.display_name || displayName,
+    api_key: apiKey,
+    base_url: baseUrl,
+    services: {
+      chat: { enabled: true, api_key: apiKey, base_url: source?.services?.chat?.base_url || '' },
+      embedding: cloneServiceConnection(source?.services?.embedding, false),
+      image_generation: cloneImageService(source?.services?.image_generation),
+      tts: cloneTtsService(source?.services?.tts),
+    },
+    api_format: source?.api_format || 'openai',
+    custom_models: source?.custom_models || [],
+    custom_default_model: source?.custom_default_model || source?.custom_models?.[0] || '',
+    model_metadata_overrides: source?.model_metadata_overrides || {},
+  });
+}
+
+function buildSelection(
+  registry: LLMProviderRegistry,
+  providerId: string,
+  provider: LLMProviderConfig,
+  scenario: LLMScenario,
+  model: string
+) {
+  const selection = cloneSelection({ provider_id: providerId, model });
+  applySelectionDefaults(selection, registry, providerId, provider, scenario);
+  if (model && !selection.model) {
+    selection.model = model;
+  }
+  return selection;
+}
+
+function resolveScenarioModel(
+  registry: LLMProviderRegistry,
+  providerId: string,
+  provider: LLMProviderConfig,
+  scenario: LLMScenario,
+  explicitModel?: string
+): string {
+  if (explicitModel !== undefined) {
+    return explicitModel;
+  }
+
+  const recommended = getRecommendedModels(provider.provider_type);
+  if (scenario === 'core') {
+    return recommended?.core || resolveProviderDefaultModel(registry, providerId, provider, scenario);
+  }
+  if (scenario === 'context_decider') {
+    return recommended?.context_decider || resolveProviderDefaultModel(registry, providerId, provider, scenario);
+  }
+  if (scenario === 'embedding') {
+    if (recommended?.embedding === null) {
+      return '';
+    }
+    return recommended?.embedding || resolveProviderDefaultModel(registry, providerId, provider, scenario);
+  }
+  return resolveProviderDefaultModel(registry, providerId, provider, scenario);
+}
+
+function withCustomModels(provider: LLMProviderConfig, coreModel: string, contextModel: string): LLMProviderConfig {
+  if (provider.provider_type !== 'custom') {
+    return provider;
+  }
+
+  const models = Array.from(new Set([coreModel, contextModel].map((item) => item.trim()).filter(Boolean)));
+  return cloneProvider({
+    ...provider,
+    custom_models: models,
+    custom_default_model: coreModel.trim() || models[0] || '',
+  });
+}
+
+function buildNextConfig(
+  value: LLMConfig,
+  registry: LLMProviderRegistry,
+  providerId: string,
+  providerInput: LLMProviderConfig,
+  overrides: Partial<Record<'core' | 'context_decider' | 'embedding', string>> = {}
+): LLMConfig {
+  const currentCore = value.selections?.core?.provider_id === providerId ? value.selections.core.model : undefined;
+  const currentContext =
+    value.selections?.context_decider?.provider_id === providerId ? value.selections.context_decider.model : undefined;
+
+  const coreModel = resolveScenarioModel(
+    registry,
+    providerId,
+    providerInput,
+    'core',
+    overrides.core ?? currentCore
   );
+  const contextModel = resolveScenarioModel(
+    registry,
+    providerId,
+    providerInput,
+    'context_decider',
+    overrides.context_decider ?? currentContext
+  );
+  const provider = withCustomModels(providerInput, coreModel, contextModel || coreModel);
+  const embeddingModel = resolveScenarioModel(
+    registry,
+    providerId,
+    provider,
+    'embedding',
+    overrides.embedding
+  );
+
+  const next = cloneLLMConfig(value);
+  next.providers = { [providerId]: provider };
+  next.selections.core = buildSelection(registry, providerId, provider, 'core', coreModel);
+  next.selections.context_decider = buildSelection(
+    registry,
+    providerId,
+    provider,
+    'context_decider',
+    contextModel || coreModel
+  );
+  next.selections.memory_summarizer = cloneSelection(next.selections.core);
+  next.selections.embedding =
+    embeddingModel && provider.services.embedding.enabled
+      ? buildSelection(registry, providerId, provider, 'embedding', embeddingModel)
+      : cloneSelection();
+  next.selections.image_generation = cloneSelection();
+  next.model_runtime_overrides = { ...(value.model_runtime_overrides || {}) };
+  return next;
+}
+
+function findExistingProviderByType(value: LLMConfig, providerType: LLMProvider | 'custom') {
+  return Object.entries(value.providers || {}).find(([, provider]) => provider.provider_type === providerType);
+}
+
+function getActiveProviderId(value: LLMConfig): string {
+  return value.selections?.core?.provider_id || Object.keys(value.providers || {})[0] || '';
 }
 
 function showsEmbeddingFallback(value: LLMConfig): boolean {
@@ -77,34 +300,411 @@ function showsEmbeddingFallback(value: LLMConfig): boolean {
 
 export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): JSX.Element {
   const { t } = useTranslation('onboarding');
+  const [registry, setRegistry] = useState<LLMProviderRegistry | null>(null);
+  const [customTemplate, setCustomTemplate] = useState<LLMCustomProviderTemplateData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const activeProviderId = getActiveProviderId(value);
+  const activeProvider = activeProviderId ? value.providers?.[activeProviderId] : undefined;
+  const selectedCardId = activeProvider?.provider_type === 'custom'
+    ? 'custom'
+    : activeProvider?.provider_type || '';
 
   useEffect(() => {
     onValid?.(isValidConfig(value));
   }, [value, onValid]);
 
-  // Auto-expand the advanced model config once a custom provider appears —
-  // custom providers can't be auto-defaulted from the catalog, so the user
-  // must pick models per scenario. The user can still collapse it afterward.
-  const customPresent = hasCustomProvider(value);
   useEffect(() => {
-    if (customPresent) setShowAdvanced(true);
-  }, [customPresent]);
+    let cancelled = false;
 
-  const showEmbeddingRow = showsEmbeddingFallback(value);
+    const loadRegistry = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const [catalog, template] = await Promise.all([
+          configApi.resolveLLMProviderCatalog({ providers: value.providers || {} }),
+          configApi.getLLMCustomProviderTemplate(),
+        ]);
+        if (cancelled) {
+          return;
+        }
+        setCustomTemplate(template);
+        setRegistry(buildRegistryFromCatalog(catalog, template));
+      } catch {
+        if (!cancelled) {
+          setError(t('llm.loadFailed'));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadRegistry();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const providerCards = useMemo<QuickProviderCard[]>(() => {
+    if (!registry) {
+      return [];
+    }
+
+    const builtInCards = registry.providers
+      .filter((provider) => provider.source !== 'custom')
+      .filter((provider) => provider.id === (provider.provider_type || provider.id))
+      .sort((left, right) => {
+        const leftIndex = QUICK_PROVIDER_PRIORITY.indexOf(left.id);
+        const rightIndex = QUICK_PROVIDER_PRIORITY.indexOf(right.id);
+        const normalizedLeft = leftIndex === -1 ? QUICK_PROVIDER_PRIORITY.length : leftIndex;
+        const normalizedRight = rightIndex === -1 ? QUICK_PROVIDER_PRIORITY.length : rightIndex;
+        if (normalizedLeft !== normalizedRight) {
+          return normalizedLeft - normalizedRight;
+        }
+        return (left.display_name || left.id).localeCompare(right.display_name || right.id);
+      })
+      .map((provider) => ({
+        id: provider.id,
+        providerType: getProviderType(provider),
+        title: t(`llm.providers.${provider.id}.name`, { defaultValue: provider.display_name || provider.id }),
+        description: t(`llm.providers.${provider.id}.desc`, { defaultValue: provider.description || '' }),
+        iconName: provider.icon,
+        meta: provider,
+      }));
+
+    return [
+      ...builtInCards,
+      {
+        id: 'custom',
+        providerType: 'custom',
+        title: t('llmSetup.customRelayTitle'),
+        description: t('llmSetup.customRelayDesc'),
+        iconName: 'custom',
+      },
+    ];
+  }, [registry, t]);
+
+  const commitProvider = (
+    providerId: string,
+    provider: LLMProviderConfig,
+    overrides?: Partial<Record<'core' | 'context_decider' | 'embedding', string>>
+  ) => {
+    if (!registry) {
+      return;
+    }
+    onChange(buildNextConfig(value, registry, providerId, provider, overrides));
+  };
+
+  const handleSelectCard = (card: QuickProviderCard) => {
+    if (!registry) {
+      return;
+    }
+
+    if (card.providerType === 'custom') {
+      const existing = findExistingProviderByType(value, 'custom');
+      const providerId = existing?.[0] || 'custom';
+      const provider = createCustomProvider(
+        t('llmSetup.customRelayTitle'),
+        customTemplate?.defaults,
+        existing?.[1]
+      );
+      commitProvider(providerId, provider);
+      return;
+    }
+
+    if (!card.meta) {
+      return;
+    }
+    const existing = findExistingProviderByType(value, card.providerType);
+    const providerId = existing?.[0] || card.meta.id;
+    const provider = createProviderFromMeta(card.meta, existing?.[1]);
+    commitProvider(providerId, provider);
+  };
+
+  const updateActiveProvider = (
+    updater: (draft: LLMProviderConfig) => void,
+    overrides?: Partial<Record<'core' | 'context_decider' | 'embedding', string>>
+  ) => {
+    if (!activeProviderId || !activeProvider) {
+      return;
+    }
+    const nextProvider = cloneProvider(activeProvider);
+    updater(nextProvider);
+    commitProvider(activeProviderId, nextProvider, overrides);
+  };
+
+  const currentCoreModel = value.selections?.core?.model || '';
+  const currentContextModel = value.selections?.context_decider?.model || '';
+
+  const renderSecretInput = () => (
+    <div className="relative">
+      <input
+        data-testid="llm-setup-api-key"
+        aria-label={t('llmSetup.apiKeyLabel')}
+        className={cn(fieldClassName, 'pr-10')}
+        type={showApiKey ? 'text' : 'password'}
+        value={activeProvider?.api_key || activeProvider?.services?.chat?.api_key || ''}
+        placeholder={t('llmSetup.apiKeyPlaceholder')}
+        onChange={(event) => {
+          const apiKey = event.target.value;
+          updateActiveProvider((provider) => {
+            provider.api_key = apiKey;
+            provider.services.chat.api_key = apiKey;
+          });
+        }}
+      />
+      <button
+        type="button"
+        className={secretFieldButtonClassName}
+        aria-label={showApiKey ? t('llm.providerConfiguration.hideKey') : t('llm.providerConfiguration.showKey')}
+        onClick={() => setShowApiKey((current) => !current)}
+      >
+        {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+
+  if (loading) {
+    return (
+      <div
+        data-testid="llm-setup-loading"
+        className="flex min-h-[240px] items-center justify-center rounded-2xl border border-dashed border-border bg-muted/20"
+      >
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        <span className="text-sm text-muted-foreground">{t('llm.loading')}</span>
+      </div>
+    );
+  }
+
+  if (!registry || error) {
+    return (
+      <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+        <p className="font-medium">{t('llm.loadFailed')}</p>
+        <p className="mt-1 text-destructive/80">{t('llm.loadFailedDesc')}</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-6">
-      <LLMForm
-        value={value}
-        onChange={onChange}
-        view={showAdvanced ? 'all' : 'providers'}
-        quickMode
-        surface="onboarding"
-        showSectionIntro={false}
-      />
+    <div className="flex flex-col gap-6" data-testid="llm-setup-simple">
+      <div className="space-y-2">
+        <h3 className="text-base font-semibold text-foreground">{t('llmSetup.providerTitle')}</h3>
+        <p className="text-sm leading-6 text-muted-foreground">{t('llmSetup.providerDesc')}</p>
+      </div>
 
-      {showEmbeddingRow ? (
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {providerCards.map((card) => {
+          const selected = selectedCardId === card.id || selectedCardId === card.providerType;
+          return (
+            <button
+              key={card.id}
+              type="button"
+              data-testid={`llm-setup-provider-${card.id}`}
+              onClick={() => handleSelectCard(card)}
+              className={cn(
+                'flex min-h-[96px] items-start gap-3 rounded-xl border border-border/70 bg-background/80 p-4 text-left transition hover:bg-muted/35',
+                selected && 'border-primary/55 bg-primary/5 shadow-[0_10px_28px_-24px_rgba(15,23,42,0.45)]'
+              )}
+            >
+              <ProviderIcon
+                providerId={String(card.providerType)}
+                iconName={card.iconName}
+                displayName={card.title}
+              />
+              <span className="min-w-0 space-y-1">
+                <span className="block text-sm font-semibold text-foreground">{card.title}</span>
+                <span className="line-clamp-2 block text-xs leading-5 text-muted-foreground">
+                  {card.description}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {activeProvider ? (
+        <div className="space-y-4 rounded-xl border border-border/70 bg-background/90 p-4">
+          <div className="space-y-1">
+            <div className="text-sm font-semibold text-foreground">
+              {activeProvider.display_name || t('llmSetup.selectedProvider')}
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">
+              {activeProvider.provider_type === 'custom'
+                ? t('llmSetup.customRelaySelectedHint')
+                : t('llmSetup.builtinSelectedHint')}
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {activeProvider.provider_type === 'custom' ? (
+              <label className="space-y-2">
+                <span className="text-sm font-medium">{t('llmSetup.customNameLabel')}</span>
+                <input
+                  data-testid="llm-setup-custom-name"
+                  aria-label={t('llmSetup.customNameLabel')}
+                  className={fieldClassName}
+                  value={activeProvider.display_name || ''}
+                  onChange={(event) => {
+                    const displayName = event.target.value;
+                    updateActiveProvider((provider) => {
+                      provider.display_name = displayName;
+                    });
+                  }}
+                />
+              </label>
+            ) : null}
+
+            <label className="space-y-2">
+              <span className="text-sm font-medium">
+                {activeProvider.provider_type === 'custom'
+                  ? t('llmSetup.apiKeyOptionalLabel')
+                  : t('llmSetup.apiKeyLabel')}
+              </span>
+              {renderSecretInput()}
+            </label>
+
+            {activeProvider.provider_type === 'custom' ? (
+              <label className="space-y-2 md:col-span-2">
+                <span className="text-sm font-medium">{t('llmSetup.baseUrlLabel')}</span>
+                <input
+                  data-testid="llm-setup-base-url"
+                  aria-label={t('llmSetup.baseUrlLabel')}
+                  className={fieldClassName}
+                  value={activeProvider.base_url || activeProvider.services.chat.base_url || ''}
+                  placeholder={t('llmSetup.baseUrlPlaceholder')}
+                  onChange={(event) => {
+                    const baseUrl = event.target.value;
+                    updateActiveProvider((provider) => {
+                      provider.base_url = baseUrl;
+                    });
+                  }}
+                />
+              </label>
+            ) : null}
+
+            {activeProvider.provider_type === 'custom' ? (
+              <label className="space-y-2 md:col-span-2">
+                <span className="text-sm font-medium">{t('llmSetup.coreModelLabel')}</span>
+                <input
+                  data-testid="llm-setup-custom-model"
+                  aria-label={t('llmSetup.coreModelLabel')}
+                  className={fieldClassName}
+                  value={currentCoreModel}
+                  placeholder={t('llmSetup.coreModelPlaceholder')}
+                  onChange={(event) => {
+                    const model = event.target.value;
+                    updateActiveProvider(
+                      (provider) => {
+                        provider.custom_default_model = model;
+                      },
+                      { core: model, context_decider: currentContextModel || model }
+                    );
+                  }}
+                />
+              </label>
+            ) : null}
+          </div>
+
+          <button
+            type="button"
+            data-testid="llm-setup-advanced-toggle"
+            className="inline-flex items-center gap-1 text-sm text-[#7d685a] underline-offset-4 hover:underline"
+            onClick={() => setShowAdvanced((current) => !current)}
+          >
+            <ChevronDown className={cn('h-4 w-4 transition-transform', showAdvanced && 'rotate-180')} />
+            {showAdvanced ? t('llmSetup.hideAdvanced') : t('llmSetup.showAdvanced')}
+          </button>
+
+          {showAdvanced ? (
+            <div className="grid gap-4 rounded-lg bg-muted/30 p-4 md:grid-cols-2">
+              {activeProvider.provider_type !== 'custom' ? (
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-sm font-medium">{t('llmSetup.baseUrlOptionalLabel')}</span>
+                  <input
+                    data-testid="llm-setup-base-url"
+                    aria-label={t('llmSetup.baseUrlOptionalLabel')}
+                    className={fieldClassName}
+                    value={activeProvider.base_url || ''}
+                    placeholder={t('llmSetup.baseUrlDefaultPlaceholder')}
+                    onChange={(event) => {
+                      const baseUrl = event.target.value;
+                      updateActiveProvider((provider) => {
+                        provider.base_url = baseUrl;
+                      });
+                    }}
+                  />
+                </label>
+              ) : (
+                <label className="space-y-2">
+                  <span className="text-sm font-medium">{t('llmSetup.apiFormatLabel')}</span>
+                  <select
+                    data-testid="llm-setup-api-format"
+                    aria-label={t('llmSetup.apiFormatLabel')}
+                    className={fieldClassName}
+                    value={activeProvider.api_format || 'openai'}
+                    onChange={(event) => {
+                      const apiFormat = event.target.value as ApiFormat;
+                      updateActiveProvider((provider) => {
+                        provider.api_format = apiFormat;
+                      });
+                    }}
+                  >
+                    <option value="openai">{t('llm.apiFormatOptions.openai')}</option>
+                    <option value="anthropic">{t('llm.apiFormatOptions.anthropic')}</option>
+                  </select>
+                </label>
+              )}
+
+              <label className="space-y-2">
+                <span className="text-sm font-medium">{t('llmSetup.coreModelLabel')}</span>
+                <input
+                  data-testid="llm-setup-core-model"
+                  aria-label={t('llmSetup.coreModelLabel')}
+                  className={fieldClassName}
+                  value={currentCoreModel}
+                  placeholder={t('llmSetup.coreModelPlaceholder')}
+                  onChange={(event) => {
+                    const model = event.target.value;
+                    updateActiveProvider(
+                      () => undefined,
+                      { core: model, context_decider: currentContextModel || model }
+                    );
+                  }}
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-medium">{t('llmSetup.fastModelLabel')}</span>
+                <input
+                  data-testid="llm-setup-fast-model"
+                  aria-label={t('llmSetup.fastModelLabel')}
+                  className={fieldClassName}
+                  value={currentContextModel}
+                  placeholder={currentCoreModel || t('llmSetup.fastModelPlaceholder')}
+                  onChange={(event) => {
+                    const model = event.target.value;
+                    updateActiveProvider(
+                      () => undefined,
+                      { core: currentCoreModel, context_decider: model || currentCoreModel }
+                    );
+                  }}
+                />
+              </label>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-border/80 bg-muted/20 p-5 text-sm text-muted-foreground">
+          {t('llmSetup.pickProviderHint')}
+        </div>
+      )}
+
+      {showsEmbeddingFallback(value) ? (
         <div
           data-testid="llm-setup-embedding-row"
           className="rounded border border-amber-400 bg-amber-50 p-4 dark:border-amber-600 dark:bg-amber-950/30"
@@ -114,15 +714,6 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
           </p>
         </div>
       ) : null}
-
-      <button
-        type="button"
-        data-testid="llm-setup-advanced-toggle"
-        className="self-start text-sm underline text-[#7d685a]"
-        onClick={() => setShowAdvanced((current) => !current)}
-      >
-        {showAdvanced ? t('llmSetup.hideAdvanced') : t('llmSetup.showAdvanced')}
-      </button>
     </div>
   );
 }

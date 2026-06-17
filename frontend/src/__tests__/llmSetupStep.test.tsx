@@ -1,106 +1,244 @@
-import { render, screen } from '@testing-library/react';
+import { useState } from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { configApi, DEFAULT_SYSTEM_CONFIG, type LLMConfig } from '@/api/modules/config';
 import { LLMSetupStep } from '@/components/onboarding/LLMSetupStep';
-import type { LLMConfig } from '@/api/modules/config';
 
-// Mock i18n so the test isn't bound to translation copy churn.
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-// LLMSetupStep is a thin wrapper over LLMForm (the same component Settings
-// uses). Mock LLMForm and capture the `view` prop so we can assert the
-// advanced toggle wiring without standing up the full provider catalog.
-const llmFormSpy = vi.fn();
-vi.mock('@/components/config-forms/LLMForm', () => ({
-  default: (props: Record<string, unknown>) => {
-    llmFormSpy(props);
-    return <div data-testid="llm-form" data-view={String(props.view)} />;
-  },
-}));
+const chatCapabilities = {
+  vision: false,
+  image_output: false,
+  tool_calling: true,
+  reasoning: true,
+};
+
+const embeddingCapabilities = {
+  vision: false,
+  image_output: false,
+  tool_calling: false,
+  reasoning: false,
+  embedding: true,
+};
+
+function catalog() {
+  return {
+    providers: [
+      {
+        id: 'openai',
+        provider_type: 'openai',
+        source: 'builtin',
+        display_name: 'OpenAI',
+        default_model: 'gpt-4o',
+        default_classify_model: 'gpt-4o-mini',
+        default_base_url: 'https://api.openai.com/v1',
+        api_format: 'openai',
+        resolved_chat_models: [
+          {
+            id: 'gpt-4o',
+            capabilities: chatCapabilities,
+            limits: {},
+            hidden: false,
+            preferred: true,
+            source: 'builtin',
+            input_modalities: ['text'],
+            output_modalities: ['text'],
+          },
+          {
+            id: 'gpt-4o-mini',
+            capabilities: chatCapabilities,
+            limits: {},
+            hidden: false,
+            preferred: false,
+            source: 'builtin',
+            input_modalities: ['text'],
+            output_modalities: ['text'],
+          },
+        ],
+        resolved_embedding_models: [
+          {
+            id: 'text-embedding-3-small',
+            dimensions: [1536],
+            capabilities: embeddingCapabilities,
+            hidden: false,
+            preferred: true,
+            source: 'builtin',
+            input_modalities: ['text'],
+            output_modalities: ['embedding'],
+          },
+        ],
+      },
+      {
+        id: 'anthropic',
+        provider_type: 'anthropic',
+        source: 'builtin',
+        display_name: 'Anthropic',
+        default_model: 'claude-sonnet-4-5',
+        default_classify_model: 'claude-haiku-4-5',
+        default_base_url: 'https://api.anthropic.com/v1',
+        api_format: 'anthropic',
+        resolved_chat_models: [
+          {
+            id: 'claude-sonnet-4-5',
+            capabilities: chatCapabilities,
+            limits: {},
+            hidden: false,
+            preferred: true,
+            source: 'builtin',
+            input_modalities: ['text'],
+            output_modalities: ['text'],
+          },
+          {
+            id: 'claude-haiku-4-5',
+            capabilities: chatCapabilities,
+            limits: {},
+            hidden: false,
+            preferred: false,
+            source: 'builtin',
+            input_modalities: ['text'],
+            output_modalities: ['text'],
+          },
+        ],
+        resolved_embedding_models: [],
+      },
+    ],
+  };
+}
+
+function customTemplate() {
+  return {
+    template: {
+      enabled: true,
+      display_name: 'Custom Provider',
+      fields: {
+        api_format: { visible: true, required: true, options: ['openai', 'anthropic'] },
+      },
+      capabilities: {
+        vision: false,
+        image_output: false,
+        tool_calling: true,
+        reasoning: true,
+        embedding: false,
+      },
+      limits: {},
+      provider_options_example: {},
+    },
+    defaults: {
+      enabled: true,
+      provider_type: 'custom',
+      display_name: 'Custom Provider',
+      api_key: '',
+      base_url: '',
+      services: {
+        chat: { enabled: true, api_key: '', base_url: '' },
+        embedding: { enabled: false, api_key: '', base_url: '' },
+        image_generation: { enabled: false, api_key: '', base_url: '', timeout: 180, native_protocol: null },
+        tts: { enabled: false, api_key: '', base_url: '', model: '', voice: '', response_format: '' },
+      },
+      api_format: 'openai',
+      custom_models: [],
+      custom_default_model: '',
+      model_metadata_overrides: {},
+    },
+  };
+}
 
 function emptyValue(): LLMConfig {
-  return { providers: {}, selections: {} as any, model_runtime_overrides: {} };
+  return structuredClone(DEFAULT_SYSTEM_CONFIG.llm);
 }
 
-function readyValue(): LLMConfig {
-  return {
-    providers: {
-      openai: {
-        enabled: true,
-        provider_type: 'openai',
-        api_key: 'sk-test',
-        services: { chat: { enabled: true, api_key: 'sk-test', base_url: '' } },
-      } as any,
-    },
-    selections: {
-      core: { provider_id: 'openai', model: 'gpt-4o' },
-      context_decider: { provider_id: 'openai', model: 'gpt-4o-mini' },
-    } as any,
-    model_runtime_overrides: {},
-  };
-}
-
-function anthropicCoreNoEmbedding(): LLMConfig {
-  return {
-    providers: {
-      anthropic: {
-        enabled: true,
-        provider_type: 'anthropic',
-        api_key: 'sk-ant',
-        services: { chat: { enabled: true, api_key: 'sk-ant', base_url: '' } },
-      } as any,
-    },
-    selections: {
-      core: { provider_id: 'anthropic', model: 'claude-sonnet-4-5' },
-      context_decider: { provider_id: 'anthropic', model: 'claude-haiku-4-5' },
-    } as any,
-    model_runtime_overrides: {},
-  };
+function Harness({
+  initial = emptyValue(),
+  onValid,
+  onChangeSpy,
+}: {
+  initial?: LLMConfig;
+  onValid?: (valid: boolean) => void;
+  onChangeSpy?: (value: LLMConfig) => void;
+}) {
+  const [value, setValue] = useState(initial);
+  return (
+    <LLMSetupStep
+      value={value}
+      onValid={onValid}
+      onChange={(next) => {
+        onChangeSpy?.(next);
+        setValue(next);
+      }}
+    />
+  );
 }
 
 describe('LLMSetupStep', () => {
-  beforeEach(() => llmFormSpy.mockClear());
-
-  it('renders LLMForm with view="providers" by default (advanced collapsed)', () => {
-    render(<LLMSetupStep value={emptyValue()} onChange={() => {}} />);
-    expect(screen.getByTestId('llm-form')).toHaveAttribute('data-view', 'providers');
+  beforeEach(() => {
+    vi.spyOn(configApi, 'resolveLLMProviderCatalog').mockResolvedValue(catalog() as any);
+    vi.spyOn(configApi, 'getLLMCustomProviderTemplate').mockResolvedValue(customTemplate() as any);
   });
 
-  it('advanced toggle flips LLMForm view to "all" and back', async () => {
-    render(<LLMSetupStep value={emptyValue()} onChange={() => {}} />);
-    const toggle = screen.getByTestId('llm-setup-advanced-toggle');
-    await userEvent.click(toggle);
-    expect(screen.getByTestId('llm-form')).toHaveAttribute('data-view', 'all');
-    await userEvent.click(toggle);
-    expect(screen.getByTestId('llm-form')).toHaveAttribute('data-view', 'providers');
+  it('renders flat provider cards and keeps optional settings collapsed', async () => {
+    render(<Harness />);
+    expect(await screen.findByTestId('llm-setup-provider-openai')).toBeInTheDocument();
+    expect(screen.getByTestId('llm-setup-provider-custom')).toBeInTheDocument();
+    expect(screen.queryByTestId('llm-setup-core-model')).not.toBeInTheDocument();
   });
 
-  it('reports valid=false for an empty config', () => {
+  it('reports valid once a builtin provider has an API key', async () => {
+    const user = userEvent.setup();
     const onValid = vi.fn();
-    render(<LLMSetupStep value={emptyValue()} onChange={() => {}} onValid={onValid} />);
+    const onChangeSpy = vi.fn();
+    render(<Harness onValid={onValid} onChangeSpy={onChangeSpy} />);
+
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
     expect(onValid).toHaveBeenLastCalledWith(false);
+
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
+    await waitFor(() => expect(onValid).toHaveBeenLastCalledWith(true));
+
+    const latest = onChangeSpy.mock.calls[onChangeSpy.mock.calls.length - 1]?.[0] as LLMConfig;
+    expect(latest.providers.openai.api_key).toBe('sk-test');
+    expect(latest.selections.core.model).toBe('gpt-4o');
+    expect(latest.selections.context_decider.model).toBe('gpt-4o-mini');
   });
 
-  it('reports valid=true when an enabled provider with key + core + context_decider exist', () => {
+  it('supports keyless OpenAI-compatible relay setup with base URL and model ID', async () => {
+    const user = userEvent.setup();
     const onValid = vi.fn();
-    render(<LLMSetupStep value={readyValue()} onChange={() => {}} onValid={onValid} />);
-    expect(onValid).toHaveBeenLastCalledWith(true);
+    const onChangeSpy = vi.fn();
+    render(<Harness onValid={onValid} onChangeSpy={onChangeSpy} />);
+
+    await user.click(await screen.findByTestId('llm-setup-provider-custom'));
+    await user.type(screen.getByTestId('llm-setup-base-url'), 'http://localhost:3000/v1');
+    await user.type(screen.getByTestId('llm-setup-custom-model'), 'gpt-4o-mini');
+
+    await waitFor(() => expect(onValid).toHaveBeenLastCalledWith(true));
+    const latest = onChangeSpy.mock.calls[onChangeSpy.mock.calls.length - 1]?.[0] as LLMConfig;
+    expect(latest.providers.custom.provider_type).toBe('custom');
+    expect(latest.providers.custom.api_key).toBe('');
+    expect(latest.providers.custom.base_url).toBe('http://localhost:3000/v1');
+    expect(latest.providers.custom.custom_models).toContain('gpt-4o-mini');
+    expect(latest.selections.core.model).toBe('gpt-4o-mini');
   });
 
-  it('shows the embedding-fallback row when the core provider has null embedding (Anthropic)', () => {
-    render(<LLMSetupStep value={anthropicCoreNoEmbedding()} onChange={() => {}} />);
+  it('reveals optional model routing fields from the advanced toggle', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.click(screen.getByTestId('llm-setup-advanced-toggle'));
+
+    expect(screen.getByTestId('llm-setup-core-model')).toBeInTheDocument();
+    expect(screen.getByTestId('llm-setup-fast-model')).toBeInTheDocument();
+  });
+
+  it('shows the embedding-fallback row when the selected provider has no native embedding model', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(await screen.findByTestId('llm-setup-provider-anthropic'));
+
     expect(screen.getByTestId('llm-setup-embedding-row')).toBeInTheDocument();
-  });
-
-  it('hides the embedding-fallback row once an embedding selection exists', () => {
-    const value = anthropicCoreNoEmbedding();
-    (value.selections as any).embedding = {
-      provider_id: 'openai',
-      model: 'text-embedding-3-small',
-    };
-    render(<LLMSetupStep value={value} onChange={() => {}} />);
-    expect(screen.queryByTestId('llm-setup-embedding-row')).not.toBeInTheDocument();
   });
 });
