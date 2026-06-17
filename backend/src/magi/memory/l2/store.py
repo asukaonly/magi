@@ -22,6 +22,7 @@ from .assertions.snapshots import L2StoreSnapshotMixin
 from .assertions.write import L2StoreAssertionMixin
 from .entities.facets import L2EntityFacetStoreMixin
 from .episodes.store import L2EpisodeStoreMixin
+from .experiences.store import L2ExperienceStoreMixin
 from .extraction.candidates import L2StoreCandidateExtractionMixin
 from .governance.forgetting import L2StoreForgettingMixin
 from .graph.conflicts import L2StoreGraphConflictMixin
@@ -37,6 +38,7 @@ logger = get_logger(__name__)
 class L2CognitionStore(
     L2EntityFacetStoreMixin,
     L2EpisodeStoreMixin,
+    L2ExperienceStoreMixin,
     L2StoreGraphConflictMixin,
     L2ProjectionJobStoreMixin,
     L2StoreReconcileMixin,
@@ -151,6 +153,9 @@ class L2CognitionStore(
                 DELETE FROM entity_facets;
                 DELETE FROM tom_trait_assertions;
                 DELETE FROM tom_snapshots;
+                DELETE FROM experience_key_events;
+                DELETE FROM experience_members;
+                DELETE FROM experiences;
                 DELETE FROM episodes;
                 DELETE FROM episode_events;
                 """
