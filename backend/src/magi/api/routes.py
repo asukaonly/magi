@@ -36,6 +36,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l2/microbatch-flush": {"POST"},
         "/l2/episodes": {"GET"},
         "/l2/episodes/{episode_id}": {"GET", "PATCH"},
+        "/l2/episodes/{episode_id}/regenerate": {"POST"},
         "/l2/episodes/{episode_id}/merge": {"POST"},
         "/l2/episodes/reconsolidate": {"POST"},
         "/l3/summaries": {"GET"},

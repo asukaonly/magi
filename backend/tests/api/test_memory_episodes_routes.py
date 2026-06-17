@@ -373,6 +373,60 @@ def test_merge_episode_endpoint_calls_store(app_with_mock_memory):
     )
 
 
+def test_regenerate_episode_calls_l3_and_indexes_fts(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(return_value={"episode_id": "ep1", "user_label": "Trip"})
+    l2.list_episode_events = AsyncMock(return_value=[{"event_id": "e1"}])
+    l2.index_episode_fts = AsyncMock()
+    l2.list_assertions_for_episode = AsyncMock(return_value=[])
+    l3 = MagicMock()
+    l3.generate_episodic_summary = AsyncMock(
+        return_value={
+            "summary_id": "sum2",
+            "content": "New recap",
+            "insight_metadata": {"label": "New title"},
+            "updated_at": 10,
+        }
+    )
+    l1 = MagicMock()
+    l1.get_events_by_ids = AsyncMock(return_value=[])
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+    unified.l1 = l1
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.post("/api/memory/l2/episodes/ep1/regenerate")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["episode_summary"]["content"] == "New recap"
+    assert body["display_title"] == "Trip"
+    l3.generate_episodic_summary.assert_awaited_once_with(
+        l1_store=l1,
+        episode={"episode_id": "ep1", "user_label": "Trip"},
+        episode_event_ids=["e1"],
+    )
+    l2.index_episode_fts.assert_awaited_once_with(
+        episode_id="ep1",
+        summary="New recap",
+        label="New title",
+        user_label="Trip",
+    )
+
+
+def test_regenerate_episode_route_is_publicly_allowlisted():
+    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
+    route_methods: dict[str, set[str]] = {}
+    for route in public.routes:
+        if getattr(route, "path", None):
+            route_methods.setdefault(route.path, set()).update(route.methods or set())
+
+    assert "POST" in route_methods["/l2/episodes/{episode_id}/regenerate"]
+
+
 def test_merge_episode_route_is_publicly_allowlisted():
     public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
     route_methods: dict[str, set[str]] = {}

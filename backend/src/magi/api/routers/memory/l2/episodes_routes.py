@@ -131,6 +131,81 @@ async def _attach_episode_review_fields(
     return items
 
 
+async def _serialize_episode_event_previews(
+    unified_memory: Any,
+    event_memberships: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    event_ids = [
+        str(item.get("event_id") or "").strip()
+        for item in event_memberships
+        if item.get("event_id")
+    ]
+    l1_events_by_id: dict[str, dict[str, Any]] = {}
+    l1_store = _get_unified_layer(unified_memory, "l1")
+    if l1_store is not None and event_ids and hasattr(l1_store, "get_events_by_ids"):
+        hydrated_events = await l1_store.get_events_by_ids(event_ids)
+        l1_events_by_id = {
+            str(item.get("event_id") or ""): item
+            for item in hydrated_events
+            if item.get("event_id")
+        }
+
+    events = [
+        serialize_l1_event_preview(l1_events_by_id.get(str(item.get("event_id") or "")), membership=item)
+        for item in event_memberships
+    ]
+    events.sort(key=lambda item: (
+        item.get("timestamp") is None,
+        float(item.get("timestamp") or item.get("added_at") or 0.0),
+    ))
+    return events
+
+
+async def _regenerate_episode_summary(
+    unified_memory: Any,
+    *,
+    episode: dict[str, Any],
+    event_memberships: list[dict[str, Any]],
+) -> dict[str, Any]:
+    l1_store = _get_unified_layer(unified_memory, "l1")
+    l3_store = _get_unified_layer(unified_memory, "l3")
+    if l1_store is None or l3_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.summary_store_uninitialized", "Summary store not initialized"),
+        )
+
+    event_ids = [
+        str(item.get("event_id") or "").strip()
+        for item in event_memberships
+        if item.get("event_id")
+    ]
+    if not event_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=memory_t("memory.errors.episode_has_no_events", "Episode has no events"),
+        )
+
+    summary = await l3_store.generate_episodic_summary(
+        l1_store=l1_store,
+        episode=episode,
+        episode_event_ids=event_ids,
+    )
+    episode_summary = serialize_episodic_summary(summary)
+    if episode_summary is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=memory_t("memory.errors.episode_summary_generation_failed", "Episode summary generation failed"),
+        )
+    await unified_memory.l2.index_episode_fts(
+        episode_id=str(episode.get("episode_id") or ""),
+        summary=episode_summary["content"],
+        label=episode_summary["label"],
+        user_label=str(episode.get("user_label") or ""),
+    )
+    return episode_summary
+
+
 @memory_router.get("/l2/episodes")
 async def list_l2_episodes(
     status_filter: Optional[str] = Query(default=None, alias="status"),
@@ -214,29 +289,7 @@ async def get_l2_episode(episode_id: str):
         unified_memory.l2.list_episode_events(episode_id=episode_id),
         unified_memory.l2.list_assertions_for_episode(episode_id=episode_id),
     )
-    event_ids = [
-        str(item.get("event_id") or "").strip()
-        for item in event_memberships
-        if item.get("event_id")
-    ]
-    l1_events_by_id: dict[str, dict[str, Any]] = {}
-    l1_store = _get_unified_layer(unified_memory, "l1")
-    if l1_store is not None and event_ids and hasattr(l1_store, "get_events_by_ids"):
-        hydrated_events = await l1_store.get_events_by_ids(event_ids)
-        l1_events_by_id = {
-            str(item.get("event_id") or ""): item
-            for item in hydrated_events
-            if item.get("event_id")
-        }
-
-    events = [
-        serialize_l1_event_preview(l1_events_by_id.get(str(item.get("event_id") or "")), membership=item)
-        for item in event_memberships
-    ]
-    events.sort(key=lambda item: (
-        item.get("timestamp") is None,
-        float(item.get("timestamp") or item.get("added_at") or 0.0),
-    ))
+    events = await _serialize_episode_event_previews(unified_memory, event_memberships)
 
     episode_summary = None
     l3_store = _get_unified_layer(unified_memory, "l3")
@@ -246,6 +299,36 @@ async def get_l2_episode(episode_id: str):
         )
     display_fields = build_episode_display_fields(episode, episode_summary)
 
+    return {
+        **episode,
+        **display_fields,
+        "episode_summary": episode_summary,
+        "events": events,
+        "inferred": [_serialize_episode_inference(item) for item in inferred],
+    }
+
+
+@memory_router.post("/l2/episodes/{episode_id}/regenerate")
+async def regenerate_l2_episode(episode_id: str):
+    """Regenerate the L3 recap for an active episode and refresh review fields."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    episode = await unified_memory.l2.get_episode(episode_id=episode_id)
+    if episode is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.episode_not_found", "Episode not found"))
+    event_memberships = await unified_memory.l2.list_episode_events(episode_id=episode_id)
+    episode_summary = await _regenerate_episode_summary(
+        unified_memory,
+        episode=episode,
+        event_memberships=event_memberships,
+    )
+    display_fields = build_episode_display_fields(episode, episode_summary)
+    events = await _serialize_episode_event_previews(unified_memory, event_memberships)
+    inferred = await unified_memory.l2.list_assertions_for_episode(episode_id=episode_id)
     return {
         **episode,
         **display_fields,
