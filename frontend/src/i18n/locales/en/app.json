@@ -37,7 +37,10 @@
     }
   },
   "common": {
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "saving": "Saving...",
+    "save": "Save",
+    "cancel": "Cancel"
   },
   "notifications": {
     "bellAria": "Notifications",
@@ -2312,11 +2315,33 @@
     },
     "episodes": {
       "title": "Experiences",
-      "subtitle": "Episodes you've named, annotated, or pinned.",
-      "pinnedSection": "Pinned",
-      "recentSection": "Recent",
-      "emptyTitle": "No chapters yet",
-      "emptyBody": "Episodes accumulate from conversations and activity over time.",
+      "subtitle": "Active experiences Magi has formed from remembered events.",
+      "count": "{{count}} active",
+      "emptyTitle": "No active experiences yet",
+      "emptyBody": "Magi will form episodes as conversations and activity accumulate.",
+      "detailEmptyTitle": "Choose an experience",
+      "detailEmptyBody": "Open one from the list to inspect its events and impressions.",
+      "noNarrative": "No narrative yet.",
+      "noSummary": "No summary yet.",
+      "noEvents": "No event memberships found.",
+      "noInferred": "No inferred impressions for this episode.",
+      "noTags": "None yet",
+      "sections": {
+        "list": "Active experiences",
+        "detail": "Experience detail",
+        "narrative": "Narrative",
+        "eventStream": "Event stream",
+        "inferred": "Inferred impressions",
+        "people": "People",
+        "places": "Places",
+        "topics": "Topics",
+        "userNotes": "Your corrections"
+      },
+      "fields": {
+        "label": "Label",
+        "note": "Note",
+        "pinned": "Pinned"
+      },
       "filters": {
         "all": "All",
         "activity": "Activity",
@@ -2325,11 +2350,24 @@
         "conversation": "Conversation"
       },
       "actions": {
+        "open": "Open experience",
+        "edit": "Edit corrections",
         "pin": "Pin",
         "unpin": "Unpin",
         "rename": "Rename",
         "annotate": "Annotate",
-        "forget": "Forget"
+        "forget": "Forget",
+        "saveCorrections": "Save corrections",
+        "confirmImpression": "Confirm impression",
+        "rejectImpression": "Reject impression"
+      },
+      "eventRole": {
+        "member": "Member"
+      },
+      "feedback": {
+        "confirmed": "Confirmed",
+        "rejected": "Rejected",
+        "pending": "Needs review"
       },
       "awaitingLabel": "Waiting for Magi to draft a title..."
     },

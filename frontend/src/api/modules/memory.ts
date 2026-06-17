@@ -246,12 +246,24 @@ export interface L2Episode {
   summary?: string | null;
   dominant_mode?: string | null;
   source_event_count?: number;
+  confidence?: number | null;
+  parent_episode_id?: string | null;
+  slice_narrative?: string | null;
+  slice_sensory_detail?: string | null;
+  magi_standout?: boolean | null;
+  standout_score?: number | null;
+  standout_reason?: string | null;
+  representative_asset_ref?: string | null;
   user_label?: string | null;
   user_note?: string | null;
   user_pinned?: boolean;
   primary_entity_ids?: string[] | null;
   primary_place_ids?: string[] | null;
   primary_topic_keys?: string[] | null;
+  continuity_signals?: string[] | null;
+  formation_method?: string | null;
+  created_at?: number | null;
+  updated_at?: number | null;
 }
 
 export interface L2EpisodeSummary {
@@ -264,6 +276,33 @@ export interface L2EpisodeSummary {
 
 export interface L2EpisodeWithSummary extends L2Episode {
   episode_summary?: L2EpisodeSummary | null;
+}
+
+export interface L2EpisodeEvent {
+  episode_id: string;
+  event_id: string;
+  membership_role: string;
+  membership_confidence: number;
+  added_at: number;
+}
+
+export interface L2EpisodeInference {
+  assertion_id: string;
+  entity_id: string;
+  entity_type: string;
+  trait_family?: string | null;
+  trait_name: string;
+  trait_value: string;
+  confidence_score: number;
+  natural_summary: string;
+  validation_state?: string | null;
+  user_feedback: 'confirmed' | 'rejected' | string | null;
+  evidence_events: string[];
+}
+
+export interface L2EpisodeDetail extends L2Episode {
+  events: L2EpisodeEvent[];
+  inferred: L2EpisodeInference[];
 }
 
 export interface EpisodeReconsolidateResult {
@@ -546,10 +585,14 @@ export const memoryApi = {
     surface?: 'standout';
   }): Promise<PaginatedResponse<L2EpisodeWithSummary>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2EpisodeWithSummary>>('/memory/l2/episodes', { params })),
+  getEpisode: async (episodeId: string): Promise<L2EpisodeDetail> =>
+    unwrapMemoryResponse(await api.get<L2EpisodeDetail>(`/memory/l2/episodes/${episodeId}`)),
   reconsolidateEpisodes: async (): Promise<EpisodeReconsolidateResult> =>
     unwrapMemoryResponse(await api.post<EpisodeReconsolidateResult>('/memory/l2/episodes/reconsolidate')),
   annotateEpisode: async (episodeId: string, payload: EpisodeAnnotationPayload): Promise<L2Episode> =>
     unwrapMemoryResponse(await api.patch<L2Episode>(`/memory/l2/episodes/${episodeId}`, payload)),
+  mergeEpisodes: async (episodeId: string, absorbedId: string): Promise<L2Episode> =>
+    unwrapMemoryResponse(await api.post<L2Episode>(`/memory/l2/episodes/${episodeId}/merge`, { absorbed_id: absorbedId })),
   forgetEpisode: async (episodeId: string, deleteEvents = false): Promise<ForgetEpisodeResponse> =>
     unwrapMemoryResponse(await api.post<ForgetEpisodeResponse>('/memory/forget/episode', {
       episode_id: episodeId,

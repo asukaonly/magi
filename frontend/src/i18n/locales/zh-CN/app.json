@@ -37,7 +37,10 @@
     }
   },
   "common": {
-    "loading": "加载中..."
+    "loading": "加载中...",
+    "saving": "保存中...",
+    "save": "保存",
+    "cancel": "取消"
   },
   "notifications": {
     "bellAria": "通知",
@@ -2311,11 +2314,33 @@
     },
     "episodes": {
       "title": "经历",
-      "subtitle": "你被命名、标注、置顶的经历片段。",
-      "pinnedSection": "置顶",
-      "recentSection": "最近",
-      "emptyTitle": "还没有可读的章节",
-      "emptyBody": "经历会随着对话和活动累积成章节。",
+      "subtitle": "Magi 从已记住的事件里整理出的活跃经历。",
+      "count": "{{count}} 段活跃经历",
+      "emptyTitle": "还没有活跃经历",
+      "emptyBody": "随着对话和活动累积，Magi 会逐渐整理出经历片段。",
+      "detailEmptyTitle": "选择一段经历",
+      "detailEmptyBody": "从列表打开一段经历，就能查看其中的事件和推断。",
+      "noNarrative": "还没有叙事。",
+      "noSummary": "还没有摘要。",
+      "noEvents": "还没有关联事件。",
+      "noInferred": "这段经历还没有推断印象。",
+      "noTags": "暂无",
+      "sections": {
+        "list": "活跃经历",
+        "detail": "经历详情",
+        "narrative": "叙事",
+        "eventStream": "事件流",
+        "inferred": "推断印象",
+        "people": "人物",
+        "places": "地点",
+        "topics": "主题",
+        "userNotes": "你的修正"
+      },
+      "fields": {
+        "label": "标签",
+        "note": "备注",
+        "pinned": "置顶"
+      },
       "filters": {
         "all": "全部",
         "activity": "活动",
@@ -2324,11 +2349,24 @@
         "conversation": "对话"
       },
       "actions": {
+        "open": "打开经历",
+        "edit": "编辑修正",
         "pin": "置顶",
         "unpin": "取消置顶",
         "rename": "重命名",
         "annotate": "备注",
-        "forget": "遗忘"
+        "forget": "遗忘",
+        "saveCorrections": "保存修正",
+        "confirmImpression": "确认印象",
+        "rejectImpression": "拒绝印象"
+      },
+      "eventRole": {
+        "member": "成员"
+      },
+      "feedback": {
+        "confirmed": "已确认",
+        "rejected": "已拒绝",
+        "pending": "待审阅"
       },
       "awaitingLabel": "等 Magi 起草标题..."
     },
