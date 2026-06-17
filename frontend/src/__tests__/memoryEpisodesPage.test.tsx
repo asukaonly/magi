@@ -44,6 +44,10 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.detailNotFound': 'Experience not found.',
     'memory.episodes.eventPreviewUnavailable': 'Event preview unavailable',
     'memory.episodes.noTags': 'None yet',
+    'memory.episodes.coverAlt': '{{title}} cover',
+    'memory.episodes.coverPending': 'Cover pending',
+    'memory.episodes.coverHint': 'Use a related image or choose one later.',
+    'memory.episodes.actions.changeCover': 'Change cover',
     'memory.episodes.awaitingLabel': 'Waiting for Magi to draft a title...',
     'memory.episodes.fields.title': 'Title',
     'memory.episodes.fields.description': 'Recap',
@@ -204,6 +208,7 @@ const experienceDetail: L2ExperienceReviewDetail = {
       status: 'active',
       label: 'Planning thread',
       summary: 'Product launch planning.',
+      representative_asset_ref: 'manual-entry-asset://cover.jpg',
       time_start: 1700000000,
       time_end: 1700050000,
       source_event_count: 2,
@@ -242,6 +247,17 @@ const experienceDetail: L2ExperienceReviewDetail = {
       event_type: 'UserMessage',
       source: 'chat',
       content_preview: 'Visited Kyoto station',
+    },
+    {
+      episode_id: '2054f7ae-f6f2-4d9e-9c29-7af8760ffbbd',
+      event_id: 'evt-3',
+      membership_role: 'member',
+      membership_confidence: 0.76,
+      added_at: 1700100400,
+      timestamp: 1700100400,
+      event_type: 'BrowserEvent',
+      source: 'chrome',
+      content_preview: 'Compared launch copy drafts',
     },
     {
       episode_id: 'ep-1',
@@ -318,9 +334,11 @@ describe('MemoryEpisodesPage', () => {
     renderPage();
 
     expect((await screen.findAllByText('Launch week')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Recently formed and updated experiences from remembered events.')).not.toBeInTheDocument();
     expect(screen.getByText('Generated research loop')).toBeInTheDocument();
     expect(screen.getByText('Pinned first · Recently updated')).toBeInTheDocument();
     expect(screen.getByText('All experiences')).toBeInTheDocument();
+    expect(screen.getByText('Worth revisiting')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Build experiences now' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Search experiences')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Filter' })).not.toBeInTheDocument();
@@ -343,8 +361,13 @@ describe('MemoryEpisodesPage', () => {
 
     await openLaunchExperience(user);
     expect(await screen.findByRole('button', { name: 'Back to experiences' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Launch week cover' })).toHaveAttribute(
+      'src',
+      expect.stringContaining('manual-entry-asset%3A%2F%2Fcover.jpg')
+    );
+    expect(screen.getByRole('button', { name: 'Change cover' })).toBeInTheDocument();
     expect(await screen.findByText('Generated Japan recap')).toBeInTheDocument();
-    expect(screen.queryByText('Worth revisiting')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Worth revisiting').length).toBeGreaterThan(0);
   });
 
   it('renders the Magi recap, source episodes, and readable event previews on the detail page', async () => {
@@ -359,7 +382,9 @@ describe('MemoryEpisodesPage', () => {
     expect(within(events).getByText('Visited Kyoto station')).toBeInTheDocument();
     expect(within(events).getByText('Booked the Shinkansen tickets')).toBeInTheDocument();
     expect(within(events).queryByText('evt-1')).not.toBeInTheDocument();
-    expect(screen.getByText('Source chapter 2')).toBeInTheDocument();
+    const sourceEpisodes = screen.getByTestId('experience-source-episodes');
+    expect(within(sourceEpisodes).getByText('Compared launch copy drafts')).toBeInTheDocument();
+    expect(within(sourceEpisodes).queryByText('Source chapter 2')).not.toBeInTheDocument();
     expect(screen.queryByText('2054f7ae-f6f2-4d9e-9c29-7af8760ffbbd')).not.toBeInTheDocument();
 
     expect(screen.getAllByText('Asuka').length).toBeGreaterThan(0);
@@ -368,12 +393,30 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.getAllByText('launch').length).toBeGreaterThan(0);
   });
 
-  it('does not force a featured card above the experience list', async () => {
+  it('marks pinned experiences as worth revisiting without forcing a featured hero', async () => {
     renderPage();
 
     expect((await screen.findAllByText('Launch week')).length).toBeGreaterThan(0);
+    expect(screen.getByText('Worth revisiting')).toBeInTheDocument();
     expect(screen.queryByText('Featured recap')).not.toBeInTheDocument();
-    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
+  it('compresses mechanical activity dumps into a one-sentence recap', async () => {
+    vi.mocked(memoryApi.getExperience).mockResolvedValueOnce({
+      ...experienceDetail,
+      display_description: 'Chrome browsed A - Google Search (visited 2 times); Chrome browsed B - Google Search (visited 3 times); Chrome browsed C - Google Search (visited 2 times)',
+      experience_review: {
+        summary_id: 'sum-mechanical',
+        content: 'Chrome browsed A - Google Search (visited 2 times); Chrome browsed B - Google Search (visited 3 times); Chrome browsed C - Google Search (visited 2 times)',
+        label: 'Launch week',
+        updated_at: 1700100000,
+        is_fallback: false,
+      },
+    });
+    renderDetailPage();
+
+    expect(await screen.findByText('This experience centers on Launch week.')).toBeInTheDocument();
+    expect(screen.queryByText(/Chrome browsed A/)).not.toBeInTheDocument();
   });
 
   it('offers reconsolidation when there are no active experiences', async () => {

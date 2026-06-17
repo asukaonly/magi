@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   BookOpen,
   Layers,
+  Star,
   Tags,
 } from 'lucide-react';
 import {
@@ -139,17 +140,6 @@ export const MemoryEpisodesPage = () => {
       className="max-w-[1180px] gap-6 px-6 py-7"
       contentClassName="pb-8"
     >
-      <header className="max-w-3xl">
-        <div className="min-w-0">
-          <h1 className="text-3xl font-semibold leading-tight tracking-normal text-[hsl(var(--memory-title))]">
-            {t('memory.episodes.title')}
-          </h1>
-          <p className="mt-2 text-sm leading-6 text-[hsl(var(--memory-body))]">
-            {t('memory.episodes.subtitle')}
-          </p>
-        </div>
-      </header>
-
       {loading ? (
         <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div>
       ) : experiences.length === 0 ? (
@@ -241,6 +231,12 @@ function TimelineExperienceItem({
         <div className="min-w-0">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <BookOpen className="h-4 w-4 shrink-0 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
+            {experience.user_pinned ? (
+              <span className="inline-flex items-center gap-1 rounded-md bg-[hsl(var(--memory-accent-soft)/0.7)] px-2 py-0.5 text-xs text-[hsl(var(--memory-title))]">
+                <Star className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('memory.episodes.sections.featured')}
+              </span>
+            ) : null}
             <h3 className="break-words text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">
               {title}
             </h3>
