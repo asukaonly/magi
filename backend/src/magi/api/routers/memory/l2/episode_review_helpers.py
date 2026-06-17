@@ -175,3 +175,40 @@ def score_episode_candidate(
 
     return score, reasons
 
+
+def score_event_candidate(
+    episode: dict[str, Any],
+    event: dict[str, Any],
+) -> tuple[float, list[str]]:
+    """Score whether an L1 event is a useful add-candidate for an episode."""
+    score = 0.0
+    reasons: list[str] = []
+    timestamp = event.get("timestamp")
+    start = episode.get("time_start")
+    end = episode.get("time_end")
+    if isinstance(timestamp, (int, float)) and isinstance(start, (int, float)) and isinstance(end, (int, float)):
+        if float(start) <= float(timestamp) <= float(end):
+            score += 4.0
+            reasons.append("within_time_range")
+        else:
+            gap = min(abs(float(timestamp) - float(start)), abs(float(timestamp) - float(end)))
+            if gap <= 6 * 60 * 60:
+                score += 2.0
+                reasons.append("nearby_time")
+            elif gap <= 24 * 60 * 60:
+                score += 0.5
+                reasons.append("adjacent_time")
+
+    metadata = event.get("metadata_json") if isinstance(event.get("metadata_json"), dict) else {}
+    event_topics = _string_set(metadata.get("topics") or metadata.get("topic_keys"))
+    event_places = _string_set(metadata.get("place_ids") or metadata.get("places"))
+    if event_topics & _string_set(episode.get("primary_topic_keys")):
+        score += 2.0
+        reasons.append("shared_topics")
+    if event_places & _string_set(episode.get("primary_place_ids")):
+        score += 2.0
+        reasons.append("shared_places")
+    if _clean_text(event.get("source")):
+        score += 0.25
+        reasons.append("same_source_context")
+    return score, reasons

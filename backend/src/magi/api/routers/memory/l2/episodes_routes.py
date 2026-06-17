@@ -19,9 +19,10 @@ from magi.utils.runtime import get_runtime_paths
 from ..dependencies import _resolve_unified_memory
 from ..helpers import memory_t
 from ..router import memory_router
-from ..schemas import EpisodeAnnotationRequest, EpisodeMergeRequest
+from ..schemas import EpisodeAnnotationRequest, EpisodeEventIdsRequest, EpisodeMergeRequest
 from .episode_review_helpers import (
     build_episode_display_fields,
+    score_event_candidate,
     serialize_episodic_summary,
     serialize_l1_event_preview,
 )
@@ -206,6 +207,128 @@ async def _regenerate_episode_summary(
     return episode_summary
 
 
+async def _build_episode_review_response(
+    unified_memory: Any,
+    *,
+    episode: dict[str, Any],
+    event_memberships: list[dict[str, Any]],
+    episode_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if episode_summary is None:
+        l3_store = _get_unified_layer(unified_memory, "l3")
+        if l3_store is not None:
+            episode_summary = serialize_episodic_summary(
+                await l3_store.get_episodic_summary_by_episode_id(str(episode.get("episode_id") or ""))
+            )
+    display_fields = build_episode_display_fields(episode, episode_summary)
+    events = await _serialize_episode_event_previews(unified_memory, event_memberships)
+    inferred = await unified_memory.l2.list_assertions_for_episode(
+        episode_id=str(episode.get("episode_id") or "")
+    )
+    return {
+        **episode,
+        **display_fields,
+        "episode_summary": episode_summary,
+        "events": events,
+        "inferred": [_serialize_episode_inference(item) for item in inferred],
+    }
+
+
+async def _list_event_candidate_previews(
+    unified_memory: Any,
+    *,
+    episode: dict[str, Any],
+    current_memberships: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    l1_store = _get_unified_layer(unified_memory, "l1")
+    if l1_store is None or not hasattr(l1_store, "query_events"):
+        return []
+    episode_id = str(episode.get("episode_id") or "")
+    current_event_ids = {
+        str(item.get("event_id") or "").strip()
+        for item in current_memberships
+        if item.get("event_id")
+    }
+    start = episode.get("time_start")
+    end = episode.get("time_end")
+    start_time = float(start) - 6 * 60 * 60 if isinstance(start, (int, float)) else None
+    end_time = float(end) + 6 * 60 * 60 if isinstance(end, (int, float)) else None
+    candidate_rows = await l1_store.query_events(
+        start_time=start_time,
+        end_time=end_time,
+        limit=200,
+        order_by="timestamp_asc",
+    )
+    previews: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for event in candidate_rows:
+        event_id = str(event.get("event_id") or "").strip()
+        if not event_id or event_id in current_event_ids or event_id in seen:
+            continue
+        seen.add(event_id)
+        score, reasons = score_event_candidate(episode, event)
+        membership = {
+            "episode_id": episode_id,
+            "event_id": event_id,
+            "membership_role": "candidate",
+            "membership_confidence": min(1.0, max(0.0, score / 6.0)),
+            "added_at": None,
+        }
+        preview = serialize_l1_event_preview(event, membership=membership)
+        preview["candidate_score"] = score
+        preview["candidate_reasons"] = reasons
+        previews.append(preview)
+    previews.sort(key=lambda item: (-float(item.get("candidate_score") or 0.0), float(item.get("timestamp") or 0.0)))
+    return previews[:limit]
+
+
+async def _refresh_episode_after_membership_change(
+    unified_memory: Any,
+    *,
+    episode_id: str,
+    event_memberships: list[dict[str, Any]],
+) -> dict[str, Any]:
+    event_ids = [
+        str(item.get("event_id") or "").strip()
+        for item in event_memberships
+        if item.get("event_id")
+    ]
+    updates: dict[str, Any] = {"source_event_count": len(event_ids)}
+    l1_store = _get_unified_layer(unified_memory, "l1")
+    if l1_store is not None and event_ids and hasattr(l1_store, "get_events_by_ids"):
+        events = await l1_store.get_events_by_ids(event_ids)
+        timestamps = [
+            float(event.get("timestamp"))
+            for event in events
+            if isinstance(event.get("timestamp"), (int, float))
+        ]
+        if timestamps:
+            updates["time_start"] = min(timestamps)
+            updates["time_end"] = max(timestamps)
+    await unified_memory.l2.update_episode(episode_id=episode_id, **updates)
+    episode = await unified_memory.l2.get_episode(episode_id=episode_id)
+    return episode or {"episode_id": episode_id, **updates}
+
+
+async def _try_regenerate_episode_summary(
+    unified_memory: Any,
+    *,
+    episode: dict[str, Any],
+    event_memberships: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if _get_unified_layer(unified_memory, "l1") is None or _get_unified_layer(unified_memory, "l3") is None:
+        return None
+    try:
+        return await _regenerate_episode_summary(
+            unified_memory,
+            episode=episode,
+            event_memberships=event_memberships,
+        )
+    except Exception:
+        return None
+
+
 @memory_router.get("/l2/episodes")
 async def list_l2_episodes(
     status_filter: Optional[str] = Query(default=None, alias="status"),
@@ -336,6 +459,124 @@ async def regenerate_l2_episode(episode_id: str):
         "events": events,
         "inferred": [_serialize_episode_inference(item) for item in inferred],
     }
+
+
+@memory_router.get("/l2/episodes/{episode_id}/event-candidates")
+async def list_l2_episode_event_candidates(
+    episode_id: str,
+    limit: int = Query(default=20, ge=1, le=50),
+):
+    """List nearby or similar L1 events that can be added to an episode."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    episode = await unified_memory.l2.get_episode(episode_id=episode_id)
+    if episode is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.episode_not_found", "Episode not found"))
+    memberships = await unified_memory.l2.list_episode_events(episode_id=episode_id)
+    items = await _list_event_candidate_previews(
+        unified_memory,
+        episode=episode,
+        current_memberships=memberships,
+        limit=limit,
+    )
+    return {"items": items}
+
+
+@memory_router.post("/l2/episodes/{episode_id}/events")
+async def add_l2_episode_events(episode_id: str, body: EpisodeEventIdsRequest):
+    """Add candidate L1 events to an episode and refresh its recap."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    episode = await unified_memory.l2.get_episode(episode_id=episode_id)
+    if episode is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.episode_not_found", "Episode not found"))
+
+    current_memberships = await unified_memory.l2.list_episode_events(episode_id=episode_id)
+    candidates = await _list_event_candidate_previews(
+        unified_memory,
+        episode=episode,
+        current_memberships=current_memberships,
+        limit=100,
+    )
+    candidate_ids = {str(item.get("event_id") or "") for item in candidates}
+    requested_ids = [event_id for event_id in body.event_ids if event_id in candidate_ids]
+    if len(requested_ids) != len(body.event_ids):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=memory_t("memory.errors.invalid_episode_event_candidate", "Event is not an add candidate for this episode"),
+        )
+
+    await unified_memory.l2.add_episode_events(episode_id=episode_id, event_ids=requested_ids)
+    updated_memberships = await unified_memory.l2.list_episode_events(episode_id=episode_id)
+    updated_episode = await _refresh_episode_after_membership_change(
+        unified_memory,
+        episode_id=episode_id,
+        event_memberships=updated_memberships,
+    )
+    episode_summary = await _try_regenerate_episode_summary(
+        unified_memory,
+        episode=updated_episode,
+        event_memberships=updated_memberships,
+    )
+    return await _build_episode_review_response(
+        unified_memory,
+        episode=updated_episode,
+        event_memberships=updated_memberships,
+        episode_summary=episode_summary,
+    )
+
+
+@memory_router.delete("/l2/episodes/{episode_id}/events")
+async def remove_l2_episode_events(episode_id: str, body: EpisodeEventIdsRequest):
+    """Remove L1 events from an episode and refresh its recap."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    episode = await unified_memory.l2.get_episode(episode_id=episode_id)
+    if episode is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.episode_not_found", "Episode not found"))
+    current_memberships = await unified_memory.l2.list_episode_events(episode_id=episode_id)
+    current_ids = [
+        str(item.get("event_id") or "").strip()
+        for item in current_memberships
+        if item.get("event_id")
+    ]
+    remaining_ids = [event_id for event_id in current_ids if event_id not in set(body.event_ids)]
+    if len(remaining_ids) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=memory_t("memory.errors.episode_too_few_events", "Episode would have too few events"),
+        )
+
+    await unified_memory.l2.remove_episode_events(episode_id=episode_id, event_ids=body.event_ids)
+    updated_memberships = await unified_memory.l2.list_episode_events(episode_id=episode_id)
+    updated_episode = await _refresh_episode_after_membership_change(
+        unified_memory,
+        episode_id=episode_id,
+        event_memberships=updated_memberships,
+    )
+    episode_summary = await _try_regenerate_episode_summary(
+        unified_memory,
+        episode=updated_episode,
+        event_memberships=updated_memberships,
+    )
+    return await _build_episode_review_response(
+        unified_memory,
+        episode=updated_episode,
+        event_memberships=updated_memberships,
+        episode_summary=episode_summary,
+    )
 
 
 @memory_router.patch("/l2/episodes/{episode_id}")

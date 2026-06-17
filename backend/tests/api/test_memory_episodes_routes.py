@@ -427,6 +427,134 @@ def test_regenerate_episode_route_is_publicly_allowlisted():
     assert "POST" in route_methods["/l2/episodes/{episode_id}/regenerate"]
 
 
+def test_event_candidates_exclude_existing_members(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(
+        return_value={"episode_id": "ep1", "time_start": 100.0, "time_end": 200.0}
+    )
+    l2.list_episode_events = AsyncMock(return_value=[{"episode_id": "ep1", "event_id": "e1"}])
+    l1 = MagicMock()
+    l1.query_events = AsyncMock(
+        return_value=[
+            {"event_id": "e1", "timestamp": 120.0, "content": "Already in episode"},
+            {"event_id": "e2", "timestamp": 180.0, "event_type": "UserMessage", "source": "chat", "content": "Candidate event"},
+        ]
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l1 = l1
+    unified.l3 = None
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.get("/api/memory/l2/episodes/ep1/event-candidates")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert [item["event_id"] for item in body["items"]] == ["e2"]
+    assert body["items"][0]["content_preview"] == "Candidate event"
+    l1.query_events.assert_awaited_once()
+
+
+def test_add_episode_events_route_updates_memberships_and_regenerates(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    episode = {"episode_id": "ep1", "time_start": 100.0, "time_end": 200.0, "user_label": None}
+    l2.get_episode = AsyncMock(return_value=episode)
+    l2.list_episode_events = AsyncMock(
+        side_effect=[
+            [{"episode_id": "ep1", "event_id": "e1"}],
+            [{"episode_id": "ep1", "event_id": "e1"}, {"episode_id": "ep1", "event_id": "e2"}],
+        ]
+    )
+    l2.add_episode_events = AsyncMock(return_value=1)
+    l2.update_episode = AsyncMock(return_value=True)
+    l2.index_episode_fts = AsyncMock()
+    l2.list_assertions_for_episode = AsyncMock(return_value=[])
+    l1 = MagicMock()
+    l1.query_events = AsyncMock(
+        return_value=[
+            {"event_id": "e2", "timestamp": 180.0, "content": "Candidate event"},
+        ]
+    )
+    l1.get_events_by_ids = AsyncMock(
+        return_value=[
+            {"event_id": "e1", "timestamp": 120.0, "content": "Existing"},
+            {"event_id": "e2", "timestamp": 180.0, "content": "Candidate event"},
+        ]
+    )
+    l3 = MagicMock()
+    l3.generate_episodic_summary = AsyncMock(
+        return_value={
+            "summary_id": "sum1",
+            "content": "Updated recap",
+            "insight_metadata": {"label": "Updated title"},
+            "updated_at": 9,
+        }
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l1 = l1
+    unified.l3 = l3
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.post("/api/memory/l2/episodes/ep1/events", json={"event_ids": ["e2"]})
+
+    assert r.status_code == 200
+    assert r.json()["episode_summary"]["content"] == "Updated recap"
+    l2.add_episode_events.assert_awaited_once_with(episode_id="ep1", event_ids=["e2"])
+    l2.update_episode.assert_awaited_once_with(
+        episode_id="ep1",
+        source_event_count=2,
+        time_start=120.0,
+        time_end=180.0,
+    )
+
+
+def test_remove_episode_events_rejects_too_few_remaining_events(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(
+        return_value={"episode_id": "ep1", "time_start": 100.0, "time_end": 200.0}
+    )
+    l2.list_episode_events = AsyncMock(
+        return_value=[
+            {"episode_id": "ep1", "event_id": "e1"},
+            {"episode_id": "ep1", "event_id": "e2"},
+        ]
+    )
+    l2.remove_episode_events = AsyncMock()
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l1 = None
+    unified.l3 = None
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.request(
+            "DELETE",
+            "/api/memory/l2/episodes/ep1/events",
+            json={"event_ids": ["e1"]},
+        )
+
+    assert r.status_code == 409
+    l2.remove_episode_events.assert_not_awaited()
+
+
+def test_episode_event_edit_routes_are_publicly_allowlisted():
+    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
+    route_methods: dict[str, set[str]] = {}
+    for route in public.routes:
+        if getattr(route, "path", None):
+            route_methods.setdefault(route.path, set()).update(route.methods or set())
+
+    assert "GET" in route_methods["/l2/episodes/{episode_id}/event-candidates"]
+    assert "POST" in route_methods["/l2/episodes/{episode_id}/events"]
+    assert "DELETE" in route_methods["/l2/episodes/{episode_id}/events"]
+
+
 def test_merge_episode_route_is_publicly_allowlisted():
     public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
     route_methods: dict[str, set[str]] = {}

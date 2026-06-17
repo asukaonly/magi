@@ -117,6 +117,26 @@ class EpisodeAnnotationRequest(BaseModel):
     user_pinned: Optional[bool] = None
 
 
+class EpisodeEventIdsRequest(BaseModel):
+    event_ids: List[str] = Field(..., min_length=1, max_length=100)
+
+    @field_validator("event_ids", mode="before")
+    @classmethod
+    def _normalize_event_ids(cls, value: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError("event_ids must be a list of strings")
+        normalized: List[str] = []
+        seen: set[str] = set()
+        for item in value:
+            text = str(item).strip()
+            if text and text not in seen:
+                seen.add(text)
+                normalized.append(text)
+        if not normalized:
+            raise ValueError("event_ids must contain at least one non-empty event id")
+        return normalized
+
+
 class EpisodeMergeRequest(BaseModel):
     absorbed_id: str = Field(..., min_length=1, max_length=500)
 
