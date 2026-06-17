@@ -74,6 +74,16 @@ def test_standout_gate_rejects_short_duration():
     assert _passes_standout_gate(ep) is False
 
 
+def test_standout_gate_rejects_sparse_mid_duration_episode():
+    ep = _episode(source_event_count=10, time_start=0.0, time_end=30 * 60.0)
+    assert _passes_standout_gate(ep) is False
+
+
+def test_standout_gate_accepts_dense_short_episode():
+    ep = _episode(source_event_count=24, time_start=0.0, time_end=15 * 60.0)
+    assert _passes_standout_gate(ep) is True
+
+
 def test_standout_gate_rejects_thin_entities():
     ep = _episode(primary_entity_ids=["only_one"])
     assert _passes_standout_gate(ep) is False
@@ -130,7 +140,7 @@ async def test_consolidate_promotes_and_marks_standout():
 
     # Both candidates met the promotion gate (>=3 events, >=30 min old)
     assert stats.promoted == 2
-    # Only the rich one met the standout gate (>=5 events AND >=20 min AND >=2 entities)
+    # Only the rich one met the standout gate (enough events plus duration/entity diversity)
     assert stats.standouts == 1
 
     # Verify update_episode was called with magi_standout for ep-rich only

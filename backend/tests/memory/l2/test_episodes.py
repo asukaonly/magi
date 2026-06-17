@@ -904,7 +904,7 @@ async def test_promoted_non_standout_visible_via_status_active(l2_store_with_sch
     from magi.memory.l2.episode_formation import consolidate_episodes
 
     store = l2_store_with_schema
-    # 4 events: above MIN_EVENTS_TO_PROMOTE (3), below STANDOUT_MIN_EVENTS (5) →
+    # 4 events: above MIN_EVENTS_TO_PROMOTE (3), below STANDOUT_MIN_EVENTS →
     # gets promoted to active but NOT flagged standout.
     await _make_mature_candidate(
         store, episode_id="ep-plain", source_event_count=4,
@@ -928,9 +928,9 @@ async def test_consolidate_does_not_flip_standout_between_passes(l2_store_with_s
     from magi.memory.l2.episode_formation import consolidate_episodes
 
     store = l2_store_with_schema
-    # 6 events + 2 entities + 1h duration → passes the standout gate.
+    # 10 events + 2 entities + 1h duration → passes the standout gate.
     await _make_mature_candidate(
-        store, episode_id="ep-standout", source_event_count=6,
+        store, episode_id="ep-standout", source_event_count=10,
         primary_entity_ids=["a", "b"],
     )
 
@@ -956,8 +956,8 @@ async def test_rescore_does_not_demote_formation_flagged_standout(l2_store_with_
 
     store = l2_store_with_schema
     now = time.time()
-    # A SHORT episode that the formation gate flagged standout (e.g. it had >=5
-    # events and >=2 entities), but whose duration is below the rescore's 90-min
+    # A SHORT dense episode that the formation gate flagged standout, but whose
+    # duration is below the rescore's 90-min
     # WEIGHT_DURATION threshold and has no photos → rescore heuristic score = 0.
     await store.create_episode(
         episode_id="ep-flagged",
@@ -965,7 +965,7 @@ async def test_rescore_does_not_demote_formation_flagged_standout(l2_store_with_
         time_start=now - 600,
         time_end=now,  # 10 minutes — below rescore duration threshold
         primary_entity_ids=[],  # no first-seen entity bonus either
-        source_event_count=5,
+        source_event_count=20,
         magi_standout=True,  # set by the canonical formation writer
     )
 

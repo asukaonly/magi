@@ -62,13 +62,14 @@ MIN_AGE_TO_PROMOTE = 30 * 60  # 30 minutes
 MERGE_GAP_FACTOR = 1.5        # merge if gap < 1.5x normal threshold
 MIN_ENTITY_OVERLAP_FOR_MERGE = 0.3
 
-# Standout gate thresholds — episodes that pass become "product-grade"
-# chapters surfaced in the 经历 page. Tunable; v1 rule:
-#   - at least 5 supporting events (more than a fleeting moment)
-#   - at least 20 minutes of duration
+# Standout gate thresholds — episodes that pass become product-grade chapters
+# surfaced in the 经历 page. V1.1 rule:
+#   - at least 8 supporting events
+#   - at least 45 minutes of duration OR at least 20 dense supporting events
 #   - at least 2 distinct primary entities (not pure noise)
-STANDOUT_MIN_EVENTS = 5
-STANDOUT_MIN_DURATION_SECONDS = 20 * 60
+STANDOUT_MIN_EVENTS = 8
+STANDOUT_MIN_DURATION_SECONDS = 45 * 60
+STANDOUT_DENSE_EVENT_COUNT = 20
 STANDOUT_MIN_DISTINCT_ENTITIES = 2
 
 
@@ -83,7 +84,8 @@ def _passes_standout_gate(episode: dict[str, Any]) -> bool:
 
     time_start = float(episode.get("time_start") or 0)
     time_end = float(episode.get("time_end") or 0)
-    if time_end - time_start < STANDOUT_MIN_DURATION_SECONDS:
+    duration = time_end - time_start
+    if duration < STANDOUT_MIN_DURATION_SECONDS and event_count < STANDOUT_DENSE_EVENT_COUNT:
         return False
 
     entities = episode.get("primary_entity_ids") or []
