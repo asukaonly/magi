@@ -2643,49 +2643,6 @@
           "coffee_roast_preference": "咖啡烘焙偏好",
           "music_artist_preference": "喜欢的音乐人"
         },
-        "traitValues": {
-          "common": {
-            "high": "高",
-            "medium": "中",
-            "low": "低",
-            "positive": "积极",
-            "negative": "消极",
-            "neutral": "中性",
-            "focused": "专注",
-            "calm": "平静"
-          },
-          "mood": {
-            "high": "高",
-            "medium": "中",
-            "low": "低",
-            "positive": "积极",
-            "negative": "消极",
-            "neutral": "中性",
-            "focused": "专注",
-            "calm": "平静"
-          },
-          "stress": {
-            "high": "高",
-            "medium": "中",
-            "low": "低"
-          },
-          "engagement": {
-            "high": "高",
-            "medium": "中",
-            "low": "低",
-            "focused": "专注"
-          },
-          "group_atmosphere": {
-            "positive": "积极",
-            "negative": "消极",
-            "neutral": "中性"
-          },
-          "public_sentiment": {
-            "positive": "积极",
-            "negative": "消极",
-            "neutral": "中性"
-          }
-        },
         "predicateLabels": {
           "listened": "听过",
           "viewed": "看过",

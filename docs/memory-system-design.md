@@ -332,12 +332,6 @@ Key properties:
 - Reconciliation: `reconcile_entity()` re-derives confidence and stability from evidence counts and time spans
 - Snapshot evolution: `refresh_entity_snapshot()` rebuilds from reconciled assertions + graph edges, maintaining `core_traits_history`, `preferences_history`, `relationship_history`, `mood_trajectory`, and `emerging_signals`
 
-Assertion family semantics are centralized in `backend/src/magi/memory/l2/assertion_family_policy.py`. The canonical families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `routine_profile`, and `state_profile`. `preference_profile` owns stable interests, affinities, tastes, and preferences; `routine_profile` owns repeated behavior rhythms and habits. Each family policy defines Phase 2 guidance, default temporal scope, default decay policy and TTL, snapshot bucket, and value-localization expectation. These policies drive validation, prompt text, decay defaults, and snapshot placement.
-
-Family choice shapes downstream handling but does not by itself decide trust. Conflict decisions are primarily source-tier and active-key based: user-authored assertions remain authoritative over behavioral or plugin-derived inference unless the user explicitly corrects or rejects them. Family policy determines whether a value behaves like short-lived state, durable semantic profile, preference snapshot content, or core-trait context after it has passed source-tier and evidence gates.
-
-Assertion API rows expose family display metadata, including `trait_value_i18n`, so the frontend can localize controlled state values while preserving literal user-authored profile and preference values.
-
 **Episodic Memory** stores bounded historical experiences:
 
 - Three tables: `episodes`, `episode_events`, `episodes_fts` (FTS5)
@@ -467,8 +461,6 @@ Tags, categories, and weak co-occurrence are not fact evidence. They may help se
 - `L2Pipeline` handles: using source-owned hints as structural anchors, merging with LLM residual candidates, conflict handling, dedup, persistence, and snapshot refresh
 
 **Graph-derived assertions** convert accumulated graph evidence into inferred profile assertions only through host-owned rules. Built-in interest aggregation and plugin-contributed `derived_assertion_specs` both compile into validated `GraphDerivedAssertionRule` instances. These rules consume admitted graph edges, write inferred assertions through the normal assertion lifecycle, and preserve source-tier conflict protection so user-authored assertions are never overwritten by behavioral inference.
-
-Plugins may strengthen assertion quality by declaring structured hints, graph relation candidates, extraction profiles, source-specific Phase 1 instructions, source-specific Phase 2 integration instructions, and graph-derived assertion specs. They do not own the final assertion ontology or bypass source-tier conflict governance. Direct Phase 2 assertion candidates are accepted only for profiles that explicitly opt into `assertion_mode="phase2_candidate"` and pass the host family, trait, source policy, and validation gates.
 
 **Ontology** distinguishes LLM-facing coarse types from system-facing internal types:
 

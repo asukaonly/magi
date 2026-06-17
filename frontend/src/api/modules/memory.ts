@@ -182,12 +182,8 @@ export interface L2Assertion {
   assertion_id: string;
   entity_id: string;
   entity_type: string;
-  trait_family?: string | null;
   trait_name: string;
   trait_value: string;
-  trait_value_i18n?: 'literal' | 'controlled' | string | null;
-  assertion_family_snapshot_bucket?: string | null;
-  assertion_family_description?: string | null;
   confidence_score: number;
   evidence_events: string[];
   validation_state: string;

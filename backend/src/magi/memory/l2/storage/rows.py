@@ -8,7 +8,6 @@ from typing import Any, Dict, Optional
 import aiosqlite
 
 from ...event_contracts import MemoryEvent
-from ..assertion_family_policy import decorate_assertion_family_metadata
 
 
 class L2StoreRowMappingMixin:
@@ -21,7 +20,7 @@ class L2StoreRowMappingMixin:
 
     def _assertion_row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
         columns = set(row.keys())
-        return decorate_assertion_family_metadata({
+        return {
             "assertion_id": str(row["assertion_id"]),
             "entity_id": str(row["entity_id"]),
             "entity_type": str(row["entity_type"]),
@@ -57,7 +56,7 @@ class L2StoreRowMappingMixin:
             "superseded_at": float(row["superseded_at"]) if "superseded_at" in columns and row["superseded_at"] else None,
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
-        })
+        }
 
     def _snapshot_row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
         columns = set(row.keys())

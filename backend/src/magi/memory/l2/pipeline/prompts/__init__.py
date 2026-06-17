@@ -6,10 +6,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ...models import L2EventWindow
-from ...assertion_family_policy import (
-    render_assertion_family_list,
-    render_assertion_family_semantics,
-)
 from .workflows import (
     BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT,
     CONFLICT_ARBITRATION_SYSTEM_PROMPT,
@@ -119,9 +115,7 @@ PHASE2_INTEGRATE_SYSTEM_PROMPT = """You are a memory integration engine for a pe
 Given Phase 1 extracted facts and the user's existing knowledge graph, produce final graph edges, ToM (Theory of Mind) assertions, and identify contradictions.
 
 ## Allowed Assertion Families
-@@ASSERTION_FAMILY_LIST@@
-
-@@ASSERTION_FAMILY_SEMANTICS@@
+stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_sentiment, identity_profile, communication_profile, preference_profile, state_profile, taste_profile
 
 ## Rules
 1. Compare each new fact claim against the Existing Graph. Determine the relationship:
@@ -207,12 +201,6 @@ Return JSON only:
 }
 ```
 """
-
-PHASE2_INTEGRATE_SYSTEM_PROMPT = (
-    PHASE2_INTEGRATE_SYSTEM_PROMPT
-    .replace("@@ASSERTION_FAMILY_LIST@@", render_assertion_family_list())
-    .replace("@@ASSERTION_FAMILY_SEMANTICS@@", render_assertion_family_semantics())
-)
 
 def build_phase2_integrate_system_prompt(user_language: str | None = None) -> str:
     """Return the Phase 2 system prompt with an explicit language directive.

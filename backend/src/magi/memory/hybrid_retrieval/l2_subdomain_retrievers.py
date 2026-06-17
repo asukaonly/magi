@@ -87,7 +87,7 @@ def _infer_assertion_trait_families(plan: L2GroundingPlan) -> list[str] | None:
     if kind == "current_state":
         return ["mood", "stress", "engagement"]
     if kind == "preference":
-        return ["preference_profile"]
+        return ["preference_profile", "taste_profile"]
     if kind == "historical_state":
         return ["mood", "stress", "engagement", "preference_profile"]
     return None

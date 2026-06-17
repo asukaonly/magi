@@ -41,14 +41,14 @@ def _candidate(
     """Build a fully-shaped assertion candidate for ``upsert_assertion_candidate``.
 
     Mirrors the field set the L2 LLM extraction emits (see test_store.py),
-    pinned to a stable + evidence-only preference trait so volatile in-place rewrite
+    pinned to a stable + evidence-only taste trait so volatile in-place rewrite
     paths never fire — value differences here must route through supersede
     (authoritative) or the new shadow guard (inferred).
     """
     return {
         "entity_id": _ENTITY_ID,
         "entity_type": "user",
-        "trait_family": "preference_profile",
+        "trait_family": "taste_profile",
         "trait_name": _TRAIT_NAME,
         "trait_value": trait_value,
         "confidence_score": 0.4,

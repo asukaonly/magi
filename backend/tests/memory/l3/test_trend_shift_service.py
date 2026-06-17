@@ -124,7 +124,7 @@ async def test_build_trend_shift_candidate_returns_none_for_volatile_sparse_sign
                     evidence_event_ids=["evt-1", "evt-2"],
                     time_span_hours=118.0,
                     stability_kind="volatile_pattern",
-                    trait_family="preference_profile",
+                    trait_family="taste_profile",
                 )
             ],
         )
@@ -149,7 +149,7 @@ async def test_trend_shift_insight_key_groups_related_music_traits() -> None:
                     evidence_event_ids=["evt-1", "evt-2", "evt-3"],
                     time_span_hours=72.0,
                     stability_kind="stable_pattern",
-                    trait_family="preference_profile",
+                    trait_family="taste_profile",
                 )
             ],
         )
@@ -167,7 +167,7 @@ async def test_trend_shift_insight_key_groups_related_music_traits() -> None:
                     evidence_event_ids=["evt-1", "evt-2", "evt-3"],
                     time_span_hours=72.0,
                     stability_kind="stable_pattern",
-                    trait_family="preference_profile",
+                    trait_family="taste_profile",
                 ),
                 _outcome(
                     trait_name="preference.music.artists",
@@ -177,7 +177,7 @@ async def test_trend_shift_insight_key_groups_related_music_traits() -> None:
                     evidence_event_ids=["evt-4", "evt-5", "evt-6"],
                     time_span_hours=72.0,
                     stability_kind="stable_pattern",
-                    trait_family="preference_profile",
+                    trait_family="taste_profile",
                 ),
             ],
         )

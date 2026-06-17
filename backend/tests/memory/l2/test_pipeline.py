@@ -3102,8 +3102,8 @@ async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
                     {
                         "entity_ref": "user:u1",
                         "entity_type": "user",
-                        "trait_family": "preference_profile",
-                        "trait_name": "preference.food",
+                        "trait_family": "taste_profile",
+                        "trait_name": "taste_preference",
                         "trait_value": "dislikes_food:food:xi-hu-cu-yu",
                         "inference_depth": "defensive_psychology",
                         "volatility_index": 0.4,
@@ -3220,8 +3220,8 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
                         {
                             "entity_ref": "user:u1",
                             "entity_type": "user",
-                            "trait_family": "preference_profile",
-                            "trait_name": "preference.food.pattern",
+                            "trait_family": "taste_profile",
+                            "trait_name": "taste_profile",
                             "trait_value": "avoids_vinegar_heavy_dishes",
                             "inference_depth": "defensive_psychology",
                             "volatility_index": 0.4,
@@ -3273,7 +3273,7 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
             assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
 
             assert [item["predicate"] for item in relationships] == ["DISLIKES"]
-            assert [item["trait_name"] for item in assertions] == ["preference.food.pattern"]
+            assert [item["trait_name"] for item in assertions] == ["taste_profile"]
         finally:
             await store.shutdown()
 
@@ -4413,12 +4413,12 @@ class TestExtractionInstructions:
             ),
             focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
             source_integration_instructions=(
-                "For play history, derive preference_profile only from repeated plays."
+                "For play history, derive taste_profile only from repeated plays."
             ),
         )
 
         assert "## Source-Specific Integration Instructions" in phase2_prompt
-        assert "derive preference_profile only from repeated plays" in phase2_prompt
+        assert "derive taste_profile only from repeated plays" in phase2_prompt
 
     def test_phase2_prompt_omits_integration_instructions_when_absent(self):
         from magi.memory.l2.models import L2EventWindow
@@ -4438,7 +4438,7 @@ class TestExtractionInstructions:
 
     @pytest.mark.asyncio
     async def test_pipeline_passes_profile_phase2_instructions(self):
-        phase2_instructions = "For play history, emit preference_profile only after repeated plays."
+        phase2_instructions = "For play history, emit taste_profile only after repeated plays."
         adapter = _FakeAdapter(
             [
                 json.dumps(
@@ -4917,7 +4917,7 @@ class TestEntityTypeFiltering:
             profile=SimpleNamespace(
                 allow_assertion=True,
                 assertion_mode="derived",
-                allowed_assertion_families={"preference_profile"},
+                allowed_assertion_families={"taste_profile"},
                 allowed_assertion_traits=None,
             ),
             policy=SimpleNamespace(allow_assertion_write=True),
@@ -4926,8 +4926,8 @@ class TestEntityTypeFiltering:
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="preference_profile",
-                    trait_name="preference.music",
+                    trait_family="taste_profile",
+                    trait_name="taste.music",
                     trait_value="Track A",
                     confidence=0.7,
                 )
@@ -4949,8 +4949,8 @@ class TestEntityTypeFiltering:
             profile=SimpleNamespace(
                 allow_assertion=True,
                 assertion_mode="phase2_candidate",
-                allowed_assertion_families={"preference_profile"},
-                allowed_assertion_traits=frozenset({"preference.music"}),
+                allowed_assertion_families={"taste_profile"},
+                allowed_assertion_traits=frozenset({"taste.music"}),
             ),
             policy=SimpleNamespace(allow_assertion_write=True),
             graph_candidates=[],
@@ -4958,15 +4958,15 @@ class TestEntityTypeFiltering:
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="preference_profile",
-                    trait_name="preference.music",
+                    trait_family="taste_profile",
+                    trait_name="taste.music",
                     trait_value="Track A",
                     confidence=0.7,
                 ),
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="preference_profile",
-                    trait_name="preference.movie",
+                    trait_family="taste_profile",
+                    trait_name="taste.movie",
                     trait_value="Movie B",
                     confidence=0.7,
                 ),
@@ -4974,7 +4974,7 @@ class TestEntityTypeFiltering:
         )
 
         assert rejected_count == 1
-        assert [item["trait_name"] for item in prepared] == ["preference.music"]
+        assert [item["trait_name"] for item in prepared] == ["taste.music"]
 
     def test_phase2_assertions_allow_trait_namespace_wildcard(self):
         from magi.memory.l2.models import L2Phase2AssertionCandidate
@@ -4988,8 +4988,8 @@ class TestEntityTypeFiltering:
             profile=SimpleNamespace(
                 allow_assertion=True,
                 assertion_mode="phase2_candidate",
-                allowed_assertion_families={"preference_profile"},
-                allowed_assertion_traits=frozenset({"preference.*"}),
+                allowed_assertion_families={"taste_profile"},
+                allowed_assertion_traits=frozenset({"taste.*"}),
             ),
             policy=SimpleNamespace(allow_assertion_write=True),
             graph_candidates=[],
@@ -4997,8 +4997,8 @@ class TestEntityTypeFiltering:
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="preference_profile",
-                    trait_name="preference.music",
+                    trait_family="taste_profile",
+                    trait_name="taste.music",
                     trait_value="Track A",
                     confidence=0.7,
                 ),
@@ -5006,7 +5006,7 @@ class TestEntityTypeFiltering:
         )
 
         assert rejected_count == 0
-        assert [item["trait_name"] for item in prepared] == ["preference.music"]
+        assert [item["trait_name"] for item in prepared] == ["taste.music"]
 
     def test_phase2_assertions_respect_policy_assertion_scope(self):
         from magi.memory.l2.models import L2Phase2AssertionCandidate
@@ -5020,7 +5020,7 @@ class TestEntityTypeFiltering:
             profile=SimpleNamespace(
                 allow_assertion=True,
                 assertion_mode="phase2_candidate",
-                allowed_assertion_families={"preference_profile", "public_sentiment"},
+                allowed_assertion_families={"taste_profile", "public_sentiment"},
                 allowed_assertion_traits=None,
             ),
             policy=SimpleNamespace(
@@ -5032,8 +5032,8 @@ class TestEntityTypeFiltering:
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="preference_profile",
-                    trait_name="preference.music",
+                    trait_family="taste_profile",
+                    trait_name="taste.music",
                     trait_value="Track A",
                     confidence=0.7,
                 ),
