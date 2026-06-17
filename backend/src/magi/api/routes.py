@@ -45,6 +45,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l2/episodes/{episode_id}/split": {"POST"},
         "/l2/episodes/reconsolidate": {"POST"},
         "/l3/summaries": {"GET"},
+        "/dashboard": {"GET"},
         "/statistics": {"GET"},
         "/embeddings/status": {"GET"},
         "/embeddings/rebuild": {"POST"},

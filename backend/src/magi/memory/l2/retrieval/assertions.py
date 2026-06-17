@@ -21,12 +21,55 @@ def _excluded_status_clause() -> tuple[str, list[str]]:
 class L2StoreAssertionQueryMixin:
     """Read and batch-query ToM assertions."""
 
-    async def count_tom_assertions(self) -> int:
-        """Count all ToM assertions."""
+    async def count_tom_assertions(
+        self,
+        *,
+        entity_id: Optional[str] = None,
+        entity_type: Optional[str] = None,
+        trait_families: Optional[List[str]] = None,
+        validation_states: Optional[List[str]] = None,
+        include_expired: bool = True,
+        include_inactive: bool = False,
+        target_entity_id: Optional[str] = None,
+        temporal_clause: Optional[tuple[str, list[Any]]] = None,
+    ) -> int:
+        """Count ToM assertions with the same filters as list_tom_assertions."""
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
+        query = "SELECT COUNT(*) FROM tom_trait_assertions WHERE 1=1"
+        args: list[Any] = []
+        if entity_id:
+            query += " AND entity_id = ?"
+            args.append(entity_id)
+        if entity_type:
+            query += " AND entity_type = ?"
+            args.append(entity_type)
+        if trait_families:
+            placeholders = ", ".join("?" for _ in trait_families)
+            query += f" AND trait_family IN ({placeholders})"
+            args.extend([str(item).strip().lower() for item in trait_families])
+        if validation_states:
+            placeholders = ", ".join("?" for _ in validation_states)
+            query += f" AND validation_state IN ({placeholders})"
+            args.extend([str(item).strip() for item in validation_states])
+        if target_entity_id:
+            query += " AND target_entity_id = ?"
+            args.append(target_entity_id)
+        if not include_expired:
+            now = time.time()
+            query += " AND (expires_at IS NULL OR expires_at > ?)"
+            args.append(now)
+        if not include_inactive:
+            status_sql, status_args = _excluded_status_clause()
+            query += status_sql
+            args.extend(status_args)
+        if temporal_clause:
+            tc_sql, tc_params = temporal_clause
+            if tc_sql:
+                query += f" AND {tc_sql}"
+                args.extend(tc_params)
         async with sqlite_connection_async(host.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM tom_trait_assertions") as cursor:
+            async with db.execute(query, tuple(args)) as cursor:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 

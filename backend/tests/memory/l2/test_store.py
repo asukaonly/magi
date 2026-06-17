@@ -179,6 +179,35 @@ async def _force_assertion_state(db_path, *, trait_name, validation_state, confi
         await db.commit()
 
 
+async def _write_assertion_candidate(
+    store,
+    *,
+    trait_name: str,
+    trait_value: str,
+    event_id: str,
+    timestamp: float,
+):  # type: ignore[no-untyped-def]
+    from magi.memory.l2.models import L2TomAssertionWrite
+
+    await store.upsert_assertion_candidate(
+        L2TomAssertionWrite(
+            entity_id="user:u1",
+            entity_type="user",
+            trait_name=trait_name,
+            trait_value=trait_value,
+            confidence_score=0.3,
+            evidence_events=[event_id],
+            volatility_index=0.4,
+            source_domain="conversation",
+            inference_depth="semantic",
+            validation_state="tentative",
+            first_inferred_at=timestamp,
+            last_validated_at=timestamp,
+            trait_family="preference_profile",
+        ).to_dict()
+    )
+
+
 @pytest.mark.asyncio
 async def test_tom_assertion_intake_from_llm_style_candidate(tmp_path):
     # Was `test_tom_assertion_starts_tentative_with_low_confidence`: under the
@@ -225,6 +254,59 @@ async def test_tom_assertion_intake_from_llm_style_candidate(tmp_path):
     # at >=0.50 (state_machine.derive_validation_state).
     assert assertions[0]["validation_state"] == "corroborated"
     assert assertions[0]["confidence_score"] >= 0.5
+
+
+@pytest.mark.asyncio
+async def test_count_tom_assertions_applies_list_filters(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    await _write_assertion_candidate(
+        store,
+        trait_name="favorite_language",
+        trait_value="python",
+        event_id="evt-language",
+        timestamp=1710000000.0,
+    )
+    await _write_assertion_candidate(
+        store,
+        trait_name="favorite_editor",
+        trait_value="vim",
+        event_id="evt-editor",
+        timestamp=1710000100.0,
+    )
+    await _write_assertion_candidate(
+        store,
+        trait_name="favorite_food",
+        trait_value="ramen",
+        event_id="evt-food",
+        timestamp=1710000200.0,
+    )
+    await _force_assertion_state(
+        str(tmp_path / "l2.db"),
+        trait_name="favorite_editor",
+        validation_state="contradicted",
+        confidence=0.2,
+    )
+    await _force_assertion_state(
+        str(tmp_path / "l2.db"),
+        trait_name="favorite_food",
+        validation_state="stable",
+        confidence=0.86,
+    )
+    assertions = await store.list_tom_assertions(trait_families=["preference_profile"])
+    rejected_assertion = next(item for item in assertions if item["trait_name"] == "favorite_language")
+    await store.apply_user_feedback(assertion_id=rejected_assertion["assertion_id"], feedback="rejected")
+
+    count = await store.count_tom_assertions(
+        validation_states=["tentative", "contradicted"],
+        include_expired=False,
+        include_inactive=False,
+    )
+
+    assert count == 1
 
 
 @pytest.mark.asyncio
