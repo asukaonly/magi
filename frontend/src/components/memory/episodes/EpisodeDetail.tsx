@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { MapPin, Tags, UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ReactNode } from 'react';
-import type { L2Episode, L2EpisodeReviewDetail, L2EpisodeWithSummary } from '@/api/modules/memory';
+import { memoryApi, type L2Episode, type L2EpisodeEventPreview, type L2EpisodeReviewDetail, type L2EpisodeWithSummary } from '@/api/modules/memory';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,6 +18,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { formatEpisodeTimeRange } from './EpisodeRow';
 import EpisodeEventList from './EpisodeEventList';
 import EpisodeNarrative, { getEpisodeReviewDescription } from './EpisodeNarrative';
+import { AddEventDialog, MergeEpisodeDialog, SplitEpisodeDialog } from './EpisodeBoundaryDialogs';
 
 type EpisodeReviewLike = L2Episode | L2EpisodeWithSummary | L2EpisodeReviewDetail;
 
@@ -34,6 +35,8 @@ export function EpisodeDetail({
   onRenameTitle,
   onEditDescription,
   onRegenerate,
+  onEpisodeUpdated,
+  onEpisodeSplit,
 }: {
   episode: EpisodeReviewLike;
   title: string;
@@ -41,9 +44,11 @@ export function EpisodeDetail({
   onRenameTitle: (title: string) => Promise<void>;
   onEditDescription: (description: string) => Promise<void>;
   onRegenerate: () => Promise<void>;
+  onEpisodeUpdated: (episode: L2EpisodeReviewDetail) => void;
+  onEpisodeSplit: (episodes: L2EpisodeReviewDetail[]) => void;
 }) {
   const { t, i18n } = useTranslation('app');
-  const events = 'events' in episode ? episode.events : [];
+  const events = ('events' in episode ? episode.events : []) as L2EpisodeEventPreview[];
   const description = getEpisodeReviewDescription(episode);
   const range = formatEpisodeTimeRange(episode.time_start, episode.time_end, i18n.language);
   const typeLabel = t(`memory.episodes.filters.${episode.episode_type || 'activity'}`, {
@@ -52,6 +57,11 @@ export function EpisodeDetail({
   const [renameOpen, setRenameOpen] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [regenerateOpen, setRegenerateOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [splitOpen, setSplitOpen] = useState(false);
+  const [removeMode, setRemoveMode] = useState(false);
+  const [selectedRemoveIds, setSelectedRemoveIds] = useState<Set<string>>(new Set());
   const [titleDraft, setTitleDraft] = useState(title);
   const [descriptionDraft, setDescriptionDraft] = useState(description);
   const [saving, setSaving] = useState(false);
@@ -104,6 +114,34 @@ export function EpisodeDetail({
     void runRegenerate();
   };
 
+  const toggleRemoveEvent = (eventId: string) => {
+    setSelectedRemoveIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(eventId)) {
+        next.delete(eventId);
+      } else {
+        next.add(eventId);
+      }
+      return next;
+    });
+  };
+
+  const removeSelectedEvents = async () => {
+    const eventIds = Array.from(selectedRemoveIds);
+    if (eventIds.length === 0) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await memoryApi.removeEpisodeEvents(episode.episode_id, eventIds);
+      onEpisodeUpdated(updated);
+      setSelectedRemoveIds(new Set());
+      setRemoveMode(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="min-w-0">
       <header className="border-b border-[hsl(var(--memory-divider)/0.62)] px-5 py-4">
@@ -128,6 +166,10 @@ export function EpisodeDetail({
             <Button variant="outline" size="sm" onClick={openRename}>{t('memory.episodes.actions.rename')}</Button>
             <Button variant="outline" size="sm" onClick={openDescription}>{t('memory.episodes.actions.editDescription')}</Button>
             <Button variant="outline" size="sm" onClick={requestRegenerate}>{t('memory.episodes.actions.regenerateDescription')}</Button>
+            <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>{t('memory.episodes.actions.addEvent')}</Button>
+            <Button variant="outline" size="sm" onClick={() => setRemoveMode((value) => !value)}>{t('memory.episodes.actions.removeEvent')}</Button>
+            <Button variant="outline" size="sm" onClick={() => setMergeOpen(true)}>{t('memory.episodes.actions.mergeEpisode')}</Button>
+            <Button variant="outline" size="sm" onClick={() => setSplitOpen(true)}>{t('memory.episodes.actions.splitEpisode')}</Button>
           </div>
         </div>
       </header>
@@ -152,8 +194,46 @@ export function EpisodeDetail({
             values={normalizeList(episode.primary_topic_keys)}
           />
         </div>
-        <EpisodeEventList events={events} />
+        {removeMode ? (
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => {
+              setSelectedRemoveIds(new Set());
+              setRemoveMode(false);
+            }}>
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" onClick={() => void removeSelectedEvents()} disabled={saving || selectedRemoveIds.size === 0}>
+              {saving ? t('common.saving') : t('memory.episodes.actions.removeSelectedEvents')}
+            </Button>
+          </div>
+        ) : null}
+        <EpisodeEventList
+          events={events}
+          selectable={removeMode}
+          selectedEventIds={selectedRemoveIds}
+          onToggleEvent={toggleRemoveEvent}
+        />
       </div>
+
+      <AddEventDialog
+        episodeId={episode.episode_id}
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        onEpisodeUpdated={onEpisodeUpdated}
+      />
+      <MergeEpisodeDialog
+        episodeId={episode.episode_id}
+        open={mergeOpen}
+        onOpenChange={setMergeOpen}
+        onEpisodeUpdated={onEpisodeUpdated}
+      />
+      <SplitEpisodeDialog
+        episodeId={episode.episode_id}
+        events={events}
+        open={splitOpen}
+        onOpenChange={setSplitOpen}
+        onEpisodeSplit={onEpisodeSplit}
+      />
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent>

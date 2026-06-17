@@ -14,7 +14,17 @@ const formatEventTime = (value: number | null | undefined, locale: string): stri
   }).format(new Date(value * 1000));
 };
 
-export function EpisodeEventList({ events }: { events: L2EpisodeEventPreview[] }) {
+export function EpisodeEventList({
+  events,
+  selectable = false,
+  selectedEventIds = new Set<string>(),
+  onToggleEvent,
+}: {
+  events: L2EpisodeEventPreview[];
+  selectable?: boolean;
+  selectedEventIds?: Set<string>;
+  onToggleEvent?: (eventId: string) => void;
+}) {
   const { t, i18n } = useTranslation('app');
 
   return (
@@ -31,9 +41,19 @@ export function EpisodeEventList({ events }: { events: L2EpisodeEventPreview[] }
           const preview = String(event.content_preview || event.event_id || '').trim();
           return (
             <article key={`${event.episode_id}-${event.event_id}`} className="border-t border-[hsl(var(--memory-divider)/0.54)] px-4 py-3 first:border-t-0">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <p className="whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-body))]">{preview}</p>
+                  <label className="flex items-start gap-3">
+                    {selectable ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedEventIds.has(event.event_id)}
+                        onChange={() => onToggleEvent?.(event.event_id)}
+                        className="mt-1"
+                      />
+                    ) : null}
+                    <span className="whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-body))]">{preview}</span>
+                  </label>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
                     {event.source ? <span>{event.source}</span> : null}
                     {event.event_type ? <span>{event.event_type}</span> : null}

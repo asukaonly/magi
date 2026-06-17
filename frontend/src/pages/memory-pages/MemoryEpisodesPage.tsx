@@ -85,6 +85,33 @@ export const MemoryEpisodesPage = () => {
     ));
   }, []);
 
+  const applyReviewDetail = useCallback((updated: L2EpisodeReviewDetail) => {
+    setEpisodes((prev) => {
+      const exists = prev.some((item) => item.episode_id === updated.episode_id);
+      if (exists) {
+        return prev.map((item) => (
+          item.episode_id === updated.episode_id ? { ...item, ...updated } : item
+        ));
+      }
+      return [updated, ...prev];
+    });
+    setSelectedId(updated.episode_id);
+    setDetail(updated);
+  }, []);
+
+  const applySplitResult = useCallback((items: L2EpisodeReviewDetail[]) => {
+    const first = items[0];
+    if (!first || !selectedEpisode) {
+      return;
+    }
+    setEpisodes((prev) => [
+      ...items,
+      ...prev.filter((item) => item.episode_id !== selectedEpisode.episode_id),
+    ]);
+    setSelectedId(first.episode_id);
+    setDetail(first);
+  }, [selectedEpisode]);
+
   const renameSelectedEpisode = async (title: string) => {
     if (!selectedEpisode) {
       return;
@@ -164,6 +191,8 @@ export const MemoryEpisodesPage = () => {
                 onRenameTitle={renameSelectedEpisode}
                 onEditDescription={editSelectedDescription}
                 onRegenerate={regenerateSelectedDescription}
+                onEpisodeUpdated={applyReviewDetail}
+                onEpisodeSplit={applySplitResult}
               />
             ) : (
               <div className={MEMORY_EMPTY_PANEL_CLASS}>

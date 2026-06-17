@@ -36,6 +36,10 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.actions.regenerateDescription': 'Regenerate recap',
     'memory.episodes.actions.addEvent': 'Add event',
     'memory.episodes.actions.removeEvent': 'Remove event',
+    'memory.episodes.actions.addSelectedEvents': 'Add selected',
+    'memory.episodes.actions.removeSelectedEvents': 'Remove selected',
+    'memory.episodes.actions.mergeSelectedEpisode': 'Merge selected',
+    'memory.episodes.actions.splitNow': 'Split now',
     'memory.episodes.actions.mergeEpisode': 'Merge',
     'memory.episodes.actions.splitEpisode': 'Split',
     'memory.episodes.actions.confirmRegenerate': 'Regenerate now',
@@ -47,6 +51,11 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.dialogs.editDescriptionDescription': 'Update the recap shown on this experience.',
     'memory.episodes.dialogs.regenerateTitle': 'Replace current recap?',
     'memory.episodes.dialogs.regenerateDescription': 'Magi will draft a new recap for this experience.',
+    'memory.episodes.dialogs.addEventTitle': 'Add event',
+    'memory.episodes.dialogs.mergeEpisodeTitle': 'Merge experience',
+    'memory.episodes.dialogs.splitEpisodeTitle': 'Split experience',
+    'memory.episodes.empty.noEventCandidates': 'No event candidates',
+    'memory.episodes.empty.noMergeCandidates': 'No merge candidates',
     'memory.episodes.filters.activity': 'Activity',
     'memory.episodes.eventRole.member': 'Member',
     'memory.episodes.feedback.confirmed': 'Confirmed',
@@ -212,6 +221,43 @@ beforeEach(() => {
   vi.mocked(memoryApi.getEpisode).mockResolvedValue(episodeDetail);
   vi.mocked(memoryApi.annotateEpisode).mockResolvedValue(activeEpisodes[0]);
   vi.mocked(memoryApi.regenerateEpisode).mockResolvedValue(episodeDetail);
+  vi.mocked(memoryApi.listEpisodeEventCandidates).mockResolvedValue({
+    items: [
+      {
+        episode_id: 'ep-1',
+        event_id: 'evt-3',
+        membership_role: 'candidate',
+        membership_confidence: 0.5,
+        added_at: null,
+        timestamp: 1700100600,
+        content_preview: 'Candidate lunch stop',
+        candidate_score: 4,
+        candidate_reasons: ['nearby_time'],
+      },
+    ],
+  });
+  vi.mocked(memoryApi.addEpisodeEvents).mockResolvedValue(episodeDetail);
+  vi.mocked(memoryApi.removeEpisodeEvents).mockResolvedValue(episodeDetail);
+  vi.mocked(memoryApi.listEpisodeMergeCandidates).mockResolvedValue({
+    items: [
+      {
+        ...activeEpisodes[1],
+        candidate_score: 4,
+        candidate_reasons: ['nearby_time'],
+      },
+    ],
+  });
+  vi.mocked(memoryApi.mergeEpisodes).mockResolvedValue(episodeDetail);
+  vi.mocked(memoryApi.previewEpisodeSplit).mockResolvedValue({
+    left: { event_count: 1, events: [episodeDetail.events[0]] },
+    right: { event_count: 1, events: [episodeDetail.events[1]] },
+  });
+  vi.mocked(memoryApi.splitEpisode).mockResolvedValue({
+    items: [
+      { ...episodeDetail, episode_id: 'ep-1-a', display_title: 'Launch week A' },
+      { ...episodeDetail, episode_id: 'ep-1-b', display_title: 'Launch week B' },
+    ],
+  });
 });
 
 describe('MemoryEpisodesPage', () => {
@@ -316,5 +362,77 @@ describe('MemoryEpisodesPage', () => {
       expect(memoryApi.regenerateEpisode).toHaveBeenCalledWith('ep-1');
     });
     expect((await screen.findAllByText('Fresh generated recap')).length).toBeGreaterThan(0);
+  });
+
+  it('adds a nearby candidate event without a global search input', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('Generated Japan recap');
+    await user.click(screen.getByRole('button', { name: 'Add event' }));
+    expect(await screen.findByText('Candidate lunch stop')).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox', { name: /Candidate lunch stop/ }));
+    await user.click(screen.getByRole('button', { name: 'Add selected' }));
+
+    await waitFor(() => {
+      expect(memoryApi.addEpisodeEvents).toHaveBeenCalledWith('ep-1', ['evt-3']);
+    });
+  });
+
+  it('shows an empty state when there are no add-event candidates', async () => {
+    const user = userEvent.setup();
+    vi.mocked(memoryApi.listEpisodeEventCandidates).mockResolvedValue({ items: [] });
+    renderPage();
+
+    await screen.findByText('Generated Japan recap');
+    await user.click(screen.getByRole('button', { name: 'Add event' }));
+
+    expect(await screen.findByText('No event candidates')).toBeInTheDocument();
+  });
+
+  it('removes selected events from the current episode', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('Generated Japan recap');
+    await user.click(screen.getByRole('button', { name: 'Remove event' }));
+    await user.click(screen.getByRole('checkbox', { name: /Visited Kyoto station/ }));
+    await user.click(screen.getByRole('button', { name: 'Remove selected' }));
+
+    await waitFor(() => {
+      expect(memoryApi.removeEpisodeEvents).toHaveBeenCalledWith('ep-1', ['evt-1']);
+    });
+  });
+
+  it('merges the selected episode with a recommended candidate', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('Generated Japan recap');
+    await user.click(screen.getByRole('button', { name: 'Merge' }));
+    expect((await screen.findAllByText('Generated research loop')).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('radio', { name: /Generated research loop/ }));
+    await user.click(screen.getByRole('button', { name: 'Merge selected' }));
+
+    await waitFor(() => {
+      expect(memoryApi.mergeEpisodes).toHaveBeenCalledWith('ep-1', 'ep-2');
+    });
+  });
+
+  it('splits the current episode by a chronological breakpoint', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('Generated Japan recap');
+    await user.click(screen.getByRole('button', { name: 'Split' }));
+    await user.click(screen.getByRole('radio', { name: /Visited Kyoto station/ }));
+    expect(await screen.findByText('1 / 1')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Split now' }));
+
+    await waitFor(() => {
+      expect(memoryApi.previewEpisodeSplit).toHaveBeenCalledWith('ep-1', 'evt-1');
+      expect(memoryApi.splitEpisode).toHaveBeenCalledWith('ep-1', 'evt-1');
+    });
   });
 });
