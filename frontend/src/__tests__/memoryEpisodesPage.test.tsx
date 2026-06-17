@@ -12,6 +12,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.title': 'Experiences',
     'memory.episodes.subtitle': 'Recently formed and updated experiences from remembered events.',
     'memory.episodes.sections.list': 'Recently updated experiences',
+    'memory.episodes.sections.all': 'All experiences',
     'memory.episodes.sections.detail': 'Experience review',
     'memory.episodes.sections.recap': "Magi's recap",
     'memory.episodes.sections.whatHappened': 'Event trail',
@@ -21,6 +22,12 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.sections.topics': 'Topics',
     'memory.episodes.sections.keywords': 'Keywords',
     'memory.episodes.sortNote': 'Pinned first · Recently updated',
+    'memory.episodes.searchLabel': 'Search experiences',
+    'memory.episodes.searchPlaceholder': 'Search experiences, places, topics',
+    'memory.episodes.filterPinned': 'Filter',
+    'memory.episodes.filterPinnedActive': 'Pinned only',
+    'memory.episodes.featuredLabel': 'Featured recap',
+    'memory.episodes.unknownMonth': 'Undated',
     'memory.episodes.count': '{{count}} active',
     'memory.episodes.eventCount': '{{count}} events',
     'memory.episodes.episodeCount': '{{count}} source episodes',
@@ -31,6 +38,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.noRecap': 'No recap yet.',
     'memory.episodes.noEvents': 'No event memberships found.',
     'memory.episodes.noSourceEpisodes': 'No source episodes found.',
+    'memory.episodes.noSearchResults': 'No experiences match those filters.',
     'memory.episodes.eventPreviewUnavailable': 'Event preview unavailable',
     'memory.episodes.noTags': 'None yet',
     'memory.episodes.awaitingLabel': 'Waiting for Magi to draft a title...',
@@ -273,12 +281,13 @@ beforeEach(() => {
 });
 
 describe('MemoryEpisodesPage', () => {
-  it('lists recent experience cards without reading raw episodes or opening detail automatically', async () => {
+  it('lists experiences and opens the first one in the detail rail', async () => {
     renderPage();
 
     expect((await screen.findAllByText('Launch week')).length).toBeGreaterThan(0);
     expect(screen.getByText('Generated research loop')).toBeInTheDocument();
     expect(screen.getByText('Pinned first · Recently updated')).toBeInTheDocument();
+    expect(screen.getByText('All experiences')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Build experiences now' })).toBeInTheDocument();
 
     const experienceButtons = screen.getAllByRole('button', { name: /Open experience:/ });
@@ -289,8 +298,10 @@ describe('MemoryEpisodesPage', () => {
     ]);
     expect(memoryApi.listExperiences).toHaveBeenCalledWith({ status: 'active', limit: 100, offset: 0 });
     expect(memoryApi.listEpisodes).not.toHaveBeenCalled();
-    expect(memoryApi.getExperience).not.toHaveBeenCalled();
-    expect(screen.queryByText('Visited Kyoto station')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(memoryApi.getExperience).toHaveBeenCalledWith('exp-1');
+    });
+    expect(await screen.findByText('Visited Kyoto station')).toBeInTheDocument();
   });
 
   it('renders the Magi recap, source episodes, and readable event previews', async () => {
@@ -310,8 +321,8 @@ describe('MemoryEpisodesPage', () => {
 
     expect(screen.getAllByText('Asuka').length).toBeGreaterThan(0);
     expect(screen.queryByText('person:asuka')).not.toBeInTheDocument();
-    expect(screen.getByText('studio')).toBeInTheDocument();
-    expect(screen.getByText('launch')).toBeInTheDocument();
+    expect(screen.getAllByText('studio').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('launch').length).toBeGreaterThan(0);
   });
 
   it('offers reconsolidation when there are no active experiences', async () => {

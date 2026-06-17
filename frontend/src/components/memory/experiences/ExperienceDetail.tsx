@@ -40,6 +40,7 @@ import {
   getExperienceDescription,
   getExperienceEntityLabels,
 } from './ExperienceRow';
+import { cn } from '@/lib/utils';
 
 type ExperienceReviewLike = L2ExperienceWithReview | L2ExperienceReviewDetail;
 
@@ -70,6 +71,7 @@ export function ExperienceDetail({
   onEditDescription,
   onRegenerate,
   onHide,
+  variant = 'sheet',
 }: {
   experience: ExperienceReviewLike;
   title: string;
@@ -78,8 +80,10 @@ export function ExperienceDetail({
   onEditDescription: (description: string) => Promise<void>;
   onRegenerate: () => Promise<void>;
   onHide: () => Promise<void>;
+  variant?: 'sheet' | 'inline';
 }) {
   const { t, i18n } = useTranslation('app');
+  const isInline = variant === 'inline';
   const detail = experience as L2ExperienceReviewDetail;
   const events = Array.isArray(detail.events) ? detail.events : [];
   const sourceEpisodes = Array.isArray(detail.source_episodes) ? detail.source_episodes : [];
@@ -155,9 +159,19 @@ export function ExperienceDetail({
   };
 
   return (
-    <div className="min-w-0">
-      <header className="border-b border-[hsl(var(--memory-divider)/0.62)] bg-[hsl(var(--memory-panel-elevated))] px-6 py-6 md:px-8">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+    <div
+      className={cn(
+        'min-w-0',
+        isInline && 'overflow-hidden rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.82)]'
+      )}
+    >
+      <header
+        className={cn(
+          'border-b border-[hsl(var(--memory-divider)/0.62)] bg-[hsl(var(--memory-panel-elevated))]',
+          isInline ? 'px-5 py-5' : 'px-6 py-6 md:px-8'
+        )}
+      >
+        <div className={cn('flex flex-col gap-5', !isInline && 'lg:flex-row lg:items-start lg:justify-between')}>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
               <BookOpen className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
@@ -178,7 +192,12 @@ export function ExperienceDetail({
                 </span>
               ) : null}
             </div>
-            <h2 className="mt-4 max-w-3xl break-words text-3xl font-semibold leading-tight text-[hsl(var(--memory-title))] md:text-4xl">
+            <h2
+              className={cn(
+                'mt-4 max-w-3xl break-words font-semibold leading-tight text-[hsl(var(--memory-title))]',
+                isInline ? 'text-2xl md:text-[1.7rem]' : 'text-3xl md:text-4xl'
+              )}
+            >
               {title}
             </h2>
             <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-[hsl(var(--memory-muted))]">
@@ -186,7 +205,7 @@ export function ExperienceDetail({
               <span>{t('memory.episodes.eventCount', { count: experience.source_event_count ?? 0 })}</span>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 lg:justify-end">
+          <div className={cn('flex flex-wrap gap-2', !isInline && 'lg:justify-end')}>
             <Button variant="outline" size="sm" onClick={openRename}>
               <Pencil className="h-4 w-4" aria-hidden="true" />
               {t('memory.episodes.actions.rename')}
@@ -207,7 +226,12 @@ export function ExperienceDetail({
         </div>
       </header>
 
-      <div className="grid gap-8 px-6 py-6 md:px-8 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div
+        className={cn(
+          'grid gap-8',
+          isInline ? 'px-5 py-5' : 'px-6 py-6 md:px-8 lg:grid-cols-[minmax(0,1fr)_280px]'
+        )}
+      >
         <main className="min-w-0 space-y-8">
           {detailLoading ? <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div> : null}
           <section className="rounded-lg border border-[hsl(var(--memory-border)/0.5)] bg-[hsl(var(--memory-panel)/0.72)] px-5 py-5">
@@ -224,7 +248,7 @@ export function ExperienceDetail({
           <EpisodeEventList events={events} />
         </main>
 
-        <aside className="min-w-0 space-y-5 lg:sticky lg:top-5 lg:self-start">
+        <aside className={cn('min-w-0', isInline ? 'grid gap-4 sm:grid-cols-3' : 'space-y-5 lg:sticky lg:top-5 lg:self-start')}>
           <TagGroup
             icon={<UserRound className="h-4 w-4" aria-hidden="true" />}
             title={t('memory.episodes.sections.entities')}
