@@ -117,6 +117,12 @@ class EpisodeAnnotationRequest(BaseModel):
     user_pinned: Optional[bool] = None
 
 
+class ExperienceAnnotationRequest(BaseModel):
+    user_label: Optional[str] = Field(default=None, max_length=500)
+    user_note: Optional[str] = Field(default=None, max_length=2000)
+    user_pinned: Optional[bool] = None
+
+
 class EpisodeEventIdsRequest(BaseModel):
     event_ids: List[str] = Field(..., min_length=1, max_length=100)
 

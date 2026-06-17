@@ -357,6 +357,25 @@ class L3SummaryPersistenceMixin:
                 row = await cursor.fetchone()
         return self._row_to_dict(row) if row is not None else None
 
+    async def get_episodic_summary_by_experience_id(self, experience_id: str) -> Optional[Dict[str, Any]]:
+        """Return the most recent L3 episodic summary linked to an L2 experience."""
+        host = cast(_L3SummaryPersistenceHostProtocol, self)
+        await host.initialize()
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT * FROM summaries
+                WHERE summary_category = 'episodic'
+                  AND json_extract(insight_metadata, '$.source_experience_id') = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (experience_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return self._row_to_dict(row) if row is not None else None
+
     async def filter_linked_event_ids(self, event_ids: list[str]) -> list[str]:
         """Return the subset of event ids that are already covered by summary links."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)

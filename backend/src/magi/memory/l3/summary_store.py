@@ -22,6 +22,7 @@ from .episodic_service import EpisodicSummaryLLMService
 from .topic_llm_service import TopicSummaryLLMService
 from .temporal_llm_service import TemporalSummaryLLMService
 from .validator import validate_candidate
+from .models import L3Candidate
 from .embeddings.operations import L3SummaryEmbeddingMixin
 from .retrieval.operations import L3SummarySearchMixin
 from .storage.schema import ensure_l3_summary_schema
@@ -550,6 +551,91 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
                 )
                 errors.append(f"{episode_id}: {exc}")
         return {"generated": generated, "errors": errors}
+
+    async def generate_experience_summary(
+        self,
+        *,
+        l1_store: L1EventStore,
+        l2_store: Any,
+        experience: Dict[str, Any],
+        experience_members: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Build an L3 episodic review for one L2 experience."""
+        await self.initialize()
+        experience_id = str(experience.get("experience_id") or "").strip()
+        if not experience_id:
+            return None
+
+        episode_ids: list[str] = []
+        event_ids: list[str] = []
+        seen_events: set[str] = set()
+        for member in experience_members:
+            if str(member.get("role") or "") == "excluded":
+                continue
+            member_type = str(member.get("member_type") or "")
+            member_id = str(member.get("member_id") or "").strip()
+            if not member_id:
+                continue
+            if member_type == "episode":
+                episode_ids.append(member_id)
+                for link in await l2_store.list_episode_events(episode_id=member_id):
+                    event_id = str(link.get("event_id") or "").strip()
+                    if event_id and event_id not in seen_events:
+                        seen_events.add(event_id)
+                        event_ids.append(event_id)
+            elif member_type == "event" and member_id not in seen_events:
+                seen_events.add(member_id)
+                event_ids.append(member_id)
+
+        if not event_ids:
+            return None
+
+        snippets: list[str] = []
+        for event_id in event_ids[:8]:
+            row = await l1_store.get_event(event_id)
+            content = str((row or {}).get("content") or "").strip()
+            if content:
+                snippets.append(content)
+
+        label = str(
+            experience.get("user_label")
+            or experience.get("title")
+            or experience.get("intent")
+            or "Experience"
+        ).strip()[:36]
+        content = str(
+            experience.get("user_note")
+            or experience.get("magi_interpretation")
+            or experience.get("outcome")
+            or experience.get("intent")
+            or "；".join(snippets)
+            or f"包含 {len(event_ids)} 个事件的经历"
+        ).strip()[:240]
+
+        candidate = L3Candidate(
+            content=content,
+            source_event_ids=event_ids,
+            summary_category="episodic",
+            summary_type="thematic",
+            insight_key=f"experience:{experience_id}:review",
+            insight_metadata={
+                "source_experience_id": experience_id,
+                "source_episode_ids": episode_ids,
+                "label": label,
+                "fallback": True,
+            },
+        )
+        return await self.upsert_candidate(
+            candidate=candidate,
+            summary_overrides={
+                "summary_id": f"summary_{uuid.uuid4().hex}",
+                "summary_type": "thematic",
+                "summary_category": "episodic",
+                "period_start": float(experience.get("time_start") or time.time()),
+                "period_end": float(experience.get("time_end") or time.time()),
+                "generation_reason": "experience:episodic",
+            },
+        )
 
     def get_statistics(self) -> Dict[str, Any]:
         """Return lightweight metadata for reporting."""

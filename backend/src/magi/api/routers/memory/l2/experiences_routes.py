@@ -1,0 +1,323 @@
+"""L2 experience API routes."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import HTTPException, Query, status
+
+from ..dependencies import _resolve_unified_memory
+from ..helpers import memory_t
+from ..router import memory_router
+from ..schemas import ExperienceAnnotationRequest
+from .episode_review_helpers import serialize_episodic_summary
+from .episodes_routes import (
+    _attach_episode_entity_previews,
+    _get_configured_or_real_method,
+    _get_unified_layer,
+    _serialize_episode_event_previews,
+)
+
+
+def _clean_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = _clean_text(value)
+        if text:
+            return text
+    return ""
+
+
+def _build_experience_display_fields(
+    experience: dict[str, Any],
+    experience_review: dict[str, Any] | None,
+) -> dict[str, str]:
+    review = experience_review or {}
+    user_title = _clean_text(experience.get("user_label"))
+    user_description = _clean_text(experience.get("user_note"))
+    generated_title = _first_text(review.get("label"), experience.get("title"), experience.get("intent"))
+    generated_description = _first_text(
+        review.get("content"),
+        experience.get("magi_interpretation"),
+        experience.get("outcome"),
+        experience.get("intent"),
+    )
+    display_title = user_title or generated_title or _clean_text(experience.get("experience_id")) or "Experience"
+    display_description = user_description or generated_description
+    if user_title or user_description:
+        display_source = "user_override"
+    elif generated_title or generated_description:
+        display_source = "generated"
+    else:
+        display_source = "fallback"
+    return {
+        "display_title": display_title,
+        "display_description": display_description,
+        "display_source": display_source,
+    }
+
+
+async def _attach_experience_review_fields(
+    unified_memory: Any,
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    l3_store = _get_unified_layer(unified_memory, "l3")
+    for item in items:
+        review = None
+        experience_id = str(item.get("experience_id") or "").strip()
+        if l3_store is not None and experience_id:
+            get_review = _get_configured_or_real_method(
+                l3_store,
+                "get_episodic_summary_by_experience_id",
+            )
+            if get_review is not None:
+                review = serialize_episodic_summary(await get_review(experience_id))
+        item["experience_review"] = review
+        item.update(_build_experience_display_fields(item, review))
+    await _attach_episode_entity_previews(unified_memory, items)
+    return items
+
+
+async def _get_experience_or_404(unified_memory: Any, experience_id: str) -> dict[str, Any]:
+    experience = await unified_memory.l2.get_experience(experience_id=experience_id)
+    if experience is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.experience_not_found", "Experience not found"),
+        )
+    return experience
+
+
+async def _source_episode_previews(
+    unified_memory: Any,
+    members: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    previews: list[dict[str, Any]] = []
+    get_episode = _get_configured_or_real_method(unified_memory.l2, "get_episode")
+    if get_episode is None:
+        return previews
+    for member in members:
+        if member.get("member_type") != "episode":
+            continue
+        episode_id = str(member.get("member_id") or "").strip()
+        if not episode_id:
+            continue
+        episode = await get_episode(episode_id=episode_id)
+        if episode is None:
+            continue
+        item = dict(episode)
+        item["membership_role"] = str(member.get("role") or "")
+        item["membership_confidence"] = float(member.get("confidence") or 0.0)
+        item["membership_added_at"] = member.get("added_at")
+        previews.append(item)
+    await _attach_episode_entity_previews(unified_memory, previews)
+    return previews
+
+
+async def _experience_event_previews(
+    unified_memory: Any,
+    members: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    event_memberships: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    list_episode_events = _get_configured_or_real_method(
+        unified_memory.l2,
+        "list_episode_events",
+    )
+    for member in members:
+        member_type = str(member.get("member_type") or "")
+        member_id = str(member.get("member_id") or "").strip()
+        if not member_id or str(member.get("role") or "") == "excluded":
+            continue
+        if member_type == "episode":
+            if list_episode_events is None:
+                continue
+            for item in await list_episode_events(episode_id=member_id):
+                event_id = str(item.get("event_id") or "").strip()
+                if event_id and event_id not in seen:
+                    seen.add(event_id)
+                    event_memberships.append(item)
+        elif member_type == "event" and member_id not in seen:
+            seen.add(member_id)
+            event_memberships.append(
+                {
+                    "episode_id": "",
+                    "event_id": member_id,
+                    "membership_role": str(member.get("role") or "core"),
+                    "membership_confidence": float(member.get("confidence") or 0.0),
+                    "added_at": member.get("added_at"),
+                }
+            )
+    return await _serialize_episode_event_previews(unified_memory, event_memberships)
+
+
+async def _build_experience_review_response(
+    unified_memory: Any,
+    *,
+    experience: dict[str, Any],
+    members: list[dict[str, Any]] | None = None,
+    experience_review: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    experience = dict(experience)
+    await _attach_experience_review_fields(unified_memory, [experience])
+    if experience_review is not None:
+        experience["experience_review"] = experience_review
+        experience.update(_build_experience_display_fields(experience, experience_review))
+    if members is None:
+        list_members = _get_configured_or_real_method(
+            unified_memory.l2,
+            "list_experience_members",
+        )
+        members = (
+            await list_members(experience_id=str(experience.get("experience_id") or ""))
+            if list_members is not None
+            else []
+        )
+    source_episodes = await _source_episode_previews(unified_memory, members)
+    events = await _experience_event_previews(unified_memory, members)
+    return {
+        **experience,
+        "source_episodes": source_episodes,
+        "events": events,
+        "key_events": [],
+    }
+
+
+@memory_router.get("/l2/experiences")
+async def list_l2_experiences(
+    status_filter: str | None = Query(default=None, alias="status"),
+    time_start: float | None = Query(default=None),
+    time_end: float | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    """List product-grade L2 experiences."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    effective_status = status_filter if status_filter is not None else "active"
+    items = await unified_memory.l2.list_experiences(
+        status=effective_status,
+        time_start=time_start,
+        time_end=time_end,
+        limit=limit,
+        offset=offset,
+    )
+    await _attach_experience_review_fields(unified_memory, items)
+    return {"items": items, "total": len(items), "limit": limit, "offset": offset}
+
+
+@memory_router.get("/l2/experiences/{experience_id}")
+async def get_l2_experience(experience_id: str):
+    """Get one L2 experience with source episode and event evidence."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    experience = await _get_experience_or_404(unified_memory, experience_id)
+    members = await unified_memory.l2.list_experience_members(experience_id=experience_id)
+    return await _build_experience_review_response(
+        unified_memory,
+        experience=experience,
+        members=members,
+    )
+
+
+@memory_router.patch("/l2/experiences/{experience_id}")
+async def annotate_l2_experience(experience_id: str, body: ExperienceAnnotationRequest):
+    """User annotation on an experience."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    updates: dict[str, Any] = {}
+    if body.user_label is not None:
+        updates["user_label"] = body.user_label
+    if body.user_note is not None:
+        updates["user_note"] = body.user_note
+    if body.user_pinned is not None:
+        updates["user_pinned"] = body.user_pinned
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=memory_t("memory.errors.no_fields_to_update", "No fields to update"),
+        )
+    ok = await unified_memory.l2.update_experience(experience_id=experience_id, **updates)
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.experience_not_found", "Experience not found"),
+        )
+    experience = await _get_experience_or_404(unified_memory, experience_id)
+    return await _build_experience_review_response(unified_memory, experience=experience)
+
+
+@memory_router.post("/l2/experiences/{experience_id}/hide")
+async def hide_l2_experience(experience_id: str):
+    """Hide an experience from the primary review surface."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    ok = await unified_memory.l2.update_experience(
+        experience_id=experience_id,
+        status="hidden",
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.experience_not_found", "Experience not found"),
+        )
+    experience = await _get_experience_or_404(unified_memory, experience_id)
+    return await _build_experience_review_response(unified_memory, experience=experience)
+
+
+@memory_router.post("/l2/experiences/{experience_id}/regenerate")
+async def regenerate_l2_experience(experience_id: str):
+    """Regenerate the L3 recap for an experience."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    l1_store = _get_unified_layer(unified_memory, "l1")
+    l3_store = _get_unified_layer(unified_memory, "l3")
+    if l1_store is None or l3_store is None or not hasattr(l3_store, "generate_experience_summary"):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.summary_store_uninitialized", "Summary store not initialized"),
+        )
+    experience = await _get_experience_or_404(unified_memory, experience_id)
+    members = await unified_memory.l2.list_experience_members(experience_id=experience_id)
+    review = serialize_episodic_summary(
+        await l3_store.generate_experience_summary(
+            l1_store=l1_store,
+            l2_store=unified_memory.l2,
+            experience=experience,
+            experience_members=members,
+        )
+    )
+    if review is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=memory_t(
+                "memory.errors.experience_summary_generation_failed",
+                "Experience summary generation failed",
+            ),
+        )
+    return await _build_experience_review_response(
+        unified_memory,
+        experience=experience,
+        members=members,
+        experience_review=review,
+    )
