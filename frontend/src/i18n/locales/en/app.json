@@ -2323,12 +2323,15 @@
       "detailEmptyBody": "Open one from the list to inspect its events and impressions.",
       "noNarrative": "No narrative yet.",
       "noSummary": "No summary yet.",
+      "noRecap": "No recap yet.",
       "noEvents": "No event memberships found.",
       "noInferred": "No inferred impressions for this episode.",
       "noTags": "None yet",
       "sections": {
         "list": "Active experiences",
         "detail": "Experience detail",
+        "recap": "Recap",
+        "whatHappened": "What happened",
         "narrative": "Narrative",
         "eventStream": "Event stream",
         "inferred": "Inferred impressions",
@@ -2338,6 +2341,8 @@
         "userNotes": "Your corrections"
       },
       "fields": {
+        "title": "Title",
+        "description": "Recap",
         "label": "Label",
         "note": "Note",
         "pinned": "Pinned"
@@ -2355,11 +2360,44 @@
         "pin": "Pin",
         "unpin": "Unpin",
         "rename": "Rename",
+        "editDescription": "Edit recap",
+        "regenerateDescription": "Regenerate recap",
+        "confirmRegenerate": "Regenerate now",
+        "addEvent": "Add event",
+        "removeEvent": "Remove event",
+        "addSelectedEvents": "Add selected",
+        "removeSelectedEvents": "Remove selected",
+        "mergeEpisode": "Merge",
+        "mergeSelectedEpisode": "Merge selected",
+        "splitEpisode": "Split",
+        "splitNow": "Split now",
         "annotate": "Annotate",
         "forget": "Forget",
         "saveCorrections": "Save corrections",
         "confirmImpression": "Confirm impression",
         "rejectImpression": "Reject impression"
+      },
+      "dialogs": {
+        "renameTitle": "Rename experience",
+        "renameDescription": "Update the title shown for this experience.",
+        "editDescriptionTitle": "Edit recap",
+        "editDescriptionDescription": "Update the recap shown on this experience.",
+        "regenerateTitle": "Replace current recap?",
+        "regenerateDescription": "Magi will draft a new recap for this experience.",
+        "addEventTitle": "Add event",
+        "addEventDescription": "Choose nearby remembered events that belong in this experience.",
+        "mergeEpisodeTitle": "Merge experience",
+        "mergeEpisodeDescription": "Choose another experience to fold into this one.",
+        "splitEpisodeTitle": "Split experience",
+        "splitEpisodeDescription": "Choose where this experience should break into two parts."
+      },
+      "empty": {
+        "noEventCandidates": "No event candidates",
+        "noMergeCandidates": "No merge candidates"
+      },
+      "errors": {
+        "regenerateFailed": "Could not regenerate this recap.",
+        "boundaryEditFailed": "Could not update this experience."
       },
       "eventRole": {
         "member": "Member"
