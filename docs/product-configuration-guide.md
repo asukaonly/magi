@@ -170,6 +170,17 @@ Current product expectations:
 - conversation preferences should allow users to decide whether the assistant may inspect prepared media attachments for grounded replies; media grounding must remain disabled unless the selected core model exposes vision capability
 - conversation rhythm may split one assistant turn into several natural chat bubbles when enabled; it takes precedence over streaming output for that turn, must remain presentation-only, preserve one canonical answer for memory and trace, and fall back to a single message when planning is unavailable or invalid
 
+### Desktop Startup Diagnostics
+
+When the desktop backend cannot finish startup, the frontend should show a diagnosis-oriented failure screen instead of only a generic retry prompt. The screen should include the concrete startup error, the backend log path, and a bounded tail of the latest backend log output.
+
+Current log sources:
+
+- packaged desktop builds: `~/.magi/logs/backend.log`
+- desktop dev hot mode: `~/.magi/logs/backend-dev-hot.log`, or `MAGI_BACKEND_LOG_FILE` when that environment variable is set
+
+The log excerpt is for local troubleshooting only. It should stay bounded and should not replace the retry action.
+
 ## Conversation Settings
 
 The conversation settings area owns conversation-scoped defaults that are not model-specific.

@@ -16,6 +16,7 @@ import {
   initializeRuntime,
   normalizeApiBaseUrl,
   normalizeConnectableUrl,
+  readBackendStartupDiagnostics,
   resetRuntimeInitialization,
 } from '@/runtime/config';
 
@@ -41,6 +42,25 @@ describe('runtime config URL normalization', () => {
 
   it('preserves explicit connectable hosts', () => {
     expect(normalizeConnectableUrl('http://localhost:8000/api', '127.0.0.1')).toBe('http://localhost:8000/api');
+  });
+
+  it('returns no startup diagnostics outside the Tauri desktop runtime', async () => {
+    await expect(readBackendStartupDiagnostics()).resolves.toBeNull();
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('reads backend startup diagnostics from the desktop shell', async () => {
+    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
+    invokeMock.mockResolvedValue({
+      logPath: 'C:\\Users\\asuka\\.magi\\logs\\backend-dev-hot.log',
+      logExcerpt: 'Traceback: demo failure',
+    });
+
+    await expect(readBackendStartupDiagnostics()).resolves.toEqual({
+      logPath: 'C:\\Users\\asuka\\.magi\\logs\\backend-dev-hot.log',
+      logExcerpt: 'Traceback: demo failure',
+    });
+    expect(invokeMock).toHaveBeenCalledWith('read_backend_startup_diagnostics');
   });
 
   it('rejects initialization outside the Tauri desktop runtime', async () => {

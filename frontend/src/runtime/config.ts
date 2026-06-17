@@ -23,6 +23,12 @@ interface PollStartupResult {
   error?: string;
 }
 
+export interface BackendStartupDiagnostics {
+  logPath?: string;
+  logExcerpt?: string;
+  logReadError?: string;
+}
+
 const DEFAULT_API_BASE_URL = "http://localhost:8000/api";
 const RESTRICTED_HOSTS = new Set(["0.0.0.0", "::", "[::]"]);
 const READY_CHECK_INTERVAL_MS = 250;
@@ -46,6 +52,22 @@ export function isTauriRuntime(): boolean {
     return false;
   }
   return "__TAURI_INTERNALS__" in window || "__TAURI__" in window;
+}
+
+export async function readBackendStartupDiagnostics(): Promise<BackendStartupDiagnostics | null> {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+
+  try {
+    const diagnostics = await invoke<BackendStartupDiagnostics>("read_backend_startup_diagnostics");
+    if (!diagnostics?.logPath && !diagnostics?.logExcerpt && !diagnostics?.logReadError) {
+      return null;
+    }
+    return diagnostics;
+  } catch {
+    return null;
+  }
 }
 
 function resolvePreferredHost(preferredHost?: string): string {

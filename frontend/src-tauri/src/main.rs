@@ -12,7 +12,7 @@ use serde::Serialize;
 use std::env;
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -25,6 +25,7 @@ const BACKEND_HOST: &str = "127.0.0.1";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(25);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const BACKEND_LOG_TAIL_BYTES: u64 = 64 * 1024;
 
 #[derive(Default)]
 struct BackendState {
@@ -127,6 +128,14 @@ struct StopBackendResponse {
 #[serde(rename_all = "camelCase")]
 struct BackendBaseUrlResponse {
     base_url: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendStartupDiagnosticsResponse {
+    log_path: Option<String>,
+    log_excerpt: Option<String>,
+    log_read_error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -553,12 +562,19 @@ fn resolve_plugin_python_path(app: &AppHandle) -> Result<PathBuf, String> {
     ))
 }
 
-fn open_sidecar_log_stdio() -> Result<(Stdio, Stdio), String> {
-    let home = env::var("HOME")
+fn home_dir() -> Result<PathBuf, String> {
+    env::var("HOME")
         .or_else(|_| env::var("USERPROFILE"))
         .map(PathBuf::from)
-        .map_err(|_| "Neither HOME nor USERPROFILE is set".to_string())?;
-    let log_path = home.join(".magi").join("logs").join("backend.log");
+        .map_err(|_| "Neither HOME nor USERPROFILE is set".to_string())
+}
+
+fn sidecar_backend_log_path() -> Result<PathBuf, String> {
+    Ok(home_dir()?.join(".magi").join("logs").join("backend.log"))
+}
+
+fn open_sidecar_log_stdio() -> Result<(Stdio, Stdio), String> {
+    let log_path = sidecar_backend_log_path()?;
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent)
             .map_err(|err| format!("Failed to create backend log directory: {err}"))?;
@@ -701,16 +717,41 @@ fn dev_backend_log_path() -> Result<PathBuf, String> {
         }
     }
 
-    let home_dir = env::var("HOME")
-        .or_else(|_| env::var("USERPROFILE"))
-        .map(PathBuf::from)
-        .map_err(|_| {
-            "Neither HOME nor USERPROFILE is set for desktop dev backend logging".to_string()
-        })?;
-    Ok(home_dir
+    Ok(home_dir()?
         .join(".magi")
         .join("logs")
         .join("backend-dev-hot.log"))
+}
+
+fn current_backend_log_path() -> Result<PathBuf, String> {
+    if cfg!(debug_assertions) {
+        dev_backend_log_path()
+    } else {
+        sidecar_backend_log_path()
+    }
+}
+
+fn read_text_file_tail(path: &Path, max_bytes: u64) -> Result<String, String> {
+    let mut file = fs::File::open(path)
+        .map_err(|err| format!("Failed to open backend log file {}: {err}", path.display()))?;
+    let len = file
+        .metadata()
+        .map_err(|err| format!("Failed to read backend log metadata: {err}"))?
+        .len();
+    let offset = len.saturating_sub(max_bytes);
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|err| format!("Failed to seek backend log file: {err}"))?;
+
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|err| format!("Failed to read backend log file: {err}"))?;
+    let mut text = String::from_utf8_lossy(&bytes).to_string();
+    if offset > 0 {
+        if let Some(newline) = text.find('\n') {
+            text = text[(newline + 1)..].to_string();
+        }
+    }
+    Ok(text)
 }
 
 fn open_dev_backend_log_stdio() -> Result<(Stdio, Stdio), String> {
@@ -1151,6 +1192,37 @@ fn get_backend_base_url(state: State<'_, BackendState>) -> Result<BackendBaseUrl
 }
 
 #[tauri::command]
+fn read_backend_startup_diagnostics() -> Result<BackendStartupDiagnosticsResponse, String> {
+    let log_path = match current_backend_log_path() {
+        Ok(path) => path,
+        Err(err) => {
+            return Ok(BackendStartupDiagnosticsResponse {
+                log_path: None,
+                log_excerpt: None,
+                log_read_error: Some(err),
+            });
+        }
+    };
+
+    match read_text_file_tail(&log_path, BACKEND_LOG_TAIL_BYTES) {
+        Ok(excerpt) => Ok(BackendStartupDiagnosticsResponse {
+            log_path: Some(log_path.display().to_string()),
+            log_excerpt: if excerpt.trim().is_empty() {
+                None
+            } else {
+                Some(excerpt)
+            },
+            log_read_error: None,
+        }),
+        Err(err) => Ok(BackendStartupDiagnosticsResponse {
+            log_path: Some(log_path.display().to_string()),
+            log_excerpt: None,
+            log_read_error: Some(err),
+        }),
+    }
+}
+
+#[tauri::command]
 fn set_close_to_tray_enabled(
     state: State<'_, desktop_presence::DesktopPresenceState>,
     enabled: bool,
@@ -1426,6 +1498,7 @@ fn main() {
             stop_backend,
             backend_status,
             get_backend_base_url,
+            read_backend_startup_diagnostics,
             set_close_to_tray_enabled,
             set_start_minimized,
             set_skip_quit_confirmation,
@@ -1530,6 +1603,21 @@ mod tests {
                 .join("bin")
                 .join("python")
         );
+    }
+
+    #[test]
+    fn read_text_file_tail_skips_truncated_first_line() {
+        let base = std::env::temp_dir().join(format!("magi-log-tail-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let log_path = base.join("backend.log");
+        std::fs::write(&log_path, "alpha\nbravo\ncharlie").unwrap();
+
+        let tail = super::read_text_file_tail(&log_path, 12).unwrap();
+
+        assert_eq!(tail, "charlie");
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[cfg(target_os = "macos")]

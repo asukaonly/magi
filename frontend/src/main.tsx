@@ -1,9 +1,10 @@
 /**
  * Application entry point.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { useTranslation } from 'react-i18next';
+import { Copy, RotateCw } from 'lucide-react';
 import { toast } from 'sonner';
 import App from './App';
 import './index.css';
@@ -12,8 +13,9 @@ import i18n from './i18n';
 import { configureApiClient } from './api/client';
 import { configApi } from './api/modules/config';
 import type { LanguageCode } from './api/modules/config';
-import { initializeRuntime, resetRuntimeInitialization } from './runtime/config';
-import type { StartupPhase } from './runtime/config';
+import { initializeRuntime, readBackendStartupDiagnostics, resetRuntimeInitialization } from './runtime/config';
+import type { BackendStartupDiagnostics, StartupPhase } from './runtime/config';
+import { Button } from './components/ui/button';
 import { syncCloseToTrayPreference, syncAutoStartPreference, syncStartMinimizedPreference, syncSkipQuitConfirmationPreference, applyStartMinimized } from './runtime/desktop';
 import { syncDesktopNotificationPreferences } from './runtime/desktop-notifications';
 import { initializeDesktopLogging } from './runtime/logging';
@@ -28,10 +30,46 @@ const RuntimeBootstrap: React.FC = () => {
   const { t } = useTranslation('app');
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<BackendStartupDiagnostics | null>(null);
+  const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
   const [phase, setPhase] = useState<StartupPhase>('spawning');
+
+  const diagnosticText = useMemo(() => {
+    if (!error) {
+      return '';
+    }
+
+    const sections = [`${t('bootstrap.summaryLabel')}\n${error}`];
+    if (diagnostics?.logPath) {
+      sections.push(`${t('bootstrap.logPathLabel')}\n${diagnostics.logPath}`);
+    }
+    if (diagnostics?.logExcerpt) {
+      sections.push(`${t('bootstrap.recentLogLabel')}\n${diagnostics.logExcerpt}`);
+    }
+    if (diagnostics?.logReadError) {
+      sections.push(`${t('bootstrap.logReadError', { error: diagnostics.logReadError })}`);
+    }
+    return sections.join('\n\n');
+  }, [diagnostics, error, t]);
+
+  const copyDiagnostics = useCallback(async () => {
+    if (!diagnosticText || !navigator.clipboard) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(diagnosticText);
+      setDiagnosticsCopied(true);
+      window.setTimeout(() => setDiagnosticsCopied(false), 1600);
+    } catch {
+      setDiagnosticsCopied(false);
+    }
+  }, [diagnosticText]);
 
   const bootstrap = useCallback(async () => {
     setError(null);
+    setDiagnostics(null);
+    setDiagnosticsCopied(false);
     setReady(false);
     setPhase('spawning');
     try {
@@ -73,8 +111,11 @@ const RuntimeBootstrap: React.FC = () => {
       }
       setReady(true);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to initialize runtime';
+      const message = err instanceof Error
+        ? err.message
+        : i18n.t('bootstrap.initializeFailedFallback', { ns: 'app' });
       setError(message);
+      setDiagnostics(await readBackendStartupDiagnostics());
     }
   }, []);
 
@@ -87,20 +128,78 @@ const RuntimeBootstrap: React.FC = () => {
   }
 
   if (error) {
+    const hasLogExcerpt = Boolean(diagnostics?.logExcerpt?.trim());
+
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
-        <h1 className="text-xl font-semibold">{t('bootstrap.startupFailed')}</h1>
-        <p className="max-w-xl text-sm text-muted-foreground">{error}</p>
-        <button
-          className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-          onClick={() => {
-            resetRuntimeInitialization();
-            void bootstrap();
-          }}
-          type="button"
-        >
-          {t('bootstrap.retry')}
-        </button>
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8 text-foreground">
+        <section className="w-full max-w-4xl rounded-md border border-border bg-card p-6 text-left shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 space-y-2">
+              <h1 className="text-xl font-semibold">{t('bootstrap.startupFailed')}</h1>
+              <p className="text-sm text-muted-foreground">{t('bootstrap.diagnosticsHint')}</p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void copyDiagnostics()}
+                disabled={!diagnosticText}
+              >
+                <Copy className="h-4 w-4" />
+                {diagnosticsCopied ? t('bootstrap.copiedDiagnostics') : t('bootstrap.copyDiagnostics')}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  resetRuntimeInitialization();
+                  void bootstrap();
+                }}
+              >
+                <RotateCw className="h-4 w-4" />
+                {t('bootstrap.retry')}
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-6 space-y-5">
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t('bootstrap.summaryLabel')}
+              </p>
+              <pre className="m-0 whitespace-pre-wrap break-words rounded-md border border-destructive/30 bg-destructive/5 p-3 font-mono text-xs leading-5 text-destructive">
+                {error}
+              </pre>
+            </div>
+
+            {diagnostics?.logPath ? (
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {t('bootstrap.logPathLabel')}
+                </p>
+                <p className="break-all rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
+                  {diagnostics.logPath}
+                </p>
+              </div>
+            ) : null}
+
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t('bootstrap.recentLogLabel')}
+              </p>
+              {hasLogExcerpt ? (
+                <pre className="m-0 max-h-[48vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 p-3 font-mono text-xs leading-5 text-muted-foreground">
+                  {diagnostics?.logExcerpt}
+                </pre>
+              ) : (
+                <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                  {diagnostics?.logReadError
+                    ? t('bootstrap.logReadError', { error: diagnostics.logReadError })
+                    : t('bootstrap.noLogAvailable')}
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
       </div>
     );
   }
