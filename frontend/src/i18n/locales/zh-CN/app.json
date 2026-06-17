@@ -2271,8 +2271,43 @@
     "overview": {
       "title": "总览",
       "subtitle": "看看 Magi 现在记住了什么、从哪里来，以及哪些内容需要你判断。",
+      "metrics": {
+        "totalMemories": "记忆总量",
+        "sources": "活跃来源",
+        "pending": "待确认",
+        "storage": "占用空间"
+      },
+      "sections": {
+        "sources": "来源覆盖",
+        "pending": "待确认",
+        "recent": "最近形成"
+      },
+      "sourceCount": "{{count}} 个来源",
+      "pendingCount": "{{count}} 条",
+      "sourceStatus": {
+        "ready": "已接入",
+        "running": "同步中",
+        "disabled": "未启用",
+        "noEvents": "暂无事件"
+      },
+      "pendingKinds": {
+        "assertion": "结构化断言",
+        "story": "Magi 的回顾"
+      },
+      "actions": {
+        "confirm": "确认",
+        "reject": "不对",
+        "confirmAssertion": "确认断言",
+        "rejectAssertion": "拒绝断言",
+        "confirmStory": "确认回顾",
+        "rejectStory": "拒绝回顾"
+      },
       "empty": {
-        "loading": "正在整理你的记忆概况。"
+        "loading": "正在整理你的记忆概况。",
+        "error": "记忆概况暂时加载失败。",
+        "sources": "还没有来源进入记忆。",
+        "pending": "现在没有需要确认的内容。",
+        "recent": "还没有新的回顾。"
       }
     },
     "stories": {

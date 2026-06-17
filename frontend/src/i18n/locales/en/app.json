@@ -2272,8 +2272,43 @@
     "overview": {
       "title": "Overview",
       "subtitle": "See what Magi remembers, where it came from, and what needs your judgment.",
+      "metrics": {
+        "totalMemories": "Total memories",
+        "sources": "Active sources",
+        "pending": "Pending",
+        "storage": "Storage"
+      },
+      "sections": {
+        "sources": "Source coverage",
+        "pending": "Pending review",
+        "recent": "Recently formed"
+      },
+      "sourceCount": "{{count}} source(s)",
+      "pendingCount": "{{count}} item(s)",
+      "sourceStatus": {
+        "ready": "Connected",
+        "running": "Syncing",
+        "disabled": "Disabled",
+        "noEvents": "No events"
+      },
+      "pendingKinds": {
+        "assertion": "Structured assertion",
+        "story": "Magi review"
+      },
+      "actions": {
+        "confirm": "Confirm",
+        "reject": "Not right",
+        "confirmAssertion": "Confirm assertion",
+        "rejectAssertion": "Reject assertion",
+        "confirmStory": "Confirm review",
+        "rejectStory": "Reject review"
+      },
       "empty": {
-        "loading": "Preparing your memory overview."
+        "loading": "Preparing your memory overview.",
+        "error": "Memory overview could not load right now.",
+        "sources": "No sources have entered memory yet.",
+        "pending": "Nothing needs your judgment right now.",
+        "recent": "No recent reviews yet."
       }
     },
     "stories": {
