@@ -346,6 +346,16 @@ Key properties:
 - Product episode lists default to `status='active'`; episode detail reads join
   event memberships with live L2 assertions whose `evidence_events` intersect
   those events, while corrections reuse the assertion feedback path
+- The episode review surface is reading-first: it presents Magi's natural
+  language recap from the linked L3 episodic summary, then lets the user edit
+  the display title, edit or regenerate the recap, and curate the member event
+  boundary with explicit buttons. V1 keeps confidence-style reactions out of the
+  surface until a dedicated feedback/confidence system exists.
+- Add/remove event curation operates on system-suggested nearby candidate
+  events, not a global event search. Merge curation chooses a suggested active
+  episode and folds it into the current survivor. Split curation uses a
+  chronological breakpoint between member events, creates two active child
+  episodes, invalidates the source episode, and regenerates child recaps.
 - Explicit merges move event memberships to the survivor, mark the absorbed
   episode `merged`, and recompute the survivor `source_event_count` from
   `episode_events`
@@ -405,7 +415,8 @@ Classifier and policy responsibilities:
 Source integrations enrich events before L2 processing:
 
 - Source integrations pass `structured_entity_hints` via `MemoryEvent.metadata_json`
-- Sensor integrations pass rule-based `relation_candidates`
+- Sensor integrations pass `fact_hints` as the preferred source-owned structured-fact path
+- Legacy `relation_candidates` may still feed older timeline/relation projections, but should not be the primary L2 cognition path for new plugins
 
 Core principle: whoever best understands the raw data produces the high-confidence structural facts. `L2` is responsible for unified integration, conflict handling, persistence, and residual LLM extraction.
 
@@ -433,6 +444,8 @@ Plugin / Sensor / Host integration
 
 "Like" should not be simplified to a single graph predicate at write time. For most passive sources, the more appropriate durable representation is to write interaction evidence first, then let the query side perform affinity aggregation.
 
+Tags, categories, and weak co-occurrence are not fact evidence. They may help search, grouping, or source-local summaries, but they must not become L2 user preferences without an explicit fact source or a host-owned derived rule over accumulated graph evidence.
+
 **Admission rules** — Runtime decides whether a source-owned fact enters the durable graph, based on `fact_kind`, `predicate`, and `origin_mode` (`source_explicit`, `source_structured`, `heuristic`, `llm_inferred`):
 
 - `public_topology` — Only facts from `source_explicit` or high-confidence `source_structured` can directly form rule candidates
@@ -446,6 +459,8 @@ Plugin / Sensor / Host integration
 - Source integrations produce: entity hints, fact hints, optional tags/batch hints
 - Ingestion gateway handles: schema validation, canonical/local ref normalization, writing hints into `MemoryEvent.metadata_json`, generating rule-backed graph candidates per admission policy
 - `L2Pipeline` handles: using source-owned hints as structural anchors, merging with LLM residual candidates, conflict handling, dedup, persistence, and snapshot refresh
+
+**Graph-derived assertions** convert accumulated graph evidence into inferred profile assertions only through host-owned rules. Built-in interest aggregation and plugin-contributed `derived_assertion_specs` both compile into validated `GraphDerivedAssertionRule` instances. These rules consume admitted graph edges, write inferred assertions through the normal assertion lifecycle, and preserve source-tier conflict protection so user-authored assertions are never overwritten by behavioral inference.
 
 **Ontology** distinguishes LLM-facing coarse types from system-facing internal types:
 
@@ -554,6 +569,9 @@ Users can interact with L2 artifacts directly:
 - **Assertion correction**: `correct_assertion(assertion_id, new_value)` — supersedes old assertion, creates a corrected one at high confidence
 - **Edge rejection**: `reject_edge(triple_id)` — marks a knowledge graph edge as `user_rejected`
 - **Episode annotation**: `update_episode()` supports `user_label`, `user_note`, `user_pinned` fields
+- **Episode review curation**: active episodes can regenerate their L3 recap,
+  add or remove suggested member events, merge with a suggested active episode,
+  or split into two chronological child episodes by event breakpoint.
 - **Forget entity**: `forget_entity(entity_id)` — cascade soft-delete across KG edges, assertions, facets, and episodes
 - **Forget time range**: `forget_time_range(start, end)` — invalidates episodes and archives assertions/edges in the range
 - **Forget episode**: `forget_episode(episode_id)` — invalidates the episode, optionally returns member event IDs

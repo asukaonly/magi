@@ -2322,12 +2322,15 @@
       "detailEmptyBody": "从列表打开一段经历，就能查看其中的事件和推断。",
       "noNarrative": "还没有叙事。",
       "noSummary": "还没有摘要。",
+      "noRecap": "还没有回顾。",
       "noEvents": "还没有关联事件。",
       "noInferred": "这段经历还没有推断印象。",
       "noTags": "暂无",
       "sections": {
         "list": "活跃经历",
         "detail": "经历详情",
+        "recap": "回顾",
+        "whatHappened": "发生了什么",
         "narrative": "叙事",
         "eventStream": "事件流",
         "inferred": "推断印象",
@@ -2337,6 +2340,8 @@
         "userNotes": "你的修正"
       },
       "fields": {
+        "title": "标题",
+        "description": "回顾",
         "label": "标签",
         "note": "备注",
         "pinned": "置顶"
@@ -2354,11 +2359,44 @@
         "pin": "置顶",
         "unpin": "取消置顶",
         "rename": "重命名",
+        "editDescription": "编辑回顾",
+        "regenerateDescription": "重新生成回顾",
+        "confirmRegenerate": "立即重新生成",
+        "addEvent": "添加事件",
+        "removeEvent": "移除事件",
+        "addSelectedEvents": "添加所选",
+        "removeSelectedEvents": "移除所选",
+        "mergeEpisode": "合并",
+        "mergeSelectedEpisode": "合并所选",
+        "splitEpisode": "拆分",
+        "splitNow": "立即拆分",
         "annotate": "备注",
         "forget": "遗忘",
         "saveCorrections": "保存修正",
         "confirmImpression": "确认印象",
         "rejectImpression": "拒绝印象"
+      },
+      "dialogs": {
+        "renameTitle": "修改经历标题",
+        "renameDescription": "更新这段经历展示给你的标题。",
+        "editDescriptionTitle": "编辑回顾",
+        "editDescriptionDescription": "更新这段经历展示给你的回顾内容。",
+        "regenerateTitle": "替换当前回顾？",
+        "regenerateDescription": "Magi 会为这段经历重新整理一版回顾。",
+        "addEventTitle": "添加事件",
+        "addEventDescription": "选择属于这段经历的相邻记忆事件。",
+        "mergeEpisodeTitle": "合并经历",
+        "mergeEpisodeDescription": "选择另一段经历，将它合并进当前经历。",
+        "splitEpisodeTitle": "拆分经历",
+        "splitEpisodeDescription": "选择这段经历应该从哪里拆成两段。"
+      },
+      "empty": {
+        "noEventCandidates": "没有可添加的事件",
+        "noMergeCandidates": "没有可合并的经历"
+      },
+      "errors": {
+        "regenerateFailed": "没能重新生成这段回顾。",
+        "boundaryEditFailed": "没能更新这段经历。"
       },
       "eventRole": {
         "member": "成员"

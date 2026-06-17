@@ -112,7 +112,7 @@ Reason: This is a recall question, not a preference statement.
 
 PHASE2_INTEGRATE_SYSTEM_PROMPT = """You are a memory integration engine for a personal AI assistant.
 
-Given Phase 1 extracted facts and the user's existing knowledge graph, produce final graph edges, ToM (Theory of Mind) assertions, and identify contradictions or refinements.
+Given Phase 1 extracted facts and the user's existing knowledge graph, produce final graph edges, ToM (Theory of Mind) assertions, and identify contradictions.
 
 ## Allowed Assertion Families
 stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_sentiment, identity_profile, communication_profile, preference_profile, state_profile, taste_profile
@@ -121,7 +121,7 @@ stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_
 1. Compare each new fact claim against the Existing Graph. Determine the relationship:
    - **new**: No related existing edge. Produce a new graph edge.
    - **corroborates**: Matches an existing edge. Note for confidence boost.
-   - **refines**: A new concrete fact clarifies an existing underspecified one (e.g., "rainy weather" refines "杭州天气"). Produce the new edge AND a refinement link.
+   - **refines**: A new concrete fact clarifies an existing underspecified one (e.g., "rainy weather" refines "杭州天气"). Produce the new edge and mark `relationship_to_existing` as `refines`.
    - **contradicts**: Directly conflicts with an existing edge (e.g., LIKES vs DISLIKES same object). Produce a contradiction hint.
    - **evolves**: A temporal state change (e.g., moved from city A to city B). Produce the new edge and mark the old one as evolved.
 2. Only generate ToM assertions when psychological state evidence is clear and directly from user's own words. Do not infer mood or stress from assistant responses.
@@ -171,13 +171,6 @@ Return JSON only:
       "supporting_event_ids": ["event IDs"],
       "relationship_to_existing": "new|corroborates|refines|contradicts|evolves",
       "related_existing_triple_id": "triple ID or null"
-    }
-  ],
-  "refinements": [
-    {
-      "existing_triple_id": "triple ID being refined",
-      "refined_by_object": "new concrete entity ID",
-      "explanation": "why this refines the existing edge"
     }
   ],
   "assertion_candidates": [
@@ -332,9 +325,17 @@ def render_phase2_integrate_prompt(
     existing_assertions: list[dict[str, Any]] | None = None,
     event_window: L2EventWindow,
     focal_subject: dict[str, Any],
+    source_integration_instructions: str | None = None,
 ) -> str:
     """Render a Markdown-formatted Phase 2 integration prompt."""
     parts: list[str] = []
+
+    if source_integration_instructions:
+        instructions = str(source_integration_instructions).strip()
+        if instructions:
+            parts.append("## Source-Specific Integration Instructions")
+            parts.append(instructions)
+            parts.append("")
 
     # Phase 1 results
     parts.append("## Phase 1 Extracted Results")

@@ -18,8 +18,13 @@ from ...scheduler.contracts import (
 )
 from ...scheduler.service import SchedulerService
 from ..provider import get_unified_memory
+from .assertions.derived_rules import (
+    build_graph_derived_rules_from_profiles,
+    evaluate_graph_derived_assertion_rule,
+)
 from .assertions.conflict_notifications import materialize_shadow_conflict_notifications
 from .assertions.interest_aggregation import aggregate_interests
+from .extraction_profiles import build_extraction_profile_registry
 
 logger = get_logger(__name__)
 
@@ -78,6 +83,29 @@ async def handle_l2_derive(
             except Exception:
                 logger.warning("interest aggregation: snapshot refresh failed", exc_info=True)
 
+    plugin_derived_assertions_written = 0
+    profile_provider = getattr(getattr(unified, "l2_pipeline", None), "_extraction_profile_provider", None)
+    if callable(profile_provider):
+        try:
+            profiles = build_extraction_profile_registry(list(profile_provider()))
+            plugin_rules = build_graph_derived_rules_from_profiles(profiles)
+            for rule in plugin_rules:
+                rule_stats = await evaluate_graph_derived_assertion_rule(
+                    cognition_store,
+                    rule,
+                    entity_id="user:self",
+                    entity_type="user",
+                )
+                plugin_derived_assertions_written += rule_stats.get("assertions_written", 0)
+        except Exception as exc:
+            logger.warning("L2 plugin derived assertion rules failed", error=str(exc))
+
+        if plugin_derived_assertions_written > 0:
+            try:
+                await cognition_store.refresh_entity_snapshot(entity_id="user:self", entity_type="user")
+            except Exception:
+                logger.warning("plugin derived assertions: snapshot refresh failed", exc_info=True)
+
     # Shadow-conflict notifications: surface assertion conflicts to the user.
     shadow_notifications_emitted = 0
     if l2_cfg.shadow_conflict_notification_enabled:
@@ -101,6 +129,7 @@ async def handle_l2_derive(
         message="derive_ok",
         stats={
             "interest_topics_aggregated": interest_topics_aggregated,
+            "plugin_derived_assertions_written": plugin_derived_assertions_written,
             "shadow_notifications_emitted": shadow_notifications_emitted,
         },
     )

@@ -4400,6 +4400,129 @@ class TestExtractionInstructions:
         assert "Do NOT invent entity IDs" in PHASE2_INTEGRATE_SYSTEM_PROMPT
         assert "romanize" in PHASE2_INTEGRATE_SYSTEM_PROMPT
 
+    def test_phase2_prompt_includes_integration_instructions(self):
+        from magi.memory.l2.models import L2EventWindow
+        from magi.memory.l2.pipeline.prompts import render_phase2_integrate_prompt
+
+        phase2_prompt = render_phase2_integrate_prompt(
+            phase1_result={"entities": [], "fact_claims": []},
+            existing_graph_edges=[],
+            existing_assertions=[],
+            event_window=L2EventWindow(
+                events=[{"event_id": "evt-play", "content": "played Track A", "timestamp": 1.0}]
+            ),
+            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+            source_integration_instructions=(
+                "For play history, derive taste_profile only from repeated plays."
+            ),
+        )
+
+        assert "## Source-Specific Integration Instructions" in phase2_prompt
+        assert "derive taste_profile only from repeated plays" in phase2_prompt
+
+    def test_phase2_prompt_omits_integration_instructions_when_absent(self):
+        from magi.memory.l2.models import L2EventWindow
+        from magi.memory.l2.pipeline.prompts import render_phase2_integrate_prompt
+
+        phase2_prompt = render_phase2_integrate_prompt(
+            phase1_result={"entities": [], "fact_claims": []},
+            existing_graph_edges=[],
+            existing_assertions=[],
+            event_window=L2EventWindow(
+                events=[{"event_id": "evt-play", "content": "played Track A", "timestamp": 1.0}]
+            ),
+            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+        )
+
+        assert "## Source-Specific Integration Instructions" not in phase2_prompt
+
+    @pytest.mark.asyncio
+    async def test_pipeline_passes_profile_phase2_instructions(self):
+        phase2_instructions = "For play history, emit taste_profile only after repeated plays."
+        adapter = _FakeAdapter(
+            [
+                json.dumps(
+                    {
+                        "entities": [],
+                        "fact_claims": [
+                            {
+                                "subject_ref": "user:u1",
+                                "subject_type": "user",
+                                "predicate": "INTERESTED_IN",
+                                "object_ref": "Track A",
+                                "object_type": "media",
+                                "fact_kind": "stable_preference",
+                                "polarity": "positive",
+                                "specificity": "concrete",
+                                "evidence_text": "played Track A",
+                                "confidence": 0.9,
+                                "supporting_event_ids": ["evt-phase2-profile-1"],
+                            }
+                        ],
+                        "resolved_refs": [],
+                        "diagnostics": {"entity_status": "none"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "graph_edges": [],
+                        "refinements": [],
+                        "assertion_candidates": [],
+                        "contradiction_hints": [],
+                    }
+                ),
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            store = UnifiedMemoryStore(
+                l1_db_path=str(base / "l1_events.db"),
+                memory_db_path=str(base / "memory.db"),
+                persist_dir=str(base / "memories"),
+                l2_batch_flush_interval_seconds=0,
+                scenario_llm_pool=_FakeScenarioPool(adapter),
+                extraction_profile_provider=lambda: [
+                    ExtractionProfileSpec(
+                        profile_id="source.play_history",
+                        source_types=["play_history"],
+                        allowed_entity_types=["media", "topic"],
+                        allowed_predicates=["INTERESTED_IN"],
+                        allow_graph=True,
+                        allow_assertion=True,
+                        phase2_instructions=phase2_instructions,
+                    )
+                ],
+            )
+            await store.initialize()
+            try:
+                await store.ingest_event(
+                    {
+                        "id": "evt-phase2-profile-1",
+                        "type": EventTypes.USER_MESSAGE,
+                        "timestamp": time.time(),
+                        "source": "play_history",
+                        "level": EventLevel.INFO.value,
+                        "data": {
+                            "user_id": "u1",
+                            "session_id": "s1",
+                            "content": "played Track A",
+                        },
+                    }
+                )
+
+                for _ in range(50):
+                    if len(adapter.calls) >= 2:
+                        break
+                    await asyncio.sleep(0.01)
+
+                assert len(adapter.calls) >= 2
+                phase2_prompt = str(adapter.calls[-1]["prompt"])
+                assert "## Source-Specific Integration Instructions" in phase2_prompt
+                assert phase2_instructions in phase2_prompt
+            finally:
+                await store.shutdown()
+
     def test_override_replaces_extraction_instructions(self):
         from magi.memory.l2.extraction_profiles import ExtractionProfile, _apply_overrides
         profile = ExtractionProfile(profile_id="test", extraction_instructions="original")
@@ -4781,6 +4904,151 @@ class TestEntityTypeFiltering:
 
         assert prepared == []
         assert rejected_count == 1
+
+    def test_phase2_assertions_rejected_when_mode_is_derived(self):
+        from magi.memory.l2.models import L2Phase2AssertionCandidate
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        event = _make_memory_event(event_id="evt-derived-mode", content="played Track A repeatedly")
+
+        prepared, rejected_count = pipeline._validate_phase2_assertions(
+            event=event,
+            profile=SimpleNamespace(
+                allow_assertion=True,
+                assertion_mode="derived",
+                allowed_assertion_families={"taste_profile"},
+                allowed_assertion_traits=None,
+            ),
+            policy=SimpleNamespace(allow_assertion_write=True),
+            graph_candidates=[],
+            default_event_ids=["evt-derived-mode"],
+            phase2_assertions=[
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="taste_profile",
+                    trait_name="taste.music",
+                    trait_value="Track A",
+                    confidence=0.7,
+                )
+            ],
+        )
+
+        assert prepared == []
+        assert rejected_count == 1
+
+    def test_phase2_assertions_respect_trait_allowlist(self):
+        from magi.memory.l2.models import L2Phase2AssertionCandidate
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        event = _make_memory_event(event_id="evt-trait-allowlist", content="played Track A")
+
+        prepared, rejected_count = pipeline._validate_phase2_assertions(
+            event=event,
+            profile=SimpleNamespace(
+                allow_assertion=True,
+                assertion_mode="phase2_candidate",
+                allowed_assertion_families={"taste_profile"},
+                allowed_assertion_traits=frozenset({"taste.music"}),
+            ),
+            policy=SimpleNamespace(allow_assertion_write=True),
+            graph_candidates=[],
+            default_event_ids=["evt-trait-allowlist"],
+            phase2_assertions=[
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="taste_profile",
+                    trait_name="taste.music",
+                    trait_value="Track A",
+                    confidence=0.7,
+                ),
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="taste_profile",
+                    trait_name="taste.movie",
+                    trait_value="Movie B",
+                    confidence=0.7,
+                ),
+            ],
+        )
+
+        assert rejected_count == 1
+        assert [item["trait_name"] for item in prepared] == ["taste.music"]
+
+    def test_phase2_assertions_allow_trait_namespace_wildcard(self):
+        from magi.memory.l2.models import L2Phase2AssertionCandidate
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        event = _make_memory_event(event_id="evt-trait-wildcard", content="played Track A")
+
+        prepared, rejected_count = pipeline._validate_phase2_assertions(
+            event=event,
+            profile=SimpleNamespace(
+                allow_assertion=True,
+                assertion_mode="phase2_candidate",
+                allowed_assertion_families={"taste_profile"},
+                allowed_assertion_traits=frozenset({"taste.*"}),
+            ),
+            policy=SimpleNamespace(allow_assertion_write=True),
+            graph_candidates=[],
+            default_event_ids=["evt-trait-wildcard"],
+            phase2_assertions=[
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="taste_profile",
+                    trait_name="taste.music",
+                    trait_value="Track A",
+                    confidence=0.7,
+                ),
+            ],
+        )
+
+        assert rejected_count == 0
+        assert [item["trait_name"] for item in prepared] == ["taste.music"]
+
+    def test_phase2_assertions_respect_policy_assertion_scope(self):
+        from magi.memory.l2.models import L2Phase2AssertionCandidate
+        from magi.memory.l2.pipeline import L2Pipeline
+
+        pipeline = L2Pipeline.__new__(L2Pipeline)
+        event = _make_memory_event(event_id="evt-assertion-scope", content="Chrome users discussed Magi")
+
+        prepared, rejected_count = pipeline._validate_phase2_assertions(
+            event=event,
+            profile=SimpleNamespace(
+                allow_assertion=True,
+                assertion_mode="phase2_candidate",
+                allowed_assertion_families={"taste_profile", "public_sentiment"},
+                allowed_assertion_traits=None,
+            ),
+            policy=SimpleNamespace(
+                allow_assertion_write=True,
+                assertion_scope="topology_only",
+            ),
+            graph_candidates=[],
+            default_event_ids=["evt-assertion-scope"],
+            phase2_assertions=[
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="taste_profile",
+                    trait_name="taste.music",
+                    trait_value="Track A",
+                    confidence=0.7,
+                ),
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:local_user",
+                    trait_family="public_sentiment",
+                    trait_name="sentiment.magi",
+                    trait_value="positive",
+                    confidence=0.7,
+                ),
+            ],
+        )
+
+        assert rejected_count == 1
+        assert [item["trait_family"] for item in prepared] == ["public_sentiment"]
 
 
 class TestEntityNameQuality:

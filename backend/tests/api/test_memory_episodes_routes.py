@@ -141,6 +141,43 @@ def test_list_episodes_default_surface_lists_active(app_with_mock_memory):
     l2.list_standout_episodes.assert_not_called()
 
 
+def test_list_episodes_default_surface_includes_episodic_summary(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.list_episodes = AsyncMock(
+        return_value=[
+            {
+                "episode_id": "ep1",
+                "user_label": None,
+                "user_note": None,
+            }
+        ]
+    )
+    l2.count_episodes = AsyncMock(return_value=1)
+    l3 = MagicMock()
+    l3.get_episodic_summary_by_episode_id = AsyncMock(
+        return_value={
+            "summary_id": "sum1",
+            "content": "Generated recap",
+            "insight_metadata": {"label": "Generated title"},
+            "updated_at": 4,
+        }
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.get("/api/memory/l2/episodes")
+
+    assert r.status_code == 200
+    item = r.json()["items"][0]
+    assert item["episode_summary"]["label"] == "Generated title"
+    assert item["display_title"] == "Generated title"
+    assert item["display_description"] == "Generated recap"
+
+
 def test_episode_detail_returns_events_and_inferred(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
@@ -168,16 +205,82 @@ def test_episode_detail_returns_events_and_inferred(app_with_mock_memory):
     unified = MagicMock()
     unified.l2 = l2
     unified.l3 = None
+    unified.l1 = None
     with build_patcher(unified):
         client = TestClient(app)
         r = client.get("/api/memory/l2/episodes/ep1")
 
     assert r.status_code == 200
     body = r.json()
-    assert body["events"] == [{"event_id": "e1"}]
+    assert body["events"][0]["event_id"] == "e1"
     assert body["inferred"][0]["assertion_id"] == "assert-1"
     assert body["inferred"][0]["trait_name"] == "balance"
     l2.list_assertions_for_episode.assert_awaited_once_with(episode_id="ep1")
+
+
+def test_episode_detail_returns_display_fields_summary_and_hydrated_events(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(
+        return_value={
+            "episode_id": "ep1",
+            "status": "active",
+            "time_start": 1,
+            "time_end": 2,
+            "user_label": None,
+            "user_note": None,
+        }
+    )
+    l2.list_episode_events = AsyncMock(
+        return_value=[
+            {
+                "episode_id": "ep1",
+                "event_id": "e1",
+                "membership_role": "member",
+                "membership_confidence": 0.8,
+                "added_at": 3,
+            }
+        ]
+    )
+    l2.list_assertions_for_episode = AsyncMock(return_value=[])
+    l3 = MagicMock()
+    l3.get_episodic_summary_by_episode_id = AsyncMock(
+        return_value={
+            "summary_id": "sum1",
+            "content": "Generated recap",
+            "insight_metadata": {"label": "Generated title"},
+            "updated_at": 4,
+        }
+    )
+    l1 = MagicMock()
+    l1.get_events_by_ids = AsyncMock(
+        return_value=[
+            {
+                "event_id": "e1",
+                "timestamp": 1.5,
+                "event_type": "UserMessage",
+                "source": "chat",
+                "content": "Talked about the trip.",
+            }
+        ]
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+    unified.l1 = l1
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.get("/api/memory/l2/episodes/ep1")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["episode_summary"]["content"] == "Generated recap"
+    assert body["display_title"] == "Generated title"
+    assert body["display_description"] == "Generated recap"
+    assert body["display_source"] == "generated"
+    assert body["events"][0]["content_preview"] == "Talked about the trip."
+    l1.get_events_by_ids.assert_awaited_once_with(["e1"])
 
 
 def test_rejecting_episode_inference_removes_it(tmp_path):
@@ -252,9 +355,12 @@ def test_merge_episode_endpoint_calls_store(app_with_mock_memory):
             "time_end": 4,
         }
     )
+    l2.list_episode_events = AsyncMock(return_value=[])
+    l2.list_assertions_for_episode = AsyncMock(return_value=[])
     unified = MagicMock()
     unified.l2 = l2
     unified.l3 = None
+    unified.l1 = None
     with build_patcher(unified):
         client = TestClient(app)
         r = client.post(
@@ -270,6 +376,420 @@ def test_merge_episode_endpoint_calls_store(app_with_mock_memory):
     )
 
 
+def test_merge_candidates_rank_nearby_similar_episodes(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    source = {
+        "episode_id": "source",
+        "status": "active",
+        "time_start": 100.0,
+        "time_end": 200.0,
+        "primary_topic_keys": ["japan"],
+        "primary_place_ids": ["place:tokyo"],
+    }
+    candidate = {
+        "episode_id": "candidate",
+        "status": "active",
+        "time_start": 210.0,
+        "time_end": 260.0,
+        "primary_topic_keys": ["japan"],
+        "primary_place_ids": ["place:tokyo"],
+    }
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(return_value=source)
+    l2.list_episodes = AsyncMock(return_value=[source, candidate])
+    l3 = MagicMock()
+    l3.get_episodic_summary_by_episode_id = AsyncMock(return_value=None)
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.get("/api/memory/l2/episodes/source/merge-candidates")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert [item["episode_id"] for item in body["items"]] == ["candidate"]
+    assert body["items"][0]["candidate_score"] > 0
+    assert "nearby_time" in body["items"][0]["candidate_reasons"]
+
+
+def test_merge_episode_regenerates_survivor_summary(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    survivor = {"episode_id": "target", "status": "active", "user_label": None}
+    l2.merge_episodes = AsyncMock(return_value=survivor)
+    l2.list_episode_events = AsyncMock(
+        return_value=[{"episode_id": "target", "event_id": "e1"}]
+    )
+    l2.index_episode_fts = AsyncMock()
+    l2.list_assertions_for_episode = AsyncMock(return_value=[])
+    l1 = MagicMock()
+    l1.get_events_by_ids = AsyncMock(
+        return_value=[{"event_id": "e1", "timestamp": 10.0, "content": "Merged event"}]
+    )
+    l3 = MagicMock()
+    l3.generate_episodic_summary = AsyncMock(
+        return_value={
+            "summary_id": "sum-merged",
+            "content": "Merged recap",
+            "insight_metadata": {"label": "Merged title"},
+            "updated_at": 11,
+        }
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l1 = l1
+    unified.l3 = l3
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.post(
+            "/api/memory/l2/episodes/target/merge",
+            json={"absorbed_id": "source"},
+        )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["episode_summary"]["content"] == "Merged recap"
+    assert body["display_title"] == "Merged title"
+
+
+def test_split_preview_returns_two_chronological_sides(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(
+        return_value={"episode_id": "ep1", "time_start": 100.0, "time_end": 300.0}
+    )
+    l2.list_episode_events = AsyncMock(
+        return_value=[
+            {"episode_id": "ep1", "event_id": "e2", "added_at": 2},
+            {"episode_id": "ep1", "event_id": "e1", "added_at": 1},
+            {"episode_id": "ep1", "event_id": "e3", "added_at": 3},
+        ]
+    )
+    l2.split_episode = AsyncMock()
+    l1 = MagicMock()
+    l1.get_events_by_ids = AsyncMock(
+        return_value=[
+            {"event_id": "e1", "timestamp": 100.0, "content": "First"},
+            {"event_id": "e2", "timestamp": 200.0, "content": "Second"},
+            {"event_id": "e3", "timestamp": 300.0, "content": "Third"},
+        ]
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l1 = l1
+    unified.l3 = None
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.post(
+            "/api/memory/l2/episodes/ep1/split-preview",
+            json={"break_after_event_id": "e2"},
+        )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert [item["event_id"] for item in body["left"]["events"]] == ["e1", "e2"]
+    assert [item["event_id"] for item in body["right"]["events"]] == ["e3"]
+    assert body["left"]["event_count"] == 2
+    assert body["right"]["event_count"] == 1
+    l2.split_episode.assert_not_awaited()
+
+
+def test_split_preview_rejects_last_event_breakpoint(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(
+        return_value={"episode_id": "ep1", "time_start": 100.0, "time_end": 300.0}
+    )
+    l2.list_episode_events = AsyncMock(
+        return_value=[
+            {"episode_id": "ep1", "event_id": "e1", "added_at": 1},
+            {"episode_id": "ep1", "event_id": "e2", "added_at": 2},
+        ]
+    )
+    l2.split_episode = AsyncMock()
+    l1 = MagicMock()
+    l1.get_events_by_ids = AsyncMock(
+        return_value=[
+            {"event_id": "e1", "timestamp": 100.0, "content": "First"},
+            {"event_id": "e2", "timestamp": 200.0, "content": "Second"},
+        ]
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l1 = l1
+    unified.l3 = None
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.post(
+            "/api/memory/l2/episodes/ep1/split-preview",
+            json={"break_after_event_id": "e2"},
+        )
+
+    assert r.status_code == 409
+    l2.split_episode.assert_not_awaited()
+
+
+def test_split_episode_calls_store_and_regenerates_children(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    source = {"episode_id": "ep1", "time_start": 100.0, "time_end": 400.0}
+    left = {"episode_id": "ep1-left", "status": "active", "user_label": None}
+    right = {"episode_id": "ep1-right", "status": "active", "user_label": None}
+    source_memberships = [
+        {"episode_id": "ep1", "event_id": "e1", "added_at": 1},
+        {"episode_id": "ep1", "event_id": "e2", "added_at": 2},
+        {"episode_id": "ep1", "event_id": "e3", "added_at": 3},
+        {"episode_id": "ep1", "event_id": "e4", "added_at": 4},
+    ]
+    event_rows = {
+        "e1": {"event_id": "e1", "timestamp": 100.0, "content": "One"},
+        "e2": {"event_id": "e2", "timestamp": 200.0, "content": "Two"},
+        "e3": {"event_id": "e3", "timestamp": 300.0, "content": "Three"},
+        "e4": {"event_id": "e4", "timestamp": 400.0, "content": "Four"},
+    }
+
+    async def _get_events_by_ids(event_ids):
+        return [event_rows[event_id] for event_id in event_ids if event_id in event_rows]
+
+    async def _generate_summary(*, l1_store, episode, episode_event_ids):
+        episode_id = episode["episode_id"]
+        return {
+            "summary_id": f"sum-{episode_id}",
+            "content": f"Recap {episode_id}",
+            "insight_metadata": {"label": f"Title {episode_id}"},
+            "updated_at": 10,
+        }
+
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(return_value=source)
+    l2.list_episode_events = AsyncMock(
+        side_effect=[
+            source_memberships,
+            source_memberships[:2],
+            source_memberships[2:],
+        ]
+    )
+    l2.split_episode = AsyncMock(return_value={"left": left, "right": right})
+    l2.index_episode_fts = AsyncMock()
+    l2.list_assertions_for_episode = AsyncMock(return_value=[])
+    l1 = MagicMock()
+    l1.get_events_by_ids = AsyncMock(side_effect=_get_events_by_ids)
+    l3 = MagicMock()
+    l3.generate_episodic_summary = AsyncMock(side_effect=_generate_summary)
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l1 = l1
+    unified.l3 = l3
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.post(
+            "/api/memory/l2/episodes/ep1/split",
+            json={"break_after_event_id": "e2"},
+        )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert [item["episode_id"] for item in body["items"]] == ["ep1-left", "ep1-right"]
+    assert body["items"][0]["episode_summary"]["content"] == "Recap ep1-left"
+    assert body["items"][1]["episode_summary"]["content"] == "Recap ep1-right"
+    split_kwargs = l2.split_episode.await_args.kwargs
+    assert split_kwargs["source_episode_id"] == "ep1"
+    assert split_kwargs["left_event_ids"] == ["e1", "e2"]
+    assert split_kwargs["right_event_ids"] == ["e3", "e4"]
+    assert split_kwargs["left_time_start"] == 100.0
+    assert split_kwargs["left_time_end"] == 200.0
+    assert split_kwargs["right_time_start"] == 300.0
+    assert split_kwargs["right_time_end"] == 400.0
+    assert l3.generate_episodic_summary.await_count == 2
+
+
+def test_regenerate_episode_calls_l3_and_indexes_fts(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(return_value={"episode_id": "ep1", "user_label": "Trip"})
+    l2.list_episode_events = AsyncMock(return_value=[{"event_id": "e1"}])
+    l2.index_episode_fts = AsyncMock()
+    l2.list_assertions_for_episode = AsyncMock(return_value=[])
+    l3 = MagicMock()
+    l3.generate_episodic_summary = AsyncMock(
+        return_value={
+            "summary_id": "sum2",
+            "content": "New recap",
+            "insight_metadata": {"label": "New title"},
+            "updated_at": 10,
+        }
+    )
+    l1 = MagicMock()
+    l1.get_events_by_ids = AsyncMock(return_value=[])
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+    unified.l1 = l1
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.post("/api/memory/l2/episodes/ep1/regenerate")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["episode_summary"]["content"] == "New recap"
+    assert body["display_title"] == "Trip"
+    l3.generate_episodic_summary.assert_awaited_once_with(
+        l1_store=l1,
+        episode={"episode_id": "ep1", "user_label": "Trip"},
+        episode_event_ids=["e1"],
+    )
+    l2.index_episode_fts.assert_awaited_once_with(
+        episode_id="ep1",
+        summary="New recap",
+        label="New title",
+        user_label="Trip",
+    )
+
+
+def test_regenerate_episode_route_is_publicly_allowlisted():
+    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
+    route_methods: dict[str, set[str]] = {}
+    for route in public.routes:
+        if getattr(route, "path", None):
+            route_methods.setdefault(route.path, set()).update(route.methods or set())
+
+    assert "POST" in route_methods["/l2/episodes/{episode_id}/regenerate"]
+
+
+def test_event_candidates_exclude_existing_members(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(
+        return_value={"episode_id": "ep1", "time_start": 100.0, "time_end": 200.0}
+    )
+    l2.list_episode_events = AsyncMock(return_value=[{"episode_id": "ep1", "event_id": "e1"}])
+    l1 = MagicMock()
+    l1.query_events = AsyncMock(
+        return_value=[
+            {"event_id": "e1", "timestamp": 120.0, "content": "Already in episode"},
+            {"event_id": "e2", "timestamp": 180.0, "event_type": "UserMessage", "source": "chat", "content": "Candidate event"},
+        ]
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l1 = l1
+    unified.l3 = None
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.get("/api/memory/l2/episodes/ep1/event-candidates")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert [item["event_id"] for item in body["items"]] == ["e2"]
+    assert body["items"][0]["content_preview"] == "Candidate event"
+    l1.query_events.assert_awaited_once()
+
+
+def test_add_episode_events_route_updates_memberships_and_regenerates(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    episode = {"episode_id": "ep1", "time_start": 100.0, "time_end": 200.0, "user_label": None}
+    l2.get_episode = AsyncMock(return_value=episode)
+    l2.list_episode_events = AsyncMock(
+        side_effect=[
+            [{"episode_id": "ep1", "event_id": "e1"}],
+            [{"episode_id": "ep1", "event_id": "e1"}, {"episode_id": "ep1", "event_id": "e2"}],
+        ]
+    )
+    l2.add_episode_events = AsyncMock(return_value=1)
+    l2.update_episode = AsyncMock(return_value=True)
+    l2.index_episode_fts = AsyncMock()
+    l2.list_assertions_for_episode = AsyncMock(return_value=[])
+    l1 = MagicMock()
+    l1.query_events = AsyncMock(
+        return_value=[
+            {"event_id": "e2", "timestamp": 180.0, "content": "Candidate event"},
+        ]
+    )
+    l1.get_events_by_ids = AsyncMock(
+        return_value=[
+            {"event_id": "e1", "timestamp": 120.0, "content": "Existing"},
+            {"event_id": "e2", "timestamp": 180.0, "content": "Candidate event"},
+        ]
+    )
+    l3 = MagicMock()
+    l3.generate_episodic_summary = AsyncMock(
+        return_value={
+            "summary_id": "sum1",
+            "content": "Updated recap",
+            "insight_metadata": {"label": "Updated title"},
+            "updated_at": 9,
+        }
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l1 = l1
+    unified.l3 = l3
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.post("/api/memory/l2/episodes/ep1/events", json={"event_ids": ["e2"]})
+
+    assert r.status_code == 200
+    assert r.json()["episode_summary"]["content"] == "Updated recap"
+    l2.add_episode_events.assert_awaited_once_with(episode_id="ep1", event_ids=["e2"])
+    l2.update_episode.assert_awaited_once_with(
+        episode_id="ep1",
+        source_event_count=2,
+        time_start=120.0,
+        time_end=180.0,
+    )
+
+
+def test_remove_episode_events_rejects_too_few_remaining_events(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(
+        return_value={"episode_id": "ep1", "time_start": 100.0, "time_end": 200.0}
+    )
+    l2.list_episode_events = AsyncMock(
+        return_value=[
+            {"episode_id": "ep1", "event_id": "e1"},
+            {"episode_id": "ep1", "event_id": "e2"},
+        ]
+    )
+    l2.remove_episode_events = AsyncMock()
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l1 = None
+    unified.l3 = None
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        r = client.request(
+            "DELETE",
+            "/api/memory/l2/episodes/ep1/events",
+            json={"event_ids": ["e1"]},
+        )
+
+    assert r.status_code == 409
+    l2.remove_episode_events.assert_not_awaited()
+
+
+def test_episode_event_edit_routes_are_publicly_allowlisted():
+    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
+    route_methods: dict[str, set[str]] = {}
+    for route in public.routes:
+        if getattr(route, "path", None):
+            route_methods.setdefault(route.path, set()).update(route.methods or set())
+
+    assert "GET" in route_methods["/l2/episodes/{episode_id}/event-candidates"]
+    assert "POST" in route_methods["/l2/episodes/{episode_id}/events"]
+    assert "DELETE" in route_methods["/l2/episodes/{episode_id}/events"]
+
+
 def test_merge_episode_route_is_publicly_allowlisted():
     public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
     route_methods: dict[str, set[str]] = {}
@@ -277,8 +797,20 @@ def test_merge_episode_route_is_publicly_allowlisted():
         if getattr(route, "path", None):
             route_methods.setdefault(route.path, set()).update(route.methods or set())
 
+    assert "GET" in route_methods["/l2/episodes/{episode_id}/merge-candidates"]
     assert "/l2/episodes/{episode_id}/merge" in route_methods
     assert "POST" in route_methods["/l2/episodes/{episode_id}/merge"]
+
+
+def test_episode_split_routes_are_publicly_allowlisted():
+    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
+    route_methods: dict[str, set[str]] = {}
+    for route in public.routes:
+        if getattr(route, "path", None):
+            route_methods.setdefault(route.path, set()).update(route.methods or set())
+
+    assert "POST" in route_methods["/l2/episodes/{episode_id}/split-preview"]
+    assert "POST" in route_methods["/l2/episodes/{episode_id}/split"]
 
 
 def test_episode_read_and_annotation_routes_are_publicly_allowlisted():
@@ -291,6 +823,28 @@ def test_episode_read_and_annotation_routes_are_publicly_allowlisted():
     assert "GET" in route_methods["/l2/episodes"]
     assert "GET" in route_methods["/l2/episodes/{episode_id}"]
     assert "PATCH" in route_methods["/l2/episodes/{episode_id}"]
+
+
+def test_annotate_episode_pin_does_not_change_status(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.update_episode = AsyncMock(return_value=True)
+    l2.get_episode = AsyncMock(
+        return_value={"episode_id": "ep1", "status": "active", "user_pinned": True}
+    )
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = None
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        response = client.patch("/api/memory/l2/episodes/ep1", json={"user_pinned": True})
+
+    assert response.status_code == 200
+    assert l2.update_episode.await_args.kwargs == {
+        "episode_id": "ep1",
+        "user_pinned": 1,
+    }
 
 
 def test_list_episodes_insight_metadata_string_decoded(app_with_mock_memory):

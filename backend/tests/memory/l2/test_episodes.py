@@ -160,6 +160,7 @@ async def test_episode_events_crud(tmp_path):
         episode_id=eid,
         event_ids=["evt-2", "evt-4"],
     )
+    assert added2 == 1
     events_after = await store.list_episode_events(episode_id=eid)
     assert len(events_after) == 4
 
@@ -224,6 +225,44 @@ async def test_merge_episodes_moves_events_and_terminates_absorbed(l2_store_with
     assert survivor["primary_entity_ids"] == ["user:alice", "user:bob"]
     assert survivor["primary_place_ids"] == ["place:office"]
     assert survivor["primary_topic_keys"] == ["work", "launch"]
+
+
+@pytest.mark.asyncio
+async def test_split_episode_creates_two_active_children_and_invalidates_original(l2_store_with_schema):
+    store = l2_store_with_schema
+    await store.create_episode(
+        episode_id="ep",
+        status="active",
+        time_start=1,
+        time_end=4,
+        primary_entity_ids=["place:japan"],
+    )
+    await store.add_episode_events(episode_id="ep", event_ids=["e1", "e2", "e3", "e4"])
+
+    result = await store.split_episode(
+        source_episode_id="ep",
+        left_episode_id="ep-a",
+        right_episode_id="ep-b",
+        left_event_ids=["e1", "e2"],
+        right_event_ids=["e3", "e4"],
+        left_time_start=1,
+        left_time_end=2,
+        right_time_start=3,
+        right_time_end=4,
+    )
+
+    assert result is not None
+    original = await store.get_episode(episode_id="ep")
+    left = await store.get_episode(episode_id="ep-a")
+    right = await store.get_episode(episode_id="ep-b")
+    assert original["status"] == "invalidated"
+    assert left["status"] == "active"
+    assert right["status"] == "active"
+    assert left["parent_episode_id"] == "ep"
+    assert right["parent_episode_id"] == "ep"
+    assert await store.count_episode_events(episode_id="ep") == 0
+    assert await store.count_episode_events(episode_id="ep-a") == 2
+    assert await store.count_episode_events(episode_id="ep-b") == 2
 
 
 @pytest.mark.asyncio

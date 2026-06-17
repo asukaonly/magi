@@ -16,6 +16,8 @@ from ...utils.packaged_paths import get_backend_root
 
 logger = logging.getLogger(__name__)
 
+ASSERTION_MODES: frozenset[str] = frozenset({"none", "derived", "phase2_candidate"})
+
 
 @dataclass(slots=True, frozen=True)
 class DefaultSubjectPolicy:
@@ -42,6 +44,11 @@ class ExtractionProfile:
     allow_graph: bool = True
     allow_assertion: bool = True
     extraction_instructions: str | None = None
+    phase1_instructions: str | None = None
+    phase2_instructions: str | None = None
+    assertion_mode: str = "phase2_candidate"
+    allowed_assertion_traits: frozenset[str] | None = None
+    derived_assertion_specs: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
     @property
     def effective_structured_allowed_entity_types(self) -> frozenset[str]:
@@ -93,6 +100,31 @@ def _parse_profile_from_dict(profile_id: str, raw: dict[str, Any]) -> Extraction
             return None
         return parser(val)
 
+    def _parse_assertion_mode(val: Any, *, allow_assertion: bool) -> str:
+        if val is None:
+            return "phase2_candidate" if allow_assertion else "none"
+        mode = str(val).strip().lower()
+        return mode if mode in ASSERTION_MODES else ""
+
+    def _parse_assertion_traits(val: Any) -> frozenset[str] | None:
+        if val == "all" or val is None:
+            return None
+        if isinstance(val, (list, tuple, set, frozenset)):
+            normalized = {str(v).strip() for v in val if str(v).strip()}
+            return frozenset(normalized)
+        return frozenset()
+
+    def _parse_derived_assertion_specs(val: Any) -> tuple[dict[str, Any], ...]:
+        if not isinstance(val, list):
+            return tuple()
+        return tuple(dict(item) for item in val if isinstance(item, dict))
+
+    allow_assertion = bool(raw.get("allow_assertion", True))
+    phase1_instructions = _coalesce_text(
+        raw.get("phase1_instructions"),
+        raw.get("extraction_instructions"),
+    )
+
     return ExtractionProfile(
         profile_id=profile_id,
         source_types=_parse_source_types(raw.get("source_types"), profile_id=profile_id),
@@ -106,8 +138,16 @@ def _parse_profile_from_dict(profile_id: str, raw: dict[str, Any]) -> Extraction
         ),
         allowed_assertion_families=_parse_assertion_families(raw.get("allowed_assertion_families")),
         allow_graph=bool(raw.get("allow_graph", True)),
-        allow_assertion=bool(raw.get("allow_assertion", True)),
-        extraction_instructions=raw.get("extraction_instructions"),
+        allow_assertion=allow_assertion,
+        extraction_instructions=phase1_instructions,
+        phase1_instructions=phase1_instructions,
+        phase2_instructions=_coalesce_text(raw.get("phase2_instructions")),
+        assertion_mode=_parse_assertion_mode(
+            raw.get("assertion_mode"),
+            allow_assertion=allow_assertion,
+        ),
+        allowed_assertion_traits=_parse_assertion_traits(raw.get("allowed_assertion_traits")),
+        derived_assertion_specs=_parse_derived_assertion_specs(raw.get("derived_assertion_specs")),
     )
 
 
@@ -196,6 +236,10 @@ def _validate_profile(profile: ExtractionProfile) -> None:
             f"profile {profile.profile_id} declares unknown assertion families: "
             f"{sorted(unknown_assertion_families)}"
         )
+    if profile.assertion_mode not in ASSERTION_MODES:
+        raise ValueError(
+            f"profile {profile.profile_id} declares unknown assertion_mode: {profile.assertion_mode}"
+        )
 
 
 def build_extraction_profile_registry(
@@ -261,9 +305,16 @@ def _default_profile_id_for_event(
 
 def _apply_overrides(profile: ExtractionProfile, overrides: dict[str, Any]) -> ExtractionProfile:
     extraction_instructions = profile.extraction_instructions
-    override_instructions = overrides.get("extraction_instructions")
+    phase1_instructions = profile.phase1_instructions
+    override_instructions = overrides.get("phase1_instructions") or overrides.get("extraction_instructions")
     if isinstance(override_instructions, str) and override_instructions.strip():
-        extraction_instructions = override_instructions.strip()
+        phase1_instructions = override_instructions.strip()
+        extraction_instructions = phase1_instructions
+    phase2_instructions = profile.phase2_instructions
+    override_phase2_instructions = overrides.get("phase2_instructions")
+    if isinstance(override_phase2_instructions, str) and override_phase2_instructions.strip():
+        phase2_instructions = override_phase2_instructions.strip()
+    allow_assertion = _coerce_bool(overrides.get("allow_assertion"), default=profile.allow_assertion)
     return replace(
         profile,
         source_types=_coerce_source_type_set(overrides.get("source_types"), fallback=profile.source_types),
@@ -290,8 +341,23 @@ def _apply_overrides(profile: ExtractionProfile, overrides: dict[str, Any]) -> E
             **_coerce_upper_alias_map(overrides.get("predicate_aliases")),
         },
         allow_graph=_coerce_bool(overrides.get("allow_graph"), default=profile.allow_graph),
-        allow_assertion=_coerce_bool(overrides.get("allow_assertion"), default=profile.allow_assertion),
+        allow_assertion=allow_assertion,
         extraction_instructions=extraction_instructions,
+        phase1_instructions=phase1_instructions,
+        phase2_instructions=phase2_instructions,
+        assertion_mode=_coerce_assertion_mode(
+            overrides.get("assertion_mode"),
+            fallback=profile.assertion_mode,
+            allow_assertion=allow_assertion,
+        ),
+        allowed_assertion_traits=_coerce_assertion_traits(
+            overrides.get("allowed_assertion_traits"),
+            fallback=profile.allowed_assertion_traits,
+        ),
+        derived_assertion_specs=_coerce_derived_assertion_specs(
+            overrides.get("derived_assertion_specs"),
+            fallback=profile.derived_assertion_specs,
+        ),
     )
 
 
@@ -346,6 +412,40 @@ def _coerce_source_type_set(value: Any, *, fallback: frozenset[str]) -> frozense
     return frozenset(normalized) if normalized else fallback
 
 
+def _coerce_assertion_mode(value: Any, *, fallback: str, allow_assertion: bool) -> str:
+    if value is None:
+        return fallback or ("phase2_candidate" if allow_assertion else "none")
+    mode = str(value).strip().lower()
+    return mode if mode in ASSERTION_MODES else fallback
+
+
+def _coerce_assertion_traits(
+    value: Any,
+    *,
+    fallback: frozenset[str] | None,
+) -> frozenset[str] | None:
+    if value is None:
+        return fallback
+    if value == "all":
+        return None
+    if not isinstance(value, (list, tuple, set, frozenset)):
+        return fallback
+    normalized = {str(item).strip() for item in value if str(item).strip()}
+    return frozenset(normalized)
+
+
+def _coerce_derived_assertion_specs(
+    value: Any,
+    *,
+    fallback: tuple[dict[str, Any], ...],
+) -> tuple[dict[str, Any], ...]:
+    if value is None:
+        return fallback
+    if not isinstance(value, list):
+        return fallback
+    return tuple(dict(item) for item in value if isinstance(item, dict))
+
+
 def _coerce_alias_map(value: Any) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
@@ -387,6 +487,7 @@ def _coalesce_text(*values: Any) -> str | None:
 
 
 __all__ = [
+    "ASSERTION_MODES",
     "DEFAULT_EXTRACTION_PROFILES",
     "DefaultSubjectPolicy",
     "ExtractionProfile",

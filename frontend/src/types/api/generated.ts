@@ -1601,6 +1601,50 @@ export interface paths {
         readonly patch: operations["annotate_l2_episode_api_memory_l2_episodes__episode_id__patch"];
         readonly trace?: never;
     };
+    readonly "/api/memory/l2/episodes/{episode_id}/event-candidates": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List L2 Episode Event Candidates
+         * @description List nearby or similar L1 events that can be added to an episode.
+         */
+        readonly get: operations["list_l2_episode_event_candidates_api_memory_l2_episodes__episode_id__event_candidates_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/episodes/{episode_id}/events": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Add L2 Episode Events
+         * @description Add candidate L1 events to an episode and refresh its recap.
+         */
+        readonly post: operations["add_l2_episode_events_api_memory_l2_episodes__episode_id__events_post"];
+        /**
+         * Remove L2 Episode Events
+         * @description Remove L1 events from an episode and refresh its recap.
+         */
+        readonly delete: operations["remove_l2_episode_events_api_memory_l2_episodes__episode_id__events_delete"];
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/memory/l2/episodes/{episode_id}/merge": {
         readonly parameters: {
             readonly query?: never;
@@ -1615,6 +1659,86 @@ export interface paths {
          * @description Merge another episode into the target episode.
          */
         readonly post: operations["merge_l2_episode_api_memory_l2_episodes__episode_id__merge_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/episodes/{episode_id}/merge-candidates": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List L2 Episode Merge Candidates
+         * @description List nearby or similar active episodes that can be merged.
+         */
+        readonly get: operations["list_l2_episode_merge_candidates_api_memory_l2_episodes__episode_id__merge_candidates_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/episodes/{episode_id}/regenerate": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Regenerate L2 Episode
+         * @description Regenerate the L3 recap for an active episode and refresh review fields.
+         */
+        readonly post: operations["regenerate_l2_episode_api_memory_l2_episodes__episode_id__regenerate_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/episodes/{episode_id}/split": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Split L2 Episode
+         * @description Split an episode into two chronological child episodes.
+         */
+        readonly post: operations["split_l2_episode_api_memory_l2_episodes__episode_id__split_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/episodes/{episode_id}/split-preview": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Preview L2 Episode Split
+         * @description Preview a chronological split without mutating episode storage.
+         */
+        readonly post: operations["preview_l2_episode_split_api_memory_l2_episodes__episode_id__split_preview_post"];
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -4084,10 +4208,20 @@ export interface components {
             /** User Pinned */
             readonly user_pinned?: boolean | null;
         };
+        /** EpisodeEventIdsRequest */
+        readonly EpisodeEventIdsRequest: {
+            /** Event Ids */
+            readonly event_ids: readonly string[];
+        };
         /** EpisodeMergeRequest */
         readonly EpisodeMergeRequest: {
             /** Absorbed Id */
             readonly absorbed_id: string;
+        };
+        /** EpisodeSplitRequest */
+        readonly EpisodeSplitRequest: {
+            /** Break After Event Id */
+            readonly break_after_event_id: string;
         };
         /** EvalFinalizeReplayRequest */
         readonly EvalFinalizeReplayRequest: {
@@ -10391,6 +10525,109 @@ export interface operations {
             };
         };
     };
+    readonly list_l2_episode_event_candidates_api_memory_l2_episodes__episode_id__event_candidates_get: {
+        readonly parameters: {
+            readonly query?: {
+                readonly limit?: number;
+            };
+            readonly header?: never;
+            readonly path: {
+                readonly episode_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly add_l2_episode_events_api_memory_l2_episodes__episode_id__events_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly episode_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["EpisodeEventIdsRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly remove_l2_episode_events_api_memory_l2_episodes__episode_id__events_delete: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly episode_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["EpisodeEventIdsRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     readonly merge_l2_episode_api_memory_l2_episodes__episode_id__merge_post: {
         readonly parameters: {
             readonly query?: never;
@@ -10403,6 +10640,140 @@ export interface operations {
         readonly requestBody: {
             readonly content: {
                 readonly "application/json": components["schemas"]["EpisodeMergeRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly list_l2_episode_merge_candidates_api_memory_l2_episodes__episode_id__merge_candidates_get: {
+        readonly parameters: {
+            readonly query?: {
+                readonly limit?: number;
+            };
+            readonly header?: never;
+            readonly path: {
+                readonly episode_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly regenerate_l2_episode_api_memory_l2_episodes__episode_id__regenerate_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly episode_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly split_l2_episode_api_memory_l2_episodes__episode_id__split_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly episode_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["EpisodeSplitRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly preview_l2_episode_split_api_memory_l2_episodes__episode_id__split_preview_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly episode_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["EpisodeSplitRequest"];
             };
         };
         readonly responses: {

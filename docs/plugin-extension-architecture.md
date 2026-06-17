@@ -258,12 +258,17 @@ Static alias lists or multi-language label tables should stay in plugin i18n res
 `SensorOutputMetadata` is extracted separately from the raw source item and carries:
 
 - `entities`: structured entity hints (list of dicts with `mention_text`, `entity_type`, `canonical_name_hint`)
-- `tags`: classification tags
-- `relation_candidates`: rule-based graph edge candidates
+- `tags`: classification/search labels, not fact evidence
+- `fact_hints`: preferred source-owned structured facts for L2 cognition
+- `relation_candidates`: legacy/timeline-compatible relation projections
 
 Entity hints are passed through the ingestion gateway as `structured_entity_hints` in `MemoryEvent.metadata_json`. In the L2 pipeline, these hints are injected into the Phase 1 LLM prompt as **context anchors** �?they help the LLM resolve entities to consistent canonical names and types, but are NOT automatically materialized into the entity catalog. Only entities that the LLM independently extracts in Phase 1 output become persisted entities.
 
-Relation candidates are persisted as rule-based graph edges (with `extraction_method="rule"`) without LLM involvement.
+`fact_hints` are the preferred L2 structured-fact path. They let the source describe high-confidence SPO-style facts while the host still owns evidence classification, profile allowlists, conflict handling, and persistence. Passive observations should normally emit interaction evidence (`VIEWED`, `LISTENED`, `USED`, `VISITED`) rather than direct preference claims.
+
+`relation_candidates` remain for backward compatibility with older timeline/relation projections. New sensors should not use them as the primary L2 cognition path; migrate source facts to `fact_hints` so they pass through the same admission and evidence governance.
+
+Tags are never a substitute for fact evidence. A tag, page category, or weak co-occurrence may help search or UI grouping, but it must not be promoted into a user preference unless the source has a stable, explainable signal such as an explicit favorite/subscription list, configuration export, or repeated interaction that is later aggregated by host-owned derived rules.
 
 ### Target Semantic Enrichment Contract
 
@@ -284,7 +289,7 @@ The target shape of `SensorOutputMetadata` is:
 - `tags`
   Classification labels
 - `relation_candidates`
-  Backward-compatibility field for older plugins; runtime may adapt these into `fact_hints`
+  Backward-compatibility field for older plugins and timeline projections; new L2 cognition work should use `fact_hints`
 
 Recommended `fact_hints` payload fields:
 
@@ -318,6 +323,8 @@ The intent is that plugins provide what they know with high confidence, while ru
 - a persisted rule-backed graph candidate
 - a structured hint only
 - or a rejected candidate
+
+Plugins can also contribute `ExtractionProfileSpec.derived_assertion_specs` for host-owned graph-derived assertions. These specs do not let plugins write assertions directly. They declare how accumulated graph evidence can be aggregated later, and the host validates predicates, assertion families, trait namespaces, source types, source tiers, and conflict behavior before writing any assertion.
 
 #### Ownership Model
 
@@ -403,25 +410,37 @@ Each event source is mapped to an `ExtractionProfile` that controls what the L2 
 @dataclass(slots=True, frozen=True)
 class ExtractionProfile:
     profile_id: str
-  source_types: frozenset[str]
+    source_types: frozenset[str]
     allowed_entity_types: frozenset[str]
     allowed_predicates: frozenset[str]
+    structured_allowed_entity_types: frozenset[str] | None
+    structured_allowed_predicates: frozenset[str] | None
     allowed_assertion_families: frozenset[str]
+    allowed_assertion_traits: frozenset[str] | None
     entity_type_aliases: dict[str, str]
     predicate_aliases: dict[str, str]
     subject_policy: DefaultSubjectPolicy
     allow_graph: bool
     allow_assertion: bool
+    assertion_mode: str
     extraction_instructions: str | None
+    phase1_instructions: str | None
+    phase2_instructions: str | None
+    derived_assertion_specs: tuple[dict[str, Any], ...]
 ```
 
 Key fields:
 
 - `allowed_entity_types`: LLM-extracted entities with types outside this set are filtered out before catalog registration.
 - `allowed_predicates`: LLM-extracted graph edges with predicates outside this set are dropped.
-- `allow_assertion`: master switch for Theory of Mind assertion generation (disabled for Chrome history since browsing history does not reveal psychological states reliably).
+- `structured_allowed_*`: allowlists for source-owned structured hints; these can be broader or narrower than LLM-facing extraction allowlists.
+- `allow_assertion`: master switch for assertion writes from this profile.
+- `assertion_mode`: `none` rejects assertions, `derived` allows only host-owned graph-derived assertion rules, and `phase2_candidate` allows Phase 2 LLM candidates subject to policy/family/trait gates.
+- `allowed_assertion_traits`: optional exact or namespace allowlist (`music.*`) for assertion trait names.
 - `source_types`: normalized event sources routed to this profile.
-- `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt under a `## Source-Specific Instructions` section. This is the primary mechanism for source-specific LLM extraction behavior.
+- `phase1_instructions` / `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt under a `## Source-Specific Instructions` section.
+- `phase2_instructions`: source-specific integration instructions injected into the Phase 2 prompt.
+- `derived_assertion_specs`: plugin-declared graph-derived assertion specs. The host compiles these into validated rules and runs them in the L2 derive schedule; plugins never bypass assertion lifecycle, source-tier, or conflict protection.
 
 Assertion families and assertion trait/schema identifiers are assertion-only. They must not be emitted as graph predicates, graph object refs, or concept nodes; graph admission validates this boundary before persistence.
 

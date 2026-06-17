@@ -191,6 +191,11 @@ class ExtractionProfileSpec(BaseModel):
     allow_graph: bool = True
     allow_assertion: bool = True
     extraction_instructions: str | None = None
+    phase1_instructions: str | None = None
+    phase2_instructions: str | None = None
+    assertion_mode: Literal["none", "derived", "phase2_candidate"] | None = None
+    allowed_assertion_traits: list[str] | Literal["all"] | None = None
+    derived_assertion_specs: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class Triggers(BaseModel):

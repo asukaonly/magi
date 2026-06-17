@@ -95,6 +95,7 @@ class L2LLMExtractionMixin:
         existing_assertions: list[dict[str, Any]] | None = None,
         event_window: L2EventWindow,
         focal_subject: dict[str, Any],
+        phase2_instructions: str | None = None,
     ) -> L2Phase2Result:
         """Phase 2: integrate facts with existing graph, produce edges/assertions/contradictions."""
         started_at = time.perf_counter()
@@ -123,6 +124,7 @@ class L2LLMExtractionMixin:
             existing_assertions=existing_assertions,
             event_window=event_window,
             focal_subject=focal_subject,
+            source_integration_instructions=phase2_instructions,
         )
         payload = await self._generate_json(
             system_prompt=build_phase2_integrate_system_prompt(user_language or None),
@@ -150,7 +152,6 @@ class L2LLMExtractionMixin:
             graph_edge_count=len(result.graph_edges),
             assertion_count=len(result.assertion_candidates),
             contradiction_hint_count=len(result.contradiction_hints),
-            refinement_count=len(result.refinements),
         )
         logger.info(
             "L2 Phase 2 candidate summary",

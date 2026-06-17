@@ -1,6 +1,6 @@
 import { CalendarRange, Pin } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { L2Episode } from '@/api/modules/memory';
+import type { L2Episode, L2EpisodeWithSummary } from '@/api/modules/memory';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -30,9 +30,11 @@ export const formatEpisodeTimeRange = (
   return formatter.format(new Date((start ?? end ?? 0) * 1000));
 };
 
-export const getEpisodeDisplayTitle = (episode: L2Episode, fallback: string): string => {
+export const getEpisodeDisplayTitle = (episode: L2Episode | L2EpisodeWithSummary, fallback: string): string => {
   const values = [
     episode.user_label,
+    (episode as L2EpisodeWithSummary).display_title,
+    (episode as L2EpisodeWithSummary).episode_summary?.label,
     episode.label,
     episode.summary,
     episode.slice_narrative,
@@ -41,8 +43,15 @@ export const getEpisodeDisplayTitle = (episode: L2Episode, fallback: string): st
   return values.find((value) => typeof value === 'string' && value.trim())?.trim() ?? fallback;
 };
 
-const getEpisodeSummary = (episode: L2Episode): string => {
-  const summary = String(episode.summary || episode.slice_narrative || '').trim();
+const getEpisodeSummary = (episode: L2Episode | L2EpisodeWithSummary): string => {
+  const summary = String(
+    episode.user_note ||
+    (episode as L2EpisodeWithSummary).display_description ||
+    (episode as L2EpisodeWithSummary).episode_summary?.content ||
+    episode.summary ||
+    episode.slice_narrative ||
+    ''
+  ).trim();
   return summary.length > 180 ? `${summary.slice(0, 177)}...` : summary;
 };
 

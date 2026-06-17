@@ -466,6 +466,7 @@ class L2PipelineExtractionMixin:
             existing_assertions=existing_assertions,
             event_window=event_window,
             focal_subject=focal_subject,
+            phase2_instructions=extraction_profile.phase2_instructions,
         )
 
         catalog_name_index = await self._build_catalog_name_index()
