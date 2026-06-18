@@ -6,7 +6,7 @@
 // Theme Types
 // ============================================================================
 
-export type ThemeMode = 'light' | 'dark' | 'system' | 'warm-neutral' | 'cool-studio' | 'soft-paper' | 'sage';
+export type ThemeMode = 'light' | 'dark' | 'system' | 'clay' | 'olive' | 'rose';
 
 // ============================================================================
 // Language Types

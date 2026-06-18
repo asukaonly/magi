@@ -38,7 +38,7 @@ describe('theme store initialization', () => {
     vi.stubGlobal(
       'localStorage',
       {
-        getItem: vi.fn(() => 'warm-neutral'),
+        getItem: vi.fn(() => 'clay'),
         setItem: vi.fn(),
       }
     );
@@ -47,10 +47,10 @@ describe('theme store initialization', () => {
     const { useThemeStore } = await import('@/stores/theme');
     const state = useThemeStore.getState();
 
-    expect(state.mode).toBe('warm-neutral');
+    expect(state.mode).toBe('clay');
     expect(state.resolvedTheme).toBe('light');
     expect(document.documentElement.classList.contains('light')).toBe(true);
-    expect(document.documentElement.classList.contains('theme-warm-neutral')).toBe(true);
+    expect(document.documentElement.classList.contains('theme-clay')).toBe(true);
     expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 });

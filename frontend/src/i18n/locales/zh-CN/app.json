@@ -1370,10 +1370,9 @@
       "light": "浅色",
       "dark": "深色",
       "system": "跟随系统",
-      "warm-neutral": "干净暖灰",
-      "cool-studio": "冷静工作台",
-      "soft-paper": "柔和纸感",
-      "sage": "鼠尾草"
+      "clay": "温陶土",
+      "olive": "烟橄榄",
+      "rose": "玫瑰褐"
     },
     "themeDesc": "选择界面主题配色方案，可先预览再保存",
     "actions": {

@@ -1371,10 +1371,9 @@
       "light": "Light",
       "dark": "Dark",
       "system": "System",
-      "warm-neutral": "Warm Neutral",
-      "cool-studio": "Cool Studio",
-      "soft-paper": "Soft Paper",
-      "sage": "Sage"
+      "clay": "Warm Clay",
+      "olive": "Smoked Olive",
+      "rose": "Dusty Rose"
     },
     "themeDesc": "Choose an interface palette, preview it, then save",
     "actions": {
