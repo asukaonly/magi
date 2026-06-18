@@ -52,19 +52,22 @@ export const PortraitWorldMap = ({ groups, totalCount }: PortraitWorldMapProps) 
               data-testid="portrait-world-root-connector"
               className="absolute -left-5 top-1/2 h-px w-5 bg-[hsl(var(--memory-divider)/0.84)]"
             />
-            <span
-              data-testid="portrait-world-trunk"
-              className="absolute bottom-8 left-0 top-8 w-px bg-[hsl(var(--memory-divider)/0.84)]"
-            />
           </div>
 
           <div className="grid gap-5">
-            {groups.map((group) => (
+            {groups.map((group, index) => (
               <article
                 key={group.id}
                 data-testid={`portrait-world-branch-${group.id}`}
                 className="relative py-1 pl-6"
               >
+                {index < groups.length - 1 ? (
+                  <span
+                    aria-hidden="true"
+                    data-testid="portrait-world-trunk-segment"
+                    className="absolute -bottom-[35px] -left-[93px] top-[15px] hidden w-px bg-[hsl(var(--memory-divider)/0.84)] lg:block"
+                  />
+                ) : null}
                 <span aria-hidden="true" className="absolute -left-[92px] top-[15px] hidden h-px w-[92px] bg-[hsl(var(--memory-divider)/0.84)] lg:block" />
                 <span className="absolute -left-[5px] top-2.5 h-2.5 w-2.5 rounded-full bg-[hsl(var(--memory-accent)/0.82)] ring-4 ring-[hsl(var(--memory-panel-elevated)/0.92)] lg:-left-[97px]" />
                 <h3 className="text-sm font-semibold text-[hsl(var(--memory-title))]">

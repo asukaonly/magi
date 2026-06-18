@@ -95,7 +95,8 @@ describe('MemoryPortraitPage', () => {
     expect(screen.getByText('互动方式')).toBeInTheDocument();
     expect(screen.queryByText('正在推进的项目')).not.toBeInTheDocument();
     expect(screen.queryByText('常用工具')).not.toBeInTheDocument();
-    expect(screen.getByTestId('portrait-world-trunk')).toBeInTheDocument();
+    expect(screen.queryByTestId('portrait-world-trunk')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('portrait-world-trunk-segment')).toHaveLength(3);
     expect(screen.getByTestId('portrait-world-root-connector').className).toContain('w-5');
     expect(screen.getByTestId('portrait-world-tree').querySelector('svg')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-review-queue')).not.toBeInTheDocument();
@@ -135,6 +136,9 @@ describe('MemoryPortraitPage', () => {
     screen.getAllByTestId(/^portrait-world-branch-/).forEach((branch) => {
       expect(branch.className).not.toContain('border-l');
     });
+    expect(screen.queryByTestId('portrait-world-trunk')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('portrait-world-trunk-segment')).toHaveLength(3);
+    expect(within(screen.getByTestId('portrait-world-branch-communication')).queryByTestId('portrait-world-trunk-segment')).not.toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-tree').querySelector('svg')).not.toBeInTheDocument();
     expect(screen.getByText('Magi 记忆系统')).toBeInTheDocument();
     expect(screen.getByText('互动方式')).toBeInTheDocument();
