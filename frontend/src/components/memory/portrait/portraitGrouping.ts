@@ -1,6 +1,6 @@
 import type { PortraitObservation } from '@/api/modules/memoryPortrait';
 
-export type PortraitWorldGroupId = 'projects' | 'tools' | 'topics' | 'interaction';
+export type PortraitWorldGroupId = 'identity' | 'preferences' | 'routine' | 'communication';
 
 export interface PortraitDisplayItem {
   id: string;
@@ -25,7 +25,7 @@ export interface PortraitViewModel {
 
 const ASSERTION_REF_PATTERN = /^[0-9a-f-]{20,}$/i;
 
-const WORLD_GROUP_IDS: PortraitWorldGroupId[] = ['projects', 'tools', 'topics', 'interaction'];
+const WORLD_GROUP_IDS: PortraitWorldGroupId[] = ['identity', 'preferences', 'routine', 'communication'];
 
 const STATE_FAMILIES = new Set([
   'state_profile',
@@ -37,11 +37,11 @@ const STATE_FAMILIES = new Set([
   'group_atmosphere',
 ]);
 
-const WORLD_FAMILIES = new Set([
-  'identity_profile',
-  'communication_profile',
-  'preference_profile',
-  'routine_profile',
+const FAMILY_GROUPS = new Map<string, PortraitWorldGroupId>([
+  ['identity_profile', 'identity'],
+  ['preference_profile', 'preferences'],
+  ['routine_profile', 'routine'],
+  ['communication_profile', 'communication'],
 ]);
 
 const REVIEW_STATUSES = new Set(['tentative', 'contradicted']);
@@ -57,8 +57,6 @@ const TOOL_KEYWORDS = [
   'steam',
   'obsidian',
 ];
-
-const PROJECT_KEYWORDS = ['项目', '推进', 'magi', '插件', '页面', '记忆', 'project'];
 
 export const extractAssertionId = (obs: PortraitObservation): string | null => {
   const ref = obs.basis_refs.find((r) => r.startsWith('assertion:') || ASSERTION_REF_PATTERN.test(r));
@@ -139,29 +137,29 @@ const isRecentItem = (obs: PortraitObservation): boolean => {
 
 const worldGroupFor = (obs: PortraitObservation): PortraitWorldGroupId | null => {
   const family = refValue(obs, 'family');
-  if (family && !WORLD_FAMILIES.has(family)) {
-    return null;
+  if (family) {
+    return FAMILY_GROUPS.get(family) ?? null;
   }
   const lowered = `${obs.text} ${obs.basis_refs.join(' ')}`.toLowerCase();
   if (hasRefPrefix(obs, 'communication:') || family === 'communication_profile') {
-    return 'interaction';
+    return 'communication';
   }
   if (obs.kind === 'relationship' || TOOL_KEYWORDS.some((keyword) => lowered.includes(keyword))) {
-    return 'tools';
-  }
-  if (PROJECT_KEYWORDS.some((keyword) => lowered.includes(keyword))) {
-    return 'projects';
+    return 'routine';
   }
   if (
     hasRefPrefix(obs, 'preference:') ||
+    family === 'preference_profile'
+  ) {
+    return 'preferences';
+  }
+  if (
     hasRefPrefix(obs, 'real_name') ||
     hasRefPrefix(obs, 'home_location') ||
     hasRefPrefix(obs, 'preferred_form_of_address') ||
-    family === 'identity_profile' ||
-    family === 'preference_profile' ||
-    family === 'routine_profile'
+    family === 'identity_profile'
   ) {
-    return 'topics';
+    return 'identity';
   }
   return null;
 };

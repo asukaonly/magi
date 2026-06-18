@@ -56,8 +56,11 @@ export const PortraitWorldMap = ({ groups, totalCount }: PortraitWorldMapProps) 
           </div>
 
           <div aria-hidden="true" className="relative hidden h-full min-h-[360px] lg:block">
-            <span className="absolute left-0 top-1/2 h-px w-full bg-[hsl(var(--memory-divider)/0.84)]" />
-            <span className="absolute bottom-8 left-0 top-8 w-px bg-[hsl(var(--memory-divider)/0.84)]" />
+            <span className="absolute -left-5 top-1/2 h-px w-[calc(100%+1.25rem)] bg-[hsl(var(--memory-divider)/0.84)]" />
+            <span
+              data-testid="portrait-world-trunk"
+              className="absolute bottom-8 left-0 top-8 w-px bg-[hsl(var(--memory-divider)/0.84)]"
+            />
           </div>
 
           <div className="grid gap-5">
@@ -65,10 +68,10 @@ export const PortraitWorldMap = ({ groups, totalCount }: PortraitWorldMapProps) 
               <article
                 key={group.id}
                 data-testid={`portrait-world-branch-${group.id}`}
-                className="relative border-l border-[hsl(var(--memory-divider)/0.82)] py-1 pl-6"
+                className="relative py-1 pl-6"
               >
-                <span aria-hidden="true" className="absolute -left-[72px] top-[15px] hidden h-px w-[72px] bg-[hsl(var(--memory-divider)/0.84)] lg:block" />
-                <span className="absolute left-[-5px] top-2.5 h-2.5 w-2.5 rounded-full bg-[hsl(var(--memory-accent)/0.82)] ring-4 ring-[hsl(var(--memory-panel-elevated)/0.92)]" />
+                <span aria-hidden="true" className="absolute -left-[92px] top-[15px] hidden h-px w-[92px] bg-[hsl(var(--memory-divider)/0.84)] lg:block" />
+                <span className="absolute -left-[5px] top-2.5 h-2.5 w-2.5 rounded-full bg-[hsl(var(--memory-accent)/0.82)] ring-4 ring-[hsl(var(--memory-panel-elevated)/0.92)] lg:-left-[97px]" />
                 <h3 className="text-sm font-semibold text-[hsl(var(--memory-title))]">
                   {t(`memory.portrait.world.groups.${group.id}`)}
                 </h3>

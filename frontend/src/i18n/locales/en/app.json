@@ -2518,12 +2518,12 @@
         "empty": "No clear connection yet.",
         "rootLabel": "You",
         "rootTitle": "How Magi sees you",
-        "rootMeta": "Projects, tools, topics, and interaction patterns connected from memory",
+        "rootMeta": "Identity, preferences, routines, and interaction patterns connected from memory",
         "groups": {
-          "projects": "Projects in motion",
-          "tools": "Common tools",
-          "topics": "Topics you follow",
-          "interaction": "Interaction preferences"
+          "identity": "Identity",
+          "preferences": "Preferences and interests",
+          "routine": "Routines and tools",
+          "communication": "Interaction style"
         }
       },
       "review": {

@@ -2517,12 +2517,12 @@
         "empty": "还没有形成清晰的关联。",
         "rootLabel": "你",
         "rootTitle": "Magi 眼中的你",
-        "rootMeta": "从记忆里连接出来的项目、工具、主题和互动方式",
+        "rootMeta": "从记忆里连接出来的身份、偏好、习惯和互动方式",
         "groups": {
-          "projects": "正在推进的项目",
-          "tools": "常用工具",
-          "topics": "关注主题",
-          "interaction": "互动偏好"
+          "identity": "身份信息",
+          "preferences": "偏好与关注",
+          "routine": "习惯与工具",
+          "communication": "互动方式"
         }
       },
       "review": {
