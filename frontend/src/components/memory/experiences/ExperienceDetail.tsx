@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   CalendarRange,
@@ -9,7 +9,6 @@ import {
   Pencil,
   Quote,
   RefreshCw,
-  Sparkles,
   Star,
   Tags,
   UserRound,
@@ -199,6 +198,7 @@ export function ExperienceDetail({
   onEditDescription,
   onRegenerate,
   onHide,
+  toolbarStart,
   variant = 'sheet',
 }: {
   experience: ExperienceReviewLike;
@@ -208,6 +208,7 @@ export function ExperienceDetail({
   onEditDescription: (description: string) => Promise<void>;
   onRegenerate: () => Promise<void>;
   onHide: () => Promise<void>;
+  toolbarStart?: ReactNode;
   variant?: 'sheet' | 'inline';
 }) {
   const { t, i18n } = useTranslation('app');
@@ -224,6 +225,10 @@ export function ExperienceDetail({
   ].slice(0, 8);
   const readableRecap = getReadableRecap(experience, description, title, tags, i18n.language);
   const coverUrl = getExperienceCoverUrl(sourceEpisodes);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [localCoverUrl, setLocalCoverUrl] = useState<string | null>(null);
+  const [localCoverName, setLocalCoverName] = useState('');
+  const displayCoverUrl = localCoverUrl || coverUrl;
   const eventsByEpisode = new Map<string, L2EpisodeEventPreview[]>();
   events.forEach((event) => {
     eventsByEpisode.set(event.episode_id, [...(eventsByEpisode.get(event.episode_id) ?? []), event]);
@@ -235,10 +240,15 @@ export function ExperienceDetail({
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [regenerateOpen, setRegenerateOpen] = useState(false);
   const [hideOpen, setHideOpen] = useState(false);
-  const [coverOpen, setCoverOpen] = useState(false);
   const [titleDraft, setTitleDraft] = useState(title);
   const [descriptionDraft, setDescriptionDraft] = useState(description);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => () => {
+    if (localCoverUrl) {
+      URL.revokeObjectURL(localCoverUrl);
+    }
+  }, [localCoverUrl]);
 
   const openRename = () => {
     setTitleDraft(title);
@@ -298,6 +308,22 @@ export function ExperienceDetail({
     }
   };
 
+  const chooseCover = () => {
+    fileInputRef.current?.click();
+  };
+
+  const updateLocalCover = (file: File | undefined) => {
+    if (!file) {
+      return;
+    }
+    const nextUrl = URL.createObjectURL(file);
+    setLocalCoverUrl(nextUrl);
+    setLocalCoverName(file.name);
+  };
+
+  const toolbarButtonClass = 'h-8 rounded-md border-transparent bg-transparent px-2.5 text-xs font-medium text-[hsl(var(--memory-muted))] shadow-none hover:bg-[hsl(var(--memory-panel-subtle)/0.82)] hover:text-[hsl(var(--memory-title))]';
+  const hideButtonClass = 'h-8 rounded-md border-transparent bg-transparent px-2.5 text-xs font-medium text-[hsl(var(--memory-muted))] shadow-none hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]';
+
   return (
     <div
       className={cn(
@@ -307,27 +333,30 @@ export function ExperienceDetail({
     >
       <header
         className={cn(
-          'overflow-hidden rounded-xl border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated))]',
-          !isInline && 'shadow-[0_18px_60px_hsl(var(--memory-title)/0.07)]'
+          'overflow-hidden rounded-lg border border-[hsl(var(--memory-border)/0.5)] bg-[hsl(var(--memory-panel-elevated))]',
+          !isInline && 'shadow-[0_12px_36px_hsl(var(--memory-title)/0.045)]'
         )}
       >
-        <div className="flex flex-wrap justify-end gap-2 border-b border-[hsl(var(--memory-divider)/0.54)] px-4 py-3">
-          <Button variant="outline" size="sm" onClick={openRename}>
-            <Pencil className="h-4 w-4" aria-hidden="true" />
-            {t('memory.episodes.actions.rename')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={openDescription}>
-            <Sparkles className="h-4 w-4" aria-hidden="true" />
-            {t('memory.episodes.actions.editDescription')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={requestRegenerate}>
-            <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            {t('memory.episodes.actions.regenerateDescription')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setHideOpen(true)}>
-            <EyeOff className="h-4 w-4" aria-hidden="true" />
-            {t('memory.episodes.actions.hide')}
-          </Button>
+        <div className="flex flex-col gap-3 border-b border-[hsl(var(--memory-divider)/0.44)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">{toolbarStart}</div>
+          <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+            <Button variant="ghost" size="sm" className={toolbarButtonClass} onClick={openRename}>
+              <Pencil className="h-4 w-4" aria-hidden="true" />
+              {t('memory.episodes.actions.rename')}
+            </Button>
+            <Button variant="ghost" size="sm" className={toolbarButtonClass} onClick={openDescription}>
+              <Pencil className="h-4 w-4" aria-hidden="true" />
+              {t('memory.episodes.actions.editDescription')}
+            </Button>
+            <Button variant="ghost" size="sm" className={toolbarButtonClass} onClick={requestRegenerate}>
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              {t('memory.episodes.actions.regenerateDescription')}
+            </Button>
+            <Button variant="ghost" size="sm" className={hideButtonClass} onClick={() => setHideOpen(true)}>
+              <EyeOff className="h-4 w-4" aria-hidden="true" />
+              {t('memory.episodes.actions.hide')}
+            </Button>
+          </div>
         </div>
 
         <div className={cn('grid', !isInline && 'lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.72fr)]')}>
@@ -353,7 +382,7 @@ export function ExperienceDetail({
             </div>
             <h2 className={cn(
               'mt-5 max-w-3xl break-words font-semibold leading-tight text-[hsl(var(--memory-title))]',
-              isInline ? 'text-2xl' : 'text-3xl md:text-[2.35rem]'
+              isInline ? 'text-2xl' : 'text-3xl md:text-[2.08rem]'
             )}>
               {title}
             </h2>
@@ -384,10 +413,21 @@ export function ExperienceDetail({
             ) : null}
           </div>
 
-          <div className="relative min-h-[260px] overflow-hidden border-t border-[hsl(var(--memory-divider)/0.52)] bg-[hsl(var(--memory-panel-subtle)/0.55)] lg:border-l lg:border-t-0">
-            {coverUrl ? (
+          <div className="relative min-h-[260px] overflow-hidden border-t border-[hsl(var(--memory-divider)/0.52)] bg-[hsl(var(--memory-panel-subtle)/0.46)] lg:border-l lg:border-t-0">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              aria-label={t('memory.episodes.actions.changeCoverFile')}
+              className="sr-only"
+              onChange={(event) => {
+                updateLocalCover(event.currentTarget.files?.[0]);
+                event.currentTarget.value = '';
+              }}
+            />
+            {displayCoverUrl ? (
               <img
-                src={coverUrl}
+                src={displayCoverUrl}
                 alt={t('memory.episodes.coverAlt', { title })}
                 className="h-full min-h-[260px] w-full object-cover"
               />
@@ -402,12 +442,17 @@ export function ExperienceDetail({
                 </p>
               </div>
             )}
+            {localCoverName ? (
+              <div className="absolute bottom-4 left-4 max-w-[calc(100%-2rem)] rounded-md bg-[hsl(var(--memory-panel-elevated)/0.88)] px-3 py-1.5 text-xs text-[hsl(var(--memory-body))] shadow-sm">
+                {t('memory.episodes.coverSelected', { name: localCoverName })}
+              </div>
+            ) : null}
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="absolute right-4 top-4 bg-[hsl(var(--memory-panel-elevated)/0.86)]"
-              onClick={() => setCoverOpen(true)}
+              className="absolute right-4 top-4 h-8 rounded-md bg-[hsl(var(--memory-panel-elevated)/0.84)] px-2.5 text-xs font-medium text-[hsl(var(--memory-title))] shadow-sm hover:bg-[hsl(var(--memory-panel-elevated))]"
+              onClick={chooseCover}
             >
               <ImageIcon className="h-4 w-4" aria-hidden="true" />
               {t('memory.episodes.actions.changeCover')}
@@ -448,20 +493,6 @@ export function ExperienceDetail({
           </div>
         </aside>
       </div>
-
-      <Dialog open={coverOpen} onOpenChange={setCoverOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('memory.episodes.dialogs.coverTitle')}</DialogTitle>
-            <DialogDescription>{t('memory.episodes.dialogs.coverDescription')}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setCoverOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent>

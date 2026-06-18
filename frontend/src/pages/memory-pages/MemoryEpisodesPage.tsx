@@ -626,6 +626,17 @@ export const MemoryExperienceDetailPage = () => {
   const title = experience
     ? getExperienceDisplayTitle(experience, t('memory.episodes.awaitingLabel'), i18n.language)
     : '';
+  const backButton = (
+    <Button
+      type="button"
+      variant="ghost"
+      className="-ml-2 h-8 rounded-md px-2 text-xs font-medium text-[hsl(var(--memory-muted))] hover:bg-[hsl(var(--memory-panel-subtle)/0.82)] hover:text-[hsl(var(--memory-title))]"
+      onClick={() => navigate('/memory/episodes')}
+    >
+      <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+      {t('memory.episodes.actions.backToList')}
+    </Button>
+  );
 
   return (
     <MemoryPageFrame
@@ -635,22 +646,16 @@ export const MemoryExperienceDetailPage = () => {
       className="max-w-[1180px] gap-5 px-6 py-7"
       contentClassName="pb-8"
     >
-      <div>
-        <Button
-          type="button"
-          variant="ghost"
-          className="-ml-2 h-9 rounded-lg px-2 text-[hsl(var(--memory-muted))] hover:text-[hsl(var(--memory-title))]"
-          onClick={() => navigate('/memory/episodes')}
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          {t('memory.episodes.actions.backToList')}
-        </Button>
-      </div>
-
       {loading ? (
-        <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div>
+        <>
+          <div>{backButton}</div>
+          <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div>
+        </>
       ) : notFound || !experience ? (
-        <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.episodes.detailNotFound')}</div>
+        <>
+          <div>{backButton}</div>
+          <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.episodes.detailNotFound')}</div>
+        </>
       ) : (
         <ExperienceDetail
           experience={experience}
@@ -660,6 +665,7 @@ export const MemoryExperienceDetailPage = () => {
           onEditDescription={editDescription}
           onRegenerate={regenerateDescription}
           onHide={hideExperience}
+          toolbarStart={backButton}
           variant="sheet"
         />
       )}

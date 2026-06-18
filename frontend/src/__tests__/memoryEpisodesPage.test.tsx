@@ -14,7 +14,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.sections.list': 'Recently updated experiences',
     'memory.episodes.sections.all': 'All experiences',
     'memory.episodes.sections.detail': 'Experience review',
-    'memory.episodes.sections.recap': "Magi's recap",
+    'memory.episodes.sections.recap': 'A short recap',
     'memory.episodes.sections.whatHappened': 'Event trail',
     'memory.episodes.sections.sourceEpisodes': 'Source chapters',
     'memory.episodes.sections.featured': 'Worth revisiting',
@@ -57,7 +57,9 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.coverAlt': '{{title}} cover',
     'memory.episodes.coverPending': 'Cover pending',
     'memory.episodes.coverHint': 'Use a related image or choose one later.',
+    'memory.episodes.coverSelected': 'Selected {{name}}',
     'memory.episodes.actions.changeCover': 'Change cover',
+    'memory.episodes.actions.changeCoverFile': 'Choose cover file',
     'memory.episodes.awaitingLabel': 'Waiting for Magi to draft a title...',
     'memory.episodes.fields.title': 'Title',
     'memory.episodes.fields.description': 'Recap',
@@ -78,7 +80,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.dialogs.editDescriptionTitle': 'Edit recap',
     'memory.episodes.dialogs.editDescriptionDescription': 'Update the recap shown on this experience.',
     'memory.episodes.dialogs.regenerateTitle': 'Replace current recap?',
-    'memory.episodes.dialogs.regenerateDescription': 'Magi will draft a new recap for this experience.',
+    'memory.episodes.dialogs.regenerateDescription': 'A new recap will be written for this experience.',
     'memory.episodes.dialogs.hideTitle': 'Hide this experience?',
     'memory.episodes.dialogs.hideDescription': 'It will leave the main experience shelf but keep the underlying memories.',
     'memory.episodes.filters.activity': 'Activity',
@@ -343,6 +345,8 @@ const openLaunchExperience = async (user: ReturnType<typeof userEvent.setup>) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  URL.createObjectURL = vi.fn(() => 'blob:local-cover');
+  URL.revokeObjectURL = vi.fn();
   vi.mocked(memoryApi.listExperiences).mockResolvedValue({
     items: [activeExperiences[1], activeExperiences[2], activeExperiences[0]],
     total: 3,
@@ -432,11 +436,11 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.getAllByText('Worth revisiting').length).toBeGreaterThan(0);
   });
 
-  it('renders the Magi recap, source episodes, and readable event previews on the detail page', async () => {
+  it('renders the recap, source episodes, and readable event previews on the detail page', async () => {
     renderDetailPage();
 
     expect(await screen.findByText('Generated Japan recap')).toBeInTheDocument();
-    expect(screen.getByText("Magi's recap")).toBeInTheDocument();
+    expect(screen.getByText('A short recap')).toBeInTheDocument();
     expect(screen.getByText('Source chapters')).toBeInTheDocument();
     expect(screen.getByText('Planning thread')).toBeInTheDocument();
 
@@ -453,6 +457,22 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.queryByText('person:asuka')).not.toBeInTheDocument();
     expect(screen.getAllByText('studio').length).toBeGreaterThan(0);
     expect(screen.getAllByText('launch').length).toBeGreaterThan(0);
+  });
+
+  it('uses a direct file picker for changing the cover preview', async () => {
+    const user = userEvent.setup();
+    renderDetailPage();
+
+    await screen.findByText('Generated Japan recap');
+    expect(screen.queryByText('Change cover')).toBeInTheDocument();
+    expect(screen.queryByText('The cover slot is ready.')).not.toBeInTheDocument();
+
+    const coverFile = new File(['cover'], 'new-cover.png', { type: 'image/png' });
+    await user.upload(screen.getByLabelText('Choose cover file'), coverFile);
+
+    expect(URL.createObjectURL).toHaveBeenCalledWith(coverFile);
+    expect(screen.getByRole('img', { name: 'Launch week cover' })).toHaveAttribute('src', 'blob:local-cover');
+    expect(screen.getByText('Selected new-cover.png')).toBeInTheDocument();
   });
 
   it('marks pinned experiences as worth revisiting without forcing a featured hero', async () => {
