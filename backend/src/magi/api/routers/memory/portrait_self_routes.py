@@ -117,19 +117,23 @@ def _observations_from_projection(projection: Any) -> list[PortraitObservation]:
     if projection is None:
         return []
 
-    facts: list[tuple[str, str]] = []
+    facts: list[tuple[str, str, str]] = []
     if projection.real_name:
-        facts.append((f"你叫 {projection.real_name}", "real_name"))
+        facts.append((f"你叫 {projection.real_name}", "identity_profile", "real_name"))
     if projection.preferred_form_of_address:
-        facts.append((f"称呼你「{projection.preferred_form_of_address}」", "preferred_form_of_address"))
+        facts.append((
+            f"称呼你「{projection.preferred_form_of_address}」",
+            "identity_profile",
+            "preferred_form_of_address",
+        ))
     if projection.home_location:
-        facts.append((f"住在{projection.home_location}", "home_location"))
+        facts.append((f"住在{projection.home_location}", "identity_profile", "home_location"))
     for key, value in (projection.preferences or {}).items():
-        facts.append((f"偏好：{key} = {value}", f"preference:{key}"))
+        facts.append((f"偏好：{key} = {value}", "preference_profile", f"preference:{key}"))
     for key, value in (projection.communication or {}).items():
-        facts.append((f"沟通风格：{key} = {value}", f"communication:{key}"))
+        facts.append((f"沟通风格：{key} = {value}", "communication_profile", f"communication:{key}"))
     for key, value in (projection.state or {}).items():
-        facts.append((f"近期状态：{key} = {value}", f"state:{key}"))
+        facts.append((f"近期状态：{key} = {value}", "state_profile", f"state:{key}"))
 
     return [
         PortraitObservation(
@@ -137,9 +141,9 @@ def _observations_from_projection(projection: Any) -> list[PortraitObservation]:
             text=text,
             basis_count=1,
             basis_summary="user_profile_projection",
-            basis_refs=[ref],
+            basis_refs=[f"family:{family}", ref],
         )
-        for text, ref in facts
+        for text, family, ref in facts
     ]
 
 

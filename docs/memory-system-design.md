@@ -648,6 +648,9 @@ interaction style; then reviewable items that need user judgment; then recent
 state observations. It should translate L2 assertion metadata into readable
 groups and review actions instead of exposing raw assertion/family/status names
 as primary UI copy.
+The world-model groups are driven by backend-provided assertion family metadata;
+the frontend may translate family values into readable labels, but it should not
+infer grouping from keywords, source names, or raw text.
 
 ### L3 — Reflection and Summaries
 

@@ -102,8 +102,8 @@ describe('MemoryPortraitPage', () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       session_id: '', persona_id: '', topic: 'self', generated_at: 0,
       observations: [
-        { kind: 'assertion', text: '偏好：current_project = Magi 记忆系统', basis_count: 2, basis_summary: 'user_profile_projection', basis_refs: ['preference:current_project'] },
-        { kind: 'assertion', text: '沟通风格：response_style.preferred = 直接深入', basis_count: 3, basis_summary: 'user_profile_projection', basis_refs: ['communication:response_style.preferred'] },
+        { kind: 'assertion', text: '偏好：current_project = Magi 记忆系统', basis_count: 2, basis_summary: 'user_profile_projection', basis_refs: ['family:preference_profile', 'preference:current_project'] },
+        { kind: 'assertion', text: '沟通风格：response_style.preferred = 直接深入', basis_count: 3, basis_summary: 'user_profile_projection', basis_refs: ['family:communication_profile', 'communication:response_style.preferred'] },
         { kind: 'relationship', text: '常用工具：Chrome', basis_count: 4, basis_summary: 'browser history', basis_refs: ['source:chrome-history'] },
         { kind: 'assertion', text: 'project_tool: 项目管理工具', basis_count: 2, basis_summary: 'L2 assertion', basis_refs: ['assertion:assert-stable', 'family:routine_profile', 'status:stable', 'source:conversation'] },
         { kind: 'assertion', text: 'focus_project: Magi 记忆体验', basis_count: 1, basis_summary: 'L2 assertion', basis_refs: ['assertion:assert-1', 'family:preference_profile', 'status:tentative', 'source:conversation'] },
@@ -130,7 +130,7 @@ describe('MemoryPortraitPage', () => {
     expect(screen.getByText('互动方式')).toBeInTheDocument();
     expect(screen.getByText('直接深入')).toBeInTheDocument();
     expect(screen.getByText('习惯与工具')).toBeInTheDocument();
-    expect(screen.getByText('Chrome')).toBeInTheDocument();
+    expect(screen.queryByText('Chrome')).not.toBeInTheDocument();
     expect(within(screen.getByTestId('portrait-world-branch-routine')).getByText('项目管理工具')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-root-connector').className).toContain('w-5');
 

@@ -46,18 +46,6 @@ const FAMILY_GROUPS = new Map<string, PortraitWorldGroupId>([
 
 const REVIEW_STATUSES = new Set(['tentative', 'contradicted']);
 
-const TOOL_KEYWORDS = [
-  'chrome',
-  'codex',
-  'github',
-  'git',
-  'claude',
-  'safari',
-  'firefox',
-  'steam',
-  'obsidian',
-];
-
 export const extractAssertionId = (obs: PortraitObservation): string | null => {
   const ref = obs.basis_refs.find((r) => r.startsWith('assertion:') || ASSERTION_REF_PATTERN.test(r));
   if (!ref) return null;
@@ -137,31 +125,7 @@ const isRecentItem = (obs: PortraitObservation): boolean => {
 
 const worldGroupFor = (obs: PortraitObservation): PortraitWorldGroupId | null => {
   const family = refValue(obs, 'family');
-  if (family) {
-    return FAMILY_GROUPS.get(family) ?? null;
-  }
-  const lowered = `${obs.text} ${obs.basis_refs.join(' ')}`.toLowerCase();
-  if (hasRefPrefix(obs, 'communication:') || family === 'communication_profile') {
-    return 'communication';
-  }
-  if (obs.kind === 'relationship' || TOOL_KEYWORDS.some((keyword) => lowered.includes(keyword))) {
-    return 'routine';
-  }
-  if (
-    hasRefPrefix(obs, 'preference:') ||
-    family === 'preference_profile'
-  ) {
-    return 'preferences';
-  }
-  if (
-    hasRefPrefix(obs, 'real_name') ||
-    hasRefPrefix(obs, 'home_location') ||
-    hasRefPrefix(obs, 'preferred_form_of_address') ||
-    family === 'identity_profile'
-  ) {
-    return 'identity';
-  }
-  return null;
+  return family ? FAMILY_GROUPS.get(family) ?? null : null;
 };
 
 const emptyWorldGroups = (): PortraitWorldGroup[] =>

@@ -78,6 +78,13 @@ def test_returns_observations_from_projection_and_snapshot():
     texts = " ".join(obs["text"] for obs in body["observations"])
     assert "杭州" in texts or "阿明" in texts
 
+    refs_by_text = {obs["text"]: obs["basis_refs"] for obs in body["observations"]}
+    assert "family:identity_profile" in refs_by_text["称呼你「阿明」"]
+    assert "family:identity_profile" in refs_by_text["住在杭州"]
+    assert "family:preference_profile" in refs_by_text["偏好：music.genre = ambient"]
+    assert "family:communication_profile" in refs_by_text["沟通风格：response_style.preferred = concise"]
+    assert "family:state_profile" in refs_by_text["近期状态：focus_mode = deep_work"]
+
 
 def test_assertion_observations_include_grouping_metadata_refs():
     profile_repo = MagicMock()
