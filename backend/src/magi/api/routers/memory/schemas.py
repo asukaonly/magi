@@ -123,6 +123,29 @@ class ExperienceAnnotationRequest(BaseModel):
     user_pinned: Optional[bool] = None
 
 
+class ExperienceSeedCreateRequest(BaseModel):
+    episode_ids: List[str] = Field(default_factory=list, max_length=100)
+    event_ids: List[str] = Field(default_factory=list, max_length=200)
+    title_hint: Optional[str] = Field(default=None, max_length=500)
+    promote_now: bool = Field(default=False)
+
+    @field_validator("episode_ids", "event_ids", mode="before")
+    @classmethod
+    def _normalize_ids(cls, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("ids must be a list of strings")
+        normalized: List[str] = []
+        seen: set[str] = set()
+        for item in value:
+            text = str(item).strip()
+            if text and text not in seen:
+                seen.add(text)
+                normalized.append(text)
+        return normalized
+
+
 class EpisodeEventIdsRequest(BaseModel):
     event_ids: List[str] = Field(..., min_length=1, max_length=100)
 

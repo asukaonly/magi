@@ -34,7 +34,7 @@ def test_experience_routes_are_publicly_allowlisted():
     routes = {
         (route.path, tuple(sorted(route.methods or [])))
         for route in public.routes
-        if getattr(route, "path", "").startswith("/l2/experiences")
+        if getattr(route, "path", "").startswith("/l2/experience")
     }
 
     assert ("/l2/experiences", ("GET",)) in routes
@@ -42,6 +42,115 @@ def test_experience_routes_are_publicly_allowlisted():
     assert ("/l2/experiences/{experience_id}", ("PATCH",)) in routes
     assert ("/l2/experiences/{experience_id}/hide", ("POST",)) in routes
     assert ("/l2/experiences/{experience_id}/regenerate", ("POST",)) in routes
+    assert ("/l2/experience-seeds", ("POST",)) in routes
+
+
+def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_mock_memory):
+    from magi.memory.l2.experiences.models import ExperiencePromotionStats
+
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.add_experience_seed_evidence = AsyncMock(return_value=1)
+    l2.get_experience_seed = AsyncMock(return_value={
+        "seed_id": "seed1",
+        "seed_type": "manual",
+        "status": "promoted",
+        "title": "Japan trip planning",
+    })
+    l2.get_experience = AsyncMock(return_value={
+        "experience_id": "exp1",
+        "status": "active",
+        "title": "Japan trip planning",
+        "time_start": 1,
+        "time_end": 4,
+        "primary_entity_ids": [],
+        "user_label": None,
+        "user_note": None,
+    })
+    l2.list_experience_members = AsyncMock(return_value=[])
+    l3 = MagicMock()
+    l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+    unified.l1 = None
+
+    with (
+        build_patcher(unified),
+        patch(
+            "magi.api.routers.memory.l2.experiences_routes.discover_manual_experience_seed",
+            new=AsyncMock(return_value="seed1"),
+        ) as discover_seed,
+        patch(
+            "magi.api.routers.memory.l2.experiences_routes.promote_experiences_from_episodes",
+            new=AsyncMock(return_value=ExperiencePromotionStats(promoted=1, promoted_experience_ids=["exp1"])),
+        ) as promote,
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/api/memory/l2/experience-seeds",
+            json={
+                "episode_ids": ["ep1", "ep2"],
+                "title_hint": "Japan trip planning",
+                "promote_now": True,
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["seed_id"] == "seed1"
+    assert body["promoted_experience_id"] == "exp1"
+    assert body["experience"]["experience_id"] == "exp1"
+    discover_seed.assert_awaited_once_with(
+        l2,
+        episode_id="ep1",
+        title="Japan trip planning",
+    )
+    l2.add_experience_seed_evidence.assert_awaited_once()
+    assert l2.add_experience_seed_evidence.await_args.kwargs["evidence"][0]["ref_id"] == "ep2"
+    promote.assert_awaited_once_with(l2)
+
+
+def test_create_experience_seed_from_event_ids_resolves_episode(public_app_with_mock_memory):
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.find_episode_for_event = AsyncMock(return_value={"episode_id": "ep-from-event"})
+    l2.add_experience_seed_evidence = AsyncMock(return_value=0)
+    l2.get_experience_seed = AsyncMock(return_value={
+        "seed_id": "seed-event",
+        "seed_type": "manual",
+        "status": "accepted",
+        "title": "Found from event",
+    })
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = None
+
+    with (
+        build_patcher(unified),
+        patch(
+            "magi.api.routers.memory.l2.experiences_routes.discover_manual_experience_seed",
+            new=AsyncMock(return_value="seed-event"),
+        ) as discover_seed,
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/api/memory/l2/experience-seeds",
+            json={
+                "event_ids": ["evt1"],
+                "title_hint": "Found from event",
+                "promote_now": False,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["seed_id"] == "seed-event"
+    l2.find_episode_for_event.assert_awaited_once_with(event_id="evt1")
+    discover_seed.assert_awaited_once_with(
+        l2,
+        episode_id="ep-from-event",
+        title="Found from event",
+    )
 
 
 def test_list_experiences_returns_active_reviews(public_app_with_mock_memory):

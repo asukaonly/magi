@@ -9,14 +9,17 @@ from fastapi import HTTPException, Query, status
 from ..dependencies import _resolve_unified_memory
 from ..helpers import memory_t
 from ..router import memory_router
-from ..schemas import ExperienceAnnotationRequest
+from ..schemas import ExperienceAnnotationRequest, ExperienceSeedCreateRequest
 from .episode_review_helpers import serialize_episodic_summary
 from .episodes_routes import (
     _attach_episode_entity_previews,
     _get_configured_or_real_method,
     _get_unified_layer,
+    _ordered_non_empty_strings,
     _serialize_episode_event_previews,
 )
+from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
+from magi.memory.l2.experiences.seed_discovery import discover_manual_experience_seed
 
 
 def _clean_text(value: Any) -> str:
@@ -183,6 +186,99 @@ async def _build_experience_review_response(
         "source_episodes": source_episodes,
         "events": events,
         "key_events": [],
+    }
+
+
+async def _episode_ids_from_seed_request(
+    unified_memory: Any,
+    body: ExperienceSeedCreateRequest,
+) -> list[str]:
+    episode_ids = _ordered_non_empty_strings(body.episode_ids)
+    if body.event_ids:
+        find_episode = _get_configured_or_real_method(
+            unified_memory.l2,
+            "find_episode_for_event",
+        )
+        if find_episode is not None:
+            for event_id in body.event_ids:
+                episode = await find_episode(event_id=event_id)
+                episode_id = _clean_text((episode or {}).get("episode_id"))
+                if episode_id:
+                    episode_ids.append(episode_id)
+    return _ordered_non_empty_strings(episode_ids)
+
+
+@memory_router.post("/l2/experience-seeds")
+async def create_l2_experience_seed(body: ExperienceSeedCreateRequest):
+    """Create a manual experience seed from selected episode or event evidence."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    episode_ids = await _episode_ids_from_seed_request(unified_memory, body)
+    if not episode_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=memory_t("memory.errors.no_seed_evidence", "No seed evidence provided"),
+        )
+
+    title_hint = _clean_text(body.title_hint) or None
+    seed_id = await discover_manual_experience_seed(
+        unified_memory.l2,
+        episode_id=episode_ids[0],
+        title=title_hint,
+    )
+    extra_evidence: list[dict[str, Any]] = [
+        {
+            "ref_type": "episode",
+            "ref_id": episode_id,
+            "role": "support",
+            "confidence": 0.8,
+        }
+        for episode_id in episode_ids[1:]
+    ]
+    extra_evidence.extend(
+        {
+            "ref_type": "event",
+            "ref_id": event_id,
+            "role": "support",
+            "confidence": 0.7,
+        }
+        for event_id in body.event_ids
+    )
+    if extra_evidence:
+        await unified_memory.l2.add_experience_seed_evidence(
+            seed_id=seed_id,
+            evidence=extra_evidence,
+        )
+
+    promoted_experience_id: str | None = None
+    experience_response: dict[str, Any] | None = None
+    if body.promote_now:
+        stats = await promote_experiences_from_episodes(unified_memory.l2)
+        if stats.promoted_experience_ids:
+            promoted_experience_id = str(stats.promoted_experience_ids[0])
+            experience = await unified_memory.l2.get_experience(
+                experience_id=promoted_experience_id,
+            )
+            if experience is not None:
+                members = await unified_memory.l2.list_experience_members(
+                    experience_id=promoted_experience_id,
+                )
+                experience_response = await _build_experience_review_response(
+                    unified_memory,
+                    experience=experience,
+                    members=members,
+                )
+
+    seed = await unified_memory.l2.get_experience_seed(seed_id=seed_id)
+    return {
+        "seed_id": seed_id,
+        "seed": seed,
+        "promoted_experience_id": promoted_experience_id,
+        "experience": experience_response,
     }
 
 
