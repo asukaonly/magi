@@ -36,6 +36,7 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "0013_tom_assertions_shadow_status.py",
     "0014_preference_profile_family.py",
     "0015_l2_experiences.py",
+    "0016_l2_experience_seeds.py",
 )
 
 

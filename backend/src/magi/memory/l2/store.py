@@ -153,6 +153,8 @@ class L2CognitionStore(
                 DELETE FROM entity_facets;
                 DELETE FROM tom_trait_assertions;
                 DELETE FROM tom_snapshots;
+                DELETE FROM experience_seed_evidence;
+                DELETE FROM experience_seeds;
                 DELETE FROM experience_key_events;
                 DELETE FROM experience_members;
                 DELETE FROM experiences;

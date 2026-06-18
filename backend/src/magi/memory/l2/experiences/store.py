@@ -10,7 +10,7 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from .codec import L2ExperienceStoreBaseMixin
-from .models import ExperienceMemberWrite
+from .models import ExperienceMemberWrite, ExperienceSeedEvidenceWrite
 
 
 _LIST_FIELDS = {
@@ -33,6 +33,7 @@ _ALLOWED_UPDATE_FIELDS = {
     "primary_topic_keys",
     "source_episode_count",
     "source_event_count",
+    "source_seed_id",
     "parent_experience_id",
     "merged_into_experience_id",
     "user_label",
@@ -42,6 +43,31 @@ _ALLOWED_UPDATE_FIELDS = {
 }
 _MEMBER_TYPES = {"episode", "event"}
 _MEMBER_ROLES = {"core", "supporting", "context", "excluded"}
+_SEED_LIST_FIELDS = {
+    "anchor_entity_ids",
+    "anchor_place_ids",
+    "anchor_topic_keys",
+}
+_ALLOWED_SEED_UPDATE_FIELDS = {
+    "status",
+    "title",
+    "description",
+    "anchor_entity_ids",
+    "anchor_place_ids",
+    "anchor_topic_keys",
+    "time_start",
+    "time_end",
+    "confidence",
+    "created_by",
+    "source_ref_type",
+    "source_ref_id",
+    "promoted_experience_id",
+    "last_evaluated_at",
+}
+_SEED_TYPES = {"manual", "project", "repeated_goal"}
+_SEED_STATUSES = {"candidate", "accepted", "rejected", "promoted", "stale"}
+_SEED_EVIDENCE_REF_TYPES = {"episode", "event", "entity", "summary"}
+_SEED_EVIDENCE_ROLES = {"trigger", "support", "candidate", "included", "excluded", "boundary"}
 
 
 def _json_list(values: list[str] | None) -> str:
@@ -54,8 +80,220 @@ def _member_value(member: ExperienceMemberWrite | dict[str, Any], key: str, defa
     return member.get(key, default)
 
 
+def _seed_evidence_value(
+    evidence: ExperienceSeedEvidenceWrite | dict[str, Any],
+    key: str,
+    default: Any = None,
+) -> Any:
+    if isinstance(evidence, ExperienceSeedEvidenceWrite):
+        return getattr(evidence, key, default)
+    return evidence.get(key, default)
+
+
 class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
     """Create, update, list, and curate L2 experiences."""
+
+    async def create_experience_seed(
+        self,
+        *,
+        seed_id: str,
+        seed_type: str,
+        status: str = "candidate",
+        title: str | None = None,
+        description: str | None = None,
+        anchor_entity_ids: list[str] | None = None,
+        anchor_place_ids: list[str] | None = None,
+        anchor_topic_keys: list[str] | None = None,
+        time_start: float | None = None,
+        time_end: float | None = None,
+        confidence: float = 0.0,
+        created_by: str = "system",
+        source_ref_type: str | None = None,
+        source_ref_id: str | None = None,
+    ) -> str:
+        """Create a durable experience seed."""
+        if seed_type not in _SEED_TYPES:
+            raise ValueError(f"Unsupported experience seed_type: {seed_type}")
+        if status not in _SEED_STATUSES:
+            raise ValueError(f"Unsupported experience seed status: {status}")
+        if not seed_id.strip():
+            raise ValueError("Experience seed_id is required")
+        now = time.time()
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO experience_seeds(
+                    seed_id, seed_type, status, title, description,
+                    anchor_entity_ids, anchor_place_ids, anchor_topic_keys,
+                    time_start, time_end, confidence, created_by,
+                    source_ref_type, source_ref_id, promoted_experience_id,
+                    created_at, updated_at, last_evaluated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    seed_id,
+                    seed_type,
+                    status,
+                    title,
+                    description,
+                    _json_list(anchor_entity_ids),
+                    _json_list(anchor_place_ids),
+                    _json_list(anchor_topic_keys),
+                    time_start,
+                    time_end,
+                    confidence,
+                    created_by,
+                    source_ref_type,
+                    source_ref_id,
+                    None,
+                    now,
+                    now,
+                    None,
+                ),
+            )
+            await db.commit()
+        return seed_id
+
+    async def get_experience_seed(self, *, seed_id: str) -> dict[str, Any] | None:
+        """Return one experience seed by ID."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM experience_seeds WHERE seed_id = ?",
+                (seed_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return self._experience_seed_row_to_dict(row) if row else None
+
+    async def list_experience_seeds(
+        self,
+        *,
+        status: str | None = None,
+        statuses: list[str] | None = None,
+        seed_type: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """List experience seeds with optional filters."""
+        await self.initialize()
+        query = "SELECT * FROM experience_seeds WHERE 1=1"
+        args: list[Any] = []
+        if status:
+            query += " AND status = ?"
+            args.append(status)
+        if statuses:
+            placeholders = ", ".join("?" for _ in statuses)
+            query += f" AND status IN ({placeholders})"
+            args.extend(statuses)
+        if seed_type:
+            query += " AND seed_type = ?"
+            args.append(seed_type)
+        query += " ORDER BY created_at DESC, updated_at DESC LIMIT ? OFFSET ?"
+        args.extend([limit, offset])
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [self._experience_seed_row_to_dict(row) for row in rows]
+
+    async def update_experience_seed(self, *, seed_id: str, **fields: Any) -> bool:
+        """Update mutable experience seed fields."""
+        updates = {
+            key: value
+            for key, value in fields.items()
+            if key in _ALLOWED_SEED_UPDATE_FIELDS
+        }
+        if not updates:
+            return False
+        if "status" in updates and updates["status"] not in _SEED_STATUSES:
+            raise ValueError(f"Unsupported experience seed status: {updates['status']}")
+        for field in _SEED_LIST_FIELDS:
+            if field in updates and isinstance(updates[field], list):
+                updates[field] = _json_list(updates[field])
+        updates["updated_at"] = time.time()
+        set_clause = ", ".join(f"{key} = ?" for key in updates)
+        values = list(updates.values()) + [seed_id]
+
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                f"UPDATE experience_seeds SET {set_clause} WHERE seed_id = ?",
+                tuple(values),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    async def add_experience_seed_evidence(
+        self,
+        *,
+        seed_id: str,
+        evidence: Iterable[ExperienceSeedEvidenceWrite | dict[str, Any]],
+    ) -> int:
+        """Add evidence references for a seed. Returns newly inserted count."""
+        await self.initialize()
+        now = time.time()
+        added = 0
+        async with sqlite_connection_async(self.db_path) as db:
+            for item in evidence:
+                ref_type = str(_seed_evidence_value(item, "ref_type", "") or "").strip()
+                ref_id = str(_seed_evidence_value(item, "ref_id", "") or "").strip()
+                role = str(_seed_evidence_value(item, "role", "support") or "support").strip()
+                confidence = float(_seed_evidence_value(item, "confidence", 0.5) or 0.0)
+                reason = _seed_evidence_value(item, "reason")
+                if ref_type not in _SEED_EVIDENCE_REF_TYPES:
+                    raise ValueError(f"Unsupported experience seed evidence ref_type: {ref_type}")
+                if role not in _SEED_EVIDENCE_ROLES:
+                    raise ValueError(f"Unsupported experience seed evidence role: {role}")
+                if not ref_id:
+                    raise ValueError("Experience seed evidence ref_id is required")
+                cursor = await db.execute(
+                    """
+                    INSERT OR IGNORE INTO experience_seed_evidence(
+                        seed_id, ref_type, ref_id, role, confidence, reason, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (seed_id, ref_type, ref_id, role, confidence, reason, now),
+                )
+                added += int(cursor.rowcount > 0)
+            await db.commit()
+        return added
+
+    async def list_experience_seed_evidence(
+        self,
+        *,
+        seed_id: str,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """List evidence references for a seed."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT * FROM experience_seed_evidence
+                WHERE seed_id = ?
+                ORDER BY
+                    created_at ASC,
+                    CASE role
+                        WHEN 'trigger' THEN 0
+                        WHEN 'included' THEN 1
+                        WHEN 'support' THEN 2
+                        WHEN 'candidate' THEN 3
+                        WHEN 'boundary' THEN 4
+                        WHEN 'excluded' THEN 5
+                        ELSE 6
+                    END,
+                    ref_type ASC,
+                    ref_id ASC
+                LIMIT ?
+                """,
+                (seed_id, limit),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._experience_seed_evidence_row_to_dict(row) for row in rows]
 
     async def create_experience(
         self,
@@ -75,6 +313,7 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
         primary_topic_keys: list[str] | None = None,
         source_episode_count: int = 0,
         source_event_count: int = 0,
+        source_seed_id: str | None = None,
         parent_experience_id: str | None = None,
         merged_into_experience_id: str | None = None,
         user_label: str | None = None,
@@ -92,10 +331,10 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
                     experience_type, intent, outcome, magi_interpretation,
                     narrative_score, primary_entity_ids, primary_place_ids,
                     primary_topic_keys, source_episode_count, source_event_count,
-                    parent_experience_id, merged_into_experience_id,
+                    source_seed_id, parent_experience_id, merged_into_experience_id,
                     user_label, user_note, user_pinned,
                     created_at, updated_at, last_recomputed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     experience_id,
@@ -113,6 +352,7 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
                     _json_list(primary_topic_keys),
                     source_episode_count,
                     source_event_count,
+                    source_seed_id,
                     parent_experience_id,
                     merged_into_experience_id,
                     user_label,

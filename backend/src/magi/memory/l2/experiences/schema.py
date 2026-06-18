@@ -9,9 +9,13 @@ from __future__ import annotations
 EXPERIENCES_TABLE = "experiences"
 EXPERIENCE_MEMBERS_TABLE = "experience_members"
 EXPERIENCE_KEY_EVENTS_TABLE = "experience_key_events"
+EXPERIENCE_SEEDS_TABLE = "experience_seeds"
+EXPERIENCE_SEED_EVIDENCE_TABLE = "experience_seed_evidence"
 
 __all__ = [
     "EXPERIENCES_TABLE",
     "EXPERIENCE_KEY_EVENTS_TABLE",
     "EXPERIENCE_MEMBERS_TABLE",
+    "EXPERIENCE_SEEDS_TABLE",
+    "EXPERIENCE_SEED_EVIDENCE_TABLE",
 ]

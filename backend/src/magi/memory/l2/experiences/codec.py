@@ -8,6 +8,10 @@ from typing import Any
 import aiosqlite
 
 
+def _row_has(row: aiosqlite.Row, key: str) -> bool:
+    return key in row.keys()
+
+
 class L2ExperienceStoreBaseMixin:
     """Shared base for L2 experience persistence mixins."""
 
@@ -35,6 +39,11 @@ class L2ExperienceStoreBaseMixin:
             "primary_topic_keys": json.loads(row["primary_topic_keys"] or "[]"),
             "source_episode_count": int(row["source_episode_count"] or 0),
             "source_event_count": int(row["source_event_count"] or 0),
+            "source_seed_id": (
+                str(row["source_seed_id"])
+                if _row_has(row, "source_seed_id") and row["source_seed_id"]
+                else None
+            ),
             "parent_experience_id": (
                 str(row["parent_experience_id"]) if row["parent_experience_id"] else None
             ),
@@ -61,6 +70,43 @@ class L2ExperienceStoreBaseMixin:
             "role": str(row["role"]),
             "confidence": float(row["confidence"]),
             "added_at": float(row["added_at"]),
+        }
+
+    def _experience_seed_row_to_dict(self, row: aiosqlite.Row) -> dict[str, Any]:
+        return {
+            "seed_id": str(row["seed_id"]),
+            "seed_type": str(row["seed_type"]),
+            "status": str(row["status"]),
+            "title": str(row["title"]) if row["title"] else None,
+            "description": str(row["description"]) if row["description"] else None,
+            "anchor_entity_ids": json.loads(row["anchor_entity_ids"] or "[]"),
+            "anchor_place_ids": json.loads(row["anchor_place_ids"] or "[]"),
+            "anchor_topic_keys": json.loads(row["anchor_topic_keys"] or "[]"),
+            "time_start": float(row["time_start"]) if row["time_start"] is not None else None,
+            "time_end": float(row["time_end"]) if row["time_end"] is not None else None,
+            "confidence": float(row["confidence"] or 0.0),
+            "created_by": str(row["created_by"]),
+            "source_ref_type": str(row["source_ref_type"]) if row["source_ref_type"] else None,
+            "source_ref_id": str(row["source_ref_id"]) if row["source_ref_id"] else None,
+            "promoted_experience_id": (
+                str(row["promoted_experience_id"]) if row["promoted_experience_id"] else None
+            ),
+            "created_at": float(row["created_at"]),
+            "updated_at": float(row["updated_at"]),
+            "last_evaluated_at": (
+                float(row["last_evaluated_at"]) if row["last_evaluated_at"] else None
+            ),
+        }
+
+    def _experience_seed_evidence_row_to_dict(self, row: aiosqlite.Row) -> dict[str, Any]:
+        return {
+            "seed_id": str(row["seed_id"]),
+            "ref_type": str(row["ref_type"]),
+            "ref_id": str(row["ref_id"]),
+            "role": str(row["role"]),
+            "confidence": float(row["confidence"] or 0.0),
+            "reason": str(row["reason"]) if row["reason"] else None,
+            "created_at": float(row["created_at"]),
         }
 
 
