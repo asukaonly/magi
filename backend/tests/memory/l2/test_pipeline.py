@@ -4400,6 +4400,43 @@ class TestExtractionInstructions:
         assert "Do NOT invent entity IDs" in PHASE2_INTEGRATE_SYSTEM_PROMPT
         assert "romanize" in PHASE2_INTEGRATE_SYSTEM_PROMPT
 
+    def test_phase2_prompt_includes_all_phase1_entities(self):
+        from magi.memory.l2.models import L2EventWindow
+        from magi.memory.l2.pipeline.prompts import render_phase2_integrate_prompt
+
+        phase2_prompt = render_phase2_integrate_prompt(
+            phase1_result={
+                "entities": [
+                    {
+                        "surface": "Magi",
+                        "normalized_name": "Magi",
+                        "entity_type": "software",
+                        "specificity": "concrete",
+                        "resolved_id": "software:magi",
+                        "is_new": False,
+                    },
+                    {
+                        "surface": "Codex",
+                        "normalized_name": "Codex",
+                        "entity_type": "software",
+                        "specificity": "concrete",
+                        "resolved_id": "software:codex",
+                        "is_new": True,
+                    },
+                ],
+                "fact_claims": [],
+            },
+            existing_graph_edges=[],
+            existing_assertions=[],
+            event_window=L2EventWindow(
+                events=[{"event_id": "evt-tools", "content": "Magi and Codex", "timestamp": 1.0}]
+            ),
+            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+        )
+
+        assert "**Magi** -> software:magi" in phase2_prompt
+        assert "**Codex** -> software:codex" in phase2_prompt
+
     def test_phase2_prompt_includes_integration_instructions(self):
         from magi.memory.l2.models import L2EventWindow
         from magi.memory.l2.pipeline.prompts import render_phase2_integrate_prompt

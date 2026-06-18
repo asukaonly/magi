@@ -360,13 +360,16 @@ def render_phase2_integrate_prompt(
             etype = entity.get("entity_type", "")
             specificity = entity.get("specificity", "concrete")
             resolved_id = entity.get("resolved_id")
-        entity_status = "new" if entity.get("is_new", True) else "existing"
-        status = (
-          f"entity_id={resolved_id}, status={entity_status}"
-          if resolved_id
-          else "unresolved_new_surface"
-        )
-        parts.append(f"- **{surface}** -> {resolved_id or 'NO_ENTITY_ID'} [{etype}, {specificity}] ({status})")
+            entity_status = "new" if entity.get("is_new", True) else "existing"
+            status = (
+              f"entity_id={resolved_id}, status={entity_status}"
+              if resolved_id
+              else "unresolved_new_surface"
+            )
+            parts.append(
+              f"- **{surface}** -> {resolved_id or 'NO_ENTITY_ID'} "
+              f"[{etype}, {specificity}] ({status})"
+            )
         parts.append("")
 
     fact_claims = phase1_result.get("fact_claims", [])
