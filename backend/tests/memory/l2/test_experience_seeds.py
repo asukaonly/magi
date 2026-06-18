@@ -232,3 +232,182 @@ async def test_repeated_goal_selector_creates_candidate_for_weak_chrome_only_see
     assert seeds[0]["title"] == "Scattered browser reading"
     assert seeds[0]["confidence"] == 0.35
     assert seeds[0]["anchor_entity_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_seed_recall_includes_triggers_and_caps_raw_events(l2_store_with_schema):
+    from magi.memory.l2.experiences.seed_recall import recall_candidate_evidence_for_seed
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    await store.create_episode(
+        episode_id="ep-train",
+        status="active",
+        label="Book Shinkansen tickets",
+        time_start=100.0,
+        time_end=200.0,
+        primary_entity_ids=["travel:shinkansen"],
+        primary_topic_keys=["travel"],
+        source_event_count=30,
+    )
+    await store.create_episode(
+        episode_id="ep-map",
+        status="active",
+        label="Search Tokyo hotel map",
+        time_start=260.0,
+        time_end=320.0,
+        primary_entity_ids=["place:tokyo"],
+        primary_topic_keys=["travel"],
+        source_event_count=3,
+    )
+    await store.create_episode(
+        episode_id="ep-mc",
+        status="active",
+        label="Watch redstone minecart video",
+        time_start=330.0,
+        time_end=380.0,
+        primary_entity_ids=["game:minecraft"],
+        primary_topic_keys=["redstone"],
+        source_event_count=2,
+    )
+    await store.add_episode_events(
+        episode_id="ep-train",
+        event_ids=[f"train-{index}" for index in range(30)],
+    )
+    await store.add_episode_events(episode_id="ep-map", event_ids=["map-1", "map-2", "map-3"])
+    await store.add_episode_events(episode_id="ep-mc", event_ids=["mc-1", "mc-2"])
+    seed_id = await store.create_experience_seed(
+        seed_id="seed-japan-recall",
+        seed_type="manual",
+        status="accepted",
+        title="Japan trip planning",
+        anchor_entity_ids=["travel:shinkansen", "place:tokyo"],
+        anchor_topic_keys=["travel"],
+        time_start=100.0,
+        time_end=320.0,
+        confidence=0.9,
+        created_by="user",
+    )
+    await store.add_experience_seed_evidence(
+        seed_id=seed_id,
+        evidence=[{"ref_type": "episode", "ref_id": "ep-train", "role": "trigger"}],
+    )
+
+    pack = await recall_candidate_evidence_for_seed(
+        store,
+        seed_id=seed_id,
+        window_seconds=600,
+        raw_event_limit=10,
+    )
+
+    assert pack["trigger_episode_ids"] == ["ep-train"]
+    assert [episode["episode_id"] for episode in pack["candidate_episodes"]] == [
+        "ep-train",
+        "ep-map",
+        "ep-mc",
+    ]
+    assert len(pack["candidate_event_ids"]) == 10
+
+
+@pytest.mark.asyncio
+async def test_seed_selection_can_exclude_unrelated_interlude(l2_store_with_schema):
+    from magi.memory.l2.experiences.seed_recall import recall_candidate_evidence_for_seed
+    from magi.memory.l2.experiences.seed_selection import select_experience_from_seed
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    for episode_id, label, entity, topic, start in [
+        ("ep-train", "Book Shinkansen tickets", "travel:shinkansen", "travel", 100.0),
+        ("ep-map", "Search Tokyo hotel map", "place:tokyo", "travel", 260.0),
+        ("ep-mc", "Watch redstone minecart video", "game:minecraft", "redstone", 330.0),
+    ]:
+        await store.create_episode(
+            episode_id=episode_id,
+            status="active",
+            label=label,
+            time_start=start,
+            time_end=start + 50.0,
+            primary_entity_ids=[entity],
+            primary_topic_keys=[topic],
+            source_event_count=3,
+        )
+    seed_id = await store.create_experience_seed(
+        seed_id="seed-japan-selection",
+        seed_type="manual",
+        status="accepted",
+        title="Japan trip planning",
+        anchor_entity_ids=["travel:shinkansen", "place:tokyo"],
+        anchor_topic_keys=["travel"],
+        time_start=100.0,
+        time_end=320.0,
+        confidence=0.9,
+        created_by="user",
+    )
+    await store.add_experience_seed_evidence(
+        seed_id=seed_id,
+        evidence=[{"ref_type": "episode", "ref_id": "ep-train", "role": "trigger"}],
+    )
+
+    pack = await recall_candidate_evidence_for_seed(store, seed_id=seed_id, window_seconds=600)
+
+    def selector(seed, evidence_pack):
+        return {
+            "is_experience": True,
+            "title": "Japan trip planning",
+            "one_sentence_review": "你在车票、地图和住宿之间整理日本旅行计划。",
+            "included_episode_ids": ["ep-train", "ep-map"],
+            "included_event_ids": [],
+            "excluded_refs": [{"ref_type": "episode", "ref_id": "ep-mc", "reason": "Minecraft interlude"}],
+            "time_start": 100.0,
+            "time_end": 320.0,
+            "confidence": 0.86,
+            "reason": "Travel planning evidence forms a coherent experience.",
+        }
+
+    selection = await select_experience_from_seed(seed=pack["seed"], evidence_pack=pack, selector=selector)
+
+    assert selection.is_experience is True
+    assert selection.included_episode_ids == ["ep-train", "ep-map"]
+    assert selection.excluded_refs == [
+        {"ref_type": "episode", "ref_id": "ep-mc", "reason": "Minecraft interlude"}
+    ]
+    assert selection.one_sentence_review == "你在车票、地图和住宿之间整理日本旅行计划。"
+
+
+@pytest.mark.asyncio
+async def test_default_selection_rejects_generic_only_candidate(l2_store_with_schema):
+    from magi.memory.l2.experiences.seed_recall import recall_candidate_evidence_for_seed
+    from magi.memory.l2.experiences.seed_selection import select_experience_from_seed
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    await store.create_episode(
+        episode_id="ep-chrome",
+        status="active",
+        label="Browse Chrome tabs",
+        time_start=100.0,
+        time_end=160.0,
+        primary_entity_ids=["software:chrome", "user:local_user"],
+        primary_topic_keys=["browser"],
+        source_event_count=40,
+    )
+    seed_id = await store.create_experience_seed(
+        seed_id="seed-generic-only",
+        seed_type="repeated_goal",
+        status="candidate",
+        title="Browser activity",
+        time_start=100.0,
+        time_end=160.0,
+        confidence=0.35,
+        created_by="system",
+    )
+    await store.add_experience_seed_evidence(
+        seed_id=seed_id,
+        evidence=[{"ref_type": "episode", "ref_id": "ep-chrome", "role": "candidate"}],
+    )
+
+    pack = await recall_candidate_evidence_for_seed(store, seed_id=seed_id)
+    selection = await select_experience_from_seed(seed=pack["seed"], evidence_pack=pack)
+
+    assert selection.is_experience is False
+    assert selection.included_episode_ids == []
