@@ -120,3 +120,45 @@ def test_query_script_reuses_sample_namespace_and_writes_locomo_outputs(tmp_path
     assert summary["overall_f1"] == 1.0
     assert summary["category_metrics"]["4"]["count"] == 1
     assert summary["category_metrics"]["5"]["f1"] == 1.0
+
+
+def test_query_script_applies_qa_limit(tmp_path) -> None:
+    service = FakeQueryService(
+        results=[
+            EvalMemoryQueryResult(
+                hits=[
+                    EvalMemoryHit(
+                        event_id="evt-1",
+                        session_id="session_1",
+                        turn_id="D1:1",
+                        score=0.99,
+                        content='Caroline said, "I joined a support group."',
+                    )
+                ],
+                trace={"intent_source": "rule"},
+                answer="support group",
+            )
+        ]
+    )
+
+    artifacts = asyncio.run(
+        query_locomo_samples(
+            samples=[_build_sample()],
+            eval_service=service,
+            run_id="run-1",
+            output_root=tmp_path,
+            qa_limit=1,
+        )
+    )
+
+    assert len(service.queries) == 1
+    assert read_jsonl(artifacts.predictions_path) == [
+        {
+            "question_id": "conv-test:qa-1",
+            "sample_id": "conv-test",
+            "qa_index": 0,
+            "category": 4,
+            "category_label": "single-hop",
+            "hypothesis": "support group",
+        }
+    ]

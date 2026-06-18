@@ -56,6 +56,21 @@ def load_locomo_samples(dataset_path: str | Path | None = None, *, limit: int | 
     return rows
 
 
+def apply_qa_limit(samples: Sequence[dict[str, Any]], *, qa_limit: int | None = None) -> list[dict[str, Any]]:
+    """Return samples with each conversation's QA list limited to ``qa_limit``."""
+    if qa_limit is None:
+        return [dict(sample) for sample in samples]
+    if qa_limit < 0:
+        raise ValueError("qa_limit must be non-negative")
+
+    limited_samples: list[dict[str, Any]] = []
+    for sample in samples:
+        limited = dict(sample)
+        limited["qa"] = list(sample.get("qa") or [])[:qa_limit]
+        limited_samples.append(limited)
+    return limited_samples
+
+
 def synthesize_locomo_hypothesis(
     *,
     answer: str | None,
@@ -89,6 +104,7 @@ def _normalize_adversarial_hypothesis(text: str, *, category: int) -> str:
 
 __all__ = [
     "DEFAULT_LOCOMO_ROOT",
+    "apply_qa_limit",
     "format_run_id",
     "load_locomo_samples",
     "resolve_locomo_dataset",

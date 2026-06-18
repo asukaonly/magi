@@ -17,6 +17,7 @@ One-shot runner:
 python benchmark/locomo/run_all.py \
   --output-root benchmark/outputs \
   --limit 1 \
+  --qa-limit 10 \
   --skip-finalize \
   --skip-background-wait
 ```
@@ -28,6 +29,7 @@ python benchmark/locomo/replay_dataset.py \
   --output-root benchmark/outputs \
   --run-id locomo-smoke \
   --limit 1 \
+  --qa-limit 10 \
   --skip-finalize \
   --skip-background-wait
 
@@ -35,6 +37,7 @@ python benchmark/locomo/query_dataset.py \
   --output-root benchmark/outputs \
   --run-id locomo-smoke \
   --limit 1 \
+  --qa-limit 10 \
   --answer-with-llm
 ```
 

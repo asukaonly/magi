@@ -20,7 +20,7 @@ for candidate in (REPO_ROOT, BACKEND_SRC):
 from benchmark.common.io import write_jsonl
 from benchmark.common.paths import build_run_output_dir, resolve_backend_url
 from benchmark.locomo.adapter import adapt_locomo_sample
-from benchmark.locomo.runner import load_locomo_samples
+from benchmark.locomo.runner import apply_qa_limit, load_locomo_samples
 from benchmark.longmemeval.backend_client import BackendEvalService
 from benchmark.longmemeval.replay_dataset import (
     wait_for_background_idle,
@@ -78,7 +78,9 @@ async def replay_locomo_samples(
     poll_interval_seconds: float = 5.0,
     finalize: bool = True,
     wait_for_background: bool = True,
+    qa_limit: int | None = None,
 ) -> LoCoMoReplayArtifacts:
+    samples = apply_qa_limit(samples, qa_limit=qa_limit)
     output_dir = build_run_output_dir(
         root_dir=output_root,
         benchmark_name=benchmark_name,
@@ -178,6 +180,7 @@ async def _run_cli(args: argparse.Namespace) -> LoCoMoReplayArtifacts:
         poll_interval_seconds=args.poll_interval_seconds,
         finalize=not args.skip_finalize,
         wait_for_background=not args.skip_background_wait,
+        qa_limit=args.qa_limit,
     )
 
 
@@ -191,6 +194,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-root", default="benchmark/outputs", help="Directory for benchmark outputs.")
     parser.add_argument("--run-id", default="smoke", help="Logical run identifier.")
     parser.add_argument("--limit", type=int, default=None, help="Optional sample limit for quick runs.")
+    parser.add_argument(
+        "--qa-limit",
+        type=int,
+        default=None,
+        help="Optional per-sample QA limit for quick runs.",
+    )
     parser.add_argument("--backend-url", default=None, help="Magi backend base URL (auto-detected if omitted).")
     parser.add_argument(
         "--request-timeout",

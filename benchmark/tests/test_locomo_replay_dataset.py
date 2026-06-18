@@ -142,6 +142,28 @@ def test_replay_script_can_skip_finalize_and_background_wait(tmp_path) -> None:
     }
 
 
+def test_replay_script_applies_qa_limit_to_manifest_and_progress(tmp_path) -> None:
+    service = FakeReplayService()
+    progress_events: list[dict[str, object]] = []
+
+    artifacts = asyncio.run(
+        replay_locomo_samples(
+            samples=[_build_sample()],
+            eval_service=service,
+            run_id="run-1",
+            output_root=tmp_path,
+            qa_limit=0,
+            finalize=False,
+            wait_for_background=False,
+            progress_reporter=lambda progress: progress_events.append(asdict(progress)),
+        )
+    )
+
+    assert progress_events[0]["qa_count"] == 0
+    assert read_jsonl(artifacts.manifest_path)[0]["qa_count"] == 0
+    assert service.write_calls == [("benchmark/locomo/run-1/conv-test", 2)]
+
+
 def test_parse_args_accepts_skip_finalize_and_background_wait() -> None:
     args = parse_args(
         [
@@ -149,8 +171,11 @@ def test_parse_args_accepts_skip_finalize_and_background_wait() -> None:
             "/tmp/locomo.json",
             "--skip-finalize",
             "--skip-background-wait",
+            "--qa-limit",
+            "10",
         ]
     )
 
     assert args.skip_finalize is True
     assert args.skip_background_wait is True
+    assert args.qa_limit == 10

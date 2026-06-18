@@ -26,7 +26,7 @@ from benchmark.locomo.report import (
     build_prediction_row,
     compute_locomo_summary,
 )
-from benchmark.locomo.runner import load_locomo_samples, synthesize_locomo_hypothesis
+from benchmark.locomo.runner import apply_qa_limit, load_locomo_samples, synthesize_locomo_hypothesis
 from benchmark.longmemeval.backend_client import BackendEvalService
 from magi.memory.eval_support.contracts import EvalMemoryQueryResult
 from magi.memory.eval_support.namespace import build_eval_namespace
@@ -77,7 +77,9 @@ async def query_locomo_samples(
     progress_reporter: Callable[[QueryProgress], None] | None = None,
     answer_with_llm: bool = False,
     mode: str = "auto",
+    qa_limit: int | None = None,
 ) -> LoCoMoQueryArtifacts:
+    samples = apply_qa_limit(samples, qa_limit=qa_limit)
     output_dir = build_run_output_dir(
         root_dir=output_root,
         benchmark_name=benchmark_name,
@@ -223,6 +225,7 @@ async def _run_cli(args: argparse.Namespace) -> LoCoMoQueryArtifacts:
         progress_reporter=print_query_progress,
         answer_with_llm=args.answer_with_llm,
         mode=args.mode,
+        qa_limit=args.qa_limit,
     )
 
 
@@ -236,6 +239,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-root", default="benchmark/outputs", help="Directory for benchmark outputs.")
     parser.add_argument("--run-id", default="smoke", help="Existing run identifier used during replay.")
     parser.add_argument("--limit", type=int, default=None, help="Optional sample limit for quick runs.")
+    parser.add_argument(
+        "--qa-limit",
+        type=int,
+        default=None,
+        help="Optional per-sample QA limit for quick runs.",
+    )
     parser.add_argument("--backend-url", default=None, help="Magi backend base URL (auto-detected if omitted).")
     parser.add_argument(
         "--request-timeout",

@@ -28,6 +28,7 @@ def run_locomo_pipeline(
     backend_url: str | None = None,
     answer_with_llm: bool = True,
     limit: int | None = None,
+    qa_limit: int | None = None,
     finalize: bool = True,
     wait_for_background: bool = True,
 ) -> dict[str, Any]:
@@ -48,6 +49,7 @@ def run_locomo_pipeline(
         run_id=run_id,
         backend_url=resolved_backend_url,
         limit=limit,
+        qa_limit=qa_limit,
         finalize=finalize,
         wait_for_background=wait_for_background,
     )
@@ -58,6 +60,7 @@ def run_locomo_pipeline(
         backend_url=resolved_backend_url,
         answer_with_llm=answer_with_llm,
         limit=limit,
+        qa_limit=qa_limit,
     )
 
     summary_path = run_dir / "summary.json"
@@ -82,6 +85,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--run-id", default=None, help="Optional run identifier. Defaults to local timestamp.")
     parser.add_argument("--backend-url", default=None, help="Magi backend base URL (auto-detected if omitted).")
     parser.add_argument("--limit", type=int, default=None, help="Optional sample limit for smoke runs.")
+    parser.add_argument(
+        "--qa-limit",
+        type=int,
+        default=None,
+        help="Optional per-sample QA limit for smoke runs.",
+    )
     parser.add_argument(
         "--no-answer-with-llm",
         action="store_true",
@@ -109,6 +118,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         backend_url=args.backend_url,
         answer_with_llm=not args.no_answer_with_llm,
         limit=args.limit,
+        qa_limit=args.qa_limit,
         finalize=not args.skip_finalize,
         wait_for_background=not args.skip_background_wait,
     )
@@ -123,6 +133,7 @@ def _invoke_replay(
     run_id: str,
     backend_url: str,
     limit: int | None,
+    qa_limit: int | None,
     finalize: bool,
     wait_for_background: bool,
 ) -> None:
@@ -138,6 +149,8 @@ def _invoke_replay(
     ]
     if limit is not None:
         argv.extend(["--limit", str(limit)])
+    if qa_limit is not None:
+        argv.extend(["--qa-limit", str(qa_limit)])
     if not finalize:
         argv.append("--skip-finalize")
     if not wait_for_background:
@@ -153,6 +166,7 @@ def _invoke_query(
     backend_url: str,
     answer_with_llm: bool,
     limit: int | None,
+    qa_limit: int | None,
 ) -> None:
     argv = [
         "--dataset",
@@ -168,6 +182,8 @@ def _invoke_query(
         argv.append("--answer-with-llm")
     if limit is not None:
         argv.extend(["--limit", str(limit)])
+    if qa_limit is not None:
+        argv.extend(["--qa-limit", str(qa_limit)])
     query_main(argv)
 
 
