@@ -89,7 +89,7 @@ const selectMenuClassName =
   'rounded-lg border-0 shadow-[0_18px_42px_hsl(var(--foreground)/0.12),inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.2)]';
 
 const providerButtonClassName =
-  'h-10 rounded-lg px-4 text-sm font-semibold shadow-[0_10px_24px_hsl(var(--primary)/0.14)] transition-[background-color,box-shadow,color] duration-200 hover:shadow-[0_12px_28px_hsl(var(--primary)/0.18)]';
+  'h-9 rounded-lg px-4 text-sm font-semibold shadow-[0_8px_18px_hsl(var(--primary)/0.11)] transition-[background-color,box-shadow,color] duration-200 hover:shadow-[0_10px_22px_hsl(var(--primary)/0.15)]';
 
 const templateButtonClassName =
   'flex min-h-16 items-center gap-3 rounded-lg bg-[hsl(var(--settings-shell)/0.54)] px-3.5 py-3 text-left shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.16)] transition-[background-color,box-shadow,transform,color] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.82)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.26),0_10px_24px_hsl(var(--foreground)/0.035)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25';

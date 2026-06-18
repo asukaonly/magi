@@ -468,7 +468,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 onClick={() => void handleSaveChanges()}
                 disabled={!dirty || saving || llmValidationIssues.length > 0}
                 className={cn(
-                  'h-9 rounded-lg px-4 transition-all duration-200 shadow-[0_10px_24px_hsl(var(--primary)/0.16)] hover:shadow-[0_12px_28px_hsl(var(--primary)/0.2)]',
+                  'h-9 rounded-lg px-4 transition-all duration-200 shadow-[0_8px_18px_hsl(var(--primary)/0.11)] hover:shadow-[0_10px_22px_hsl(var(--primary)/0.15)]',
                   dirty && 'animate-in pulse duration-300'
                 )}
               >
