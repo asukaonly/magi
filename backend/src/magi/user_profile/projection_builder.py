@@ -26,6 +26,7 @@ _FIELD_TRAITS: dict[str, str] = {
 _SOURCE_PRIORITY = {
     "settings_profile": 400,
     "user_feedback": 300,
+    "user_authored": 300,
     "chat": 100,
 }
 _STATE_PRIORITY = {
