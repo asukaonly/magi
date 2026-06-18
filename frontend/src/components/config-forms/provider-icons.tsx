@@ -18,7 +18,7 @@ interface ProviderIconProps {
 }
 
 const iconShellClassName =
-  'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-background/90 shadow-[0_1px_2px_rgba(15,23,42,0.04)]';
+  'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-background/90 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.22),0_4px_12px_rgba(15,23,42,0.04)]';
 
 const customGlyphClassName =
   'flex h-[18px] w-[18px] items-center justify-center text-[13px] font-semibold uppercase leading-none';

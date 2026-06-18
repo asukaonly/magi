@@ -80,7 +80,25 @@ type EditorMode = 'add' | 'edit';
 type ServiceModelKind = 'chat' | 'embedding' | 'image';
 
 const fieldClassName =
-  'h-10 w-full rounded-lg bg-background px-3 text-sm ring-1 ring-inset ring-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
+  'h-11 w-full rounded-lg border-0 bg-[hsl(var(--settings-shell-elevated)/0.74)] px-4 text-sm leading-6 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.24)] transition-[background-color,box-shadow,color] duration-200 placeholder:text-muted-foreground/70 hover:bg-[hsl(var(--settings-shell-elevated)/0.94)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.38)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25';
+
+const selectTriggerClassName =
+  'h-11 rounded-lg border-0 bg-[hsl(var(--settings-shell-elevated)/0.74)] px-4 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.24)] transition-[background-color,box-shadow,color] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.94)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.38)] focus-visible:ring-ring/25';
+
+const selectMenuClassName =
+  'rounded-lg border-0 shadow-[0_18px_42px_hsl(var(--foreground)/0.12),inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.2)]';
+
+const providerButtonClassName =
+  'h-10 rounded-lg px-4 text-sm font-semibold shadow-[0_10px_24px_hsl(var(--primary)/0.14)] transition-[background-color,box-shadow,color] duration-200 hover:shadow-[0_12px_28px_hsl(var(--primary)/0.18)]';
+
+const templateButtonClassName =
+  'flex min-h-16 items-center gap-3 rounded-lg bg-[hsl(var(--settings-shell)/0.54)] px-3.5 py-3 text-left shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.16)] transition-[background-color,box-shadow,transform,color] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.82)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.26),0_10px_24px_hsl(var(--foreground)/0.035)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25';
+
+const selectedTemplateButtonClassName =
+  'bg-[hsl(var(--settings-nav-active)/0.54)] shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.24),0_12px_26px_hsl(var(--foreground)/0.04)]';
+
+const quietPanelClassName =
+  'rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.48)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.16)]';
 
 const SERVICE_NAMES: VisibleServiceName[] = ['chat', 'embedding', 'image_generation'];
 const SERVICE_MODEL_KIND: Record<VisibleServiceName, ServiceModelKind> = {
@@ -630,9 +648,9 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     const serviceValidationIssues = draftValidationIssues.filter((issue) => issue.serviceName === serviceName);
 
     return (
-      <div key={serviceName} className="overflow-visible rounded-lg border border-border/70 bg-background/80">
+      <div key={serviceName} className={cn('overflow-visible transition-[background-color,box-shadow] duration-200', quietPanelClassName)}>
         <div
-          className="flex items-center justify-between gap-3 px-4 py-3"
+          className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-4 py-3.5 transition-colors duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.36)]"
           role="button"
           tabIndex={0}
           onClick={() => setExpandedServices((current) => ({ ...current, [serviceName]: !current[serviceName] }))}
@@ -644,8 +662,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
           }}
         >
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-foreground">{serviceLabel}</div>
-            {expanded ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{serviceDesc}</p> : null}
+            <div className="text-sm font-semibold leading-6 text-foreground">{serviceLabel}</div>
+            {expanded ? <p className="mt-1 text-[13px] leading-6 text-muted-foreground">{serviceDesc}</p> : null}
           </div>
           <div className="flex shrink-0 items-center gap-2" onClick={(event) => event.stopPropagation()}>
             {expanded ? (
@@ -657,8 +675,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   aria-label={t('llm.actions.testConnection')}
                   title={t('llm.actions.testConnection')}
                   className={cn(
-                    'h-8 w-8 rounded-md border border-border/65 bg-background/70 p-0 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground',
-                    testPopoverService === serviceName && 'bg-muted text-foreground'
+                    'h-8 w-8 rounded-md bg-[hsl(var(--settings-shell-elevated)/0.58)] p-0 text-muted-foreground shadow-none transition-[background-color,color] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.92)] hover:text-foreground',
+                    testPopoverService === serviceName && 'bg-[hsl(var(--settings-shell-elevated)/0.92)] text-foreground'
                   )}
                   disabled={!canTestService}
                   onClick={() => setTestPopoverService((current) => current === serviceName ? null : serviceName)}
@@ -667,15 +685,17 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 </Button>
 
                 {testPopoverService === serviceName ? (
-                  <div className="absolute right-0 top-full z-50 mt-2 w-[min(320px,calc(100vw-3rem))] space-y-3 rounded-lg border border-border bg-background p-3 shadow-[0_18px_42px_rgba(15,23,42,0.18)]">
-                    <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.testTitle')}</div>
+                  <div className="absolute right-0 top-full z-50 mt-2 w-[min(320px,calc(100vw-3rem))] space-y-3 rounded-lg border-0 bg-background p-3 shadow-[0_18px_42px_rgba(15,23,42,0.18),inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.18)]">
+                    <div className="text-sm font-semibold leading-6 text-foreground">{t('llm.providerConfiguration.testTitle')}</div>
                     <label className="block space-y-2">
-                      <span className="text-sm font-medium">{t('llm.providerConfiguration.testModelLabel')}</span>
+                      <span className="text-sm font-medium leading-6">{t('llm.providerConfiguration.testModelLabel')}</span>
                       <SelectField
                         value={selectedTestModel}
                         disabled={!serviceModels.length}
                         placeholder={t('llm.providerConfiguration.testModelEmpty')}
                         options={serviceModels.map((model) => ({ label: model.label, value: model.id }))}
+                        triggerClassName={selectTriggerClassName}
+                        menuClassName={selectMenuClassName}
                         onChange={(nextModel) => setTestModelByService((current) => ({ ...current, [serviceName]: nextModel }))}
                       />
                     </label>
@@ -712,10 +732,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
         </div>
 
         {expanded ? (
-          <div className="space-y-4 border-t border-border/70 px-4 py-4">
+          <div className="space-y-4 px-4 pb-4 pt-1">
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-2">
-                <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
+                <span className="text-sm font-medium leading-6">{t('llm.fields.apiKey')}</span>
                 {renderSecretField({
                   scope: serviceName,
                   ariaLabel: `${serviceLabel} ${t('llm.fields.apiKey')}`,
@@ -725,7 +745,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 })}
               </label>
               <label className="space-y-2">
-                <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
+                <span className="text-sm font-medium leading-6">{t('llm.fields.baseUrl')}</span>
                 <input
                   aria-label={`${serviceLabel} ${t('llm.fields.baseUrl')}`}
                   className={fieldClassName}
@@ -738,7 +758,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
               {serviceName === 'image_generation' ? (
                 <>
                   <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('llm.imageGenerationConnection.timeout')}</span>
+                    <span className="text-sm font-medium leading-6">{t('llm.imageGenerationConnection.timeout')}</span>
                     <input
                       aria-label={t('llm.imageGenerationConnection.timeout')}
                       className={fieldClassName}
@@ -754,12 +774,14 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                     />
                   </label>
                   <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('llm.providerConfiguration.nativeProtocol')}</span>
+                    <span className="text-sm font-medium leading-6">{t('llm.providerConfiguration.nativeProtocol')}</span>
                     <SelectField
                       value={draftProvider.services.image_generation.native_protocol || ''}
                       allowEmpty
                       placeholder={t('llm.providerConfiguration.modelDefaultProtocol')}
                       options={IMAGE_NATIVE_PROTOCOL_OPTIONS}
+                      triggerClassName={selectTriggerClassName}
+                      menuClassName={selectMenuClassName}
                       onChange={(nextValue) => updateDraftService('image_generation', (draft) => {
                         draft.native_protocol = nextValue || null;
                       })}
@@ -769,10 +791,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
               ) : null}
             </div>
 
-            <div className="space-y-3 rounded-lg bg-muted/25 p-3">
+            <div className="space-y-3 rounded-lg bg-[hsl(var(--settings-shell)/0.44)] p-3.5">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-end">
                 <label className="min-w-0 flex-1 space-y-2">
-                  <span className="text-sm font-medium">{t(`llm.modelKinds.${serviceModelKind}`)}</span>
+                  <span className="text-sm font-medium leading-6">{t(`llm.modelKinds.${serviceModelKind}`)}</span>
                   <input
                     aria-label={`${serviceLabel} ${t('llm.fields.modelManualEntry')}`}
                     className={fieldClassName}
@@ -810,7 +832,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 </Button>
               </div>
               {serviceValidationIssues.length > 0 ? (
-                <div className="space-y-1 rounded-md border border-amber-300/55 bg-amber-50/75 px-3 py-2 text-xs leading-5 text-amber-900 dark:border-amber-300/25 dark:bg-amber-500/10 dark:text-amber-100">
+                <div className="space-y-1 rounded-md bg-amber-50/75 px-3 py-2 text-xs leading-5 text-amber-900 shadow-[inset_0_0_0_1px_rgba(217,119,6,0.18)] dark:bg-amber-500/10 dark:text-amber-100 dark:shadow-[inset_0_0_0_1px_rgba(251,191,36,0.18)]">
                   {serviceValidationIssues.map((issue, index) => (
                     <p key={`${issue.code}-${issue.serviceName}-${index}`} className="flex gap-2">
                       <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -858,7 +880,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
             <h3 className="text-lg font-semibold text-foreground sm:text-xl">{t('llm.providerConfiguration.title')}</h3>
             <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('llm.providerConfiguration.desc')}</p>
           </div>
-          <Button type="button" onClick={openAddDialog} className="gap-2 self-start">
+          <Button type="button" onClick={openAddDialog} className={cn(providerButtonClassName, 'gap-2 self-start')}>
             <Plus className="h-4 w-4" />
             <span>{t('llm.providerConfiguration.addProvider')}</span>
           </Button>
@@ -867,7 +889,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
       {!showSectionIntro && providerItems.length > 0 ? (
         <div className="flex justify-end">
-          <Button type="button" onClick={openAddDialog} className="gap-2">
+          <Button type="button" onClick={openAddDialog} className={cn(providerButtonClassName, 'gap-2')}>
             <Plus className="h-4 w-4" />
             <span>{t('llm.providerConfiguration.addProvider')}</span>
           </Button>
@@ -876,10 +898,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
       <div data-testid="llm-provider-list-pane" className="min-h-0 flex-1 space-y-3 overflow-y-auto">
         {providerItems.length === 0 ? (
-          <div className="flex min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-border/80 bg-muted/25 px-6 text-center">
-            <div className="text-base font-semibold text-foreground">{t('llm.providerConfiguration.emptyTitle')}</div>
+          <div className="flex min-h-[260px] flex-col items-center justify-center rounded-xl bg-[hsl(var(--settings-shell-elevated)/0.42)] px-6 text-center shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.16)]">
+            <div className="text-base font-semibold leading-7 text-foreground">{t('llm.providerConfiguration.emptyTitle')}</div>
             <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{t('llm.providerConfiguration.emptyDesc')}</p>
-            <Button type="button" onClick={openAddDialog} className="mt-5 gap-2">
+            <Button type="button" onClick={openAddDialog} className={cn(providerButtonClassName, 'mt-5 gap-2')}>
               <Plus className="h-4 w-4" />
               <span>{t('llm.providerConfiguration.addProvider')}</span>
             </Button>
@@ -899,13 +921,15 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 key={providerId}
                 data-testid={`llm-provider-row-${providerId}`}
                 className={cn(
-                  'flex flex-col gap-4 rounded-lg border border-border/70 bg-background/80 p-4 transition sm:flex-row sm:items-center sm:justify-between',
-                  providerId === activeProviderId && 'border-primary/45 bg-primary/5'
+                  'group grid gap-5 rounded-xl bg-[hsl(var(--settings-shell-elevated)/0.54)] p-5 shadow-[0_18px_48px_hsl(var(--foreground)/0.04)] transition-[background-color,box-shadow] duration-200 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center',
+                  providerId === activeProviderId
+                    ? 'bg-[hsl(var(--settings-shell-elevated)/0.88)] shadow-[0_18px_48px_hsl(var(--foreground)/0.055)]'
+                    : 'hover:bg-[hsl(var(--settings-shell-elevated)/0.76)] hover:shadow-[0_18px_48px_hsl(var(--foreground)/0.05)]'
                 )}
               >
                 <button
                   type="button"
-                  className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                  className="flex min-w-0 flex-1 items-start gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
                   onClick={() => onActiveProviderChange(providerId)}
                 >
                   <ProviderIcon
@@ -914,35 +938,35 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                     displayName={provider.display_name || providerMeta?.display_name || providerId}
                   />
                   <span className="min-w-0 space-y-1">
-                    <span className="block truncate text-sm font-semibold text-foreground">
+                    <span className="block truncate text-[15px] font-semibold leading-6 text-foreground">
                       {provider.display_name || providerMeta?.display_name || providerId}
                     </span>
-                    <span className="block text-xs text-muted-foreground">
+                    <span className="block text-sm leading-6 text-muted-foreground">
                       {provider.provider_type === 'custom'
                         ? t('llm.providerConfiguration.providerKinds.custom')
                         : providerMeta?.display_name || provider.provider_type}
                     </span>
                     <span className="flex flex-wrap gap-1.5 pt-1">
                       {serviceLabels.map((label) => (
-                        <span key={label} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                        <span key={label} className="rounded-md bg-[hsl(var(--settings-shell)/0.72)] px-2 py-1 text-[12px] leading-4 text-[hsl(var(--foreground)/0.62)]">
                           {label}
                         </span>
                       ))}
                     </span>
                     {references.length > 0 ? (
-                      <span className="block text-xs leading-5 text-muted-foreground">
+                      <span className="block text-[13px] leading-6 text-muted-foreground">
                         {t('llm.providerConfiguration.referencedBy')}: {references.map((scenario) => t(`llm.scenarios.${scenario}.title`)).join(' / ')}
                       </span>
                     ) : null}
                     {providerIssues.length > 0 ? (
-                      <span className="block text-xs leading-5 text-amber-700 dark:text-amber-300">
+                      <span className="block text-[13px] leading-6 text-amber-700 dark:text-amber-300">
                         {formatValidationIssue(providerIssues[0])}
                       </span>
                     ) : null}
                   </span>
                 </button>
                 <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
-                  <div className="inline-flex items-center gap-2 rounded-md bg-muted/55 px-3 py-2 text-sm">
+                  <div className="inline-flex items-center gap-2 rounded-lg bg-[hsl(var(--settings-shell)/0.58)] px-3 py-2 text-sm shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.14)]">
                     <span className="text-muted-foreground">{t('llm.fields.enabled')}</span>
                     <Switch
                       aria-label={t('llm.fields.enabled')}
@@ -950,11 +974,23 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       onCheckedChange={(checked) => onProviderChange(providerId, (draft) => { draft.enabled = checked; })}
                     />
                   </div>
-                  <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => openEditDialog(providerId)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 rounded-lg px-3 text-[hsl(var(--foreground)/0.74)] transition-[background-color,color] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.78)] hover:text-foreground"
+                    onClick={() => openEditDialog(providerId)}
+                  >
                     <Pencil className="h-4 w-4" />
                     <span>{t('llm.providerConfiguration.editProvider')}</span>
                   </Button>
-                  <Button type="button" variant="ghost" size="sm" className="gap-2 text-destructive" onClick={() => removeProvider(providerId)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 rounded-lg px-3 text-destructive/70 transition-[background-color,color] duration-200 hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => removeProvider(providerId)}
+                  >
                     <Trash2 className="h-4 w-4" />
                     <span>{t('llm.providerConfiguration.deleteProvider')}</span>
                   </Button>
@@ -966,47 +1002,55 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[88vh] max-w-4xl overflow-hidden p-0">
-          <DialogHeader>
-            <DialogTitle>
+        <DialogContent className="max-h-[88vh] max-w-5xl overflow-hidden rounded-xl border-0 bg-[hsl(var(--settings-shell-elevated))] p-0 shadow-[0_26px_86px_hsl(var(--foreground)/0.18),inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.22)]">
+          <DialogHeader className="px-7 pb-5 pt-7">
+            <DialogTitle className="text-[20px] font-semibold leading-7 tracking-normal text-foreground">
               {editorMode === 'add'
                 ? t('llm.providerConfiguration.addProvider')
                 : t('llm.providerConfiguration.editProvider')}
             </DialogTitle>
-            <DialogDescription>{t('llm.providerConfiguration.editorDesc')}</DialogDescription>
+            <DialogDescription className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('llm.providerConfiguration.editorDesc')}</DialogDescription>
           </DialogHeader>
 
-          <div className="max-h-[68vh] space-y-5 overflow-y-auto px-6 pb-6">
+          <div className="max-h-[68vh] space-y-7 overflow-y-auto px-7 pb-7">
             {editorMode === 'add' ? (
               <div className="space-y-3">
-                <div className="text-sm font-semibold text-foreground">{t('llm.providerConfiguration.providerTemplate')}</div>
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="text-sm font-semibold leading-6 text-foreground">{t('llm.providerConfiguration.providerTemplate')}</div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {providerTemplates.map((provider) => (
                     <button
                       key={provider.id}
                       type="button"
                       onClick={() => handleTemplateChange(provider.id)}
                       className={cn(
-                        'flex items-center gap-3 rounded-lg border border-border/70 p-3 text-left transition hover:bg-muted/45',
-                        selectedTemplateId === provider.id && 'border-primary/55 bg-primary/6'
+                        templateButtonClassName,
+                        selectedTemplateId === provider.id && selectedTemplateButtonClassName
                       )}
                     >
                       <ProviderIcon providerId={provider.provider_type || provider.id} iconName={provider.icon} displayName={provider.display_name || provider.id} />
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{provider.display_name || provider.id}</span>
-                      {selectedTemplateId === provider.id ? <Check className="h-4 w-4 text-primary" /> : null}
+                      <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-6 text-foreground">{provider.display_name || provider.id}</span>
+                      {selectedTemplateId === provider.id ? (
+                        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-background/80 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.16)]">
+                          <Check className="h-4 w-4" />
+                        </span>
+                      ) : null}
                     </button>
                   ))}
                   <button
                     type="button"
                     onClick={() => handleTemplateChange('custom')}
                     className={cn(
-                      'flex items-center gap-3 rounded-lg border border-border/70 p-3 text-left transition hover:bg-muted/45',
-                      selectedTemplateId === 'custom' && 'border-primary/55 bg-primary/6'
+                      templateButtonClassName,
+                      selectedTemplateId === 'custom' && selectedTemplateButtonClassName
                     )}
                   >
                     <ProviderIcon providerId="custom" iconName="custom" displayName={t('llm.providerConfiguration.providerKinds.custom')} />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{t('llm.providerConfiguration.providerKinds.custom')}</span>
-                    {selectedTemplateId === 'custom' ? <Check className="h-4 w-4 text-primary" /> : null}
+                    <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-6 text-foreground">{t('llm.providerConfiguration.providerKinds.custom')}</span>
+                    {selectedTemplateId === 'custom' ? (
+                      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-background/80 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.16)]">
+                        <Check className="h-4 w-4" />
+                      </span>
+                    ) : null}
                   </button>
                 </div>
               </div>
@@ -1015,7 +1059,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
             {draftProvider ? (
               <>
                 {draftValidationIssues.length > 0 ? (
-                  <div className="space-y-1 rounded-lg border border-amber-300/55 bg-amber-50/75 px-3 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-300/25 dark:bg-amber-500/10 dark:text-amber-100">
+                  <div className="space-y-1 rounded-lg bg-amber-50/75 px-3 py-2.5 text-xs leading-5 text-amber-900 shadow-[inset_0_0_0_1px_rgba(217,119,6,0.18)] dark:bg-amber-500/10 dark:text-amber-100 dark:shadow-[inset_0_0_0_1px_rgba(251,191,36,0.18)]">
                     {draftValidationIssues.map((issue, index) => (
                       <p key={`${issue.code}-${issue.serviceName}-${index}`} className="flex gap-2">
                         <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -1028,7 +1072,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 <div className="space-y-3">
                   <div className="grid gap-3 md:grid-cols-2">
                     <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('llm.fields.displayName')}</span>
+                      <span className="text-sm font-medium leading-6">{t('llm.fields.displayName')}</span>
                       <input
                         aria-label={t('llm.fields.displayName')}
                         className={fieldClassName}
@@ -1038,7 +1082,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                     </label>
                     {draftProvider.provider_type === 'custom' ? (
                       <label className="space-y-2">
-                        <span className="text-sm font-medium">{t('llm.fields.apiFormat')}</span>
+                        <span className="text-sm font-medium leading-6">{t('llm.fields.apiFormat')}</span>
                         <SelectField
                           value={draftProvider.api_format || 'openai'}
                           allowEmpty={false}
@@ -1046,6 +1090,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                             label: t(`llm.apiFormatOptions.${option}`),
                             value: option,
                           }))}
+                          triggerClassName={selectTriggerClassName}
+                          menuClassName={selectMenuClassName}
                           onChange={(nextValue) => updateDraftProvider((provider) => { provider.api_format = nextValue as ApiFormat; })}
                         />
                       </label>
@@ -1053,7 +1099,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   </div>
                   <div className="grid gap-3 md:grid-cols-2">
                     <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
+                      <span className="text-sm font-medium leading-6">{t('llm.fields.apiKey')}</span>
                       {renderSecretField({
                         scope: 'provider',
                         ariaLabel: t('llm.fields.apiKey'),
@@ -1062,7 +1108,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       })}
                     </label>
                     <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
+                      <span className="text-sm font-medium leading-6">{t('llm.fields.baseUrl')}</span>
                       <input
                         aria-label={t('llm.fields.baseUrl')}
                         className={fieldClassName}
@@ -1072,31 +1118,36 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       />
                     </label>
                   </div>
-                  <p className="text-xs leading-5 text-muted-foreground">
+                  <p className="text-[13px] leading-6 text-muted-foreground">
                     {t('llm.providerConfiguration.providerConnectionHint')}
                   </p>
                 </div>
 
                 <div className="space-y-3">
-                  <div className="text-sm font-semibold text-foreground">{t('llm.providerConfiguration.servicesTitle')}</div>
+                  <div className="text-sm font-semibold leading-6 text-foreground">{t('llm.providerConfiguration.servicesTitle')}</div>
                   {SERVICE_NAMES.map(renderServiceFields)}
                 </div>
               </>
             ) : null}
           </div>
 
-          <DialogFooter className="flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <DialogFooter className="flex-col items-stretch gap-2 border-transparent bg-[hsl(var(--settings-shell-elevated)/0.96)] px-7 py-5 shadow-[0_-18px_36px_hsl(var(--foreground)/0.035)] sm:flex-row sm:items-center sm:justify-end">
             {draftApiKeyMissing ? (
-              <p className="mr-auto text-xs text-destructive">
+              <p className="mr-auto text-[13px] leading-6 text-destructive">
                 {t('llm.validation.apiKeyRequired', {
                   provider: draftProvider?.display_name || draftProviderId,
                 })}
               </p>
             ) : null}
-            <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-10 rounded-lg px-5 text-[hsl(var(--foreground)/0.72)] transition-[background-color,color] duration-200 hover:bg-[hsl(var(--settings-shell)/0.7)] hover:text-foreground"
+              onClick={() => setDialogOpen(false)}
+            >
               {t('common.cancel')}
             </Button>
-            <Button type="button" onClick={saveDraftProvider} disabled={saveDraftDisabled}>
+            <Button type="button" onClick={saveDraftProvider} disabled={saveDraftDisabled} className={cn(providerButtonClassName, 'px-5')}>
               {t('llm.providerConfiguration.saveProvider')}
             </Button>
           </DialogFooter>
