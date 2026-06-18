@@ -11,6 +11,7 @@ This directory is intentionally separate from `backend/src/magi/`:
 Current benchmark targets:
 
 - `longmemeval/`
+- `locomo/`
 
 Conventions:
 
