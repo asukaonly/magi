@@ -3730,6 +3730,36 @@ async def test_inject_structured_entity_hints_skips_duplicates():
         assert len(existing) == 1
 
 
+@pytest.mark.asyncio
+async def test_upsert_structured_graph_hints_uses_normalized_entity_id_for_aliases():
+    """Aliases from graph hints must point at the catalog-normalized entity id."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+        event = _make_memory_event(event_id="evt-graph-site-alias", content="Chrome 浏览 Google")
+        event.metadata_json = {
+            "structured_graph_hints": [
+                {
+                    "subject_ref": "user:self",
+                    "subject_type": "user",
+                    "predicate": "VIEWED",
+                    "object_ref": "site:google.com",
+                    "object_type": "software",
+                    "fact_kind": "interaction_evidence",
+                    "origin_mode": "source_structured",
+                    "confidence": 0.78,
+                    "attributes": {"domain": "google.com"},
+                }
+            ]
+        }
+
+        await pipeline._upsert_structured_hint_entities(event)
+        resolved = await pipeline._entity_catalog.resolve_alias("google.com", entity_type="software")
+
+        assert resolved["decision"] == "match"
+        assert resolved["entity_id"] == "software:google.com"
+
+
 def test_inject_structured_entity_hints_noop_without_metadata():
     """Missing or empty hints should be a no-op."""
     from magi.memory.l2.pipeline import L2Pipeline

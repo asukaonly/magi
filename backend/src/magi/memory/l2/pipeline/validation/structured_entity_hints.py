@@ -39,14 +39,18 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
             if entity_id in seen_ids:
                 return
             seen_ids.add(entity_id)
-            await catalog.upsert_entity(
+            normalized_entity_id = await catalog.upsert_entity(
                 entity_id=entity_id,
                 canonical_name=canonical_name,
                 entity_type=entity_type,
             )
             alias = host._non_empty_text(alias_text) or canonical_name
             if alias:
-                await catalog.add_alias(entity_id=entity_id, alias_text=alias, confidence=0.98)
+                await catalog.add_alias(
+                    entity_id=normalized_entity_id,
+                    alias_text=alias,
+                    confidence=0.98,
+                )
             upserted_count += 1
 
         raw_entity_hints = metadata_json.get("structured_entity_hints")
