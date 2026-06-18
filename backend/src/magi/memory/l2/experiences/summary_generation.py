@@ -82,13 +82,29 @@ def _is_generic_review_content(value: Any) -> bool:
     return not text or text in _GENERIC_REVIEW_CONTENTS
 
 
+def _looks_like_raw_title_dump(value: Any) -> bool:
+    text = str(value or "").strip().casefold()
+    if not text:
+        return False
+    return (
+        "chrome 浏览" in text
+        or "google search" in text
+        or (
+            text.count("；") >= 2
+            and any(token in text for token in ("chrome", "google", "github", "gmail"))
+        )
+    )
+
+
 def _review_needs_refresh(summary: dict[str, Any]) -> bool:
     metadata = _decode_metadata(summary.get("insight_metadata"))
     label = metadata.get("label") or summary.get("label")
     return (
-        _is_placeholder_label(label)
+        bool(metadata.get("fallback"))
+        or _is_placeholder_label(label)
         or _has_low_value_label_part(label)
         or _is_generic_review_content(summary.get("content"))
+        or _looks_like_raw_title_dump(summary.get("content"))
     )
 
 

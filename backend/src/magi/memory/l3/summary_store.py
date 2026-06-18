@@ -174,6 +174,11 @@ def _experience_fallback_content(
     if _experience_text_is_usable(user_note):
         return user_note[:240]
 
+    for key in ("magi_interpretation", "outcome", "intent"):
+        value = str(experience.get(key) or "").strip()
+        if _experience_text_is_usable(value):
+            return value[:240]
+
     snippets = [
         str(event.get("content") or "").strip()
         for event in events[:3]
@@ -181,11 +186,6 @@ def _experience_fallback_content(
     ]
     if snippets:
         return "；".join(snippets)[:240]
-
-    for key in ("outcome", "intent", "magi_interpretation"):
-        value = str(experience.get(key) or "").strip()
-        if _experience_text_is_usable(value):
-            return value[:240]
 
     return f"包含 {event_count} 个事件的经历"
 

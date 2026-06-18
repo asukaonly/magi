@@ -448,7 +448,7 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
         now = time.time()
         added = 0
         async with sqlite_connection_async(self.db_path) as db:
-            for member in members:
+            for index, member in enumerate(members):
                 member_type = str(_member_value(member, "member_type", "") or "").strip()
                 member_id = str(_member_value(member, "member_id", "") or "").strip()
                 role = str(_member_value(member, "role", "core") or "core").strip()
@@ -465,7 +465,7 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
                         experience_id, member_type, member_id, role, confidence, added_at
                     ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (experience_id, member_type, member_id, role, confidence, now),
+                    (experience_id, member_type, member_id, role, confidence, now + index * 0.000001),
                 )
                 added += int(cursor.rowcount > 0)
             await db.commit()

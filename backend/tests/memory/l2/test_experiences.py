@@ -133,7 +133,7 @@ async def test_list_experiences_orders_newest_first(l2_store_with_schema):
 
 
 @pytest.mark.asyncio
-async def test_promote_single_strong_episode_to_experience(l2_store_with_schema):
+async def test_experience_promotion_requires_seed_for_single_strong_episode(l2_store_with_schema):
     from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
     from magi.memory.l2.store import L2CognitionStore
 
@@ -156,106 +156,107 @@ async def test_promote_single_strong_episode_to_experience(l2_store_with_schema)
 
     stats = await promote_experiences_from_episodes(store)
 
-    assert stats.promoted == 1
-    assert len(stats.promoted_experience_ids) == 1
-    experiences = await store.list_experiences(status="active")
-    assert len(experiences) == 1
-    experience = experiences[0]
-    assert experience["experience_id"] == stats.promoted_experience_ids[0]
-    assert experience["title"] == "Debug CraftWorld module"
-    assert experience["intent"] == "Debug CraftWorld module"
-    assert experience["source_episode_count"] == 1
-    assert experience["source_event_count"] == 25
-    members = await store.list_experience_members(experience_id=experience["experience_id"])
-    assert [(member["member_type"], member["member_id"], member["role"]) for member in members] == [
-        ("episode", "ep-craft", "core")
-    ]
+    assert stats.promoted == 0
+    assert stats.rejected >= 1
+    assert await store.list_experiences(status="active") == []
 
 
 @pytest.mark.asyncio
-async def test_promote_adjacent_same_theme_episodes_to_one_experience(l2_store_with_schema):
+async def test_experience_promotion_promotes_project_seed_from_concrete_anchor(
+    l2_store_with_schema,
+):
     from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
     from magi.memory.l2.store import L2CognitionStore
 
     store: L2CognitionStore = l2_store_with_schema
     await store.create_episode(
-        episode_id="ep-claude",
+        episode_id="ep-craft-debug",
         status="active",
-        label="Research assistant history",
+        label="Debug CraftWorld automation",
         time_start=100.0,
         time_end=900.0,
-        primary_entity_ids=["software:claude-code"],
-        primary_topic_keys=["ai-coding"],
-        source_event_count=6,
-    )
-    await store.create_episode(
-        episode_id="ep-codex",
-        status="active",
-        label="Compare coding tool usage",
-        time_start=1200.0,
-        time_end=1800.0,
-        primary_entity_ids=["software:codex"],
-        primary_topic_keys=["ai-coding"],
-        source_event_count=7,
-    )
-    await store.add_episode_events(
-        episode_id="ep-claude",
-        event_ids=[f"claude-{index}" for index in range(6)],
-    )
-    await store.add_episode_events(
-        episode_id="ep-codex",
-        event_ids=[f"codex-{index}" for index in range(7)],
-    )
-
-    stats = await promote_experiences_from_episodes(store)
-
-    assert stats.promoted == 1
-    assert len(stats.promoted_experience_ids) == 1
-    experiences = await store.list_experiences(status="active")
-    assert len(experiences) == 1
-    experience = experiences[0]
-    assert experience["title"] == "Research assistant history / Compare coding tool usage"
-    assert experience["source_episode_count"] == 2
-    assert experience["source_event_count"] == 13
-    members = await store.list_experience_members(experience_id=experience["experience_id"])
-    assert [member["member_id"] for member in members] == ["ep-claude", "ep-codex"]
-
-
-@pytest.mark.asyncio
-async def test_experience_promotion_ignores_untitled_episode_labels(l2_store_with_schema):
-    from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
-    from magi.memory.l2.store import L2CognitionStore
-
-    store: L2CognitionStore = l2_store_with_schema
-    await store.create_episode(
-        episode_id="ep-gmail",
-        status="active",
-        label="Untitled experience",
-        summary="",
-        time_start=100.0,
-        time_end=900.0,
-        primary_entity_ids=["software:gmail", "software:discord"],
-        primary_topic_keys=["midjourney"],
+        primary_entity_ids=["project:craftworld"],
+        primary_topic_keys=["automation"],
         source_event_count=8,
     )
     await store.create_episode(
-        episode_id="ep-discord",
+        episode_id="ep-craft-network",
         status="active",
-        label="Untitled exper",
-        summary="Untitled experience",
+        label="Adjust CraftWorld network config",
         time_start=1200.0,
         time_end=1800.0,
-        primary_entity_ids=["software:discord"],
-        primary_topic_keys=["midjourney"],
-        source_event_count=7,
+        primary_entity_ids=["project:craftworld", "software:google-gemini"],
+        primary_topic_keys=["automation"],
+        source_event_count=9,
     )
     await store.add_episode_events(
-        episode_id="ep-gmail",
-        event_ids=[f"gmail-{index}" for index in range(8)],
+        episode_id="ep-craft-debug",
+        event_ids=[f"debug-{index}" for index in range(8)],
     )
     await store.add_episode_events(
-        episode_id="ep-discord",
-        event_ids=[f"discord-{index}" for index in range(7)],
+        episode_id="ep-craft-network",
+        event_ids=[f"network-{index}" for index in range(9)],
+    )
+
+    stats = await promote_experiences_from_episodes(store)
+
+    assert stats.promoted == 1
+    assert len(stats.promoted_experience_ids) == 1
+    experiences = await store.list_experiences(status="active")
+    assert len(experiences) == 1
+    experience = experiences[0]
+    assert experience["title"] == "Craftworld"
+    assert experience["source_seed_id"]
+    assert experience["source_episode_count"] == 2
+    assert experience["source_event_count"] == 17
+    members = await store.list_experience_members(experience_id=experience["experience_id"])
+    assert [member["member_id"] for member in members] == ["ep-craft-debug", "ep-craft-network"]
+    seed = await store.get_experience_seed(seed_id=experience["source_seed_id"])
+    assert seed is not None
+    assert seed["status"] == "promoted"
+    assert seed["promoted_experience_id"] == experience["experience_id"]
+
+
+@pytest.mark.asyncio
+async def test_experience_promotion_promotes_accepted_manual_seed(l2_store_with_schema):
+    from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
+    from magi.memory.l2.experiences.seed_discovery import discover_manual_experience_seed
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    await store.create_episode(
+        episode_id="ep-train",
+        status="active",
+        label="Book Shinkansen tickets",
+        summary="Compared Shinkansen routes for a Japan trip.",
+        time_start=100.0,
+        time_end=900.0,
+        primary_entity_ids=["travel:shinkansen"],
+        primary_topic_keys=["travel"],
+        source_event_count=6,
+    )
+    await store.create_episode(
+        episode_id="ep-map",
+        status="active",
+        label="Search Tokyo hotel map",
+        time_start=1200.0,
+        time_end=1800.0,
+        primary_entity_ids=["place:tokyo"],
+        primary_topic_keys=["travel"],
+        source_event_count=5,
+    )
+    await store.add_episode_events(
+        episode_id="ep-train",
+        event_ids=[f"train-{index}" for index in range(6)],
+    )
+    await store.add_episode_events(
+        episode_id="ep-map",
+        event_ids=[f"map-{index}" for index in range(5)],
+    )
+    seed_id = await discover_manual_experience_seed(
+        store,
+        episode_id="ep-train",
+        title="Japan trip planning",
     )
 
     stats = await promote_experiences_from_episodes(store)
@@ -263,45 +264,41 @@ async def test_experience_promotion_ignores_untitled_episode_labels(l2_store_wit
     assert stats.promoted == 1
     experiences = await store.list_experiences(status="active")
     assert len(experiences) == 1
-    title = experiences[0]["title"]
-    assert "Untitled" not in title
-    assert "gmail" in title.lower() or "discord" in title.lower()
+    experience = experiences[0]
+    assert experience["title"] == "Japan trip planning"
+    assert experience["source_seed_id"] == seed_id
+    assert experience["magi_interpretation"] == "Compared Shinkansen routes for a Japan trip."
+    members = await store.list_experience_members(experience_id=experience["experience_id"])
+    assert [member["member_id"] for member in members] == ["ep-train", "ep-map"]
 
 
 @pytest.mark.asyncio
-async def test_experience_promotion_ignores_machine_entity_ids(l2_store_with_schema):
+async def test_experience_promotion_rejects_generic_adjacent_chain(l2_store_with_schema):
     from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
     from magi.memory.l2.store import L2CognitionStore
 
     store: L2CognitionStore = l2_store_with_schema
-    await store.create_episode(
-        episode_id="ep-readable",
-        status="active",
-        label="Untitled experience",
-        time_start=100.0,
-        time_end=3900.0,
-        primary_entity_ids=[
-            "software:7e4eb50fae61",
-            "user:local_user",
-            "software:gmail",
-        ],
-        primary_topic_keys=["01KVABCDEF123"],
-        source_event_count=25,
-    )
-    await store.add_episode_events(
-        episode_id="ep-readable",
-        event_ids=[f"readable-{index}" for index in range(25)],
-    )
+    for index in range(2):
+        await store.create_episode(
+            episode_id=f"ep-generic-{index}",
+            status="active",
+            label="Browse Chrome",
+            time_start=100.0 + index * 300.0,
+            time_end=240.0 + index * 300.0,
+            primary_entity_ids=["user:local_user", "software:chrome", "software:google"],
+            primary_topic_keys=["browser"],
+            source_event_count=80,
+        )
+        await store.add_episode_events(
+            episode_id=f"ep-generic-{index}",
+            event_ids=[f"generic-{index}-{event}" for event in range(80)],
+        )
 
     stats = await promote_experiences_from_episodes(store)
 
-    assert stats.promoted == 1
-    experiences = await store.list_experiences(status="active")
-    title = experiences[0]["title"]
-    assert "gmail" in title.lower()
-    assert "7e4eb50fae61" not in title.lower()
-    assert "local" not in title.lower()
-    assert "01KV" not in title
+    assert stats.promoted == 0
+    assert stats.rejected >= 1
+    assert await store.list_experiences(status="active") == []
 
 
 @pytest.mark.asyncio
@@ -330,6 +327,7 @@ async def test_experience_promotion_rejects_sparse_generic_episode(l2_store_with
 @pytest.mark.asyncio
 async def test_experience_promotion_suppresses_existing_duplicate(l2_store_with_schema):
     from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
+    from magi.memory.l2.experiences.seed_discovery import discover_manual_experience_seed
     from magi.memory.l2.store import L2CognitionStore
 
     store: L2CognitionStore = l2_store_with_schema
@@ -346,6 +344,11 @@ async def test_experience_promotion_suppresses_existing_duplicate(l2_store_with_
     await store.add_episode_events(
         episode_id="ep-existing",
         event_ids=[f"evt-{index}" for index in range(30)],
+    )
+    await discover_manual_experience_seed(
+        store,
+        episode_id="ep-existing",
+        title="Evaluate AI coding tools",
     )
     await store.create_experience(
         experience_id="exp-existing",
@@ -367,3 +370,30 @@ async def test_experience_promotion_suppresses_existing_duplicate(l2_store_with_
     assert stats.skipped_duplicates == 1
     experiences = await store.list_experiences(status="active")
     assert [experience["experience_id"] for experience in experiences] == ["exp-existing"]
+
+
+@pytest.mark.asyncio
+async def test_experience_promotion_hides_bad_legacy_experience(l2_store_with_schema):
+    from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    await store.create_experience(
+        experience_id="exp-legacy-bad",
+        status="active",
+        title="github / chrome / google",
+        time_start=100.0,
+        time_end=200.0,
+        magi_interpretation="Magi grouped related episode evidence into a narratable memory.",
+        primary_entity_ids=["user:local_user", "software:chrome", "software:google"],
+        primary_topic_keys=["browser"],
+        source_episode_count=8,
+        source_event_count=400,
+    )
+
+    stats = await promote_experiences_from_episodes(store)
+
+    assert stats.promoted == 0
+    hidden = await store.get_experience(experience_id="exp-legacy-bad")
+    assert hidden is not None
+    assert hidden["status"] == "hidden"
