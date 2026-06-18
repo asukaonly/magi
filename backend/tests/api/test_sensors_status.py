@@ -11,8 +11,10 @@ import pytest
 
 from magi.api.routers.plugins_common import (
     _serialize_activation_flow,
+    _serialize_sensor_capability,
     _serialize_field,
     _serialize_settings_action,
+    _serialize_settings_layout,
     _serialize_settings_ui_block,
     normalize_plugin_id,
     translate_with_fallback,
@@ -220,6 +222,117 @@ def test_serialize_settings_ui_block_adds_title_and_description_translations() -
 
     assert serialized["title_translated"] == "权限"
     assert serialized["description_translated"] == "需要的 macOS 权限。"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# _serialize_settings_layout
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_serialize_settings_layout_translates_tab_text() -> None:
+    layout = {
+        "kind": "tabs",
+        "controller_key": "sensors.photo_library.source_mode",
+        "tabs": [
+            {
+                "tab_id": "directory",
+                "value": "directory",
+                "label": "Local Photos",
+                "description": "Scan folders.",
+                "available": True,
+            },
+            {
+                "tab_id": "apple_photos",
+                "value": "apple_photos",
+                "label": "Apple Photos",
+                "description": "Read Photos.",
+                "available": False,
+                "unavailable_reason": "Apple Photos is only available on macOS.",
+            },
+        ],
+    }
+    i18n = _FakeI18n(
+        {
+            "photo_library.settings_layout.tabs.directory.label": "本地照片",
+            "photo_library.settings_layout.tabs.directory.description": "扫描本地照片文件夹。",
+            "photo_library.settings_layout.tabs.apple_photos.label": "Apple Photos",
+            "photo_library.settings_layout.tabs.apple_photos.description": "直接读取 macOS 照片图库。",
+            "photo_library.settings_layout.tabs.apple_photos.unavailable_reason": "Apple Photos 仅在 macOS 上可用。",
+        }
+    )
+
+    serialized = _serialize_settings_layout(layout, i18n, plugin_id="photo-library")
+
+    assert serialized["tabs"][0]["label_translated"] == "本地照片"
+    assert serialized["tabs"][0]["description_translated"] == "扫描本地照片文件夹。"
+    assert serialized["tabs"][1]["unavailable_reason_translated"] == "Apple Photos 仅在 macOS 上可用。"
+
+
+def test_serialize_settings_layout_falls_back_to_raw_tab_text() -> None:
+    layout = {
+        "kind": "tabs",
+        "controller_key": "sensors.photo_library.source_mode",
+        "tabs": [
+            {
+                "tab_id": "apple_photos",
+                "value": "apple_photos",
+                "label": "Apple Photos",
+                "description": "Read Photos.",
+                "unavailable_reason": "Apple Photos is only available on macOS.",
+            }
+        ],
+    }
+    i18n = _FakeI18n({})
+
+    serialized = _serialize_settings_layout(layout, i18n, plugin_id="photo-library")
+
+    assert serialized["tabs"][0]["label_translated"] == "Apple Photos"
+    assert serialized["tabs"][0]["description_translated"] == "Read Photos."
+    assert serialized["tabs"][0]["unavailable_reason_translated"] == "Apple Photos is only available on macOS."
+
+
+# ──────────────────────────────────────────────────────────────────────
+# _serialize_sensor_capability
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_serialize_sensor_capability_adds_group_and_entry_translations() -> None:
+    metadata = {
+        "capability_id": "photo_library",
+        "capability_display_name": "Photo Library",
+        "capability_description": "Read Apple Photos or local folders.",
+        "entry_id": "apple_photos",
+    }
+    i18n = _FakeI18n(
+        {
+            "photo_library.capabilities.photo_library.display_name": "照片库",
+            "photo_library.capabilities.photo_library.description": "统一管理照片进入时间线的方式。",
+            "photo_library.entries.apple_photos.display_name": "Apple Photos",
+            "photo_library.entries.apple_photos.description": "直接读取 macOS 照片图库。",
+        }
+    )
+
+    serialized = _serialize_sensor_capability(
+        metadata,
+        i18n,
+        plugin_id="photo-library",
+        fallback_source_name="photo_library_apple_photos",
+        fallback_display_name="Apple Photos",
+        fallback_description="Read Photos.",
+    )
+
+    assert serialized == {
+        "capability_id": "photo_library",
+        "capability_display_name": "Photo Library",
+        "capability_display_name_translated": "照片库",
+        "capability_description": "Read Apple Photos or local folders.",
+        "capability_description_translated": "统一管理照片进入时间线的方式。",
+        "entry_id": "apple_photos",
+        "entry_display_name": "Apple Photos",
+        "entry_display_name_translated": "Apple Photos",
+        "entry_description": "Read Photos.",
+        "entry_description_translated": "直接读取 macOS 照片图库。",
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -84,6 +84,25 @@ export interface PluginSettingsUiBlockSpec {
   depends_on_values?: string[];
 }
 
+export interface PluginSettingsLayoutTabSpec {
+  tab_id: string;
+  value: string;
+  label: string;
+  label_translated?: string | null;
+  description?: string;
+  description_translated?: string | null;
+  available?: boolean;
+  unavailable_reason?: string;
+  unavailable_reason_translated?: string | null;
+  platforms?: string[];
+}
+
+export interface PluginSettingsLayoutSpec {
+  kind: 'tabs';
+  controller_key: string;
+  tabs: PluginSettingsLayoutTabSpec[];
+}
+
 export type PluginPermissionStatus = 'granted' | 'denied' | 'not_determined' | 'unknown';
 
 export interface PluginPermissionStatusItem {

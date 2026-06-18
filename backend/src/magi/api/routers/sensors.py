@@ -26,6 +26,9 @@ from .plugins_common import (
     _get_plugin_i18n,
     _serialize_activation_flow,
     _serialize_field,
+    _serialize_sensor_capability,
+    _serialize_settings_action,
+    _serialize_settings_layout,
     _serialize_settings_ui_block,
     normalize_plugin_id,
     translate_with_fallback,
@@ -177,19 +180,24 @@ async def get_sensor_source_status():
         except Exception:  # noqa: BLE001 - never block status on i18n
             i18n = None
         plugin_id_normalized = normalize_plugin_id(item.plugin_id)
-        display_name_translated = (
-            translate_with_fallback(
-                i18n, f"{plugin_id_normalized}.name", item.display_name
-            )
-            if i18n is not None
-            else item.display_name
+        entry_id_for_translation = str(item.metadata.get("entry_id") or source_name)
+        display_name_translated = translate_with_fallback(
+            i18n,
+            f"{plugin_id_normalized}.entries.{entry_id_for_translation}.display_name",
+            translate_with_fallback(i18n, f"{plugin_id_normalized}.name", item.display_name),
         )
-        description_translated = (
-            translate_with_fallback(
-                i18n, f"{plugin_id_normalized}.description", item.description
-            )
-            if i18n is not None
-            else item.description
+        description_translated = translate_with_fallback(
+            i18n,
+            f"{plugin_id_normalized}.entries.{entry_id_for_translation}.description",
+            translate_with_fallback(i18n, f"{plugin_id_normalized}.description", item.description),
+        )
+        capability_payload = _serialize_sensor_capability(
+            item.metadata,
+            i18n,
+            plugin_id=item.plugin_id,
+            fallback_source_name=source_name,
+            fallback_display_name=item.display_name,
+            fallback_description=item.description,
         )
 
         translated_fields: list[dict[str, Any]] = []
@@ -219,6 +227,27 @@ async def get_sensor_source_status():
             ]
         else:
             settings_ui_blocks_payload = raw_ui_blocks
+
+        raw_settings_layout = item.metadata.get("settings_layout")
+        if isinstance(raw_settings_layout, dict) and i18n is not None:
+            settings_layout_payload = _serialize_settings_layout(
+                raw_settings_layout,
+                i18n,
+                plugin_id=item.plugin_id,
+            )
+        else:
+            settings_layout_payload = raw_settings_layout if isinstance(raw_settings_layout, dict) else None
+
+        raw_settings_actions = item.metadata.get("settings_actions", []) or []
+        if isinstance(raw_settings_actions, list) and i18n is not None:
+            settings_actions_payload = [
+                _serialize_settings_action(action, i18n, plugin_id=item.plugin_id)
+                if isinstance(action, dict)
+                else action
+                for action in raw_settings_actions
+            ]
+        else:
+            settings_actions_payload = raw_settings_actions if isinstance(raw_settings_actions, list) else []
         resolved = sensor_registry.resolve_source_sensor(source_name)
         sensor = resolved[2] if resolved is not None else None
         schedule_id = build_sensor_schedule_id(item.plugin_id, source_name)
@@ -294,6 +323,16 @@ async def get_sensor_source_status():
                 "display_name_translated": display_name_translated,
                 "description": item.description,
                 "description_translated": description_translated,
+                **capability_payload,
+                "entry_order": item.metadata.get("entry_order"),
+                "available": item.metadata.get("available"),
+                "platforms": item.metadata.get("platforms"),
+                "unavailable_reason": item.metadata.get("unavailable_reason"),
+                "unavailable_reason_translated": translate_with_fallback(
+                    i18n,
+                    f"{plugin_id_normalized}.entries.{entry_id_for_translation}.unavailable_reason",
+                    item.metadata.get("unavailable_reason"),
+                ),
                 "fields": translated_fields,
                 "current_settings": {
                     key: _get_nested_value(current_settings, key, default)
@@ -331,7 +370,9 @@ async def get_sensor_source_status():
                 "supports_pull_sync": supports_pull_sync,
                 "supports_state_flush": supports_state_flush,
                 "activation_flow": activation_flow_payload,
+                "settings_layout": settings_layout_payload,
                 "settings_ui_blocks": settings_ui_blocks_payload,
+                "settings_actions": settings_actions_payload,
                 "activation_required": activation_required,
                 "running": running,
                 "last_run_at": state.last_run_at if state is not None else None,

@@ -127,6 +127,24 @@ def _build_client(monkeypatch):
                                     "sync_mode": "interval",
                                     "sync_interval_minutes": 5,
                                 },
+                                "settings_actions": [
+                                    {
+                                        "action_id": "connect_github",
+                                        "label": "Connect GitHub",
+                                        "description": "Authorize GitHub locally.",
+                                        "button_label": "Connect GitHub",
+                                        "presentation": "inline",
+                                        "surface": "timeline",
+                                        "contribution_id": "timeline.screen_time",
+                                        "contribution_type": "sensor",
+                                        "order": 0,
+                                        "destructive": False,
+                                        "requires_enabled": False,
+                                        "poll_interval_ms": 5000,
+                                        "timeout_ms": 900000,
+                                        "persist_settings_on_success": True,
+                                    }
+                                ],
                             },
                         },
                     )()
@@ -207,6 +225,8 @@ def test_get_sensor_source_status(monkeypatch):
     assert body["sources"][0]["status"] == "ready"
     assert body["sources"][0]["scheduler_job_id"] == "sensor-sync:screen-time:screen_time"
     assert body["sources"][0]["supports_state_flush"] is True
+    assert body["sources"][0]["settings_actions"][0]["action_id"] == "connect_github"
+    assert body["sources"][0]["settings_actions"][0]["button_label"] == "Connect GitHub"
 
 
 def test_derive_sensor_status_prioritizes_operator_states():

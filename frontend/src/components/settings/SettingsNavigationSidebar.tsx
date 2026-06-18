@@ -7,7 +7,7 @@ import type { SensorSourceStatusItem } from '@/api/modules/sensors';
 import { isNavGroup } from '@/constants/settings';
 import { cn } from '@/lib/utils';
 import type { NavItem } from '@/types/settings';
-import { getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
+import { buildTimelineCapabilities } from '@/utils/timeline-capabilities';
 
 interface SettingsNavigationSidebarProps {
   visibleNavItems: NavItem[];
@@ -37,6 +37,7 @@ export function SettingsNavigationSidebar({
   setChannelsSelection,
 }: SettingsNavigationSidebarProps) {
   const { t } = useTranslation('app');
+  const timelineCapabilities = buildTimelineCapabilities(t, sortedTimelineStatuses);
 
   const isNavGroupActive = (item: NavItem) => {
     if (!isNavGroup(item)) {
@@ -151,15 +152,14 @@ export function SettingsNavigationSidebar({
                     {t('settings.timeline.nav.overview')}
                   </button>
 
-                  {sortedTimelineStatuses.map((source) => {
-                    const isSelected = timelineSelection === source.source_name;
-                    const displayName = getTimelineSourceDisplayName(t, source);
+                  {timelineCapabilities.map((capability) => {
+                    const isSelected = timelineSelection === capability.id;
                     return (
                       <button
-                        key={source.source_name}
+                        key={capability.id}
                         type="button"
-                        onClick={() => setTimelineSelection(source.source_name)}
-                        data-testid={`timeline-nav-source-${source.source_name}`}
+                        onClick={() => setTimelineSelection(capability.id)}
+                        data-testid={`timeline-nav-source-${capability.id}`}
                         aria-current={isSelected ? 'page' : undefined}
                         className={cn(
                           'flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-[13px] leading-5',
@@ -170,8 +170,8 @@ export function SettingsNavigationSidebar({
                             : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.48)] hover:text-foreground'
                         )}
                       >
-                        <span className="truncate">{displayName}</span>
-                        {source.last_error ? (
+                        <span className="truncate">{capability.displayName}</span>
+                        {capability.attentionCount > 0 ? (
                           <span className="ml-auto h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
                         ) : null}
                       </button>

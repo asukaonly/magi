@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pluginsApi } from '@/api/modules/plugins';
 import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
@@ -15,7 +16,43 @@ describe('PluginMarketplace', () => {
     vi.restoreAllMocks();
   });
 
-  it('shows registry-provided plugin icons on marketplace cards', async () => {
+  it('shows registry-provided plugin icons on standalone marketplace cards', async () => {
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      registry_version: '1',
+      plugins: [
+        {
+          plugin_id: 'photo-library',
+          name: 'Photo Library',
+          name_i18n: { 'zh-CN': '照片库' },
+          version: '0.1.0',
+          description: 'Read local photo libraries.',
+          description_i18n: { 'zh-CN': '读取本地照片库。' },
+          author: 'Magi Team',
+          icon: 'lucide:image',
+          official: true,
+          data_locality: 'local_only',
+          contribution_types: ['sensor'],
+          platforms: [],
+          min_sdk_version: '0.1.0',
+          homepage: '',
+          repository: '',
+          path: 'photo-library',
+          installed: false,
+          installed_version: null,
+          update_available: false,
+          capabilities: [],
+        },
+      ],
+    });
+
+    render(<PluginMarketplace installedPlugins={[]} onInstallComplete={vi.fn()} />);
+
+    expect(await screen.findByText('照片库')).toBeInTheDocument();
+    expect(screen.getByTestId('plugin-icon-photo-library')).toBeInTheDocument();
+  });
+
+  it('groups browser history implementations into one marketplace plugin and installs the entries together', async () => {
+    const user = userEvent.setup();
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       registry_version: '1',
       plugins: [
@@ -41,12 +78,73 @@ describe('PluginMarketplace', () => {
           update_available: false,
           capabilities: [],
         },
+        {
+          plugin_id: 'safari-history',
+          name: 'Safari History',
+          name_i18n: { 'zh-CN': 'Safari 浏览历史' },
+          version: '0.1.0',
+          description: 'Read local Safari browsing history.',
+          description_i18n: { 'zh-CN': '读取本地 Safari 浏览记录。' },
+          author: 'Magi Team',
+          icon: 'brand:safari',
+          official: true,
+          data_locality: 'local_only',
+          contribution_types: ['sensor'],
+          platforms: [],
+          min_sdk_version: '0.1.0',
+          homepage: '',
+          repository: '',
+          path: 'safari-history',
+          installed: false,
+          installed_version: null,
+          update_available: false,
+          capabilities: [],
+        },
+        {
+          plugin_id: 'photo-library',
+          name: 'Photo Library',
+          name_i18n: { 'zh-CN': '照片库' },
+          version: '0.1.0',
+          description: 'Read local photo libraries.',
+          description_i18n: { 'zh-CN': '读取本地照片库。' },
+          author: 'Magi Team',
+          icon: 'lucide:image',
+          official: true,
+          data_locality: 'local_only',
+          contribution_types: ['sensor'],
+          platforms: [],
+          min_sdk_version: '0.1.0',
+          homepage: '',
+          repository: '',
+          path: 'photo-library',
+          installed: false,
+          installed_version: null,
+          update_available: false,
+          capabilities: [],
+        },
       ],
     });
+    const install = vi
+      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
+      .mockResolvedValue({} as any);
+    const onInstallComplete = vi.fn().mockResolvedValue(undefined);
 
-    render(<PluginMarketplace installedPlugins={[]} onInstallComplete={vi.fn()} />);
+    render(<PluginMarketplace installedPlugins={[]} onInstallComplete={onInstallComplete} />);
 
-    expect(await screen.findByText('Chrome 浏览历史')).toBeInTheDocument();
-    expect(screen.getByTestId('plugin-icon-googlechrome')).toBeInTheDocument();
+    const browserCard = await screen.findByTestId('marketplace-plugin-browser-history');
+    expect(browserCard).toHaveTextContent('浏览历史');
+    expect(browserCard).toHaveTextContent('Chrome');
+    expect(browserCard).toHaveTextContent('Safari');
+    expect(screen.queryByTestId('marketplace-plugin-chrome-history')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('marketplace-plugin-safari-history')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('marketplace-plugin-photo-library')).toHaveTextContent('照片库');
+
+    await user.click(within(browserCard).getByRole('button', { name: 'settings.marketplace.actions.install' }));
+    await user.click(await screen.findByText('settings.marketplace.consent.confirm.install'));
+
+    await waitFor(() => {
+      expect(install).toHaveBeenCalledWith('chrome-history', expect.any(Function));
+      expect(install).toHaveBeenCalledWith('safari-history', expect.any(Function));
+    });
   });
 });

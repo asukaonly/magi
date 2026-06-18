@@ -1984,6 +1984,9 @@
         "lastSync": "Last synced {{time}}",
         "lastSyncInline": "Last sync: {{time}}",
         "backToOverview": "Back to overview",
+        "entries": "Entries",
+        "entriesTitle": "Sync entries",
+        "entriesDesc": "Each entry has its own enable switch, schedule, and runtime status.",
         "sourceStatusTitle": "Runtime status",
         "sourceStateHint": "{{mode}}",
         "nextRun": "Next run",
@@ -2065,10 +2068,13 @@
     },
     "pluginPackages": {
       "loading": "Loading plugins...",
-      "summary": "{{count}} plugin packages discovered",
+      "summary": "{{count}} plugins discovered",
       "emptyDescription": "This plugin did not provide extra description text.",
       "emptySettings": "This plugin does not expose declarative settings on the Plugins page.",
       "emptyState": "No plugin packages have been discovered yet.",
+      "group": {
+        "entryCount": "{{count}} entries"
+      },
       "actions": {
         "rescan": "Rescan",
         "enable": "Enable",
@@ -2144,6 +2150,7 @@
       "badge": {
         "official": "Official",
         "installed": "Installed",
+        "entryCount": "{{count}} entries",
         "localOnly": "Local only",
         "localOnlyHint": "All data stays on this device — nothing is uploaded."
       },

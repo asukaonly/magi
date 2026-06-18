@@ -1,6 +1,12 @@
 import { api, unwrapGatewayPayload } from '../client';
 import type { components } from '../../types/api/generated';
-import type { ActivationFlowSpec, ExtensionFieldSpec, PluginSettingsUiBlockSpec } from './plugins';
+import type {
+  ActivationFlowSpec,
+  ExtensionFieldSpec,
+  PluginSettingsActionSpec,
+  PluginSettingsLayoutSpec,
+  PluginSettingsUiBlockSpec,
+} from './plugins';
 
 /** Honest memory-readiness signal for one sensor source (see backend GET /sensors/{source}/memory-readiness). */
 export type MemoryReadinessResponse = components['schemas']['MemoryReadinessResponse'];
@@ -20,6 +26,21 @@ export interface SensorSourceStatusItem {
   description: string;
   /** Pre-translated description; see ``display_name_translated``. */
   description_translated?: string | null;
+  capability_id?: string | null;
+  capability_display_name?: string | null;
+  capability_display_name_translated?: string | null;
+  capability_description?: string | null;
+  capability_description_translated?: string | null;
+  entry_id?: string | null;
+  entry_display_name?: string | null;
+  entry_display_name_translated?: string | null;
+  entry_description?: string | null;
+  entry_description_translated?: string | null;
+  entry_order?: number | null;
+  available?: boolean | null;
+  unavailable_reason?: string | null;
+  unavailable_reason_translated?: string | null;
+  platforms?: string[] | null;
   fields: ExtensionFieldSpec[];
   current_settings: Record<string, any>;
   enabled: boolean;
@@ -32,7 +53,9 @@ export interface SensorSourceStatusItem {
   supports_pull_sync: boolean;
   supports_state_flush?: boolean;
   activation_flow?: ActivationFlowSpec | null;
+  settings_layout?: PluginSettingsLayoutSpec | null;
   settings_ui_blocks?: PluginSettingsUiBlockSpec[];
+  settings_actions?: PluginSettingsActionSpec[];
   activation_required?: boolean;
   status?: 'ready' | 'running' | 'stale' | 'error' | 'never_synced' | 'setup_required' | 'disabled' | string;
   running?: boolean;

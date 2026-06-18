@@ -171,6 +171,9 @@ vi.mock('@/api/modules/plugins', async () => {
       reload: vi.fn(),
       getSettingsResource: vi.fn(),
       updateSettings: vi.fn(),
+      startSettingsAction: vi.fn(),
+      pollSettingsAction: vi.fn(),
+      cancelSettingsAction: vi.fn(),
     },
   };
 });
@@ -590,6 +593,24 @@ describe('settings page draft saving', () => {
       ...(pluginsListFixture.plugins.find((plugin) => plugin.manifest.plugin_id === pluginId) ?? pluginsListFixture.plugins[0]),
       current_settings: updates,
     }) as any);
+    vi.mocked(pluginsApi.startSettingsAction).mockResolvedValue({
+      status: 'succeeded',
+      message: 'connected',
+      data: {},
+      settings_updates: {},
+    } as any);
+    vi.mocked(pluginsApi.pollSettingsAction).mockResolvedValue({
+      status: 'succeeded',
+      message: 'connected',
+      data: {},
+      settings_updates: {},
+    } as any);
+    vi.mocked(pluginsApi.cancelSettingsAction).mockResolvedValue({
+      status: 'cancelled',
+      message: 'cancelled',
+      data: {},
+      settings_updates: {},
+    } as any);
     vi.mocked(skillsApi.list).mockResolvedValue(skillsFixture as any);
     vi.mocked(toolsApi.listWithConfig).mockResolvedValue(toolsFixture as any);
     vi.mocked(toolsApi.updateToolConfig).mockResolvedValue({
@@ -1320,6 +1341,451 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('button', { name: 'settings.timeline.actions.refresh' })).not.toBeInTheDocument();
   });
 
+  it('groups multiple source entries under one capability workspace', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: [
+        {
+          ...timelineSourceFixture,
+          source_name: 'photo_library_apple_photos',
+          contribution_id: 'timeline.photo_library.apple_photos',
+          display_name: 'Apple Photos',
+          display_name_translated: 'Apple Photos',
+          description: 'Read the macOS Photos library directly.',
+          description_translated: '直接读取 macOS 照片图库。',
+          capability_id: 'photo_library',
+          capability_display_name: 'Photo Library',
+          capability_display_name_translated: '照片库',
+          capability_description: 'Manage photo sources.',
+          capability_description_translated: '统一管理照片进入时间线的方式。',
+          entry_id: 'apple_photos',
+          entry_display_name: 'Apple Photos',
+          entry_display_name_translated: 'Apple Photos',
+          enabled: true,
+          supports_pull_sync: true,
+          last_error: '需要照片权限',
+          fields: [
+            {
+              ...timelineSourceFixture.fields[0],
+              key: 'sensors.photo_library_apple_photos.enabled',
+              label_translated: '启用',
+            },
+          ],
+          current_settings: {
+            'sensors.photo_library_apple_photos.enabled': true,
+          },
+        },
+        {
+          ...timelineSourceFixture,
+          source_name: 'photo_library_directory',
+          contribution_id: 'timeline.photo_library.directory',
+          display_name: 'Local Photos',
+          display_name_translated: '本地照片',
+          description: 'Scan local photo folders.',
+          description_translated: '扫描你选择的本地照片文件夹。',
+          capability_id: 'photo_library',
+          capability_display_name: 'Photo Library',
+          capability_display_name_translated: '照片库',
+          capability_description: 'Manage photo sources.',
+          capability_description_translated: '统一管理照片进入时间线的方式。',
+          entry_id: 'directory',
+          entry_display_name: 'Local Photos',
+          entry_display_name_translated: '本地照片',
+          enabled: true,
+          supports_pull_sync: true,
+          fields: [
+            {
+              ...timelineSourceFixture.fields[0],
+              key: 'sensors.photo_library_directory.enabled',
+              label_translated: '启用',
+            },
+          ],
+          current_settings: {
+            'sensors.photo_library_directory.enabled': true,
+          },
+        },
+        {
+          ...chromeTimelineSourceFixture,
+          capability_id: 'browser_history',
+          capability_display_name: 'Browser History',
+          capability_display_name_translated: '浏览历史',
+          capability_description: 'Manage browser history sources.',
+          capability_description_translated: '统一管理浏览器历史进入时间线的方式。',
+          entry_id: 'chrome',
+          entry_display_name: 'Chrome',
+          entry_display_name_translated: 'Chrome',
+          enabled: true,
+        },
+        {
+          ...chromeTimelineSourceFixture,
+          source_name: 'safari_history',
+          plugin_id: 'safari-history',
+          contribution_id: 'timeline.safari_history',
+          display_name: 'Safari History',
+          display_name_translated: 'Safari',
+          description: 'Local Safari browsing history ingested into the user timeline.',
+          capability_id: 'browser_history',
+          capability_display_name: 'Browser History',
+          capability_display_name_translated: '浏览历史',
+          capability_description: 'Manage browser history sources.',
+          capability_description_translated: '统一管理浏览器历史进入时间线的方式。',
+          entry_id: 'safari',
+          entry_display_name: 'Safari',
+          entry_display_name_translated: 'Safari',
+          enabled: true,
+        },
+      ],
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await screen.findByTestId('timeline-overview');
+
+    expect(await screen.findByTestId('timeline-nav-source-photo_library')).toHaveTextContent('照片库');
+    expect(await screen.findByTestId('timeline-nav-source-browser_history')).toHaveTextContent('浏览历史');
+    expect(screen.queryByTestId('timeline-nav-source-photo_library_apple_photos')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('timeline-nav-source-chrome_history')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('timeline-nav-source-photo_library'));
+    const photoWorkspace = await screen.findByTestId('timeline-capability-detail-photo_library');
+    expect(within(photoWorkspace).getByTestId('timeline-entry-row-photo_library_apple_photos')).toHaveTextContent('Apple Photos');
+    expect(within(photoWorkspace).getByTestId('timeline-entry-row-photo_library_directory')).toHaveTextContent('本地照片');
+    expect(within(photoWorkspace).getByTestId('timeline-entry-detail-photo_library_apple_photos')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('timeline-nav-source-browser_history'));
+    const browserWorkspace = await screen.findByTestId('timeline-capability-detail-browser_history');
+    expect(within(browserWorkspace).getByTestId('timeline-entry-row-chrome_history')).toHaveTextContent('Chrome');
+    expect(within(browserWorkspace).getByTestId('timeline-entry-row-safari_history')).toHaveTextContent('Safari');
+  });
+
+  it('renders photo-library source tabs and scopes fields to the selected source', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: [
+        {
+          ...timelineSourceFixture,
+          enabled: false,
+          supports_pull_sync: true,
+          display_name_translated: '照片库',
+          description_translated: '读取 Apple Photos 或本地照片目录，提取拍摄时间、地点和设备信息并接入时间线',
+          current_settings: {
+            'sensors.photo_library.enabled': false,
+            'sensors.photo_library.source_mode': 'apple_photos',
+            'sensors.photo_library.photos_library_path': '~/Pictures/Photos Library.photoslibrary',
+            'sensors.photo_library.source_paths': [],
+            'sensors.photo_library.sync_mode': 'manual',
+            'sensors.photo_library.max_items_per_sync': 200,
+          },
+          fields: [
+            {
+              key: 'sensors.photo_library.enabled',
+              type: 'switch',
+              label: 'Enable',
+              label_translated: '启用',
+              description: 'Whether photo library sync is active.',
+              default: false,
+              required: false,
+              options: [],
+              section: 'general',
+              surface: 'timeline',
+              order: 10,
+            },
+            {
+              key: 'sensors.photo_library.source_mode',
+              type: 'select',
+              label: 'Source',
+              label_translated: '来源',
+              description: 'Choose a source.',
+              default: 'directory',
+              required: false,
+              options: [
+                { label: 'Photo directories', label_translated: '本地照片', value: 'directory' },
+                { label: 'Apple Photos', label_translated: 'Apple Photos', value: 'apple_photos' },
+              ],
+              section: 'general',
+              surface: 'timeline',
+              order: 12,
+            },
+            {
+              key: 'sensors.photo_library.photos_library_path',
+              type: 'path',
+              label: 'Apple Photos Library',
+              label_translated: 'Apple Photos 照片库',
+              description: 'Path to the .photoslibrary package.',
+              default: '~/Pictures/Photos Library.photoslibrary',
+              required: true,
+              options: [],
+              section: 'general',
+              surface: 'timeline',
+              order: 14,
+              depends_on_key: 'sensors.photo_library.source_mode',
+              depends_on_values: ['apple_photos'],
+            },
+            {
+              key: 'sensors.photo_library.source_paths',
+              type: 'path',
+              label: 'Photo Directories',
+              label_translated: '本地照片目录',
+              description: 'Local directories containing photos.',
+              default: [],
+              required: true,
+              options: [],
+              section: 'general',
+              surface: 'timeline',
+              order: 15,
+              depends_on_key: 'sensors.photo_library.source_mode',
+              depends_on_values: ['directory'],
+            },
+            {
+              key: 'sensors.photo_library.max_items_per_sync',
+              type: 'number',
+              label: 'Max Items Per Sync',
+              label_translated: '单次最大数量',
+              description: 'Maximum number of photos to process per sync run.',
+              default: 200,
+              required: false,
+              options: [],
+              section: 'general',
+              surface: 'timeline',
+              order: 40,
+            },
+          ],
+          settings_layout: {
+            kind: 'tabs',
+            controller_key: 'sensors.photo_library.source_mode',
+            tabs: [
+              {
+                tab_id: 'directory',
+                value: 'directory',
+                label: 'Photo folders',
+                label_translated: '本地照片',
+                description: 'Scan exported photo folders.',
+                description_translated: '扫描你选择的本地照片文件夹。',
+                available: true,
+              },
+              {
+                tab_id: 'apple_photos',
+                value: 'apple_photos',
+                label: 'Apple Photos',
+                label_translated: 'Apple Photos',
+                description: 'Read the macOS Photos library.',
+                description_translated: '直接读取 macOS 照片图库。',
+                available: true,
+                platforms: ['darwin'],
+              },
+            ],
+          },
+        },
+      ],
+    } as any);
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+
+    const photoPanel = await screen.findByTestId('timeline-source-detail-photo_library');
+    expect(within(photoPanel).getByRole('tab', { name: '本地照片' })).toBeInTheDocument();
+    expect(within(photoPanel).getByRole('tab', { name: 'Apple Photos' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(photoPanel).queryByText('来源')).not.toBeInTheDocument();
+    expect(within(photoPanel).getByText('Apple Photos 照片库')).toBeInTheDocument();
+    expect(within(photoPanel).queryByText('本地照片目录')).not.toBeInTheDocument();
+    expect(within(photoPanel).queryByText('拉取同步：可用')).not.toBeInTheDocument();
+
+    await user.click(within(photoPanel).getByRole('tab', { name: '本地照片' }));
+
+    expect(within(photoPanel).getByText('本地照片目录')).toBeInTheDocument();
+    expect(within(photoPanel).queryByText('Apple Photos 照片库')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
+        'photo-library',
+        expect.objectContaining({
+          'sensors.photo_library.source_mode': 'directory',
+        })
+      )
+    );
+  });
+
+  it('shows platform unavailable reason for unavailable photo-library source tabs', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: [
+        {
+          ...timelineSourceFixture,
+          display_name_translated: '照片库',
+          current_settings: {
+            'sensors.photo_library.enabled': false,
+            'sensors.photo_library.source_mode': 'apple_photos',
+            'sensors.photo_library.photos_library_path': '~/Pictures/Photos Library.photoslibrary',
+            'sensors.photo_library.source_paths': [],
+          },
+          fields: [
+            {
+              key: 'sensors.photo_library.enabled',
+              type: 'switch',
+              label: 'Enable',
+              label_translated: '启用',
+              description: 'Whether photo library sync is active.',
+              default: false,
+              required: false,
+              options: [],
+              section: 'general',
+              surface: 'timeline',
+              order: 10,
+            },
+            {
+              key: 'sensors.photo_library.source_mode',
+              type: 'select',
+              label: 'Source',
+              label_translated: '来源',
+              description: 'Choose a source.',
+              default: 'directory',
+              required: false,
+              options: [],
+              section: 'general',
+              surface: 'timeline',
+              order: 12,
+            },
+            {
+              key: 'sensors.photo_library.photos_library_path',
+              type: 'path',
+              label: 'Apple Photos Library',
+              label_translated: 'Apple Photos 照片库',
+              description: 'Path to the .photoslibrary package.',
+              default: '~/Pictures/Photos Library.photoslibrary',
+              required: true,
+              options: [],
+              section: 'general',
+              surface: 'timeline',
+              order: 14,
+              depends_on_key: 'sensors.photo_library.source_mode',
+              depends_on_values: ['apple_photos'],
+            },
+          ],
+          settings_ui_blocks: [
+            {
+              block_id: 'apple_photos_permissions',
+              type: 'resource_picker',
+              title: 'Apple Photos Access',
+              title_translated: 'Apple Photos 访问权限',
+              description: 'Apple Photos mode needs permissions.',
+              description_translated: 'Apple Photos 模式需要权限。',
+              resource_name: 'apple_photos_permissions',
+              value_key: '_readonly',
+              presentation: 'permission_status',
+              depends_on_key: 'sensors.photo_library.source_mode',
+              depends_on_values: ['apple_photos'],
+            },
+          ],
+          settings_layout: {
+            kind: 'tabs',
+            controller_key: 'sensors.photo_library.source_mode',
+            tabs: [
+              {
+                tab_id: 'directory',
+                value: 'directory',
+                label: 'Photo folders',
+                label_translated: '本地照片',
+                available: true,
+              },
+              {
+                tab_id: 'apple_photos',
+                value: 'apple_photos',
+                label: 'Apple Photos',
+                label_translated: 'Apple Photos',
+                available: false,
+                unavailable_reason: 'Apple Photos is only available on macOS.',
+                unavailable_reason_translated: 'Apple Photos 仅在 macOS 上可用。',
+                platforms: ['darwin'],
+              },
+            ],
+          },
+        },
+      ],
+    } as any);
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+
+    const photoPanel = await screen.findByTestId('timeline-source-detail-photo_library');
+    expect(within(photoPanel).getByRole('tab', { name: 'Apple Photos' })).toHaveAttribute('aria-disabled', 'true');
+    expect(within(photoPanel).getByText('Apple Photos 仅在 macOS 上可用。')).toBeInTheDocument();
+    expect(within(photoPanel).queryByText('Apple Photos 访问权限')).not.toBeInTheDocument();
+    expect(within(photoPanel).queryByText('Apple Photos 照片库')).not.toBeInTheDocument();
+  });
+
+  it('renders settings actions declared by timeline source plugins', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: [
+        {
+          ...chromeTimelineSourceFixture,
+          source_name: 'github_activity',
+          plugin_id: 'github-activity',
+          contribution_id: 'timeline.github_activity',
+          display_name: 'GitHub Activity',
+          description: 'Local GitHub repository activity.',
+          current_settings: {
+            'sensors.github_activity.enabled': false,
+            'sensors.github_activity.client_id': 'client-id',
+            'sensors.github_activity.repositories': ['acme/app'],
+          },
+          fields: [
+            {
+              key: 'sensors.github_activity.client_id',
+              type: 'input',
+              label: 'GitHub Client ID',
+              description: 'Client ID used for local device authorization.',
+              default: '',
+              required: true,
+              options: [],
+              section: 'connection',
+              surface: 'timeline',
+              order: 10,
+            },
+          ],
+          settings_actions: [
+            {
+              action_id: 'connect_github',
+              label: 'Connect GitHub',
+              description: 'Authorize GitHub locally.',
+              button_label: 'Connect GitHub',
+              presentation: 'inline',
+              surface: 'timeline',
+              contribution_id: 'timeline.github_activity',
+              contribution_type: 'sensor',
+              order: 0,
+              destructive: false,
+              requires_enabled: false,
+              poll_interval_ms: 5000,
+              timeout_ms: 900000,
+              persist_settings_on_success: true,
+            },
+          ],
+        },
+      ],
+    } as any);
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-github_activity'));
+
+    const panel = await screen.findByTestId('timeline-source-detail-github_activity');
+    await user.click(within(panel).getByRole('button', { name: 'Connect GitHub' }));
+
+    expect(pluginsApi.startSettingsAction).toHaveBeenCalledWith(
+      'github-activity',
+      'connect_github',
+      expect.objectContaining({
+        'sensors.github_activity.client_id': 'client-id',
+      })
+    );
+  });
+
   it('keeps timeline nav items alphabetized after overview', async () => {
     const user = userEvent.setup();
     vi.mocked(sensorsApi.getStatus).mockResolvedValue({
@@ -1513,7 +1979,7 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByTestId('timeline-nav-source-chrome_history'));
 
     const chromePanel = await screen.findByTestId('timeline-source-detail-chrome_history');
-    expect(within(chromePanel).getByText('Chrome 历史')).toBeInTheDocument();
+    expect(within(chromePanel).getAllByText('Chrome 历史').length).toBeGreaterThan(0);
     expect(within(chromePanel).getByText('配置档案')).toBeInTheDocument();
     expect(within(chromePanel).getByText('同步方式')).toBeInTheDocument();
     expect(within(chromePanel).queryByText('Chrome Data Path')).not.toBeInTheDocument();

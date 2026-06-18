@@ -4,11 +4,19 @@ import { useTranslation } from 'react-i18next';
 
 import {
   type ExtensionFieldSpec,
+  type PluginContribution,
   type PluginPackageState,
 } from '@/api/modules/plugins';
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  buildInstalledPluginDisplayItems,
+  getInstalledItemDescription,
+  getInstalledItemMemberNames,
+  getInstalledItemName,
+  type InstalledPluginDisplayItem,
+} from '@/utils/plugin-display-groups';
 
 type TFunction = (key: string) => string;
 
@@ -19,6 +27,13 @@ const collectSurfaceFields = (
   plugin.contributions
     .flatMap((contribution) => contribution.fields)
     .filter((field) => field.surface === surface);
+
+const collectContributionEntries = (
+  item: InstalledPluginDisplayItem,
+): Array<{ plugin: PluginPackageState; contribution: PluginContribution }> =>
+  item.plugins.flatMap((plugin) =>
+    plugin.contributions.map((contribution) => ({ plugin, contribution }))
+  );
 
 /**
  * Helper function to get plugin-specific translation with fallback.
@@ -55,8 +70,19 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
   onPluginAction,
   processingIds,
 }) => {
-  const { t } = useTranslation('app');
-  const pluginCount = useMemo(() => plugins.length, [plugins]);
+  const { t, i18n } = useTranslation('app');
+  const language = i18n?.language ?? 'zh-CN';
+  const displayItems = useMemo(() => buildInstalledPluginDisplayItems(plugins), [plugins]);
+  const pluginCount = displayItems.length;
+
+  const handleItemAction = async (
+    item: InstalledPluginDisplayItem,
+    action: 'enable' | 'disable' | 'reload',
+  ) => {
+    for (const plugin of item.plugins) {
+      await onPluginAction(plugin.manifest.plugin_id, action);
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -80,41 +106,67 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
         </div>
       ) : (
         <div className="grid gap-4">
-          {plugins.map((plugin) => {
-            const pluginPackageFields = collectSurfaceFields(plugin, 'extensions');
-            const operation = processingIds[plugin.manifest.plugin_id];
+          {displayItems.map((item) => {
+            const itemEnabled = item.plugins.some((plugin) => plugin.enabled);
+            const allEnabled = item.plugins.every((plugin) => plugin.enabled);
+            const itemHealthy = item.plugins.every((plugin) => plugin.healthy);
+            const itemTrusted = item.plugins.every((plugin) => plugin.trusted);
+            const operation = item.plugins
+              .map((plugin) => processingIds[plugin.manifest.plugin_id])
+              .find(Boolean);
+            const contributionEntries = collectContributionEntries(item);
+            const lastErrorPlugin = item.plugins.find((plugin) => plugin.last_error);
+            const memberNames = getInstalledItemMemberNames(item, language);
+            const itemName = item.group
+              ? getInstalledItemName(item, language)
+              : getPluginTranslation(t, item.primary.manifest.plugin_id, 'name', item.primary.manifest.name);
+            const itemDescription = item.group
+              ? getInstalledItemDescription(item, language)
+              : getPluginTranslation(
+                  t,
+                  item.primary.manifest.plugin_id,
+                  'description',
+                  item.primary.manifest.description || t('settings.pluginPackages.emptyDescription')
+                );
 
             return (
               <section
-                key={plugin.manifest.plugin_id}
+                key={item.id}
                 className="space-y-5"
+                data-testid={`installed-plugin-${item.id}`}
               >
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
                         <PlugZap className="h-4 w-4 text-primary" />
-                        {getPluginTranslation(t, plugin.manifest.plugin_id, 'name', plugin.manifest.name)}
+                        {itemName}
                       </div>
                       <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                        {getPluginTranslation(
-                          t,
-                          plugin.manifest.plugin_id,
-                          'description',
-                          plugin.manifest.description || t('settings.pluginPackages.emptyDescription')
-                        )}
+                        {itemDescription}
                       </p>
+                      {memberNames.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {memberNames.map((name) => (
+                            <Badge key={name} variant="outline" className="rounded-md">
+                              {name}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="flex flex-wrap gap-2">
-                        <Badge variant={plugin.enabled ? 'default' : 'secondary'}>
-                          {plugin.enabled ? t('settings.pluginPackages.status.enabled') : t('settings.pluginPackages.status.disabled')}
+                        <Badge variant={itemEnabled ? 'default' : 'secondary'}>
+                          {itemEnabled ? t('settings.pluginPackages.status.enabled') : t('settings.pluginPackages.status.disabled')}
                         </Badge>
-                        <Badge variant={plugin.healthy ? 'secondary' : 'destructive'}>
-                          {plugin.healthy ? t('settings.pluginPackages.status.healthy') : t('settings.pluginPackages.status.unhealthy')}
+                        <Badge variant={itemHealthy ? 'secondary' : 'destructive'}>
+                          {itemHealthy ? t('settings.pluginPackages.status.healthy') : t('settings.pluginPackages.status.unhealthy')}
                         </Badge>
                         <Badge variant="outline">
-                          {plugin.manifest.source} · v{plugin.manifest.version}
+                          {item.group
+                            ? t('settings.pluginPackages.group.entryCount', { count: item.plugins.length })
+                            : `${item.primary.manifest.source} · v${item.primary.manifest.version}`}
                         </Badge>
-                        {plugin.trusted ? (
+                        {itemTrusted ? (
                           <Badge variant="secondary">
                             <ShieldCheck className="mr-1 h-3 w-3" />
                             {t('settings.pluginPackages.status.trusted')}
@@ -131,12 +183,12 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
                     <div className="flex flex-wrap gap-2">
                       <Button
                         type="button"
-                        variant={plugin.enabled ? 'outline' : 'default'}
+                        variant={allEnabled ? 'outline' : 'default'}
                         size="sm"
                         disabled={dirty || operation === 'enable' || operation === 'disable'}
-                        onClick={() => void onPluginAction(plugin.manifest.plugin_id, plugin.enabled ? 'disable' : 'enable')}
+                        onClick={() => void handleItemAction(item, allEnabled ? 'disable' : 'enable')}
                       >
-                        {plugin.enabled
+                        {allEnabled
                           ? t('settings.pluginPackages.actions.disable')
                           : t('settings.pluginPackages.actions.enable')}
                       </Button>
@@ -145,7 +197,7 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
                         variant="outline"
                         size="sm"
                         disabled={dirty || operation === 'reload'}
-                        onClick={() => void onPluginAction(plugin.manifest.plugin_id, 'reload')}
+                        onClick={() => void handleItemAction(item, 'reload')}
                       >
                         <RefreshCw className={operation === 'reload' ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
                         {t('settings.pluginPackages.actions.reload')}
@@ -154,9 +206,9 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {plugin.contributions.map((contribution) => (
+                    {contributionEntries.map(({ plugin, contribution }) => (
                       <div
-                        key={contribution.contribution_id}
+                        key={`${plugin.manifest.plugin_id}:${contribution.contribution_id}`}
                         className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3"
                       >
                         <div className="flex items-center gap-2">
@@ -186,24 +238,33 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
                     ))}
                   </div>
 
-                  {plugin.last_error ? (
+                  {lastErrorPlugin?.last_error ? (
                     <div className="border-l-2 border-destructive/50 pl-4 text-sm text-destructive">
                       <div className="flex items-center gap-2 font-medium">
                         <TriangleAlert className="h-4 w-4" />
                         {t('settings.pluginPackages.status.lastError')}
                       </div>
-                      <p className="mt-2">{plugin.last_error}</p>
+                      <p className="mt-2">{lastErrorPlugin.last_error}</p>
                     </div>
                   ) : null}
 
-                  {pluginPackageFields.length > 0 ? (
-                    <PluginSettingsFields
-                      fields={pluginPackageFields}
-                      values={drafts[plugin.manifest.plugin_id] || {}}
-                      onChange={(key, value) => onFieldChange(plugin.manifest.plugin_id, key, value)}
-                      disabled={!plugin.enabled}
-                      pluginId={plugin.manifest.plugin_id}
-                    />
+                  {item.plugins.some((plugin) => collectSurfaceFields(plugin, 'extensions').length > 0) ? (
+                    <div className="space-y-4">
+                      {item.plugins.map((plugin) => {
+                        const pluginPackageFields = collectSurfaceFields(plugin, 'extensions');
+                        if (pluginPackageFields.length === 0) return null;
+                        return (
+                          <PluginSettingsFields
+                            key={plugin.manifest.plugin_id}
+                            fields={pluginPackageFields}
+                            values={drafts[plugin.manifest.plugin_id] || {}}
+                            onChange={(key, value) => onFieldChange(plugin.manifest.plugin_id, key, value)}
+                            disabled={!plugin.enabled}
+                            pluginId={plugin.manifest.plugin_id}
+                          />
+                        );
+                      })}
+                    </div>
                   ) : (
                     <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-3 text-sm text-muted-foreground">
                       <div className="flex items-center gap-2">

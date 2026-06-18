@@ -1983,6 +1983,9 @@
         "lastSync": "最近同步于 {{time}}",
         "lastSyncInline": "最近同步：{{time}}",
         "backToOverview": "返回总览",
+        "entries": "入口数",
+        "entriesTitle": "同步入口",
+        "entriesDesc": "每个入口独立启用、同步和记录状态。",
         "sourceStatusTitle": "运行状态",
         "sourceStateHint": "{{mode}}",
         "nextRun": "下次执行",
@@ -2064,10 +2067,13 @@
     },
     "pluginPackages": {
       "loading": "正在加载插件...",
-      "summary": "已发现 {{count}} 个插件包",
+      "summary": "已发现 {{count}} 个插件",
       "emptyDescription": "这个插件没有提供额外描述。",
       "emptySettings": "这个插件当前没有可配置的声明式设置项。",
       "emptyState": "还没有扫描到任何插件包。",
+      "group": {
+        "entryCount": "{{count}} 个入口"
+      },
       "actions": {
         "rescan": "重新扫描",
         "enable": "启用",
@@ -2143,6 +2149,7 @@
       "badge": {
         "official": "官方",
         "installed": "已安装",
+        "entryCount": "{{count}} 个入口",
         "localOnly": "纯本地",
         "localOnlyHint": "所有数据只留在本机，不上传任何地方。"
       },

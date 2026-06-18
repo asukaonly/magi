@@ -317,6 +317,96 @@ def _serialize_settings_ui_block(
     return out
 
 
+def _serialize_settings_layout(
+    layout: dict[str, Any], i18n: PluginI18n, plugin_id: str | None = None
+) -> dict[str, Any]:
+    """Augment a plugin-declared settings layout with translated mirrors."""
+    out = dict(layout)
+    if not plugin_id:
+        return out
+    plugin_id_normalized = normalize_plugin_id(plugin_id)
+    tabs = layout.get("tabs")
+    if isinstance(tabs, list):
+        translated_tabs: list[Any] = []
+        for tab in tabs:
+            if not isinstance(tab, dict):
+                translated_tabs.append(tab)
+                continue
+            tab_id = str(tab.get("tab_id") or tab.get("value") or "")
+            translated = dict(tab)
+            if tab_id:
+                translated["label_translated"] = translate_with_fallback(
+                    i18n,
+                    f"{plugin_id_normalized}.settings_layout.tabs.{tab_id}.label",
+                    str(tab.get("label") or ""),
+                )
+                translated["description_translated"] = translate_with_fallback(
+                    i18n,
+                    f"{plugin_id_normalized}.settings_layout.tabs.{tab_id}.description",
+                    str(tab.get("description") or ""),
+                )
+                translated["unavailable_reason_translated"] = translate_with_fallback(
+                    i18n,
+                    f"{plugin_id_normalized}.settings_layout.tabs.{tab_id}.unavailable_reason",
+                    tab.get("unavailable_reason"),
+                )
+            translated_tabs.append(translated)
+        out["tabs"] = translated_tabs
+    return out
+
+
+def _serialize_sensor_capability(
+    metadata: dict[str, Any],
+    i18n: PluginI18n | None,
+    *,
+    plugin_id: str,
+    fallback_source_name: str,
+    fallback_display_name: str,
+    fallback_description: str,
+) -> dict[str, Any]:
+    """Serialize the capability/entry grouping metadata for one sensor source."""
+    plugin_id_normalized = normalize_plugin_id(plugin_id)
+    capability_id = str(metadata.get("capability_id") or fallback_source_name)
+    entry_id = str(metadata.get("entry_id") or fallback_source_name)
+    capability_display_name = str(
+        metadata.get("capability_display_name") or fallback_display_name
+    )
+    capability_description = str(
+        metadata.get("capability_description") or fallback_description
+    )
+    entry_display_name = str(metadata.get("entry_display_name") or fallback_display_name)
+    entry_description = str(metadata.get("entry_description") or fallback_description)
+
+    return {
+        "capability_id": capability_id,
+        "capability_display_name": capability_display_name,
+        "capability_display_name_translated": translate_with_fallback(
+            i18n,
+            f"{plugin_id_normalized}.capabilities.{capability_id}.display_name",
+            capability_display_name,
+        ),
+        "capability_description": capability_description,
+        "capability_description_translated": translate_with_fallback(
+            i18n,
+            f"{plugin_id_normalized}.capabilities.{capability_id}.description",
+            capability_description,
+        ),
+        "entry_id": entry_id,
+        "entry_display_name": entry_display_name,
+        "entry_display_name_translated": translate_with_fallback(
+            i18n,
+            f"{plugin_id_normalized}.entries.{entry_id}.display_name",
+            entry_display_name,
+        ),
+        "entry_description": entry_description,
+        "entry_description_translated": translate_with_fallback(
+            i18n,
+            f"{plugin_id_normalized}.entries.{entry_id}.description",
+            entry_description,
+        ),
+    }
+
+
 def _localize_activation_field(
     field: dict[str, Any], i18n: PluginI18n, plugin_id_normalized: str
 ) -> dict[str, Any]:

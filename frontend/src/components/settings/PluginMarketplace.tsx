@@ -27,6 +27,17 @@ import { PluginIcon } from '@/components/plugins/PluginIcon';
 import { PluginInstallProgressPanel } from '@/components/plugins/PluginInstallProgressPanel';
 import { PluginConsentDialog, type ConsentMode } from '@/components/plugins/PluginConsentDialog';
 import { capabilitiesExceedingConsent } from '@/lib/pluginCapabilities';
+import {
+  buildMarketplacePluginDisplayItems,
+  getMarketplaceItemCapabilities,
+  getMarketplaceItemContributionTypes,
+  getMarketplaceItemDescription,
+  getMarketplaceItemIcon,
+  getMarketplaceItemMemberNames,
+  getMarketplaceItemName,
+  localizedPluginText,
+  type MarketplacePluginDisplayItem,
+} from '@/utils/plugin-display-groups';
 
 const CONTRIBUTION_TYPE_FILTERS = ['all', 'sensor', 'tool', 'channel'] as const;
 type ContributionFilter = (typeof CONTRIBUTION_TYPE_FILTERS)[number];
@@ -37,8 +48,7 @@ function localized(
   i18nMap: Record<string, string> | undefined,
   lang: string,
 ): string {
-  if (!i18nMap) return base;
-  return i18nMap[lang] ?? i18nMap[lang.split('-')[0]] ?? base;
+  return localizedPluginText(base, i18nMap, lang);
 }
 
 interface PluginMarketplaceProps {
@@ -51,6 +61,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   onInstallComplete,
 }) => {
   const { t, i18n } = useTranslation('app');
+  const language = i18n?.language ?? 'zh-CN';
   const [registryEntries, setRegistryEntries] = useState<PluginRegistryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,56 +101,82 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
 
   const currentPlatform = /mac/i.test(navigator.userAgent) ? 'macos' : 'windows';
 
-  const filteredEntries = useMemo(() => registryEntries.filter((entry) => {
+  const platformEntries = useMemo(() => registryEntries.filter((entry) => {
     // Hide plugins that don't support the current platform.
     if (entry.platforms.length > 0 && !entry.platforms.includes(currentPlatform)) {
       return false;
     }
+    return true;
+  }), [registryEntries, currentPlatform]);
+
+  const marketplaceItems = useMemo(
+    () => buildMarketplacePluginDisplayItems(platformEntries),
+    [platformEntries],
+  );
+
+  const filteredItems = useMemo(() => marketplaceItems.filter((item) => {
+    const contributionTypes = getMarketplaceItemContributionTypes(item);
     // Category filter.
-    if (typeFilter !== 'all' && !entry.contribution_types.includes(typeFilter)) {
+    if (typeFilter !== 'all' && !contributionTypes.includes(typeFilter)) {
       return false;
     }
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
+    const name = getMarketplaceItemName(item, language);
+    const description = getMarketplaceItemDescription(item, language);
+    const memberNames = getMarketplaceItemMemberNames(item, language);
     return (
-      entry.name.toLowerCase().includes(query) ||
-      entry.plugin_id.toLowerCase().includes(query) ||
-      entry.description.toLowerCase().includes(query) ||
-      entry.author.toLowerCase().includes(query)
+      name.toLowerCase().includes(query) ||
+      item.id.toLowerCase().includes(query) ||
+      description.toLowerCase().includes(query) ||
+      item.entries.some((entry) => entry.author.toLowerCase().includes(query)) ||
+      memberNames.some((member) => member.toLowerCase().includes(query))
     );
-  }), [registryEntries, currentPlatform, typeFilter, searchQuery]);
+  }), [marketplaceItems, typeFilter, searchQuery, language]);
 
-  const runInstall = async (pluginId: string) => {
-    setProcessingIds((prev) => ({ ...prev, [pluginId]: 'installing' }));
+  const isEntryInstalled = (entry: PluginRegistryEntry): boolean =>
+    installedIds.has(entry.plugin_id) || entry.installed;
+
+  const isItemInstalled = (item: MarketplacePluginDisplayItem): boolean =>
+    item.entries.some(isEntryInstalled);
+
+  const runInstall = async (item: MarketplacePluginDisplayItem) => {
+    setProcessingIds((prev) => ({ ...prev, [item.id]: 'installing' }));
     try {
-      await pluginsApi.installFromRegistryWithProgress(pluginId, (snapshot) => {
-        setInstallSnapshots((prev) => ({ ...prev, [pluginId]: snapshot }));
-      });
+      for (const entry of item.entries) {
+        if (isEntryInstalled(entry)) continue;
+        await pluginsApi.installFromRegistryWithProgress(entry.plugin_id, (snapshot) => {
+          setInstallSnapshots((prev) => ({ ...prev, [entry.plugin_id]: snapshot }));
+        });
+      }
       await onInstallComplete();
       toast.success(t('settings.marketplace.feedback.installSuccess'));
       await fetchRegistry();
     } catch (err: any) {
       toast.error(t('settings.marketplace.feedback.installFailed', { message: err?.message || 'unknown' }));
     } finally {
-      setProcessingIds((prev) => { const n = { ...prev }; delete n[pluginId]; return n; });
+      setProcessingIds((prev) => { const n = { ...prev }; delete n[item.id]; return n; });
     }
   };
 
-  const handleInstall = (entry: PluginRegistryEntry) => {
+  const handleInstall = (item: MarketplacePluginDisplayItem) => {
     setConsent({
       mode: 'install',
-      name: localized(entry.name, entry.name_i18n, i18n.language),
-      version: entry.version,
-      official: entry.official,
-      capabilities: entry.capabilities ?? [],
-      proceed: () => runInstall(entry.plugin_id),
+      name: getMarketplaceItemName(item, language),
+      version: item.primary.version,
+      official: item.entries.every((entry) => entry.official),
+      capabilities: getMarketplaceItemCapabilities(item),
+      proceed: () => runInstall(item),
     });
   };
 
-  const handleUninstall = async (pluginId: string) => {
-    setProcessingIds((prev) => ({ ...prev, [pluginId]: 'uninstalling' }));
+  const handleUninstall = async (item: MarketplacePluginDisplayItem) => {
+    setProcessingIds((prev) => ({ ...prev, [item.id]: 'uninstalling' }));
     try {
-      await pluginsApi.uninstall(pluginId);
+      for (const entry of item.entries) {
+        if (!isEntryInstalled(entry)) continue;
+        await pluginsApi.uninstall(entry.plugin_id);
+      }
       await onInstallComplete();
       toast.success(t('settings.marketplace.feedback.uninstallSuccess'));
       await fetchRegistry();
@@ -149,44 +186,50 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     } finally {
       setProcessingIds((prev) => {
         const next = { ...prev };
-        delete next[pluginId];
+        delete next[item.id];
         return next;
       });
     }
   };
 
-  const runUpdate = async (pluginId: string) => {
-    setProcessingIds((prev) => ({ ...prev, [pluginId]: 'updating' }));
+  const runUpdate = async (item: MarketplacePluginDisplayItem) => {
+    setProcessingIds((prev) => ({ ...prev, [item.id]: 'updating' }));
     try {
-      await pluginsApi.updatePluginWithProgress(pluginId, (snapshot) => {
-        setInstallSnapshots((prev) => ({ ...prev, [pluginId]: snapshot }));
-      });
+      for (const entry of item.entries) {
+        if (!entry.update_available) continue;
+        await pluginsApi.updatePluginWithProgress(entry.plugin_id, (snapshot) => {
+          setInstallSnapshots((prev) => ({ ...prev, [entry.plugin_id]: snapshot }));
+        });
+      }
       await onInstallComplete();
       toast.success(t('settings.marketplace.feedback.updateSuccess'));
       await fetchRegistry();
     } catch (err: any) {
       toast.error(t('settings.marketplace.feedback.updateFailed', { message: err?.message || 'unknown' }));
     } finally {
-      setProcessingIds((prev) => { const n = { ...prev }; delete n[pluginId]; return n; });
+      setProcessingIds((prev) => { const n = { ...prev }; delete n[item.id]; return n; });
     }
   };
 
-  const handleUpdate = (entry: PluginRegistryEntry) => {
-    const installed = installedPlugins.find((p) => p.manifest.plugin_id === entry.plugin_id);
-    const declared = entry.capabilities ?? [];
-    const newCaps = capabilitiesExceedingConsent(declared, installed?.manifest.consented_capabilities ?? null);
+  const handleUpdate = (item: MarketplacePluginDisplayItem) => {
+    const declared = getMarketplaceItemCapabilities(item);
+    const consented = item.entries.flatMap((entry) => {
+      const installed = installedPlugins.find((p) => p.manifest.plugin_id === entry.plugin_id);
+      return installed?.manifest.consented_capabilities ?? [];
+    });
+    const newCaps = capabilitiesExceedingConsent(declared, consented.length > 0 ? consented : null);
     if (newCaps.length === 0) {
-      void runUpdate(entry.plugin_id);
+      void runUpdate(item);
       return;
     }
     setConsent({
       mode: 'update',
-      name: localized(entry.name, entry.name_i18n, i18n.language),
-      version: entry.version,
-      official: entry.official,
+      name: getMarketplaceItemName(item, language),
+      version: item.primary.version,
+      official: item.entries.every((entry) => entry.official),
       capabilities: declared,
       newCapabilities: newCaps,
-      proceed: () => runUpdate(entry.plugin_id),
+      proceed: () => runUpdate(item),
     });
   };
 
@@ -316,7 +359,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
             {t('settings.marketplace.actions.retry')}
           </Button>
         </div>
-      ) : filteredEntries.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <div className="py-16 text-center text-sm text-muted-foreground">
           {searchQuery
             ? t('settings.marketplace.noResults')
@@ -324,40 +367,51 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
         </div>
       ) : (
         <div className="grid gap-4">
-          {filteredEntries.map((entry) => {
-            const isInstalled = installedIds.has(entry.plugin_id) || entry.installed;
-            const operation = processingIds[entry.plugin_id];
+          {filteredItems.map((item) => {
+            const entry = item.primary;
+            const itemName = getMarketplaceItemName(item, language);
+            const itemDescription = getMarketplaceItemDescription(item, language);
+            const memberNames = getMarketplaceItemMemberNames(item, language);
+            const contributionTypes = getMarketplaceItemContributionTypes(item);
+            const isInstalled = isItemInstalled(item);
+            const operation = processingIds[item.id]
+              || item.entries.map((candidate) => processingIds[candidate.plugin_id]).find(Boolean);
             const isProcessing = !!operation;
+            const updateAvailable = item.entries.some((candidate) => candidate.update_available);
+            const dataLocalOnly = item.entries.every((candidate) => candidate.data_locality === 'local_only');
 
             return (
               <div
-                key={entry.plugin_id}
+                key={item.id}
+                data-testid={`marketplace-plugin-${item.id}`}
                 className="rounded-lg border border-[hsl(var(--settings-subnav-border)/0.72)] p-4 space-y-3"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex min-w-0 flex-1 gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[hsl(var(--settings-subnav-border)/0.72)] bg-[hsl(var(--settings-subnav-bg)/0.55)]">
                       <PluginIcon
-                        iconId={entry.icon}
-                        pluginId={entry.plugin_id}
-                        sourceName={localized(entry.name, entry.name_i18n, i18n.language)}
+                        iconId={getMarketplaceItemIcon(item)}
+                        pluginId={item.id}
+                        sourceName={itemName}
                         className="h-5 w-5"
                       />
                     </div>
                     <div className="space-y-1.5 min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-semibold text-foreground">
-                          {localized(entry.name, entry.name_i18n, i18n.language)}
+                          {itemName}
                         </span>
                         <Badge variant="outline" className="text-xs">
-                          v{entry.version}
+                          {item.kind === 'group'
+                            ? t('settings.marketplace.badge.entryCount', { count: item.entries.length })
+                            : `v${entry.version}`}
                         </Badge>
-                        {entry.official && (
+                        {item.entries.every((candidate) => candidate.official) && (
                           <Badge variant="default" className="text-xs">
                             {t('settings.marketplace.badge.official')}
                           </Badge>
                         )}
-                        {entry.data_locality === 'local_only' && (
+                        {dataLocalOnly && (
                           <Badge
                             variant="outline"
                             className="gap-1 border-transparent bg-emerald-500/15 text-xs text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300"
@@ -371,13 +425,22 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground leading-relaxed">
-                        {localized(entry.description, entry.description_i18n, i18n.language)}
+                        {itemDescription}
                       </p>
+                      {memberNames.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {memberNames.map((name) => (
+                            <Badge key={name} variant="outline" className="rounded-md text-xs">
+                              {name}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         {entry.author && <span>{entry.author}</span>}
-                        {entry.contribution_types.length > 0 && (
+                        {contributionTypes.length > 0 && (
                           <div className="flex gap-1">
-                            {entry.contribution_types.map((type) => (
+                            {contributionTypes.map((type) => (
                               <Badge key={type} variant="secondary" className="text-xs">
                                 {t(`settings.marketplace.contributionType.${type}`, { defaultValue: type })}
                               </Badge>
@@ -402,13 +465,13 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
 
                     {isInstalled ? (
                       <div className="flex items-center gap-2">
-                        {entry.update_available && (
+                        {updateAvailable && (
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
                             disabled={isProcessing}
-                            onClick={() => handleUpdate(entry)}
+                            onClick={() => handleUpdate(item)}
                           >
                             {operation === 'updating' ? (
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -416,7 +479,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                               <RefreshCw className="mr-2 h-4 w-4" />
                             )}
                             {t('settings.marketplace.actions.update')}
-                            {entry.installed_version && (
+                            {item.kind === 'single' && entry.installed_version && (
                               <span className="ml-1 text-xs text-muted-foreground">
                                 {entry.installed_version} → {entry.version}
                               </span>
@@ -428,7 +491,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                           variant="ghost"
                           size="sm"
                           disabled={isProcessing}
-                          onClick={() => void handleUninstall(entry.plugin_id)}
+                          onClick={() => void handleUninstall(item)}
                         >
                           {operation === 'uninstalling' ? (
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -447,7 +510,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                         variant="default"
                         size="sm"
                         disabled={isProcessing}
-                        onClick={() => handleInstall(entry)}
+                        onClick={() => handleInstall(item)}
                       >
                         {operation === 'installing' ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -460,14 +523,17 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                   </div>
                 </div>
 
-                {installSnapshots[entry.plugin_id] ? (
-                  <PluginInstallProgressPanel
-                    snapshot={installSnapshots[entry.plugin_id]}
-                    title={t('settings.marketplace.installProgress.itemTitle', {
-                      name: localized(entry.name, entry.name_i18n, i18n.language),
-                    })}
-                  />
-                ) : null}
+                {item.entries.map((candidate) => (
+                  installSnapshots[candidate.plugin_id] ? (
+                    <PluginInstallProgressPanel
+                      key={candidate.plugin_id}
+                      snapshot={installSnapshots[candidate.plugin_id]}
+                      title={t('settings.marketplace.installProgress.itemTitle', {
+                        name: localized(candidate.name, candidate.name_i18n, language),
+                      })}
+                    />
+                  ) : null
+                ))}
               </div>
             );
           })}
