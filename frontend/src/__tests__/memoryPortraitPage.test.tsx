@@ -18,6 +18,9 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.world.title': '你的世界',
     'memory.portrait.world.meta': '基于 {{count}} 条理解',
     'memory.portrait.world.empty': '还没有形成清晰的关联。',
+    'memory.portrait.world.rootLabel': '你',
+    'memory.portrait.world.rootTitle': 'Magi 眼中的你',
+    'memory.portrait.world.rootMeta': '从记忆里连接出来的项目、工具、主题和互动方式',
     'memory.portrait.world.groups.projects': '正在推进的项目',
     'memory.portrait.world.groups.tools': '常用工具',
     'memory.portrait.world.groups.topics': '关注主题',
@@ -78,6 +81,8 @@ describe('MemoryPortraitPage', () => {
       expect(screen.getByText('还没结论')).toBeInTheDocument();
     });
     expect(screen.getByTestId('portrait-world-map')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-tree')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-root')).toBeInTheDocument();
     expect(screen.getByText('你的世界')).toBeInTheDocument();
     expect(screen.getByText('正在推进的项目')).toBeInTheDocument();
     expect(screen.getByText('常用工具')).toBeInTheDocument();
@@ -105,6 +110,12 @@ describe('MemoryPortraitPage', () => {
 
     expect(await screen.findByText('你的世界')).toBeInTheDocument();
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-tree')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-root')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-branch-projects')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-branch-tools')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-branch-topics')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-branch-interaction')).toBeInTheDocument();
     expect(screen.getByText('正在推进的项目')).toBeInTheDocument();
     expect(screen.getByText('Magi 记忆系统')).toBeInTheDocument();
     expect(screen.getByText('互动偏好')).toBeInTheDocument();

@@ -1,7 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { PortraitDisplayItem, PortraitWorldGroup } from './portraitGrouping';
-import { cn } from '@/lib/utils';
 
 interface PortraitWorldMapProps {
   groups: PortraitWorldGroup[];
@@ -34,42 +33,97 @@ export const PortraitWorldMap = ({ groups, totalCount }: PortraitWorldMapProps) 
         </p>
       </div>
 
-      <div className="mt-5 grid gap-3 xl:grid-cols-2">
-        {groups.map((group, index) => (
-          <article
-            key={group.id}
-            className="rounded-xl border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel-subtle)/0.42)] px-4 py-4"
-          >
-            <div className="flex items-center gap-3">
-              <span
-                className={cn(
-                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--memory-border)/0.72)] text-xs font-semibold text-[hsl(var(--memory-accent))]',
-                  'bg-[hsl(var(--memory-panel-elevated)/0.84)]'
-                )}
-              >
-                {index + 1}
-              </span>
-              <h3 className="text-sm font-semibold text-[hsl(var(--memory-title))]">
-                {t(`memory.portrait.world.groups.${group.id}`)}
-              </h3>
-            </div>
+      <div
+        data-testid="portrait-world-tree"
+        className="relative mt-6 overflow-hidden rounded-xl bg-[hsl(var(--memory-panel-subtle)/0.32)] px-4 py-4 lg:min-h-[430px] lg:px-6 lg:py-6"
+      >
+        <svg
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 hidden h-full w-full lg:block"
+          viewBox="0 0 1000 430"
+          preserveAspectRatio="none"
+        >
+          <path
+            d="M170 215 C260 215 275 215 330 215"
+            fill="none"
+            stroke="hsl(var(--memory-divider) / 0.9)"
+            strokeWidth="2"
+          />
+          <path
+            d="M330 215 C405 215 405 78 470 78"
+            fill="none"
+            stroke="hsl(var(--memory-divider) / 0.82)"
+            strokeWidth="2"
+          />
+          <path
+            d="M330 215 C405 215 405 172 470 172"
+            fill="none"
+            stroke="hsl(var(--memory-divider) / 0.82)"
+            strokeWidth="2"
+          />
+          <path
+            d="M330 215 C405 215 405 258 470 258"
+            fill="none"
+            stroke="hsl(var(--memory-divider) / 0.82)"
+            strokeWidth="2"
+          />
+          <path
+            d="M330 215 C405 215 405 352 470 352"
+            fill="none"
+            stroke="hsl(var(--memory-divider) / 0.82)"
+            strokeWidth="2"
+          />
+          <circle cx="330" cy="215" r="4" fill="hsl(var(--memory-accent) / 0.7)" />
+        </svg>
 
-            <div className="mt-3 space-y-2 border-l border-[hsl(var(--memory-divider)/0.72)] pl-4">
-              {group.items.length === 0 ? (
-                <p className="text-sm text-[hsl(var(--memory-muted))]">
-                  {t('memory.portrait.world.empty')}
-                </p>
-              ) : (
-                group.items.slice(0, 4).map((item) => (
-                  <div key={item.id} className="space-y-1 rounded-lg px-1 py-1">
-                    <p className="text-sm leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
-                    <p className="text-xs text-[hsl(var(--memory-muted))]">{sourceText(item, t)}</p>
-                  </div>
-                ))
-              )}
+        <div className="relative grid gap-6 lg:grid-cols-[220px_1fr] lg:items-center">
+          <div
+            data-testid="portrait-world-root"
+            className="flex items-center gap-4 rounded-full border border-[hsl(var(--memory-border)/0.62)] bg-[hsl(var(--memory-panel-elevated)/0.88)] px-4 py-3 lg:w-[185px] lg:flex-col lg:items-start lg:rounded-2xl lg:px-5 lg:py-5"
+          >
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--memory-accent-soft)/0.86)] text-base font-semibold text-[hsl(var(--memory-accent))]">
+              {t('memory.portrait.world.rootLabel')}
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[hsl(var(--memory-title))]">
+                {t('memory.portrait.world.rootTitle')}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-[hsl(var(--memory-muted))]">
+                {t('memory.portrait.world.rootMeta')}
+              </p>
             </div>
-          </article>
-        ))}
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {groups.map((group) => (
+              <article
+                key={group.id}
+                data-testid={`portrait-world-branch-${group.id}`}
+                className="relative min-h-[142px] border-l border-[hsl(var(--memory-divider)/0.82)] py-1 pl-6"
+              >
+                <span className="absolute left-[-5px] top-2.5 h-2.5 w-2.5 rounded-full bg-[hsl(var(--memory-accent)/0.82)] ring-4 ring-[hsl(var(--memory-panel-elevated)/0.92)]" />
+                <h3 className="text-sm font-semibold text-[hsl(var(--memory-title))]">
+                  {t(`memory.portrait.world.groups.${group.id}`)}
+                </h3>
+
+                <div className="mt-3 space-y-3">
+                  {group.items.length === 0 ? (
+                    <p className="text-sm text-[hsl(var(--memory-muted))]">
+                      {t('memory.portrait.world.empty')}
+                    </p>
+                  ) : (
+                    group.items.slice(0, 4).map((item) => (
+                      <div key={item.id} className="space-y-1">
+                        <p className="text-sm leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
+                        <p className="text-xs text-[hsl(var(--memory-muted))]">{sourceText(item, t)}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
       </div>
     </section>
   );

@@ -2516,6 +2516,9 @@
         "title": "Your world",
         "meta": "Based on {{count}} understanding(s)",
         "empty": "No clear connection yet.",
+        "rootLabel": "You",
+        "rootTitle": "How Magi sees you",
+        "rootMeta": "Projects, tools, topics, and interaction patterns connected from memory",
         "groups": {
           "projects": "Projects in motion",
           "tools": "Common tools",

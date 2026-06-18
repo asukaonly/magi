@@ -2515,6 +2515,9 @@
         "title": "你的世界",
         "meta": "基于 {{count}} 条理解",
         "empty": "还没有形成清晰的关联。",
+        "rootLabel": "你",
+        "rootTitle": "Magi 眼中的你",
+        "rootMeta": "从记忆里连接出来的项目、工具、主题和互动方式",
         "groups": {
           "projects": "正在推进的项目",
           "tools": "常用工具",
