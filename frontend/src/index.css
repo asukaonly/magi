@@ -238,46 +238,6 @@
     --trace-selected-border: 16 22% 72%;
   }
 
-  .theme-olive {
-    --primary: 70 12% 37%;
-    --primary-foreground: 48 30% 97%;
-    --accent: 70 16% 90%;
-    --accent-foreground: 70 14% 24%;
-    --ring: 70 14% 40%;
-    --sidebar-badge: 70 12% 37%;
-    --sidebar-badge-foreground: 48 30% 97%;
-    --sidebar-ring: 70 14% 40%;
-    --settings-accent: 70 15% 90%;
-    --settings-accent-foreground: 70 14% 24%;
-    --settings-nav-active: 70 15% 88%;
-    --settings-nav-active-foreground: 70 14% 24%;
-    --settings-nav-hover: 70 12% 92%;
-    --memory-accent: 70 12% 37%;
-    --memory-accent-soft: 70 15% 88%;
-    --memory-accent-foreground: 48 30% 97%;
-    --trace-selected-border: 70 15% 70%;
-  }
-
-  .theme-rose {
-    --primary: 350 16% 42%;
-    --primary-foreground: 0 32% 97%;
-    --accent: 350 22% 92%;
-    --accent-foreground: 350 18% 25%;
-    --ring: 350 17% 44%;
-    --sidebar-badge: 350 16% 42%;
-    --sidebar-badge-foreground: 0 32% 97%;
-    --sidebar-ring: 350 17% 44%;
-    --settings-accent: 350 20% 91%;
-    --settings-accent-foreground: 350 18% 25%;
-    --settings-nav-active: 350 18% 89%;
-    --settings-nav-active-foreground: 350 18% 25%;
-    --settings-nav-hover: 350 14% 93%;
-    --memory-accent: 350 16% 42%;
-    --memory-accent-soft: 350 18% 89%;
-    --memory-accent-foreground: 0 32% 97%;
-    --trace-selected-border: 350 16% 72%;
-  }
-
   * {
     @apply border-border;
   }
@@ -314,13 +274,6 @@
     background: linear-gradient(180deg, hsl(32 28% 97%) 0%, hsl(24 24% 95%) 100%);
   }
 
-  .theme-olive body {
-    background: linear-gradient(180deg, hsl(42 24% 97%) 0%, hsl(52 18% 94%) 100%);
-  }
-
-  .theme-rose body {
-    background: linear-gradient(180deg, hsl(34 24% 97%) 0%, hsl(350 16% 95%) 100%);
-  }
 }
 
 @layer utilities {

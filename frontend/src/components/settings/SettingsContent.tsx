@@ -405,7 +405,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </header>
 
           <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <div className="h-full w-full min-w-0 px-10 py-10">
+            <div className="h-full w-full min-w-0 px-5 py-5">
               <ErrorBoundary
                 fallback={
                   <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">

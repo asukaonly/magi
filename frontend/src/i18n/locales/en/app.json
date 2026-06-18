@@ -1371,9 +1371,7 @@
       "light": "Light",
       "dark": "Dark",
       "system": "System",
-      "clay": "Warm Clay",
-      "olive": "Smoked Olive",
-      "rose": "Dusty Rose"
+      "clay": "Warm Clay"
     },
     "themeDesc": "Choose an interface palette, preview it, then save",
     "actions": {
