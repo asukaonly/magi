@@ -46,13 +46,13 @@ export function SettingsNavigationSidebar({
   };
 
   return (
-    <nav className="flex w-56 shrink-0 flex-col border-r border-[hsl(var(--settings-subnav-border)/0.72)] bg-[hsl(var(--settings-shell)/0.78)]">
-      <div className="flex h-16 shrink-0 items-center border-b border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.94)] px-5 backdrop-blur-sm">
-        <p className="text-base font-semibold leading-6 tracking-[0.01em] text-foreground">
+    <nav className="flex w-56 shrink-0 flex-col bg-[hsl(var(--settings-shell)/0.68)] shadow-[inset_-1px_0_0_hsl(var(--settings-subnav-border)/0.22)]">
+      <div className="flex h-16 shrink-0 items-center bg-[hsl(var(--settings-shell-elevated)/0.58)] px-6 backdrop-blur-sm">
+        <p className="text-base font-bold leading-6 text-foreground">
           {t('settings.shellTitle')}
         </p>
       </div>
-      <div className="flex-1 space-y-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 space-y-1.5 overflow-y-auto px-4 py-5">
         {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const isActive = isNavGroupActive(item);
@@ -74,12 +74,12 @@ export function SettingsNavigationSidebar({
                 aria-expanded={isExpandable ? isExpanded : undefined}
                 aria-label={t(`settings.tabs.${item.id}`)}
                 className={cn(
-                  'group flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm',
-                  'transition-colors duration-150 ease-out',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                  'group flex w-full items-center justify-between rounded-lg px-3.5 py-2.5 text-sm leading-6',
+                  'transition-[background-color,color,box-shadow,transform] duration-200 ease-out',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:ring-offset-0',
                   isActive
-                    ? 'bg-[hsl(var(--settings-nav-active)/0.42)] text-foreground'
-                    : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-nav-hover))] hover:text-foreground'
+                    ? 'bg-[hsl(var(--settings-nav-active)/0.54)] text-foreground shadow-[0_10px_24px_hsl(var(--foreground)/0.055)]'
+                    : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-nav-hover)/0.64)] hover:text-foreground'
                 )}
               >
                 <div className="flex items-center gap-3">
@@ -89,7 +89,7 @@ export function SettingsNavigationSidebar({
                       ? 'text-foreground'
                       : 'text-[hsl(var(--settings-nav-foreground))] group-hover:text-foreground'
                   )} />
-                  <span className={cn('transition-colors', isActive ? 'font-medium' : 'font-normal')}>
+                  <span className={cn('transition-colors', isActive ? 'font-semibold' : 'font-medium')}>
                     {t(`settings.tabs.${item.id}`)}
                   </span>
                 </div>
@@ -106,7 +106,7 @@ export function SettingsNavigationSidebar({
               </button>
 
               {isNavGroup(item) && isExpanded ? (
-                <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-4">
+                <div className="ml-8 space-y-1 py-1">
                   {item.children.map((child) => {
                     const isChildActive = effectiveActiveSection === child.id;
                     return (
@@ -119,10 +119,10 @@ export function SettingsNavigationSidebar({
                         }}
                         aria-current={isChildActive ? 'page' : undefined}
                         className={cn(
-                          'flex w-full items-center rounded-sm px-2.5 py-1.5 text-[13px] transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          'flex w-full items-center rounded-md px-3 py-1.5 text-[13px] leading-5 transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
                           isChildActive
-                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
-                            : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
+                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.72)] text-foreground font-semibold'
+                            : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.48)] hover:text-foreground'
                         )}
                       >
                         {t(`settings.tabs.${child.id}`)}
@@ -133,19 +133,19 @@ export function SettingsNavigationSidebar({
               ) : null}
 
               {item.id === 'timeline' && isActive && isExpanded ? (
-                <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-4">
+                <div className="ml-8 space-y-1 py-1">
                   <button
                     type="button"
                     onClick={() => setTimelineSelection(null)}
                     data-testid="timeline-nav-overview"
                     aria-current={timelineSelection === null ? 'page' : undefined}
                     className={cn(
-                      'flex w-full items-center rounded-sm px-2.5 py-1.5 text-[13px]',
-                      'transition-colors duration-150 ease-out',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      'flex w-full items-center rounded-md px-3 py-1.5 text-[13px] leading-5',
+                      'transition-colors duration-200 ease-out',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
                       timelineSelection === null
-                        ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
-                        : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
+                        ? 'bg-[hsl(var(--settings-shell-elevated)/0.72)] text-foreground font-semibold'
+                        : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.48)] hover:text-foreground'
                     )}
                   >
                     {t('settings.timeline.nav.overview')}
@@ -162,12 +162,12 @@ export function SettingsNavigationSidebar({
                         data-testid={`timeline-nav-source-${source.source_name}`}
                         aria-current={isSelected ? 'page' : undefined}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-[13px]',
-                          'transition-colors duration-150 ease-out',
-                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          'flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-[13px] leading-5',
+                          'transition-colors duration-200 ease-out',
+                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
                           isSelected
-                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
-                            : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
+                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.72)] text-foreground font-semibold'
+                            : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.48)] hover:text-foreground'
                         )}
                       >
                         <span className="truncate">{displayName}</span>
@@ -181,18 +181,18 @@ export function SettingsNavigationSidebar({
               ) : null}
 
               {item.id === 'channels' && isActive && isExpanded ? (
-                <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-4">
+                <div className="ml-8 space-y-1 py-1">
                   <button
                     type="button"
                     onClick={() => setChannelsSelection(null)}
                     aria-current={channelsSelection === null ? 'page' : undefined}
                     className={cn(
-                      'flex w-full items-center rounded-sm px-2.5 py-1.5 text-[13px]',
-                      'transition-colors duration-150 ease-out',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      'flex w-full items-center rounded-md px-3 py-1.5 text-[13px] leading-5',
+                      'transition-colors duration-200 ease-out',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
                       channelsSelection === null
-                        ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
-                        : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
+                        ? 'bg-[hsl(var(--settings-shell-elevated)/0.72)] text-foreground font-semibold'
+                        : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.48)] hover:text-foreground'
                     )}
                   >
                     {t('settings.timeline.nav.overview')}
@@ -206,12 +206,12 @@ export function SettingsNavigationSidebar({
                         onClick={() => setChannelsSelection(contribution.contribution_id)}
                         aria-current={isSelected ? 'page' : undefined}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-[13px]',
-                          'transition-colors duration-150 ease-out',
-                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          'flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-[13px] leading-5',
+                          'transition-colors duration-200 ease-out',
+                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
                           isSelected
-                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
-                            : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
+                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.72)] text-foreground font-semibold'
+                            : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.48)] hover:text-foreground'
                         )}
                       >
                         <span className="truncate">{contribution.display_name}</span>

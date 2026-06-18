@@ -386,9 +386,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         />
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className="shrink-0 border-b border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.94)] backdrop-blur-sm">
-            <div className="flex h-16 w-full items-center gap-4 px-8">
-              <h2 className="text-base font-semibold leading-6 tracking-[0.01em] text-foreground">
+          <header className="shrink-0 bg-[hsl(var(--settings-shell-elevated)/0.64)] shadow-[inset_0_-1px_0_hsl(var(--settings-subnav-border)/0.2)] backdrop-blur-sm">
+            <div className="flex h-16 w-full items-center gap-4 px-10">
+              <h2 className="text-base font-bold leading-6 text-foreground">
                 {t(`settings.tabs.${effectiveActiveSection}`)}
               </h2>
               <Button
@@ -396,7 +396,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 variant="ghost"
                 size="icon"
                 onClick={() => void onRequestClose?.()}
-                className="ml-auto h-8 w-8 rounded-md text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-nav-hover))] hover:text-foreground"
+                className="ml-auto h-8 w-8 rounded-md text-[hsl(var(--settings-nav-foreground))] transition-colors duration-200 hover:bg-[hsl(var(--settings-nav-hover)/0.72)] hover:text-foreground"
                 aria-label={t('settings.actions.close')}
               >
                 <X className="h-4 w-4" />
@@ -405,7 +405,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </header>
 
           <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <div className="h-full w-full min-w-0 px-8 py-8">
+            <div className="h-full w-full min-w-0 px-10 py-10">
               <ErrorBoundary
                 fallback={
                   <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
@@ -430,7 +430,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     'animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out min-w-0',
                     usesInnerPaneScroll
                       ? 'flex h-full min-h-0 w-full flex-col overflow-hidden'
-                      : 'h-full overflow-y-auto pl-1 pr-4'
+                      : 'h-full overflow-y-auto px-1 pr-5'
                   )}
                 >
                   {renderSectionContent()}
@@ -442,10 +442,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       </div>
 
       {showSettingsFooter ? (
-        <footer className="shrink-0 border-t border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.94)] backdrop-blur-sm">
-          <div className="flex flex-wrap items-center justify-between gap-4 px-8 py-4">
+        <footer className="shrink-0 bg-[hsl(var(--settings-shell-elevated)/0.72)] shadow-[inset_0_1px_0_hsl(var(--settings-subnav-border)/0.18)] backdrop-blur-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4 px-10 py-4">
             <p className={cn(
-              'text-sm transition-colors duration-200',
+              'text-sm leading-6 transition-colors duration-200',
               llmValidationMessage ? 'font-medium text-amber-700 dark:text-amber-300' : dirty ? 'text-primary font-medium' : 'text-muted-foreground'
             )}>
               {llmValidationMessage || (dirty ? t('settings.pendingChanges') : t('settings.allChangesSaved'))}
@@ -457,7 +457,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 size="sm"
                 onClick={() => void handleDiscardChanges()}
                 disabled={!dirty || saving}
-                className="disabled:opacity-40"
+                className="h-9 rounded-lg border-transparent bg-[hsl(var(--settings-shell-elevated)/0.5)] px-4 text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.22)] transition-[background-color,box-shadow,color] duration-200 hover:bg-[hsl(var(--settings-nav-hover)/0.72)] hover:text-foreground disabled:opacity-40"
               >
                 <RotateCcw className="mr-1.5 h-4 w-4" />
                 {t('settings.actions.discard')}
@@ -468,7 +468,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 onClick={() => void handleSaveChanges()}
                 disabled={!dirty || saving || llmValidationIssues.length > 0}
                 className={cn(
-                  'transition-all duration-200',
+                  'h-9 rounded-lg px-4 transition-all duration-200 shadow-[0_10px_24px_hsl(var(--primary)/0.16)] hover:shadow-[0_12px_28px_hsl(var(--primary)/0.2)]',
                   dirty && 'animate-in pulse duration-300'
                 )}
               >

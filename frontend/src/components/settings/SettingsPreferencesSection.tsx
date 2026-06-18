@@ -6,6 +6,7 @@ import { DesktopUpdateSection } from '@/components/settings/DesktopUpdateSection
 import { SettingsGroup, SettingsSectionShell } from '@/components/settings/SettingsSectionPrimitives';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 import { THEME_MODE_OPTIONS, type ThemeMode } from '@/stores/theme';
 
 interface SettingsPreferencesSectionProps {
@@ -14,6 +15,34 @@ interface SettingsPreferencesSectionProps {
   patchDraftConfig: (updater: (draft: SystemConfig) => void) => void;
   onThemePreviewChange: (mode: ThemeMode) => void;
   onLanguageDraftChange: (value: string) => void;
+}
+
+const settingsSwitchClassName =
+  'transition-colors duration-200 data-[state=unchecked]:bg-[hsl(var(--settings-secondary)/0.76)] data-[state=checked]:bg-primary hover:data-[state=unchecked]:bg-[hsl(var(--settings-secondary)/0.94)] hover:data-[state=checked]:bg-primary/90 focus-visible:ring-ring/30';
+
+const settingsInputClassName =
+  'h-11 rounded-lg border-transparent bg-[hsl(var(--settings-shell-elevated)/0.78)] px-4 text-[15px] text-foreground shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.28)] transition-[background-color,box-shadow,color] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.96)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.44)] focus-visible:ring-2 focus-visible:ring-ring/25 focus-visible:ring-offset-0';
+
+function PreferenceToggleRow({
+  label,
+  checked,
+  onCheckedChange,
+}: {
+  label: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex min-h-10 items-center justify-between gap-6 rounded-lg px-1 py-1.5 transition-colors duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.34)]">
+      <span className="text-sm font-medium leading-6 text-foreground/85">{label}</span>
+      <Switch
+        aria-label={label}
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        className={settingsSwitchClassName}
+      />
+    </div>
+  );
 }
 
 export function SettingsPreferencesSection({
@@ -57,52 +86,40 @@ export function SettingsPreferencesSection({
       </SettingsGroup>
 
       <SettingsGroup title={t('settings.fields.windowSettings')}>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-sm">{t('settings.closeToTrayLabel')}</span>
-            <Switch
-              aria-label={t('settings.closeToTrayLabel')}
-              checked={draftConfig.preferences.close_to_tray_enabled}
-              onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                draft.preferences.close_to_tray_enabled = checked;
-              })}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-sm">{t('settings.skipQuitConfirmationLabel')}</span>
-            <Switch
-              aria-label={t('settings.skipQuitConfirmationLabel')}
-              checked={draftConfig.preferences.skip_quit_confirmation}
-              onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                draft.preferences.skip_quit_confirmation = checked;
-              })}
-            />
-          </div>
+        <div className="space-y-1.5">
+          <PreferenceToggleRow
+            label={t('settings.closeToTrayLabel')}
+            checked={draftConfig.preferences.close_to_tray_enabled}
+            onCheckedChange={(checked) => patchDraftConfig((draft) => {
+              draft.preferences.close_to_tray_enabled = checked;
+            })}
+          />
+          <PreferenceToggleRow
+            label={t('settings.skipQuitConfirmationLabel')}
+            checked={draftConfig.preferences.skip_quit_confirmation}
+            onCheckedChange={(checked) => patchDraftConfig((draft) => {
+              draft.preferences.skip_quit_confirmation = checked;
+            })}
+          />
         </div>
       </SettingsGroup>
 
       <SettingsGroup title={t('settings.startupSettings')}>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-sm">{t('settings.autoStartLabel')}</span>
-            <Switch
-              aria-label={t('settings.autoStartLabel')}
-              checked={draftConfig.preferences.auto_start_enabled}
-              onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                draft.preferences.auto_start_enabled = checked;
-              })}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-sm">{t('settings.startMinimizedLabel')}</span>
-            <Switch
-              aria-label={t('settings.startMinimizedLabel')}
-              checked={draftConfig.preferences.start_minimized}
-              onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                draft.preferences.start_minimized = checked;
-              })}
-            />
-          </div>
+        <div className="space-y-1.5">
+          <PreferenceToggleRow
+            label={t('settings.autoStartLabel')}
+            checked={draftConfig.preferences.auto_start_enabled}
+            onCheckedChange={(checked) => patchDraftConfig((draft) => {
+              draft.preferences.auto_start_enabled = checked;
+            })}
+          />
+          <PreferenceToggleRow
+            label={t('settings.startMinimizedLabel')}
+            checked={draftConfig.preferences.start_minimized}
+            onCheckedChange={(checked) => patchDraftConfig((draft) => {
+              draft.preferences.start_minimized = checked;
+            })}
+          />
         </div>
       </SettingsGroup>
 
@@ -127,20 +144,21 @@ export function SettingsPreferencesSection({
             })}
           />
           {draftConfig.network.enabled && (
-            <div className="grid grid-cols-[1fr_auto] gap-3">
-              <label className="space-y-1.5">
-                <span className="text-xs text-muted-foreground">{t('settings.fields.proxyHost')}</span>
+            <div className="grid grid-cols-[1fr_auto] gap-4">
+              <label className="space-y-2.5">
+                <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyHost')}</span>
                 <Input
                   aria-label={t('settings.fields.proxyHost')}
                   value={draftConfig.network.host}
                   placeholder="127.0.0.1"
+                  className={settingsInputClassName}
                   onChange={(e) => patchDraftConfig((draft) => {
                     draft.network.host = e.target.value;
                   })}
                 />
               </label>
-              <label className="space-y-1.5 w-28">
-                <span className="text-xs text-muted-foreground">{t('settings.fields.proxyPort')}</span>
+              <label className="w-32 space-y-2.5">
+                <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyPort')}</span>
                 <Input
                   type="number"
                   aria-label={t('settings.fields.proxyPort')}
@@ -148,6 +166,7 @@ export function SettingsPreferencesSection({
                   min={1}
                   max={65535}
                   placeholder="7890"
+                  className={cn(settingsInputClassName, 'tabular-nums')}
                   onChange={(e) => patchDraftConfig((draft) => {
                     const port = parseInt(e.target.value, 10);
                     if (!Number.isNaN(port) && port >= 1 && port <= 65535) {

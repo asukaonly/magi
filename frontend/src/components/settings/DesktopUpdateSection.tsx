@@ -294,33 +294,33 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
 
   return (
     <section className="space-y-4">
-      <h3 className="text-sm font-semibold tracking-[0.01em] text-foreground">
+      <h3 className="text-[15px] font-semibold leading-6 text-foreground">
         {t('settings.updates.title')}
       </h3>
 
-      <div className="space-y-4 rounded-xl border border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.54)] px-4 py-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1">
-            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+      <div className="space-y-5 rounded-xl bg-[hsl(var(--settings-shell-elevated)/0.46)] px-5 py-5 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.18)]">
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium leading-5 text-muted-foreground">
               {t('settings.updates.currentVersionLabel')}
             </div>
-            <div className="text-sm font-medium text-foreground">
+            <div className="text-sm font-semibold leading-6 text-foreground">
               {currentVersion ?? t('settings.updates.unavailableVersion')}
             </div>
           </div>
 
-          <div className="space-y-1">
-            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium leading-5 text-muted-foreground">
               {t('settings.updates.channelLabel')}
             </div>
-            <div className="text-sm font-medium text-foreground">
+            <div className="text-sm font-semibold leading-6 text-foreground">
               {t('settings.updates.channelValue')}
             </div>
           </div>
         </div>
 
         {!desktopRuntime ? (
-          <p className="text-xs leading-6 text-muted-foreground">
+          <p className="text-sm leading-6 text-muted-foreground">
             {t('settings.updates.desktopOnly')}
           </p>
         ) : (
@@ -333,6 +333,7 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
                   void handleCheckForUpdates();
                 }}
                 disabled={checking || installing}
+                className="rounded-lg border-transparent bg-[hsl(var(--settings-shell-elevated)/0.56)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.22)] transition-[background-color,box-shadow,color] duration-200 hover:bg-[hsl(var(--settings-nav-hover)/0.72)]"
               >
                 <RefreshCcw className="mr-2 h-4 w-4" />
                 {checking ? t('settings.updates.checking') : t('settings.updates.checkAction')}
@@ -377,7 +378,7 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
             </p>
 
             {availableUpdate ? (
-              <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-3">
+              <div className="space-y-3 rounded-lg bg-primary/5 px-3 py-3 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.16)]">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium text-foreground">
                     {t('settings.updates.availableVersion', { version: availableUpdate.version })}
