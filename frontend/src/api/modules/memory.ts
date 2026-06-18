@@ -326,6 +326,35 @@ export interface L2ExperienceWithReview extends L2Experience {
   display_source?: 'user_override' | 'generated' | 'fallback' | string;
 }
 
+export interface L2ExperienceSeed {
+  seed_id: string;
+  seed_type?: 'manual' | 'project' | 'repeated_goal' | string;
+  status?: 'candidate' | 'accepted' | 'rejected' | 'promoted' | 'stale' | string;
+  title?: string | null;
+  description?: string | null;
+  anchor_entity_ids?: string[] | null;
+  anchor_place_ids?: string[] | null;
+  anchor_topic_keys?: string[] | null;
+  time_start?: number | null;
+  time_end?: number | null;
+  confidence?: number | null;
+  evidence_count?: number;
+  display_title?: string;
+  display_description?: string;
+  display_tags?: string[];
+  promoted_experience_id?: string | null;
+  created_at?: number | null;
+  updated_at?: number | null;
+  last_evaluated_at?: number | null;
+}
+
+export interface ExperienceSeedPromotionResponse {
+  seed_id: string;
+  seed?: L2ExperienceSeed | null;
+  promoted_experience_id?: string | null;
+  experience?: L2ExperienceReviewDetail | null;
+}
+
 export interface L2ExperienceSourceEpisode extends L2EpisodeWithSummary {
   membership_role?: string | null;
   membership_confidence?: number | null;
@@ -749,6 +778,14 @@ export const memoryApi = {
     time_end?: number;
   }): Promise<PaginatedResponse<L2ExperienceWithReview>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2ExperienceWithReview>>('/memory/l2/experiences', { params })),
+  listExperienceSeeds: async (params?: PaginationParams & {
+    status?: string;
+  }): Promise<PaginatedResponse<L2ExperienceSeed>> =>
+    unwrapMemoryResponse(await api.get<PaginatedResponse<L2ExperienceSeed>>('/memory/l2/experience-seeds', { params })),
+  promoteExperienceSeed: async (seedId: string): Promise<ExperienceSeedPromotionResponse> =>
+    unwrapMemoryResponse(await api.post<ExperienceSeedPromotionResponse>(`/memory/l2/experience-seeds/${seedId}/promote`)),
+  rejectExperienceSeed: async (seedId: string): Promise<{ seed_id: string; seed?: L2ExperienceSeed | null }> =>
+    unwrapMemoryResponse(await api.post<{ seed_id: string; seed?: L2ExperienceSeed | null }>(`/memory/l2/experience-seeds/${seedId}/reject`)),
   getExperience: async (experienceId: string): Promise<L2ExperienceReviewDetail> =>
     unwrapMemoryResponse(await api.get<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}`)),
   annotateExperience: async (experienceId: string, payload: ExperienceAnnotationPayload): Promise<L2ExperienceReviewDetail> =>

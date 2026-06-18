@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 import { MemoryEpisodesPage, MemoryExperienceDetailPage } from '@/pages/memory-pages/MemoryEpisodesPage';
 import { memoryApi } from '@/api/modules/memory';
-import type { L2ExperienceReviewDetail, L2ExperienceWithReview } from '@/api/modules/memory';
+import type { L2ExperienceReviewDetail, L2ExperienceSeed, L2ExperienceWithReview } from '@/api/modules/memory';
 
 vi.mock('react-i18next', async () => {
   const labels: Record<string, string> = {
@@ -23,6 +23,16 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.sections.topics': 'Topics',
     'memory.episodes.sections.keywords': 'Keywords',
     'memory.episodes.sortNote': 'Pinned first · Recently updated',
+    'memory.episodes.pending.title': 'To organize',
+    'memory.episodes.pending.subtitle': 'Magi thinks these fragments may belong together. You decide whether to turn them into an experience.',
+    'memory.episodes.pending.count': '{{count}} signals',
+    'memory.episodes.pending.clearSignal': 'Clear signal',
+    'memory.episodes.pending.fallbackTitle': 'Possible experience',
+    'memory.episodes.pending.fallbackDescription': 'These fragments keep returning around {{tags}} in a nearby window, so Magi thinks they may become an experience.',
+    'memory.episodes.pending.fallbackDescriptionGeneric': 'These fragments keep returning in a nearby window, so Magi thinks they may become an experience.',
+    'memory.episodes.pending.evidenceCount': '{{count}} fragments',
+    'memory.episodes.pending.actions.promote': 'Make experience',
+    'memory.episodes.pending.actions.reject': 'Not one',
     'memory.episodes.searchLabel': 'Search experiences',
     'memory.episodes.searchPlaceholder': 'Search experiences, places, topics',
     'memory.episodes.filterPinned': 'Filter',
@@ -97,6 +107,9 @@ vi.mock('react-i18next', async () => {
 vi.mock('@/api/modules/memory', () => ({
   memoryApi: {
     listExperiences: vi.fn(),
+    listExperienceSeeds: vi.fn(),
+    promoteExperienceSeed: vi.fn(),
+    rejectExperienceSeed: vi.fn(),
     getExperience: vi.fn(),
     annotateExperience: vi.fn(),
     regenerateExperienceReview: vi.fn(),
@@ -192,6 +205,36 @@ const activeExperiences: L2ExperienceWithReview[] = [
     primary_entity_ids: [],
     primary_place_ids: [],
     primary_topic_keys: ['topic:archive'],
+  },
+];
+
+const pendingSeeds: L2ExperienceSeed[] = [
+  {
+    seed_id: 'seed-1',
+    seed_type: 'project',
+    status: 'candidate',
+    display_title: 'Possible Japan trip planning',
+    display_description: 'These fragments cluster around trains, maps, and lodging.',
+    display_tags: ['Japan', 'trains'],
+    anchor_entity_ids: ['place:japan'],
+    anchor_topic_keys: ['topic:travel'],
+    time_start: 1700000000,
+    time_end: 1700100000,
+    confidence: 0.78,
+    evidence_count: 4,
+  },
+  {
+    seed_id: 'seed-2',
+    seed_type: 'repeated_goal',
+    status: 'candidate',
+    title: 'Possible model debugging',
+    description: 'Magi noticed repeated debugging around the same module.',
+    anchor_entity_ids: ['project:craftworld'],
+    anchor_topic_keys: ['topic:debugging'],
+    time_start: 1700200000,
+    time_end: 1700300000,
+    confidence: 0.7,
+    evidence_count: 3,
   },
 ];
 
@@ -306,6 +349,21 @@ beforeEach(() => {
     limit: 100,
     offset: 0,
   } as never);
+  vi.mocked(memoryApi.listExperienceSeeds).mockResolvedValue({
+    items: pendingSeeds,
+    total: 2,
+    limit: 6,
+    offset: 0,
+  } as never);
+  vi.mocked(memoryApi.promoteExperienceSeed).mockResolvedValue({
+    seed_id: 'seed-1',
+    promoted_experience_id: 'exp-promoted',
+    experience: null,
+  } as never);
+  vi.mocked(memoryApi.rejectExperienceSeed).mockResolvedValue({
+    seed_id: 'seed-1',
+    seed: { ...pendingSeeds[0], status: 'rejected' },
+  } as never);
   vi.mocked(memoryApi.getExperience).mockResolvedValue(experienceDetail);
   vi.mocked(memoryApi.annotateExperience).mockResolvedValue(experienceDetail);
   vi.mocked(memoryApi.regenerateExperienceReview).mockResolvedValue(experienceDetail);
@@ -334,14 +392,17 @@ describe('MemoryEpisodesPage', () => {
     renderPage();
 
     expect((await screen.findAllByText('Launch week')).length).toBeGreaterThan(0);
-    expect(screen.queryByText('Recently formed and updated experiences from remembered events.')).not.toBeInTheDocument();
+    expect(screen.getByText('Recently formed and updated experiences from remembered events.')).toBeInTheDocument();
     expect(screen.getByText('Generated research loop')).toBeInTheDocument();
     expect(screen.getByText('Pinned first · Recently updated')).toBeInTheDocument();
     expect(screen.getByText('All experiences')).toBeInTheDocument();
     expect(screen.getByText('Worth revisiting')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Build experiences now' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Build experiences now' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Search experiences')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Filter' })).not.toBeInTheDocument();
+    expect(screen.getByText('To organize')).toBeInTheDocument();
+    expect(screen.getByText('Possible Japan trip planning')).toBeInTheDocument();
+    expect(screen.getByText('These fragments cluster around trains, maps, and lodging.')).toBeInTheDocument();
 
     const experienceButtons = screen.getAllByRole('button', { name: /Open experience:/ });
     expect(experienceButtons.map((button) => button.getAttribute('aria-label'))).toEqual([
@@ -350,6 +411,7 @@ describe('MemoryEpisodesPage', () => {
       'Open experience: Earlier browsing',
     ]);
     expect(memoryApi.listExperiences).toHaveBeenCalledWith({ status: 'active', limit: 100, offset: 0 });
+    expect(memoryApi.listExperienceSeeds).toHaveBeenCalledWith({ status: 'candidate', limit: 6, offset: 0 });
     expect(memoryApi.listEpisodes).not.toHaveBeenCalled();
     expect(memoryApi.getExperience).not.toHaveBeenCalled();
     expect(screen.queryByText('Visited Kyoto station')).not.toBeInTheDocument();
@@ -426,11 +488,58 @@ describe('MemoryEpisodesPage', () => {
       limit: 100,
       offset: 0,
     } as never);
+    vi.mocked(memoryApi.listExperienceSeeds).mockResolvedValueOnce({
+      items: [],
+      total: 0,
+      limit: 6,
+      offset: 0,
+    } as never);
     renderPage();
 
     expect(await screen.findByText('No active experiences yet')).toBeInTheDocument();
     expect(screen.getByText('Magi will form experiences as conversations and activity accumulate. If you need to refresh them manually, use the Manage page.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Build experiences now' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Build experiences now' })).toBeInTheDocument();
+  });
+
+  it('promotes a pending signal into an experience and refreshes the list', async () => {
+    const user = userEvent.setup();
+    vi.mocked(memoryApi.listExperienceSeeds)
+      .mockResolvedValueOnce({
+        items: pendingSeeds,
+        total: 2,
+        limit: 6,
+        offset: 0,
+      } as never)
+      .mockResolvedValueOnce({
+        items: [pendingSeeds[1]],
+        total: 1,
+        limit: 6,
+        offset: 0,
+      } as never);
+    renderPage();
+
+    await screen.findByText('Possible Japan trip planning');
+    await user.click(screen.getAllByRole('button', { name: 'Make experience' })[0]);
+
+    await waitFor(() => {
+      expect(memoryApi.promoteExperienceSeed).toHaveBeenCalledWith('seed-1');
+    });
+    expect(memoryApi.listExperiences).toHaveBeenCalledTimes(2);
+  });
+
+  it('dismisses a pending signal from the home page', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('Possible Japan trip planning');
+    await user.click(screen.getAllByRole('button', { name: 'Not one' })[0]);
+
+    await waitFor(() => {
+      expect(memoryApi.rejectExperienceSeed).toHaveBeenCalledWith('seed-1');
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('Possible Japan trip planning')).not.toBeInTheDocument();
+    });
   });
 
   it('renames the selected experience through the annotation API', async () => {

@@ -2393,6 +2393,20 @@
       "detailEmptyBody": "Open one from the list to inspect its source episodes and events.",
       "sortNote": "Pinned first · Recently updated",
       "reconsolidateResult": "{{promoted}} promoted · {{standouts}} standout · {{summaries}} summaries",
+      "pending": {
+        "title": "To organize",
+        "subtitle": "Magi thinks these fragments may belong together. You decide whether to turn them into an experience.",
+        "count": "{{count}} signals",
+        "clearSignal": "Clear signal",
+        "fallbackTitle": "Possible experience",
+        "fallbackDescription": "These fragments keep returning around {{tags}} in a nearby window, so Magi thinks they may become an experience.",
+        "fallbackDescriptionGeneric": "These fragments keep returning in a nearby window, so Magi thinks they may become an experience.",
+        "evidenceCount": "{{count}} fragments",
+        "actions": {
+          "promote": "Make experience",
+          "reject": "Not one"
+        }
+      },
       "noNarrative": "No narrative yet.",
       "noSummary": "No summary yet.",
       "noRecap": "No recap yet.",

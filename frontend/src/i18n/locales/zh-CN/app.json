@@ -2392,6 +2392,20 @@
       "detailEmptyBody": "从列表打开一段经历，就能查看它的来源片段和事件。",
       "sortNote": "置顶优先 · 最近更新",
       "reconsolidateResult": "升级 {{promoted}} 条 · 标志 {{standouts}} 条 · 总结 {{summaries}} 条",
+      "pending": {
+        "title": "待整理",
+        "subtitle": "Magi 觉得这些片段可能是一段经历，你可以决定要不要整理出来。",
+        "count": "{{count}} 条线索",
+        "clearSignal": "线索比较清楚",
+        "fallbackTitle": "可能是一段经历",
+        "fallbackDescription": "这些片段在相近时间里围绕「{{tags}}」反复出现，Magi 觉得可以整理成一段经历。",
+        "fallbackDescriptionGeneric": "这些片段在相近时间里反复出现，Magi 觉得可以整理成一段经历。",
+        "evidenceCount": "{{count}} 个片段",
+        "actions": {
+          "promote": "整理成经历",
+          "reject": "不是一段"
+        }
+      },
       "noNarrative": "还没有叙事。",
       "noSummary": "还没有摘要。",
       "noRecap": "还没有回顾。",

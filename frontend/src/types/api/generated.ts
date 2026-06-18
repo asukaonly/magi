@@ -1588,6 +1588,8 @@ export interface paths {
          *     Catch-up scope: every ``status='active'`` episode lacking an L3 episodic
          *     summary gets one generated (widened from the old standout-only filter), so
          *     pre-existing active episodes that never got a title are backfilled here.
+         *     Active experiences are also scanned so placeholder review titles from older
+         *     runs are repaired by the same button.
          *     Eager generation on new promotes is handled by the maintenance scheduler.
          */
         readonly post: operations["reconsolidate_episodes_endpoint_api_memory_l2_episodes_reconsolidate_post"];
@@ -1759,6 +1761,154 @@ export interface paths {
          * @description Preview a chronological split without mutating episode storage.
          */
         readonly post: operations["preview_l2_episode_split_api_memory_l2_episodes__episode_id__split_preview_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/experience-seeds": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List L2 Experience Seeds
+         * @description List user-reviewable L2 experience candidates.
+         */
+        readonly get: operations["list_l2_experience_seeds_api_memory_l2_experience_seeds_get"];
+        readonly put?: never;
+        /**
+         * Create L2 Experience Seed
+         * @description Create a manual experience seed from selected episode or event evidence.
+         */
+        readonly post: operations["create_l2_experience_seed_api_memory_l2_experience_seeds_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/experience-seeds/{seed_id}/promote": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Promote L2 Experience Seed
+         * @description Promote one accepted experience candidate into an active experience.
+         */
+        readonly post: operations["promote_l2_experience_seed_api_memory_l2_experience_seeds__seed_id__promote_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/experience-seeds/{seed_id}/reject": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Reject L2 Experience Seed
+         * @description Dismiss one experience candidate from the review surface.
+         */
+        readonly post: operations["reject_l2_experience_seed_api_memory_l2_experience_seeds__seed_id__reject_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/experiences": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List L2 Experiences
+         * @description List product-grade L2 experiences.
+         */
+        readonly get: operations["list_l2_experiences_api_memory_l2_experiences_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/experiences/{experience_id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Get L2 Experience
+         * @description Get one L2 experience with source episode and event evidence.
+         */
+        readonly get: operations["get_l2_experience_api_memory_l2_experiences__experience_id__get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        /**
+         * Annotate L2 Experience
+         * @description User annotation on an experience.
+         */
+        readonly patch: operations["annotate_l2_experience_api_memory_l2_experiences__experience_id__patch"];
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/experiences/{experience_id}/hide": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Hide L2 Experience
+         * @description Hide an experience from the primary review surface.
+         */
+        readonly post: operations["hide_l2_experience_api_memory_l2_experiences__experience_id__hide_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/experiences/{experience_id}/regenerate": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Regenerate L2 Experience
+         * @description Regenerate the L3 recap for an experience.
+         */
+        readonly post: operations["regenerate_l2_experience_api_memory_l2_experiences__experience_id__regenerate_post"];
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -4381,6 +4531,29 @@ export interface components {
             readonly name: string;
             /** Rendered Prompt */
             readonly rendered_prompt: string;
+        };
+        /** ExperienceAnnotationRequest */
+        readonly ExperienceAnnotationRequest: {
+            /** User Label */
+            readonly user_label?: string | null;
+            /** User Note */
+            readonly user_note?: string | null;
+            /** User Pinned */
+            readonly user_pinned?: boolean | null;
+        };
+        /** ExperienceSeedCreateRequest */
+        readonly ExperienceSeedCreateRequest: {
+            /** Episode Ids */
+            readonly episode_ids?: readonly string[];
+            /** Event Ids */
+            readonly event_ids?: readonly string[];
+            /**
+             * Promote Now
+             * @default false
+             */
+            readonly promote_now: boolean;
+            /** Title Hint */
+            readonly title_hint?: string | null;
         };
         /** GraphConflictRuleBody */
         readonly GraphConflictRuleBody: {
@@ -10829,6 +11002,297 @@ export interface operations {
                 readonly "application/json": components["schemas"]["EpisodeSplitRequest"];
             };
         };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly list_l2_experience_seeds_api_memory_l2_experience_seeds_get: {
+        readonly parameters: {
+            readonly query?: {
+                readonly status?: string | null;
+                readonly limit?: number;
+                readonly offset?: number;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly create_l2_experience_seed_api_memory_l2_experience_seeds_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["ExperienceSeedCreateRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly promote_l2_experience_seed_api_memory_l2_experience_seeds__seed_id__promote_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly seed_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly reject_l2_experience_seed_api_memory_l2_experience_seeds__seed_id__reject_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly seed_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly list_l2_experiences_api_memory_l2_experiences_get: {
+        readonly parameters: {
+            readonly query?: {
+                readonly status?: string | null;
+                readonly time_start?: number | null;
+                readonly time_end?: number | null;
+                readonly limit?: number;
+                readonly offset?: number;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly get_l2_experience_api_memory_l2_experiences__experience_id__get: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly experience_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly annotate_l2_experience_api_memory_l2_experiences__experience_id__patch: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly experience_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["ExperienceAnnotationRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly hide_l2_experience_api_memory_l2_experiences__experience_id__hide_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly experience_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly regenerate_l2_experience_api_memory_l2_experiences__experience_id__regenerate_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly experience_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
         readonly responses: {
             /** @description Successful Response */
             readonly 200: {

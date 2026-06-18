@@ -4,12 +4,19 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   BookOpen,
+  CalendarRange,
+  CheckCircle2,
+  CircleSlash2,
   Layers,
+  Loader2,
+  RefreshCw,
+  Sparkles,
   Star,
   Tags,
 } from 'lucide-react';
 import {
   memoryApi,
+  type L2ExperienceSeed,
   type L2ExperienceReviewDetail,
   type L2ExperienceWithReview,
 } from '@/api/modules/memory';
@@ -106,13 +113,20 @@ export const MemoryEpisodesPage = () => {
   const { t, i18n } = useTranslation('app');
   const navigate = useNavigate();
   const [experiences, setExperiences] = useState<L2ExperienceWithReview[]>([]);
+  const [experienceSeeds, setExperienceSeeds] = useState<L2ExperienceSeed[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reconsolidating, setReconsolidating] = useState(false);
+  const [seedActionId, setSeedActionId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const payload = await memoryApi.listExperiences({ status: 'active', limit: 100, offset: 0 });
-      setExperiences(payload.items);
+      const [experiencePayload, seedPayload] = await Promise.all([
+        memoryApi.listExperiences({ status: 'active', limit: 100, offset: 0 }),
+        memoryApi.listExperienceSeeds({ status: 'candidate', limit: 6, offset: 0 }),
+      ]);
+      setExperiences(experiencePayload.items);
+      setExperienceSeeds(seedPayload.items);
     } finally {
       setLoading(false);
     }
@@ -132,6 +146,36 @@ export const MemoryEpisodesPage = () => {
     navigate(`/memory/episodes/${experienceId}`);
   };
 
+  const reconsolidate = async () => {
+    setReconsolidating(true);
+    try {
+      await memoryApi.reconsolidateEpisodes();
+      await refresh();
+    } finally {
+      setReconsolidating(false);
+    }
+  };
+
+  const promoteSeed = async (seedId: string) => {
+    setSeedActionId(`${seedId}:promote`);
+    try {
+      await memoryApi.promoteExperienceSeed(seedId);
+      await refresh();
+    } finally {
+      setSeedActionId(null);
+    }
+  };
+
+  const rejectSeed = async (seedId: string) => {
+    setSeedActionId(`${seedId}:reject`);
+    try {
+      await memoryApi.rejectExperienceSeed(seedId);
+      setExperienceSeeds((items) => items.filter((item) => item.seed_id !== seedId));
+    } finally {
+      setSeedActionId(null);
+    }
+  };
+
   return (
     <MemoryPageFrame
       title={t('memory.episodes.title')}
@@ -142,36 +186,261 @@ export const MemoryEpisodesPage = () => {
     >
       {loading ? (
         <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div>
-      ) : experiences.length === 0 ? (
-        <div className={MEMORY_EMPTY_PANEL_CLASS}>
-          <div className="font-semibold text-[hsl(var(--memory-title))]">{t('memory.episodes.emptyTitle')}</div>
-          <p className="mt-1 text-sm">{t('memory.episodes.emptyBody')}</p>
-        </div>
       ) : (
-        <section className="min-w-0 space-y-4">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div className="min-w-0">
-              <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
-                {t('memory.episodes.sections.all')}
-              </h2>
-              <p className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
-                {t('memory.episodes.sortNote')}
-              </p>
-            </div>
-            <Badge variant="outline" className="w-fit rounded-full border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-tag-bg)/0.78)] text-[hsl(var(--memory-muted))]">
-              {t('memory.episodes.count', { count: sortedExperiences.length })}
-            </Badge>
-          </div>
-
-          <ExperienceTimeline
-            groups={groupedExperiences}
-            onSelect={openExperience}
+        <section className="min-w-0 space-y-7">
+          <ExperienceHomeHeader
+            reconsolidating={reconsolidating}
+            onReconsolidate={reconsolidate}
           />
+
+          {experienceSeeds.length > 0 ? (
+            <PendingExperienceShelf
+              seeds={experienceSeeds}
+              actionId={seedActionId}
+              onPromote={promoteSeed}
+              onReject={rejectSeed}
+            />
+          ) : null}
+
+          {experiences.length === 0 ? (
+            <div className={MEMORY_EMPTY_PANEL_CLASS}>
+              <div className="font-semibold text-[hsl(var(--memory-title))]">{t('memory.episodes.emptyTitle')}</div>
+              <p className="mt-1 text-sm">{t('memory.episodes.emptyBody')}</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
+                    {t('memory.episodes.sections.all')}
+                  </h2>
+                  <p className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
+                    {t('memory.episodes.sortNote')}
+                  </p>
+                </div>
+                <Badge variant="outline" className="w-fit rounded-full border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-tag-bg)/0.78)] text-[hsl(var(--memory-muted))]">
+                  {t('memory.episodes.count', { count: sortedExperiences.length })}
+                </Badge>
+              </div>
+
+              <ExperienceTimeline
+                groups={groupedExperiences}
+                onSelect={openExperience}
+              />
+            </div>
+          )}
         </section>
       )}
     </MemoryPageFrame>
   );
 };
+
+function ExperienceHomeHeader({
+  reconsolidating,
+  onReconsolidate,
+}: {
+  reconsolidating: boolean;
+  onReconsolidate: () => void;
+}) {
+  const { t } = useTranslation('app');
+
+  return (
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="max-w-2xl">
+        <h1 className="text-3xl font-semibold leading-tight tracking-normal text-[hsl(var(--memory-title))]">
+          {t('memory.episodes.title')}
+        </h1>
+        <p className="mt-2 max-w-xl text-sm leading-6 text-[hsl(var(--memory-body))]">
+          {t('memory.episodes.subtitle')}
+        </p>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        className="h-10 w-fit shrink-0 rounded-lg border-[hsl(var(--memory-accent)/0.36)] bg-[hsl(var(--memory-panel-elevated)/0.86)] px-4 text-sm font-medium text-[hsl(var(--memory-title))] hover:bg-[hsl(var(--memory-accent-soft)/0.58)]"
+        disabled={reconsolidating}
+        onClick={onReconsolidate}
+      >
+        {reconsolidating ? (
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        ) : (
+          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+        )}
+        {reconsolidating
+          ? t('memory.episodes.actions.reconsolidating')
+          : t('memory.episodes.actions.reconsolidate')}
+      </Button>
+    </div>
+  );
+}
+
+const getSeedTags = (seed: L2ExperienceSeed, limit = 3): string[] => uniqueItems([
+  ...(seed.display_tags || []).map(formatExperienceTag),
+  ...normalizeTags(seed.anchor_entity_ids),
+  ...normalizeTags(seed.anchor_place_ids),
+  ...normalizeTags(seed.anchor_topic_keys),
+]).slice(0, limit);
+
+const getSeedTitle = (seed: L2ExperienceSeed, fallback: string): string => (
+  String(seed.display_title || seed.title || '').trim() || fallback
+);
+
+const getSeedDescription = (
+  seed: L2ExperienceSeed,
+  tags: string[],
+  fallback: string,
+  genericFallback: string
+): string => {
+  const description = String(seed.display_description || seed.description || '').trim();
+  if (description) {
+    return description;
+  }
+  if (tags.length > 0) {
+    return fallback.replace('{{tags}}', tags.join('、'));
+  }
+  return genericFallback;
+};
+
+function PendingExperienceShelf({
+  seeds,
+  actionId,
+  onPromote,
+  onReject,
+}: {
+  seeds: L2ExperienceSeed[];
+  actionId: string | null;
+  onPromote: (seedId: string) => Promise<void>;
+  onReject: (seedId: string) => Promise<void>;
+}) {
+  const { t } = useTranslation('app');
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
+            {t('memory.episodes.pending.title')}
+          </h2>
+          <p className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
+            {t('memory.episodes.pending.subtitle')}
+          </p>
+        </div>
+        <Badge variant="outline" className="w-fit rounded-full border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-tag-bg)/0.78)] text-[hsl(var(--memory-muted))]">
+          {t('memory.episodes.pending.count', { count: seeds.length })}
+        </Badge>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-3">
+        {seeds.slice(0, 3).map((seed) => (
+          <PendingExperienceCard
+            key={seed.seed_id}
+            seed={seed}
+            actionId={actionId}
+            onPromote={onPromote}
+            onReject={onReject}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PendingExperienceCard({
+  seed,
+  actionId,
+  onPromote,
+  onReject,
+}: {
+  seed: L2ExperienceSeed;
+  actionId: string | null;
+  onPromote: (seedId: string) => Promise<void>;
+  onReject: (seedId: string) => Promise<void>;
+}) {
+  const { t, i18n } = useTranslation('app');
+  const tags = getSeedTags(seed, 3);
+  const title = getSeedTitle(seed, t('memory.episodes.pending.fallbackTitle'));
+  const description = getSeedDescription(
+    seed,
+    tags,
+    t('memory.episodes.pending.fallbackDescription'),
+    t('memory.episodes.pending.fallbackDescriptionGeneric')
+  );
+  const range = formatEpisodeTimeRange(seed.time_start, seed.time_end, i18n.language);
+  const promoting = actionId === `${seed.seed_id}:promote`;
+  const rejecting = actionId === `${seed.seed_id}:reject`;
+  const busy = promoting || rejecting;
+
+  return (
+    <article className="flex min-h-[176px] flex-col justify-between rounded-lg border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.82)] p-4 shadow-[0_10px_28px_hsl(var(--memory-shadow)/0.04)]">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
+          <Sparkles className="h-3.5 w-3.5 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
+          <span>{t('memory.episodes.pending.clearSignal')}</span>
+        </div>
+        <h3 className="mt-2 line-clamp-2 text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">
+          {title}
+        </h3>
+        <p className="mt-2 line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-body))]">
+          {description}
+        </p>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
+          {range ? (
+            <span className="inline-flex min-w-0 items-center gap-1">
+              <CalendarRange className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{range}</span>
+            </span>
+          ) : null}
+          <span className="inline-flex items-center gap-1">
+            <Layers className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('memory.episodes.pending.evidenceCount', { count: seed.evidence_count ?? 0 })}
+          </span>
+        </div>
+        {tags.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {tags.map((tag) => (
+              <span key={tag} className="rounded-md bg-[hsl(var(--memory-panel-subtle)/0.82)] px-2 py-1 text-xs text-[hsl(var(--memory-body))]">
+                {tag}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap gap-2 pt-1">
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 rounded-lg bg-[hsl(var(--memory-accent))] px-3 text-xs text-[hsl(var(--memory-accent-foreground))] hover:bg-[hsl(var(--memory-accent)/0.9)]"
+            disabled={busy}
+            onClick={() => { void onPromote(seed.seed_id); }}
+          >
+            {promoting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+            {t('memory.episodes.pending.actions.promote')}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-lg px-3 text-xs"
+            disabled={busy}
+            onClick={() => { void onReject(seed.seed_id); }}
+          >
+            {rejecting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <CircleSlash2 className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+            {t('memory.episodes.pending.actions.reject')}
+          </Button>
+        </div>
+      </div>
+    </article>
+  );
+}
 
 function ExperienceTimeline({
   groups,

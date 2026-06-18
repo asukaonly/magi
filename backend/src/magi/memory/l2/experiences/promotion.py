@@ -181,15 +181,22 @@ async def promote_experiences_from_episodes(
     *,
     selector: SelectionProvider | None = None,
     repeated_goal_selector: Any | None = None,
+    target_seed_id: str | None = None,
 ) -> ExperiencePromotionStats:
     """Promote active episode substrate rows through durable experience seeds."""
     active_episodes = await store.list_episodes(status="active", limit=500)
     await _hide_bad_legacy_experiences(store)
-    discovery_stats = await discover_experience_seeds(
-        store,
-        repeated_goal_selector=repeated_goal_selector,
-    )
-    seeds = await store.list_experience_seeds(statuses=["accepted", "candidate"], limit=500)
+    discovery_candidates = 0
+    if target_seed_id:
+        seed = await store.get_experience_seed(seed_id=target_seed_id)
+        seeds = [seed] if seed is not None else []
+    else:
+        discovery_stats = await discover_experience_seeds(
+            store,
+            repeated_goal_selector=repeated_goal_selector,
+        )
+        discovery_candidates = discovery_stats.candidates
+        seeds = await store.list_experience_seeds(statuses=["accepted", "candidate"], limit=500)
     existing_sets = await _existing_active_episode_member_sets(store)
 
     processed = 0
@@ -250,7 +257,7 @@ async def promote_experiences_from_episodes(
         rejected += len(active_episodes)
 
     return ExperiencePromotionStats(
-        candidates=max(processed, discovery_stats.candidates),
+        candidates=max(processed, discovery_candidates),
         promoted=promoted,
         skipped_duplicates=skipped_duplicates,
         rejected=rejected,

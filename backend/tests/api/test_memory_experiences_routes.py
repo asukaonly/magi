@@ -42,7 +42,10 @@ def test_experience_routes_are_publicly_allowlisted():
     assert ("/l2/experiences/{experience_id}", ("PATCH",)) in routes
     assert ("/l2/experiences/{experience_id}/hide", ("POST",)) in routes
     assert ("/l2/experiences/{experience_id}/regenerate", ("POST",)) in routes
+    assert ("/l2/experience-seeds", ("GET",)) in routes
     assert ("/l2/experience-seeds", ("POST",)) in routes
+    assert ("/l2/experience-seeds/{seed_id}/promote", ("POST",)) in routes
+    assert ("/l2/experience-seeds/{seed_id}/reject", ("POST",)) in routes
 
 
 def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_mock_memory):
@@ -151,6 +154,126 @@ def test_create_experience_seed_from_event_ids_resolves_episode(public_app_with_
         episode_id="ep-from-event",
         title="Found from event",
     )
+
+
+def test_list_experience_seeds_returns_readable_candidates(public_app_with_mock_memory):
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.list_experience_seeds = AsyncMock(return_value=[
+        {
+            "seed_id": "seed1",
+            "seed_type": "project",
+            "status": "candidate",
+            "title": "",
+            "description": "",
+            "anchor_entity_ids": ["software:github"],
+            "anchor_place_ids": [],
+            "anchor_topic_keys": ["topic:pull-request"],
+            "time_start": 1,
+            "time_end": 2,
+            "confidence": 0.7,
+            "created_by": "system",
+        }
+    ])
+    l2.list_experience_seed_evidence = AsyncMock(return_value=[
+        {"ref_type": "episode", "ref_id": "ep1", "role": "trigger"},
+        {"ref_type": "episode", "ref_id": "ep2", "role": "support"},
+    ])
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = None
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        response = client.get("/api/memory/l2/experience-seeds")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    item = body["items"][0]
+    assert item["seed_id"] == "seed1"
+    assert item["display_title"] == "可能是围绕 github、pull request 的经历"
+    assert item["display_tags"] == ["github", "pull request"]
+    assert item["evidence_count"] == 2
+    l2.list_experience_seeds.assert_awaited_once_with(
+        status="candidate",
+        limit=12,
+        offset=0,
+    )
+
+
+def test_promote_experience_seed_targets_selected_seed(public_app_with_mock_memory):
+    from magi.memory.l2.experiences.models import ExperiencePromotionStats
+
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_experience_seed = AsyncMock(side_effect=[
+        {
+            "seed_id": "seed1",
+            "status": "candidate",
+            "title": "Japan planning",
+        },
+        {
+            "seed_id": "seed1",
+            "status": "promoted",
+            "title": "Japan planning",
+            "promoted_experience_id": "exp1",
+        },
+    ])
+    l2.update_experience_seed = AsyncMock(return_value=True)
+    l2.get_experience = AsyncMock(return_value={
+        "experience_id": "exp1",
+        "status": "active",
+        "title": "Japan planning",
+        "time_start": 1,
+        "time_end": 2,
+        "primary_entity_ids": [],
+        "user_label": None,
+        "user_note": None,
+    })
+    l2.list_experience_members = AsyncMock(return_value=[])
+    l3 = MagicMock()
+    l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+    unified.l1 = None
+
+    with (
+        build_patcher(unified),
+        patch(
+            "magi.api.routers.memory.l2.experiences_routes.promote_experiences_from_episodes",
+            new=AsyncMock(return_value=ExperiencePromotionStats(promoted=1, promoted_experience_ids=["exp1"])),
+        ) as promote,
+    ):
+        client = TestClient(app)
+        response = client.post("/api/memory/l2/experience-seeds/seed1/promote")
+
+    assert response.status_code == 200
+    assert response.json()["promoted_experience_id"] == "exp1"
+    l2.update_experience_seed.assert_awaited_once_with(seed_id="seed1", status="accepted")
+    promote.assert_awaited_once_with(l2, target_seed_id="seed1")
+
+
+def test_reject_experience_seed_marks_it_rejected(public_app_with_mock_memory):
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.update_experience_seed = AsyncMock(return_value=True)
+    l2.get_experience_seed = AsyncMock(return_value={
+        "seed_id": "seed1",
+        "status": "rejected",
+    })
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = None
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        response = client.post("/api/memory/l2/experience-seeds/seed1/reject")
+
+    assert response.status_code == 200
+    assert response.json()["seed"]["status"] == "rejected"
+    l2.update_experience_seed.assert_awaited_once_with(seed_id="seed1", status="rejected")
 
 
 def test_list_experiences_returns_active_reviews(public_app_with_mock_memory):

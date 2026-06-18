@@ -34,6 +34,65 @@ def _first_text(*values: Any) -> str:
     return ""
 
 
+def _format_anchor_label(value: Any) -> str:
+    text = _clean_text(value)
+    if not text:
+        return ""
+    if ":" in text:
+        text = text.split(":", 1)[1]
+    return text.replace("-", " ").replace("_", " ").strip()
+
+
+def _experience_seed_anchor_labels(seed: dict[str, Any], limit: int = 3) -> list[str]:
+    labels: list[str] = []
+    seen: set[str] = set()
+    for key in ("anchor_entity_ids", "anchor_place_ids", "anchor_topic_keys"):
+        for value in seed.get(key) or []:
+            label = _format_anchor_label(value)
+            if label and label not in seen:
+                seen.add(label)
+                labels.append(label)
+            if len(labels) >= limit:
+                return labels
+    return labels
+
+
+def _experience_seed_display_fields(seed: dict[str, Any]) -> dict[str, Any]:
+    title = _clean_text(seed.get("title"))
+    description = _clean_text(seed.get("description"))
+    labels = _experience_seed_anchor_labels(seed)
+    subject = "、".join(labels[:2])
+    if not title:
+        title = f"可能是围绕 {subject} 的经历" if subject else "可能是一段经历"
+    if not description:
+        description = (
+            f"这些片段在相近时间里围绕「{subject}」反复出现，Magi 觉得可以整理成一段经历。"
+            if subject
+            else "这些片段在相近时间里反复出现，Magi 觉得可以整理成一段经历。"
+        )
+    return {
+        "display_title": title,
+        "display_description": description,
+        "display_tags": labels,
+    }
+
+
+async def _attach_experience_seed_display_fields(
+    unified_memory: Any,
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    for item in items:
+        seed_id = _clean_text(item.get("seed_id"))
+        evidence = (
+            await unified_memory.l2.list_experience_seed_evidence(seed_id=seed_id, limit=100)
+            if seed_id and hasattr(unified_memory.l2, "list_experience_seed_evidence")
+            else []
+        )
+        item["evidence_count"] = len(evidence)
+        item.update(_experience_seed_display_fields(item))
+    return items
+
+
 def _build_experience_display_fields(
     experience: dict[str, Any],
     experience_review: dict[str, Any] | None,
@@ -280,6 +339,89 @@ async def create_l2_experience_seed(body: ExperienceSeedCreateRequest):
         "promoted_experience_id": promoted_experience_id,
         "experience": experience_response,
     }
+
+
+@memory_router.get("/l2/experience-seeds")
+async def list_l2_experience_seeds(
+    status_filter: str | None = Query(default="candidate", alias="status"),
+    limit: int = Query(default=12, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """List user-reviewable L2 experience candidates."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    items = await unified_memory.l2.list_experience_seeds(
+        status=status_filter,
+        limit=limit,
+        offset=offset,
+    )
+    await _attach_experience_seed_display_fields(unified_memory, items)
+    return {"items": items, "total": len(items), "limit": limit, "offset": offset}
+
+
+@memory_router.post("/l2/experience-seeds/{seed_id}/promote")
+async def promote_l2_experience_seed(seed_id: str):
+    """Promote one accepted experience candidate into an active experience."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    seed = await unified_memory.l2.get_experience_seed(seed_id=seed_id)
+    if seed is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.experience_seed_not_found", "Experience seed not found"),
+        )
+    await unified_memory.l2.update_experience_seed(seed_id=seed_id, status="accepted")
+    stats = await promote_experiences_from_episodes(
+        unified_memory.l2,
+        target_seed_id=seed_id,
+    )
+    seed = await unified_memory.l2.get_experience_seed(seed_id=seed_id)
+    promoted_experience_id = _clean_text((seed or {}).get("promoted_experience_id")) or None
+    if promoted_experience_id is None and stats.promoted_experience_ids:
+        promoted_experience_id = str(stats.promoted_experience_ids[0])
+
+    experience_response: dict[str, Any] | None = None
+    if promoted_experience_id:
+        experience = await unified_memory.l2.get_experience(experience_id=promoted_experience_id)
+        if experience is not None:
+            members = await unified_memory.l2.list_experience_members(
+                experience_id=promoted_experience_id,
+            )
+            experience_response = await _build_experience_review_response(
+                unified_memory,
+                experience=experience,
+                members=members,
+            )
+    return {
+        "seed_id": seed_id,
+        "seed": seed,
+        "promoted_experience_id": promoted_experience_id,
+        "experience": experience_response,
+    }
+
+
+@memory_router.post("/l2/experience-seeds/{seed_id}/reject")
+async def reject_l2_experience_seed(seed_id: str):
+    """Dismiss one experience candidate from the review surface."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    ok = await unified_memory.l2.update_experience_seed(seed_id=seed_id, status="rejected")
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.experience_seed_not_found", "Experience seed not found"),
+        )
+    seed = await unified_memory.l2.get_experience_seed(seed_id=seed_id)
+    return {"seed_id": seed_id, "seed": seed}
 
 
 @memory_router.get("/l2/experiences")
