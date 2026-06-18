@@ -2516,8 +2516,6 @@
         "meta": "基于 {{count}} 条理解",
         "empty": "还没有形成清晰的关联。",
         "rootLabel": "你",
-        "rootTitle": "Magi 眼中的你",
-        "rootMeta": "从记忆里连接出来的身份、偏好、习惯和互动方式",
         "groups": {
           "identity": "身份信息",
           "preferences": "偏好与关注",

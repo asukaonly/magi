@@ -2517,8 +2517,6 @@
         "meta": "Based on {{count}} understanding(s)",
         "empty": "No clear connection yet.",
         "rootLabel": "You",
-        "rootTitle": "How Magi sees you",
-        "rootMeta": "Identity, preferences, routines, and interaction patterns connected from memory",
         "groups": {
           "identity": "Identity",
           "preferences": "Preferences and interests",

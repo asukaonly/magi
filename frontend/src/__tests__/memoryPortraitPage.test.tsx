@@ -82,7 +82,12 @@ describe('MemoryPortraitPage', () => {
     });
     expect(screen.getByTestId('portrait-world-map')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-tree')).toBeInTheDocument();
-    expect(screen.getByTestId('portrait-world-root')).toBeInTheDocument();
+    const root = screen.getByTestId('portrait-world-root');
+    expect(root).toBeInTheDocument();
+    expect(within(root).getByText('你')).toBeInTheDocument();
+    expect(within(root).queryByText('Magi 眼中的你')).not.toBeInTheDocument();
+    expect(within(root).queryByText('从记忆里连接出来的身份、偏好、习惯和互动方式')).not.toBeInTheDocument();
+    expect(root.className).not.toContain('border');
     expect(screen.getByText('你的世界')).toBeInTheDocument();
     expect(screen.getByText('身份信息')).toBeInTheDocument();
     expect(screen.getByText('偏好与关注')).toBeInTheDocument();
@@ -117,7 +122,12 @@ describe('MemoryPortraitPage', () => {
     expect(await screen.findByText('你的世界')).toBeInTheDocument();
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-tree')).toBeInTheDocument();
-    expect(screen.getByTestId('portrait-world-root')).toBeInTheDocument();
+    const root = screen.getByTestId('portrait-world-root');
+    expect(root).toBeInTheDocument();
+    expect(within(root).getByText('你')).toBeInTheDocument();
+    expect(within(root).queryByText('Magi 眼中的你')).not.toBeInTheDocument();
+    expect(within(root).queryByText('从记忆里连接出来的身份、偏好、习惯和互动方式')).not.toBeInTheDocument();
+    expect(root.className).not.toContain('border');
     expect(screen.getByTestId('portrait-world-branch-identity')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-preferences')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-routine')).toBeInTheDocument();

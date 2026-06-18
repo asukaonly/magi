@@ -40,19 +40,11 @@ export const PortraitWorldMap = ({ groups, totalCount }: PortraitWorldMapProps) 
         <div className="relative grid gap-5 lg:grid-cols-[220px_72px_minmax(0,1fr)] lg:items-center">
           <div
             data-testid="portrait-world-root"
-            className="flex items-center gap-4 rounded-full border border-[hsl(var(--memory-border)/0.62)] bg-[hsl(var(--memory-panel-elevated)/0.88)] px-4 py-3 lg:flex-col lg:items-start lg:rounded-2xl lg:px-5 lg:py-5"
+            className="flex justify-start lg:justify-end lg:pr-0"
           >
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--memory-accent-soft)/0.86)] text-base font-semibold text-[hsl(var(--memory-accent))]">
+            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--memory-accent-soft)/0.86)] text-base font-semibold text-[hsl(var(--memory-accent))]">
               {t('memory.portrait.world.rootLabel')}
             </span>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-[hsl(var(--memory-title))]">
-                {t('memory.portrait.world.rootTitle')}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-[hsl(var(--memory-muted))]">
-                {t('memory.portrait.world.rootMeta')}
-              </p>
-            </div>
           </div>
 
           <div aria-hidden="true" className="relative hidden h-full min-h-[360px] lg:block">
