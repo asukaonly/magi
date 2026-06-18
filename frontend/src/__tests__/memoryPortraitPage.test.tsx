@@ -67,7 +67,7 @@ const renderPage = () => render(
 beforeEach(() => vi.clearAllMocks());
 
 describe('MemoryPortraitPage', () => {
-  it('shows cold-start text when payload is_cold_start=true', async () => {
+  it('renders a useful cold-start shell when payload is_cold_start=true', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       session_id: '', persona_id: '', topic: 'self', generated_at: 0,
       observations: [], is_cold_start: true, cold_start_line: '还没结论', cold_start_reason: 'no_observations',
@@ -77,6 +77,14 @@ describe('MemoryPortraitPage', () => {
     await waitFor(() => {
       expect(screen.getByText('还没结论')).toBeInTheDocument();
     });
+    expect(screen.getByTestId('portrait-world-map')).toBeInTheDocument();
+    expect(screen.getByText('你的世界')).toBeInTheDocument();
+    expect(screen.getByText('正在推进的项目')).toBeInTheDocument();
+    expect(screen.getByText('常用工具')).toBeInTheDocument();
+    expect(screen.getByText('关注主题')).toBeInTheDocument();
+    expect(screen.getByText('互动偏好')).toBeInTheDocument();
+    expect(screen.queryByTestId('portrait-review-queue')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('portrait-recent-state')).not.toBeInTheDocument();
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
   });
 

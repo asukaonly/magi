@@ -19,7 +19,7 @@ export const MemoryPortraitPage = () => {
   }, []);
 
   const viewModel = useMemo(
-    () => (payload && !payload.is_cold_start ? buildPortraitViewModel(payload.observations) : null),
+    () => (payload ? buildPortraitViewModel(payload.observations) : null),
     [payload]
   );
 
@@ -46,8 +46,13 @@ export const MemoryPortraitPage = () => {
   if (payload.is_cold_start) {
     return (
       <MemoryPageFrame title={t('memory.portrait.title')} description={t('memory.portrait.subtitle')} hideHeader>
-        <div className={MEMORY_EMPTY_PANEL_CLASS}>
-          <p className="text-sm">{payload.cold_start_line ?? t('memory.portrait.coldStartFallback')}</p>
+        <div className="space-y-4">
+          {viewModel ? (
+            <PortraitWorldMap groups={viewModel.worldGroups} totalCount={viewModel.totalUnderstandingCount} />
+          ) : null}
+          <div className={MEMORY_EMPTY_PANEL_CLASS}>
+            <p className="text-sm">{payload.cold_start_line ?? t('memory.portrait.coldStartFallback')}</p>
+          </div>
         </div>
       </MemoryPageFrame>
     );
