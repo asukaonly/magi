@@ -91,6 +91,7 @@ describe('MemoryPortraitPage', () => {
     expect(screen.queryByText('正在推进的项目')).not.toBeInTheDocument();
     expect(screen.queryByText('常用工具')).not.toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-trunk')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-root-connector').className).toContain('w-5');
     expect(screen.getByTestId('portrait-world-tree').querySelector('svg')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-review-queue')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-recent-state')).not.toBeInTheDocument();
@@ -104,6 +105,7 @@ describe('MemoryPortraitPage', () => {
         { kind: 'assertion', text: '偏好：current_project = Magi 记忆系统', basis_count: 2, basis_summary: 'user_profile_projection', basis_refs: ['preference:current_project'] },
         { kind: 'assertion', text: '沟通风格：response_style.preferred = 直接深入', basis_count: 3, basis_summary: 'user_profile_projection', basis_refs: ['communication:response_style.preferred'] },
         { kind: 'relationship', text: '常用工具：Chrome', basis_count: 4, basis_summary: 'browser history', basis_refs: ['source:chrome-history'] },
+        { kind: 'assertion', text: 'project_tool: 项目管理工具', basis_count: 2, basis_summary: 'L2 assertion', basis_refs: ['assertion:assert-stable', 'family:routine_profile', 'status:stable', 'source:conversation'] },
         { kind: 'assertion', text: 'focus_project: Magi 记忆体验', basis_count: 1, basis_summary: 'L2 assertion', basis_refs: ['assertion:assert-1', 'family:preference_profile', 'status:tentative', 'source:conversation'] },
         { kind: 'assertion', text: '近期状态：focus = 插件导入', basis_count: 5, basis_summary: 'L2 assertion', basis_refs: ['assertion:assert-2', 'family:state_profile', 'status:stable', 'source:conversation'] },
         { kind: 'reflection', text: '最近对话更偏产品设计判断，同时会追问实现链路是否闭环。', basis_count: 4, basis_summary: 'tom', basis_refs: ['tom-1'] },
@@ -129,6 +131,8 @@ describe('MemoryPortraitPage', () => {
     expect(screen.getByText('直接深入')).toBeInTheDocument();
     expect(screen.getByText('习惯与工具')).toBeInTheDocument();
     expect(screen.getByText('Chrome')).toBeInTheDocument();
+    expect(within(screen.getByTestId('portrait-world-branch-routine')).getByText('项目管理工具')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-root-connector').className).toContain('w-5');
 
     const review = screen.getByTestId('portrait-review-queue');
     expect(within(review).getByText('需要你看一眼')).toBeInTheDocument();

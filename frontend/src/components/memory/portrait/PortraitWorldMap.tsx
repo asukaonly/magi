@@ -56,7 +56,10 @@ export const PortraitWorldMap = ({ groups, totalCount }: PortraitWorldMapProps) 
           </div>
 
           <div aria-hidden="true" className="relative hidden h-full min-h-[360px] lg:block">
-            <span className="absolute -left-5 top-1/2 h-px w-[calc(100%+1.25rem)] bg-[hsl(var(--memory-divider)/0.84)]" />
+            <span
+              data-testid="portrait-world-root-connector"
+              className="absolute -left-5 top-1/2 h-px w-5 bg-[hsl(var(--memory-divider)/0.84)]"
+            />
             <span
               data-testid="portrait-world-trunk"
               className="absolute bottom-8 left-0 top-8 w-px bg-[hsl(var(--memory-divider)/0.84)]"
