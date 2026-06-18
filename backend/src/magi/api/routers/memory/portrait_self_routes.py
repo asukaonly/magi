@@ -172,11 +172,23 @@ def _observations_from_assertion_items(items: list[dict[str, Any]]) -> list[Port
         value = str(item.get("value") or item.get("trait_value") or "")
         if not trait or not value:
             continue
+        refs: list[str] = []
+        assertion_id = str(item.get("assertion_id") or "").strip()
+        if assertion_id:
+            refs.append(f"assertion:{assertion_id}")
+        for key, prefix in (
+            ("trait_family", "family"),
+            ("validation_state", "status"),
+            ("source_domain", "source"),
+        ):
+            raw_value = str(item.get(key) or "").strip()
+            if raw_value:
+                refs.append(f"{prefix}:{raw_value}")
         obs.append(PortraitObservation(
             kind="assertion",
             text=f"{trait}: {value}",
             basis_count=int(item.get("evidence_count") or 1),
             basis_summary="L2 assertion",
-            basis_refs=[str(item.get("assertion_id") or "")],
+            basis_refs=refs,
         ))
     return obs

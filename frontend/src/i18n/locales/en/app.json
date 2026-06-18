@@ -2512,6 +2512,44 @@
         "relationships": "Relationships",
         "impression": "Magi's overall impression of you"
       },
+      "world": {
+        "title": "Your world",
+        "meta": "Based on {{count}} understanding(s)",
+        "empty": "No clear connection yet.",
+        "groups": {
+          "projects": "Projects in motion",
+          "tools": "Common tools",
+          "topics": "Topics you follow",
+          "interaction": "Interaction preferences"
+        }
+      },
+      "review": {
+        "title": "Needs your eye",
+        "count": "{{count}} item(s)",
+        "source": "Source: {{source}}",
+        "editLabel": "Change to",
+        "actions": {
+          "confirm": "Confirm",
+          "reject": "Not right",
+          "edit": "Edit",
+          "save": "Save",
+          "cancel": "Cancel"
+        }
+      },
+      "recent": {
+        "title": "Recent you",
+        "meta": "Recent signals, not long-term conclusions"
+      },
+      "source": {
+        "default": "Memory signal"
+      },
+      "sources": {
+        "conversation": "Conversation",
+        "chrome_history": "Chrome history",
+        "browser_history": "Browser history",
+        "user_profile_projection": "Profile",
+        "tom": "Summary"
+      },
       "coldStartFallback": "Magi hasn't formed an overall impression of you yet. It will grow as you keep using it."
     },
     "recall": {

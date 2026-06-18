@@ -2511,6 +2511,44 @@
         "relationships": "关系",
         "impression": "Magi 对你的总体印象"
       },
+      "world": {
+        "title": "你的世界",
+        "meta": "基于 {{count}} 条理解",
+        "empty": "还没有形成清晰的关联。",
+        "groups": {
+          "projects": "正在推进的项目",
+          "tools": "常用工具",
+          "topics": "关注主题",
+          "interaction": "互动偏好"
+        }
+      },
+      "review": {
+        "title": "需要你看一眼",
+        "count": "{{count}} 条",
+        "source": "来源：{{source}}",
+        "editLabel": "改成",
+        "actions": {
+          "confirm": "确认",
+          "reject": "不准确",
+          "edit": "修改",
+          "save": "保存",
+          "cancel": "取消"
+        }
+      },
+      "recent": {
+        "title": "最近的你",
+        "meta": "近期线索，不直接当成长期结论"
+      },
+      "source": {
+        "default": "记忆线索"
+      },
+      "sources": {
+        "conversation": "对话",
+        "chrome_history": "Chrome 浏览历史",
+        "browser_history": "浏览历史",
+        "user_profile_projection": "个人资料",
+        "tom": "总结"
+      },
       "coldStartFallback": "Magi 还没有从你的记忆里得出关于你的整体印象。继续使用，这里会逐渐丰满。"
     },
     "recall": {

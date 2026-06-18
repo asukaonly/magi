@@ -642,6 +642,12 @@ storage remains a current usage value until a durable daily snapshot exists.
 Raw L1 events, L2 graph inspection, and L4 skill memory remain available from
 Manage as operator/developer surfaces, not as the default mental model for
 ordinary memory review.
+The About You page presents the user-facing self portrait as an ordered
+world model: first a grouped view of projects, tools, interests, and interaction
+preferences; then reviewable items that need user judgment; then recent
+state observations. It should translate L2 assertion metadata into readable
+groups and review actions instead of exposing raw assertion/family/status names
+as primary UI copy.
 
 ### L3 — Reflection and Summaries
 

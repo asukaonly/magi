@@ -77,3 +77,29 @@ def test_returns_observations_from_projection_and_snapshot():
     assert "reflection" in kinds  # from tom snapshot
     texts = " ".join(obs["text"] for obs in body["observations"])
     assert "杭州" in texts or "阿明" in texts
+
+
+def test_assertion_observations_include_grouping_metadata_refs():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    l2 = MagicMock()
+    l2.list_tom_snapshots = AsyncMock(return_value=[])
+    l2.list_tom_assertions = AsyncMock(return_value=[{
+        "assertion_id": "assert-1",
+        "trait_family": "preference_profile",
+        "trait_name": "current_project",
+        "trait_value": "Magi 记忆体验",
+        "validation_state": "tentative",
+        "source_domain": "conversation",
+    }])
+    with override_dependencies_for_test(profile_repo=profile_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    refs = body["observations"][0]["basis_refs"]
+    assert "assertion:assert-1" in refs
+    assert "family:preference_profile" in refs
+    assert "status:tentative" in refs
+    assert "source:conversation" in refs

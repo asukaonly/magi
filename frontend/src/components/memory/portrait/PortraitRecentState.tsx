@@ -1,0 +1,49 @@
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
+import type { PortraitDisplayItem } from './portraitGrouping';
+
+interface PortraitRecentStateProps {
+  items: PortraitDisplayItem[];
+}
+
+const sourceText = (item: PortraitDisplayItem, t: TFunction<'app'>) => {
+  if (!item.source) {
+    return t('memory.portrait.source.default');
+  }
+  return item.sourceKey
+    ? t(`memory.portrait.sources.${item.sourceKey}`, { defaultValue: item.source })
+    : item.source;
+};
+
+export const PortraitRecentState = ({ items }: PortraitRecentStateProps) => {
+  const { t } = useTranslation('app');
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <section
+      data-testid="portrait-recent-state"
+      className="rounded-2xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.72)] px-5 py-4"
+    >
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
+          {t('memory.portrait.recent.title')}
+        </h2>
+        <p className="text-sm text-[hsl(var(--memory-muted))]">{t('memory.portrait.recent.meta')}</p>
+      </div>
+
+      <div className="mt-3 divide-y divide-[hsl(var(--memory-divider)/0.68)]">
+        {items.slice(0, 6).map((item) => (
+          <article key={item.id} className="space-y-1 py-3">
+            <p className="text-sm leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
+            <p className="text-xs text-[hsl(var(--memory-muted))]">{sourceText(item, t)}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+};
+
+export default PortraitRecentState;
