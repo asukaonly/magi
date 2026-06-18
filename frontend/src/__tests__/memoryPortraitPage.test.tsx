@@ -88,6 +88,7 @@ describe('MemoryPortraitPage', () => {
     expect(screen.getByText('常用工具')).toBeInTheDocument();
     expect(screen.getByText('关注主题')).toBeInTheDocument();
     expect(screen.getByText('互动偏好')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-tree').querySelector('svg')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-review-queue')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-recent-state')).not.toBeInTheDocument();
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
@@ -116,6 +117,7 @@ describe('MemoryPortraitPage', () => {
     expect(screen.getByTestId('portrait-world-branch-tools')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-topics')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-interaction')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-tree').querySelector('svg')).not.toBeInTheDocument();
     expect(screen.getByText('正在推进的项目')).toBeInTheDocument();
     expect(screen.getByText('Magi 记忆系统')).toBeInTheDocument();
     expect(screen.getByText('互动偏好')).toBeInTheDocument();
