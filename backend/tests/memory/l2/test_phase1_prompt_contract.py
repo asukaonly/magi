@@ -1,0 +1,9 @@
+"""Phase 1 extraction prompt contract tests."""
+
+from __future__ import annotations
+
+from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
+
+
+def test_phase1_prompt_requires_claim_objects_as_entities():
+    assert "Every concrete object_ref used in fact_claims must also appear in entities" in PHASE1_EXTRACT_SYSTEM_PROMPT
