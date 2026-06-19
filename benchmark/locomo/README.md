@@ -22,6 +22,20 @@ python benchmark/locomo/run_all.py \
   --skip-background-wait
 ```
 
+The one-shot runner also attempts LoCoMo LLM-as-judge scoring. It uses
+`OPENAI_API_KEY` and an OpenAI-compatible chat API by default. If the key is
+not set, judge scoring is skipped and recorded as skipped in the output
+summary. Use `--skip-llm-judge` to disable it explicitly, or `--judge-model` /
+`LOCOMO_JUDGE_MODEL` to choose the judge model.
+
+Standalone judge scoring for an existing run:
+
+```bash
+python benchmark/locomo/llm_judge.py \
+  --output-root benchmark/outputs \
+  --run-id <run-id>
+```
+
 Replay/query split:
 
 ```bash
@@ -46,11 +60,21 @@ Outputs are written under `benchmark/outputs/locomo/<run-id>/`:
 - `replay_manifest.jsonl`
 - `predictions.jsonl`
 - `predictions_with_trace.jsonl`
+- `predictions_with_judge.jsonl`
 - `locomo_predictions.json`
 - `summary.json`
+- `llm_judge_results.jsonl`
+- `llm_judge_summary.json`
 - `error_report.jsonl`
 - `error_report.csv`
 - `error_report_summary.json`
+
+`summary.json` contains the local official-style F1 score. When judge scoring
+runs successfully, it also contains `llm_judge_score`, a binary LLM judge score
+over categories 1-4. Category 5 adversarial questions are excluded by default,
+matching common LoCoMo J-score reporting. Pass `--include-adversarial` to the
+standalone judge script only when you intentionally want to inspect that extra
+category.
 
 Phase 1 scope:
 

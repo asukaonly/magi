@@ -30,6 +30,18 @@ def test_run_all_passes_qa_limit_to_replay_and_query(tmp_path) -> None:
             encoding="utf-8",
         )
 
+    def judge_runner(**kwargs):
+        calls.append(("judge", kwargs["qa_limit"]))
+        run_dir = tmp_path / "locomo" / "run-1"
+        (run_dir / "llm_judge_summary.json").write_text(
+            '{"status":"ready","llm_judge_score":1.0,"evaluated_questions":1}\n',
+            encoding="utf-8",
+        )
+        (run_dir / "summary.json").write_text(
+            '{"total_questions":2,"llm_judge_score":1.0}\n',
+            encoding="utf-8",
+        )
+
     summary = run_locomo_pipeline(
         dataset_path=Path("/tmp/locomo.json"),
         output_root=tmp_path,
@@ -38,15 +50,30 @@ def test_run_all_passes_qa_limit_to_replay_and_query(tmp_path) -> None:
         qa_limit=2,
         replay_runner=replay_runner,
         query_runner=query_runner,
+        judge_runner=judge_runner,
     )
 
-    assert calls == [("replay", 2), ("query", 2)]
+    assert calls == [("replay", 2), ("query", 2), ("judge", 2)]
     assert summary["summary"]["total_questions"] == 2
+    assert summary["summary"]["llm_judge_score"] == 1.0
+    assert summary["llm_judge"]["llm_judge_score"] == 1.0
     assert summary["error_report"]["non_perfect_question_count"] == 1
     assert (tmp_path / "locomo" / "run-1" / "error_report.jsonl").exists()
 
 
-def test_parse_args_accepts_qa_limit() -> None:
-    args = parse_args(["--output-root", "/tmp/out", "--qa-limit", "10"])
+def test_parse_args_accepts_qa_limit_and_judge_options() -> None:
+    args = parse_args(
+        [
+            "--output-root",
+            "/tmp/out",
+            "--qa-limit",
+            "10",
+            "--judge-model",
+            "gpt-4o-mini",
+            "--skip-llm-judge",
+        ]
+    )
 
     assert args.qa_limit == 10
+    assert args.judge_model == "gpt-4o-mini"
+    assert args.skip_llm_judge is True
