@@ -75,7 +75,7 @@ export function SettingsNavigationSidebar({
                 aria-expanded={isExpandable ? isExpanded : undefined}
                 aria-label={t(`settings.tabs.${item.id}`)}
                 className={cn(
-                  'group flex w-full items-center justify-between rounded-lg px-3.5 py-2.5 text-sm leading-6',
+                  'group flex w-full items-center justify-between rounded-lg px-3.5 py-2.5 text-left text-sm leading-6',
                   'transition-[background-color,color,box-shadow,transform] duration-200 ease-out',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:ring-offset-0',
                   isActive
@@ -83,14 +83,14 @@ export function SettingsNavigationSidebar({
                     : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-nav-hover)/0.64)] hover:text-foreground'
                 )}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <Icon className={cn(
-                    'h-4 w-4 transition-colors',
+                    'h-4 w-4 shrink-0 transition-colors',
                     isActive
                       ? 'text-foreground'
                       : 'text-[hsl(var(--settings-nav-foreground))] group-hover:text-foreground'
                   )} />
-                  <span className={cn('transition-colors', isActive ? 'font-semibold' : 'font-medium')}>
+                  <span className={cn('min-w-0 flex-1 truncate transition-colors', isActive ? 'font-semibold' : 'font-medium')}>
                     {t(`settings.tabs.${item.id}`)}
                   </span>
                 </div>

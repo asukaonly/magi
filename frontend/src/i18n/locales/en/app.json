@@ -1129,10 +1129,10 @@
     "saving": "Saving...",
     "tabs": {
       "preferences": "General",
-      "llm": "Model Configuration",
+      "llm": "Model",
       "llmProviders": "Provider Configuration",
       "llmModels": "Model Selection",
-      "conversation": "Conversation Settings",
+      "conversation": "Conversation",
       "personalProfile": "Personal Profile",
       "statistics": "Statistics",
       "statisticsLlm": "LLM Statistics",
@@ -2189,6 +2189,7 @@
     "pluginPackages": {
       "loading": "Loading plugins...",
       "summary": "{{count}} plugins discovered",
+      "summaryOne": "1 plugin discovered",
       "emptyDescription": "This plugin did not provide extra description text.",
       "emptySettings": "This plugin does not expose declarative settings on the Plugins page.",
       "emptyState": "No plugin packages have been discovered yet.",

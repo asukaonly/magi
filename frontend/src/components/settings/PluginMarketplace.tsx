@@ -27,6 +27,7 @@ import { PluginIcon } from '@/components/plugins/PluginIcon';
 import { PluginInstallProgressPanel } from '@/components/plugins/PluginInstallProgressPanel';
 import { PluginConsentDialog, type ConsentMode } from '@/components/plugins/PluginConsentDialog';
 import { capabilitiesExceedingConsent } from '@/lib/pluginCapabilities';
+import { cn } from '@/lib/utils';
 import {
   buildMarketplacePluginDisplayItems,
   getMarketplaceItemCapabilities,
@@ -41,6 +42,12 @@ import {
 
 const CONTRIBUTION_TYPE_FILTERS = ['all', 'sensor', 'tool', 'channel'] as const;
 type ContributionFilter = (typeof CONTRIBUTION_TYPE_FILTERS)[number];
+
+const subtlePillClass =
+  'rounded-md border-transparent bg-[hsl(var(--settings-shell)/0.72)] px-2.5 py-1 text-xs font-semibold text-[hsl(var(--settings-nav-foreground))] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34)]';
+
+const primaryPillClass =
+  'rounded-md border-transparent bg-[hsl(var(--primary)/0.12)] px-2.5 py-1 text-xs font-semibold text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.2)]';
 
 /** Resolve the localized text from an i18n map, falling back to the default. */
 function localized(
@@ -276,10 +283,10 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     <div className="space-y-5 pt-1">
       {/* Search + Actions */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="relative flex-1 max-w-md">
+        <div className="relative min-w-[260px] max-w-xl flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="pl-9"
+            className="h-9 border-0 bg-[hsl(var(--settings-shell-elevated)/0.72)] pl-9 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.38)] focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:ring-offset-0"
             placeholder={t('settings.marketplace.searchPlaceholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -301,6 +308,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
               size="sm"
               asChild
               disabled={!!processingIds.__upload}
+              className="h-9 bg-[hsl(var(--settings-shell-elevated)/0.72)] px-3.5 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.4)]"
             >
               <span>
                 <Package className="mr-2 h-4 w-4" />
@@ -315,6 +323,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
             size="sm"
             onClick={() => void fetchRegistry({ force: true })}
             disabled={loading}
+            className="h-9 bg-[hsl(var(--settings-shell-elevated)/0.72)] px-3.5 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.4)]"
           >
             <RefreshCw className={loading ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
             {t('settings.marketplace.actions.refresh')}
@@ -323,18 +332,22 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       </div>
 
       {/* Category filter */}
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-2">
         {CONTRIBUTION_TYPE_FILTERS.map((filter) => (
-          <Button
+          <button
             key={filter}
             type="button"
-            variant={typeFilter === filter ? 'default' : 'outline'}
-            size="sm"
-            className="h-7 text-xs px-3"
+            aria-pressed={typeFilter === filter}
+            className={cn(
+              'h-8 rounded-md px-3 text-xs font-semibold transition-[background-color,color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
+              typeFilter === filter
+                ? 'bg-primary text-primary-foreground shadow-[0_8px_18px_hsl(var(--primary)/0.12)]'
+                : 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-[hsl(var(--settings-nav-foreground))] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.32)] hover:bg-[hsl(var(--settings-nav-hover)/0.72)] hover:text-foreground'
+            )}
             onClick={() => setTypeFilter(filter)}
           >
             {t(`settings.marketplace.filter.${filter}`)}
-          </Button>
+          </button>
         ))}
       </div>
 
@@ -366,7 +379,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
             : t('settings.marketplace.empty')}
         </div>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-3">
           {filteredItems.map((item) => {
             const entry = item.primary;
             const itemName = getMarketplaceItemName(item, language);
@@ -384,11 +397,11 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
               <div
                 key={item.id}
                 data-testid={`marketplace-plugin-${item.id}`}
-                className="rounded-lg border border-[hsl(var(--settings-subnav-border)/0.72)] p-4 space-y-3"
+                className="space-y-3 rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.5)] p-4 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34),0_12px_30px_hsl(var(--foreground)/0.035)] transition-[background-color,box-shadow] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.68)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.42),0_14px_34px_hsl(var(--foreground)/0.05)]"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex min-w-0 flex-1 gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[hsl(var(--settings-subnav-border)/0.72)] bg-[hsl(var(--settings-subnav-bg)/0.55)]">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--settings-shell)/0.78)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.38)]">
                       <PluginIcon
                         iconId={getMarketplaceItemIcon(item)}
                         pluginId={item.id}
@@ -396,28 +409,28 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                         className="h-5 w-5"
                       />
                     </div>
-                    <div className="space-y-1.5 min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold text-foreground">
+                        <span className="text-[15px] font-semibold leading-6 text-foreground">
                           {itemName}
                         </span>
-                        <Badge variant="outline" className="text-xs">
+                        <Badge variant="outline" className={subtlePillClass}>
                           v{entry.version}
                         </Badge>
                         {item.kind === 'group' && (
-                          <Badge variant="outline" className="text-xs">
+                          <Badge variant="outline" className={subtlePillClass}>
                             {t('settings.marketplace.badge.entryCount', { count: item.entries.length })}
                           </Badge>
                         )}
                         {item.entries.every((candidate) => candidate.official) && (
-                          <Badge variant="default" className="text-xs">
+                          <Badge variant="secondary" className={primaryPillClass}>
                             {t('settings.marketplace.badge.official')}
                           </Badge>
                         )}
                         {dataLocalOnly && (
                           <Badge
                             variant="outline"
-                            className="gap-1 border-transparent bg-emerald-500/15 text-xs text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300"
+                            className={cn(primaryPillClass, 'gap-1')}
                             title={t('settings.marketplace.badge.localOnlyHint', {
                               defaultValue: 'All data stays on this device — nothing is uploaded.',
                             })}
@@ -427,24 +440,24 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground leading-relaxed">
+                      <p className="max-w-4xl text-sm leading-6 text-muted-foreground">
                         {itemDescription}
                       </p>
                       {memberNames.length > 0 ? (
                         <div className="flex flex-wrap gap-1.5">
                           {memberNames.map((name) => (
-                            <Badge key={name} variant="outline" className="rounded-md text-xs">
+                            <Badge key={name} variant="outline" className={subtlePillClass}>
                               {name}
                             </Badge>
                           ))}
                         </div>
                       ) : null}
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        {entry.author && <span>{entry.author}</span>}
+                        {entry.author && <span className="font-medium">{entry.author}</span>}
                         {contributionTypes.length > 0 && (
                           <div className="flex gap-1">
                             {contributionTypes.map((type) => (
-                              <Badge key={type} variant="secondary" className="text-xs">
+                              <Badge key={type} variant="secondary" className={subtlePillClass}>
                                 {t(`settings.marketplace.contributionType.${type}`, { defaultValue: type })}
                               </Badge>
                             ))}
@@ -454,13 +467,13 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-2">
                     {entry.homepage && (
                       <a
                         href={entry.homepage}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-muted-foreground hover:text-foreground"
+                        className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[hsl(var(--settings-nav-hover)/0.72)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                       >
                         <ExternalLink className="h-4 w-4" />
                       </a>
@@ -475,6 +488,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                             size="sm"
                             disabled={isProcessing}
                             onClick={() => handleUpdate(item)}
+                            className="h-9 bg-[hsl(var(--settings-shell)/0.72)] px-3.5"
                           >
                             {operation === 'updating' ? (
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -495,6 +509,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                           size="sm"
                           disabled={isProcessing}
                           onClick={() => void handleUninstall(item)}
+                          className="h-9 px-3 text-muted-foreground hover:text-destructive"
                         >
                           {operation === 'uninstalling' ? (
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -503,7 +518,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                           )}
                           {t('settings.marketplace.actions.uninstall')}
                         </Button>
-                        <Badge variant="secondary">
+                        <Badge variant="secondary" className={subtlePillClass}>
                           {t('settings.marketplace.badge.installed')}
                         </Badge>
                       </div>
@@ -514,6 +529,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                         size="sm"
                         disabled={isProcessing}
                         onClick={() => handleInstall(item)}
+                        className="h-9 rounded-md px-4 shadow-[0_10px_24px_hsl(var(--primary)/0.14)]"
                       >
                         {operation === 'installing' ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -2188,6 +2188,7 @@
     "pluginPackages": {
       "loading": "正在加载插件...",
       "summary": "已发现 {{count}} 个插件",
+      "summaryOne": "已发现 1 个插件",
       "emptyDescription": "这个插件没有提供额外描述。",
       "emptySettings": "这个插件当前没有可配置的声明式设置项。",
       "emptyState": "还没有扫描到任何插件包。",
