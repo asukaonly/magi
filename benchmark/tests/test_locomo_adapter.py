@@ -66,15 +66,15 @@ def test_adapter_converts_sample_into_shared_replay_records_and_queries() -> Non
         "session_2",
     ]
     assert [record.turn_id for record in adapted.replay_records] == ["D1:1", "D1:2", "D2:1"]
-    assert [record.role for record in adapted.replay_records] == ["user", "assistant", "user"]
+    assert [record.role for record in adapted.replay_records] == ["external", "external", "external"]
     assert 'Caroline said, "I joined a support group."' in adapted.replay_records[0].content
     assert "Nearby conversation context:" not in adapted.replay_records[0].content
     assert "shared an image: a lake sunrise painting" in adapted.replay_records[1].content
     assert "image search query: sunrise lake painting reference" in adapted.replay_records[1].content
     assert "Previous turn D1:1 (Caroline): I joined a support group." in adapted.replay_records[1].content
     assert adapted.replay_records[2].metadata["dia_id"] == "D2:1"
-    assert adapted.replay_records[0].metadata["memory_owner_speaker"] == "Caroline"
-    assert adapted.replay_records[1].metadata["memory_owner_speaker"] == "Caroline"
+    assert adapted.replay_records[0].metadata["dialogue_participants"] == ["Caroline", "Melanie"]
+    assert adapted.replay_records[1].metadata["dialogue_participants"] == ["Caroline", "Melanie"]
     assert adapted.replay_records[0].metadata["neighbor_context_window"] == 0
     assert adapted.replay_records[1].metadata["image_query"] == "sunrise lake painting reference"
     assert adapted.replay_records[1].metadata["neighbor_context_window"] == 2

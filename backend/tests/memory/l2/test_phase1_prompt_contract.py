@@ -7,3 +7,8 @@ from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
 
 def test_phase1_prompt_requires_claim_objects_as_entities():
     assert "Every concrete object_ref used in fact_claims must also appear in entities" in PHASE1_EXTRACT_SYSTEM_PROMPT
+
+
+def test_phase1_prompt_allows_external_observation_facts():
+    assert "messages marked **[USER]** or **[EXTERNAL]**" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "For [EXTERNAL] messages, never use user:self" in PHASE1_EXTRACT_SYSTEM_PROMPT

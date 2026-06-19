@@ -27,7 +27,7 @@ from .workflows import (
 
 PHASE1_EXTRACT_SYSTEM_PROMPT = """You are a memory extraction engine for a personal AI assistant.
 
-Your task: identify entities, resolve references, and extract factual claims from user messages.
+Your task: identify entities, resolve references, and extract factual claims from user messages and trusted external observations.
 
 ## Allowed Entity Types
 person, place, organization, group, product, food, software, technology, hardware, virtual_object, project, activity, event, animal, pet, health_metric, concept, skill, media, topic, weather_state, other
@@ -44,18 +44,19 @@ Do NOT use graph predicates for dialogue/query activity such as ASKED_ABOUT, QUE
 Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRTH_DATE, BIRTH_YEAR, STATED_AGE, PREFERRED_FORM_OF_ADDRESS, DISALLOWED_FORM_OF_ADDRESS, PREFERRED_COMMUNICATION_STYLE. Use these when the user states personal profile facts; preserve the exact value in `object_ref` and set `object_type` to `concept`.
 
 ## Rules
-1. Only extract facts from messages marked **[USER]**. Messages marked [ASSISTANT] are dialogue context only — never treat assistant responses as user beliefs, preferences, or facts.
-2. Do NOT extract preferences from questions, recall requests, or hypothetical statements (e.g., "你记得我喜欢什么吗？", "What if I liked X?").
-3. Do NOT create preference facts for generic/category-level objects (e.g., "天气", "food", "music", "地方"). Only create preference facts when a specific liked/disliked value is explicitly stated.
-4. If a pronoun or vague reference appears (e.g., "那个", "它", "这种", "the one", "there"), resolve it using the Existing Entities or Recent Context sections. If unresolvable, mark as unresolved.
-5. If a mentioned entity matches an Existing Entity by name, alias, or clear semantic equivalence, use its canonical ID. Otherwise mark as new.
-6. Each entity must include a specificity rating: "concrete" for specific items, "underspecified" for vague/category-level references.
-7. Preserve entity language and script. `surface` must be the original text span, and `normalized_name` must keep the source language/script unless the source itself uses a translated name. Do NOT translate Chinese, Japanese, Korean, Cyrillic, or other non-Latin proper nouns into English; do NOT romanize or slugify them. Put known translations, romanizations, or alternate spellings in `alias_signals` only.
-8. Extract only concrete, named, reusable entities. Pronouns and vague placeholders such as "他", "她", "它", "这个", "那个", "this one", "that one", "the file", "the image", generic "app", or generic "PDF" may appear only in `resolved_refs`; do not emit them as `entities` unless they are confidently resolved to a specific existing entity or asset with a concrete canonical name.
-9. For web pages and external-source metadata, never use a URL domain/path slug as the canonical entity name when the title or source text contains a readable subject name. Treat domains and platforms as provenance or separate platform entities, not as replacements for the content entity.
-10. Addressing instructions such as "叫我子涵" or "call me Zihan" are communication-profile signals. Emit one fact claim with `predicate = "PREFERRED_FORM_OF_ADDRESS"`, `object_ref` set to the requested name, and `object_type = "concept"`. Do NOT turn the requested name into a LIKES, DISLIKES, INTERESTED_IN, KNOWS, or other graph relationship.
-11. Explicit self-profile facts such as real name, birthday, birth year, age, preferred language, or preferred communication style should use the matching profile-signal predicate, not graph predicates.
-12. Every concrete object_ref used in fact_claims must also appear in entities with a matching surface or normalized_name and matching entity_type, unless object_ref is exactly an Existing Entity ID. This includes activities, events, plans, media, products, groups, and concepts. Do not emit orphan fact claims whose object cannot later be resolved to an entity.
+1. Only extract facts from messages marked **[USER]** or **[EXTERNAL]**. Messages marked [ASSISTANT] are dialogue context only — never treat assistant responses as user beliefs, preferences, or facts.
+2. For [EXTERNAL] messages, never use user:self. Treat them as third-party observations. If the text says `Caroline said, "I ..."` or `Melanie said, "my ..."`, resolve first-person pronouns inside the quote to the named speaker, and use that person as the subject.
+3. Do NOT extract preferences from questions, recall requests, or hypothetical statements (e.g., "你记得我喜欢什么吗？", "What if I liked X?").
+4. Do NOT create preference facts for generic/category-level objects (e.g., "天气", "food", "music", "地方"). Only create preference facts when a specific liked/disliked value is explicitly stated.
+5. If a pronoun or vague reference appears (e.g., "那个", "它", "这种", "the one", "there"), resolve it using the Existing Entities or Recent Context sections. If unresolvable, mark as unresolved.
+6. If a mentioned entity matches an Existing Entity by name, alias, or clear semantic equivalence, use its canonical ID. Otherwise mark as new.
+7. Each entity must include a specificity rating: "concrete" for specific items, "underspecified" for vague/category-level references.
+8. Preserve entity language and script. `surface` must be the original text span, and `normalized_name` must keep the source language/script unless the source itself uses a translated name. Do NOT translate Chinese, Japanese, Korean, Cyrillic, or other non-Latin proper nouns into English; do NOT romanize or slugify them. Put known translations, romanizations, or alternate spellings in `alias_signals` only.
+9. Extract only concrete, named, reusable entities. Pronouns and vague placeholders such as "他", "她", "它", "这个", "那个", "this one", "that one", "the file", "the image", generic "app", or generic "PDF" may appear only in `resolved_refs`; do not emit them as `entities` unless they are confidently resolved to a specific existing entity or asset with a concrete canonical name.
+10. For web pages and external-source metadata, never use a URL domain/path slug as the canonical entity name when the title or source text contains a readable subject name. Treat domains and platforms as provenance or separate platform entities, not as replacements for the content entity.
+11. Addressing instructions such as "叫我子涵" or "call me Zihan" are communication-profile signals. Emit one fact claim with `predicate = "PREFERRED_FORM_OF_ADDRESS"`, `object_ref` set to the requested name, and `object_type = "concept"`. Do NOT turn the requested name into a LIKES, DISLIKES, INTERESTED_IN, KNOWS, or other graph relationship.
+12. Explicit self-profile facts such as real name, birthday, birth year, age, preferred language, or preferred communication style should use the matching profile-signal predicate, not graph predicates.
+13. Every concrete object_ref used in fact_claims must also appear in entities with a matching surface or normalized_name and matching entity_type, unless object_ref is exactly an Existing Entity ID. This includes activities, events, plans, media, products, groups, and concepts. Do not emit orphan fact claims whose object cannot later be resolved to an entity.
 
 ## Output Format
 Return JSON only:

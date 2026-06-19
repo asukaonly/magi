@@ -73,9 +73,8 @@ def adapt_locomo_sample(sample: dict[str, Any], *, namespace: str) -> AdaptedLoC
             turn_payload = dict(turn or {})
             speaker = str(turn_payload.get("speaker") or "").strip() or "Unknown"
             dia_id = str(turn_payload.get("dia_id") or f"D{session_number}:{turn_index + 1}")
-            # speaker_a is the memory owner for this eval replay; other
-            # speakers remain retrievable dialogue context.
-            role = "user" if _same_speaker(speaker, speaker_a) else "assistant"
+            # LoCoMo questions ask about third-party dialogue participants.
+            role = "external"
             image_query = str(turn_payload.get("query") or "").strip()
             has_image_context = bool(image_query or str(turn_payload.get("blip_caption") or "").strip())
             neighbor_context_window = NEIGHBOR_CONTEXT_WINDOW if has_image_context else 0
@@ -105,7 +104,7 @@ def adapt_locomo_sample(sample: dict[str, Any], *, namespace: str) -> AdaptedLoC
                         "source_dataset": "locomo",
                         "sample_id": sample_id,
                         "speaker": speaker,
-                        "memory_owner_speaker": speaker_a,
+                        "dialogue_participants": [speaker_a, speaker_b],
                         "dia_id": dia_id,
                         "session_number": session_number,
                         "session_date": session_date,
@@ -231,10 +230,6 @@ def _parse_locomo_timestamp(value: Any) -> float | None:
         except ValueError:
             continue
     return None
-
-
-def _same_speaker(left: str, right: str) -> bool:
-    return left.strip().casefold() == right.strip().casefold()
 
 
 def _normalize_category(value: Any) -> int:

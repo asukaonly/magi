@@ -8,6 +8,9 @@ from ...events.events import Event, EventLevel, EventTypes
 from .contracts import EvalMemoryWriteRecord
 
 
+EVAL_EXTERNAL_OBSERVATION_EVENT_TYPE = "BenchmarkExternalObservation"
+
+
 class EvalMemoryWriter:
     """Write benchmark replay records through the unified memory ingest path."""
 
@@ -55,4 +58,6 @@ class EvalMemoryWriter:
             return EventTypes.USER_MESSAGE, "user"
         if normalized == "assistant":
             return EventTypes.AI_RESPONSE, "assistant"
+        if normalized == "external":
+            return EVAL_EXTERNAL_OBSERVATION_EVENT_TYPE, "external"
         raise ValueError(f"Unsupported eval replay role: {role}")
