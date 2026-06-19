@@ -64,9 +64,9 @@ export const TranscriptTimelineMessage = ({
       {headerExtras}
     </span>
   ) : null;
-  const headerTime = <span className="text-[11px] text-muted-foreground">{timestampLabel}</span>;
+  const headerTime = <span className="text-[11px] text-muted-foreground/80">{timestampLabel}</span>;
   const headerName = (
-    <span className="text-xs font-medium text-muted-foreground">
+    <span className="text-[13px] font-semibold text-[hsl(var(--foreground)/0.62)]">
       {displayName}
     </span>
   );
@@ -77,12 +77,12 @@ export const TranscriptTimelineMessage = ({
     initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
     animate={{ opacity: 1, y: 0 }}
     transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
-    className={isUserMessage ? 'group/message mb-5 flex justify-end' : 'group/message mb-5 flex justify-start'}
+    className={isUserMessage ? 'group/message mb-6 flex justify-end' : 'group/message mb-7 flex justify-start'}
   >
-    <div className={isUserMessage ? 'flex max-w-[75%] flex-row-reverse gap-3' : 'flex max-w-[75%] gap-3'}>
-      {avatar}
+    <div className={isUserMessage ? 'flex max-w-2xl flex-row-reverse gap-3' : 'flex max-w-3xl gap-3'}>
+      {isUserMessage ? null : avatar}
       <div className={isUserMessage ? 'flex flex-col items-end' : 'flex flex-col items-start'}>
-        <div className="mb-1 flex items-center gap-2">
+        <div className="mb-1.5 flex items-center gap-2">
           {isUserMessage ? (
             <>
               {headerActions}
@@ -100,12 +100,12 @@ export const TranscriptTimelineMessage = ({
         <div
           onContextMenu={onContextMenu}
           className={isUserMessage
-            ? 'w-fit max-w-full rounded-xl rounded-tr-sm border border-border/55 bg-card px-4 py-2.5 text-foreground shadow-sm'
-            : 'w-fit max-w-full rounded-xl rounded-tl-sm border border-border/55 bg-card px-4 py-2.5 shadow-sm'}
+            ? 'w-fit max-w-full rounded-xl rounded-tr-md bg-[hsl(var(--chat-user-background)/0.88)] px-4 py-2.5 text-[hsl(var(--chat-user-foreground))] shadow-[inset_0_0_0_1px_hsl(var(--chat-user-border)/0.22)]'
+            : 'w-fit max-w-full rounded-xl rounded-tl-md bg-[hsl(var(--chat-assistant-background)/0.68)] px-5 py-3 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--chat-assistant-border)/0.32)]'}
         >
           {bubbleTop}
           {message.role === 'assistant' ? (
-            <div className="max-w-none text-current">
+            <div className="max-w-none text-[15px] leading-7 text-current">
               <AssistantRuntimePanel runtimeStatuses={message.runtimeStatuses} reasoning={message.reasoning} toolCalls={message.toolCalls} streaming={message.streaming} />
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
                 {normalizeAssistantMarkdownContent(displayContent)}
@@ -117,7 +117,7 @@ export const TranscriptTimelineMessage = ({
             </div>
           ) : displayContent ? (
             <>
-              <p className="m-0 whitespace-pre-wrap text-sm">{displayContent}</p>
+              <p className="m-0 whitespace-pre-wrap text-[14px] leading-6">{displayContent}</p>
               {bubbleFooter}
             </>
           ) : null}

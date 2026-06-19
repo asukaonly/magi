@@ -316,16 +316,16 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const sessionMenuSession = sessionMenu ? sessionsById[sessionMenu.sessionId] : null;
 
   const panelNavButtonClass = (active: boolean) => cn(
-    'relative flex h-8 w-full items-center gap-2 rounded-[5px] px-2.5 text-left text-[13px] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[2px] before:rounded-full before:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]',
+    'relative flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[2px] before:rounded-full before:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]',
     active
-      ? 'bg-[hsl(var(--sidebar-active)/0.32)] text-[hsl(var(--sidebar-active-foreground))] before:bg-[hsl(var(--primary))]'
-      : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover)/0.62)] hover:text-[hsl(var(--sidebar-active-foreground))]'
+      ? 'bg-[hsl(var(--sidebar-active)/0.52)] text-[hsl(var(--sidebar-active-foreground))] before:bg-[hsl(var(--primary))]'
+      : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover)/0.68)] hover:text-[hsl(var(--sidebar-active-foreground))]'
   );
 
   const activityButtonClass = (active: boolean, open: boolean) => cn(
-    'relative flex h-11 w-11 items-center justify-center rounded-md text-[hsl(var(--sidebar-muted))] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-[-6px] before:top-2 before:w-[2px] before:rounded-full before:bg-transparent hover:bg-[hsl(var(--sidebar-hover)/0.58)] hover:text-[hsl(var(--sidebar-active-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.2)]',
+    'relative flex h-11 w-11 items-center justify-center rounded-lg text-[hsl(var(--sidebar-muted))] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-[-6px] before:top-2 before:w-[2px] before:rounded-full before:bg-transparent hover:bg-[hsl(var(--sidebar-hover)/0.62)] hover:text-[hsl(var(--sidebar-active-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.2)]',
     active && 'text-[hsl(var(--sidebar-active-foreground))] before:bg-[hsl(var(--primary))]',
-    open && 'bg-[hsl(var(--sidebar-active)/0.34)]'
+    open && 'bg-[hsl(var(--sidebar-active)/0.52)] shadow-[0_10px_24px_hsl(var(--sidebar-shadow)/0.06)]'
   );
 
   const handleActivityClick = (panel: ActivityPanel) => {
@@ -408,14 +408,14 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     <div className="flex min-h-0 flex-1 flex-col" data-testid="sidebar-conversation-rail">
       <PersonaHeader onCreateChat={() => { void handleCreateSession(); }} />
 
-      <div className="flex min-h-0 flex-1 flex-col px-2.5 py-2.5">
+      <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
         <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
           {sessionRows.length === 0 ? (
             <div className="rounded-md bg-[hsl(var(--sidebar-tool))] px-3 py-2.5 text-xs leading-5 text-[hsl(var(--sidebar-muted))]">
               {loading ? t('shell.loadingSessions') : t('shell.emptySessions')}
             </div>
           ) : (
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {sessionRows.map((session) => {
                 const active = currentSessionId === session.session_id;
                 const unreadCount = unreadBySession[session.session_id] || 0;
@@ -424,10 +424,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                   <div
                     key={session.session_id}
                     className={cn(
-                      'group/session relative flex h-8 items-center gap-1 rounded-[5px] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[2px] before:rounded-full before:bg-transparent',
+                      'group/session relative flex h-10 items-center gap-1 rounded-lg transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[2px] before:rounded-full before:bg-transparent',
                       active
-                        ? 'bg-[hsl(var(--sidebar-active)/0.32)] text-[hsl(var(--sidebar-active-foreground))] before:bg-[hsl(var(--primary))]'
-                        : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover)/0.62)] hover:text-[hsl(var(--sidebar-active-foreground))]'
+                        ? 'bg-[hsl(var(--sidebar-active)/0.52)] text-[hsl(var(--sidebar-active-foreground))] shadow-[0_10px_24px_hsl(var(--sidebar-shadow)/0.045)] before:bg-[hsl(var(--primary))]'
+                        : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover)/0.68)] hover:text-[hsl(var(--sidebar-active-foreground))]'
                     )}
                   >
                     <button
@@ -444,7 +444,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                       }}
                       aria-label={displayLabel}
                       aria-current={active ? 'page' : undefined}
-                      className="flex min-w-0 flex-1 items-center gap-2 rounded-[5px] px-2 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]"
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]"
                       title={displayLabel}
                     >
                       <span className="min-w-0 flex-1 truncate font-medium">{displayLabel}</span>
@@ -624,7 +624,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'relative flex h-full min-h-0 overflow-hidden border-r border-[hsl(var(--sidebar-border))] bg-[linear-gradient(180deg,hsl(var(--sidebar-background-start))_0%,hsl(var(--sidebar-background-end))_100%)] transition-[width] duration-150 ease-out',
+        'relative flex h-full min-h-0 overflow-hidden bg-[linear-gradient(180deg,hsl(var(--sidebar-background-start))_0%,hsl(var(--sidebar-background-end))_100%)] shadow-[inset_-1px_0_0_hsl(var(--sidebar-border)/0.58)] transition-[width] duration-150 ease-out',
         openPanel ? 'w-[284px]' : 'w-14'
       )}
     >
@@ -658,7 +658,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         </div>
       ) : null}
       <div
-        className="flex w-14 shrink-0 flex-col border-r border-[hsl(var(--sidebar-border))] px-1.5 pb-3 pt-3"
+        className="flex w-14 shrink-0 flex-col px-1.5 pb-3 pt-3 shadow-[inset_-1px_0_0_hsl(var(--sidebar-border)/0.44)]"
         data-testid="sidebar-activity-bar"
       >
         <div className="flex min-h-0 flex-1 flex-col items-center gap-1">
@@ -700,7 +700,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       </div>
 
       {openPanel ? (
-        <div className="flex min-h-0 w-[228px] shrink-0 flex-col bg-[hsl(var(--sidebar-background-end)/0.72)]">
+        <div className="flex min-h-0 w-[228px] shrink-0 flex-col bg-[hsl(var(--sidebar-background-end)/0.54)]">
           {renderPanelContent()}
         </div>
       ) : null}

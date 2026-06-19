@@ -809,20 +809,19 @@ describe('ChatPage', () => {
     const sendButton = screen.getByRole('button', { name: 'chat.send' });
     const textarea = screen.getByPlaceholderText('chat.inputPlaceholder') as HTMLTextAreaElement;
 
-    expect(composerRoot).toHaveClass('rounded-xl', 'bg-[hsl(var(--composer-background))]');
-    expect(composerRoot).toHaveClass('border-[hsl(var(--composer-border))]');
+    expect(composerRoot).toHaveClass('rounded-xl', 'bg-[hsl(var(--composer-background)/0.94)]');
+    expect(composerRoot?.className).toContain('inset_0_0_0_1px_hsl(var(--composer-border)/0.38)');
     expect(composerRoot).not.toHaveClass('rounded-[28px]');
     expect(toolbar).not.toHaveClass('border-t');
-    expect(toolbar).toHaveClass('items-end', 'px-2', 'pb-2');
+    expect(toolbar).toHaveClass('items-end', 'px-3', 'pb-3');
     expect(primaryAction).not.toHaveClass('pb-2');
     expect(sendButton).toHaveClass(
-      'h-[34px]',
-      'w-[34px]',
-      'border-border/65',
-      'bg-muted/80',
-      'text-foreground',
+      'h-9',
+      'w-9',
+      'bg-primary',
+      'text-primary-foreground',
     );
-    expect(textarea.style.height).toBe('88px');
+    expect(textarea.style.height).toBe('72px');
   });
 
   it('disables image attachments when the core model does not support vision', async () => {
@@ -1182,10 +1181,11 @@ describe('ChatPage', () => {
     const replyStrip = screen.getByText('引用条预览').parentElement;
 
     expect(userBubble).toHaveClass(
-      'bg-card',
-      'text-foreground',
-      'border-border/55',
+      'bg-[hsl(var(--chat-user-background)/0.88)]',
+      'text-[hsl(var(--chat-user-foreground))]',
+      'rounded-tr-md',
     );
+    expect(userBubble?.className).toContain('inset_0_0_0_1px_hsl(var(--chat-user-border)/0.22)');
     expect(userBubble?.className).not.toContain('bg-[#f6e7de]');
     expect(replyStrip).toHaveClass('bg-background/80', 'border-border/45', 'text-foreground');
   });

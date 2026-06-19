@@ -648,7 +648,7 @@ export const ChatPage: React.FC = () => {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.15 }}
-      className="relative flex h-full min-h-0 flex-col px-3 pb-3 pt-2"
+      className="relative flex h-full min-h-0 flex-col bg-[hsl(var(--chat-surface))] px-4 pb-4 pt-3"
     >
       <SystemSuggestionTopBar
         proposal={topBarProposal}
@@ -711,7 +711,7 @@ export const ChatPage: React.FC = () => {
       />
 
       {showFirstConversationChips && (
-        <div className="px-2 pb-2">
+        <div className="mx-auto w-full max-w-[1080px] px-1 pb-3">
           <FirstConversationChips onPick={handleFirstConversationChipPick} />
         </div>
       )}

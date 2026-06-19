@@ -17,7 +17,7 @@ export const ChatComposerPane = ({
   ...composerShellProps
 }: ChatComposerPaneProps) => {
   return (
-    <div className="mt-2 shrink-0">
+    <div className="mx-auto w-full max-w-[1080px] shrink-0">
       <ChatComposerShell {...composerShellProps} />
       <ComposerAttachmentInputs
         imageInputRef={imageInputRef}

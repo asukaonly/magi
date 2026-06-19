@@ -55,7 +55,7 @@ export const PersonaHeader = ({ onCreateChat }: PersonaHeaderProps) => {
 
   return (
     <div
-      className="flex items-center gap-2.5 px-3 py-2.5"
+      className="flex items-center gap-3 px-4 py-4"
       data-testid="sidebar-persona-header"
       title={tooltipLabel}
     >
@@ -66,10 +66,10 @@ export const PersonaHeader = ({ onCreateChat }: PersonaHeaderProps) => {
         avatarState="idle"
       />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px] font-medium text-[hsl(var(--sidebar-active-foreground))]">
+        <div className="truncate text-sm font-semibold text-[hsl(var(--sidebar-active-foreground))]">
           {persona.name}
         </div>
-        <div className="truncate font-mono text-[10px] text-[hsl(var(--sidebar-muted))]">
+        <div className="truncate text-xs leading-5 text-[hsl(var(--sidebar-muted))]">
           {companionLabel}
         </div>
       </div>

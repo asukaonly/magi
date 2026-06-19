@@ -217,7 +217,10 @@ export const ChatTimelinePane = ({
   };
 
   return (
-    <div ref={timelineRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+    <div
+      ref={timelineRef}
+      className="min-h-0 flex-1 overflow-y-auto px-2 py-5 scrollbar-thin scrollbar-thumb-[hsl(var(--border)/0.58)] scrollbar-track-transparent"
+    >
       <ChatMessageContextMenuOverlay
         messageContextMenu={messageContextMenu}
         messageContextMenuRef={messageContextMenuRef}
@@ -226,37 +229,39 @@ export const ChatTimelinePane = ({
         onCopyMessage={onCopyMessage}
         onDeleteMessage={onDeleteMessage}
       />
-      {projectedMessages.map((projectedMessage) => {
-        return projectedMessage.surface !== 'transcript' ? (
-          <StatusTimelineRow
-            key={projectedMessage.message.id}
-            projectedMessage={projectedMessage}
-            assistant={assistant}
-            shouldReduceMotion={shouldReduceMotion}
-            execution={execution}
-          />
-        ) : (
-          <TranscriptTimelineRow
-            key={projectedMessage.message.id}
-            projectedMessage={projectedMessage}
-            assistant={assistant}
-            shouldReduceMotion={shouldReduceMotion}
-            execution={execution}
-            interactions={transcriptInteractions}
-            isLastAssistant={projectedMessage.message.id === lastAssistantId}
-          />
-        );
-      })}
+      <div className="mx-auto flex w-full max-w-[1080px] flex-col px-1">
+        {projectedMessages.map((projectedMessage) => {
+          return projectedMessage.surface !== 'transcript' ? (
+            <StatusTimelineRow
+              key={projectedMessage.message.id}
+              projectedMessage={projectedMessage}
+              assistant={assistant}
+              shouldReduceMotion={shouldReduceMotion}
+              execution={execution}
+            />
+          ) : (
+            <TranscriptTimelineRow
+              key={projectedMessage.message.id}
+              projectedMessage={projectedMessage}
+              assistant={assistant}
+              shouldReduceMotion={shouldReduceMotion}
+              execution={execution}
+              interactions={transcriptInteractions}
+              isLastAssistant={projectedMessage.message.id === lastAssistantId}
+            />
+          );
+        })}
 
-      {showPendingBubble && (
-        <PendingAssistantBubble
-          assistantName={assistantName}
-          assistantAvatar={assistantAvatar}
-          shouldReduceMotion={shouldReduceMotion}
-        />
-      )}
+        {showPendingBubble && (
+          <PendingAssistantBubble
+            assistantName={assistantName}
+            assistantAvatar={assistantAvatar}
+            shouldReduceMotion={shouldReduceMotion}
+          />
+        )}
 
-      <div ref={messagesEndRef} />
+        <div ref={messagesEndRef} />
+      </div>
     </div>
   );
 };
