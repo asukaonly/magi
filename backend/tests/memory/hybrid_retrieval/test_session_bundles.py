@@ -53,7 +53,7 @@ async def test_evidence_bundle_expands_neighbors_by_session_sequence() -> None:
 
 
 @pytest.mark.asyncio
-async def test_evidence_bundle_expands_locomo_turn_id_neighbors_without_session_sequence() -> None:
+async def test_evidence_bundle_does_not_expand_turn_id_neighbors_without_session_sequence() -> None:
     events = [
         {
             "event_id": f"evt-{index}",
@@ -70,7 +70,5 @@ async def test_evidence_bundle_expands_locomo_turn_id_neighbors_without_session_
 
     bundles = await _EvidenceBundleHost(events)._build_l1_evidence_bundles([hit], query="message")
 
-    assert [event["event_id"] for event in bundles[0]["events"]] == [
-        f"evt-{index}" for index in range(5, 16)
-    ]
-    assert bundles[0]["neighbor_expansion_applied"] is True
+    assert [event["event_id"] for event in bundles[0]["events"]] == ["evt-10"]
+    assert bundles[0]["neighbor_expansion_applied"] is False

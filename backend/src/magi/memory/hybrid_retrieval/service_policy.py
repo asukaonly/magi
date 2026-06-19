@@ -1,7 +1,6 @@
 """Pure policy helpers for HybridRetrievalService."""
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from .answerability import (
@@ -11,13 +10,6 @@ from .answerability import (
     has_temporal_anchor,
 )
 from .models import RetrievalPayload
-
-_TURN_NUMBER_PATTERNS = (
-    re.compile(r"(?:^|[:/])turn[-_](\d+)$", re.IGNORECASE),
-    re.compile(r"^turn[-_](\d+)$", re.IGNORECASE),
-    re.compile(r"^[A-Za-z]\d+:(\d+)$"),
-)
-
 
 def plan_signature(plan: Any) -> tuple[str, str, bool]:
     content_query = getattr(getattr(plan, "conditions", None), "content_query", "") or ""
@@ -171,16 +163,3 @@ def hit_score(hit: dict[str, Any]) -> float:
         if val is not None:
             return float(val)
     return 0.0
-
-
-def parse_turn_number(turn_id: str) -> int | None:
-    normalized = str(turn_id or "").strip()
-    for pattern in _TURN_NUMBER_PATTERNS:
-        match = pattern.search(normalized)
-        if not match:
-            continue
-        try:
-            return int(match.group(1))
-        except ValueError:
-            return None
-    return None

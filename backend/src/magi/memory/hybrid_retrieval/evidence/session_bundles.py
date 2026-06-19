@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Any, Dict, List
 
-from ..service_policy import bundle_neighbor_window, hit_score, parse_turn_number
+from ..service_policy import bundle_neighbor_window, hit_score
 
 logger = logging.getLogger(__name__)
 
@@ -174,12 +174,6 @@ class EvidenceBundleMixin:
             return list(session_hits), False
 
         hit_event_ids = {str(hit.get("event_id") or "") for hit in session_hits}
-        hit_turn_numbers = {
-            turn_number
-            for hit in session_hits
-            for turn_number in [self._parse_turn_number(str(hit.get("turn_id") or ""))]
-            if turn_number is not None
-        }
         hit_session_seqs = {
             session_seq
             for hit in session_hits
@@ -201,14 +195,6 @@ class EvidenceBundleMixin:
                 ):
                     selected.append(event)
                 continue
-            turn_number = self._parse_turn_number(str(event.get("turn_id") or ""))
-            if turn_number is None or not hit_turn_numbers:
-                continue
-            if any(
-                abs(turn_number - hit_turn_number) <= max(neighbor_window, 0)
-                for hit_turn_number in hit_turn_numbers
-            ):
-                selected.append(event)
 
         unique_events = self._dedupe_events(selected)
         neighbor_expansion_applied = len(unique_events) > len(session_hits)
@@ -253,11 +239,5 @@ class EvidenceBundleMixin:
     def _hit_score(hit: Dict[str, Any]) -> float:
         """Extract the best available relevance score from a retrieval hit."""
         return hit_score(hit)
-
-    @staticmethod
-    def _parse_turn_number(turn_id: str) -> int | None:
-        """Extract a numeric turn suffix from session turn ids like `session:turn-3`."""
-        return parse_turn_number(turn_id)
-
 
 __all__ = ["EvidenceBundleMixin"]
