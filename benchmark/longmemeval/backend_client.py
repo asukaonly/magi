@@ -93,8 +93,12 @@ class BackendEvalService:
         )
 
     async def get_l2_pipeline_stats(self) -> dict[str, Any]:
-        response = await asyncio.to_thread(self._get_json_sync, "/api/memory/l2/statistics")
-        stats = dict(response)
+        response = await asyncio.to_thread(
+            self._post_json_sync,
+            "/api/memory/eval/finalize-replay",
+            _eval_l2_status_payload(),
+        )
+        stats = dict(response.get("l2_pipeline_stats") or {})
         stats.pop("canonical_self_id", None)
         stats.pop("identity_link_count", None)
         stats.pop("relation_count", None)
@@ -103,7 +107,12 @@ class BackendEvalService:
         return stats
 
     async def get_background_pending(self) -> dict[str, Any]:
-        return await asyncio.to_thread(self._get_json_sync, "/api/memory/background/pending")
+        background = await asyncio.to_thread(self._get_json_sync, "/api/memory/background/pending")
+        l2_stats = await self.get_l2_pipeline_stats()
+        merged = dict(background)
+        merged["l2"] = _describe_l2_pending(l2_stats)
+        merged["all_idle"] = _is_background_pending_idle(merged)
+        return merged
 
     def _post_json_sync(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self._backend_url}{path}"
@@ -154,3 +163,73 @@ def _normalize_optional_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _eval_l2_status_payload() -> dict[str, Any]:
+    return {
+        "period_types": [],
+        "generate_summaries": False,
+        "flush_l2": False,
+        "drain_l2_edge_embeddings": False,
+    }
+
+
+def _describe_l2_pending(stats: dict[str, Any]) -> dict[str, Any]:
+    projection_backlog = dict(stats.get("projection_backlog") or {})
+    extract_active = max(int(stats.get("extract_active", 0) or 0), 0)
+    reconcile_active = max(int(stats.get("reconcile_active", 0) or 0), 0)
+    snapshot_active = max(int(stats.get("snapshot_active", 0) or 0), 0)
+    extract_pending = max(
+        int(stats.get("extract_enqueued", 0) or 0)
+        - int(stats.get("extract_completed", 0) or 0)
+        - int(stats.get("extract_failed", 0) or 0)
+        - int(stats.get("extract_skipped", 0) or 0),
+        int(projection_backlog.get("pending", 0) or 0)
+        + int(projection_backlog.get("claimed", 0) or 0),
+        extract_active,
+        0,
+    )
+    return {
+        "is_running": bool(stats.get("is_running", False)),
+        "extract_pending": extract_pending,
+        "extract_active": extract_active,
+        "reconcile_pending": max(
+            int(stats.get("reconcile_enqueued", 0) or 0)
+            - int(stats.get("reconcile_completed", 0) or 0)
+            - int(stats.get("reconcile_failed", 0) or 0),
+            reconcile_active,
+            0,
+        ),
+        "reconcile_active": reconcile_active,
+        "snapshot_pending": max(
+            int(stats.get("snapshot_enqueued", 0) or 0)
+            - int(stats.get("snapshot_completed", 0) or 0)
+            - int(stats.get("snapshot_failed", 0) or 0),
+            snapshot_active,
+            0,
+        ),
+        "snapshot_active": snapshot_active,
+        "projection_pending": max(int(projection_backlog.get("pending", 0) or 0), 0),
+        "projection_claimed": max(int(projection_backlog.get("claimed", 0) or 0), 0),
+        "projection_failed": max(int(projection_backlog.get("failed", 0) or 0), 0),
+    }
+
+
+def _is_background_pending_idle(stats: dict[str, Any]) -> bool:
+    return (
+        all(
+            int(stats.get("l2", {}).get(key, 0)) == 0
+            for key in (
+                "extract_pending",
+                "extract_active",
+                "reconcile_pending",
+                "reconcile_active",
+                "snapshot_pending",
+                "snapshot_active",
+            )
+        )
+        and int(stats.get("l1_embeddings", {}).get("pending", 0)) == 0
+        and int(stats.get("l2_edge_embeddings", {}).get("pending", 0)) == 0
+        and int(stats.get("l3_embeddings", {}).get("pending", 0)) == 0
+        and int(stats.get("l4_embeddings", {}).get("pending", 0)) == 0
+    )

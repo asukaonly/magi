@@ -200,52 +200,105 @@ def test_backend_client_posts_finalize_replay_request() -> None:
     assert result["summaries"]["hour"]["summary_id"] == "sum-hour-1"
 
 
-def test_backend_client_reads_l2_statistics_endpoint() -> None:
+def test_backend_client_reads_l2_stats_from_eval_finalize_status() -> None:
     service = BackendEvalService("http://localhost:8000")
-    calls: list[str] = []
+    posts: list[tuple[str, dict[str, object]]] = []
 
-    def fake_get(path: str):
-        calls.append(path)
+    def fake_post(path: str, payload: dict[str, object]):
+        posts.append((path, payload))
         return {
-            "extract_enqueued": 10,
-            "extract_completed": 8,
-            "extract_failed": 0,
-            "extract_skipped": 1,
-            "reconcile_enqueued": 2,
-            "reconcile_completed": 2,
-            "reconcile_failed": 0,
-            "snapshot_enqueued": 1,
-            "snapshot_completed": 1,
-            "snapshot_failed": 0,
+            "l2_pipeline_stats": {
+                "extract_enqueued": 10,
+                "extract_completed": 8,
+                "extract_failed": 0,
+                "extract_skipped": 1,
+                "extract_active": 1,
+                "reconcile_enqueued": 2,
+                "reconcile_completed": 2,
+                "reconcile_failed": 0,
+                "snapshot_enqueued": 1,
+                "snapshot_completed": 1,
+                "snapshot_failed": 0,
+                "projection_backlog": {"pending": 0, "claimed": 2, "completed": 8, "failed": 0},
+            },
         }
 
-    service._get_json_sync = fake_get  # type: ignore[method-assign]
+    service._post_json_sync = fake_post  # type: ignore[method-assign]
 
     result = asyncio.run(service.get_l2_pipeline_stats())
 
-    assert calls == ["/api/memory/l2/statistics"]
+    assert posts == [
+        (
+            "/api/memory/eval/finalize-replay",
+            {
+                "period_types": [],
+                "generate_summaries": False,
+                "flush_l2": False,
+                "drain_l2_edge_embeddings": False,
+            },
+        )
+    ]
     assert result["extract_completed"] == 8
+    assert result["extract_active"] == 1
+    assert result["projection_backlog"]["claimed"] == 2
 
 
-def test_backend_client_reads_background_pending_endpoint() -> None:
+def test_backend_client_overlays_eval_l2_stats_on_background_pending() -> None:
     service = BackendEvalService("http://localhost:8000")
-    calls: list[str] = []
+    gets: list[str] = []
+    posts: list[tuple[str, dict[str, object]]] = []
 
     def fake_get(path: str):
-        calls.append(path)
+        gets.append(path)
         return {
             "l2": {"extract_pending": 0, "reconcile_pending": 0, "snapshot_pending": 0},
             "l1_embeddings": {"pending": 7, "worker_running": True},
+            "l2_edge_embeddings": {"pending": 0},
             "l3_embeddings": {"pending": 3, "worker_running": True},
             "l4_embeddings": {"pending": 0, "worker_running": False},
             "all_idle": False,
         }
 
+    def fake_post(path: str, payload: dict[str, object]):
+        posts.append((path, payload))
+        return {
+            "l2_pipeline_stats": {
+                "extract_enqueued": 4,
+                "extract_completed": 4,
+                "extract_failed": 0,
+                "extract_skipped": 0,
+                "extract_active": 1,
+                "reconcile_enqueued": 0,
+                "reconcile_completed": 0,
+                "reconcile_failed": 0,
+                "reconcile_active": 0,
+                "snapshot_enqueued": 0,
+                "snapshot_completed": 0,
+                "snapshot_failed": 0,
+                "snapshot_active": 0,
+                "projection_backlog": {"pending": 0, "claimed": 0, "completed": 4, "failed": 0},
+            },
+        }
+
     service._get_json_sync = fake_get  # type: ignore[method-assign]
+    service._post_json_sync = fake_post  # type: ignore[method-assign]
 
     result = asyncio.run(service.get_background_pending())
 
-    assert calls == ["/api/memory/background/pending"]
+    assert gets == ["/api/memory/background/pending"]
+    assert posts == [
+        (
+            "/api/memory/eval/finalize-replay",
+            {
+                "period_types": [],
+                "generate_summaries": False,
+                "flush_l2": False,
+                "drain_l2_edge_embeddings": False,
+            },
+        )
+    ]
+    assert result["l2"]["extract_active"] == 1
+    assert result["l2"]["extract_pending"] == 1
     assert result["l1_embeddings"]["pending"] == 7
     assert result["all_idle"] is False
 

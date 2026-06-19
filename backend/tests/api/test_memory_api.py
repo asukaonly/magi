@@ -1403,6 +1403,7 @@ def test_memory_eval_finalize_replay_api_generates_summaries_and_returns_l2_stat
     assert body["l2_flush_batch_count"] == 2
     assert body["l2_edge_embedding_count"] == 5
     assert body["l2_pipeline_stats"]["extract_completed"] == 3
+    assert body["l2_pipeline_stats"]["projection_backlog"]["claimed"] == 2
     assert fake_memory.flush_l2_microbatches_calls == 1
     assert fake_memory.drain_l2_edge_embedding_calls == 1
 
