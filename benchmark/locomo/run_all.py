@@ -39,6 +39,7 @@ def run_locomo_pipeline(
     llm_judge: bool = True,
     judge_concurrency: int = 4,
     query_only: bool = False,
+    request_timeout: float = 600.0,
 ) -> dict[str, Any]:
     dataset = resolve_locomo_dataset(dataset_path)
     output = Path(output_root)
@@ -73,6 +74,7 @@ def run_locomo_pipeline(
         answer_with_llm=answer_with_llm,
         limit=limit,
         qa_limit=qa_limit,
+        request_timeout=request_timeout,
     )
 
     llm_judge_summary: dict[str, Any]
@@ -177,6 +179,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=4,
         help="Maximum concurrent LoCoMo judge requests.",
     )
+    parser.add_argument(
+        "--request-timeout",
+        type=float,
+        default=600.0,
+        help="HTTP timeout in seconds for each LoCoMo query request.",
+    )
     return parser.parse_args(argv)
 
 
@@ -197,6 +205,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         llm_judge=not args.skip_llm_judge,
         judge_concurrency=args.judge_concurrency,
         query_only=args.query_only,
+        request_timeout=args.request_timeout,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
@@ -243,6 +252,7 @@ def _invoke_query(
     answer_with_llm: bool,
     limit: int | None,
     qa_limit: int | None,
+    request_timeout: float,
 ) -> None:
     argv = [
         "--dataset",
@@ -253,6 +263,8 @@ def _invoke_query(
         run_id,
         "--backend-url",
         backend_url,
+        "--request-timeout",
+        str(request_timeout),
     ]
     if answer_with_llm:
         argv.append("--answer-with-llm")

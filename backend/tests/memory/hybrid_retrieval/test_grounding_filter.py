@@ -21,6 +21,7 @@ from magi.memory.hybrid_retrieval.grounding_filter import (
     CONTENT_CAP_CHARS,
     GroundingFilter,
     MIN_CANDIDATES_TO_FILTER,
+    _SYSTEM_PROMPT,
     _build_prompt_payload,
     _parse_keep_response,
 )
@@ -314,6 +315,31 @@ def test_prompt_payload_caps_pathological_content_with_marker() -> None:
     # Even with JSON-encoded escaping, the payload comfortably stays
     # within a small multiple of the cap.
     assert len(prompt_body) < CONTENT_CAP_CHARS * 2
+
+
+def test_prompt_payload_exposes_dialogue_speaker_and_query_people() -> None:
+    """Dialogue retrieval needs ownership cues: 'Melanie said, I bought shoes'
+    must not satisfy a query about Caroline buying shoes merely because both
+    participants occur in nearby conversation text."""
+    event = {
+        "event_id": "ev_dialogue",
+        "source": "benchmark.eval_support",
+        "content": (
+            "DATE: 3:40 pm on 12 June, 2023\n"
+            'Melanie said, "I bought new running shoes and love them."'
+        ),
+        "timestamp": 1686570000,
+    }
+
+    prompt_body = _build_prompt_payload("What are Caroline's new shoes used for?", [event])
+
+    assert '"query_named_people": ["Caroline"]' in prompt_body
+    assert '"speaker": "Melanie"' in prompt_body
+
+
+def test_system_prompt_requires_named_person_ownership_match() -> None:
+    assert "If a query asks about a named person" in _SYSTEM_PROMPT
+    assert "same named person" in _SYSTEM_PROMPT
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,10 @@ from ..models import (
     L2EventWindowSummary,
     ResolvedEntityMention,
 )
+from .external_dialogue_grounding import (
+    ground_phase1_external_dialogue_refs,
+    ground_phase2_external_dialogue_refs,
+)
 
 logger = get_logger("magi.memory.l2.pipeline")
 
@@ -310,6 +314,16 @@ class L2PipelineExtractionMixin:
             context_messages=context_messages,
             extraction_instructions=extraction_profile.extraction_instructions,
         )
+        external_dialogue_phase1_stats = ground_phase1_external_dialogue_refs(
+            phase1_result,
+            event_window,
+        )
+        if any(external_dialogue_phase1_stats.values()):
+            logger.info(
+                "L2 external dialogue speaker grounding applied",
+                event_id=stored_event.event_id,
+                **external_dialogue_phase1_stats,
+            )
         rejected_profile_signal_claim_count = self._filter_ungrounded_profile_signal_claims(
             phase1_result,
             event_window.events,
@@ -468,6 +482,16 @@ class L2PipelineExtractionMixin:
             focal_subject=focal_subject,
             phase2_instructions=extraction_profile.phase2_instructions,
         )
+        external_dialogue_phase2_stats = ground_phase2_external_dialogue_refs(
+            phase2_result,
+            event_window,
+        )
+        if any(external_dialogue_phase2_stats.values()):
+            logger.info(
+                "L2 external dialogue speaker grounding applied",
+                event_id=stored_event.event_id,
+                **external_dialogue_phase2_stats,
+            )
 
         catalog_name_index = await self._build_catalog_name_index()
         graph_candidates, corroborate_targets, rejected_graph_candidate_count = (

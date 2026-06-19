@@ -51,8 +51,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Any
+
+from magi.memory.dialogue_transcripts import extract_dialogue_speaker
 
 from .models import RetrievalPayload, RetrievalQuery
 
@@ -111,6 +114,13 @@ Rules:
   - Reply in the same language as the query (Chinese in / Chinese out).
   - `why` is a one-sentence rationale; the user may see it as a UI hint.
   - Output ONLY the JSON object. No prose before or after.
+  - If a query asks about a named person, keep a candidate only when it
+    is about that same named person, directly mentions that person, or
+    clearly supports answering about that person's situation. Do not keep
+    a candidate merely because another participant has a similar fact.
+    For dialogue events, check the `speaker` field and quoted first-person
+    statements: "Melanie said, I bought shoes" is about Melanie, not
+    Caroline.
 
 Two worked examples (notice each rationale stays in the source
 language, and unrelated-but-superficially-matching candidates are
@@ -377,20 +387,23 @@ def _build_unified_prompt_payload(
     ``type`` field so the LLM can apply type-appropriate reasoning.
     """
     candidates: list[dict[str, Any]] = []
+    query_named_people = _extract_query_named_people(query)
     for i, event in enumerate(events, start=1):
         content = str(event.get("content") or "")
         if len(content) > CONTENT_CAP_CHARS:
             content = content[:CONTENT_CAP_CHARS].rstrip() + "…[truncated]"
         when_ts = event.get("timestamp") or event.get("occurred_at")
-        candidates.append(
-            {
-                "idx": i,
-                "type": "event",
-                "source": str(event.get("source") or "unknown"),
-                "when": _format_when(when_ts),
-                "content": content,
-            }
-        )
+        candidate = {
+            "idx": i,
+            "type": "event",
+            "source": str(event.get("source") or "unknown"),
+            "when": _format_when(when_ts),
+            "content": content,
+        }
+        speaker = extract_dialogue_speaker(content)
+        if speaker:
+            candidate["speaker"] = speaker
+        candidates.append(candidate)
 
     offset = len(events)
     for j, rel in enumerate(rels, start=1):
@@ -402,16 +415,22 @@ def _build_unified_prompt_payload(
             natural = f"{subj} --{pred}--> {obj}"
         if len(natural) > CONTENT_CAP_CHARS:
             natural = natural[:CONTENT_CAP_CHARS].rstrip() + "…[truncated]"
-        candidates.append(
-            {
-                "idx": offset + j,
-                "type": "relationship",
-                "predicate": str(rel.get("predicate") or ""),
-                "statement": natural,
-            }
-        )
+        candidate = {
+            "idx": offset + j,
+            "type": "relationship",
+            "predicate": str(rel.get("predicate") or ""),
+            "statement": natural,
+        }
+        for key in ("subject_id", "subject_name", "object_id", "object_name"):
+            value = str(rel.get(key) or "").strip()
+            if value:
+                candidate[key] = value
+        candidates.append(candidate)
 
-    body = {"query": query, "candidates": candidates}
+    body: dict[str, Any] = {"query": query}
+    if query_named_people:
+        body["query_named_people"] = query_named_people
+    body["candidates"] = candidates
     return json.dumps(body, ensure_ascii=False)
 
 
@@ -435,6 +454,47 @@ def _format_when(ts: Any) -> str | None:
         return _dt.datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M")
     except (OSError, OverflowError, ValueError):
         return None
+
+
+def _extract_query_named_people(query: str) -> list[str]:
+    text = str(query or "")
+    if not text:
+        return []
+    stopwords = {
+        "A",
+        "An",
+        "Are",
+        "Can",
+        "Did",
+        "Do",
+        "Does",
+        "Has",
+        "Have",
+        "How",
+        "I",
+        "In",
+        "Is",
+        "On",
+        "The",
+        "What",
+        "When",
+        "Where",
+        "Which",
+        "Who",
+        "Why",
+    }
+    names: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"\b([A-Z][a-z]+)(?:'s)?\b", text):
+        name = match.group(1)
+        if name in stopwords:
+            continue
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(name)
+    return names
 
 
 def _parse_keep_response(raw: Any) -> tuple[list[int] | None, str | None]:

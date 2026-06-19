@@ -74,6 +74,8 @@ def test_parse_args_accepts_qa_limit_and_judge_options() -> None:
             "/tmp/out",
             "--qa-limit",
             "10",
+            "--request-timeout",
+            "300",
             "--backend-url",
             "http://127.0.0.1:8000",
             "--skip-llm-judge",
@@ -81,8 +83,37 @@ def test_parse_args_accepts_qa_limit_and_judge_options() -> None:
     )
 
     assert args.qa_limit == 10
+    assert args.request_timeout == 300.0
     assert args.backend_url == "http://127.0.0.1:8000"
     assert args.skip_llm_judge is True
+
+
+def test_run_all_passes_request_timeout_to_query(tmp_path) -> None:
+    seen: list[float] = []
+
+    def replay_runner(**kwargs):
+        pass
+
+    def query_runner(**kwargs):
+        seen.append(kwargs["request_timeout"])
+        run_dir = tmp_path / "locomo" / "run-timeout"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "summary.json").write_text('{"total_questions": 1}\n', encoding="utf-8")
+        (run_dir / "predictions_with_trace.jsonl").write_text("", encoding="utf-8")
+
+    run_locomo_pipeline(
+        dataset_path=Path("/tmp/locomo.json"),
+        output_root=tmp_path,
+        run_id="run-timeout",
+        backend_url="http://127.0.0.1:8000",
+        qa_limit=1,
+        request_timeout=300.0,
+        replay_runner=replay_runner,
+        query_runner=query_runner,
+        llm_judge=False,
+    )
+
+    assert seen == [300.0]
 
 
 def test_run_all_query_only_skips_replay_and_reuses_existing_run(tmp_path) -> None:
