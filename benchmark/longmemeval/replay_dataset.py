@@ -171,7 +171,9 @@ def print_l2_pipeline_stats(stats: dict[str, Any]) -> None:
         "[L2 drain] "
         f"extract_pending={pending['extract_pending']} "
         f"reconcile_pending={pending['reconcile_pending']} "
-        f"snapshot_pending={pending['snapshot_pending']}"
+        f"snapshot_pending={pending['snapshot_pending']} "
+        f"projection_pending={pending['projection_pending']} "
+        f"projection_claimed={pending['projection_claimed']}"
     )
 
 
@@ -186,6 +188,7 @@ def print_background_pending(stats: dict[str, Any]) -> None:
 
 
 def describe_l2_pending(stats: dict[str, Any]) -> dict[str, int]:
+    projection_backlog = dict(stats.get("projection_backlog") or {})
     return {
         "extract_pending": max(
             int(stats.get("extract_enqueued", 0))
@@ -206,12 +209,24 @@ def describe_l2_pending(stats: dict[str, Any]) -> dict[str, int]:
             - int(stats.get("snapshot_failed", 0)),
             0,
         ),
+        "projection_pending": max(int(projection_backlog.get("pending", 0) or 0), 0),
+        "projection_claimed": max(int(projection_backlog.get("claimed", 0) or 0), 0),
+        "projection_failed": max(int(projection_backlog.get("failed", 0) or 0), 0),
     }
 
 
 def is_l2_pipeline_idle(stats: dict[str, Any]) -> bool:
     pending = describe_l2_pending(stats)
-    return all(value == 0 for value in pending.values())
+    return all(
+        int(pending[key]) == 0
+        for key in (
+            "extract_pending",
+            "reconcile_pending",
+            "snapshot_pending",
+            "projection_pending",
+            "projection_claimed",
+        )
+    )
 
 
 def build_embedding_pending_payload(stats: dict[str, Any]) -> dict[str, Any]:

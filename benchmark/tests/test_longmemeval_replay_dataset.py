@@ -83,6 +83,32 @@ class FakeReplayService:
                 "snapshot_enqueued": 1,
                 "snapshot_completed": 0,
                 "snapshot_failed": 0,
+                "projection_backlog": {
+                    "pending": 0,
+                    "claimed": 0,
+                    "completed": 0,
+                    "failed": 0,
+                },
+            }
+        if self.l2_stats_calls == 2:
+            return {
+                "is_running": True,
+                "extract_enqueued": 10,
+                "extract_completed": 10,
+                "extract_failed": 0,
+                "extract_skipped": 0,
+                "reconcile_enqueued": 2,
+                "reconcile_completed": 2,
+                "reconcile_failed": 0,
+                "snapshot_enqueued": 1,
+                "snapshot_completed": 1,
+                "snapshot_failed": 0,
+                "projection_backlog": {
+                    "pending": 3,
+                    "claimed": 1,
+                    "completed": 0,
+                    "failed": 0,
+                },
             }
         return {
             "is_running": True,
@@ -96,6 +122,12 @@ class FakeReplayService:
             "snapshot_enqueued": 1,
             "snapshot_completed": 1,
             "snapshot_failed": 0,
+            "projection_backlog": {
+                "pending": 0,
+                "claimed": 0,
+                "completed": 4,
+                "failed": 0,
+            },
         }
 
     async def get_background_pending(self):
@@ -189,10 +221,12 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
     ]
     post_replay = json.loads(artifacts.post_replay_path.read_text(encoding="utf-8"))
     assert post_replay["l2_pipeline_stats"]["extract_completed"] == 10
+    assert post_replay["l2_pipeline_stats"]["projection_backlog"]["pending"] == 0
+    assert post_replay["l2_pipeline_stats"]["projection_backlog"]["claimed"] == 0
     assert post_replay["post_l2_finalize"]["summaries"]["hour"]["summary_id"] == "sum-hour-1"
     assert post_replay["post_l2_finalize"]["l2_edge_embedding_count"] == 4
     assert post_replay["background_pending"]["all_idle"] is True
-    assert service.l2_stats_calls == 2
+    assert service.l2_stats_calls == 3
     assert service.background_pending_calls == 2
     assert service.calls == [
         ("write_records", 2),
@@ -206,6 +240,7 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
         ),
         ("get_l2_pipeline_stats", 1),
         ("get_l2_pipeline_stats", 2),
+        ("get_l2_pipeline_stats", 3),
         (
             "finalize_replay",
             {

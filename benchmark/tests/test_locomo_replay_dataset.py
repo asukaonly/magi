@@ -51,6 +51,25 @@ class FakeReplayService:
     async def get_l2_pipeline_stats(self):
         self.l2_stats_calls += 1
         self.calls.append(("get_l2_pipeline_stats", self.l2_stats_calls))
+        if self.l2_stats_calls == 1:
+            return {
+                "extract_enqueued": 1,
+                "extract_completed": 1,
+                "extract_failed": 0,
+                "extract_skipped": 0,
+                "reconcile_enqueued": 0,
+                "reconcile_completed": 0,
+                "reconcile_failed": 0,
+                "snapshot_enqueued": 0,
+                "snapshot_completed": 0,
+                "snapshot_failed": 0,
+                "projection_backlog": {
+                    "pending": 1,
+                    "claimed": 0,
+                    "completed": 0,
+                    "failed": 0,
+                },
+            }
         return {
             "extract_enqueued": 1,
             "extract_completed": 1,
@@ -62,6 +81,12 @@ class FakeReplayService:
             "snapshot_enqueued": 0,
             "snapshot_completed": 0,
             "snapshot_failed": 0,
+            "projection_backlog": {
+                "pending": 0,
+                "claimed": 0,
+                "completed": 1,
+                "failed": 0,
+            },
         }
 
     async def get_background_pending(self):
@@ -139,9 +164,11 @@ def test_replay_script_writes_each_conversation_once(tmp_path) -> None:
     ]
     post_replay = json.loads(artifacts.post_replay_path.read_text(encoding="utf-8"))
     assert post_replay["l2_pipeline_stats"]["extract_completed"] == 1
+    assert post_replay["l2_pipeline_stats"]["projection_backlog"]["pending"] == 0
     assert post_replay["post_l2_finalize"]["summaries"]["day"]["summary_id"] == "sum-1"
     assert post_replay["post_l2_finalize"]["l2_edge_embedding_count"] == 3
     assert post_replay["background_pending"]["all_idle"] is True
+    assert service.l2_stats_calls == 2
     assert service.calls == [
         ("write_records", 2),
         (
@@ -153,6 +180,7 @@ def test_replay_script_writes_each_conversation_once(tmp_path) -> None:
             },
         ),
         ("get_l2_pipeline_stats", 1),
+        ("get_l2_pipeline_stats", 2),
         (
             "finalize_replay",
             {
