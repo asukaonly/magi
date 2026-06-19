@@ -26,8 +26,19 @@ def build_l2_pending_breakdown(
     projection_backlog: Dict[str, Any] | None = None,
 ) -> Dict[str, int]:
     durable_projection = dict(projection_backlog or {})
+    in_memory_extract_pending = max(
+        int(pipeline_stats.get("extract_enqueued", 0))
+        - int(pipeline_stats.get("extract_completed", 0))
+        - int(pipeline_stats.get("extract_failed", 0))
+        - int(pipeline_stats.get("extract_skipped", 0)),
+        0,
+    )
+    durable_projection_pending = max(
+        int(durable_projection.get("pending", 0)) + int(durable_projection.get("claimed", 0)),
+        0,
+    )
     return {
-        "extract_pending": max(int(durable_projection.get("pending", 0)) + int(durable_projection.get("claimed", 0)), 0),
+        "extract_pending": max(in_memory_extract_pending, durable_projection_pending),
         "reconcile_pending": max(
             int(pipeline_stats.get("reconcile_enqueued", 0))
             - int(pipeline_stats.get("reconcile_completed", 0))

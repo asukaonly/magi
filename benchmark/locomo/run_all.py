@@ -38,6 +38,7 @@ def run_locomo_pipeline(
     wait_for_background: bool = True,
     llm_judge: bool = True,
     judge_concurrency: int = 4,
+    query_only: bool = False,
 ) -> dict[str, Any]:
     dataset = resolve_locomo_dataset(dataset_path)
     output = Path(output_root)
@@ -51,16 +52,19 @@ def run_locomo_pipeline(
     query_callable = query_runner or _invoke_query
     judge_callable = judge_runner or _invoke_llm_judge
 
-    replay_callable(
-        dataset_path=dataset,
-        output_root=output,
-        run_id=run_id,
-        backend_url=resolved_backend_url,
-        limit=limit,
-        qa_limit=qa_limit,
-        finalize=finalize,
-        wait_for_background=wait_for_background,
-    )
+    if query_only:
+        print(f"[LoCoMo replay] skipped existing run_id={run_id}")
+    else:
+        replay_callable(
+            dataset_path=dataset,
+            output_root=output,
+            run_id=run_id,
+            backend_url=resolved_backend_url,
+            limit=limit,
+            qa_limit=qa_limit,
+            finalize=finalize,
+            wait_for_background=wait_for_background,
+        )
     query_callable(
         dataset_path=dataset,
         output_root=output,
@@ -163,6 +167,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Skip LoCoMo LLM-as-judge scoring.",
     )
     parser.add_argument(
+        "--query-only",
+        action="store_true",
+        help="Skip replay/import and only query an existing --run-id.",
+    )
+    parser.add_argument(
         "--judge-concurrency",
         type=int,
         default=4,
@@ -173,6 +182,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.query_only and not args.run_id:
+        raise SystemExit("--query-only requires --run-id for an existing imported run")
     summary = run_locomo_pipeline(
         dataset_path=args.dataset,
         output_root=args.output_root,
@@ -185,6 +196,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         wait_for_background=not args.skip_background_wait,
         llm_judge=not args.skip_llm_judge,
         judge_concurrency=args.judge_concurrency,
+        query_only=args.query_only,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0

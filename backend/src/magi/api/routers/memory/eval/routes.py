@@ -175,6 +175,12 @@ async def finalize_eval_replay(body: EvalFinalizeReplayRequest):
             detail=memory_t("memory.errors.system_uninitialized", "Memory system not initialized"),
         )
 
+    l2_flush_batch_count = (
+        await unified_memory.flush_l2_microbatches()
+        if hasattr(unified_memory, "flush_l2_microbatches")
+        else 0
+    )
+
     summaries: Dict[str, Any] = {}
     for period_type in body.period_types:
         summaries[period_type] = await unified_memory.generate_summary(period_type=period_type)
@@ -182,5 +188,6 @@ async def finalize_eval_replay(body: EvalFinalizeReplayRequest):
     l2_pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
     return {
         "summaries": summaries,
+        "l2_flush_batch_count": int(l2_flush_batch_count or 0),
         "l2_pipeline_stats": l2_pipeline_stats,
     }

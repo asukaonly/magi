@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -268,6 +267,7 @@ class _FakeUnifiedMemory:
         self.l3 = _FakeL3Store()
         self.l4 = _FakeL4Store()
         self.ingested_events: list = []
+        self.flush_l2_microbatches_calls = 0
 
     async def get_statistics(self):
         return {
@@ -299,6 +299,7 @@ class _FakeUnifiedMemory:
         return bool(entity_ids)
 
     async def flush_l2_microbatches(self):
+        self.flush_l2_microbatches_calls += 1
         return 2
 
     async def get_l2_projection_backlog(self):
@@ -1389,7 +1390,9 @@ def test_memory_eval_finalize_replay_api_generates_summaries_and_returns_l2_stat
     body = response.json()
     assert body["summaries"]["hour"]["summary_id"] == "sum-hour-1"
     assert body["summaries"]["month"]["summary_id"] == "sum-month-1"
+    assert body["l2_flush_batch_count"] == 2
     assert body["l2_pipeline_stats"]["extract_completed"] == 3
+    assert fake_memory.flush_l2_microbatches_calls == 1
 
 
 def test_memory_l3_summaries_api_filters_type_and_category(monkeypatch):

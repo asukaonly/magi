@@ -26,6 +26,16 @@ The one-shot runner also attempts LoCoMo LLM-as-judge scoring through the
 running Magi backend, using the same Core LLM configuration as the app. Use
 `--skip-llm-judge` to disable it explicitly.
 
+To reuse an already imported run and rerun only query/scoring:
+
+```bash
+python benchmark/locomo/run_all.py \
+  --output-root benchmark/outputs \
+  --run-id <existing-run-id> \
+  --query-only \
+  --qa-limit 10
+```
+
 Standalone judge scoring for an existing run:
 
 ```bash
