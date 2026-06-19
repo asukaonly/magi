@@ -3,7 +3,6 @@ import { useLocation } from 'react-router-dom';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { isMacPlatform } from '@/lib/platform';
 import { cn } from '@/lib/utils';
-import { ChatTodayStrip } from '@/components/chat/ChatTodayStrip';
 import { Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { shouldRenderChatWorkspace } from '@/pages/chat-route-helpers';
@@ -192,7 +191,7 @@ const NO_DRAG_SELECTOR = 'button, a, input, select, textarea, [data-no-drag], [r
  * only AppWindowControls are shown. macOS keeps titleBarStyle: Overlay.
  *
  * Per-route content (current behavior — chat-only chrome):
- *   - "/", "/chat"    → TodayStrip + workspace picker + portrait toggle
+ *   - "/", "/chat"    → workspace picker + portrait toggle
  *   - everything else → empty (just acts as the drag/resize handle)
  */
 
@@ -254,9 +253,7 @@ export const AppTitleBar = () => {
         <TimelineTitleBarSlot />
       ) : (
         <>
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            {chatChromeVisible ? <ChatTodayStrip /> : null}
-          </div>
+          <div className="min-w-0 flex-1" />
 
           {/* Right content: route-specific actions. handleMouseDown bails when
               the click lands on a button so these still work normally. */}

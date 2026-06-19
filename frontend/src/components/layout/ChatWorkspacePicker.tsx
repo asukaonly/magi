@@ -47,7 +47,7 @@ export const ChatWorkspacePicker = () => {
           <span
             data-testid="chat-workspace-path"
             aria-label={t('chat.workspace.label')}
-            className="min-w-0 flex-1 truncate font-mono text-[11px]"
+            className="min-w-0 flex-1 truncate text-[12px] font-medium tracking-normal"
             title={workspaceDisplayPath}
           >
             {workspaceDisplayPath}
