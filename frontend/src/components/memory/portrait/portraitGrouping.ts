@@ -1,6 +1,11 @@
-import type { PortraitObservation } from '@/api/modules/memoryPortrait';
+import type {
+  PortraitObservation,
+  PortraitSelfView,
+  PortraitSelfViewItem,
+  PortraitSelfViewWorldGroupId,
+} from '@/api/modules/memoryPortrait';
 
-export type PortraitWorldGroupId = 'identity' | 'preferences' | 'routine' | 'communication';
+export type PortraitWorldGroupId = PortraitSelfViewWorldGroupId;
 
 export interface PortraitDisplayItem {
   id: string;
@@ -107,6 +112,21 @@ const displayItem = (obs: PortraitObservation, index: number): PortraitDisplayIt
   };
 };
 
+const displayItemFromSelfView = (item: PortraitSelfViewItem): PortraitDisplayItem => ({
+  id: item.id,
+  text: item.text,
+  source: item.source,
+  sourceKey: item.source_key,
+  assertionId: item.assertion_id,
+  observation: {
+    kind: 'assertion',
+    text: item.text,
+    basis_count: item.basis_count,
+    basis_summary: item.source,
+    basis_refs: item.basis_refs,
+  },
+});
+
 const isReviewItem = (obs: PortraitObservation): boolean => {
   const status = refValue(obs, 'status');
   if (status) {
@@ -158,5 +178,18 @@ export const buildPortraitViewModel = (observations: PortraitObservation[]): Por
     reviewItems,
     recentItems,
     totalUnderstandingCount: observations.length,
+  };
+};
+
+export const buildPortraitViewModelFromSelfView = (selfView: PortraitSelfView): PortraitViewModel => {
+  const groupsById = new Map(selfView.world.groups.map((group) => [group.id, group]));
+  return {
+    worldGroups: WORLD_GROUP_IDS.map((id) => ({
+      id,
+      items: (groupsById.get(id)?.items ?? []).map(displayItemFromSelfView),
+    })),
+    reviewItems: selfView.review.items.map(displayItemFromSelfView),
+    recentItems: selfView.recent.items.map(displayItemFromSelfView),
+    totalUnderstandingCount: selfView.world.total_count,
   };
 };

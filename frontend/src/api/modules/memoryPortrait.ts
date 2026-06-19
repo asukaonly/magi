@@ -14,6 +14,36 @@ export interface PortraitObservation {
   basis_refs: string[];
 }
 
+export type PortraitSelfViewWorldGroupId = 'identity' | 'preferences' | 'routine' | 'communication';
+
+export interface PortraitSelfViewItem {
+  id: string;
+  text: string;
+  source: string;
+  source_key: string | null;
+  assertion_id: string | null;
+  basis_count: number;
+  basis_refs: string[];
+}
+
+export interface PortraitSelfViewWorldGroup {
+  id: PortraitSelfViewWorldGroupId;
+  items: PortraitSelfViewItem[];
+}
+
+export interface PortraitSelfView {
+  world: {
+    total_count: number;
+    groups: PortraitSelfViewWorldGroup[];
+  };
+  review: {
+    items: PortraitSelfViewItem[];
+  };
+  recent: {
+    items: PortraitSelfViewItem[];
+  };
+}
+
 export type ColdStartReason =
   | 'no_persona'
   | 'no_messages'
@@ -28,6 +58,7 @@ export interface PortraitPayload {
   topic: string;
   generated_at: number;
   observations: PortraitObservation[];
+  self_view?: PortraitSelfView | null;
   is_cold_start: boolean;
   cold_start_line: string | null;
   cold_start_reason: ColdStartReason | null;

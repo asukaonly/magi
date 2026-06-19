@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -110,3 +109,90 @@ def test_assertion_observations_include_grouping_metadata_refs():
     assert "family:preference_profile" in refs
     assert "status:tentative" in refs
     assert "source:conversation" in refs
+
+
+def test_self_portrait_returns_backend_grouped_page_model():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=MagicMock(
+        user_id="u1",
+        display_name="Asuka",
+        preferred_form_of_address="Asuka",
+        real_name="",
+        home_location="",
+        communication={"response_style.preferred": "直接给结论"},
+        identity={},
+        preferences={"topic": "Magi 记忆系统"},
+        state={},
+        completeness_score=0.4,
+        refreshed_at=100.0,
+    ))
+    l2 = MagicMock()
+    l2.list_tom_snapshots = AsyncMock(return_value=[{
+        "snapshot_id": "snap-1",
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "core_traits": {"近期线索": "最近在验证关于你页面"},
+        "evidence_count": 3,
+        "last_updated_at": 200.0,
+    }])
+    l2.list_tom_assertions = AsyncMock(return_value=[
+        {
+            "assertion_id": "assert-routine",
+            "trait_family": "routine_profile",
+            "trait_name": "tool",
+            "trait_value": "本地插件仓库",
+            "validation_state": "stable",
+            "source_domain": "conversation",
+            "evidence_count": 2,
+        },
+        {
+            "assertion_id": "assert-review",
+            "trait_family": "preference_profile",
+            "trait_name": "current_project",
+            "trait_value": "画像页面",
+            "validation_state": "tentative",
+            "source_domain": "conversation",
+            "evidence_count": 1,
+        },
+        {
+            "assertion_id": "assert-recent",
+            "trait_family": "state_profile",
+            "trait_name": "focus",
+            "trait_value": "检查 L2 结果",
+            "validation_state": "stable",
+            "source_domain": "conversation",
+            "evidence_count": 4,
+        },
+    ])
+
+    with override_dependencies_for_test(profile_repo=profile_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    view = body["self_view"]
+
+    world_groups = {group["id"]: group["items"] for group in view["world"]["groups"]}
+    assert [group["id"] for group in view["world"]["groups"]] == [
+        "identity",
+        "preferences",
+        "routine",
+        "communication",
+    ]
+    assert [item["text"] for item in world_groups["identity"]] == ["称呼你「Asuka」"]
+    assert [item["text"] for item in world_groups["preferences"]] == ["Magi 记忆系统"]
+    assert [item["text"] for item in world_groups["routine"]] == ["本地插件仓库"]
+    assert [item["text"] for item in world_groups["communication"]] == ["直接给结论"]
+
+    review_items = view["review"]["items"]
+    assert [item["text"] for item in review_items] == ["画像页面"]
+    assert review_items[0]["assertion_id"] == "assert-review"
+    assert review_items[0]["source_key"] == "conversation"
+
+    recent_items = view["recent"]["items"]
+    assert [item["text"] for item in recent_items] == [
+        "最近在验证关于你页面",
+        "检查 L2 结果",
+    ]
+    assert view["world"]["total_count"] == len(body["observations"])

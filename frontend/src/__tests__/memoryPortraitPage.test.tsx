@@ -161,6 +161,38 @@ describe('MemoryPortraitPage', () => {
     expect(screen.queryByText(/assertion|trait|family|L2/i)).not.toBeInTheDocument();
   });
 
+  it('uses backend grouped self view instead of regrouping observations in the page', async () => {
+    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
+      session_id: '', persona_id: '', topic: 'self', generated_at: 0,
+      observations: [],
+      self_view: {
+        world: {
+          total_count: 3,
+          groups: [
+            { id: 'identity', items: [{ id: 'identity-1', text: 'Asuka', source: 'user_profile_projection', source_key: 'user_profile_projection', assertion_id: null, basis_count: 1, basis_refs: [] }] },
+            { id: 'preferences', items: [] },
+            { id: 'routine', items: [] },
+            { id: 'communication', items: [] },
+          ],
+        },
+        review: {
+          items: [{ id: 'review-1', text: '画像页面', source: 'conversation', source_key: 'conversation', assertion_id: 'assert-review', basis_count: 1, basis_refs: ['assertion:assert-review'] }],
+        },
+        recent: {
+          items: [{ id: 'recent-1', text: '正在验证 L2 页面模型', source: 'tom', source_key: 'tom', assertion_id: null, basis_count: 2, basis_refs: [] }],
+        },
+      },
+      is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Asuka')).toBeInTheDocument();
+    expect(screen.getByText('画像页面')).toBeInTheDocument();
+    expect(screen.getByText('正在验证 L2 页面模型')).toBeInTheDocument();
+    expect(screen.getByText('基于 {{count}} 条理解')).toBeInTheDocument();
+  });
+
   it('routes review queue actions to assertion feedback and correction APIs', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       session_id: '', persona_id: '', topic: 'self', generated_at: 0,

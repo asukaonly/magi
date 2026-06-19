@@ -6,7 +6,10 @@ import { memoryApi } from '@/api/modules/memory';
 import PortraitWorldMap from '@/components/memory/portrait/PortraitWorldMap';
 import PortraitReviewQueue from '@/components/memory/portrait/PortraitReviewQueue';
 import PortraitRecentState from '@/components/memory/portrait/PortraitRecentState';
-import { buildPortraitViewModel } from '@/components/memory/portrait/portraitGrouping';
+import {
+  buildPortraitViewModel,
+  buildPortraitViewModelFromSelfView,
+} from '@/components/memory/portrait/portraitGrouping';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS } from './MemoryPageFrame';
 import { DEFAULT_USER_ID } from '@/constants';
 
@@ -19,7 +22,13 @@ export const MemoryPortraitPage = () => {
   }, []);
 
   const viewModel = useMemo(
-    () => (payload ? buildPortraitViewModel(payload.observations) : null),
+    () => {
+      if (!payload) return null;
+      if (payload.self_view) {
+        return buildPortraitViewModelFromSelfView(payload.self_view);
+      }
+      return buildPortraitViewModel(payload.observations);
+    },
     [payload]
   );
 

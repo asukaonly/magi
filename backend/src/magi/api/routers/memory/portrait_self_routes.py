@@ -17,6 +17,26 @@ from ....user_profile.projection_repository import UserProfileProjectionReposito
 logger = logging.getLogger(__name__)
 
 
+_ASSERTION_REF_MIN_LENGTH = 20
+_WORLD_GROUP_IDS = ("identity", "preferences", "routine", "communication")
+_FAMILY_WORLD_GROUPS = {
+    "identity_profile": "identity",
+    "preference_profile": "preferences",
+    "routine_profile": "routine",
+    "communication_profile": "communication",
+}
+_RECENT_FAMILIES = {
+    "state_profile",
+    "mood",
+    "stress",
+    "engagement",
+    "trigger",
+    "relationship_shift",
+    "group_atmosphere",
+}
+_REVIEW_STATES = {"tentative", "contradicted"}
+
+
 _profile_repo_override: Any = None
 _l2_override: Any = None
 
@@ -108,7 +128,9 @@ def build_router() -> APIRouter:
             cold_start_line=None,
             cold_start_reason=("no_observations" if is_cold_start else None),
         )
-        return payload.to_dict()
+        data = payload.to_dict()
+        data["self_view"] = _build_self_view(observations)
+        return data
 
     return router
 
@@ -196,3 +218,122 @@ def _observations_from_assertion_items(items: list[dict[str, Any]]) -> list[Port
             basis_refs=refs,
         ))
     return obs
+
+
+def _build_self_view(observations: list[PortraitObservation]) -> dict[str, Any]:
+    groups = [{"id": group_id, "items": []} for group_id in _WORLD_GROUP_IDS]
+    groups_by_id = {group["id"]: group for group in groups}
+    review_items: list[dict[str, Any]] = []
+    recent_items: list[dict[str, Any]] = []
+
+    for index, observation in enumerate(observations):
+        item = _self_view_item(observation, index)
+        if _is_review_observation(observation):
+            review_items.append(item)
+            continue
+        if _is_recent_observation(observation):
+            recent_items.append(item)
+            continue
+
+        group_id = _world_group_id(observation)
+        if group_id:
+            groups_by_id[group_id]["items"].append(item)
+
+    return {
+        "world": {
+            "total_count": len(observations),
+            "groups": groups,
+        },
+        "review": {
+            "items": review_items,
+        },
+        "recent": {
+            "items": recent_items,
+        },
+    }
+
+
+def _self_view_item(observation: PortraitObservation, index: int) -> dict[str, Any]:
+    source, source_key = _source_info(observation)
+    assertion_id = _extract_assertion_id(observation)
+    return {
+        "id": f"{observation.kind}-{index}-{assertion_id or observation.text}",
+        "text": _simplify_observation_text(observation.text),
+        "source": source,
+        "source_key": source_key,
+        "assertion_id": assertion_id,
+        "basis_count": observation.basis_count,
+        "basis_refs": list(observation.basis_refs),
+    }
+
+
+def _is_review_observation(observation: PortraitObservation) -> bool:
+    state = _ref_value(observation, "status")
+    if state:
+        return state in _REVIEW_STATES
+    return bool(_extract_assertion_id(observation)) and observation.basis_summary.lower() == "l2 assertion"
+
+
+def _is_recent_observation(observation: PortraitObservation) -> bool:
+    family = _ref_value(observation, "family")
+    if family and family in _RECENT_FAMILIES:
+        return True
+    return observation.kind == "reflection" or any(
+        ref.startswith("state:") for ref in observation.basis_refs
+    )
+
+
+def _world_group_id(observation: PortraitObservation) -> str | None:
+    family = _ref_value(observation, "family")
+    return _FAMILY_WORLD_GROUPS.get(family or "")
+
+
+def _extract_assertion_id(observation: PortraitObservation) -> str | None:
+    for ref in observation.basis_refs:
+        if ref.startswith("assertion:"):
+            value = ref.removeprefix("assertion:").strip()
+            return value or None
+        compact = ref.replace("-", "")
+        if len(ref) >= _ASSERTION_REF_MIN_LENGTH and all(c in "0123456789abcdefABCDEF" for c in compact):
+            return ref
+    return None
+
+
+def _ref_value(observation: PortraitObservation, prefix: str) -> str | None:
+    needle = f"{prefix}:"
+    for ref in observation.basis_refs:
+        if ref.startswith(needle):
+            value = ref.removeprefix(needle).strip()
+            return value or None
+    return None
+
+
+def _simplify_observation_text(text: str) -> str:
+    trimmed = text.strip()
+    eq_index = trimmed.rfind(" = ")
+    if eq_index >= 0:
+        return trimmed[eq_index + 3:].strip()
+    colon_index = trimmed.find(": ")
+    if colon_index >= 0:
+        return trimmed[colon_index + 2:].strip()
+    for prefix in ("偏好：", "沟通风格：", "近期状态：", "常用工具："):
+        if trimmed.startswith(prefix):
+            return trimmed.removeprefix(prefix).strip()
+    return trimmed
+
+
+def _source_info(observation: PortraitObservation) -> tuple[str, str | None]:
+    source = _ref_value(observation, "source")
+    if source:
+        return source.replace("-", " "), _normalize_source_key(source)
+
+    basis_summary = observation.basis_summary.strip()
+    if basis_summary and basis_summary.lower() != "l2 assertion":
+        if basis_summary.lower() == "l2 tom snapshot":
+            return "tom", "tom"
+        return basis_summary, _normalize_source_key(basis_summary)
+    return "", None
+
+
+def _normalize_source_key(value: str) -> str:
+    return value.strip().lower().replace("-", "_").replace(" ", "_")
