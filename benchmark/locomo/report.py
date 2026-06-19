@@ -147,11 +147,10 @@ def score_locomo_qa(*, category: int, prediction: str, answer: str) -> float:
             for marker in (
                 "no information available",
                 "not mentioned",
-                "unknown",
-                "cannot be determined",
-                "cannot determine",
             )
         ) else 0.0
+    if int(category) == 3:
+        answer = str(answer or "").split(";")[0].strip()
     if int(category) == 1:
         return _multi_answer_f1(prediction, answer)
     return _token_f1(prediction, answer)
@@ -183,7 +182,216 @@ def _normalize_tokens(text: str) -> list[str]:
     lowered = str(text or "").lower().replace(",", "")
     without_punc = "".join(ch for ch in lowered if ch not in set(string.punctuation))
     without_articles = re.sub(r"\b(a|an|the|and)\b", " ", without_punc)
-    return [token for token in without_articles.split() if token]
+    return [_porter_stem(token) for token in without_articles.split() if token]
+
+
+try:
+    from nltk.stem import PorterStemmer as _NltkPorterStemmer
+except Exception:
+    _NltkPorterStemmer = None
+
+_NLTK_STEMMER = _NltkPorterStemmer() if _NltkPorterStemmer is not None else None
+
+
+def _porter_stem(token: str) -> str:
+    if _NLTK_STEMMER is not None:
+        return str(_NLTK_STEMMER.stem(token))
+    return _porter_stem_local(token)
+
+
+def _porter_stem_local(token: str) -> str:
+    word = str(token or "").lower()
+    if len(word) <= 2:
+        return word
+
+    word = _step_1a(word)
+    word = _step_1b(word)
+    word = _step_1c(word)
+    word = _step_2(word)
+    word = _step_3(word)
+    word = _step_4(word)
+    word = _step_5(word)
+    return word
+
+
+def _is_consonant(word: str, index: int) -> bool:
+    char = word[index]
+    if char in "aeiou":
+        return False
+    if char == "y":
+        return True if index == 0 else not _is_consonant(word, index - 1)
+    return True
+
+
+def _measure(word: str) -> int:
+    count = 0
+    in_vowel_seq = False
+    for index in range(len(word)):
+        if _is_consonant(word, index):
+            if in_vowel_seq:
+                count += 1
+                in_vowel_seq = False
+        else:
+            in_vowel_seq = True
+    return count
+
+
+def _contains_vowel(word: str) -> bool:
+    return any(not _is_consonant(word, index) for index in range(len(word)))
+
+
+def _ends_double_consonant(word: str) -> bool:
+    return (
+        len(word) >= 2
+        and word[-1] == word[-2]
+        and _is_consonant(word, len(word) - 1)
+    )
+
+
+def _ends_cvc(word: str) -> bool:
+    if len(word) < 3:
+        return False
+    return (
+        _is_consonant(word, len(word) - 1)
+        and not _is_consonant(word, len(word) - 2)
+        and _is_consonant(word, len(word) - 3)
+        and word[-1] not in "wxy"
+    )
+
+
+def _replace_if_measure(word: str, suffix: str, replacement: str, *, min_measure: int) -> str:
+    if not word.endswith(suffix):
+        return word
+    stem = word[: -len(suffix)]
+    return stem + replacement if _measure(stem) > min_measure else word
+
+
+def _step_1a(word: str) -> str:
+    if word.endswith("sses"):
+        return word[:-2]
+    if word.endswith("ies"):
+        return word[:-2]
+    if word.endswith("ss"):
+        return word
+    if word.endswith("s"):
+        return word[:-1]
+    return word
+
+
+def _step_1b(word: str) -> str:
+    if word.endswith("eed"):
+        return _replace_if_measure(word, "eed", "ee", min_measure=0)
+    for suffix in ("ed", "ing"):
+        if word.endswith(suffix):
+            stem = word[: -len(suffix)]
+            if not _contains_vowel(stem):
+                return word
+            word = stem
+            if word.endswith(("at", "bl", "iz")):
+                return word + "e"
+            if _ends_double_consonant(word) and word[-1] not in "lsz":
+                return word[:-1]
+            if _measure(word) == 1 and _ends_cvc(word):
+                return word + "e"
+            return word
+    return word
+
+
+def _step_1c(word: str) -> str:
+    if word.endswith("y") and _contains_vowel(word[:-1]):
+        return word[:-1] + "i"
+    return word
+
+
+def _step_2(word: str) -> str:
+    replacements = (
+        ("ational", "ate"),
+        ("tional", "tion"),
+        ("enci", "ence"),
+        ("anci", "ance"),
+        ("izer", "ize"),
+        ("bli", "ble"),
+        ("alli", "al"),
+        ("entli", "ent"),
+        ("eli", "e"),
+        ("ousli", "ous"),
+        ("ization", "ize"),
+        ("ation", "ate"),
+        ("ator", "ate"),
+        ("alism", "al"),
+        ("iveness", "ive"),
+        ("fulness", "ful"),
+        ("ousness", "ous"),
+        ("aliti", "al"),
+        ("iviti", "ive"),
+        ("biliti", "ble"),
+        ("logi", "log"),
+    )
+    for suffix, replacement in replacements:
+        updated = _replace_if_measure(word, suffix, replacement, min_measure=0)
+        if updated != word:
+            return updated
+    return word
+
+
+def _step_3(word: str) -> str:
+    replacements = (
+        ("icate", "ic"),
+        ("ative", ""),
+        ("alize", "al"),
+        ("iciti", "ic"),
+        ("ical", "ic"),
+        ("ful", ""),
+        ("ness", ""),
+    )
+    for suffix, replacement in replacements:
+        updated = _replace_if_measure(word, suffix, replacement, min_measure=0)
+        if updated != word:
+            return updated
+    return word
+
+
+def _step_4(word: str) -> str:
+    suffixes = (
+        "al",
+        "ance",
+        "ence",
+        "er",
+        "ic",
+        "able",
+        "ible",
+        "ant",
+        "ement",
+        "ment",
+        "ent",
+        "ou",
+        "ism",
+        "ate",
+        "iti",
+        "ous",
+        "ive",
+        "ize",
+    )
+    for suffix in suffixes:
+        if word.endswith(suffix):
+            stem = word[: -len(suffix)]
+            return stem if _measure(stem) > 1 else word
+    if word.endswith("ion"):
+        stem = word[:-3]
+        if stem.endswith(("s", "t")) and _measure(stem) > 1:
+            return stem
+    return word
+
+
+def _step_5(word: str) -> str:
+    if word.endswith("e"):
+        stem = word[:-1]
+        measure = _measure(stem)
+        if measure > 1 or (measure == 1 and not _ends_cvc(stem)):
+            word = stem
+    if word.endswith("ll") and _measure(word) > 1:
+        return word[:-1]
+    return word
 
 
 def _round4(value: float) -> float:

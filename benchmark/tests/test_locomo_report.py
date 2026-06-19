@@ -24,6 +24,24 @@ def test_report_scores_single_multi_and_adversarial_categories() -> None:
     ) == 1.0
 
 
+def test_report_matches_official_locomo_stemming_and_category_rules() -> None:
+    assert score_locomo_qa(
+        category=4,
+        prediction="transitioned",
+        answer="transitioning",
+    ) == 1.0
+    assert score_locomo_qa(
+        category=3,
+        prediction="psychology",
+        answer="Psychology; counseling certification",
+    ) == 1.0
+    assert score_locomo_qa(
+        category=5,
+        prediction="unknown",
+        answer="Paris",
+    ) == 0.0
+
+
 def test_report_builds_summary_by_category() -> None:
     rows = [
         {
