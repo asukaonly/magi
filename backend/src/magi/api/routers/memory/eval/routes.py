@@ -8,19 +8,27 @@ from typing import Any, Dict
 
 from fastapi import HTTPException, status
 
+from magi.config.models import LLMScenario, ThinkingDepth
+from magi.llm import LLMProviderBridge
 from magi.memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
 from magi.memory.eval_support.reader import EvalMemoryReader
 from magi.memory.eval_support.writer import EvalMemoryWriter
 
 from ..dependencies import (
     _resolve_hybrid_retrieval_service,
+    _resolve_scenario_llm_pool,
     _resolve_unified_memory,
     _synthesize_eval_answer,
     logger,
 )
 from ..helpers import memory_t
 from ..router import memory_router
-from ..schemas import EvalFinalizeReplayRequest, EvalQueryRequest, EvalReplayRequest
+from ..schemas import (
+    EvalFinalizeReplayRequest,
+    EvalJudgeAnswerRequest,
+    EvalQueryRequest,
+    EvalReplayRequest,
+)
 
 
 @memory_router.post("/eval/replay")
@@ -118,6 +126,43 @@ async def query_eval_memory(body: EvalQueryRequest):
         result.answer = answer
         result.answer_trace = answer_trace
     return asdict(result)
+
+
+@memory_router.post("/eval/judge-answer")
+async def judge_eval_answer(body: EvalJudgeAnswerRequest):
+    """Run a benchmark judge prompt through the runtime core LLM."""
+    resolved_llm_pool = _resolve_scenario_llm_pool()
+    if resolved_llm_pool is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t(
+                "memory.errors.scenario_llm_pool_uninitialized",
+                "Scenario LLM pool is not initialized",
+            ),
+        )
+
+    adapter = resolved_llm_pool.get(LLMScenario.CORE)
+    bridge = LLMProviderBridge(adapter)
+    content = await bridge.chat(
+        system_prompt=body.system_prompt,
+        messages=[{"role": "user", "content": body.prompt}],
+        max_tokens=body.max_tokens,
+        temperature=body.temperature,
+        json_mode=True,
+        thinking_depth=ThinkingDepth.NONE,
+        timeout_seconds=body.timeout_seconds,
+        event_context={
+            "request_kind": "eval:llm_judge",
+            "agent_id": "memory_eval",
+        },
+    )
+    return {
+        "content": str(content or ""),
+        "llm_scenario": LLMScenario.CORE.value,
+        "model": str(
+            getattr(adapter, "model_name", None) or getattr(adapter, "model", None) or "magi-core"
+        ),
+    }
 
 
 @memory_router.post("/eval/finalize-replay")

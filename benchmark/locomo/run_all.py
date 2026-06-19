@@ -16,7 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from benchmark.common.paths import build_run_output_dir, resolve_backend_url
 from benchmark.locomo.error_report import run_error_analysis
-from benchmark.locomo.llm_judge import DEFAULT_JUDGE_MODEL, main as llm_judge_main
+from benchmark.locomo.llm_judge import main as llm_judge_main
 from benchmark.locomo.query_dataset import main as query_main
 from benchmark.locomo.replay_dataset import main as replay_main
 from benchmark.locomo.runner import format_run_id, resolve_locomo_dataset
@@ -37,7 +37,6 @@ def run_locomo_pipeline(
     finalize: bool = True,
     wait_for_background: bool = True,
     llm_judge: bool = True,
-    judge_model: str = DEFAULT_JUDGE_MODEL,
     judge_concurrency: int = 4,
 ) -> dict[str, Any]:
     dataset = resolve_locomo_dataset(dataset_path)
@@ -77,7 +76,7 @@ def run_locomo_pipeline(
         judge_callable(
             output_root=output,
             run_id=run_id,
-            judge_model=judge_model,
+            backend_url=resolved_backend_url,
             judge_concurrency=judge_concurrency,
             qa_limit=qa_limit,
         )
@@ -164,11 +163,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Skip LoCoMo LLM-as-judge scoring.",
     )
     parser.add_argument(
-        "--judge-model",
-        default=DEFAULT_JUDGE_MODEL,
-        help="OpenAI-compatible model used for LoCoMo LLM-as-judge scoring.",
-    )
-    parser.add_argument(
         "--judge-concurrency",
         type=int,
         default=4,
@@ -190,7 +184,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         finalize=not args.skip_finalize,
         wait_for_background=not args.skip_background_wait,
         llm_judge=not args.skip_llm_judge,
-        judge_model=args.judge_model,
         judge_concurrency=args.judge_concurrency,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
@@ -262,7 +255,7 @@ def _invoke_llm_judge(
     *,
     output_root: Path,
     run_id: str,
-    judge_model: str,
+    backend_url: str,
     judge_concurrency: int,
     qa_limit: int | None,
 ) -> None:
@@ -271,8 +264,8 @@ def _invoke_llm_judge(
         str(output_root),
         "--run-id",
         run_id,
-        "--judge-model",
-        judge_model,
+        "--backend-url",
+        backend_url,
         "--judge-concurrency",
         str(judge_concurrency),
     ]

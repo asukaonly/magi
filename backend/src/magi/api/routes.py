@@ -20,6 +20,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/clear": {"DELETE"},
         "/eval/replay": {"POST"},
         "/eval/query": {"POST"},
+        "/eval/judge-answer": {"POST"},
         "/eval/finalize-replay": {"POST"},
         "/background/pending": {"GET"},
         "/identity/links": {"GET"},

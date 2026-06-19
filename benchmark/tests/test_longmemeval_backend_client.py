@@ -128,6 +128,43 @@ def test_backend_client_restores_query_results_from_eval_endpoint() -> None:
     assert result.timeline_summary[0]["summary"] == "Actually sushi is my favorite."
 
 
+def test_backend_client_posts_eval_judge_requests_to_backend() -> None:
+    service = BackendEvalService("http://localhost:8000")
+    calls: list[tuple[str, dict]] = []
+
+    def fake_post(path: str, payload: dict):
+        calls.append((path, payload))
+        return {
+            "content": '{"label":"CORRECT","reasoning":"same"}',
+            "model": "core-test-model",
+            "llm_scenario": "core",
+        }
+
+    service._post_json_sync = fake_post  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        service.judge_answer(
+            system_prompt="Return JSON only.",
+            prompt="Question: Q\nGold answer: A\nGenerated answer: A",
+            max_tokens=256,
+            temperature=0.0,
+        )
+    )
+
+    assert calls == [
+        (
+            "/api/memory/eval/judge-answer",
+            {
+                "system_prompt": "Return JSON only.",
+                "prompt": "Question: Q\nGold answer: A\nGenerated answer: A",
+                "max_tokens": 256,
+                "temperature": 0.0,
+            },
+        )
+    ]
+    assert result["content"] == '{"label":"CORRECT","reasoning":"same"}'
+
+
 def test_backend_client_posts_finalize_replay_request() -> None:
     service = BackendEvalService("http://localhost:8000")
     calls: list[tuple[str, dict]] = []

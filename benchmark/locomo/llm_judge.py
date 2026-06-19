@@ -7,7 +7,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import re
 import sys
 from dataclasses import dataclass
@@ -15,14 +14,18 @@ from pathlib import Path
 from typing import Any, Protocol, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+BACKEND_SRC = REPO_ROOT / "backend" / "src"
+for candidate in (REPO_ROOT, BACKEND_SRC):
+    candidate_text = str(candidate)
+    if candidate_text not in sys.path:
+        sys.path.insert(0, candidate_text)
 
 from benchmark.common.io import read_jsonl, write_jsonl
-from benchmark.common.paths import build_run_output_dir
+from benchmark.common.paths import build_run_output_dir, resolve_backend_url
 from benchmark.locomo.adapter import CATEGORY_LABELS
+from benchmark.longmemeval.backend_client import BackendEvalService
 
-DEFAULT_JUDGE_MODEL = os.getenv("LOCOMO_JUDGE_MODEL", "gpt-4o-mini")
+DEFAULT_JUDGE_MODEL = "magi-core"
 DEFAULT_SCORE_CATEGORIES = (1, 2, 3, 4)
 
 JUDGE_SYSTEM_PROMPT = "You are evaluating conversational AI memory recall. Return JSON only."
@@ -69,6 +72,21 @@ class SupportsLoCoMoJudgeClient(Protocol):
         """Judge a formatted LoCoMo prompt."""
 
 
+class SupportsMagiJudgeService(Protocol):
+    """Small async protocol for Magi backend judge calls."""
+
+    async def judge_answer(
+        self,
+        *,
+        system_prompt: str,
+        prompt: str,
+        max_tokens: int = 512,
+        temperature: float = 0.0,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """Run a judge prompt through Magi backend."""
+
+
 @dataclass(slots=True)
 class LoCoMoJudgeArtifacts:
     """Files produced by LoCoMo LLM judge evaluation."""
@@ -79,43 +97,32 @@ class LoCoMoJudgeArtifacts:
     summary_path: Path
 
 
-class OpenAIChatJudgeClient:
-    """OpenAI-compatible chat client for LoCoMo LLM judge scoring."""
+class MagiCoreJudgeClient:
+    """Magi backend core-LLM client for LoCoMo judge scoring."""
 
     def __init__(
         self,
         *,
-        judge_model: str,
-        api_key: str | None = None,
-        base_url: str | None = None,
+        backend_url: str | None = None,
+        judge_service: SupportsMagiJudgeService | None = None,
         timeout_seconds: float = 120.0,
     ) -> None:
-        from openai import AsyncOpenAI, Timeout
-
-        client_kwargs: dict[str, Any] = {
-            "api_key": api_key or os.getenv("OPENAI_API_KEY"),
-            "timeout": Timeout(timeout_seconds, connect=10.0),
-        }
-        resolved_base_url = base_url or os.getenv("OPENAI_BASE_URL")
-        if resolved_base_url:
-            client_kwargs["base_url"] = resolved_base_url
-        self._client = AsyncOpenAI(**client_kwargs)
-        self._judge_model = judge_model
+        self._service = judge_service or BackendEvalService(backend_url or resolve_backend_url())
+        self._timeout_seconds = float(timeout_seconds)
+        self.last_model: str | None = None
+        self.last_scenario: str | None = None
 
     async def judge(self, prompt: str) -> LoCoMoJudgeDecision:
-        kwargs: dict[str, Any] = {
-            "model": self._judge_model,
-            "messages": [
-                {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            "response_format": {"type": "json_object"},
-            **_openai_token_limit_kwargs(self._judge_model, 512),
-            **_openai_temperature_kwargs(self._judge_model, 0.0),
-        }
-        response = await self._client.chat.completions.create(**kwargs)
-        content = response.choices[0].message.content or ""
-        return parse_judge_decision(content)
+        response = await self._service.judge_answer(
+            system_prompt=JUDGE_SYSTEM_PROMPT,
+            prompt=prompt,
+            max_tokens=512,
+            temperature=0.0,
+            timeout_seconds=self._timeout_seconds,
+        )
+        self.last_model = str(response.get("model") or DEFAULT_JUDGE_MODEL)
+        self.last_scenario = str(response.get("llm_scenario") or "core")
+        return parse_judge_decision(response.get("content"))
 
 
 def build_judge_prompt(
@@ -171,11 +178,12 @@ async def run_llm_judge_evaluation(
     predictions_with_trace_path: str | Path,
     output_dir: str | Path | None = None,
     judge_client: SupportsLoCoMoJudgeClient | None = None,
+    judge_service: SupportsMagiJudgeService | None = None,
+    backend_url: str | None = None,
     judge_model: str = DEFAULT_JUDGE_MODEL,
     score_categories: Sequence[int] = DEFAULT_SCORE_CATEGORIES,
     max_concurrency: int = 4,
     timeout_seconds: float = 120.0,
-    base_url: str | None = None,
 ) -> LoCoMoJudgeArtifacts:
     """Judge LoCoMo predictions and merge the aggregate score into summary.json."""
     predictions_path = Path(predictions_with_trace_path)
@@ -185,29 +193,9 @@ async def run_llm_judge_evaluation(
     predictions_with_judge_path = resolved_output_dir / "predictions_with_judge.jsonl"
     summary_path = resolved_output_dir / "llm_judge_summary.json"
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    if judge_client is None and not api_key:
-        summary = {
-            "status": "skipped",
-            "reason": "OPENAI_API_KEY is not set",
-            "judge_model": judge_model,
-            "score_categories": [int(category) for category in score_categories],
-            "evaluated_questions": 0,
-        }
-        write_jsonl(results_path, [])
-        write_jsonl(predictions_with_judge_path, read_jsonl(predictions_path))
-        _write_summary(summary_path, summary)
-        _merge_into_run_summary(resolved_output_dir, summary)
-        return LoCoMoJudgeArtifacts(
-            predictions_with_trace_path=predictions_path,
-            results_path=results_path,
-            predictions_with_judge_path=predictions_with_judge_path,
-            summary_path=summary_path,
-        )
-
-    resolved_judge = judge_client or OpenAIChatJudgeClient(
-        judge_model=judge_model,
-        base_url=base_url,
+    resolved_judge = judge_client or MagiCoreJudgeClient(
+        backend_url=backend_url,
+        judge_service=judge_service,
         timeout_seconds=timeout_seconds,
     )
     rows = read_jsonl(predictions_path)
@@ -263,9 +251,10 @@ async def run_llm_judge_evaluation(
 
     write_jsonl(results_path, judged_rows)
     write_jsonl(predictions_with_judge_path, rows_with_judge)
+    resolved_judge_model = getattr(resolved_judge, "last_model", None) or judge_model
     summary = summarize_llm_judge_results(
         judged_rows,
-        judge_model=judge_model,
+        judge_model=str(resolved_judge_model),
         score_categories=score_categories,
     )
     _write_summary(summary_path, summary)
@@ -340,12 +329,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--output-root", default="benchmark/outputs", help="Directory containing benchmark outputs."
     )
     parser.add_argument("--run-id", default=None, help="Run identifier used with --output-root.")
-    parser.add_argument(
-        "--judge-model", default=DEFAULT_JUDGE_MODEL, help="OpenAI-compatible judge model."
-    )
-    parser.add_argument(
-        "--judge-base-url", default=None, help="Optional OpenAI-compatible base URL."
-    )
+    parser.add_argument("--backend-url", default=None, help="Optional Magi backend base URL.")
     parser.add_argument(
         "--judge-concurrency", type=int, default=4, help="Maximum concurrent judge requests."
     )
@@ -376,11 +360,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_llm_judge_evaluation(
             predictions_with_trace_path=predictions_path,
             output_dir=output_dir,
-            judge_model=args.judge_model,
+            backend_url=args.backend_url,
             score_categories=score_categories,
             max_concurrency=args.judge_concurrency,
             timeout_seconds=args.request_timeout,
-            base_url=args.judge_base_url,
         )
     )
     summary = json.loads(artifacts.summary_path.read_text(encoding="utf-8"))
@@ -426,20 +409,6 @@ def _merge_into_run_summary(output_dir: Path, judge_summary: dict[str, Any]) -> 
 
 def _write_summary(path: Path, summary: dict[str, Any]) -> None:
     path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def _openai_token_limit_kwargs(model: str, max_tokens: int) -> dict[str, Any]:
-    lowered = str(model or "").lower()
-    if lowered.startswith(("gpt-5", "o1", "o3", "o4")):
-        return {"max_completion_tokens": max_tokens}
-    return {"max_tokens": max_tokens}
-
-
-def _openai_temperature_kwargs(model: str, temperature: float) -> dict[str, Any]:
-    lowered = str(model or "").lower()
-    if lowered.startswith(("gpt-5", "o1", "o3", "o4")):
-        return {}
-    return {"temperature": temperature}
 
 
 def _round4(value: float) -> float:

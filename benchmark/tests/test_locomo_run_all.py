@@ -8,13 +8,13 @@ from benchmark.locomo.run_all import parse_args, run_locomo_pipeline
 
 
 def test_run_all_passes_qa_limit_to_replay_and_query(tmp_path) -> None:
-    calls: list[tuple[str, int | None]] = []
+    calls: list[tuple[str, int | None, str | None]] = []
 
     def replay_runner(**kwargs):
-        calls.append(("replay", kwargs["qa_limit"]))
+        calls.append(("replay", kwargs["qa_limit"], kwargs["backend_url"]))
 
     def query_runner(**kwargs):
-        calls.append(("query", kwargs["qa_limit"]))
+        calls.append(("query", kwargs["qa_limit"], kwargs["backend_url"]))
         run_dir = tmp_path / "locomo" / "run-1"
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "summary.json").write_text('{"total_questions": 2}\n', encoding="utf-8")
@@ -31,7 +31,7 @@ def test_run_all_passes_qa_limit_to_replay_and_query(tmp_path) -> None:
         )
 
     def judge_runner(**kwargs):
-        calls.append(("judge", kwargs["qa_limit"]))
+        calls.append(("judge", kwargs["qa_limit"], kwargs["backend_url"]))
         run_dir = tmp_path / "locomo" / "run-1"
         (run_dir / "llm_judge_summary.json").write_text(
             '{"status":"ready","llm_judge_score":1.0,"evaluated_questions":1}\n',
@@ -53,7 +53,11 @@ def test_run_all_passes_qa_limit_to_replay_and_query(tmp_path) -> None:
         judge_runner=judge_runner,
     )
 
-    assert calls == [("replay", 2), ("query", 2), ("judge", 2)]
+    assert calls == [
+        ("replay", 2, "http://127.0.0.1:8000"),
+        ("query", 2, "http://127.0.0.1:8000"),
+        ("judge", 2, "http://127.0.0.1:8000"),
+    ]
     assert summary["summary"]["total_questions"] == 2
     assert summary["summary"]["llm_judge_score"] == 1.0
     assert summary["llm_judge"]["llm_judge_score"] == 1.0
@@ -68,12 +72,12 @@ def test_parse_args_accepts_qa_limit_and_judge_options() -> None:
             "/tmp/out",
             "--qa-limit",
             "10",
-            "--judge-model",
-            "gpt-4o-mini",
+            "--backend-url",
+            "http://127.0.0.1:8000",
             "--skip-llm-judge",
         ]
     )
 
     assert args.qa_limit == 10
-    assert args.judge_model == "gpt-4o-mini"
+    assert args.backend_url == "http://127.0.0.1:8000"
     assert args.skip_llm_judge is True

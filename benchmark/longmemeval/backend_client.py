@@ -49,6 +49,30 @@ class BackendEvalService:
             answer_trace=dict(response.get("answer_trace") or {}),
         )
 
+    async def judge_answer(
+        self,
+        *,
+        system_prompt: str,
+        prompt: str,
+        max_tokens: int = 512,
+        temperature: float = 0.0,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "system_prompt": system_prompt,
+            "prompt": prompt,
+            "max_tokens": int(max_tokens),
+            "temperature": float(temperature),
+        }
+        if timeout_seconds is not None:
+            payload["timeout_seconds"] = float(timeout_seconds)
+        response = await asyncio.to_thread(
+            self._post_json_sync,
+            "/api/memory/eval/judge-answer",
+            payload,
+        )
+        return dict(response)
+
     async def finalize_replay(self) -> dict[str, Any]:
         return await asyncio.to_thread(
             self._post_json_sync,

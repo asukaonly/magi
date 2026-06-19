@@ -66,6 +66,14 @@ class EvalQueryRequest(BaseModel):
     show_prompt: bool = Field(default=False, description="Whether to include the synthesized LLM prompt in debug output")
 
 
+class EvalJudgeAnswerRequest(BaseModel):
+    system_prompt: str = Field(..., min_length=1, description="Judge system prompt")
+    prompt: str = Field(..., min_length=1, description="Judge user prompt")
+    max_tokens: int = Field(default=512, ge=1, le=4096, description="Maximum judge output tokens")
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0, description="Judge sampling temperature")
+    timeout_seconds: Optional[float] = Field(default=120.0, ge=1.0, le=600.0, description="Judge request timeout")
+
+
 class EvalFinalizeReplayRequest(BaseModel):
     period_types: List[str] = Field(
         default_factory=lambda: ["hour", "day", "week", "month"],

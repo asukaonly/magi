@@ -28,6 +28,23 @@ class FakeJudgeClient:
         return self.decisions[len(self.prompts) - 1]
 
 
+@dataclass
+class FakeMagiJudgeService:
+    content: str
+    model: str = "core-test-model"
+
+    def __post_init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def judge_answer(self, **kwargs) -> dict:
+        self.calls.append(kwargs)
+        return {
+            "content": self.content,
+            "model": self.model,
+            "llm_scenario": "core",
+        }
+
+
 def test_llm_judge_scores_rows_and_updates_existing_summary(tmp_path: Path) -> None:
     run_dir = tmp_path / "locomo" / "run-1"
     run_dir.mkdir(parents=True)
@@ -116,7 +133,7 @@ def test_judge_prompt_keeps_mem0_style_date_tolerance() -> None:
     assert "Return JSON" in prompt
 
 
-def test_llm_judge_skips_without_api_key(tmp_path: Path, monkeypatch) -> None:
+def test_llm_judge_uses_magi_core_backend_without_openai_key(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     run_dir = tmp_path / "locomo" / "run-1"
     run_dir.mkdir(parents=True)
@@ -132,18 +149,23 @@ def test_llm_judge_skips_without_api_key(tmp_path: Path, monkeypatch) -> None:
             }
         ],
     )
+    service = FakeMagiJudgeService('{"label":"CORRECT","reasoning":"same memory fact"}')
 
     artifacts = asyncio.run(
         run_llm_judge_evaluation(
             predictions_with_trace_path=predictions_path,
             output_dir=run_dir,
-            judge_model="fake-judge",
+            judge_service=service,
         )
     )
 
+    assert service.calls
+    assert service.calls[0]["system_prompt"]
+    assert "When did Melanie paint a sunrise?" in service.calls[0]["prompt"]
     summary = json.loads(artifacts.summary_path.read_text(encoding="utf-8"))
-    assert summary["status"] == "skipped"
-    assert summary["reason"] == "OPENAI_API_KEY is not set"
+    assert summary["status"] == "ready"
+    assert summary["judge_model"] == "core-test-model"
+    assert summary["llm_judge_score"] == 1.0
 
 
 def test_parse_judge_decision_accepts_json_and_plain_labels() -> None:

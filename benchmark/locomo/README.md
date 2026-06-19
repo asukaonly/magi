@@ -22,11 +22,9 @@ python benchmark/locomo/run_all.py \
   --skip-background-wait
 ```
 
-The one-shot runner also attempts LoCoMo LLM-as-judge scoring. It uses
-`OPENAI_API_KEY` and an OpenAI-compatible chat API by default. If the key is
-not set, judge scoring is skipped and recorded as skipped in the output
-summary. Use `--skip-llm-judge` to disable it explicitly, or `--judge-model` /
-`LOCOMO_JUDGE_MODEL` to choose the judge model.
+The one-shot runner also attempts LoCoMo LLM-as-judge scoring through the
+running Magi backend, using the same Core LLM configuration as the app. Use
+`--skip-llm-judge` to disable it explicitly.
 
 Standalone judge scoring for an existing run:
 
