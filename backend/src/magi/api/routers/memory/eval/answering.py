@@ -168,10 +168,18 @@ async def synthesize_eval_answer(
     if prompt_payload.episode_text:
         episode_section = f"\nEpisode Summaries:\n{prompt_payload.episode_text}\n"
 
+    relative_time_instruction = (
+        "Use relative time expressions in the evidence when comparing event order.\n"
+        "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n"
+        "When the evidence provides a dated reference, convert relative time answers "
+        "like 'last year', 'next month', 'last week', or 'yesterday' into the most specific "
+        "absolute date, month, year, or anchored range supported by the evidence. "
+        "Prefer the absolute form over repeating the relative phrase.\n\n"
+    )
+
     if prompt_payload.prioritize_timeline:
         user_prompt = (
-            "Use relative time expressions in the evidence when comparing event order.\n"
-            "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
+            relative_time_instruction +
             f"{prompt_payload.timeline_instruction}"
             f"{prompt_payload.preference_instruction}"
             f"{question_date_line}"
@@ -184,8 +192,7 @@ async def synthesize_eval_answer(
         )
     else:
         user_prompt = (
-            "Use relative time expressions in the evidence when comparing event order.\n"
-            "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
+            relative_time_instruction +
             f"{prompt_payload.timeline_instruction}"
             f"{prompt_payload.preference_instruction}"
             f"{question_date_line}"

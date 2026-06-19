@@ -931,6 +931,7 @@ def test_memory_eval_query_api_guides_llm_to_compare_relative_time_expressions(m
             prompt = messages[-1]["content"]
             assert "Use relative time expressions in the evidence when comparing event order." in prompt
             assert "Do not rely only on replay timestamps if the content itself gives a clearer time relation." in prompt
+            assert "Prefer the absolute form over repeating the relative phrase" in prompt
             return '"Data Analysis using Python" webinar'
 
     class _FakeLLMPool:
@@ -958,6 +959,7 @@ def test_memory_eval_query_api_guides_llm_to_compare_relative_time_expressions(m
     body = response.json()
     assert body["answer"] == '"Data Analysis using Python" webinar'
     assert "Use relative time expressions in the evidence when comparing event order." in body["answer_trace"]["prompt"]
+    assert "Prefer the absolute form over repeating the relative phrase" in body["answer_trace"]["prompt"]
 
 
 def test_memory_eval_query_api_prioritizes_timeline_over_noisy_bundles(monkeypatch):
