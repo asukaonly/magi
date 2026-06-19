@@ -243,6 +243,7 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
             asyncio.Queue() if embedding_service is not None else None
         )
         self._embedding_worker: asyncio.Task[None] | None = None
+        self._embedding_active_count = 0
         self._embedding_batch_size = 5
         self._embedding_batch_wait_seconds = 1.0
         self._initialized = False
@@ -819,6 +820,7 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
             "vector_enabled": self._vectors_enabled(),
             "async_embeddings": self._async_embeddings_enabled(),
             "embedding_queue_size": self._embedding_queue.qsize() if self._embedding_queue is not None else 0,
+            "embedding_active_count": int(getattr(self, "_embedding_active_count", 0)),
             "embedding_worker_running": bool(self._embedding_worker is not None and not self._embedding_worker.done()),
         }
 

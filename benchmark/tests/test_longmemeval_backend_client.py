@@ -178,12 +178,23 @@ def test_backend_client_posts_finalize_replay_request() -> None:
 
     service._post_json_sync = fake_post  # type: ignore[method-assign]
 
-    result = asyncio.run(service.finalize_replay())
+    result = asyncio.run(
+        service.finalize_replay(
+            generate_summaries=False,
+            flush_l2=True,
+            drain_l2_edge_embeddings=False,
+        )
+    )
 
     assert calls == [
         (
             "/api/memory/eval/finalize-replay",
-            {"period_types": ["hour", "day", "week", "month"]},
+            {
+                "period_types": ["hour", "day", "week", "month"],
+                "generate_summaries": False,
+                "flush_l2": True,
+                "drain_l2_edge_embeddings": False,
+            },
         )
     ]
     assert result["summaries"]["hour"]["summary_id"] == "sum-hour-1"

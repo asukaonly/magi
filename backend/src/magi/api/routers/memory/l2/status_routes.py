@@ -77,11 +77,17 @@ async def get_background_pending():
         if hasattr(unified_memory, "get_l2_projection_backlog")
         else default_projection_backlog()
     )
+    l2_edge_backlog = (
+        await unified_memory.get_l2_edge_embedding_backlog()
+        if hasattr(unified_memory, "get_l2_edge_embedding_backlog")
+        else {"pending": 0}
+    )
     return build_background_pending_response(
         l2_pending=build_l2_pending_payload(
             pipeline_stats=pipeline_stats,
             projection_backlog=projection_backlog,
         ),
+        l2_edge_pending=l2_edge_backlog,
         l1_pending=build_embedding_pending_from_store(getattr(unified_memory, "l1", None)),
         l3_pending=build_embedding_pending_from_store(getattr(unified_memory, "l3", None)),
         l4_pending=build_embedding_pending_from_store(getattr(unified_memory, "l4", None)),

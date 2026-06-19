@@ -50,9 +50,14 @@ class L1EventEmbeddingWorkerMixin:
                     should_stop = True
                     break
                 batch.append(next_item)
+            host._embedding_active_count += len(batch)
             try:
                 await host._maybe_upsert_event_embeddings(batch)
             finally:
+                host._embedding_active_count = max(
+                    0,
+                    host._embedding_active_count - len(batch),
+                )
                 for _ in batch:
                     queue.task_done()
             if should_stop:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from magi.api.routers.memory.helpers import build_l2_pending_breakdown
+from magi.api.routers.memory.helpers import build_embedding_pending, build_l2_pending_breakdown
 
 
 def test_l2_pending_breakdown_counts_in_memory_extract_work() -> None:
@@ -27,3 +27,20 @@ def test_l2_pending_breakdown_counts_in_memory_extract_work() -> None:
     assert pending["extract_pending"] == 8
     assert pending["projection_pending"] == 1
     assert pending["projection_claimed"] == 2
+
+
+def test_embedding_pending_counts_active_embedding_work() -> None:
+    pending = build_embedding_pending(
+        {
+            "embedding_queue_size": 0,
+            "embedding_active_count": 1,
+            "embedding_worker_running": True,
+            "vector_enabled": True,
+            "async_embeddings": True,
+        }
+    )
+
+    assert pending["pending"] == 1
+    assert pending["queued"] == 0
+    assert pending["active"] == 1
+    assert pending["worker_running"] is True

@@ -64,6 +64,7 @@ class L4ProceduralMemoryStore(
             asyncio.Queue() if embedding_service is not None else None
         )
         self._embedding_worker: asyncio.Task[None] | None = None
+        self._embedding_active_count = 0
         self.breaker_failure_threshold = int(breaker_failure_threshold)
         self.breaker_recovery_successes = int(breaker_recovery_successes)
         self._initialized = False

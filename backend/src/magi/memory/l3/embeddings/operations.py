@@ -38,6 +38,7 @@ class _L3SummaryEmbeddingHostProtocol(Protocol):
     _embedding_service: MemoryEmbeddingService | None
     _vector_index: SqliteVecIndex | None
     _embedding_queue: asyncio.Queue[Dict[str, Any] | None] | None
+    _embedding_active_count: int
     _embedding_batch_size: int
     _embedding_batch_wait_seconds: float
 
@@ -257,9 +258,14 @@ class L3SummaryEmbeddingMixin:
                     should_stop = True
                     break
                 batch.append(next_item)
+            host._embedding_active_count += len(batch)
             try:
                 await self._maybe_upsert_summary_embeddings(batch)
             finally:
+                host._embedding_active_count = max(
+                    0,
+                    host._embedding_active_count - len(batch),
+                )
                 for _ in batch:
                     host._embedding_queue.task_done()
             if should_stop:

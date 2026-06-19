@@ -185,6 +185,7 @@ class L1EventLifecycleMixin:
             "embedding_queue_size": self._embedding_queue.qsize()
             if self._embedding_queue is not None
             else 0,
+            "embedding_active_count": int(getattr(self, "_embedding_active_count", 0)),
             "embedding_worker_running": any(
                 not worker.done() for worker in self._embedding_workers
             ),

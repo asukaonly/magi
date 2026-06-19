@@ -26,6 +26,11 @@ The one-shot runner also attempts LoCoMo LLM-as-judge scoring through the
 running Magi backend, using the same Core LLM configuration as the app. Use
 `--skip-llm-judge` to disable it explicitly.
 
+Before query, the replay step actively drains benchmark memory work: it flushes
+L2 extraction batches, waits for L2 extraction/reconcile/snapshot work, drains
+pending L2 edge embeddings, generates L3 summaries, then waits for embedding
+queues to become idle.
+
 To reuse an already imported run and rerun only query/scoring:
 
 ```bash

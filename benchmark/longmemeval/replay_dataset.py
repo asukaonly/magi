@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import argparse
 import asyncio
 import json
@@ -31,7 +33,13 @@ class SupportsReplayService(Protocol):
     async def write_records(self, *, namespace: str, records: list[Any]) -> Any:
         """Replay normalized records into memory."""
 
-    async def finalize_replay(self) -> dict[str, Any]:
+    async def finalize_replay(
+        self,
+        *,
+        generate_summaries: bool = True,
+        flush_l2: bool = True,
+        drain_l2_edge_embeddings: bool = True,
+    ) -> dict[str, Any]:
         """Run post-replay summary generation and return L2 pipeline status."""
 
     async def get_l2_pipeline_stats(self) -> dict[str, Any]:
@@ -117,10 +125,21 @@ async def replay_longmemeval_rows(
         )
 
     manifest_path = write_jsonl(output_dir / "replay_manifest.jsonl", manifest_rows)
-    post_replay = await eval_service.finalize_replay()
+    post_replay = {
+        "l2_prepare": await eval_service.finalize_replay(
+            generate_summaries=False,
+            flush_l2=True,
+            drain_l2_edge_embeddings=False,
+        )
+    }
     post_replay["l2_pipeline_stats"] = await wait_for_l2_pipeline_idle(
         eval_service,
         poll_interval_seconds=poll_interval_seconds,
+    )
+    post_replay["post_l2_finalize"] = await eval_service.finalize_replay(
+        generate_summaries=True,
+        flush_l2=False,
+        drain_l2_edge_embeddings=True,
     )
     post_replay["background_pending"] = await wait_for_background_idle(
         eval_service,
@@ -160,6 +179,7 @@ def print_background_pending(stats: dict[str, Any]) -> None:
     print(
         "[Background drain] "
         f"l1_embeddings={int(stats.get('l1_embeddings', {}).get('pending', 0))} "
+        f"l2_edge_embeddings={int(stats.get('l2_edge_embeddings', {}).get('pending', 0))} "
         f"l3_embeddings={int(stats.get('l3_embeddings', {}).get('pending', 0))} "
         f"l4_embeddings={int(stats.get('l4_embeddings', {}).get('pending', 0))}"
     )
@@ -207,6 +227,7 @@ def is_background_idle(stats: dict[str, Any]) -> bool:
     return (
         all(int(stats.get("l2", {}).get(key, 0)) == 0 for key in ("extract_pending", "reconcile_pending", "snapshot_pending"))
         and int(stats.get("l1_embeddings", {}).get("pending", 0)) == 0
+        and int(stats.get("l2_edge_embeddings", {}).get("pending", 0)) == 0
         and int(stats.get("l3_embeddings", {}).get("pending", 0)) == 0
         and int(stats.get("l4_embeddings", {}).get("pending", 0)) == 0
     )

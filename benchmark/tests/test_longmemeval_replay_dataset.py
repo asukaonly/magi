@@ -14,23 +14,44 @@ from benchmark.longmemeval.replay_dataset import parse_args, replay_longmemeval_
 class FakeReplayService:
     def __post_init__(self) -> None:
         self.write_calls: list[tuple[str, int]] = []
+        self.calls: list[tuple[str, object]] = []
         self.finalize_calls = 0
         self.l2_stats_calls = 0
         self.background_pending_calls = 0
 
     async def write_records(self, *, namespace: str, records):
         self.write_calls.append((namespace, len(records)))
+        self.calls.append(("write_records", len(records)))
         return [{"namespace": namespace, "count": len(records)}]
 
-    async def finalize_replay(self):
+    async def finalize_replay(
+        self,
+        *,
+        generate_summaries: bool = True,
+        flush_l2: bool = True,
+        drain_l2_edge_embeddings: bool = True,
+    ):
         self.finalize_calls += 1
+        self.calls.append(
+            (
+                "finalize_replay",
+                {
+                    "generate_summaries": generate_summaries,
+                    "flush_l2": flush_l2,
+                    "drain_l2_edge_embeddings": drain_l2_edge_embeddings,
+                },
+            )
+        )
         return {
             "summaries": {
                 "hour": {"summary_id": "sum-hour-1"},
                 "day": {"summary_id": "sum-day-1"},
                 "week": None,
                 "month": None,
-            },
+            }
+            if generate_summaries
+            else {},
+            "l2_edge_embedding_count": 4 if drain_l2_edge_embeddings else 0,
             "l2_pipeline_stats": {
                 "is_running": True,
                 "extract_enqueued": 10,
@@ -48,6 +69,7 @@ class FakeReplayService:
 
     async def get_l2_pipeline_stats(self):
         self.l2_stats_calls += 1
+        self.calls.append(("get_l2_pipeline_stats", self.l2_stats_calls))
         if self.l2_stats_calls == 1:
             return {
                 "is_running": True,
@@ -78,6 +100,7 @@ class FakeReplayService:
 
     async def get_background_pending(self):
         self.background_pending_calls += 1
+        self.calls.append(("get_background_pending", self.background_pending_calls))
         if self.background_pending_calls == 1:
             return {
                 "l2": {
@@ -86,6 +109,7 @@ class FakeReplayService:
                     "snapshot_pending": 0,
                 },
                 "l1_embeddings": {"pending": 4, "worker_running": True},
+                "l2_edge_embeddings": {"pending": 0},
                 "l3_embeddings": {"pending": 1, "worker_running": True},
                 "l4_embeddings": {"pending": 0, "worker_running": False},
                 "all_idle": False,
@@ -95,11 +119,12 @@ class FakeReplayService:
                 "extract_pending": 0,
                 "reconcile_pending": 0,
                 "snapshot_pending": 0,
-            },
-            "l1_embeddings": {"pending": 0, "worker_running": True},
-            "l3_embeddings": {"pending": 0, "worker_running": True},
-            "l4_embeddings": {"pending": 0, "worker_running": False},
-            "all_idle": True,
+                },
+                "l1_embeddings": {"pending": 0, "worker_running": True},
+                "l2_edge_embeddings": {"pending": 0},
+                "l3_embeddings": {"pending": 0, "worker_running": True},
+                "l4_embeddings": {"pending": 0, "worker_running": False},
+                "all_idle": True,
         }
 
 
@@ -136,7 +161,7 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
     )
 
     assert service.write_calls == [("benchmark/longmemeval/run-1/q-1", 2)]
-    assert service.finalize_calls == 1
+    assert service.finalize_calls == 2
     assert progress_events == [
         {
             "question_index": 1,
@@ -163,11 +188,35 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
         }
     ]
     post_replay = json.loads(artifacts.post_replay_path.read_text(encoding="utf-8"))
-    assert post_replay["summaries"]["hour"]["summary_id"] == "sum-hour-1"
     assert post_replay["l2_pipeline_stats"]["extract_completed"] == 10
+    assert post_replay["post_l2_finalize"]["summaries"]["hour"]["summary_id"] == "sum-hour-1"
+    assert post_replay["post_l2_finalize"]["l2_edge_embedding_count"] == 4
     assert post_replay["background_pending"]["all_idle"] is True
     assert service.l2_stats_calls == 2
     assert service.background_pending_calls == 2
+    assert service.calls == [
+        ("write_records", 2),
+        (
+            "finalize_replay",
+            {
+                "generate_summaries": False,
+                "flush_l2": True,
+                "drain_l2_edge_embeddings": False,
+            },
+        ),
+        ("get_l2_pipeline_stats", 1),
+        ("get_l2_pipeline_stats", 2),
+        (
+            "finalize_replay",
+            {
+                "generate_summaries": True,
+                "flush_l2": False,
+                "drain_l2_edge_embeddings": True,
+            },
+        ),
+        ("get_background_pending", 1),
+        ("get_background_pending", 2),
+    ]
 
 
 def test_parse_args_accepts_request_timeout_and_poll_interval() -> None:

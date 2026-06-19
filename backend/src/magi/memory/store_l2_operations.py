@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Mapping, Optional
 
+from ..core.sqlite import sqlite_connection_async
+
 
 class UnifiedMemoryL2OperationsMixin:
     """Expose L2 replay, reconcile, snapshot, and graph-write controls."""
@@ -11,6 +13,7 @@ class UnifiedMemoryL2OperationsMixin:
     l1: Any
     l2: Any
     l2_pipeline: Any
+    _edge_embedding_drainer: Any
 
     async def replay_l2_extraction(self, event_id: str) -> bool:
         """Replay L2 extraction for an already stored L1 event."""
@@ -38,6 +41,41 @@ class UnifiedMemoryL2OperationsMixin:
         if self.l2_pipeline is None:
             return 0
         return await self.l2_pipeline.flush_all_pending_batches()
+
+    async def drain_l2_edge_embeddings(
+        self,
+        *,
+        batch_limit: int = 200,
+        max_batches: int = 1000,
+    ) -> int:
+        """Synchronously embed pending L2 knowledge-graph edges."""
+        drainer = getattr(self, "_edge_embedding_drainer", None)
+        if drainer is None:
+            return 0
+        total = 0
+        normalized_limit = max(1, int(batch_limit))
+        for _ in range(max(1, int(max_batches))):
+            count = int(await drainer.drain_once(batch_limit=normalized_limit) or 0)
+            total += count
+            if count < normalized_limit:
+                break
+        return total
+
+    async def get_l2_edge_embedding_backlog(self) -> dict[str, int]:
+        """Return pending L2 edge embedding counts."""
+        if self.l2 is None:
+            return {"pending": 0}
+        async with sqlite_connection_async(self.l2.db_path) as db:
+            async with db.execute(
+                """
+                SELECT COUNT(*)
+                FROM knowledge_graph
+                WHERE embedding_status = 'pending'
+                  AND status = 'active'
+                """
+            ) as cursor:
+                row = await cursor.fetchone()
+        return {"pending": int(row[0] if row is not None else 0)}
 
     async def on_session_end(self, session_id: str) -> list[str]:
         """Flush staged L2 session work and enqueue touched-entity reconciliation."""

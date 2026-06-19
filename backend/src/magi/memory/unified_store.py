@@ -200,20 +200,21 @@ class UnifiedMemoryStore(
                 _drain_interval = memory_config_getter().l2.edge_embedding_drain_interval_seconds
             except Exception:
                 pass
-        self._edge_embedding_worker = L2EdgeEmbeddingWorker(
-            drainer=EdgeEmbeddingDrainer(
-                db_path=shared_memory_db,
-                embedding_service=(
-                    self.l2_entity_catalog.embedding_service
-                    if self.l2_entity_catalog is not None
-                    else None
-                ),
-                edge_vector_index=(
-                    self.l2_entity_catalog.edge_vector_index
-                    if self.l2_entity_catalog is not None
-                    else None
-                ),
+        self._edge_embedding_drainer = EdgeEmbeddingDrainer(
+            db_path=shared_memory_db,
+            embedding_service=(
+                self.l2_entity_catalog.embedding_service
+                if self.l2_entity_catalog is not None
+                else None
             ),
+            edge_vector_index=(
+                self.l2_entity_catalog.edge_vector_index
+                if self.l2_entity_catalog is not None
+                else None
+            ),
+        )
+        self._edge_embedding_worker = L2EdgeEmbeddingWorker(
+            drainer=self._edge_embedding_drainer,
             idle_interval_seconds=_drain_interval,
         )
 

@@ -73,11 +73,23 @@ class BackendEvalService:
         )
         return dict(response)
 
-    async def finalize_replay(self) -> dict[str, Any]:
+    async def finalize_replay(
+        self,
+        *,
+        period_types: list[str] | None = None,
+        generate_summaries: bool = True,
+        flush_l2: bool = True,
+        drain_l2_edge_embeddings: bool = True,
+    ) -> dict[str, Any]:
         return await asyncio.to_thread(
             self._post_json_sync,
             "/api/memory/eval/finalize-replay",
-            {"period_types": ["hour", "day", "week", "month"]},
+            {
+                "period_types": list(period_types or ["hour", "day", "week", "month"]),
+                "generate_summaries": bool(generate_summaries),
+                "flush_l2": bool(flush_l2),
+                "drain_l2_edge_embeddings": bool(drain_l2_edge_embeddings),
+            },
         )
 
     async def get_l2_pipeline_stats(self) -> dict[str, Any]:

@@ -103,6 +103,7 @@ def empty_background_pending_response() -> dict[str, Any]:
             pipeline_stats={},
             projection_backlog=default_projection_backlog(),
         ),
+        l2_edge_pending={"pending": 0},
         l1_pending=build_embedding_pending(None),
         l3_pending=build_embedding_pending(None),
         l4_pending=build_embedding_pending(None),
@@ -112,6 +113,7 @@ def empty_background_pending_response() -> dict[str, Any]:
 def build_background_pending_response(
     *,
     l2_pending: Mapping[str, int],
+    l2_edge_pending: Mapping[str, int],
     l1_pending: Mapping[str, Any],
     l3_pending: Mapping[str, Any],
     l4_pending: Mapping[str, Any],
@@ -120,12 +122,14 @@ def build_background_pending_response(
         int(l2_pending["extract_pending"]) == 0
         and int(l2_pending["reconcile_pending"]) == 0
         and int(l2_pending["snapshot_pending"]) == 0
+        and int(l2_edge_pending.get("pending", 0)) == 0
         and int(l1_pending["pending"]) == 0
         and int(l3_pending["pending"]) == 0
         and int(l4_pending["pending"]) == 0
     )
     return {
         "l2": dict(l2_pending),
+        "l2_edge_embeddings": dict(l2_edge_pending),
         "l1_embeddings": dict(l1_pending),
         "l3_embeddings": dict(l3_pending),
         "l4_embeddings": dict(l4_pending),

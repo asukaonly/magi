@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import argparse
 import asyncio
 import json
@@ -35,7 +37,13 @@ class SupportsReplayService(Protocol):
     async def write_records(self, *, namespace: str, records: list[Any]) -> Any:
         """Replay normalized records into memory."""
 
-    async def finalize_replay(self) -> dict[str, Any]:
+    async def finalize_replay(
+        self,
+        *,
+        generate_summaries: bool = True,
+        flush_l2: bool = True,
+        drain_l2_edge_embeddings: bool = True,
+    ) -> dict[str, Any]:
         """Run post-replay summary generation and return L2 pipeline status."""
 
     async def get_l2_pipeline_stats(self) -> dict[str, Any]:
@@ -127,7 +135,13 @@ async def replay_locomo_samples(
 
     manifest_path = write_jsonl(output_dir / "replay_manifest.jsonl", manifest_rows)
     if finalize:
-        post_replay = await eval_service.finalize_replay()
+        post_replay = {
+            "l2_prepare": await eval_service.finalize_replay(
+                generate_summaries=False,
+                flush_l2=True,
+                drain_l2_edge_embeddings=False,
+            )
+        }
     else:
         post_replay = {"finalize": {"status": "skipped"}}
 
@@ -136,13 +150,20 @@ async def replay_locomo_samples(
             eval_service,
             poll_interval_seconds=poll_interval_seconds,
         )
+    else:
+        post_replay["l2_pipeline_stats"] = {"status": "skipped"}
+        post_replay["background_pending"] = {"status": "skipped"}
+    if finalize:
+        post_replay["post_l2_finalize"] = await eval_service.finalize_replay(
+            generate_summaries=True,
+            flush_l2=False,
+            drain_l2_edge_embeddings=True,
+        )
+    if wait_for_background:
         post_replay["background_pending"] = await wait_for_background_idle(
             eval_service,
             poll_interval_seconds=poll_interval_seconds,
         )
-    else:
-        post_replay["l2_pipeline_stats"] = {"status": "skipped"}
-        post_replay["background_pending"] = {"status": "skipped"}
     post_replay_path = output_dir / "post_replay.json"
     post_replay_path.write_text(
         json.dumps(post_replay, ensure_ascii=False, indent=2) + "\n",

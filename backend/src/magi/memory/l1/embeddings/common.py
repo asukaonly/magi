@@ -66,6 +66,7 @@ class L1EventEmbeddingHostProtocol(Protocol):
     _embedding_service: MemoryEmbeddingService | None
     _vector_index: SqliteVecIndex | None
     _embedding_queue: asyncio.Queue[MemoryEvent | None] | None
+    _embedding_active_count: int
     _embedding_batch_size: int
     _embedding_batch_wait_seconds: float
 

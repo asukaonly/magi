@@ -79,6 +79,18 @@ class EvalFinalizeReplayRequest(BaseModel):
         default_factory=lambda: ["hour", "day", "week", "month"],
         description="Temporal summary categories to generate after replay",
     )
+    generate_summaries: bool = Field(
+        default=True,
+        description="Whether to generate temporal L3 summaries.",
+    )
+    flush_l2: bool = Field(
+        default=True,
+        description="Whether to flush staged L2 batches into extraction jobs.",
+    )
+    drain_l2_edge_embeddings: bool = Field(
+        default=True,
+        description="Whether to synchronously drain pending L2 edge embeddings.",
+    )
 
 
 class L2EntityActionBody(BaseModel):

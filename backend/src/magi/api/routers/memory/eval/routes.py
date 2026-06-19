@@ -175,19 +175,23 @@ async def finalize_eval_replay(body: EvalFinalizeReplayRequest):
             detail=memory_t("memory.errors.system_uninitialized", "Memory system not initialized"),
         )
 
-    l2_flush_batch_count = (
-        await unified_memory.flush_l2_microbatches()
-        if hasattr(unified_memory, "flush_l2_microbatches")
-        else 0
-    )
+    l2_flush_batch_count = 0
+    if body.flush_l2 and hasattr(unified_memory, "flush_l2_microbatches"):
+        l2_flush_batch_count = await unified_memory.flush_l2_microbatches()
+
+    l2_edge_embedding_count = 0
+    if body.drain_l2_edge_embeddings and hasattr(unified_memory, "drain_l2_edge_embeddings"):
+        l2_edge_embedding_count = await unified_memory.drain_l2_edge_embeddings()
 
     summaries: Dict[str, Any] = {}
-    for period_type in body.period_types:
-        summaries[period_type] = await unified_memory.generate_summary(period_type=period_type)
+    if body.generate_summaries:
+        for period_type in body.period_types:
+            summaries[period_type] = await unified_memory.generate_summary(period_type=period_type)
 
     l2_pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
     return {
         "summaries": summaries,
         "l2_flush_batch_count": int(l2_flush_batch_count or 0),
+        "l2_edge_embedding_count": int(l2_edge_embedding_count or 0),
         "l2_pipeline_stats": l2_pipeline_stats,
     }

@@ -46,6 +46,7 @@ async def _default_projection_backlog() -> dict[str, int]:
 
 def _total_processing_pending(backlog: dict[str, Any]) -> int:
     l2 = dict(backlog.get("l2") or {})
+    l2_edge_embeddings = dict(backlog.get("l2_edge_embeddings") or {})
     layers = [
         dict(backlog.get("l1_embeddings") or {}),
         dict(backlog.get("l3_embeddings") or {}),
@@ -55,6 +56,7 @@ def _total_processing_pending(backlog: dict[str, Any]) -> int:
         int(l2.get("extract_pending", 0))
         + int(l2.get("reconcile_pending", 0))
         + int(l2.get("snapshot_pending", 0))
+        + int(l2_edge_embeddings.get("pending", 0))
         + sum(int(layer.get("pending", 0) or 0) for layer in layers),
         0,
     )
@@ -108,6 +110,14 @@ async def get_memory_dashboard(
         if hasattr(unified_memory, "get_l2_projection_backlog")
         else _default_projection_backlog()
     )
+    async def _default_l2_edge_backlog() -> dict[str, int]:
+        return {"pending": 0}
+
+    l2_edge_backlog_coro = (
+        unified_memory.get_l2_edge_embedding_backlog()
+        if hasattr(unified_memory, "get_l2_edge_embedding_backlog")
+        else _default_l2_edge_backlog()
+    )
     source_counts_coro = (
         l1.summarize_event_sources(
             cognition_eligible=True,
@@ -150,6 +160,7 @@ async def get_memory_dashboard(
         l1_today_count,
         l2_today_assertion_count,
         l3_today_count,
+        l2_edge_backlog,
     ) = await asyncio.gather(
         l1_count_coro,
         l2_rel_count_coro,
@@ -163,6 +174,7 @@ async def get_memory_dashboard(
         l1_today_count_coro,
         l2_today_assertion_count_coro,
         l3_today_count_coro,
+        l2_edge_backlog_coro,
     )
 
     statistics = build_layer_statistics(
@@ -182,6 +194,7 @@ async def get_memory_dashboard(
             pipeline_stats=pipeline_stats,
             projection_backlog=projection_backlog,
         ),
+        l2_edge_pending=l2_edge_backlog,
         l1_pending=build_embedding_pending_from_store(l1),
         l3_pending=build_embedding_pending_from_store(l3),
         l4_pending=build_embedding_pending_from_store(l4),

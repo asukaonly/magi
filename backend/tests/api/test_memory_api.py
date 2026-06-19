@@ -268,6 +268,7 @@ class _FakeUnifiedMemory:
         self.l4 = _FakeL4Store()
         self.ingested_events: list = []
         self.flush_l2_microbatches_calls = 0
+        self.drain_l2_edge_embedding_calls = 0
 
     async def get_statistics(self):
         return {
@@ -301,6 +302,13 @@ class _FakeUnifiedMemory:
     async def flush_l2_microbatches(self):
         self.flush_l2_microbatches_calls += 1
         return 2
+
+    async def drain_l2_edge_embeddings(self):
+        self.drain_l2_edge_embedding_calls += 1
+        return 5
+
+    async def get_l2_edge_embedding_backlog(self):
+        return {"pending": 0}
 
     async def get_l2_projection_backlog(self):
         return {
@@ -1391,8 +1399,43 @@ def test_memory_eval_finalize_replay_api_generates_summaries_and_returns_l2_stat
     assert body["summaries"]["hour"]["summary_id"] == "sum-hour-1"
     assert body["summaries"]["month"]["summary_id"] == "sum-month-1"
     assert body["l2_flush_batch_count"] == 2
+    assert body["l2_edge_embedding_count"] == 5
     assert body["l2_pipeline_stats"]["extract_completed"] == 3
     assert fake_memory.flush_l2_microbatches_calls == 1
+    assert fake_memory.drain_l2_edge_embedding_calls == 1
+
+
+def test_memory_eval_finalize_replay_api_can_split_l2_flush_from_post_l2_work(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    fake_memory = _FakeUnifiedMemory()
+
+    async def _generate_summary(period_type: str):
+        return {"summary_id": f"sum-{period_type}-1", "summary_category": period_type}
+
+    fake_memory.generate_summary = _generate_summary
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/finalize-replay",
+        json={
+            "period_types": ["hour"],
+            "generate_summaries": False,
+            "flush_l2": True,
+            "drain_l2_edge_embeddings": False,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summaries"] == {}
+    assert body["l2_flush_batch_count"] == 2
+    assert body["l2_edge_embedding_count"] == 0
+    assert fake_memory.flush_l2_microbatches_calls == 1
+    assert fake_memory.drain_l2_edge_embedding_calls == 0
 
 
 def test_memory_l3_summaries_api_filters_type_and_category(monkeypatch):
@@ -1552,6 +1595,7 @@ def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
     assert body["l2"]["projection_pending"] == 5
     assert body["l2"]["projection_claimed"] == 2
     assert body["l1_embeddings"]["pending"] == 7
+    assert body["l2_edge_embeddings"]["pending"] == 0
     assert body["l3_embeddings"]["pending"] == 3
     assert body["l4_embeddings"]["pending"] == 0
     assert body["all_idle"] is False

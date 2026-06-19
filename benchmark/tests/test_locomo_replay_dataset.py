@@ -14,20 +14,43 @@ from benchmark.locomo.replay_dataset import parse_args, replay_locomo_samples
 class FakeReplayService:
     def __post_init__(self) -> None:
         self.write_calls: list[tuple[str, int]] = []
+        self.calls: list[tuple[str, object]] = []
         self.finalize_calls = 0
         self.l2_stats_calls = 0
         self.background_pending_calls = 0
 
     async def write_records(self, *, namespace: str, records):
         self.write_calls.append((namespace, len(records)))
+        self.calls.append(("write_records", len(records)))
         return [{"namespace": namespace, "count": len(records)}]
 
-    async def finalize_replay(self):
+    async def finalize_replay(
+        self,
+        *,
+        generate_summaries: bool = True,
+        flush_l2: bool = True,
+        drain_l2_edge_embeddings: bool = True,
+    ):
         self.finalize_calls += 1
-        return {"summaries": {"day": {"summary_id": "sum-1"}}}
+        self.calls.append(
+            (
+                "finalize_replay",
+                {
+                    "generate_summaries": generate_summaries,
+                    "flush_l2": flush_l2,
+                    "drain_l2_edge_embeddings": drain_l2_edge_embeddings,
+                },
+            )
+        )
+        summaries = {"day": {"summary_id": "sum-1"}} if generate_summaries else {}
+        return {
+            "summaries": summaries,
+            "l2_edge_embedding_count": 3 if drain_l2_edge_embeddings else 0,
+        }
 
     async def get_l2_pipeline_stats(self):
         self.l2_stats_calls += 1
+        self.calls.append(("get_l2_pipeline_stats", self.l2_stats_calls))
         return {
             "extract_enqueued": 1,
             "extract_completed": 1,
@@ -43,9 +66,11 @@ class FakeReplayService:
 
     async def get_background_pending(self):
         self.background_pending_calls += 1
+        self.calls.append(("get_background_pending", self.background_pending_calls))
         return {
             "l2": {"extract_pending": 0, "reconcile_pending": 0, "snapshot_pending": 0},
             "l1_embeddings": {"pending": 0},
+            "l2_edge_embeddings": {"pending": 0},
             "l3_embeddings": {"pending": 0},
             "l4_embeddings": {"pending": 0},
             "all_idle": True,
@@ -91,7 +116,7 @@ def test_replay_script_writes_each_conversation_once(tmp_path) -> None:
     )
 
     assert service.write_calls == [("benchmark/locomo/run-1/conv-test", 2)]
-    assert service.finalize_calls == 1
+    assert service.finalize_calls == 2
     assert progress_events == [
         {
             "sample_index": 1,
@@ -114,7 +139,30 @@ def test_replay_script_writes_each_conversation_once(tmp_path) -> None:
     ]
     post_replay = json.loads(artifacts.post_replay_path.read_text(encoding="utf-8"))
     assert post_replay["l2_pipeline_stats"]["extract_completed"] == 1
+    assert post_replay["post_l2_finalize"]["summaries"]["day"]["summary_id"] == "sum-1"
+    assert post_replay["post_l2_finalize"]["l2_edge_embedding_count"] == 3
     assert post_replay["background_pending"]["all_idle"] is True
+    assert service.calls == [
+        ("write_records", 2),
+        (
+            "finalize_replay",
+            {
+                "generate_summaries": False,
+                "flush_l2": True,
+                "drain_l2_edge_embeddings": False,
+            },
+        ),
+        ("get_l2_pipeline_stats", 1),
+        (
+            "finalize_replay",
+            {
+                "generate_summaries": True,
+                "flush_l2": False,
+                "drain_l2_edge_embeddings": True,
+            },
+        ),
+        ("get_background_pending", 1),
+    ]
 
 
 def test_replay_script_can_skip_finalize_and_background_wait(tmp_path) -> None:

@@ -59,9 +59,12 @@ def build_l2_pending_breakdown(
 
 def build_embedding_pending(stats: Dict[str, Any] | None) -> Dict[str, Any]:
     payload = dict(stats or {})
-    pending = int(payload.get("embedding_queue_size", 0) or 0)
+    queued = max(int(payload.get("embedding_queue_size", 0) or 0), 0)
+    active = max(int(payload.get("embedding_active_count", 0) or 0), 0)
     return {
-        "pending": max(pending, 0),
+        "pending": queued + active,
+        "queued": queued,
+        "active": active,
         "worker_running": bool(payload.get("embedding_worker_running", False)),
         "vector_enabled": bool(payload.get("vector_enabled", False)),
         "async_embeddings": bool(payload.get("async_embeddings", False)),

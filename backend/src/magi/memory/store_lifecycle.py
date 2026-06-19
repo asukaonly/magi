@@ -18,6 +18,7 @@ class UnifiedMemoryLifecycleMixin:
     l2_pipeline: Any
     l3: Any
     l4: Any
+    _edge_embedding_drainer: Any
     _edge_embedding_worker: Any
     _initialized: bool
 

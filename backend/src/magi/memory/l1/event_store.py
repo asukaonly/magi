@@ -72,6 +72,7 @@ class L1EventStore(
             else None
         )
         self._embedding_workers: list[asyncio.Task[None]] = []
+        self._embedding_active_count = 0
         self._embedding_batch_size = 5
         self._embedding_batch_wait_seconds = 1.0
         self._initialized = False

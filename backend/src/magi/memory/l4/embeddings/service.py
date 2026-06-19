@@ -40,6 +40,7 @@ class L4SkillEmbeddingMixin:
     _embedding_service: MemoryEmbeddingService | None
     _embedding_queue: asyncio.Queue[dict[str, Any] | None] | None
     _embedding_worker: asyncio.Task[None] | None
+    _embedding_active_count: int
     _vector_index: SqliteVecIndex | None
 
     async def initialize(self) -> None:
@@ -119,6 +120,7 @@ class L4SkillEmbeddingMixin:
             "embedding_queue_size": (
                 self._embedding_queue.qsize() if self._embedding_queue is not None else 0
             ),
+            "embedding_active_count": int(getattr(self, "_embedding_active_count", 0)),
             "embedding_worker_running": bool(
                 self._embedding_worker is not None and not self._embedding_worker.done()
             ),
@@ -265,6 +267,7 @@ class L4SkillEmbeddingMixin:
             if item is None:
                 self._embedding_queue.task_done()
                 break
+            self._embedding_active_count += 1
             try:
                 await self._maybe_upsert_skill_embedding(
                     skill_id=str(item["skill_id"]),
@@ -273,6 +276,7 @@ class L4SkillEmbeddingMixin:
                     optimized_prompt=item.get("optimized_prompt"),
                 )
             finally:
+                self._embedding_active_count = max(0, self._embedding_active_count - 1)
                 self._embedding_queue.task_done()
 
 
