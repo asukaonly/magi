@@ -43,6 +43,8 @@ export interface EmptyStateAvailableSensorsProps {
    * the list. The orchestrator filters them from the rendered rows.
    */
   excludePluginIds?: string[];
+  i18nNamespace?: string;
+  i18nKeyPrefix?: string;
 }
 
 /**
@@ -64,8 +66,11 @@ const MAX_EMPTY_STATE_CARDS = 5;
 
 export function EmptyStateAvailableSensors({
   excludePluginIds,
+  i18nNamespace = 'onboarding',
+  i18nKeyPrefix,
 }: EmptyStateAvailableSensorsProps): JSX.Element | null {
-  const { t } = useTranslation('onboarding');
+  const { t } = useTranslation(i18nNamespace);
+  const keyed = (key: string) => (i18nKeyPrefix ? `${i18nKeyPrefix}.${key}` : key);
 
   const { items, loading } = useInstallableSensors();
 
@@ -123,9 +128,9 @@ export function EmptyStateAvailableSensors({
         setSettingsNavigationIntent({ section: 'pluginsMarketplace' });
         setActivePanel('settings');
       }}
-      className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
+      className="text-xs font-semibold text-muted-foreground transition hover:text-foreground"
     >
-      {t('emptyState.browseAll')}
+      {t(keyed('emptyState.browseAll'))}
     </button>
   );
 
@@ -141,9 +146,9 @@ export function EmptyStateAvailableSensors({
     // title vs (longer) description so they look misaligned.
     <div className="space-y-3 text-left">
       <h3 className="text-sm font-medium text-foreground">
-        {t('emptyState.heading')}
+        {t(keyed('emptyState.heading'))}
       </h3>
-      <div className="divide-y divide-border/55 overflow-hidden rounded-lg border border-border/55">
+      <div className="divide-y divide-border/35 overflow-hidden rounded-lg bg-[hsl(var(--app-chrome-elevated)/0.44)] shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)]">
         {visible.map(({ item, meta }) => (
           <EmptyStateSensorCard
             key={item.plugin_id}
@@ -151,6 +156,8 @@ export function EmptyStateAvailableSensors({
             titleKey={meta.titleKey}
             valueKey={meta.valueKey}
             iconId={meta.iconId}
+            i18nNamespace={i18nNamespace}
+            i18nKeyPrefix={i18nKeyPrefix}
             connectLabelKey={
               item.installed ? 'emptyState.connect' : 'emptyState.installAndConnect'
             }

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileText, Image, MapPin, Pencil, X } from 'lucide-react';
+import { ChevronDown, Clock3, FileText, Image, MapPin, Pencil, Smile, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -60,12 +60,12 @@ const MOOD_EMOJI: Record<MoodValence, string> = {
 };
 
 /** Hover/title hint per pill so the meaning isn't completely emoji-bound. */
-const MOOD_HINT: Record<MoodValence, string> = {
-  warm: '舒适 / 放松',
-  bright: '开朗 / 明亮',
-  neutral: '一般',
-  cool: '低落 / 收敛',
-  tense: '紧张 / 压力',
+const MOOD_HINT: Record<MoodValence, { labelKey: string; defaultLabel: string }> = {
+  warm: { labelKey: 'timeline.manualEntry.moods.warm', defaultLabel: '舒适 / 放松' },
+  bright: { labelKey: 'timeline.manualEntry.moods.bright', defaultLabel: '开朗 / 明亮' },
+  neutral: { labelKey: 'timeline.manualEntry.moods.neutral', defaultLabel: '一般' },
+  cool: { labelKey: 'timeline.manualEntry.moods.cool', defaultLabel: '低落 / 收敛' },
+  tense: { labelKey: 'timeline.manualEntry.moods.tense', defaultLabel: '紧张 / 压力' },
 };
 
 const MAX_UPLOAD_MB = 10;
@@ -221,12 +221,20 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   const anyUploading = attachments.some((a) => a.status === 'uploading');
   const hasContent = body.trim().length > 0 || attachments.some((a) => a.status === 'ready');
   const canSave = hasContent && !anyUploading && !saving;
+  const moodHint = useCallback(
+    (value: MoodValence) => {
+      const hint = MOOD_HINT[value];
+      return t(hint.labelKey, { defaultValue: hint.defaultLabel });
+    },
+    [t],
+  );
 
   const uploadFile = useCallback(async (file: File) => {
     if (file.size > MAX_UPLOAD_BYTES) {
       toast.error(
         t('timeline.manualEntry.errors.imageTooLarge', {
-          defaultValue: `图片超过 ${MAX_UPLOAD_MB}MB 上限`,
+          defaultValue: '图片超过 {{maxMb}}MB 上限',
+          maxMb: MAX_UPLOAD_MB,
         }),
       );
       return;
@@ -407,16 +415,16 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
    *  modes both consume the same JSX, so there's exactly one source
    *  of truth for the chip row's behavior + styling. */
   const chipRow = (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       {/* Mood chip */}
       <Popover open={moodPickerOpen} onOpenChange={setMoodPickerOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="flex h-7 items-center gap-1 rounded-md border border-border/60 px-2.5 hover:bg-foreground/[0.03]"
+            className="flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.72)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
             title={
               mood
-                ? `${mood} · ${MOOD_HINT[mood]}`
+                ? `${mood} · ${moodHint(mood)}`
                 : t('timeline.manualEntry.moodPlaceholderHint', {
                     defaultValue: '选一个心情',
                   })
@@ -428,24 +436,25 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               </span>
             ) : (
               <>
-                <span className="opacity-60" aria-hidden="true">🙂</span>
+                <Smile className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
                 <span>
                   {t('timeline.manualEntry.moodPlaceholder', { defaultValue: '心情' })}
                 </span>
               </>
             )}
-            <span aria-hidden="true">▾</span>
+            <ChevronDown className="h-3.5 w-3.5 opacity-60" aria-hidden="true" />
           </button>
         </PopoverTrigger>
         <PopoverContent
           side="bottom"
           align="start"
           sideOffset={6}
-          className="w-auto p-1"
+          className="w-auto rounded-lg border-border/40 bg-[hsl(var(--app-chrome-elevated)/0.98)] p-1 shadow-[0_14px_36px_hsl(var(--foreground)/0.12)]"
         >
           <div className="flex items-center gap-0.5">
             {MOODS.map((m) => {
               const isSelected = mood === m;
+              const label = moodHint(m);
               return (
                 <button
                   key={m}
@@ -456,14 +465,14 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                     setMood(isSelected ? null : m);
                     setMoodPickerOpen(false);
                   }}
-                  aria-label={m}
+                  aria-label={label}
                   aria-pressed={isSelected ? 'true' : 'false'}
-                  title={`${m} · ${MOOD_HINT[m]}`}
+                  title={label}
                   className={cn(
-                    'flex h-9 w-9 items-center justify-center rounded-md text-xl leading-none transition-all',
+                    'flex h-9 w-9 items-center justify-center rounded-md text-xl leading-none transition-colors',
                     isSelected
-                      ? 'bg-foreground/10 ring-1 ring-foreground/40'
-                      : 'opacity-60 hover:opacity-100 hover:bg-foreground/5',
+                      ? 'bg-[hsl(var(--primary)/0.12)] text-foreground shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.28)]'
+                      : 'opacity-60 hover:bg-foreground/5 hover:opacity-100',
                   )}
                 >
                   {MOOD_EMOJI[m]}
@@ -479,16 +488,18 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="flex h-7 items-center gap-1 rounded-md border border-border/60 px-2.5 hover:bg-foreground/[0.03]"
+            className="flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.72)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
           >
-            🕐 {shiftLabel(timeShift, t)} ▾
+            <Clock3 className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
+            <span>{shiftLabel(timeShift, t)}</span>
+            <ChevronDown className="h-3.5 w-3.5 opacity-60" aria-hidden="true" />
           </button>
         </PopoverTrigger>
         <PopoverContent
           side="bottom"
           align="start"
           sideOffset={6}
-          className="w-auto p-0"
+          className="w-auto overflow-hidden rounded-lg border-border/40 bg-[hsl(var(--app-chrome-elevated)/0.98)] p-0 shadow-[0_14px_36px_hsl(var(--foreground)/0.12)]"
         >
           <div className="flex flex-col p-1">
             {TIME_SHIFT_PRESETS.filter((p) => p.id !== 'custom').map((preset) => {
@@ -510,7 +521,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                   className={cn(
                     'w-full rounded px-2 py-1.5 text-left text-xs',
                     isActive
-                      ? 'bg-foreground/10 text-foreground'
+                      ? 'bg-[hsl(var(--primary)/0.12)] text-foreground'
                       : 'text-foreground/80 hover:bg-foreground/5',
                   )}
                 >
@@ -526,7 +537,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               className={cn(
                 'w-full rounded px-2 py-1.5 text-left text-xs',
                 timeShift.kind === 'custom'
-                  ? 'bg-foreground/10 text-foreground'
+                  ? 'bg-[hsl(var(--primary)/0.12)] text-foreground'
                   : 'text-foreground/80 hover:bg-foreground/5',
               )}
             >
@@ -635,10 +646,10 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               setEditingLocation(false);
             }
           }}
-          className="h-7 w-32 rounded-md border border-border/60 bg-background px-2.5 text-xs"
+          className="h-8 w-36 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 text-xs shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] transition-colors placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
         />
       ) : location ? (
-        <span className="flex h-7 items-center gap-1 rounded-md border border-border/60 px-2.5">
+        <span className="flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)]">
           <MapPin className="h-3 w-3" />
           <button
             type="button"
@@ -651,7 +662,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           <button
             type="button"
             onClick={() => setLocation(null)}
-            aria-label="clear location"
+            aria-label={t('timeline.manualEntry.clearLocation', { defaultValue: '清除地点' })}
             className="ml-0.5 text-muted-foreground hover:text-foreground"
           >
             ✕
@@ -661,7 +672,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         <button
           type="button"
           onClick={() => setEditingLocation(true)}
-          className="flex h-7 items-center gap-1 rounded-md border border-dashed border-border/60 px-2.5 text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground"
+          className="flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.72)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
         >
           <MapPin className="h-3 w-3" />
           {t('timeline.manualEntry.addLocation', { defaultValue: '加地点' })}
@@ -671,7 +682,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
       {/* Weather chip — read-only auto-resolved snapshot. */}
       {weather && weatherEmoji(weather.code) ? (
         <span
-          className="flex h-7 items-center gap-1 rounded-md border border-border/60 px-2.5"
+          className="flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)]"
           title={t('timeline.manualEntry.weatherTitle', {
             defaultValue: '自动获取的天气',
           })}
@@ -681,7 +692,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           <button
             type="button"
             onClick={() => setWeather(null)}
-            aria-label="clear weather"
+            aria-label={t('timeline.manualEntry.clearWeather', { defaultValue: '清除天气' })}
             className="ml-0.5 text-muted-foreground hover:text-foreground"
           >
             ✕
@@ -706,11 +717,12 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         onEscapeKeyDown={(e) => {
           if (mode === 'long') e.preventDefault();
         }}
+        overlayClassName="bg-[hsl(var(--foreground)/0.24)] backdrop-blur-[3px]"
         className={cn(
           // Width: Long mode gets noticeably more horizontal room so
           // the editor + toolbar don't feel cramped. Quick mode stays
           // compact so casual capture is a small visual gesture.
-          mode === 'long' ? 'max-w-3xl' : 'max-w-2xl',
+          mode === 'long' ? 'max-w-[820px]' : 'max-w-[640px]',
           // Cap height at 90vh and scroll internally so a very tall
           // editor still leaves breathing room and never overflows.
           // No min-height — Dialog sizes to content by default, which
@@ -722,7 +734,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           // keeps the container distinct without competing with the
           // inner controls. tailwind-merge resolves the conflict in
           // favor of this later value.
-          'rounded-lg',
+          'overflow-hidden rounded-lg border-0 bg-[hsl(var(--app-chrome-elevated)/0.98)] p-0 shadow-[0_28px_80px_hsl(var(--foreground)/0.20)]',
         )}
       >
         {/* Header. The mode toggle sits on the LEFT as a segmented
@@ -730,8 +742,16 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
             than two asymmetric buttons ("转长文" button vs. "← 简单
             模式" link). The Dialog's ✕ stays in its native top-right
             slot — pr-10 keeps the header content clear of it. */}
-        <DialogHeader className="border-b border-border/40 pb-3 pr-10">
-          <div className="flex items-center gap-3">
+        <DialogHeader className="border-b border-border/30 px-5 py-4 pr-12">
+          <div className="flex items-center gap-4">
+            <DialogTitle className="text-[17px] font-semibold leading-6 text-foreground">
+              {existingEntry
+                ? t('timeline.manualEntry.editTitle', { defaultValue: '编辑记录' })
+                : mode === 'long'
+                ? t('timeline.manualEntry.createLongTitle', { defaultValue: '写一篇…' })
+                : t('timeline.manualEntry.createTitle', { defaultValue: '写下…' })}
+            </DialogTitle>
+            <div className="flex-1" />
             {/* Segmented toggle — two equal pills, the active one
                 filled. Both labels use the same noun shape so the
                 pairing is obvious. */}
@@ -740,7 +760,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               aria-label={t('timeline.manualEntry.modeToggleAria', {
                 defaultValue: '编辑模式',
               })}
-              className="flex shrink-0 items-center rounded-md border border-border/60 bg-muted/30 p-0.5 text-[11px]"
+              className="flex shrink-0 items-center rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] p-0.5 text-[11px] shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)]"
             >
               <button
                 type="button"
@@ -751,9 +771,9 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                   // Icon + label parallels the long-mode pill so the
                   // pair reads as a balanced segmented control instead
                   // of a text-only side and an icon-bearing side.
-                  'flex items-center gap-1 rounded-md px-2.5 py-0.5 transition-colors',
+                  'flex h-7 items-center gap-1 rounded px-2.5 transition-colors',
                   mode === 'quick'
-                    ? 'bg-background text-foreground shadow-sm'
+                    ? 'bg-[hsl(var(--app-chrome-elevated))] text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
@@ -766,9 +786,9 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 aria-selected={mode === 'long'}
                 onClick={switchToLong}
                 className={cn(
-                  'flex items-center gap-1 rounded-md px-2.5 py-0.5 transition-colors',
+                  'flex h-7 items-center gap-1 rounded px-2.5 transition-colors',
                   mode === 'long'
-                    ? 'bg-background text-foreground shadow-sm'
+                    ? 'bg-[hsl(var(--app-chrome-elevated))] text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
@@ -776,17 +796,10 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 {t('timeline.manualEntry.modeLong', { defaultValue: '长文' })}
               </button>
             </div>
-            <DialogTitle className="text-base font-medium">
-              {existingEntry
-                ? t('timeline.manualEntry.editTitle', { defaultValue: '编辑记录' })
-                : mode === 'long'
-                ? t('timeline.manualEntry.createLongTitle', { defaultValue: '写一篇…' })
-                : t('timeline.manualEntry.createTitle', { defaultValue: '写下…' })}
-            </DialogTitle>
           </div>
         </DialogHeader>
 
-        <div className="space-y-3 px-6 pb-5 pt-3">
+        <div className="space-y-4 px-5 pb-5 pt-4">
           {/* Chip row goes ABOVE the editor — the user sets the context
               (mood / time / place) first, then writes. Pre-extracted
               into the chipRow constant; same JSX, just one render
@@ -826,7 +839,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 defaultValue: '写下…（⌘+V 粘贴图片，⌘+Enter 保存）',
               })}
               autoFocus
-              className="min-h-[96px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm leading-6"
+              className="min-h-[112px] w-full resize-y rounded-md bg-[hsl(var(--app-chrome-surface)/0.58)] px-3.5 py-3 text-sm leading-6 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.36)] transition-[box-shadow,background-color] placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
             />
           )}
 
@@ -837,15 +850,15 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 <div
                   key={a.draftId}
                   className={cn(
-                    'group relative h-16 w-16 overflow-hidden rounded-md border',
+                    'group relative h-16 w-16 overflow-hidden rounded-md bg-[hsl(var(--app-chrome-surface)/0.68)] shadow-[inset_0_0_0_1px_hsl(var(--border)/0.36)]',
                     a.status === 'uploading' && 'opacity-60',
-                    a.status === 'error' && 'border-red-400',
+                    a.status === 'error' && 'shadow-[inset_0_0_0_1px_hsl(var(--destructive)/0.5)]',
                   )}
                 >
                   {a.previewUrl ? (
                     <img
                       src={a.previewUrl}
-                      alt="attachment"
+                      alt={t('timeline.manualEntry.attachmentAlt', { defaultValue: '附件图片' })}
                       className="h-full w-full object-cover"
                     />
                   ) : null}
@@ -858,7 +871,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                     type="button"
                     onClick={() => removeAttachment(a.draftId)}
                     title={t('timeline.manualEntry.removeImage', { defaultValue: '移除' })}
-                    className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                    className="absolute right-1 top-1 rounded-full bg-foreground/70 p-0.5 text-background opacity-0 transition-opacity group-hover:opacity-100"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -867,7 +880,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex h-16 w-16 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground hover:bg-foreground/[0.03]"
+                className="flex h-16 w-16 items-center justify-center rounded-md bg-[hsl(var(--app-chrome-surface)/0.58)] text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.36)] transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.74)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                 title={t('timeline.manualEntry.addImage', { defaultValue: '添加图片' })}
               >
                 <Image className="h-5 w-5" />
@@ -885,11 +898,11 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
 
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-2 border-t border-border/40 pt-3">
-            <Button variant="ghost" size="sm" onClick={onClose} disabled={saving}>
+          <div className="flex items-center justify-end gap-2 border-t border-border/30 pt-4">
+            <Button variant="ghost" size="sm" onClick={onClose} disabled={saving} className="px-4">
               {t('timeline.manualEntry.cancel', { defaultValue: '取消' })}
             </Button>
-            <Button variant="default" size="sm" disabled={!canSave} onClick={handleSave}>
+            <Button variant="default" size="sm" disabled={!canSave} onClick={handleSave} className="px-4">
               {saving ? (
                 <LoadingSpinner className="mr-1.5 h-3.5 w-3.5" />
               ) : null}

@@ -17,6 +17,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
+import { useTranslation } from 'react-i18next';
 import {
   Bold,
   Italic,
@@ -115,8 +116,9 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           'rich-text-content max-w-none focus:outline-none',
           // Min-height is set via inline style (below) so the long-form
           // caller can override without juggling arbitrary-class values.
-          'w-full rounded-md border border-border bg-background',
-          'px-3 py-2 text-sm leading-6',
+          'w-full rounded-md bg-[hsl(var(--app-chrome-surface)/0.58)]',
+          'px-3.5 py-3 text-sm leading-6 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.36)]',
+          'transition-[box-shadow,background-color] focus-visible:ring-2 focus-visible:ring-primary/20',
         ),
         style: `min-height: ${minHeightPx}px;`,
       },
@@ -204,6 +206,7 @@ const Toolbar: React.FC<{
   editor: ReturnType<typeof useEditor>;
   onApplyLink: (url: string) => void;
 }> = ({ editor, onApplyLink }) => {
+  const { t } = useTranslation('app');
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkDraft, setLinkDraft] = useState('');
 
@@ -218,32 +221,32 @@ const Toolbar: React.FC<{
 
   if (!editor) return null;
   return (
-    <div className="flex flex-wrap items-center gap-0.5 rounded-md border border-border/60 bg-muted/30 px-1 py-0.5">
+    <div className="flex flex-wrap items-center gap-0.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-1 py-0.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)]">
       <Btn
         active={editor.isActive('bold')}
         onClick={() => editor.chain().focus().toggleBold().run()}
-        title="粗体 (⌘B)"
+        title={t('timeline.manualEntry.toolbar.bold', { defaultValue: '粗体 (⌘B)' })}
       >
         <Bold className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={editor.isActive('italic')}
         onClick={() => editor.chain().focus().toggleItalic().run()}
-        title="斜体 (⌘I)"
+        title={t('timeline.manualEntry.toolbar.italic', { defaultValue: '斜体 (⌘I)' })}
       >
         <Italic className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={editor.isActive('strike')}
         onClick={() => editor.chain().focus().toggleStrike().run()}
-        title="删除线"
+        title={t('timeline.manualEntry.toolbar.strike', { defaultValue: '删除线' })}
       >
         <Strikethrough className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={editor.isActive('code')}
         onClick={() => editor.chain().focus().toggleCode().run()}
-        title="行内代码"
+        title={t('timeline.manualEntry.toolbar.code', { defaultValue: '行内代码' })}
       >
         <Code className="h-3.5 w-3.5" />
       </Btn>
@@ -256,13 +259,13 @@ const Toolbar: React.FC<{
           <button
             type="button"
             onClick={openLinkPopover}
-            title="链接"
-            aria-label="链接"
+            title={t('timeline.manualEntry.toolbar.link', { defaultValue: '链接' })}
+            aria-label={t('timeline.manualEntry.toolbar.link', { defaultValue: '链接' })}
             aria-pressed={editor.isActive('link')}
             className={cn(
-              'flex h-6 w-6 items-center justify-center rounded text-xs transition-colors',
+              'flex h-6 w-6 items-center justify-center rounded-md text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
               editor.isActive('link')
-                ? 'bg-foreground/10 text-foreground'
+                ? 'bg-[hsl(var(--primary)/0.12)] text-foreground'
                 : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',
             )}
           >
@@ -273,7 +276,7 @@ const Toolbar: React.FC<{
           side="bottom"
           align="start"
           sideOffset={6}
-          className="flex w-72 items-center gap-1 p-2"
+          className="flex w-72 items-center gap-1 rounded-lg border-border/40 bg-[hsl(var(--app-chrome-elevated)/0.98)] p-2 shadow-[0_14px_36px_hsl(var(--foreground)/0.12)]"
         >
           <input
             type="url"
@@ -291,7 +294,7 @@ const Toolbar: React.FC<{
                 setLinkOpen(false);
               }
             }}
-            className="h-7 flex-1 rounded border border-border bg-background px-2 text-xs"
+            className="h-7 flex-1 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-2 text-xs shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
           />
           <button
             type="button"
@@ -299,9 +302,9 @@ const Toolbar: React.FC<{
               onApplyLink(linkDraft);
               setLinkOpen(false);
             }}
-            className="h-7 rounded bg-foreground px-2 text-xs text-background hover:opacity-90"
+            className="h-7 rounded-md bg-primary px-2.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-[hsl(var(--primary)/0.92)]"
           >
-            应用
+            {t('timeline.manualEntry.toolbar.applyLink', { defaultValue: '应用' })}
           </button>
           {editor.isActive('link') ? (
             <button
@@ -310,10 +313,10 @@ const Toolbar: React.FC<{
                 onApplyLink('');
                 setLinkOpen(false);
               }}
-              title="移除链接"
-              className="h-7 rounded px-2 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+              title={t('timeline.manualEntry.toolbar.removeLink', { defaultValue: '移除链接' })}
+              className="h-7 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
             >
-              移除
+              {t('timeline.manualEntry.toolbar.remove', { defaultValue: '移除' })}
             </button>
           ) : null}
         </PopoverContent>
@@ -324,14 +327,14 @@ const Toolbar: React.FC<{
       <Btn
         active={editor.isActive('heading', { level: 2 })}
         onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-        title="二级标题"
+        title={t('timeline.manualEntry.toolbar.heading2', { defaultValue: '二级标题' })}
       >
         <Heading2 className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={editor.isActive('heading', { level: 3 })}
         onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-        title="三级标题"
+        title={t('timeline.manualEntry.toolbar.heading3', { defaultValue: '三级标题' })}
       >
         <Heading3 className="h-3.5 w-3.5" />
       </Btn>
@@ -341,28 +344,28 @@ const Toolbar: React.FC<{
       <Btn
         active={editor.isActive('bulletList')}
         onClick={() => editor.chain().focus().toggleBulletList().run()}
-        title="无序列表"
+        title={t('timeline.manualEntry.toolbar.bulletList', { defaultValue: '无序列表' })}
       >
         <List className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={editor.isActive('orderedList')}
         onClick={() => editor.chain().focus().toggleOrderedList().run()}
-        title="有序列表"
+        title={t('timeline.manualEntry.toolbar.orderedList', { defaultValue: '有序列表' })}
       >
         <ListOrdered className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={editor.isActive('blockquote')}
         onClick={() => editor.chain().focus().toggleBlockquote().run()}
-        title="引用"
+        title={t('timeline.manualEntry.toolbar.quote', { defaultValue: '引用' })}
       >
         <Quote className="h-3.5 w-3.5" />
       </Btn>
       <Btn
         active={false}
         onClick={() => editor.chain().focus().setHorizontalRule().run()}
-        title="分割线"
+        title={t('timeline.manualEntry.toolbar.divider', { defaultValue: '分割线' })}
       >
         <Minus className="h-3.5 w-3.5" />
       </Btn>
@@ -383,9 +386,9 @@ const Btn: React.FC<{
     aria-label={title}
     aria-pressed={active}
     className={cn(
-      'flex h-6 w-6 items-center justify-center rounded text-xs transition-colors',
+      'flex h-6 w-6 items-center justify-center rounded-md text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
       active
-        ? 'bg-foreground/10 text-foreground'
+        ? 'bg-[hsl(var(--primary)/0.12)] text-foreground'
         : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',
     )}
   >

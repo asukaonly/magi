@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 interface WeekListPickerProps {
@@ -37,12 +38,9 @@ function getISOWeek(date: Date): { year: number; week: number } {
   return { year: d.getUTCFullYear(), week };
 }
 
-/** Sundays end the week; build "5月11–17日" or "4月27日 – 5月3日" depending on month crossing. */
-function formatWeekRange(start: Date, end: Date): string {
-  if (start.getMonth() === end.getMonth()) {
-    return `${start.getMonth() + 1}月${start.getDate()}–${end.getDate()}日`;
-  }
-  return `${start.getMonth() + 1}月${start.getDate()}日 – ${end.getMonth() + 1}月${end.getDate()}日`;
+function formatWeekRange(start: Date, end: Date, locale: string | undefined): string {
+  const formatter = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" });
+  return `${formatter.format(start)} – ${formatter.format(end)}`;
 }
 
 /** All week-start (Monday) Dates that overlap with the given month. */
@@ -72,6 +70,8 @@ export const WeekListPicker: React.FC<WeekListPickerProps> = ({
   selectedWeekStart,
   onSelectWeek,
 }) => {
+  const { t, i18n } = useTranslation("app");
+  const locale = i18n.resolvedLanguage || i18n.language || undefined;
   const selectedStart = startOfISOWeek(new Date(selectedWeekStart * 1000));
   const [viewYear, setViewYear] = useState<number>(selectedStart.getFullYear());
   const [viewMonth, setViewMonth] = useState<number>(selectedStart.getMonth() + 1);
@@ -94,6 +94,10 @@ export const WeekListPicker: React.FC<WeekListPickerProps> = ({
   };
 
   const weeks = weeksOverlappingMonth(viewYear, viewMonth);
+  const monthTitle = new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "long",
+  }).format(new Date(viewYear, viewMonth - 1, 1));
 
   const todayWeekStart = startOfISOWeek(new Date()).getTime();
   const selectedTime = selectedStart.getTime();
@@ -107,19 +111,17 @@ export const WeekListPicker: React.FC<WeekListPickerProps> = ({
           onClick={goPrev}
           onMouseDown={(e) => e.stopPropagation()}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/5"
-          aria-label="prev month"
+          aria-label={t("timeline.picker.previousMonth", { defaultValue: "上一月" })}
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <div className="text-sm font-medium">
-          {viewYear} 年 {viewMonth} 月
-        </div>
+        <div className="text-sm font-medium">{monthTitle}</div>
         <button
           type="button"
           onClick={goNext}
           onMouseDown={(e) => e.stopPropagation()}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/5"
-          aria-label="next month"
+          aria-label={t("timeline.picker.nextMonth", { defaultValue: "下一月" })}
         >
           <ChevronRight className="h-4 w-4" />
         </button>
@@ -148,7 +150,7 @@ export const WeekListPicker: React.FC<WeekListPickerProps> = ({
                   : "text-foreground hover:bg-foreground/5",
               )}
             >
-              <span>{formatWeekRange(weekStart, weekEnd)}</span>
+              <span>{formatWeekRange(weekStart, weekEnd, locale)}</span>
               {isCurrentWeek && !isSelected && (
                 <span
                   className="h-1 w-1 rounded-full bg-foreground/80"

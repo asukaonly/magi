@@ -98,36 +98,40 @@ const ChromeBrandIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-/** zh-CN display label for a source_type. */
-export function labelForSource(sourceType: string): string {
+export function labelForSource(
+  sourceType: string,
+  t?: (key: string, options?: Record<string, unknown>) => string,
+): string {
   const key = sourceType.toLowerCase().replace(/-/g, "_");
-  const labels: Record<string, string> = {
-    manual_entry: "你的记录",
-    chrome_history: "Chrome",
-    chrome: "Chrome",
-    screen_time: "屏幕",
-    screen: "屏幕",
-    chat: "聊天",
-    chat_message: "聊天",
+  const labels: Record<string, { i18nKey?: string; fallback: string }> = {
+    manual_entry: { i18nKey: "timeline.manualEntry.groupLabel", fallback: "你的记录" },
+    chrome_history: { i18nKey: "timeline.sources.chrome_history", fallback: "Chrome" },
+    chrome: { i18nKey: "timeline.sources.chrome_history", fallback: "Chrome" },
+    screen_time: { i18nKey: "timeline.sources.screen_time", fallback: "屏幕" },
+    screen: { i18nKey: "timeline.sources.screen_time", fallback: "屏幕" },
+    chat: { i18nKey: "timeline.sources.chat", fallback: "聊天" },
+    chat_message: { i18nKey: "timeline.sources.chat", fallback: "聊天" },
     // chat_projector is the memory-layer source for projected chat turns —
     // surface it as plain "聊天", same as the chat sensor, not the raw id.
-    chat_projector: "聊天",
-    calendar: "日历",
-    calendar_plugin: "日历",
-    netease_music: "音乐",
-    music: "音乐",
-    system_media: "音乐",
-    git_activity: "Git",
-    git: "Git",
-    terminal_history: "终端",
-    terminal: "终端",
-    photo_library: "相册",
-    photo: "相册",
-    apple_health: "健康",
-    health: "健康",
-    claude: "Claude",
-    ai_assistant: "AI",
-    memory: "记忆",
+    chat_projector: { i18nKey: "timeline.sources.chat", fallback: "聊天" },
+    calendar: { i18nKey: "timeline.sources.calendar", fallback: "日历" },
+    calendar_plugin: { i18nKey: "timeline.sources.calendar", fallback: "日历" },
+    netease_music: { i18nKey: "timeline.sources.netease_music", fallback: "音乐" },
+    music: { i18nKey: "timeline.sources.system_media", fallback: "音乐" },
+    system_media: { i18nKey: "timeline.sources.system_media", fallback: "音乐" },
+    git_activity: { i18nKey: "timeline.sources.git_activity", fallback: "Git" },
+    git: { i18nKey: "timeline.sources.git_activity", fallback: "Git" },
+    terminal_history: { i18nKey: "timeline.sources.terminal_history", fallback: "终端" },
+    terminal: { i18nKey: "timeline.sources.terminal_history", fallback: "终端" },
+    photo_library: { i18nKey: "timeline.sources.photo_library", fallback: "相册" },
+    photo: { i18nKey: "timeline.sources.photo_library", fallback: "相册" },
+    apple_health: { i18nKey: "timeline.sources.apple_health", fallback: "健康" },
+    health: { i18nKey: "timeline.sources.apple_health", fallback: "健康" },
+    claude: { fallback: "Claude" },
+    ai_assistant: { i18nKey: "timeline.sources.ai_assistant", fallback: "AI" },
+    memory: { i18nKey: "timeline.sources.memory", fallback: "记忆" },
   };
-  return labels[key] ?? sourceType;
+  const label = labels[key];
+  if (!label) return sourceType;
+  return label.i18nKey && t ? t(label.i18nKey, { defaultValue: label.fallback }) : label.fallback;
 }

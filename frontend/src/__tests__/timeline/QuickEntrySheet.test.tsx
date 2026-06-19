@@ -177,7 +177,7 @@ describe("QuickEntrySheet", () => {
     // 5-emoji palette becomes interactive. The trigger button shows
     // "心情" placeholder text when no mood is selected.
     await user.click(screen.getByRole("button", { name: /心情/ }));
-    const warmPill = screen.getByRole("button", { name: "warm" });
+    const warmPill = screen.getByRole("button", { name: "舒适 / 放松" });
     expect(warmPill).toHaveAttribute("aria-pressed", "false");
     await user.click(warmPill);
     // Verify the selection landed by saving and inspecting payload.mood.

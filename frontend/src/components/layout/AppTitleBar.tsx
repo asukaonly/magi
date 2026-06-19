@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { MonthGridPicker } from '@/components/timeline/immersive/picker/MonthGridPicker';
 import { WeekListPicker } from '@/components/timeline/immersive/picker/WeekListPicker';
 
-const SCALE_LABEL: Record<string, string> = { month: "月", week: "周", day: "日", hour: "时" };
+const SCALE_OPTIONS = ['month', 'week', 'day', 'hour'] as const;
 
 
 const TimelineTitleBarSlot: React.FC = () => {
@@ -23,19 +23,17 @@ const TimelineTitleBarSlot: React.FC = () => {
 
   return (
     <div className="flex h-full flex-1 items-center gap-3 px-3 text-xs">
-      <span className="text-sm font-semibold text-foreground">
-        {t('timeline.title', { defaultValue: '时间线' })}
-      </span>
       <div className="flex-1" />
       {/* Scale tab group */}
       <div className="flex rounded-md bg-foreground/5 p-0.5">
-        {(['month', 'week', 'day', 'hour'] as const).map((s) => (
+        {SCALE_OPTIONS.map((s) => (
           <button
             key={s}
             type="button"
             data-active={s === panel.scale ? 'true' : 'false'}
             onClick={() => panel.onScaleChange?.(s)}
             onMouseDown={(e) => e.stopPropagation()}
+            aria-label={t(`timeline.scale.${s}`)}
             className={cn(
               'min-w-[28px] rounded-sm px-2.5 py-1 text-center transition-colors',
               s === panel.scale
@@ -43,7 +41,9 @@ const TimelineTitleBarSlot: React.FC = () => {
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            {SCALE_LABEL[s]}
+            {t(`timeline.scaleShort.${s}`, {
+              defaultValue: t(`timeline.scale.${s}`),
+            })}
           </button>
         ))}
       </div>
@@ -53,6 +53,7 @@ const TimelineTitleBarSlot: React.FC = () => {
           type="button"
           onClick={() => panel.onPrevious?.()}
           onMouseDown={(e) => e.stopPropagation()}
+          aria-label={t('timeline.nav.previous')}
           className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.78)] hover:text-foreground"
         >
           ‹
@@ -109,7 +110,7 @@ const TimelineTitleBarSlot: React.FC = () => {
                 {panel.scale === "hour" ? (
                   <div className="border-t border-border px-3 py-2">
                     <div className="mb-1.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-                      时
+                      {t('timeline.titlebar.hour', { defaultValue: 'Hour' })}
                     </div>
                     <div className="grid grid-cols-6 gap-1">
                       {Array.from({ length: 24 }, (_, i) => i).map((h) => {
@@ -151,6 +152,7 @@ const TimelineTitleBarSlot: React.FC = () => {
           disabled={!panel.canGoNext}
           onClick={() => panel.onNext?.()}
           onMouseDown={(e) => e.stopPropagation()}
+          aria-label={t('timeline.nav.next')}
           className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.78)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
         >
           ›
@@ -166,7 +168,8 @@ const TimelineTitleBarSlot: React.FC = () => {
           if (e.key === 'Enter') panel.onSubmitQuery?.();
         }}
         onMouseDown={(e) => e.stopPropagation()}
-        placeholder={t('timeline.searchPlaceholder', { defaultValue: '筛选当前时段' })}
+        placeholder={t('timeline.filters.queryInWindow', { defaultValue: '筛选当前时段' })}
+        aria-label={t('timeline.filters.queryInWindow', { defaultValue: '筛选当前时段' })}
         className="h-6 w-40 rounded-md border-transparent bg-[hsl(var(--app-chrome-elevated)/0.72)] px-2 text-xs shadow-[inset_0_0_0_1px_hsl(var(--app-chrome-divider)/0.38)]"
       />
     </div>

@@ -383,7 +383,9 @@
       "hideConfirm": "Hidden",
       "hourEmpty": "Nothing much this hour.",
       "emptyDay": "Give it a few more days, and this page will fill with who you are.",
-      "emptyMonth": "A monthly view takes a few weeks to take shape. Start with a day?"
+      "emptyMonth": "A monthly view takes a few weeks to take shape. Start with a day?",
+      "sourceItemCount": "{{count}} items",
+      "noSourceLabel": "No label"
     },
     "title": "Timeline",
     "subtitle": "Review what happened over time through reflective windows, clustered periods, and self-state patterns.",
@@ -432,10 +434,25 @@
       "day": "Day",
       "hour": "Hour"
     },
+    "scaleShort": {
+      "month": "M",
+      "week": "W",
+      "day": "D",
+      "hour": "H"
+    },
+    "titlebar": {
+      "hour": "Hour"
+    },
     "nav": {
       "previous": "Previous window",
       "next": "Next window",
       "refresh": "Refresh timeline"
+    },
+    "picker": {
+      "previousYear": "Previous year",
+      "nextYear": "Next year",
+      "previousMonth": "Previous month",
+      "nextMonth": "Next month"
     },
     "labels": {
       "selfState": "Self state"
@@ -464,6 +481,9 @@
       "git_activity": "Git activity",
       "calendar": "Calendar",
       "netease_music": "NetEase Music",
+      "apple_health": "Health",
+      "ai_assistant": "AI",
+      "memory": "Memory",
       "tool_invocation_service": "Tool calls",
       "task_orchestrator": "Tasks",
       "skill_runner": "Skills"
@@ -567,6 +587,109 @@
       "loadFailed": "Failed to load timeline: {{message}}",
       "detailFailed": "Failed to load timeline context: {{message}}",
       "feedbackFailed": "Failed to save timeline feedback: {{message}}"
+    },
+    "emptyState": {
+      "heading": "Let me see your activity",
+      "connect": "Enable",
+      "installAndConnect": "Install & enable",
+      "installing": "Installing…",
+      "browseAll": "Browse all plugins →",
+      "plugins": {
+        "chromeHistory": {
+          "title": "Chrome history",
+          "value": "Let Magi see what you've been reading online"
+        },
+        "screenshotTimeline": {
+          "title": "Screen activity",
+          "value": "Let Magi see what's on your screen"
+        },
+        "calendar": {
+          "title": "Calendar",
+          "value": "Let Magi see what's on your schedule"
+        },
+        "gitActivity": {
+          "title": "Git activity",
+          "value": "Let Magi see what you've been building"
+        },
+        "photoLibrary": {
+          "title": "Photo library",
+          "value": "Let Magi see the moments you've saved"
+        },
+        "codingAgentHistory": {
+          "title": "Coding agent history",
+          "value": "Let Magi see what you built in Claude Code / Codex sessions"
+        }
+      }
+    },
+    "manualEntry": {
+      "openButton": "Add a note (n)",
+      "editTitle": "Edit note",
+      "createTitle": "Write…",
+      "createLongTitle": "Write longer…",
+      "modeToggleAria": "Editor mode",
+      "modeQuick": "Simple",
+      "modeLong": "Long",
+      "placeholder": "Write… (⌘+V to paste images, ⌘+Enter to save)",
+      "placeholderLong": "Write… (⌘+V to paste images, ⌘+Enter to save)",
+      "moodPlaceholder": "Mood",
+      "moodPlaceholderHint": "Choose a mood",
+      "moods": {
+        "warm": "Comfortable / relaxed",
+        "bright": "Open / bright",
+        "neutral": "Neutral",
+        "cool": "Low / quiet",
+        "tense": "Tense / stressed"
+      },
+      "timeShift": {
+        "now": "Just now",
+        "hourAgo": "1 hour ago",
+        "thisMorning": "This morning",
+        "lastNight": "Last night",
+        "custom": "Custom…"
+      },
+      "hour": "Hour",
+      "minute": "Minute",
+      "locationPrompt": "Enter a place",
+      "addLocation": "Add place",
+      "editLocation": "Edit place",
+      "clearLocation": "Clear place",
+      "weatherTitle": "Auto-detected weather",
+      "clearWeather": "Clear weather",
+      "addImage": "Add image",
+      "removeImage": "Remove",
+      "attachmentAlt": "Attached image",
+      "cancel": "Cancel",
+      "save": "Save",
+      "savedToast": "Saved",
+      "deletedToast": "Deleted",
+      "groupLabel": "Your notes",
+      "entryCount": "{{count}} notes",
+      "openImage": "View image",
+      "editAction": "Edit",
+      "deleteAction": "Delete",
+      "confirmDelete": "Delete this note?",
+      "toolbar": {
+        "bold": "Bold (⌘B)",
+        "italic": "Italic (⌘I)",
+        "strike": "Strikethrough",
+        "code": "Inline code",
+        "link": "Link",
+        "applyLink": "Apply",
+        "removeLink": "Remove link",
+        "remove": "Remove",
+        "heading2": "Heading 2",
+        "heading3": "Heading 3",
+        "bulletList": "Bulleted list",
+        "orderedList": "Numbered list",
+        "quote": "Quote",
+        "divider": "Divider"
+      },
+      "errors": {
+        "imageTooLarge": "Image exceeds the {{maxMb}}MB limit",
+        "uploadFailed": "Image upload failed",
+        "saveFailed": "Save failed",
+        "deleteFailed": "Delete failed"
+      }
     }
   },
   "dashboard": {

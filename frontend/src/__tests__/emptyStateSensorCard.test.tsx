@@ -71,6 +71,26 @@ describe('EmptyStateSensorCard', () => {
     ).toHaveTextContent('emptyState.installAndConnect');
   });
 
+  it('prefixes labels for page-specific copies', () => {
+    render(
+      <EmptyStateSensorCard
+        pluginId="chrome-history"
+        titleKey="emptyState.plugins.chromeHistory.title"
+        valueKey="emptyState.plugins.chromeHistory.value"
+        onConnect={() => {}}
+        i18nNamespace="app"
+        i18nKeyPrefix="timeline"
+        connectLabelKey="emptyState.installAndConnect"
+      />,
+    );
+    expect(
+      screen.getByText('timeline.emptyState.plugins.chromeHistory.title'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('empty-state-connect-chrome-history'),
+    ).toHaveTextContent('timeline.emptyState.installAndConnect');
+  });
+
   it('renders disabled state when disabled prop is true', () => {
     render(
       <EmptyStateSensorCard

@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { TimelineMoodCalendarDay } from "@/api/modules/timeline";
 import { cn } from "@/lib/utils";
@@ -30,14 +31,24 @@ const VALENCE_BG: Record<string, string> = {
   tense: "bg-[#b87a78]",
 };
 
-const WEEKDAY_HEADERS = ["一", "二", "三", "四", "五", "六", "日"] as const;
-const MONTH_LABELS_ZH = [
-  "一月", "二月", "三月", "四月", "五月", "六月",
-  "七月", "八月", "九月", "十月", "十一月", "十二月",
-];
-
 function isoDate(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function monthLabel(year: number, month: number, locale: string): string {
+  return new Intl.DateTimeFormat(locale || undefined, {
+    year: "numeric",
+    month: "long",
+  }).format(new Date(year, month - 1, 1));
+}
+
+function weekdayLabels(locale: string): string[] {
+  const monday = new Date(2024, 0, 1);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+    return new Intl.DateTimeFormat(locale || undefined, { weekday: "narrow" }).format(date);
+  });
 }
 
 /** Strictly compare ISO date strings (YYYY-MM-DD) lexicographically. */
@@ -65,6 +76,8 @@ export const MoodCalendar: React.FC<MoodCalendarProps> = ({
   selectedRangeEnd,
   onSelectDate,
 }) => {
+  const { i18n } = useTranslation("app");
+  const locale = i18n.resolvedLanguage || i18n.language || undefined;
   const [year, monthNum] = month.split("-").map(Number);
   const firstOfMonth = new Date(year, monthNum - 1, 1);
   const daysInMonth = new Date(year, monthNum, 0).getDate();
@@ -76,6 +89,7 @@ export const MoodCalendar: React.FC<MoodCalendarProps> = ({
     for (const d of days) m.set(d.date, d);
     return m;
   }, [days]);
+  const weekdays = useMemo(() => weekdayLabels(locale || ""), [locale]);
 
   const todayIso = (() => {
     const now = new Date();
@@ -124,11 +138,11 @@ export const MoodCalendar: React.FC<MoodCalendarProps> = ({
   return (
     <div className="px-4 py-4">
       <div className="mb-2.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-        {year} 年 {MONTH_LABELS_ZH[monthNum - 1]}
+        {monthLabel(year, monthNum, locale || "")}
       </div>
       <div role="row" className="mb-1.5 grid grid-cols-7 gap-1 text-[9px] text-muted-foreground/80">
-        {WEEKDAY_HEADERS.map((label) => (
-          <span key={label} role="columnheader" className="text-center">
+        {weekdays.map((label, index) => (
+          <span key={`${label}-${index}`} role="columnheader" className="text-center">
             {label}
           </span>
         ))}

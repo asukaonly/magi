@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 interface MonthGridPickerProps {
@@ -22,6 +23,8 @@ export const MonthGridPicker: React.FC<MonthGridPickerProps> = ({
   selectedMonth,
   onSelectMonth,
 }) => {
+  const { t, i18n } = useTranslation("app");
+  const locale = i18n.resolvedLanguage || i18n.language || undefined;
   // Parse "YYYY-MM" defensively — fall back to the current year if malformed.
   const parsed = (() => {
     const [y, m] = selectedMonth.split("-").map(Number);
@@ -36,6 +39,7 @@ export const MonthGridPicker: React.FC<MonthGridPickerProps> = ({
   const now = new Date();
   const todayYear = now.getFullYear();
   const todayMonth = now.getMonth() + 1;
+  const monthFormatter = new Intl.DateTimeFormat(locale, { month: "short" });
 
   return (
     <div className="w-[240px] p-3">
@@ -46,17 +50,19 @@ export const MonthGridPicker: React.FC<MonthGridPickerProps> = ({
           onClick={() => setViewYear((y) => y - 1)}
           onMouseDown={(e) => e.stopPropagation()}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/5"
-          aria-label="prev year"
+          aria-label={t("timeline.picker.previousYear", { defaultValue: "上一年" })}
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <div className="text-sm font-medium">{viewYear} 年</div>
+        <div className="text-sm font-medium">
+          {new Intl.DateTimeFormat(locale, { year: "numeric" }).format(new Date(viewYear, 0, 1))}
+        </div>
         <button
           type="button"
           onClick={() => setViewYear((y) => y + 1)}
           onMouseDown={(e) => e.stopPropagation()}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/5"
-          aria-label="next year"
+          aria-label={t("timeline.picker.nextYear", { defaultValue: "下一年" })}
         >
           <ChevronRight className="h-4 w-4" />
         </button>
@@ -83,7 +89,7 @@ export const MonthGridPicker: React.FC<MonthGridPickerProps> = ({
                   : "text-foreground hover:bg-foreground/5",
               )}
             >
-              {m} 月
+              {monthFormatter.format(new Date(viewYear, m - 1, 1))}
               {isToday && !isSelected && (
                 <span
                   className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-foreground/80"

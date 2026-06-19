@@ -184,7 +184,10 @@ const ManualEntryGroup: React.FC<{
           {t("timeline.manualEntry.groupLabel", { defaultValue: "你的记录" })}
         </span>
         <span className="font-mono text-[11px] text-muted-foreground/50">
-          · {entries.length} 条
+          · {t("timeline.manualEntry.entryCount", {
+            defaultValue: "{{count}} 条",
+            count: entries.length,
+          })}
         </span>
       </div>
       <ul className="ml-5 flex flex-col gap-2">
@@ -354,7 +357,8 @@ function isPlaceholderText(value: string | null | undefined): boolean {
 }
 
 const SourceGroupBlock: React.FC<{ group: SourceGroup }> = ({ group }) => {
-  const label = labelForSource(group.sourceType);
+  const { t } = useTranslation("app");
+  const label = labelForSource(group.sourceType, t);
   return (
     <div>
       <div className="mb-1.5 flex items-center gap-1.5">
@@ -365,7 +369,10 @@ const SourceGroupBlock: React.FC<{ group: SourceGroup }> = ({ group }) => {
         </span>
         {group.itemCount > 1 && (
           <span className="font-mono text-[11px] text-muted-foreground/50">
-            · {group.itemCount} 次
+            · {t("timeline.immersive.sourceItemCount", {
+              defaultValue: "{{count}} 次",
+              count: group.itemCount,
+            })}
           </span>
         )}
       </div>
@@ -390,7 +397,10 @@ const SourceGroupBlock: React.FC<{ group: SourceGroup }> = ({ group }) => {
               {displayText ? (
                 <span className="leading-snug">{displayText}</span>
               ) : (
-                <span className="leading-snug text-muted-foreground/40" aria-label="(no label)">
+                <span
+                  className="leading-snug text-muted-foreground/40"
+                  aria-label={t("timeline.immersive.noSourceLabel", { defaultValue: "无标签" })}
+                >
                   —
                 </span>
               )}

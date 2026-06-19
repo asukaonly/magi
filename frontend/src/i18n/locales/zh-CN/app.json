@@ -418,10 +418,25 @@
       "day": "日",
       "hour": "小时"
     },
+    "scaleShort": {
+      "month": "月",
+      "week": "周",
+      "day": "日",
+      "hour": "时"
+    },
+    "titlebar": {
+      "hour": "时"
+    },
     "nav": {
       "previous": "上一窗口",
       "next": "下一窗口",
       "refresh": "刷新时间线"
+    },
+    "picker": {
+      "previousYear": "上一年",
+      "nextYear": "下一年",
+      "previousMonth": "上一月",
+      "nextMonth": "下一月"
     },
     "labels": {
       "selfState": "自身状态"
@@ -450,6 +465,9 @@
       "git_activity": "Git 活动",
       "calendar": "日历",
       "netease_music": "网易云音乐",
+      "apple_health": "健康",
+      "ai_assistant": "AI",
+      "memory": "记忆",
       "tool_invocation_service": "工具调用",
       "task_orchestrator": "任务",
       "skill_runner": "技能"
@@ -566,7 +584,112 @@
       "hideConfirm": "已隐藏",
       "hourEmpty": "这个小时没什么动静。",
       "emptyDay": "再陪你几天，这页就会写满你的样子。",
-      "emptyMonth": "月度回顾需要几周时间慢慢长出来。先从日开始翻？"
+      "emptyMonth": "月度回顾需要几周时间慢慢长出来。先从日开始翻？",
+      "sourceItemCount": "{{count}} 次",
+      "noSourceLabel": "无标签"
+    },
+    "emptyState": {
+      "heading": "让我看看你的活动",
+      "connect": "启用",
+      "installAndConnect": "安装并启用",
+      "installing": "安装中…",
+      "browseAll": "浏览全部插件 →",
+      "plugins": {
+        "chromeHistory": {
+          "title": "Chrome 历史",
+          "value": "让我看到你最近在网上读什么"
+        },
+        "screenshotTimeline": {
+          "title": "屏幕记录",
+          "value": "让我看到你屏幕上发生了什么"
+        },
+        "calendar": {
+          "title": "日历",
+          "value": "让我看到你的日程安排"
+        },
+        "gitActivity": {
+          "title": "Git 活动",
+          "value": "让我看到你最近在构建什么"
+        },
+        "photoLibrary": {
+          "title": "照片库",
+          "value": "让我看到你保存下来的时刻"
+        },
+        "codingAgentHistory": {
+          "title": "代码代理历史",
+          "value": "让我看到你在 Claude Code / Codex 会话里做过什么"
+        }
+      }
+    },
+    "manualEntry": {
+      "openButton": "记一笔 (n)",
+      "editTitle": "编辑记录",
+      "createTitle": "写下…",
+      "createLongTitle": "写一篇…",
+      "modeToggleAria": "编辑模式",
+      "modeQuick": "简单",
+      "modeLong": "长文",
+      "placeholder": "写下…（⌘+V 粘贴图片，⌘+Enter 保存）",
+      "placeholderLong": "写下…（⌘+V 粘贴图片，⌘+Enter 保存）",
+      "moodPlaceholder": "心情",
+      "moodPlaceholderHint": "选一个心情",
+      "moods": {
+        "warm": "舒适 / 放松",
+        "bright": "开朗 / 明亮",
+        "neutral": "一般",
+        "cool": "低落 / 收敛",
+        "tense": "紧张 / 压力"
+      },
+      "timeShift": {
+        "now": "刚才",
+        "hourAgo": "1 小时前",
+        "thisMorning": "今早",
+        "lastNight": "昨晚",
+        "custom": "自定义…"
+      },
+      "hour": "时",
+      "minute": "分",
+      "locationPrompt": "输入地点",
+      "addLocation": "加地点",
+      "editLocation": "修改地点",
+      "clearLocation": "清除地点",
+      "weatherTitle": "自动获取的天气",
+      "clearWeather": "清除天气",
+      "addImage": "添加图片",
+      "removeImage": "移除",
+      "attachmentAlt": "附件图片",
+      "cancel": "取消",
+      "save": "保存",
+      "savedToast": "已记录",
+      "deletedToast": "已删除",
+      "groupLabel": "你的记录",
+      "entryCount": "{{count}} 条",
+      "openImage": "查看图片",
+      "editAction": "编辑",
+      "deleteAction": "删除",
+      "confirmDelete": "删除这条记录？",
+      "toolbar": {
+        "bold": "粗体 (⌘B)",
+        "italic": "斜体 (⌘I)",
+        "strike": "删除线",
+        "code": "行内代码",
+        "link": "链接",
+        "applyLink": "应用",
+        "removeLink": "移除链接",
+        "remove": "移除",
+        "heading2": "二级标题",
+        "heading3": "三级标题",
+        "bulletList": "无序列表",
+        "orderedList": "有序列表",
+        "quote": "引用",
+        "divider": "分割线"
+      },
+      "errors": {
+        "imageTooLarge": "图片超过 {{maxMb}}MB 上限",
+        "uploadFailed": "图片上传失败",
+        "saveFailed": "保存失败",
+        "deleteFailed": "删除失败"
+      }
     }
   },
   "dashboard": {

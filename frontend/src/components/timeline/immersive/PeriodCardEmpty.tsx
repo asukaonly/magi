@@ -28,7 +28,7 @@ export const PeriodCardEmpty: React.FC<PeriodCardEmptyProps> = ({ scale, dateLab
         {emptyMessage}
       </p>
       <div className="mt-8 w-full max-w-3xl">
-        <EmptyStateAvailableSensors />
+        <EmptyStateAvailableSensors i18nNamespace="app" i18nKeyPrefix="timeline" />
       </div>
     </div>
   );
