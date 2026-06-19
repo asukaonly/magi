@@ -214,6 +214,7 @@ class MemoryEvent:
     importance_score: float
     level: int
     id: Optional[int] = None
+    session_seq: Optional[int] = None
     idempotency_key: Optional[str] = None
     media_path: Optional[str] = None
     # Capture-time full text pinned for L2 (RFC #56 P3). Transient: NOT a
@@ -246,6 +247,7 @@ class MemoryEvent:
             "retention_class": self.retention_class.label,
             "session_id": self.session_id,
             "turn_id": self.turn_id,
+            "session_seq": self.session_seq,
             "user_id": self.user_id,
             "task_id": self.task_id,
             "content": self.content,
@@ -419,8 +421,6 @@ def _is_runtime_chat_response(event: Event, payload: dict[str, Any]) -> bool:
 
 def _classify_event(event: Event) -> Dict[str, Any]:
     event_type = str(event.type)
-    source = str(event.source or "")
-    metadata = event.metadata if isinstance(event.metadata, dict) else {}
 
     if event_type == EventTypes.USER_MESSAGE:
         return {

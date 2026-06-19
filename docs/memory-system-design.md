@@ -937,6 +937,7 @@ CREATE TABLE fact_events (
     retention_class INTEGER NOT NULL DEFAULT 2,
     session_id TEXT,
     turn_id TEXT,
+    session_seq INTEGER,
     user_id TEXT,
     content TEXT NOT NULL,
     author_type INTEGER NOT NULL,
@@ -954,6 +955,12 @@ CREATE TABLE fact_events (
 CREATE UNIQUE INDEX idx_fact_events_business_idempotency
     ON fact_events(source, event_type, idempotency_key);
 
+CREATE TABLE l1_session_sequences (
+    session_id TEXT PRIMARY KEY,
+    next_seq INTEGER NOT NULL DEFAULT 0,
+    updated_at REAL NOT NULL DEFAULT 0
+);
+
 CREATE TABLE l1_event_embedding_state (
     event_id TEXT PRIMARY KEY,
     embedding_status INTEGER NOT NULL DEFAULT 1,
@@ -968,6 +975,7 @@ Key notes:
 
 - `event_id` is the external stable reference key
 - `id` is the internal relationship key
+- `session_seq` is the stable event order within a session; local context windows and evidence bundles should use it instead of depending on `turn_id` naming conventions
 - `metadata_json` carries structured event payloads
 - `author_type`, `content_type`, evidence fields, retrieval scope, and embedding status are stored as compact integer codes and decoded to labels at runtime/API boundaries
 - Canonical `l1_retrieval_scope` labels are `none`, `fact_authoritative`, `conversation_only`, `audit_only`, and `source_backlink_only`
@@ -976,7 +984,7 @@ Key notes:
 - Versioned evidence annotations can be backfilled in place without rewriting raw event content
 - Embedding observation fields live in `l1_event_embedding_state`; `fact_events` remains the durable event truth table
 - Durable events support soft deletion via `deleted_at`
-- Existing pre-baseline local `L1` databases are not migrated in place in active development mode; delete/rebuild the local `l1_events.db` when adopting this clean baseline
+- Schema evolution is migration-backed for current local databases; very old pre-Alembic development databases may still need a rebuild
 
 ---
 

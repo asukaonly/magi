@@ -293,7 +293,7 @@ class _BatchTrackingEmbeddingService:
         return [self._make_result(text) for text in texts]
 
     def _make_result(self, text: str):
-        from magi.memory.embedding.embedding_service import EmbeddingProfile, EmbeddingResult
+        from magi.memory.embedding.embedding_service import EmbeddingResult
 
         lowered = text.lower()
         vector = [0.0] * self.embedding_dimension
@@ -468,6 +468,84 @@ async def test_l1_event_store_query_events_resolves_active_profile_once(tmp_path
 
         assert len(queried) == 3
         assert call_count == 1
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_assigns_session_local_sequence_numbers(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        for index in range(3):
+            event = Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "user-1",
+                    "session_id": "session-seq",
+                    "turn_id": f"turn_{index}",
+                    "content": f"Remember item {index}",
+                    "author_type": "user",
+                    "content_type": "text",
+                },
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id=f"corr-session-seq-{index}",
+                event_id=f"evt-session-seq-{index}",
+            )
+            await store.store(normalize_runtime_event(event))
+
+        queried = await store.query_events(
+            session_id="session-seq",
+            limit=10,
+            order_by="timestamp_asc",
+        )
+
+        assert [event["session_seq"] for event in queried] == [0, 1, 2]
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_queries_session_sequence_window(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        for index in range(5):
+            event = Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "user-1",
+                    "session_id": "session-window",
+                    "turn_id": f"turn_{index}",
+                    "content": f"Window item {index}",
+                    "author_type": "user",
+                    "content_type": "text",
+                },
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id=f"corr-session-window-{index}",
+                event_id=f"evt-session-window-{index}",
+            )
+            await store.store(normalize_runtime_event(event))
+
+        window = await store.query_session_event_window(
+            session_id="session-window",
+            center_session_seq=2,
+            window=1,
+        )
+
+        assert [event["event_id"] for event in window] == [
+            "evt-session-window-1",
+            "evt-session-window-2",
+            "evt-session-window-3",
+        ]
     finally:
         await store.shutdown()
 

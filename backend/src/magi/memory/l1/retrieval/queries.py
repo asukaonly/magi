@@ -309,3 +309,56 @@ class L1EventQueryMixin(
             for row in rows
         ]
         return items
+
+    async def query_session_event_window(
+        self,
+        *,
+        session_id: str,
+        center_session_seq: int,
+        window: int,
+        limit: int | None = None,
+        include_metadata_json: bool = True,
+        include_embedding_fields: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Fetch events around a session-local sequence number."""
+        host = cast(L1EventQueryHostProtocol, self)
+        await host.initialize()
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            return []
+        center = int(center_session_seq)
+        radius = max(int(window), 0)
+        start_seq = max(center - radius, 0)
+        end_seq = center + radius
+        row_limit = int(limit) if limit is not None else (end_seq - start_seq + 1)
+        row_limit = max(row_limit, 1)
+
+        sql = (
+            f"SELECT {self._select_event_columns()} FROM {FACT_EVENTS_TABLE} "
+            "LEFT JOIN l1_event_embedding_state USING(event_id) "
+            "WHERE deleted_at IS NULL "
+            "AND session_id = ? "
+            "AND session_seq IS NOT NULL "
+            "AND session_seq BETWEEN ? AND ? "
+            "ORDER BY session_seq ASC, timestamp ASC, id ASC "
+            "LIMIT ?"
+        )
+        args = (normalized_session_id, start_seq, end_seq, row_limit)
+
+        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, args) as cursor:
+                rows = await cursor.fetchall()
+        if include_embedding_fields:
+            active_embedding_profile_id, _ = host._resolve_active_embedding_profile_id()
+        else:
+            active_embedding_profile_id = None
+        return [
+            host._row_to_dict(
+                row,
+                include_metadata_json=include_metadata_json,
+                include_embedding_fields=include_embedding_fields,
+                active_embedding_profile_id=active_embedding_profile_id,
+            )
+            for row in rows
+        ]

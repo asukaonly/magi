@@ -35,6 +35,7 @@ from .embeddings.common import (
 )
 
 logger = logging.getLogger(__name__)
+L1_SESSION_SEQUENCES_TABLE = "l1_session_sequences"
 
 
 def _merge_evidence_into_metadata(
@@ -143,17 +144,28 @@ class L1EventWriteMixin:
             event.metadata_json, evidence_values.get("reason_code")
         )
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+            existing_event_id = await host._resolve_existing_event_id(db, event)
+            if existing_event_id:
+                if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:
+                    logger.info(
+                        "L1EventStore skipped duplicate event | event_id=%s type=%s",
+                        event.event_id,
+                        event.event_type,
+                    )
+                return existing_event_id
+            session_seq = await self._resolve_event_session_seq(db, event)
+            event.session_seq = session_seq
             cursor = await db.execute(
                 f"""
                 INSERT OR IGNORE INTO {FACT_EVENTS_TABLE}(
                     event_id, timestamp, created_at,
                     event_type, source, source_item_id, idempotency_key, memory_domain,
-                    cognition_eligible, retention_class, session_id, turn_id, user_id,
+                    cognition_eligible, retention_class, session_id, turn_id, session_seq, user_id,
                     content, author_type, content_type, importance_score,
                     media_path, metadata_json, deleted_at,
                     evidence_status, evidence_class, evidence_rule_version,
                     l1_retrieval_scope
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event.event_id,
@@ -168,6 +180,7 @@ class L1EventWriteMixin:
                     int(event.retention_class),
                     event.session_id,
                     event.turn_id,
+                    session_seq,
                     event.user_id,
                     event.content,
                     author_type_code(event.author_type),
@@ -246,8 +259,65 @@ class L1EventWriteMixin:
         await host._schedule_event_embedding(event)
         return event.event_id
 
+    async def _resolve_event_session_seq(
+        self,
+        db: aiosqlite.Connection,
+        event: MemoryEvent,
+    ) -> int | None:
+        session_id = str(event.session_id or "").strip()
+        if not session_id:
+            return event.session_seq
+        if event.session_seq is not None:
+            explicit_seq = max(int(event.session_seq), 0)
+            await self._advance_session_sequence(
+                db,
+                session_id=session_id,
+                next_seq=explicit_seq + 1,
+            )
+            return explicit_seq
+        return await self._allocate_session_seq(db, session_id=session_id)
+
+    @staticmethod
+    async def _allocate_session_seq(
+        db: aiosqlite.Connection,
+        *,
+        session_id: str,
+    ) -> int:
+        async with db.execute(
+            f"""
+            INSERT INTO {L1_SESSION_SEQUENCES_TABLE}(session_id, next_seq, updated_at)
+            VALUES (?, 1, ?)
+            ON CONFLICT(session_id) DO UPDATE SET
+                next_seq = next_seq + 1,
+                updated_at = excluded.updated_at
+            RETURNING next_seq - 1
+            """,
+            (session_id, time.time()),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            raise RuntimeError("Failed to allocate L1 session sequence")
+        return int(row[0])
+
+    @staticmethod
+    async def _advance_session_sequence(
+        db: aiosqlite.Connection,
+        *,
+        session_id: str,
+        next_seq: int,
+    ) -> None:
+        await db.execute(
+            f"""
+            INSERT INTO {L1_SESSION_SEQUENCES_TABLE}(session_id, next_seq, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET
+                next_seq = MAX(next_seq, excluded.next_seq),
+                updated_at = excluded.updated_at
+            """,
+            (session_id, max(int(next_seq), 0), time.time()),
+        )
+
     def _resolve_event_evidence_values(self, event: MemoryEvent) -> dict[str, Any]:
-        now = time.time()
         try:
             classification = classify_event_evidence(event)
         except Exception as exc:

@@ -25,9 +25,14 @@ from .embeddings.common import (
 _L1_MIGRATION_MODULES = (
     "magi.db.migrations.l1.versions.0001_initial",
     "magi.db.migrations.l1.versions.0002_l1_event_payload",
+    "magi.db.migrations.l1.versions.0003_l1_session_sequence",
 )
 SCHEMA_SQL = "\n".join(
     importlib.import_module(_module).SCHEMA_SQL for _module in _L1_MIGRATION_MODULES
+)
+
+_SESSION_SEQUENCE_MIGRATION = importlib.import_module(
+    "magi.db.migrations.l1.versions.0003_l1_session_sequence"
 )
 
 EMBEDDING_QUEUE_MAXSIZE = 512
@@ -70,7 +75,17 @@ class L1EventLifecycleMixin:
     async def _ensure_schema(self) -> None:
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.executescript(SCHEMA_SQL)
+            await self._ensure_session_sequence_schema(db)
             await db.commit()
+
+    @staticmethod
+    async def _ensure_session_sequence_schema(db: Any) -> None:
+        async with db.execute("PRAGMA table_info(fact_events)") as cursor:
+            columns = {str(row[1]) for row in await cursor.fetchall()}
+        if "session_seq" not in columns:
+            await db.execute("ALTER TABLE fact_events ADD COLUMN session_seq INTEGER")
+        await db.executescript(_SESSION_SEQUENCE_MIGRATION.INDEX_SQL)
+        await db.executescript(_SESSION_SEQUENCE_MIGRATION.BACKFILL_SQL)
 
     async def shutdown(self) -> None:
         if self._embedding_queue is not None and self._embedding_workers:

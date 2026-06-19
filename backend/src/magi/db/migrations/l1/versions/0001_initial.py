@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS fact_events (
     retention_class INTEGER NOT NULL DEFAULT 2,
     session_id TEXT,
     turn_id TEXT,
+    session_seq INTEGER,
     user_id TEXT,
     content TEXT NOT NULL,
     author_type INTEGER NOT NULL,
@@ -66,6 +67,12 @@ CREATE INDEX IF NOT EXISTS idx_fact_events_l1_retrieval_scope
     ON fact_events(l1_retrieval_scope, user_id, timestamp DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_events_business_idempotency
     ON fact_events(source, event_type, idempotency_key);
+
+CREATE TABLE IF NOT EXISTS l1_session_sequences (
+    session_id TEXT PRIMARY KEY,
+    next_seq INTEGER NOT NULL DEFAULT 0,
+    updated_at REAL NOT NULL DEFAULT 0
+);
 
 CREATE TABLE IF NOT EXISTS l1_event_embedding_state (
     event_id TEXT PRIMARY KEY,
@@ -149,6 +156,7 @@ DROP TABLE IF EXISTS l1_event_entities;
 DROP TABLE IF EXISTS l1_events_fts;
 DROP TABLE IF EXISTS l1_event_chunks;
 DROP TABLE IF EXISTS l1_event_embedding_state;
+DROP TABLE IF EXISTS l1_session_sequences;
 DROP TABLE IF EXISTS embedding_profiles;
 DROP TABLE IF EXISTS fact_events;
 """

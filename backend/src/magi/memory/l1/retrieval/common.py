@@ -97,5 +97,16 @@ class L1EventQueryHostProtocol(Protocol):
         l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]: ...
 
+    async def query_session_event_window(
+        self,
+        *,
+        session_id: str,
+        center_session_seq: int,
+        window: int,
+        limit: int | None = None,
+        include_metadata_json: bool = True,
+        include_embedding_fields: bool = True,
+    ) -> List[Dict[str, Any]]: ...
+
 
 __all__ = ["FACT_EVENTS_TABLE", "L1EventQueryHostProtocol"]

@@ -72,6 +72,7 @@ class L1EventRowMixin:
         stored_profile_id = self._row_value(row, "embedding_profile_id")
         metadata_json = row["metadata_json"] if include_metadata_json else None
         memory_domain = MemoryDomain.from_value(row["memory_domain"])
+        session_seq = self._row_value(row, "session_seq")
         item = {
             "id": int(row["id"]),
             "event_id": str(row["event_id"]),
@@ -88,6 +89,7 @@ class L1EventRowMixin:
             "retention_class": RetentionClass.from_value(row["retention_class"]).label,
             "session_id": row["session_id"],
             "turn_id": row["turn_id"],
+            "session_seq": int(session_seq) if session_seq is not None else None,
             "user_id": row["user_id"],
             "content": str(row["content"]),
             "author_type": author_type_label(row["author_type"]),
@@ -119,6 +121,7 @@ class L1EventRowMixin:
         stored_profile_id = self._row_value(row, "embedding_profile_id")
         metadata_json = row["metadata_json"]
         memory_domain = MemoryDomain.from_value(row["memory_domain"])
+        session_seq = self._row_value(row, "session_seq")
         return MemoryEvent(
             id=int(row["id"]),
             event_id=str(row["event_id"]),
@@ -136,6 +139,7 @@ class L1EventRowMixin:
             retention_class=RetentionClass.from_value(row["retention_class"]),
             session_id=row["session_id"],
             turn_id=row["turn_id"],
+            session_seq=int(session_seq) if session_seq is not None else None,
             user_id=row["user_id"],
             task_id=None,
             content=str(row["content"]),

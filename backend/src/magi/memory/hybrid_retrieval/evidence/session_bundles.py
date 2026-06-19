@@ -71,7 +71,12 @@ class EvidenceBundleMixin:
         ]
         session_events_list = await asyncio.gather(
             *(
-                self._load_session_events(session_id, limit=limit)
+                self._load_session_events(
+                    session_id,
+                    session_hits=grouped_hits[session_id],
+                    neighbor_window=neighbor_window,
+                    limit=limit,
+                )
                 for session_id, limit in zip(session_ids, session_limits)
             ),
         )
@@ -105,17 +110,57 @@ class EvidenceBundleMixin:
         bundles.sort(key=lambda bundle: bundle.get("session_best_score", 0.0), reverse=True)
         return bundles
 
-    async def _load_session_events(self, session_id: str, *, limit: int) -> List[Dict[str, Any]]:
+    async def _load_session_events(
+        self,
+        session_id: str,
+        *,
+        session_hits: List[Dict[str, Any]],
+        neighbor_window: int,
+        limit: int,
+    ) -> List[Dict[str, Any]]:
         """Load a bounded set of events for a single session."""
         store = getattr(self._memory, "l1", None)
         if store is None:
             return []
+        hit_session_seqs = sorted(
+            {
+                session_seq
+                for hit in session_hits
+                for session_seq in [self._session_seq(hit.get("session_seq"))]
+                if session_seq is not None
+            }
+        )
+        window_loader = getattr(store, "query_session_event_window", None)
+        if hit_session_seqs and callable(window_loader):
+            try:
+                window_events_list = await asyncio.gather(
+                    *(
+                        window_loader(
+                            session_id=session_id,
+                            center_session_seq=session_seq,
+                            window=max(neighbor_window, 0),
+                            include_embedding_fields=False,
+                        )
+                        for session_seq in hit_session_seqs
+                    )
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to load session-sequence L1 window for evidence bundle",
+                    exc_info=True,
+                )
+            else:
+                merged_events = self._dedupe_events(
+                    event for window_events in window_events_list for event in window_events
+                )
+                if merged_events:
+                    return merged_events
         try:
             events = await store.query_events(session_id=session_id, limit=limit)
         except Exception:
             logger.debug("Failed to load session-local L1 events for evidence bundle", exc_info=True)
             return []
-        return sorted(events, key=lambda event: float(event.get("timestamp") or 0.0))
+        return sorted(events, key=self._event_sort_key)
 
     def _select_bundle_events(
         self,
@@ -135,12 +180,26 @@ class EvidenceBundleMixin:
             for turn_number in [self._parse_turn_number(str(hit.get("turn_id") or ""))]
             if turn_number is not None
         }
+        hit_session_seqs = {
+            session_seq
+            for hit in session_hits
+            for session_seq in [self._session_seq(hit.get("session_seq"))]
+            if session_seq is not None
+        }
 
         selected: List[Dict[str, Any]] = []
         for event in session_events:
             event_id = str(event.get("event_id") or "")
             if event_id in hit_event_ids:
                 selected.append(event)
+                continue
+            session_seq = self._session_seq(event.get("session_seq"))
+            if session_seq is not None and hit_session_seqs:
+                if any(
+                    abs(session_seq - hit_session_seq) <= max(neighbor_window, 0)
+                    for hit_session_seq in hit_session_seqs
+                ):
+                    selected.append(event)
                 continue
             turn_number = self._parse_turn_number(str(event.get("turn_id") or ""))
             if turn_number is None or not hit_turn_numbers:
@@ -151,18 +210,39 @@ class EvidenceBundleMixin:
             ):
                 selected.append(event)
 
+        unique_events = self._dedupe_events(selected)
+        neighbor_expansion_applied = len(unique_events) > len(session_hits)
+        return unique_events or list(session_hits), neighbor_expansion_applied
+
+    @classmethod
+    def _dedupe_events(cls, events: Any) -> List[Dict[str, Any]]:
         unique_events: List[Dict[str, Any]] = []
         seen_event_ids: set[str] = set()
-        for event in selected:
+        for event in events:
             event_id = str(event.get("event_id") or "")
             if event_id and event_id in seen_event_ids:
                 continue
             if event_id:
                 seen_event_ids.add(event_id)
             unique_events.append(event)
-        unique_events.sort(key=lambda event: float(event.get("timestamp") or 0.0))
-        neighbor_expansion_applied = len(unique_events) > len(session_hits)
-        return unique_events or list(session_hits), neighbor_expansion_applied
+        unique_events.sort(key=cls._event_sort_key)
+        return unique_events
+
+    @classmethod
+    def _event_sort_key(cls, event: Dict[str, Any]) -> tuple[int, int | float]:
+        session_seq = cls._session_seq(event.get("session_seq"))
+        if session_seq is not None:
+            return (0, session_seq)
+        return (1, float(event.get("timestamp") or 0.0))
+
+    @staticmethod
+    def _session_seq(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _bundle_neighbor_window(query: str) -> int:
