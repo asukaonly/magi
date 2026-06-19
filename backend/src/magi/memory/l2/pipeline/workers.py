@@ -60,9 +60,12 @@ class L2PipelineWorkerMixin:
 
         while True:
             job = await host._extract_queue.get()
+            active_counted = False
             try:
                 if job is None:
                     break
+                host._stats.extract_active += 1
+                active_counted = True
                 logger.info(
                     "L2 extract started",
                     job_id=job.job_id,
@@ -170,15 +173,20 @@ class L2PipelineWorkerMixin:
                     queue_size=host._extract_queue.qsize(),
                 )
             finally:
+                if active_counted:
+                    host._stats.extract_active = max(host._stats.extract_active - 1, 0)
                 host._extract_queue.task_done()
 
     async def _run_reconcile_worker(self) -> None:
         host = self._worker_host()
         while True:
             entity_ids = await host._reconcile_queue.get()
+            active_counted = False
             try:
                 if entity_ids is None:
                     break
+                host._stats.reconcile_active += 1
+                active_counted = True
                 logger.info(
                     "L2 reconcile started",
                     entity_ids=entity_ids,
@@ -219,6 +227,8 @@ class L2PipelineWorkerMixin:
                     queue_size=host._reconcile_queue.qsize(),
                 )
             finally:
+                if active_counted:
+                    host._stats.reconcile_active = max(host._stats.reconcile_active - 1, 0)
                 host._reconcile_queue.task_done()
 
     async def _emit_state_change_insight(
@@ -272,9 +282,12 @@ class L2PipelineWorkerMixin:
         host = self._worker_host()
         while True:
             entity_ids = await host._snapshot_queue.get()
+            active_counted = False
             try:
                 if entity_ids is None:
                     break
+                host._stats.snapshot_active += 1
+                active_counted = True
                 logger.info(
                     "L2 snapshot started",
                     entity_ids=entity_ids,
@@ -304,6 +317,8 @@ class L2PipelineWorkerMixin:
                     queue_size=host._snapshot_queue.qsize(),
                 )
             finally:
+                if active_counted:
+                    host._stats.snapshot_active = max(host._stats.snapshot_active - 1, 0)
                 host._snapshot_queue.task_done()
 
     def _worker_host(self) -> _L2PipelineWorkerHostProtocol:

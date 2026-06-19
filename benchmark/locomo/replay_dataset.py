@@ -159,6 +159,11 @@ async def replay_locomo_samples(
             flush_l2=False,
             drain_l2_edge_embeddings=True,
         )
+    if wait_for_background and finalize:
+        post_replay["post_l2_pipeline_stats"] = await wait_for_l2_pipeline_idle(
+            eval_service,
+            poll_interval_seconds=poll_interval_seconds,
+        )
     if wait_for_background:
         post_replay["background_pending"] = await wait_for_background_idle(
             eval_service,

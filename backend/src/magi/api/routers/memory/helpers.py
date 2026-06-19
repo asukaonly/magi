@@ -26,6 +26,9 @@ def build_l2_pending_breakdown(
     projection_backlog: Dict[str, Any] | None = None,
 ) -> Dict[str, int]:
     durable_projection = dict(projection_backlog or {})
+    extract_active = max(int(pipeline_stats.get("extract_active", 0)), 0)
+    reconcile_active = max(int(pipeline_stats.get("reconcile_active", 0)), 0)
+    snapshot_active = max(int(pipeline_stats.get("snapshot_active", 0)), 0)
     in_memory_extract_pending = max(
         int(pipeline_stats.get("extract_enqueued", 0))
         - int(pipeline_stats.get("extract_completed", 0))
@@ -38,19 +41,28 @@ def build_l2_pending_breakdown(
         0,
     )
     return {
-        "extract_pending": max(in_memory_extract_pending, durable_projection_pending),
+        "extract_pending": max(
+            in_memory_extract_pending,
+            durable_projection_pending,
+            extract_active,
+        ),
+        "extract_active": extract_active,
         "reconcile_pending": max(
             int(pipeline_stats.get("reconcile_enqueued", 0))
             - int(pipeline_stats.get("reconcile_completed", 0))
             - int(pipeline_stats.get("reconcile_failed", 0)),
+            reconcile_active,
             0,
         ),
+        "reconcile_active": reconcile_active,
         "snapshot_pending": max(
             int(pipeline_stats.get("snapshot_enqueued", 0))
             - int(pipeline_stats.get("snapshot_completed", 0))
             - int(pipeline_stats.get("snapshot_failed", 0)),
+            snapshot_active,
             0,
         ),
+        "snapshot_active": snapshot_active,
         "projection_pending": max(int(durable_projection.get("pending", 0)), 0),
         "projection_claimed": max(int(durable_projection.get("claimed", 0)), 0),
         "projection_failed": max(int(durable_projection.get("failed", 0)), 0),

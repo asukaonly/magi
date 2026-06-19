@@ -141,6 +141,10 @@ async def replay_longmemeval_rows(
         flush_l2=False,
         drain_l2_edge_embeddings=True,
     )
+    post_replay["post_l2_pipeline_stats"] = await wait_for_l2_pipeline_idle(
+        eval_service,
+        poll_interval_seconds=poll_interval_seconds,
+    )
     post_replay["background_pending"] = await wait_for_background_idle(
         eval_service,
         poll_interval_seconds=poll_interval_seconds,
@@ -170,8 +174,11 @@ def print_l2_pipeline_stats(stats: dict[str, Any]) -> None:
     print(
         "[L2 drain] "
         f"extract_pending={pending['extract_pending']} "
+        f"extract_active={pending['extract_active']} "
         f"reconcile_pending={pending['reconcile_pending']} "
+        f"reconcile_active={pending['reconcile_active']} "
         f"snapshot_pending={pending['snapshot_pending']} "
+        f"snapshot_active={pending['snapshot_active']} "
         f"projection_pending={pending['projection_pending']} "
         f"projection_claimed={pending['projection_claimed']}"
     )
@@ -189,26 +196,35 @@ def print_background_pending(stats: dict[str, Any]) -> None:
 
 def describe_l2_pending(stats: dict[str, Any]) -> dict[str, int]:
     projection_backlog = dict(stats.get("projection_backlog") or {})
+    extract_active = max(int(stats.get("extract_active", 0) or 0), 0)
+    reconcile_active = max(int(stats.get("reconcile_active", 0) or 0), 0)
+    snapshot_active = max(int(stats.get("snapshot_active", 0) or 0), 0)
     return {
         "extract_pending": max(
             int(stats.get("extract_enqueued", 0))
             - int(stats.get("extract_completed", 0))
             - int(stats.get("extract_failed", 0))
             - int(stats.get("extract_skipped", 0)),
+            extract_active,
             0,
         ),
+        "extract_active": extract_active,
         "reconcile_pending": max(
             int(stats.get("reconcile_enqueued", 0))
             - int(stats.get("reconcile_completed", 0))
             - int(stats.get("reconcile_failed", 0)),
+            reconcile_active,
             0,
         ),
+        "reconcile_active": reconcile_active,
         "snapshot_pending": max(
             int(stats.get("snapshot_enqueued", 0))
             - int(stats.get("snapshot_completed", 0))
             - int(stats.get("snapshot_failed", 0)),
+            snapshot_active,
             0,
         ),
+        "snapshot_active": snapshot_active,
         "projection_pending": max(int(projection_backlog.get("pending", 0) or 0), 0),
         "projection_claimed": max(int(projection_backlog.get("claimed", 0) or 0), 0),
         "projection_failed": max(int(projection_backlog.get("failed", 0) or 0), 0),
@@ -221,8 +237,11 @@ def is_l2_pipeline_idle(stats: dict[str, Any]) -> bool:
         int(pending[key]) == 0
         for key in (
             "extract_pending",
+            "extract_active",
             "reconcile_pending",
+            "reconcile_active",
             "snapshot_pending",
+            "snapshot_active",
             "projection_pending",
             "projection_claimed",
         )
@@ -240,7 +259,17 @@ def build_embedding_pending_payload(stats: dict[str, Any]) -> dict[str, Any]:
 
 def is_background_idle(stats: dict[str, Any]) -> bool:
     return (
-        all(int(stats.get("l2", {}).get(key, 0)) == 0 for key in ("extract_pending", "reconcile_pending", "snapshot_pending"))
+        all(
+            int(stats.get("l2", {}).get(key, 0)) == 0
+            for key in (
+                "extract_pending",
+                "extract_active",
+                "reconcile_pending",
+                "reconcile_active",
+                "snapshot_pending",
+                "snapshot_active",
+            )
+        )
         and int(stats.get("l1_embeddings", {}).get("pending", 0)) == 0
         and int(stats.get("l2_edge_embeddings", {}).get("pending", 0)) == 0
         and int(stats.get("l3_embeddings", {}).get("pending", 0)) == 0

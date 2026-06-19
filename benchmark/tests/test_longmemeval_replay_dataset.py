@@ -225,8 +225,9 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
     assert post_replay["l2_pipeline_stats"]["projection_backlog"]["claimed"] == 0
     assert post_replay["post_l2_finalize"]["summaries"]["hour"]["summary_id"] == "sum-hour-1"
     assert post_replay["post_l2_finalize"]["l2_edge_embedding_count"] == 4
+    assert post_replay["post_l2_pipeline_stats"]["extract_completed"] == 10
     assert post_replay["background_pending"]["all_idle"] is True
-    assert service.l2_stats_calls == 3
+    assert service.l2_stats_calls == 4
     assert service.background_pending_calls == 2
     assert service.calls == [
         ("write_records", 2),
@@ -249,6 +250,7 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
                 "drain_l2_edge_embeddings": True,
             },
         ),
+        ("get_l2_pipeline_stats", 4),
         ("get_background_pending", 1),
         ("get_background_pending", 2),
     ]

@@ -44,13 +44,16 @@ class L2PipelineStats:
 
     is_running: bool = False
     extract_enqueued: int = 0
+    extract_active: int = 0
     extract_completed: int = 0
     extract_failed: int = 0
     extract_skipped: int = 0
     reconcile_enqueued: int = 0
+    reconcile_active: int = 0
     reconcile_completed: int = 0
     reconcile_failed: int = 0
     snapshot_enqueued: int = 0
+    snapshot_active: int = 0
     snapshot_completed: int = 0
     snapshot_failed: int = 0
     relations_written: int = 0
