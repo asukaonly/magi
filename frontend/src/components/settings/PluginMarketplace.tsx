@@ -402,10 +402,13 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                           {itemName}
                         </span>
                         <Badge variant="outline" className="text-xs">
-                          {item.kind === 'group'
-                            ? t('settings.marketplace.badge.entryCount', { count: item.entries.length })
-                            : `v${entry.version}`}
+                          v{entry.version}
                         </Badge>
+                        {item.kind === 'group' && (
+                          <Badge variant="outline" className="text-xs">
+                            {t('settings.marketplace.badge.entryCount', { count: item.entries.length })}
+                          </Badge>
+                        )}
                         {item.entries.every((candidate) => candidate.official) && (
                           <Badge variant="default" className="text-xs">
                             {t('settings.marketplace.badge.official')}

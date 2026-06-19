@@ -133,6 +133,7 @@ describe('PluginMarketplace', () => {
 
     const browserCard = await screen.findByTestId('marketplace-plugin-browser-history');
     expect(browserCard).toHaveTextContent('浏览历史');
+    expect(browserCard).toHaveTextContent('v0.1.0');
     expect(browserCard).toHaveTextContent('Chrome');
     expect(browserCard).toHaveTextContent('Safari');
     expect(screen.queryByTestId('marketplace-plugin-chrome-history')).not.toBeInTheDocument();
