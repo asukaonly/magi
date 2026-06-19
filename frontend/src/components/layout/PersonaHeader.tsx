@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus } from 'lucide-react';
 import { ChatRoleAvatar } from '@/components/chat/ChatRoleAvatar';
 import { useActivePersona } from '@/hooks/useActivePersona';
 import { personasApi } from '@/api/modules/personas';
@@ -18,11 +17,7 @@ const computeCompanionDays = (createdAtSeconds: number): number => {
   return Math.floor(diffMs / MS_PER_DAY);
 };
 
-export interface PersonaHeaderProps {
-  onCreateChat?: () => void;
-}
-
-export const PersonaHeader = ({ onCreateChat }: PersonaHeaderProps) => {
+export const PersonaHeader = () => {
   const { t, i18n } = useTranslation('app');
   const { persona } = useActivePersona();
 
@@ -73,17 +68,6 @@ export const PersonaHeader = ({ onCreateChat }: PersonaHeaderProps) => {
           {companionLabel}
         </div>
       </div>
-      {onCreateChat ? (
-        <button
-          type="button"
-          onClick={onCreateChat}
-          aria-label={t('shell.newChat')}
-          title={t('shell.newChat')}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[hsl(var(--sidebar-muted))] transition-colors hover:bg-[hsl(var(--sidebar-tool-hover))] hover:text-[hsl(var(--sidebar-active-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]"
-        >
-          <Plus className="h-4 w-4" />
-        </button>
-      ) : null}
     </div>
   );
 };

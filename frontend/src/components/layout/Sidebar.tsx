@@ -6,7 +6,6 @@ import {
   History,
   ListChecks,
   MessageCircle,
-  MoreHorizontal,
   Settings,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -220,21 +219,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     };
   }, [sessionMenu]);
 
-  const handleCreateSession = async () => {
-    try {
-      const result = await messagesApi.createNewSession(USER_ID);
-      if (result.session_id) {
-        window.localStorage.setItem(CHAT_SESSION_KEY(USER_ID), result.session_id);
-        await refreshSessions(result.session_id);
-        setActivePanel('conversation');
-        setOpenPanel('conversation');
-        navigate('/chat');
-      }
-    } catch {
-      // ignore at shell level, chat page will surface failure details
-    }
-  };
-
   const openSessionMenu = useCallback(
     (sessionId: string, anchorX: number, anchorY: number) => {
       setSessionMenu({
@@ -406,7 +390,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
   const renderConversationPanel = () => (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="sidebar-conversation-rail">
-      <PersonaHeader onCreateChat={() => { void handleCreateSession(); }} />
+      <PersonaHeader />
 
       <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
         <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
@@ -415,7 +399,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
               {loading ? t('shell.loadingSessions') : t('shell.emptySessions')}
             </div>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {sessionRows.map((session) => {
                 const active = currentSessionId === session.session_id;
                 const unreadCount = unreadBySession[session.session_id] || 0;
@@ -424,10 +408,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                   <div
                     key={session.session_id}
                     className={cn(
-                      'group/session relative flex h-10 items-center gap-1 rounded-lg transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[2px] before:rounded-full before:bg-transparent',
+                      'group/session relative flex h-9 items-center rounded-md transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[2px] before:rounded-full before:bg-transparent',
                       active
-                        ? 'bg-[hsl(var(--sidebar-active)/0.52)] text-[hsl(var(--sidebar-active-foreground))] shadow-[0_10px_24px_hsl(var(--sidebar-shadow)/0.045)] before:bg-[hsl(var(--primary))]'
-                        : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover)/0.68)] hover:text-[hsl(var(--sidebar-active-foreground))]'
+                        ? 'text-[hsl(var(--sidebar-active-foreground))] before:bg-[hsl(var(--primary)/0.78)]'
+                        : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover)/0.46)] hover:text-[hsl(var(--sidebar-active-foreground))]'
                     )}
                   >
                     <button
@@ -444,35 +428,20 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                       }}
                       aria-label={displayLabel}
                       aria-current={active ? 'page' : undefined}
-                      className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]"
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-3 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]"
                       title={displayLabel}
                     >
-                      <span className="min-w-0 flex-1 truncate font-medium">{displayLabel}</span>
+                      <span className={cn('min-w-0 flex-1 truncate', active ? 'font-semibold' : 'font-medium')}>
+                        {displayLabel}
+                      </span>
                       {unreadCount > 0 ? (
                         <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[hsl(var(--sidebar-badge))] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(var(--sidebar-badge-foreground))]">
                           {Math.min(unreadCount, 99)}
                         </span>
                       ) : null}
-                      <span className="shrink-0 text-[10px] text-[hsl(var(--sidebar-muted))]">
+                      <span className="shrink-0 text-[11px] text-[hsl(var(--sidebar-muted))]">
                         {formatSessionTime(session.last_timestamp, i18n.language)}
                       </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        openSessionMenu(session.session_id, rect.right - 176, rect.bottom + 6);
-                      }}
-                      className={cn(
-                        'mr-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[hsl(var(--sidebar-muted))] opacity-0 transition-all duration-150 ease-out focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)] group-hover/session:opacity-100',
-                        active
-                          ? 'hover:bg-[hsl(var(--sidebar-subactive))] hover:text-[hsl(var(--sidebar-active-foreground))]'
-                          : 'hover:bg-[hsl(var(--sidebar-tool-hover))] hover:text-[hsl(var(--sidebar-active-foreground))]'
-                      )}
-                      aria-label={t('shell.sessionActions')}
-                      title={t('shell.sessionActions')}
-                    >
-                      <MoreHorizontal className="h-4 w-4" />
                     </button>
                   </div>
                 );

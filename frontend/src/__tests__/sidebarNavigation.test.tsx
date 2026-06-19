@@ -212,7 +212,8 @@ describe('sidebar navigation', () => {
     );
 
     await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
-    expect(screen.getByRole('button', { name: 'shell.newChat' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'shell.newChat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'shell.sessionActions' })).not.toBeInTheDocument();
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '杭州天气' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '西湖路线' })).toBeInTheDocument();
@@ -255,67 +256,7 @@ describe('sidebar navigation', () => {
     });
   });
 
-  it('creates a new session without triggering redundant sidebar refresh loops', async () => {
-    const user = userEvent.setup();
-    vi.mocked(messagesApi.listSessions)
-      .mockResolvedValueOnce({
-        sessions: [
-          {
-            session_id: 'session-a',
-            title: '旧会话',
-            last_message_preview: '之前的消息',
-            last_timestamp: 10,
-            message_count: 1,
-          },
-        ],
-        user_id: 'local_user',
-        count: 1,
-      })
-      .mockResolvedValueOnce({
-        sessions: [
-          {
-            session_id: 'session-new',
-            title: '新会话',
-            last_message_preview: '',
-            last_timestamp: 11,
-            message_count: 0,
-          },
-          {
-            session_id: 'session-a',
-            title: '旧会话',
-            last_message_preview: '之前的消息',
-            last_timestamp: 10,
-            message_count: 1,
-          },
-        ],
-        user_id: 'local_user',
-        count: 2,
-      });
-    vi.mocked(messagesApi.createNewSession).mockResolvedValueOnce({
-      success: true,
-      user_id: 'local_user',
-      session_id: 'session-new',
-    });
-
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <Sidebar />
-      </MemoryRouter>
-    );
-
-    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
-    await screen.findByRole('button', { name: '旧会话' });
-
-    await user.click(screen.getByRole('button', { name: 'shell.newChat' }));
-
-    await waitFor(() => {
-      expect(useConversationStore.getState().currentSessionId).toBe('session-new');
-    });
-    expect(messagesApi.createNewSession).toHaveBeenCalledTimes(1);
-    expect(messagesApi.listSessions).toHaveBeenCalledTimes(2);
-  });
-
-  it('opens the session actions menu from the overflow button and right click', async () => {
+  it('opens the session actions menu from right click', async () => {
     const user = userEvent.setup();
     vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
       sessions: [
@@ -353,12 +294,7 @@ describe('sidebar navigation', () => {
     );
 
     await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
-    await user.click(await screen.findByRole('button', { name: 'shell.sessionActions' }));
-
-    expect(await screen.findByRole('button', { name: 'shell.renameSession' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'shell.deleteSession' })).toBeInTheDocument();
-
-    await user.click(document.body);
+    expect(screen.queryByRole('button', { name: 'shell.sessionActions' })).not.toBeInTheDocument();
 
     await user.pointer([
       {
@@ -368,6 +304,7 @@ describe('sidebar navigation', () => {
     ]);
 
     expect(await screen.findByRole('button', { name: 'shell.renameSession' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'shell.deleteSession' })).toBeInTheDocument();
   });
 
   it('renames a session through the sidebar menu and keeps the updated label', async () => {
@@ -435,8 +372,12 @@ describe('sidebar navigation', () => {
     );
 
     await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
-    const actionButtons = await screen.findAllByRole('button', { name: 'shell.sessionActions' });
-    await user.click(actionButtons[0]);
+    await user.pointer([
+      {
+        target: await screen.findByRole('button', { name: '杭州天气' }),
+        keys: '[MouseRight]',
+      },
+    ]);
     await user.click(await screen.findByRole('button', { name: 'shell.renameSession' }));
     await user.clear(screen.getByPlaceholderText('shell.renameSessionPlaceholder'));
     await user.type(screen.getByPlaceholderText('shell.renameSessionPlaceholder'), '天气追踪');
@@ -525,8 +466,12 @@ describe('sidebar navigation', () => {
     );
 
     await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
-    const actionButtons = await screen.findAllByRole('button', { name: 'shell.sessionActions' });
-    await user.click(actionButtons[0]);
+    await user.pointer([
+      {
+        target: await screen.findByRole('button', { name: '杭州天气' }),
+        keys: '[MouseRight]',
+      },
+    ]);
     await user.click(await screen.findByRole('button', { name: 'shell.deleteSession' }));
     await user.click(await screen.findByRole('button', { name: 'shell.confirmDeleteSession' }));
 
