@@ -48,10 +48,15 @@ Outputs are written under `benchmark/outputs/locomo/<run-id>/`:
 - `predictions_with_trace.jsonl`
 - `locomo_predictions.json`
 - `summary.json`
+- `error_report.jsonl`
+- `error_report.csv`
+- `error_report_summary.json`
 
 Phase 1 scope:
 
 - QA only
 - one memory namespace per LoCoMo conversation
-- images represented by the released BLIP captions
+- both LoCoMo speakers are replayed as memory-bearing dialogue, with speaker names kept in the text
+- images represented by the released BLIP captions plus image search queries
+- image-bearing turns carry a small two-turn neighbor context window
 - local official-style F1 scoring

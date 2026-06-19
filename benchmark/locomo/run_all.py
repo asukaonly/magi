@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from benchmark.common.paths import build_run_output_dir, resolve_backend_url
+from benchmark.locomo.error_report import run_error_analysis
 from benchmark.locomo.query_dataset import main as query_main
 from benchmark.locomo.replay_dataset import main as replay_main
 from benchmark.locomo.runner import format_run_id, resolve_locomo_dataset
@@ -63,6 +64,17 @@ def run_locomo_pipeline(
         qa_limit=qa_limit,
     )
 
+    error_report_artifacts = run_error_analysis(
+        predictions_with_trace_path=run_dir / "predictions_with_trace.jsonl",
+        output_dir=run_dir,
+    )
+    error_report_summary = json.loads(
+        error_report_artifacts.summary_path.read_text(encoding="utf-8")
+    )
+    print(f"Wrote {error_report_artifacts.csv_path}")
+    print(f"Wrote {error_report_artifacts.jsonl_path}")
+    print(f"Wrote {error_report_artifacts.summary_path}")
+
     summary_path = run_dir / "summary.json"
     summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.exists() else {}
     return {
@@ -71,6 +83,7 @@ def run_locomo_pipeline(
         "backend_url": resolved_backend_url,
         "dataset": str(dataset),
         "summary": summary,
+        "error_report": error_report_summary,
     }
 
 

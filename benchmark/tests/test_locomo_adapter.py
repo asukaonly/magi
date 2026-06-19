@@ -24,6 +24,7 @@ def _build_sample() -> dict[str, object]:
                     "speaker": "Melanie",
                     "dia_id": "D1:2",
                     "text": "I painted a sunrise.",
+                    "query": "sunrise lake painting reference",
                     "blip_caption": "a lake sunrise painting",
                 },
             ],
@@ -66,10 +67,16 @@ def test_adapter_converts_sample_into_shared_replay_records_and_queries() -> Non
     ]
     assert [record.turn_id for record in adapted.replay_records] == ["D1:1", "D1:2", "D2:1"]
     assert adapted.replay_records[0].role == "user"
-    assert adapted.replay_records[1].role == "assistant"
+    assert adapted.replay_records[1].role == "user"
     assert 'Caroline said, "I joined a support group."' in adapted.replay_records[0].content
+    assert "Nearby conversation context:" not in adapted.replay_records[0].content
     assert "shared an image: a lake sunrise painting" in adapted.replay_records[1].content
+    assert "image search query: sunrise lake painting reference" in adapted.replay_records[1].content
+    assert "Previous turn D1:1 (Caroline): I joined a support group." in adapted.replay_records[1].content
     assert adapted.replay_records[2].metadata["dia_id"] == "D2:1"
+    assert adapted.replay_records[0].metadata["neighbor_context_window"] == 0
+    assert adapted.replay_records[1].metadata["image_query"] == "sunrise lake painting reference"
+    assert adapted.replay_records[1].metadata["neighbor_context_window"] == 2
 
     assert [qa.question_id for qa in adapted.qa_entries] == [
         "conv-test:qa-1",
