@@ -579,6 +579,8 @@ Natural language
 
 **Candidates first, then evidence aggregation**: For `affinity` queries, platform/place/category constraints find candidate objects first, then user-candidate edges are used to compute affinity. Object eligibility and affinity strength are determined by separate mechanisms.
 
+Explicit non-vector entity matches from the query are hard grounding constraints for L2 relationship retrieval. For example, if the query names or aliases a known place/software/person, structured graph lookup narrows to that object id; vector-only entity matches remain soft candidates and must not become hard filters.
+
 **Affinity is read-time aggregation, not a single predicate**. For different answer kinds, strong evidence differs:
 
 - Creator: `FOLLOWS`, explicit `LIKES`, `INTERESTED_IN`, repeated consumption

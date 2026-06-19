@@ -164,6 +164,30 @@ class TestBatchForwarding:
                 EvidenceClass.USER_SELF_REPORT.label
             ], f"recall-path call must forward evidence_classes; got {call}"
 
+    @pytest.mark.asyncio
+    async def test_structured_graph_uses_explicit_object_entity_as_filter(self):
+        store = _make_store()
+        plan = _plan_with_subject(
+            object_candidates=[
+                GroundedEntityCandidate(
+                    entity_id="place:shanghai",
+                    entity_type="place",
+                    surface="Shanghai",
+                    score=1.0,
+                    source="alias",
+                )
+            ],
+        )
+
+        await retrieve_knowledge(plan, store)
+
+        object_calls = [
+            call
+            for call in store.get_relationships.await_args_list
+            if call.kwargs.get("object_id") == "place:shanghai"
+        ]
+        assert object_calls, "explicit grounded object entity should narrow the graph query"
+
 
 class TestSingleEntityForwarding:
     @pytest.mark.asyncio

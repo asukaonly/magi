@@ -71,6 +71,8 @@ def test_grounding_plan_trace_preserves_existing_keys():
         "allowed_evidence_classes",
         "evidence_focus_source",
         "predicate_source",
+        "subject_entity_ids",
+        "object_entity_ids",
     }
     assert set(trace.keys()) == expected_keys
     assert trace["query_kind"] == "unknown"
@@ -81,6 +83,37 @@ def test_grounding_plan_trace_preserves_existing_keys():
     assert trace["subject_count"] == 0
     assert trace["object_count"] == 0
     assert trace["predicate_count"] == 0
+    assert trace["subject_entity_ids"] == []
+    assert trace["object_entity_ids"] == []
+
+
+def test_grounding_plan_trace_includes_explicit_entity_ids():
+    from magi.memory.hybrid_retrieval.grounding import GroundedEntityCandidate
+
+    plan = L2GroundingPlan(
+        subject_candidates=[
+            GroundedEntityCandidate(
+                entity_id="user:u1",
+                entity_type="user",
+                surface="self",
+                score=1.0,
+            )
+        ],
+        object_candidates=[
+            GroundedEntityCandidate(
+                entity_id="place:shanghai",
+                entity_type="place",
+                surface="Shanghai",
+                score=1.0,
+                source="alias",
+            )
+        ],
+    )
+
+    trace = _build_grounding_plan_trace(plan)
+
+    assert trace["subject_entity_ids"] == ["user:u1"]
+    assert trace["object_entity_ids"] == ["place:shanghai"]
 
 
 def test_grounding_plan_trace_includes_evidence_focus_source():

@@ -12,7 +12,11 @@ from .answerability import (
 )
 from .models import RetrievalPayload
 
-_TURN_NUMBER_RE = re.compile(r"turn-(\d+)$")
+_TURN_NUMBER_PATTERNS = (
+    re.compile(r"(?:^|[:/])turn[-_](\d+)$", re.IGNORECASE),
+    re.compile(r"^turn[-_](\d+)$", re.IGNORECASE),
+    re.compile(r"^[A-Za-z]\d+:(\d+)$"),
+)
 
 
 def plan_signature(plan: Any) -> tuple[str, str, bool]:
@@ -170,10 +174,13 @@ def hit_score(hit: dict[str, Any]) -> float:
 
 
 def parse_turn_number(turn_id: str) -> int | None:
-    match = _TURN_NUMBER_RE.search(str(turn_id or ""))
-    if not match:
-        return None
-    try:
-        return int(match.group(1))
-    except ValueError:
-        return None
+    normalized = str(turn_id or "").strip()
+    for pattern in _TURN_NUMBER_PATTERNS:
+        match = pattern.search(normalized)
+        if not match:
+            continue
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+    return None

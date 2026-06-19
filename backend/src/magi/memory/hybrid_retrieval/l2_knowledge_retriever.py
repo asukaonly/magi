@@ -89,6 +89,7 @@ async def _structured_graph_channel(
     clause_arg = (tc_sql, tc_params) if tc_sql else None
 
     object_types = _extract_object_types(plan)
+    object_ids = _extract_explicit_object_ids(plan)
 
     hop2 = None
     max_hops = 1
@@ -115,6 +116,7 @@ async def _structured_graph_channel(
         relation_direction=plan.relation_direction,
         temporal_clause=clause_arg,
         evidence_classes=_evidence_classes_for(plan),
+        candidate_object_ids=object_ids,
     )
     _tag_channel(results, "structured_graph")
     return results
@@ -333,6 +335,16 @@ def _extract_object_types(plan: L2GroundingPlan) -> list[str] | None:
         if constraint.field == "object_type":
             types.append(str(constraint.value))
     return types if types else None
+
+
+def _extract_explicit_object_ids(plan: L2GroundingPlan) -> list[str] | None:
+    entity_ids: list[str] = []
+    for candidate in plan.object_candidates:
+        if candidate.source == "vector":
+            continue
+        if candidate.entity_id and candidate.entity_id not in entity_ids:
+            entity_ids.append(candidate.entity_id)
+    return entity_ids or None
 
 
 def _score_subject_match(edge: dict[str, Any], plan: L2GroundingPlan) -> float:

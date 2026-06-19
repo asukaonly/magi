@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from magi.config.models import AppConfig
-from magi.memory.l0.contracts import L0ExecutionSummary, L0PromptWorkbenchProjection
 from magi.memory.hybrid_retrieval.models import (
     IntentDecision,
     L1Conditions,
@@ -236,7 +235,7 @@ class TestServiceLayerRouting:
         l1 = _make_l1_store([{"event_id": "e1", "content": "test", "timestamp": 1000.0}])
         mem = _make_memory(l1=l1)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        result = await svc.query(_make_request(query_mode="detail"))
+        await svc.query(_make_request(query_mode="detail"))
         # L1Handler uses keyword path which filters by content tokens
         # The mock query_events returns the event, and keyword matching should pass
         assert l1.bm25_search.called or l1.query_events.called
@@ -266,7 +265,7 @@ class TestServiceLayerRouting:
         l3 = _make_l3_store(tmp_path, [{"summary_id": "s1", "content": "summary"}])
         mem = _make_memory(l3=l3)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        result = await svc.query(_make_request(query_mode="summary"))
+        await svc.query(_make_request(query_mode="summary"))
         assert l3.bm25_search.called
 
     @pytest.mark.asyncio
@@ -285,7 +284,7 @@ class TestServiceLayerRouting:
         l4 = _make_l4_store(tmp_path, [{"skill_id": "p1", "skill_name": "test"}])
         mem = _make_memory(l4=l4)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        result = await svc.query(_make_request(query_mode="experience"))
+        await svc.query(_make_request(query_mode="experience"))
         assert l4.bm25_search.called
 
     @pytest.mark.asyncio
@@ -376,7 +375,7 @@ class TestServiceLayerRouting:
         mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
 
-        result = await svc.query(
+        await svc.query(
             _make_request(
                 query_mode="graph",
                 # RFC #65: the structured channel abstains when no predicate
@@ -455,7 +454,15 @@ class TestServiceLayerRouting:
         l2.batch_list_tom_assertions.return_value = {
             "user:u1": [{"assertion_id": "assert-1", "confidence_score": 0.8}],
         }
-        l2.get_relationships.return_value = []
+        l2.get_relationships.return_value = [
+            {
+                "triple_id": "triple-1",
+                "predicate": "KNOWS",
+                "subject_id": "user:u1",
+                "object_id": "place:shanghai",
+                "status": "active",
+            }
+        ]
         l2.list_episodes.return_value = []
         l2.search_episodes_fts.return_value = []
         entity_catalog = AsyncMock()
