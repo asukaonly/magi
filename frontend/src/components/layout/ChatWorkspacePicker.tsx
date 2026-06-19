@@ -42,7 +42,7 @@ export const ChatWorkspacePicker = () => {
           disabled={updatingWorkspace}
           aria-label={t('chat.workspace.recentMenu')}
           title={workspaceDisplayPath}
-          className="group flex h-7 min-w-0 max-w-[min(40vw,28rem)] items-center gap-1.5 rounded-md px-2.5 text-[12.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 data-[state=open]:bg-muted data-[state=open]:text-foreground disabled:pointer-events-none disabled:opacity-60"
+          className="group flex h-7 min-w-0 max-w-[min(40vw,28rem)] items-center gap-1.5 rounded-md px-2.5 text-[12.5px] text-muted-foreground transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.78)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 data-[state=open]:bg-[hsl(var(--app-chrome-elevated)/0.88)] data-[state=open]:text-foreground disabled:pointer-events-none disabled:opacity-60"
         >
           <span
             data-testid="chat-workspace-path"
@@ -58,7 +58,7 @@ export const ChatWorkspacePicker = () => {
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="w-[min(28rem,80vw)] rounded-2xl border-border/70 bg-background/98 p-2 shadow-[0_18px_50px_rgba(15,23,42,0.14)] backdrop-blur"
+        className="w-[min(28rem,80vw)] rounded-2xl border-[hsl(var(--app-chrome-divider)/0.5)] bg-[hsl(var(--app-chrome-elevated)/0.98)] p-2 shadow-[0_18px_50px_hsl(var(--foreground)/0.12)] backdrop-blur"
       >
         <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
           {t('chat.workspace.recentTitle')}

@@ -624,7 +624,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'relative flex h-full min-h-0 overflow-hidden bg-[linear-gradient(180deg,hsl(var(--sidebar-background-start))_0%,hsl(var(--sidebar-background-end))_100%)] shadow-[inset_-1px_0_0_hsl(var(--sidebar-border)/0.58)] transition-[width] duration-150 ease-out',
+        'relative flex h-full min-h-0 overflow-hidden bg-[hsl(var(--app-chrome-surface))] shadow-[inset_-1px_0_0_hsl(var(--app-chrome-divider)/0.46)] transition-[width] duration-150 ease-out',
         openPanel ? 'w-[284px]' : 'w-14'
       )}
     >
@@ -658,7 +658,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         </div>
       ) : null}
       <div
-        className="flex w-14 shrink-0 flex-col px-1.5 pb-3 pt-3 shadow-[inset_-1px_0_0_hsl(var(--sidebar-border)/0.44)]"
+        className="flex w-14 shrink-0 flex-col bg-[hsl(var(--app-chrome-surface))] px-1.5 pb-3 pt-3 shadow-[inset_-1px_0_0_hsl(var(--app-chrome-divider)/0.34)]"
         data-testid="sidebar-activity-bar"
       >
         <div className="flex min-h-0 flex-1 flex-col items-center gap-1">
@@ -700,7 +700,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       </div>
 
       {openPanel ? (
-        <div className="flex min-h-0 w-[228px] shrink-0 flex-col bg-[hsl(var(--sidebar-background-end)/0.54)]">
+        <div className="flex min-h-0 w-[228px] shrink-0 flex-col bg-[hsl(var(--app-chrome-surface))]">
           {renderPanelContent()}
         </div>
       ) : null}

@@ -40,7 +40,7 @@ const TimelineTitleBarSlot: React.FC = () => {
             className={cn(
               'min-w-[28px] rounded-sm px-2.5 py-1 text-center transition-colors',
               s === panel.scale
-                ? 'bg-background text-foreground shadow-sm'
+                ? 'bg-[hsl(var(--app-chrome-elevated))] text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -54,7 +54,7 @@ const TimelineTitleBarSlot: React.FC = () => {
           type="button"
           onClick={() => panel.onPrevious?.()}
           onMouseDown={(e) => e.stopPropagation()}
-          className="rounded-md p-1 text-muted-foreground hover:bg-foreground/5"
+          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.78)] hover:text-foreground"
         >
           ‹
         </button>
@@ -64,7 +64,7 @@ const TimelineTitleBarSlot: React.FC = () => {
               type="button"
               onMouseDown={(e) => e.stopPropagation()}
               data-no-drag
-              className="cursor-pointer rounded border border-transparent bg-transparent px-2 py-0.5 text-xs text-muted-foreground hover:border-border hover:text-foreground w-[160px] text-center"
+              className="w-[160px] cursor-pointer rounded border border-transparent bg-transparent px-2 py-0.5 text-center text-xs text-muted-foreground transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.72)] hover:text-foreground"
             >
               {panel.dateLabel}
             </button>
@@ -152,7 +152,7 @@ const TimelineTitleBarSlot: React.FC = () => {
           disabled={!panel.canGoNext}
           onClick={() => panel.onNext?.()}
           onMouseDown={(e) => e.stopPropagation()}
-          className="rounded-md p-1 text-muted-foreground hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-30"
+          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.78)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
         >
           ›
         </button>
@@ -168,7 +168,7 @@ const TimelineTitleBarSlot: React.FC = () => {
         }}
         onMouseDown={(e) => e.stopPropagation()}
         placeholder={t('timeline.searchPlaceholder', { defaultValue: '筛选当前时段' })}
-        className="h-6 w-40 rounded-md border border-border bg-background px-2 text-xs"
+        className="h-6 w-40 rounded-md border-transparent bg-[hsl(var(--app-chrome-elevated)/0.72)] px-2 text-xs shadow-[inset_0_0_0_1px_hsl(var(--app-chrome-divider)/0.38)]"
       />
     </div>
   );
@@ -241,7 +241,7 @@ export const AppTitleBar = () => {
   return (
     <div
       className={cn(
-        'relative z-30 flex shrink-0 items-center border-b border-border/30 bg-background/95 backdrop-blur select-none',
+        'relative z-30 flex shrink-0 items-center bg-[hsl(var(--app-chrome-surface))] shadow-[inset_0_-1px_0_hsl(var(--app-chrome-divider)/0.42)] select-none',
         TITLE_BAR_HEIGHT_CLASS,
       )}
       onMouseDown={handleMouseDown}
@@ -273,7 +273,7 @@ export const AppTitleBar = () => {
                   data-testid="chat-portrait-toggle"
                   className={cn(
                     'flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors',
-                    'hover:bg-muted hover:text-foreground',
+                    'hover:bg-[hsl(var(--app-chrome-elevated)/0.78)] hover:text-foreground',
                     portraitRailOpen && 'text-foreground',
                   )}
                 >

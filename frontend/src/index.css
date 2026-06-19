@@ -22,18 +22,21 @@
     --border: 20 12% 86%;
     --input: 20 12% 86%;
     --ring: 28 12% 42%;
+    --app-chrome-surface: 30 24% 96%;
+    --app-chrome-elevated: 34 30% 98%;
+    --app-chrome-divider: 28 13% 84%;
     --composer-background: 34 28% 98%;
     --composer-border: 28 14% 84%;
-    --chat-surface: 31 22% 96%;
+    --chat-surface: var(--app-chrome-surface);
     --chat-surface-elevated: 34 28% 98%;
     --chat-assistant-background: 34 30% 98%;
     --chat-assistant-border: 30 14% 86%;
     --chat-user-background: 29 20% 90%;
     --chat-user-foreground: var(--foreground);
     --chat-user-border: 28 16% 80%;
-    --sidebar-background-start: 34 18% 93%;
-    --sidebar-background-end: 31 16% 91%;
-    --sidebar-border: 31 11% 82%;
+    --sidebar-background-start: var(--app-chrome-surface);
+    --sidebar-background-end: var(--app-chrome-surface);
+    --sidebar-border: var(--app-chrome-divider);
     --sidebar-foreground: 24 16% 27%;
     --sidebar-muted: 26 10% 48%;
     --sidebar-hover: 33 17% 88%;
@@ -133,18 +136,21 @@
     --border: 225 8% 23%;
     --input: 225 8% 23%;
     --ring: 166 22% 55%;
+    --app-chrome-surface: 225 9% 11%;
+    --app-chrome-elevated: 225 9% 15%;
+    --app-chrome-divider: 225 8% 23%;
     --composer-background: 225 8% 16%;
     --composer-border: 225 8% 26%;
-    --chat-surface: 225 9% 11%;
+    --chat-surface: var(--app-chrome-surface);
     --chat-surface-elevated: 225 9% 15%;
     --chat-assistant-background: 225 8% 15%;
     --chat-assistant-border: 225 8% 25%;
     --chat-user-background: 166 13% 22%;
     --chat-user-foreground: var(--foreground);
     --chat-user-border: 166 15% 34%;
-    --sidebar-background-start: 225 10% 12%;
-    --sidebar-background-end: 225 10% 10%;
-    --sidebar-border: 225 8% 22%;
+    --sidebar-background-start: var(--app-chrome-surface);
+    --sidebar-background-end: var(--app-chrome-surface);
+    --sidebar-border: var(--app-chrome-divider);
     --sidebar-foreground: 38 14% 86%;
     --sidebar-muted: 36 7% 59%;
     --sidebar-hover: 225 8% 17%;
@@ -229,9 +235,12 @@
   .theme-clay {
     --primary: 16 25% 43%;
     --primary-foreground: 30 34% 97%;
+    --app-chrome-surface: 30 24% 96%;
+    --app-chrome-elevated: 34 30% 98%;
+    --app-chrome-divider: 24 15% 84%;
     --composer-background: 34 32% 98%;
     --composer-border: 21 18% 80%;
-    --chat-surface: 30 24% 96%;
+    --chat-surface: var(--app-chrome-surface);
     --chat-surface-elevated: 34 30% 98%;
     --chat-assistant-background: 34 32% 98%;
     --chat-assistant-border: 23 16% 84%;
@@ -241,6 +250,9 @@
     --accent: 18 28% 91%;
     --accent-foreground: 18 22% 25%;
     --ring: 16 24% 44%;
+    --sidebar-background-start: var(--app-chrome-surface);
+    --sidebar-background-end: var(--app-chrome-surface);
+    --sidebar-border: var(--app-chrome-divider);
     --sidebar-badge: 16 25% 43%;
     --sidebar-badge-foreground: 30 34% 97%;
     --sidebar-ring: 16 24% 44%;
@@ -299,7 +311,7 @@
   }
 
   .desktop-surface {
-    background: hsl(var(--background));
+    background: hsl(var(--app-chrome-surface));
   }
 
   .desktop-panel {

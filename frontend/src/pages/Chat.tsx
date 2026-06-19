@@ -648,7 +648,7 @@ export const ChatPage: React.FC = () => {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.15 }}
-      className="relative flex h-full min-h-0 flex-col bg-[hsl(var(--chat-surface))] px-4 pb-4 pt-3"
+      className="relative flex h-full min-h-0 flex-col bg-[hsl(var(--app-chrome-surface))] px-4 pb-4 pt-3"
     >
       <SystemSuggestionTopBar
         proposal={topBarProposal}
