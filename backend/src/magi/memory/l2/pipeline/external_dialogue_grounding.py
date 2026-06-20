@@ -211,6 +211,14 @@ def _resolve_item_speaker(
         if speaker_name and speaker_id:
             return _SpeakerRef(name=speaker_name, entity_id=speaker_id)
 
+    speaker = _resolve_speaker_from_evidence_texts(
+        event_window=event_window,
+        speaker_by_event_id=speaker_by_event_id,
+        evidence_texts=evidence_texts,
+    )
+    if speaker is not None:
+        return speaker
+
     all_speakers = _unique_speakers(speaker_by_event_id.values())
     if len(all_speakers) == 1 and _window_has_single_dialogue_event(event_window):
         return all_speakers[0]
@@ -255,6 +263,66 @@ def _window_has_single_dialogue_event(event_window: L2EventWindow) -> bool:
     if event_count > 0:
         return event_count == 1
     return len(list(getattr(event_window, "event_ids", []) or [])) == 1
+
+
+def _resolve_speaker_from_evidence_texts(
+    *,
+    event_window: L2EventWindow,
+    speaker_by_event_id: dict[str, _SpeakerRef],
+    evidence_texts: list[str],
+) -> _SpeakerRef | None:
+    speaker_candidates: dict[str, _SpeakerRef] = {}
+    event_texts = _iter_event_texts(event_window)
+    if not event_texts:
+        return None
+    for evidence_text in evidence_texts:
+        evidence = _normalize_match_text(evidence_text)
+        if not _is_meaningful_evidence_match(evidence):
+            continue
+        for event_id, event_text in event_texts:
+            speaker = speaker_by_event_id.get(event_id)
+            if speaker is None:
+                continue
+            if evidence in _normalize_match_text(event_text):
+                speaker_candidates[speaker.entity_id] = speaker
+    if len(speaker_candidates) == 1:
+        return next(iter(speaker_candidates.values()))
+    return None
+
+
+def _iter_event_texts(event_window: L2EventWindow) -> list[tuple[str, str]]:
+    result: list[tuple[str, str]] = []
+    events = list(getattr(event_window, "events", []) or [])
+    if events:
+        for event in events:
+            event_id = _non_empty_text(getattr(event, "event_id", None))
+            content = _non_empty_text(getattr(event, "content", None))
+            if event_id and content:
+                result.append((event_id, content))
+        return result
+
+    for event_id, text in zip(
+        list(getattr(event_window, "event_ids", []) or []),
+        list(getattr(event_window, "texts", []) or []),
+        strict=False,
+    ):
+        normalized_event_id = _non_empty_text(event_id)
+        content = _non_empty_text(text)
+        if normalized_event_id and content:
+            result.append((normalized_event_id, content))
+    return result
+
+
+def _normalize_match_text(value: Any) -> str:
+    text = str(value or "").casefold()
+    text = text.replace("“", '"').replace("”", '"').replace("’", "'")
+    return " ".join(text.split())
+
+
+def _is_meaningful_evidence_match(evidence: str) -> bool:
+    if len(evidence) < 12:
+        return False
+    return len(evidence.split()) >= 3
 
 
 def _is_user_ref(ref: Any, ref_type: Any) -> bool:

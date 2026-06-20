@@ -79,6 +79,57 @@ def is_temporal_reasoning_question(question: str) -> bool:
     ))
 
 
+def _build_eval_answer_system_prompt() -> str:
+    return (
+        "You are answering a question using retrieved memory evidence only.\n"
+        "Return a concise final answer to the question.\n"
+        "Return only the final answer span with no explanation.\n"
+        "Prefer a short phrase copied or closely paraphrased from the evidence.\n"
+        "When asked about order, count, duration, or time difference, reason over timestamps and content to derive the answer.\n"
+        "For recency or ordering questions, rely on the Timeline Summary chronological order — "
+        "do NOT judge recency by how much a topic is discussed in the evidence bundles.\n"
+        "When asked 'how many' or 'total', enumerate EVERY relevant item from ALL bundles, timeline entries, and evidence, then sum to get the final count. "
+        "Only count items that EXACTLY match the question criteria; do NOT count similar but different items. "
+        "Ignore items mentioned in unrelated topics or different contexts. If an item is mentioned multiple times across bundles, count it only ONCE.\n"
+        "When asked about 'X ago' or relative dates ('last Tuesday'), compute the delta between the event timestamp and the question date.\n"
+        "IMPORTANT: If the question specifies a different reference point (e.g. 'when I did Y', 'at the time of Y', 'since I started X'), "
+        "compute the delta relative to THAT event's date, NOT the question date. "
+        "Example: 'How many days ago did I launch my website when I signed a contract?' — find the website-launch date and "
+        "the contract-signing date, then compute (contract date minus launch date).\n"
+        "When evidence spans multiple bundles, cross-reference and aggregate information across all of them.\n"
+        "Look for answers in BOTH user messages AND assistant responses within the evidence.\n"
+        "If the question asks about a specific detail (name, place, date, amount), check assistant replies — they often restate or confirm the user's information.\n"
+        "\n"
+        "ENTITY VERIFICATION:\n"
+        "If the question asks about a SPECIFIC named entity and NO evidence mentions that entity "
+        "or a clearly equivalent variant, answer 'unknown'. "
+        "Do NOT substitute a genuinely DIFFERENT entity (e.g. do not answer about 'Dr. Smith' when asked about 'Dr. Johnson'). "
+        "However, treat minor wording differences as matches (e.g. 'University of Melbourne' matches 'University of Melbourne in Australia'; "
+        "'Spotify' matches 'a Spotify subscription').\n"
+        "\n"
+        "DIALOGUE OWNERSHIP:\n"
+        "If the question asks about a named person, first-person dialogue evidence from another speaker belongs to that other speaker. "
+        "do not use it to answer about the named person unless the evidence explicitly says it is about that named person. "
+        "If all available evidence with matching topic belongs to a different person, answer 'unknown'.\n"
+        "\n"
+        "CURRENT STATE (knowledge-update) questions:\n"
+        "When the question asks about a current/present state ('where do I currently keep', 'how long have I been', "
+        "'how many do I have now', 'what is my current'), use the value from the MOST RECENT evidence only. "
+        "Do NOT sum or accumulate values across multiple time periods. "
+        "If something was updated or changed over time, report only the latest value.\n"
+        "\n"
+        "Attempt an answer whenever correctly-owned evidence provides relevant clues, even if incomplete or indirect.\n"
+        "Scan ALL evidence sections thoroughly — answers may appear in any bundle, timeline entry, or assistant reply.\n"
+        "For recommendation or suggestion questions, ANY correctly-owned evidence about the user's interests, tools, past choices, "
+        "or stated preferences is sufficient to generate a personalized answer. "
+        "Do NOT answer 'unknown' for recommendation questions when you have any user context.\n"
+        "BEFORE answering 'unknown', re-read EVERY bundle and timeline entry once more. "
+        "Check if any correctly-owned user message or assistant reply contains words related to the question topic. "
+        "If you find ANY correctly-owned mention — even indirect — attempt an answer based on that evidence.\n"
+        "Answer exactly 'unknown' only as a last resort when no correctly-owned piece of evidence mentions anything related to the question topic."
+    )
+
+
 async def synthesize_eval_answer(
     *,
     question: str,
@@ -111,49 +162,7 @@ async def synthesize_eval_answer(
         timeline_summary=timeline_summary,
         l2_episodes=l2_episodes,
     )
-    system_prompt = (
-        "You are answering a question using retrieved memory evidence only.\n"
-        "Return a concise final answer to the question.\n"
-        "Return only the final answer span with no explanation.\n"
-        "Prefer a short phrase copied or closely paraphrased from the evidence.\n"
-        "When asked about order, count, duration, or time difference, reason over timestamps and content to derive the answer.\n"
-        "For recency or ordering questions, rely on the Timeline Summary chronological order — "
-        "do NOT judge recency by how much a topic is discussed in the evidence bundles.\n"
-        "When asked 'how many' or 'total', enumerate EVERY relevant item from ALL bundles, timeline entries, and evidence, then sum to get the final count. "
-        "Only count items that EXACTLY match the question criteria; do NOT count similar but different items. "
-        "Ignore items mentioned in unrelated topics or different contexts. If an item is mentioned multiple times across bundles, count it only ONCE.\n"
-        "When asked about 'X ago' or relative dates ('last Tuesday'), compute the delta between the event timestamp and the question date.\n"
-        "IMPORTANT: If the question specifies a different reference point (e.g. 'when I did Y', 'at the time of Y', 'since I started X'), "
-        "compute the delta relative to THAT event's date, NOT the question date. "
-        "Example: 'How many days ago did I launch my website when I signed a contract?' — find the website-launch date and "
-        "the contract-signing date, then compute (contract date minus launch date).\n"
-        "When evidence spans multiple bundles, cross-reference and aggregate information across all of them.\n"
-        "Look for answers in BOTH user messages AND assistant responses within the evidence.\n"
-        "If the question asks about a specific detail (name, place, date, amount), check assistant replies — they often restate or confirm the user's information.\n"
-        "\n"
-        "ENTITY VERIFICATION:\n"
-        "If the question asks about a SPECIFIC named entity and NO evidence mentions that entity "
-        "or a clearly equivalent variant, answer 'unknown'. "
-        "Do NOT substitute a genuinely DIFFERENT entity (e.g. do not answer about 'Dr. Smith' when asked about 'Dr. Johnson'). "
-        "However, treat minor wording differences as matches (e.g. 'University of Melbourne' matches 'University of Melbourne in Australia'; "
-        "'Spotify' matches 'a Spotify subscription'). When in doubt, prefer giving an answer over returning 'unknown'.\n"
-        "\n"
-        "CURRENT STATE (knowledge-update) questions:\n"
-        "When the question asks about a current/present state ('where do I currently keep', 'how long have I been', "
-        "'how many do I have now', 'what is my current'), use the value from the MOST RECENT evidence only. "
-        "Do NOT sum or accumulate values across multiple time periods. "
-        "If something was updated or changed over time, report only the latest value.\n"
-        "\n"
-        "Attempt an answer whenever the evidence provides any relevant clues, even if incomplete or indirect.\n"
-        "Scan ALL evidence sections thoroughly — answers may appear in any bundle, timeline entry, or assistant reply.\n"
-        "For recommendation or suggestion questions, ANY evidence about the user's interests, tools, past choices, "
-        "or stated preferences is sufficient to generate a personalized answer. "
-        "Do NOT answer 'unknown' for recommendation questions when you have any user context.\n"
-        "BEFORE answering 'unknown', re-read EVERY bundle and timeline entry once more. "
-        "Check if any user message or assistant reply contains words related to the question topic. "
-        "If you find ANY mention — even indirect — attempt an answer based on that evidence.\n"
-        "Answer exactly 'unknown' only as a last resort when no piece of evidence mentions anything related to the question topic."
-    )
+    system_prompt = _build_eval_answer_system_prompt()
     l2_context_text = format_l2_context(
         entity_cards=l2_entity_cards,
         relationships=l2_relationships,

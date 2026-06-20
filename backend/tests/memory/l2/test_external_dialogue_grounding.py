@@ -115,6 +115,35 @@ def test_phase1_uses_supporting_event_ids_in_mixed_speaker_batch() -> None:
     ]
 
 
+def test_phase1_resolves_speaker_from_evidence_text_when_supporting_ids_missing() -> None:
+    phase1 = L2Phase1Result(
+        fact_claims=[
+            L2Phase1FactClaim(
+                subject_ref="user:self",
+                subject_type="user",
+                predicate="bought",
+                object_ref="new running shoes",
+                object_type="object",
+                evidence_text="I bought new running shoes and love them.",
+                supporting_event_ids=[],
+            )
+        ]
+    )
+
+    stats = ground_phase1_external_dialogue_refs(
+        phase1,
+        _window(
+            _event("evt-caroline", "Caroline", "I joined a support group."),
+            _event("evt-melanie", "Melanie", "I bought new running shoes and love them."),
+        ),
+    )
+
+    assert stats["rewritten_fact_claims"] == 1
+    assert stats["dropped_fact_claims"] == 0
+    assert phase1.fact_claims[0].subject_ref == "person:melanie"
+    assert phase1.fact_claims[0].subject_type == "person"
+
+
 def test_phase1_drops_ambiguous_external_dialogue_user_self_in_mixed_batch() -> None:
     phase1 = L2Phase1Result(
         fact_claims=[
@@ -195,6 +224,48 @@ def test_phase2_rewrites_edges_and_assertions_to_external_dialogue_speaker() -> 
     assert phase2.graph_edges[0].subject_type == "person"
     assert phase2.assertion_candidates[0].entity_ref == "person:caroline"
     assert phase2.assertion_candidates[0].entity_type == "person"
+
+
+def test_phase2_resolves_speaker_from_evidence_text_when_supporting_ids_missing() -> None:
+    phase2 = L2Phase2Result(
+        graph_edges=[
+            L2Phase2GraphEdge(
+                subject_ref="user:self",
+                subject_type="user",
+                predicate="owns",
+                object_ref="running shoes",
+                object_type="object",
+                evidence_text="I bought new running shoes and love them.",
+                supporting_event_ids=[],
+            )
+        ],
+        assertion_candidates=[
+            L2Phase2AssertionCandidate(
+                entity_ref="user:self",
+                entity_type="user",
+                trait_family="activity",
+                trait_name="running",
+                trait_value="uses running shoes",
+                evidence_texts=["I bought new running shoes and love them."],
+                supporting_event_ids=[],
+            )
+        ],
+    )
+
+    stats = ground_phase2_external_dialogue_refs(
+        phase2,
+        _window(
+            _event("evt-caroline", "Caroline", "I joined a support group."),
+            _event("evt-melanie", "Melanie", "I bought new running shoes and love them."),
+        ),
+    )
+
+    assert stats["rewritten_graph_edges"] == 1
+    assert stats["rewritten_assertions"] == 1
+    assert stats["dropped_graph_edges"] == 0
+    assert stats["dropped_assertions"] == 0
+    assert phase2.graph_edges[0].subject_ref == "person:melanie"
+    assert phase2.assertion_candidates[0].entity_ref == "person:melanie"
 
 
 def test_phase2_drops_ambiguous_external_dialogue_user_refs_in_mixed_batch() -> None:

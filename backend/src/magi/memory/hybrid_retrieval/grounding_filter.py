@@ -253,6 +253,63 @@ class GroundingFilter:
             payload.trace["grounding_filter_l2"] = dict(skip_trace)
             return payload
 
+        owner_screen = _apply_named_person_owner_prefilter(query, sliced_events, sliced_rels)
+        if owner_screen["dropped_events"] or owner_screen["dropped_relationships"]:
+            sliced_events = owner_screen["events"]
+            sliced_rels = owner_screen["relationships"]
+            payload.l1_events = sliced_events
+            payload.l2_relationships = sliced_rels
+            total_after_owner_screen = len(sliced_events) + len(sliced_rels)
+            if total_after_owner_screen < MIN_CANDIDATES_TO_FILTER:
+                if total_after_owner_screen == 0:
+                    success_trace: dict[str, Any] = {
+                        "applied": True,
+                        "input_count": total,
+                        "input_events": len(events),
+                        "input_relationships": len(rels),
+                        "kept_events": 0,
+                        "kept_relationships": 0,
+                        "kept_count": 0,
+                        "elapsed_ms": 0.0,
+                        "why": "Named-person dialogue ownership prefilter removed mismatched evidence.",
+                        "all_dropped": True,
+                        "owner_prefilter_dropped_events": owner_screen["dropped_events"],
+                        "owner_prefilter_dropped_relationships": owner_screen[
+                            "dropped_relationships"
+                        ],
+                    }
+                    payload.trace["grounding_filter"] = success_trace
+                    payload.trace["grounding_filter_l2"] = {
+                        "applied": True,
+                        "input_count": len(rels),
+                        "kept_count": 0,
+                        "all_dropped": True,
+                    }
+                    return payload
+
+                skip_trace = {
+                    "applied": False,
+                    "skipped_reason": "trivial_count_after_owner_prefilter",
+                    "input_count": total,
+                    "kept_count": total_after_owner_screen,
+                    "owner_prefilter_dropped_events": owner_screen["dropped_events"],
+                    "owner_prefilter_dropped_relationships": owner_screen[
+                        "dropped_relationships"
+                    ],
+                }
+                payload.trace["grounding_filter"] = skip_trace
+                payload.trace["grounding_filter_l2"] = {
+                    "applied": False,
+                    "skipped_reason": "trivial_count_after_owner_prefilter",
+                    "input_count": len(rels),
+                    "kept_count": len(sliced_rels),
+                    "owner_prefilter_dropped_relationships": owner_screen[
+                        "dropped_relationships"
+                    ],
+                }
+                return payload
+            total = total_after_owner_screen
+
         prompt_payload = _build_unified_prompt_payload(query, sliced_events, sliced_rels)
         t0 = time.monotonic()
         try:
@@ -364,6 +421,13 @@ class GroundingFilter:
             "elapsed_ms": round(elapsed_ms, 1),
             "why": why or None,
         }
+        if owner_screen["dropped_events"] or owner_screen["dropped_relationships"]:
+            payload.trace["grounding_filter"]["owner_prefilter_dropped_events"] = (
+                owner_screen["dropped_events"]
+            )
+            payload.trace["grounding_filter"]["owner_prefilter_dropped_relationships"] = (
+                owner_screen["dropped_relationships"]
+            )
         payload.trace["grounding_filter_l2"] = {
             "applied": True,
             "input_count": len(rels),
@@ -373,6 +437,99 @@ class GroundingFilter:
 
 
 # ---------- helpers ----------
+
+
+def _apply_named_person_owner_prefilter(
+    query: str,
+    events: list[dict[str, Any]],
+    rels: list[dict[str, Any]],
+) -> dict[str, Any]:
+    query_named_people = _extract_query_named_people(query)
+    if len(query_named_people) != 1:
+        return {
+            "events": events,
+            "relationships": rels,
+            "dropped_events": 0,
+            "dropped_relationships": 0,
+        }
+
+    target_name = query_named_people[0]
+    kept_events = [
+        event for event in events if not _is_wrong_speaker_dialogue_event(event, target_name)
+    ]
+    kept_rels = [
+        rel for rel in rels if not _is_wrong_subject_relationship(rel, target_name)
+    ]
+    return {
+        "events": kept_events,
+        "relationships": kept_rels,
+        "dropped_events": len(events) - len(kept_events),
+        "dropped_relationships": len(rels) - len(kept_rels),
+    }
+
+
+def _is_wrong_speaker_dialogue_event(event: dict[str, Any], target_name: str) -> bool:
+    content = str(event.get("content") or "")
+    speaker = extract_dialogue_speaker(content)
+    if not speaker:
+        return False
+    if _same_person_name(speaker, target_name):
+        return False
+    if _mentions_person_name(content, target_name):
+        return False
+    return True
+
+
+def _is_wrong_subject_relationship(rel: dict[str, Any], target_name: str) -> bool:
+    target_id = _person_entity_id_for_name(target_name)
+    fields = [
+        str(rel.get("subject_id") or ""),
+        str(rel.get("subject_name") or ""),
+        str(rel.get("object_id") or ""),
+        str(rel.get("object_name") or ""),
+        str(rel.get("natural_summary") or ""),
+        str(rel.get("evidence_text") or ""),
+    ]
+    if any(_mentions_person_name(field, target_name) for field in fields):
+        return False
+
+    subject_id = str(rel.get("subject_id") or "").strip().casefold()
+    subject_type = str(rel.get("subject_type") or "").strip().casefold()
+    subject_name = str(rel.get("subject_name") or "").strip()
+    subject_is_person = subject_id.startswith("person:") or subject_type == "person"
+    if not subject_is_person:
+        return False
+    if target_id and subject_id == target_id:
+        return False
+    if subject_id.startswith("person:") and target_id and subject_id != target_id:
+        return True
+    if subject_name and not _same_person_name(subject_name, target_name):
+        return True
+    return False
+
+
+def _same_person_name(left: str, right: str) -> bool:
+    return _normalize_person_name(left) == _normalize_person_name(right)
+
+
+def _mentions_person_name(text: str, name: str) -> bool:
+    normalized_name = _normalize_person_name(name)
+    if not normalized_name:
+        return False
+    pattern = rf"\b{re.escape(normalized_name)}(?:'s)?\b"
+    return bool(re.search(pattern, str(text or "").casefold()))
+
+
+def _person_entity_id_for_name(name: str) -> str | None:
+    normalized = _normalize_person_name(name)
+    if not normalized:
+        return None
+    slug = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
+    return f"person:{slug}" if slug else None
+
+
+def _normalize_person_name(name: str) -> str:
+    return " ".join(str(name or "").strip().casefold().split())
 
 
 def _build_unified_prompt_payload(

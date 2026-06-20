@@ -161,6 +161,127 @@ async def test_filters_to_kept_indices() -> None:
 
 
 @pytest.mark.asyncio
+async def test_named_person_owner_prefilter_drops_wrong_speaker_first_person_events() -> None:
+    events = [
+        {
+            "event_id": "ev_melanie_shoes",
+            "source": "benchmark.eval_support",
+            "content": (
+                "DATE: 3:40 pm on 12 June, 2023\n"
+                'Melanie said, "I bought new running shoes and love them."'
+            ),
+            "timestamp": 1686570000,
+        },
+        {
+            "event_id": "ev_melanie_beach",
+            "source": "benchmark.eval_support",
+            "content": (
+                "DATE: 4:10 pm on 12 June, 2023\n"
+                'Melanie said, "I went to the beach yesterday."'
+            ),
+            "timestamp": 1686571800,
+        },
+    ]
+    payload = RetrievalPayload(l1_events=events)
+    bridge = _StaticBridge('{"keep": [1, 2], "why": "wrongly kept"}')
+    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
+
+    out = await f.apply(
+        payload,
+        _make_request("What are Caroline's new shoes used for?"),
+    )
+
+    assert out.l1_events == []
+    assert bridge.call_count == 0
+    trace = out.trace["grounding_filter"]
+    assert trace["applied"] is True
+    assert trace["owner_prefilter_dropped_events"] == 2
+    assert trace["kept_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_named_person_owner_prefilter_keeps_other_speaker_mentions_about_target() -> None:
+    events = [
+        {
+            "event_id": "ev_melanie_about_caroline",
+            "source": "benchmark.eval_support",
+            "content": (
+                "DATE: 3:40 pm on 12 June, 2023\n"
+                'Melanie said, "Caroline told me she bought new shoes for hiking."'
+            ),
+            "timestamp": 1686570000,
+        },
+        {
+            "event_id": "ev_melanie_self",
+            "source": "benchmark.eval_support",
+            "content": (
+                "DATE: 4:10 pm on 12 June, 2023\n"
+                'Melanie said, "I bought new running shoes and love them."'
+            ),
+            "timestamp": 1686571800,
+        },
+    ]
+    payload = RetrievalPayload(l1_events=events)
+    bridge = _StaticBridge('{"keep": [1], "why": "about Caroline"}')
+    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
+
+    out = await f.apply(
+        payload,
+        _make_request("What are Caroline's new shoes used for?"),
+    )
+
+    assert [event["event_id"] for event in out.l1_events] == ["ev_melanie_about_caroline"]
+    assert bridge.call_count == 0
+    trace = out.trace["grounding_filter"]
+    assert trace["applied"] is False
+    assert trace["skipped_reason"] == "trivial_count_after_owner_prefilter"
+    assert trace["owner_prefilter_dropped_events"] == 1
+
+
+@pytest.mark.asyncio
+async def test_named_person_owner_prefilter_keeps_non_person_relationship_subjects() -> None:
+    events = [
+        {
+            "event_id": "ev_melanie_self",
+            "source": "benchmark.eval_support",
+            "content": (
+                "DATE: 4:10 pm on 12 June, 2023\n"
+                'Melanie said, "I bought new running shoes and love them."'
+            ),
+            "timestamp": 1686571800,
+        }
+    ]
+    rels = [
+        {
+            "triple_id": "rel_lake",
+            "subject_id": "place:lake",
+            "subject_name": "Lake",
+            "subject_type": "place",
+            "predicate": "HAS_TRAIL",
+            "object_id": "activity:hiking",
+            "object_name": "hiking",
+            "natural_summary": "The lake area has a hiking trail.",
+        }
+    ]
+    payload = RetrievalPayload(l1_events=events, l2_relationships=rels)
+    bridge = _StaticBridge('{"keep": [1], "why": "single candidate"}')
+    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
+
+    out = await f.apply(
+        payload,
+        _make_request("What are Caroline's new shoes used for?"),
+    )
+
+    assert out.l1_events == []
+    assert out.l2_relationships == rels
+    assert bridge.call_count == 0
+    trace = out.trace["grounding_filter"]
+    assert trace["skipped_reason"] == "trivial_count_after_owner_prefilter"
+    assert trace["owner_prefilter_dropped_events"] == 1
+    assert trace["owner_prefilter_dropped_relationships"] == 0
+
+
+@pytest.mark.asyncio
 async def test_out_of_range_indices_are_silently_dropped() -> None:
     events = _make_events(15)
     payload = RetrievalPayload(l1_events=events)
