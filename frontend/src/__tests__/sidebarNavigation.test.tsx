@@ -219,11 +219,71 @@ describe('sidebar navigation', () => {
     );
 
     await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
-    expect(screen.queryByRole('button', { name: 'shell.newChat' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'shell.newChat' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'shell.sessionActions' })).not.toBeInTheDocument();
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '杭州天气' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '西湖路线' })).toBeInTheDocument();
+  });
+
+  it('creates a new session from the persona header action', async () => {
+    const user = userEvent.setup();
+    vi.mocked(messagesApi.listSessions)
+      .mockResolvedValueOnce({
+        sessions: [
+          {
+            session_id: 'session-a',
+            title: '杭州天气',
+            last_message_preview: '今天有点冷',
+            last_timestamp: 10,
+            message_count: 1,
+          },
+        ],
+        user_id: 'local_user',
+        count: 1,
+      })
+      .mockResolvedValue({
+        sessions: [
+          {
+            session_id: 'session-new',
+            title: 'New Session',
+            last_message_preview: '',
+            last_timestamp: 12,
+            message_count: 0,
+          },
+          {
+            session_id: 'session-a',
+            title: '杭州天气',
+            last_message_preview: '今天有点冷',
+            last_timestamp: 10,
+            message_count: 1,
+          },
+        ],
+        user_id: 'local_user',
+        count: 2,
+      });
+    vi.mocked(messagesApi.createNewSession).mockResolvedValueOnce({
+      success: true,
+      user_id: 'local_user',
+      session_id: 'session-new',
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
+    await user.click(await screen.findByRole('button', { name: 'shell.newChat' }));
+
+    await waitFor(() => {
+      expect(messagesApi.createNewSession).toHaveBeenCalledWith('local_user');
+    });
+    await waitFor(() => {
+      expect(useConversationStore.getState().currentSessionId).toBe('session-new');
+    });
+    expect(storage.get('chat_session_local_user')).toBe('session-new');
   });
 
 

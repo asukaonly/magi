@@ -219,6 +219,21 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     };
   }, [sessionMenu]);
 
+  const handleCreateSession = async () => {
+    try {
+      const result = await messagesApi.createNewSession(USER_ID);
+      if (result.session_id) {
+        window.localStorage.setItem(CHAT_SESSION_KEY(USER_ID), result.session_id);
+        await refreshSessions(result.session_id);
+        setActivePanel('conversation');
+        setOpenPanel('conversation');
+        navigate('/chat');
+      }
+    } catch {
+      // Ignore at shell level; the chat page surfaces send/create failures.
+    }
+  };
+
   const openSessionMenu = useCallback(
     (sessionId: string, anchorX: number, anchorY: number) => {
       setSessionMenu({
@@ -394,7 +409,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
   const renderConversationPanel = () => (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="sidebar-conversation-rail">
-      <PersonaHeader />
+      <PersonaHeader onCreateChat={() => { void handleCreateSession(); }} />
 
       <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
         <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
