@@ -734,6 +734,32 @@ describe('settings page draft saving', () => {
     expect(syncCloseToTrayPreferenceMock).toHaveBeenCalledWith(false);
   });
 
+  it('saves desktop notification preferences', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    const notificationsSwitch = await screen.findByRole('switch', { name: 'settings.desktopNotificationsLabel' });
+    const previewsSwitch = await screen.findByRole('switch', { name: 'settings.desktopNotificationPreviewsLabel' });
+
+    expect(notificationsSwitch).toHaveAttribute('data-state', 'unchecked');
+    expect(previewsSwitch).toHaveAttribute('data-state', 'checked');
+
+    await user.click(notificationsSwitch);
+    await user.click(previewsSwitch);
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preferences: expect.objectContaining({
+            desktop_notifications_enabled: true,
+            desktop_notification_previews_enabled: false,
+          }),
+        })
+      )
+    );
+  });
+
   it('does not mark provider settings dirty when llm form normalizes mounted values', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue({

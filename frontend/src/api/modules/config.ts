@@ -44,6 +44,8 @@ export interface UserPreferences {
   scenario?: string | null;
   language: LanguageCode;
   close_to_tray_enabled: boolean;
+  desktop_notifications_enabled: boolean;
+  desktop_notification_previews_enabled: boolean;
   auto_start_enabled: boolean;
   start_minimized: boolean;
   skip_quit_confirmation: boolean;
@@ -741,6 +743,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     scenario: null,
     language: 'zh',
     close_to_tray_enabled: true,
+    desktop_notifications_enabled: false,
+    desktop_notification_previews_enabled: true,
     auto_start_enabled: false,
     start_minimized: false,
     skip_quit_confirmation: false,

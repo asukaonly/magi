@@ -7,6 +7,7 @@ import { type ControlSettingsDTO, updateControlSettings } from '@/api/modules/co
 import { pluginsApi, type PluginPackageState } from '@/api/modules/plugins';
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
 import { syncAutoStartPreference, syncCloseToTrayPreference, syncSkipQuitConfirmationPreference, syncStartMinimizedPreference } from '@/runtime/desktop';
+import { syncDesktopNotificationPreferences } from '@/runtime/desktop-notifications';
 import type { ThemeMode, ThemeState } from '@/stores/theme';
 import type { PluginDraftMap, ToolDraftMap } from '@/types/settings';
 import {
@@ -173,6 +174,7 @@ export function useSettingsPersistence({
         await syncAutoStartPreference(persistedConfig.preferences.auto_start_enabled);
         await syncStartMinimizedPreference(persistedConfig.preferences.start_minimized);
         await syncSkipQuitConfirmationPreference(persistedConfig.preferences.skip_quit_confirmation);
+        syncDesktopNotificationPreferences(persistedConfig.preferences);
         setSavedConfig(structuredClone(persistedConfig));
         setDraftConfig(structuredClone(persistedConfig));
       }

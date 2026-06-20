@@ -1307,6 +1307,26 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/memory/eval/judge-answer": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Judge Eval Answer
+         * @description Run a benchmark judge prompt through the runtime core LLM.
+         */
+        readonly post: operations["judge_eval_answer_api_memory_eval_judge_answer_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/memory/eval/query": {
         readonly parameters: {
             readonly query?: never;
@@ -4396,10 +4416,59 @@ export interface components {
         /** EvalFinalizeReplayRequest */
         readonly EvalFinalizeReplayRequest: {
             /**
+             * Drain L2 Edge Embeddings
+             * @description Whether to synchronously drain pending L2 edge embeddings.
+             * @default true
+             */
+            readonly drain_l2_edge_embeddings: boolean;
+            /**
+             * Flush L2
+             * @description Whether to flush staged L2 batches into extraction jobs.
+             * @default true
+             */
+            readonly flush_l2: boolean;
+            /**
+             * Generate Summaries
+             * @description Whether to generate temporal L3 summaries.
+             * @default true
+             */
+            readonly generate_summaries: boolean;
+            /**
              * Period Types
              * @description Temporal summary categories to generate after replay
              */
             readonly period_types?: readonly string[];
+        };
+        /** EvalJudgeAnswerRequest */
+        readonly EvalJudgeAnswerRequest: {
+            /**
+             * Max Tokens
+             * @description Maximum judge output tokens
+             * @default 512
+             */
+            readonly max_tokens: number;
+            /**
+             * Prompt
+             * @description Judge user prompt
+             */
+            readonly prompt: string;
+            /**
+             * System Prompt
+             * @description Judge system prompt
+             */
+            readonly system_prompt: string;
+            /**
+             * Temperature
+             * @description Judge sampling temperature
+             * @default 0
+             */
+            readonly temperature: number;
+            /**
+             * Timeout Seconds
+             * @description Judge request timeout
+             * @default 120
+             */
+            readonly timeout_seconds: number | null;
         };
         /** EvalQueryRequest */
         readonly EvalQueryRequest: {
@@ -7537,6 +7606,16 @@ export interface components {
              */
             readonly default_chat_workspace_path: string | null;
             /**
+             * Desktop Notification Previews Enabled
+             * @default true
+             */
+            readonly desktop_notification_previews_enabled: boolean;
+            /**
+             * Desktop Notifications Enabled
+             * @default false
+             */
+            readonly desktop_notifications_enabled: boolean;
+            /**
              * First Conversation Completed
              * @description True once the user has sent at least one message in their very first conversation after onboarding. Used to hide the quick-start chips component once it has served its purpose.
              * @default false
@@ -10221,6 +10300,39 @@ export interface operations {
         readonly requestBody: {
             readonly content: {
                 readonly "application/json": components["schemas"]["EvalFinalizeReplayRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly judge_eval_answer_api_memory_eval_judge_answer_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["EvalJudgeAnswerRequest"];
             };
         };
         readonly responses: {

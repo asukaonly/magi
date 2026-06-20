@@ -152,6 +152,8 @@ def test_system_config_defaults_include_close_to_tray_enabled_preference():
     config = SystemConfigModel()
 
     assert config.preferences.close_to_tray_enabled is True
+    assert config.preferences.desktop_notifications_enabled is False
+    assert config.preferences.desktop_notification_previews_enabled is True
     assert config.preferences.default_chat_workspace_path == "~/.magi/chat-workspace"
 
 
@@ -1151,11 +1153,15 @@ def test_update_config_preserves_close_to_tray_enabled_preference_in_preferences
 
     payload = SystemConfigModel().model_dump(mode="json")
     payload["preferences"]["close_to_tray_enabled"] = False
+    payload["preferences"]["desktop_notifications_enabled"] = True
+    payload["preferences"]["desktop_notification_previews_enabled"] = False
 
     response = client.put("/config/", json=payload)
 
     assert response.status_code == 200
     assert captured_updates["preferences"]["close_to_tray_enabled"] is False
+    assert captured_updates["preferences"]["desktop_notifications_enabled"] is True
+    assert captured_updates["preferences"]["desktop_notification_previews_enabled"] is False
 
 
 def test_update_config_persists_changed_settings_and_returns_rebuilt_config(

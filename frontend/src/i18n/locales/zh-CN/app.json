@@ -1248,6 +1248,8 @@
     },
     "closeToTrayLabel": "关闭时最小化到托盘",
     "skipQuitConfirmationLabel": "退出时不再二次确认",
+    "desktopNotificationsLabel": "新消息系统通知",
+    "desktopNotificationPreviewsLabel": "通知里显示消息内容",
     "startupSettings": "启动设置",
     "autoStartLabel": "开机自动启动",
     "startMinimizedLabel": "启动后最小化到托盘",

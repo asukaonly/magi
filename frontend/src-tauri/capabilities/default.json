@@ -15,6 +15,7 @@
     "shell:allow-open",
     "process:default",
     "log:default",
+    "notification:default",
     "updater:default",
     "autostart:default"
   ]

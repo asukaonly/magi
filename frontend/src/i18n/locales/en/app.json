@@ -1249,6 +1249,8 @@
     },
     "closeToTrayLabel": "Minimize to tray on close",
     "skipQuitConfirmationLabel": "Skip quit confirmation",
+    "desktopNotificationsLabel": "System notifications for new messages",
+    "desktopNotificationPreviewsLabel": "Show message content in notifications",
     "startupSettings": "Startup",
     "autoStartLabel": "Launch at login",
     "startMinimizedLabel": "Start minimized to tray",

@@ -101,6 +101,20 @@ export function SettingsPreferencesSection({
               draft.preferences.skip_quit_confirmation = checked;
             })}
           />
+          <PreferenceToggleRow
+            label={t('settings.desktopNotificationsLabel')}
+            checked={draftConfig.preferences.desktop_notifications_enabled}
+            onCheckedChange={(checked) => patchDraftConfig((draft) => {
+              draft.preferences.desktop_notifications_enabled = checked;
+            })}
+          />
+          <PreferenceToggleRow
+            label={t('settings.desktopNotificationPreviewsLabel')}
+            checked={draftConfig.preferences.desktop_notification_previews_enabled}
+            onCheckedChange={(checked) => patchDraftConfig((draft) => {
+              draft.preferences.desktop_notification_previews_enabled = checked;
+            })}
+          />
         </div>
       </SettingsGroup>
 

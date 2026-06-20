@@ -225,6 +225,8 @@ class UserPreferencesModel(BaseModel):
     scenario: Optional[str] = Field(default=None)
     language: str = Field(default="zh")
     close_to_tray_enabled: bool = Field(default=True)
+    desktop_notifications_enabled: bool = Field(default=False)
+    desktop_notification_previews_enabled: bool = Field(default=True)
     auto_start_enabled: bool = Field(default=False)
     start_minimized: bool = Field(default=False)
     skip_quit_confirmation: bool = Field(default=False)

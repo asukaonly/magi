@@ -190,6 +190,8 @@ plugins:
 # =============================================================================
 preferences:
   default_chat_workspace_path: "~/.magi/chat-workspace"
+  desktop_notifications_enabled: false
+  desktop_notification_previews_enabled: true
   conversation_rhythm_enabled: true
   conversation_rhythm_mode: "natural"
   allow_media_grounding_for_conversation: false

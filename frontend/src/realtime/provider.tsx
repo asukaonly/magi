@@ -15,6 +15,12 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConversationStore } from '@/stores/conversation-store';
+import {
+  buildUnreadChatNotificationRequest,
+  getDesktopNotificationPreferences,
+  notifyForUnreadChatMessage,
+  syncUnreadBadgeCount,
+} from '@/runtime/desktop-notifications';
 import { OPEN_ASK_REQUEST_EVENT } from '@/components/control/ui-events';
 import type { RealtimeStreamEvent } from './stream-events';
 import { normalizeRealtimeStreamEvent } from './stream-events';
@@ -84,6 +90,10 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
     const unsubscribeProviderHandler = dispatcher.subscribe((message) => {
       const eventName = String(message.event || message.type || '').trim();
       const conversationStore = useConversationStore.getState();
+      const notificationRequest = buildUnreadChatNotificationRequest(
+        message,
+        conversationStore.currentSessionId,
+      );
 
       if (eventName === 'agent_response_chunk' && message.data && typeof message.data === 'object') {
         const payload = message.data as Record<string, unknown>;
@@ -106,6 +116,12 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
       }
 
       applyRealtimeStoreProjection(message, { pendingLabel: t('chat.trace.pending') });
+      if (notificationRequest) {
+        void notifyForUnreadChatMessage({
+          ...notificationRequest,
+          ...getDesktopNotificationPreferences(),
+        });
+      }
     });
 
     // Start Tauri event bridge
@@ -129,6 +145,21 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
       bridgeRef.current = undefined;
     };
   }, [t]);
+
+  useEffect(() => {
+    let lastUnreadCount = -1;
+    const syncBadge = (state: ReturnType<typeof useConversationStore.getState>) => {
+      const unreadCount = Object.values(state.unreadBySession)
+        .reduce((total, count) => total + Math.max(0, Number(count) || 0), 0);
+      if (unreadCount === lastUnreadCount) {
+        return;
+      }
+      lastUnreadCount = unreadCount;
+      void syncUnreadBadgeCount(unreadCount);
+    };
+    syncBadge(useConversationStore.getState());
+    return useConversationStore.subscribe(syncBadge);
+  }, []);
 
   const value = useMemo<RealtimeContextValue>(() => ({
     subscribe: (listener) => dispatcherRef.current?.subscribe(listener) || (() => undefined),

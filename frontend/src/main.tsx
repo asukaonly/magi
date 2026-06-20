@@ -15,6 +15,7 @@ import type { LanguageCode } from './api/modules/config';
 import { initializeRuntime, resetRuntimeInitialization } from './runtime/config';
 import type { StartupPhase } from './runtime/config';
 import { syncCloseToTrayPreference, syncAutoStartPreference, syncStartMinimizedPreference, syncSkipQuitConfirmationPreference, applyStartMinimized } from './runtime/desktop';
+import { syncDesktopNotificationPreferences } from './runtime/desktop-notifications';
 import { initializeDesktopLogging } from './runtime/logging';
 import { scheduleStartupUpdateCheck } from './runtime/updater';
 import { initializeTheme } from './stores/theme';
@@ -51,6 +52,7 @@ const RuntimeBootstrap: React.FC = () => {
         await syncAutoStartPreference(prefs?.auto_start_enabled ?? false);
         await syncStartMinimizedPreference(prefs?.start_minimized ?? false);
         await syncSkipQuitConfirmationPreference(prefs?.skip_quit_confirmation ?? false);
+        syncDesktopNotificationPreferences(prefs);
         await applyStartMinimized();
         void scheduleStartupUpdateCheck({
           network: response.data?.network,
@@ -67,6 +69,7 @@ const RuntimeBootstrap: React.FC = () => {
         });
       } catch {
         await syncCloseToTrayPreference(true);
+        syncDesktopNotificationPreferences(null);
       }
       setReady(true);
     } catch (err) {
