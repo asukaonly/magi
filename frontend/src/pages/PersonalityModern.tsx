@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Sparkles,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -36,6 +37,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = React.useState(false);
   const [avatarBroken, setAvatarBroken] = React.useState(false);
+  const [avatarHover, setAvatarHover] = React.useState(false);
 
   const {
     // State
@@ -130,14 +132,9 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
         </div>
       ) : null}
 
-      <div className={cn('flex-1 overflow-y-auto', embedded ? 'px-5 py-5' : 'p-6')}>
-        <div className="mx-auto w-full max-w-[1080px] space-y-4">
-          <section
-            className={cn(
-              'rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.54)] p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.2)]',
-              !embedded && 'p-5'
-            )}
-          >
+      <div className={cn('flex-1 overflow-y-auto', embedded ? 'px-5 py-4' : 'p-6')}>
+        <div className={cn('w-full space-y-3', embedded ? 'max-w-none' : 'mx-auto max-w-[1080px]')}>
+          <section className="space-y-3">
             <div className="flex gap-2 overflow-x-auto pb-1">
               <button
                 type="button"
@@ -213,7 +210,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
               })}
             </div>
 
-            <div className="mt-4 flex flex-col gap-4 rounded-lg bg-[hsl(var(--settings-shell)/0.52)] p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.18)] lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-4 rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.58)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex min-w-0 flex-1 items-start gap-3">
                 <input
                   ref={avatarInputRef}
@@ -228,12 +225,13 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                 <button
                   type="button"
                   onClick={() => avatarInputRef.current?.click()}
+                  onMouseEnter={() => setAvatarHover(true)}
+                  onMouseLeave={() => setAvatarHover(false)}
+                  onFocus={() => setAvatarHover(true)}
+                  onBlur={() => setAvatarHover(false)}
                   disabled={uploadingAvatar}
                   className={cn(
-                    'group relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-background/80 text-lg font-semibold text-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.3)] transition hover:bg-background hover:shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.25)] disabled:cursor-not-allowed disabled:opacity-70',
-                    avatarUrl
-                      ? 'bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-700 dark:hover:bg-neutral-600'
-                      : ''
+                    'relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-background/80 text-lg font-semibold text-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.24)] transition hover:bg-background hover:shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-70'
                   )}
                   aria-label={t('personality.actions.uploadAvatar')}
                 >
@@ -245,34 +243,43 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                       onError={() => setAvatarBroken(true)}
                     />
                   ) : (
-                    <span className="transition group-hover:text-primary">
+                    <span className={cn('transition', avatarHover && 'text-primary')}>
                       {uploadingAvatar ? <Loader2 className="h-5 w-5 animate-spin" /> : getInitials(detailTitle)}
                     </span>
                   )}
-                  <span className="pointer-events-none absolute inset-x-1 bottom-1 rounded bg-background/90 px-1 py-0.5 text-center text-[10px] font-medium text-muted-foreground opacity-0 transition group-hover:opacity-100">
-                    {uploadingAvatar ? t('personality.actions.uploadingAvatar') : t('personality.actions.uploadAvatar')}
+                  <span
+                    className={cn(
+                      'pointer-events-none absolute inset-0 flex items-center justify-center bg-background/70 text-foreground opacity-0 backdrop-blur-[1px] transition',
+                      (avatarHover || uploadingAvatar) && 'opacity-100'
+                    )}
+                  >
+                    {uploadingAvatar ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Upload className="h-5 w-5" />
+                    )}
                   </span>
                 </button>
 
                 <div className="min-w-0 flex-1">
-                {isNewMode ? (
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/75">
-                    {t('personality.creating')}
-                  </p>
-                ) : null}
-                <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <h2 className="truncate text-2xl font-semibold tracking-tight text-foreground">
-                    {detailTitle}
-                  </h2>
-                  {!isNewMode && selectedId === currentId ? (
-                    <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.18)]">
-                      {t('personality.current')}
-                    </span>
+                  {isNewMode ? (
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/75">
+                      {t('personality.creating')}
+                    </p>
                   ) : null}
-                </div>
-                <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
-                  {detailDescription}
-                </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <h2 className="truncate text-2xl font-semibold tracking-tight text-foreground">
+                      {detailTitle}
+                    </h2>
+                    {!isNewMode && selectedId === currentId ? (
+                      <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.18)]">
+                        {t('personality.current')}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                    {detailDescription}
+                  </p>
                 </div>
               </div>
 
@@ -337,7 +344,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
             </div>
 
             {isNewMode ? (
-              <div className="mt-4 space-y-3 border-t border-border/20 pt-4">
+              <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                   <Sparkles className="h-4 w-4 text-primary" />
                   {t('personality.generate')}
@@ -383,11 +390,11 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
           </section>
 
           {loading ? (
-            <div className="flex min-h-[360px] items-center justify-center rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.42)] shadow-[inset_0_0_0_1px_hsl(var(--border)/0.18)]">
+            <div className="flex min-h-[360px] items-center justify-center rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.42)]">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
           ) : (
-            <section className="rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.42)] px-4 py-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.18)]">
+            <section className="pt-1">
               <PersonalityDetailEditor
                 config={config}
                 patch={patch}

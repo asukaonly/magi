@@ -107,6 +107,17 @@ describe('PersonalityModern', () => {
     expect(screen.getAllByText('personality.current')).toHaveLength(1);
   });
 
+  it('keeps the avatar upload affordance icon-only', () => {
+    vi.mocked(usePersonality).mockReturnValue(buildHookState() as any);
+
+    render(<PersonalityModern embedded />);
+
+    const uploadButton = screen.getByRole('button', { name: 'personality.actions.uploadAvatar' });
+    expect(uploadButton.querySelector('.lucide-upload')).toBeInTheDocument();
+    expect(screen.queryByText('personality.actions.uploadAvatar')).not.toBeInTheDocument();
+    expect(screen.queryByText('personality.actions.uploadingAvatar')).not.toBeInTheDocument();
+  });
+
   it('hides the current badge when viewing a non-active personality', () => {
     vi.mocked(usePersonality).mockReturnValue(
       buildHookState({
