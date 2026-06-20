@@ -119,6 +119,14 @@ type ConversationState = {
   reset: () => void;
 };
 
+type ReadCursor = {
+  messageCount: number;
+  lastTimestamp: number;
+};
+
+const READ_CURSOR_STORAGE_KEY = 'magi.chat.readCursors.v1';
+const READ_CURSOR_INITIALIZED_KEY = 'magi.chat.readCursors.initialized.v1';
+
 const emptyState = {
   currentSessionId: null,
   orderedSessionIds: [] as string[],
@@ -127,6 +135,124 @@ const emptyState = {
   historyVersionBySession: {} as Record<string, number>,
   unreadBySession: {} as Record<string, number>,
 };
+
+const canUseLocalStorage = (): boolean => (
+  typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+);
+
+const normalizeNonNegativeInteger = (value: unknown): number => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return 0;
+  }
+  return Math.trunc(numeric);
+};
+
+const loadReadCursors = (): Record<string, ReadCursor> => {
+  if (!canUseLocalStorage()) {
+    return {};
+  }
+  try {
+    const raw = window.localStorage.getItem(READ_CURSOR_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+    const cursors: Record<string, ReadCursor> = {};
+    for (const [sessionId, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!sessionId || !value || typeof value !== 'object' || Array.isArray(value)) {
+        continue;
+      }
+      const cursor = value as Record<string, unknown>;
+      cursors[sessionId] = {
+        messageCount: normalizeNonNegativeInteger(cursor.messageCount),
+        lastTimestamp: normalizeNonNegativeInteger(cursor.lastTimestamp),
+      };
+    }
+    return cursors;
+  } catch {
+    return {};
+  }
+};
+
+const saveReadCursors = (cursors: Record<string, ReadCursor>) => {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(READ_CURSOR_STORAGE_KEY, JSON.stringify(cursors));
+    window.localStorage.setItem(READ_CURSOR_INITIALIZED_KEY, 'true');
+  } catch {
+    // Read cursors are a UX cache; failures should not break chat.
+  }
+};
+
+const readCursorsInitialized = (): boolean => {
+  if (!canUseLocalStorage()) {
+    return false;
+  }
+  try {
+    return window.localStorage.getItem(READ_CURSOR_INITIALIZED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+};
+
+const latestTimestampFromMessages = (messages: ChatTimelineMessage[]): number => (
+  messages.reduce((latest, message) => {
+    const timestamp = normalizeNonNegativeInteger(message.timestamp);
+    return Math.max(latest, Math.floor(timestamp / 1000));
+  }, 0)
+);
+
+const buildReadCursor = (
+  session: ChatSessionListItem | undefined,
+  messages: ChatTimelineMessage[] | undefined,
+): ReadCursor => {
+  const messageCount = Math.max(
+    normalizeNonNegativeInteger(session?.message_count),
+    normalizeNonNegativeInteger(messages?.length),
+  );
+  const lastTimestamp = Math.max(
+    normalizeNonNegativeInteger(session?.last_timestamp),
+    latestTimestampFromMessages(messages || []),
+  );
+  return { messageCount, lastTimestamp };
+};
+
+const persistSessionReadCursor = (
+  sessionId: string | null | undefined,
+  session: ChatSessionListItem | undefined,
+  messages: ChatTimelineMessage[] | undefined,
+) => {
+  const normalizedSessionId = String(sessionId || '').trim();
+  if (!normalizedSessionId) {
+    return;
+  }
+  const cursors = loadReadCursors();
+  cursors[normalizedSessionId] = buildReadCursor(session, messages);
+  saveReadCursors(cursors);
+};
+
+const unreadCountFromCursor = (
+  session: ChatSessionListItem,
+  cursor: ReadCursor | undefined,
+): number => {
+  const messageCount = normalizeNonNegativeInteger(session.message_count);
+  if (!cursor) {
+    return messageCount;
+  }
+  return Math.max(0, messageCount - normalizeNonNegativeInteger(cursor.messageCount));
+};
+
+const isUnreadWorthyMessage = (message: ChatTimelineMessage): boolean => (
+  message.role !== 'user'
+  && isTranscriptMessage(message)
+  && !message.streaming
+);
 
 const appendReasoning = (
   prev: ReasoningTrace[] | undefined,
@@ -428,12 +554,21 @@ const mergeHistorySnapshot = (
 
 export const useConversationStore = create<ConversationState>((set) => ({
   ...emptyState,
-  setCurrentSessionId: (sessionId) => set((state) => ({
-    currentSessionId: sessionId,
-    unreadBySession: sessionId
-      ? { ...state.unreadBySession, [sessionId]: 0 }
-      : state.unreadBySession,
-  })),
+  setCurrentSessionId: (sessionId) => set((state) => {
+    if (sessionId) {
+      persistSessionReadCursor(
+        sessionId,
+        state.sessionsById[sessionId],
+        state.messagesBySession[sessionId] || [],
+      );
+    }
+    return {
+      currentSessionId: sessionId,
+      unreadBySession: sessionId
+        ? { ...state.unreadBySession, [sessionId]: 0 }
+        : state.unreadBySession,
+    };
+  }),
   hydrateSessions: (sessions, currentSessionId) => set((state) => {
     const nextSessionsById = { ...state.sessionsById };
     const nextOrder: string[] = [];
@@ -453,22 +588,58 @@ export const useConversationStore = create<ConversationState>((set) => ({
         ?? nextOrder[0]
         ?? null
       );
+    const cursors = loadReadCursors();
+    const initialized = readCursorsInitialized();
+    const nextUnreadBySession: Record<string, number> = {};
+
+    for (const session of sessions) {
+      if (session.session_id === nextCurrentSessionId) {
+        cursors[session.session_id] = buildReadCursor(
+          session,
+          state.messagesBySession[session.session_id] || [],
+        );
+        nextUnreadBySession[session.session_id] = 0;
+        continue;
+      }
+      if (!initialized) {
+        cursors[session.session_id] = buildReadCursor(
+          session,
+          state.messagesBySession[session.session_id] || [],
+        );
+        nextUnreadBySession[session.session_id] = 0;
+        continue;
+      }
+      nextUnreadBySession[session.session_id] = unreadCountFromCursor(session, cursors[session.session_id]);
+    }
+
+    if (sessions.length > 0 || nextCurrentSessionId) {
+      saveReadCursors(cursors);
+    }
 
     return {
       sessionsById: nextSessionsById,
       orderedSessionIds: nextOrder,
       currentSessionId: nextCurrentSessionId,
-      unreadBySession:
-        nextCurrentSessionId
-          ? { ...state.unreadBySession, [nextCurrentSessionId]: 0 }
-          : state.unreadBySession,
+      unreadBySession: nextUnreadBySession,
     };
   }),
   upsertSession: (session) => set((state) => {
     const nextSummaryState = upsertSessionSummary(state.sessionsById, state.orderedSessionIds, session);
+    const currentMessages = state.messagesBySession[session.session_id] || [];
+    const nextUnreadBySession = { ...state.unreadBySession };
+    if (state.currentSessionId === session.session_id) {
+      persistSessionReadCursor(session.session_id, session, currentMessages);
+      nextUnreadBySession[session.session_id] = 0;
+    } else if (readCursorsInitialized()) {
+      nextUnreadBySession[session.session_id] = unreadCountFromCursor(
+        session,
+        loadReadCursors()[session.session_id],
+      );
+    }
     return {
       sessionsById: nextSummaryState.sessionsById,
       orderedSessionIds: nextSummaryState.orderedSessionIds,
+      unreadBySession: nextUnreadBySession,
     };
   }),
   receiveHistory: (sessionId, messages, historyVersion) => set((state) => {
@@ -476,13 +647,15 @@ export const useConversationStore = create<ConversationState>((set) => ({
     const previousMessages = state.messagesBySession[sessionId] || [];
     const normalizedHistoryVersion = Number(historyVersion);
     const shouldRecordHistoryVersion = Number.isFinite(normalizedHistoryVersion) && normalizedHistoryVersion >= 0;
+    const mergedMessages = mergeHistorySnapshot(previousMessages, messages);
+    persistSessionReadCursor(sessionId, ensured.sessionsById[sessionId], mergedMessages);
     return {
       currentSessionId: sessionId,
       sessionsById: ensured.sessionsById,
       orderedSessionIds: ensured.orderedSessionIds,
       messagesBySession: {
         ...state.messagesBySession,
-        [sessionId]: mergeHistorySnapshot(previousMessages, messages),
+        [sessionId]: mergedMessages,
       },
       historyVersionBySession: shouldRecordHistoryVersion
         ? {
@@ -501,13 +674,30 @@ export const useConversationStore = create<ConversationState>((set) => ({
       return state;
     }
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
+    const previousMessages = state.messagesBySession[sessionId] || [];
+    const hadExistingMessage = previousMessages.some((existing) => canMergeTimelineMessage(existing, message));
+    const nextMessages = upsertTimelineMessage(previousMessages, message);
+    const shouldIncrementUnread = (
+      state.currentSessionId !== sessionId
+      && !hadExistingMessage
+      && isUnreadWorthyMessage(message)
+    );
+    if (state.currentSessionId === sessionId) {
+      persistSessionReadCursor(sessionId, ensured.sessionsById[sessionId], nextMessages);
+    }
     return {
       currentSessionId: state.currentSessionId,
       sessionsById: ensured.sessionsById,
       orderedSessionIds: ensured.orderedSessionIds,
       messagesBySession: {
         ...state.messagesBySession,
-        [sessionId]: upsertTimelineMessage(state.messagesBySession[sessionId] || [], message),
+        [sessionId]: nextMessages,
+      },
+      unreadBySession: {
+        ...state.unreadBySession,
+        [sessionId]: shouldIncrementUnread
+          ? (state.unreadBySession[sessionId] || 0) + 1
+          : (state.currentSessionId === sessionId ? 0 : state.unreadBySession[sessionId] || 0),
       },
     };
   }),
@@ -519,6 +709,21 @@ export const useConversationStore = create<ConversationState>((set) => ({
       ...previousMessages,
       ...createPendingTurn(input, turnId, timestamp, pendingLabel, attachments || [], replyTo || null),
     ];
+    const nextSession = {
+      ...(ensured.sessionsById[sessionId] || {
+        session_id: sessionId,
+        title: input,
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      }),
+      last_user_message_preview: previewText,
+      last_timestamp: Math.floor(timestamp / 1000),
+    };
+    persistSessionReadCursor(sessionId, nextSession, nextMessages);
     return {
       currentSessionId: sessionId,
       orderedSessionIds: ensured.orderedSessionIds,
@@ -528,20 +733,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
       sessionsById: {
         ...ensured.sessionsById,
-        [sessionId]: {
-          ...(ensured.sessionsById[sessionId] || {
-            session_id: sessionId,
-            title: input,
-            last_message_preview: '',
-            last_user_message_preview: '',
-            title_overridden: false,
-            last_timestamp: 0,
-            message_count: 0,
-            workspace_path: null,
-          }),
-          last_user_message_preview: previewText,
-          last_timestamp: Math.floor(timestamp / 1000),
-        },
+        [sessionId]: nextSession,
       },
       unreadBySession: {
         ...state.unreadBySession,
@@ -608,6 +800,9 @@ export const useConversationStore = create<ConversationState>((set) => ({
     };
     const nextSummaryState = upsertSessionSummary(ensured.sessionsById, ensured.orderedSessionIds, sessionSummary);
     const shouldIncrementUnread = state.currentSessionId !== sessionId;
+    if (!shouldIncrementUnread) {
+      persistSessionReadCursor(sessionId, sessionSummary, nextMessages);
+    }
     return {
       sessionsById: nextSummaryState.sessionsById,
       orderedSessionIds: nextSummaryState.orderedSessionIds,

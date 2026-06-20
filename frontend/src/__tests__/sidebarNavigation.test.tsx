@@ -1,5 +1,5 @@
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { configApi, messagesApi } from '@/api';
@@ -92,6 +92,13 @@ describe('sidebar navigation', () => {
     useChatShellStore.setState({
       currentSessionId: null,
       activePanel: 'none',
+      timelinePanel: {
+        ...useChatShellStore.getState().timelinePanel,
+        monthForCalendar: '2026-06',
+        selectedDate: '2026-06-20',
+        selectedRangeStart: '2026-06-20',
+        selectedRangeEnd: '2026-06-20',
+      },
     });
     useConversationStore.getState().reset();
     vi.mocked(configApi.get).mockResolvedValue({
@@ -631,7 +638,15 @@ describe('sidebar navigation', () => {
     );
 
     await userEvent.click(await screen.findByRole('button', { name: 'shell.conversation' }));
-    expect(await screen.findByText('3')).toBeInTheDocument();
+    act(() => {
+      useConversationStore.setState({
+        unreadBySession: {
+          'session-b': 3,
+        },
+      });
+    });
+    expect(within(screen.getByRole('button', { name: 'shell.conversation' })).getByText('3')).toBeInTheDocument();
+    expect(screen.getAllByText('3')).toHaveLength(2);
   });
 
 });

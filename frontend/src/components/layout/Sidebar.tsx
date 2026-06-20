@@ -284,6 +284,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     }
     return [];
   }, [currentSessionId, orderedSessionIds, sessionsById, t]);
+  const totalConversationUnread = useMemo(
+    () => Object.values(unreadBySession).reduce((total, count) => total + Math.max(0, Number(count) || 0), 0),
+    [unreadBySession],
+  );
 
   const tasksActiveCount = useBackgroundTaskStore((state) => state.activeCount);
   const runningSchedulesCount = useSchedulesStore((state) => state.runningCount);
@@ -636,6 +640,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
             t('shell.conversation'),
             <MessageCircle className="h-[18px] w-[18px]" />,
             conversationActive,
+            totalConversationUnread,
           )}
           {renderActivityButton(
             'timeline',

@@ -5,6 +5,7 @@ import { useConversationStore } from '@/stores/conversation-store';
 
 describe('conversation store', () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useConversationStore.getState().reset();
     useChatTraceStore.getState().reset();
   });
@@ -26,6 +27,119 @@ describe('conversation store', () => {
     });
 
     expect(useConversationStore.getState().unreadBySession['session-b']).toBe(1);
+  });
+
+  it('increments unread count once for inactive session message upserts', () => {
+    const store = useConversationStore.getState();
+
+    store.setCurrentSessionId('session-a');
+    store.upsertMessage('session-b', {
+      id: 'msg-b',
+      messageId: 'msg-b',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'done',
+      timestamp: 2000,
+      turnId: 'turn-b',
+      messageKind: 'assistant_final',
+    });
+    store.upsertMessage('session-b', {
+      id: 'msg-b',
+      messageId: 'msg-b',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'done',
+      timestamp: 2000,
+      turnId: 'turn-b',
+      messageKind: 'assistant_final',
+    });
+
+    expect(useConversationStore.getState().unreadBySession['session-b']).toBe(1);
+  });
+
+  it('keeps existing sessions read on first session hydration', () => {
+    const store = useConversationStore.getState();
+
+    store.hydrateSessions([
+      {
+        session_id: 'session-a',
+        title: 'Session A',
+        last_message_preview: 'hello',
+        last_user_message_preview: 'hello',
+        title_overridden: false,
+        last_timestamp: 10,
+        message_count: 1,
+        workspace_path: null,
+      },
+      {
+        session_id: 'session-b',
+        title: 'Session B',
+        last_message_preview: 'older',
+        last_user_message_preview: 'older',
+        title_overridden: false,
+        last_timestamp: 20,
+        message_count: 4,
+        workspace_path: null,
+      },
+    ], 'session-a');
+
+    expect(useConversationStore.getState().unreadBySession).toEqual({
+      'session-a': 0,
+      'session-b': 0,
+    });
+  });
+
+  it('restores unread counts from persisted read cursors on session hydration', () => {
+    const store = useConversationStore.getState();
+
+    store.hydrateSessions([
+      {
+        session_id: 'session-a',
+        title: 'Session A',
+        last_message_preview: 'hello',
+        last_user_message_preview: 'hello',
+        title_overridden: false,
+        last_timestamp: 10,
+        message_count: 1,
+        workspace_path: null,
+      },
+      {
+        session_id: 'session-b',
+        title: 'Session B',
+        last_message_preview: 'done',
+        last_user_message_preview: 'ask',
+        title_overridden: false,
+        last_timestamp: 20,
+        message_count: 2,
+        workspace_path: null,
+      },
+    ], 'session-a');
+    store.reset();
+
+    store.hydrateSessions([
+      {
+        session_id: 'session-a',
+        title: 'Session A',
+        last_message_preview: 'hello',
+        last_user_message_preview: 'hello',
+        title_overridden: false,
+        last_timestamp: 10,
+        message_count: 1,
+        workspace_path: null,
+      },
+      {
+        session_id: 'session-b',
+        title: 'Session B',
+        last_message_preview: 'new answer',
+        last_user_message_preview: 'ask',
+        title_overridden: false,
+        last_timestamp: 30,
+        message_count: 4,
+        workspace_path: null,
+      },
+    ], 'session-a');
+
+    expect(useConversationStore.getState().unreadBySession['session-b']).toBe(2);
   });
 
   it('records the history version for received session history', () => {
