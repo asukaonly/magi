@@ -120,13 +120,15 @@ export function SettingsNavigationSidebar({
                         }}
                         aria-current={isChildActive ? 'page' : undefined}
                         className={cn(
-                          'flex w-full items-center rounded-md px-3 py-1.5 text-[13px] leading-5 transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+                          'flex w-full items-center justify-start rounded-md px-3 py-1.5 text-left text-[13px] leading-5 transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
                           isChildActive
                             ? 'bg-[hsl(var(--settings-shell-elevated)/0.72)] text-foreground font-semibold'
                             : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.48)] hover:text-foreground'
                         )}
                       >
-                        {t(`settings.tabs.${child.id}`)}
+                        <span className="min-w-0 flex-1 truncate text-left">
+                          {t(`settings.tabs.${child.id}`)}
+                        </span>
                       </button>
                     );
                   })}

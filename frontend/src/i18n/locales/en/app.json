@@ -1130,7 +1130,7 @@
     "tabs": {
       "preferences": "General",
       "llm": "Model",
-      "llmProviders": "Provider Configuration",
+      "llmProviders": "Provider",
       "llmModels": "Model Selection",
       "conversation": "Conversation",
       "personalProfile": "Personal Profile",
