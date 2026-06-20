@@ -3443,7 +3443,7 @@
     "generate": "AI 生成",
     "generatePlaceholder": "一句话描述人格用于 AI 生成",
     "diffPreview": "人格差异预览（前 8 项）",
-    "save": "保存配置",
+    "save": "保存",
     "saving": "保存中...",
     "sections": {
       "basicInfo": "基础档案",
@@ -3546,7 +3546,7 @@
       "valuesRejected": "写这个人格天然排斥的东西。会影响拒绝方式、批判方向和边界感。",
       "attentionBiases": "写这个人格在面对信息时，会优先注意什么。它会影响解题角度和判断焦点。",
       "sentenceStyle": "低强度的句式特征，长期存在但不应盖过内容本身。",
-      "chatBehavior": "日常聊天的默认回应方式。这个字段在 quick 模式里最直接影响角色“平时怎么说话”。",
+      "chatBehavior": "日常聊天的默认回应方式。这个字段最直接影响角色“平时怎么说话”。",
       "vocabAvailable": "可自然出现的词，不是配额。写会“偶尔自然冒出来”的词。",
       "vocabAvoided": "尽量不用的词，适合填客服腔、套话、破坏角色气质的表达。",
       "structuralQuirks": "句子结构或组织习惯，比如短句、先结论后展开、必要时才上列表。",
@@ -3593,10 +3593,6 @@
       "viewLayersTitle": "查看深层人格",
       "viewLayersConfirm": "深层人格包含角色的隐藏设定和渐进解锁机制。查看后可能影响你与角色互动的发现乐趣。确定要查看吗？",
       "viewLayersReveal": "确定查看"
-    },
-    "editorModes": {
-      "quick": "快速",
-      "expert": "专家"
     },
     "generationStages": {
       "base": "理解人格方向",

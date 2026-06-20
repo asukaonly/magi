@@ -3444,7 +3444,7 @@
     "generate": "AI Generate",
     "generatePlaceholder": "Describe a personality for AI generation",
     "diffPreview": "Personality diff preview (first 8)",
-    "save": "Save Configuration",
+    "save": "Save",
     "saving": "Saving...",
     "sections": {
       "basicInfo": "Basic Profile",
@@ -3547,7 +3547,7 @@
       "valuesRejected": "What this persona naturally rejects. This affects refusal style, criticism targets, and boundaries.",
       "attentionBiases": "What this persona notices first when interpreting a situation. This affects analysis angle and prioritization.",
       "sentenceStyle": "Low-intensity sentence rhythm and cadence. It should stay present without overpowering usefulness.",
-      "chatBehavior": "Default day-to-day reply behavior. In quick mode, this is the most direct control over how the persona normally sounds.",
+      "chatBehavior": "Default day-to-day reply behavior. This is the most direct control over how the persona normally sounds.",
       "vocabAvailable": "Words or phrases that may appear naturally. Treat them as ammunition, not quotas.",
       "vocabAvoided": "Words that break the persona voice, such as service-desk phrasing or generic filler.",
       "structuralQuirks": "Structural habits such as short sentences, conclusion-first writing, or only using lists when needed.",
@@ -3594,10 +3594,6 @@
       "viewLayersTitle": "View Deep Persona Layers",
       "viewLayersConfirm": "Deep persona layers contain hidden character settings and progressive unlock mechanics. Viewing them may spoil the discovery experience. Are you sure?",
       "viewLayersReveal": "Reveal"
-    },
-    "editorModes": {
-      "quick": "Quick",
-      "expert": "Expert"
     },
     "generationStages": {
       "base": "Understanding persona direction",

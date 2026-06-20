@@ -49,8 +49,6 @@ const REQUIRED_PERSONALITY_KEYS = [
   'personality.actions.removeClamp',
   'personality.actions.addModifier',
   'personality.actions.removeModifier',
-  'personality.editorModes.quick',
-  'personality.editorModes.expert',
   'personality.generationStages.base',
   'personality.generationStages.registers',
   'personality.generationStages.rules',

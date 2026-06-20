@@ -137,7 +137,7 @@ describe('PersonalityModern', () => {
     const createCard = screen.getByTestId('personality-create-card');
 
     expect(createCard).toBeInTheDocument();
-    expect(createCard.firstElementChild).toHaveClass('border-primary');
+    expect(createCard).toHaveClass('bg-primary/10');
     expect(screen.getAllByText('personality.generate')).toHaveLength(2);
     expect(within(createCard).queryByText('personality.current')).not.toBeInTheDocument();
     expect(createCard.querySelectorAll('.lucide-check')).toHaveLength(0);
@@ -173,7 +173,7 @@ describe('PersonalityModern', () => {
     expect(screen.queryAllByText('personality.generate')).toHaveLength(0);
   });
 
-  it('starts the personality detail editor in a focused quick mode', () => {
+  it('renders the personality detail editor as a unified form', () => {
     vi.mocked(usePersonality).mockReturnValue(
       buildHookState({
         isNewMode: true,
@@ -185,15 +185,17 @@ describe('PersonalityModern', () => {
 
     render(<PersonalityModern embedded />);
 
-    expect(screen.getByRole('tab', { name: 'personality.editorModes.quick' })).toHaveAttribute('data-state', 'active');
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
     expect(screen.queryByText('personality.validation.missing')).not.toBeInTheDocument();
-    expect(screen.getByText('personality.fields.chatBehavior')).toBeInTheDocument();
-    expect(screen.queryByText('personality.sections.signatureTriggers')).not.toBeInTheDocument();
-    expect(screen.queryByText('personality.sections.quietHours')).not.toBeInTheDocument();
+    expect(screen.getByText('personality.sections.identityCore')).toBeInTheDocument();
+    expect(screen.getByText('personality.sections.registers')).toBeInTheDocument();
+    expect(screen.getByText('personality.sections.signatureTriggers')).toBeInTheDocument();
+    expect(screen.getByText('personality.sections.quietHours')).toBeInTheDocument();
+    expect(screen.getByText('personality.sections.personaLayers')).toBeInTheDocument();
     expect(screen.queryByText('personality.registers.crisis')).not.toBeInTheDocument();
   });
 
-  it('reveals full register and advanced sections in expert mode', () => {
+  it('reveals register and deep layer sections from the unified editor', () => {
     vi.mocked(usePersonality).mockReturnValue(
       buildHookState({
         config: {
@@ -208,26 +210,20 @@ describe('PersonalityModern', () => {
 
     render(<PersonalityModern embedded />);
 
-    fireEvent.pointerDown(screen.getByRole('tab', { name: 'personality.editorModes.expert' }), { button: 0 });
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'personality.editorModes.expert' }), { button: 0 });
-
-    return waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'personality.editorModes.expert' })).toHaveAttribute('data-state', 'active');
-    }).then(() => {
-      expect(screen.getByText('personality.validation.missing')).toBeInTheDocument();
-      expect(screen.getByText('personality.sections.registers')).toBeInTheDocument();
-      expect(screen.getByText('personality.sections.appearance')).toBeInTheDocument();
-      expect(screen.getByText('personality.sections.personaLayers')).toBeInTheDocument();
-      expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: 'personality.sections.registers' }));
-      expect(screen.getByText('personality.registers.crisis')).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: 'personality.sections.personaLayers' }));
-      expect(screen.getByText('personality.actions.viewLayersConfirm')).toBeInTheDocument();
-      expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: 'personality.actions.viewLayersReveal' }));
-      expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
-      expect(screen.getByDisplayValue('crack')).toBeInTheDocument();
-    });
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(screen.queryByText('personality.validation.missing')).not.toBeInTheDocument();
+    expect(screen.getByText('personality.sections.registers')).toBeInTheDocument();
+    expect(screen.getByText('personality.sections.appearance')).toBeInTheDocument();
+    expect(screen.getByText('personality.sections.personaLayers')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'personality.sections.registers' }));
+    expect(screen.getByText('personality.registers.crisis')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'personality.sections.personaLayers' }));
+    expect(screen.getByText('personality.actions.viewLayersConfirm')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'personality.actions.viewLayersReveal' }));
+    expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue('crack')).toBeInTheDocument();
   });
 
   it('shows layer modifier help immediately and constrains modifier keys to supported options', async () => {
@@ -244,13 +240,6 @@ describe('PersonalityModern', () => {
     );
 
     render(<PersonalityModern embedded />);
-
-    fireEvent.pointerDown(screen.getByRole('tab', { name: 'personality.editorModes.expert' }), { button: 0 });
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'personality.editorModes.expert' }), { button: 0 });
-
-    await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'personality.editorModes.expert' })).toHaveAttribute('data-state', 'active');
-    });
 
     fireEvent.click(screen.getByRole('button', { name: 'personality.sections.personaLayers' }));
     fireEvent.click(screen.getByRole('button', { name: 'personality.actions.viewLayersReveal' }));

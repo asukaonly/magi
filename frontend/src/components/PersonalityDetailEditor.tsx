@@ -16,7 +16,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type {
   LayerModifierKey,
   LayerModifiers,
@@ -26,7 +25,6 @@ import type {
   QuietHour,
   SignatureTrigger,
 } from '@/api/modules/personas';
-import { formatPersonaValidationIssues, validatePersonalityConfig } from '@/utils/personaValidation';
 
 interface PersonalityDetailEditorProps {
   config: PersonalityConfig;
@@ -37,7 +35,6 @@ interface PersonalityDetailEditorProps {
   avatarFilename?: string;
 }
 
-type EditorMode = 'quick' | 'expert';
 type MappingEntry = { key: string; value: string };
 type LayerModifierValue = string | number | string[] | Record<string, number> | undefined;
 type StructuredLayerModifierKey = Exclude<LayerModifierKey, 'behavior_shifts'>;
@@ -306,12 +303,17 @@ const Section: React.FC<{
   onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
 }> = ({ title, description, defaultOpen = true, open, onOpenChange, children }) => (
-  <Collapsible className="space-y-1" defaultOpen={defaultOpen} open={open} onOpenChange={onOpenChange}>
-    <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
+  <Collapsible
+    className="rounded-md bg-background/60 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.16)]"
+    defaultOpen={defaultOpen}
+    open={open}
+    onOpenChange={onOpenChange}
+  >
+    <CollapsibleTrigger className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-foreground transition hover:bg-accent/50">
       {title}
     </CollapsibleTrigger>
-    <CollapsibleContent className="pt-2">
-      {description ? <p className="pb-2 text-xs leading-5 text-muted-foreground">{description}</p> : null}
+    <CollapsibleContent className="px-3 pb-3 pt-1">
+      {description ? <p className="pb-3 text-xs leading-5 text-muted-foreground">{description}</p> : null}
       {children}
     </CollapsibleContent>
   </Collapsible>
@@ -602,13 +604,9 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
   uploadingAvatar = false,
   avatarFilename,
 }) => {
-  const [mode, setMode] = React.useState<EditorMode>('quick');
   const [layersOpen, setLayersOpen] = React.useState(false);
   const [layersUnlocked, setLayersUnlocked] = React.useState(false);
   const [layerConfirmOpen, setLayerConfirmOpen] = React.useState(false);
-  const validation = React.useMemo(() => validatePersonalityConfig(config), [config]);
-  const missingFields = formatPersonaValidationIssues(validation.minimumIssues, t);
-  const expertFields = formatPersonaValidationIssues(validation.expertIssues, t);
   const editableLayers = React.useMemo(
     () => (config.persona_layers || [])
       .map((item, index) => ({ item, index }))
@@ -666,40 +664,6 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
     </Section>
   );
 
-  const renderQuickIdentity = () => (
-    <Section title={t('personality.sections.identityCore')} description={t('personality.sectionDescriptions.identityCore')}>
-      <div className="grid gap-3">
-        <label className="space-y-1.5">
-          <FieldLabel label={t('personality.fields.identityStatement')} help={t('personality.fieldHelp.identityStatement')} />
-          <AutoResizeTextarea
-            value={config.identity_core.identity_statement}
-            minHeight={112}
-            className="w-full"
-            onChange={(event) => patch((draft) => { draft.identity_core.identity_statement = event.target.value; })}
-          />
-        </label>
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="space-y-1.5">
-            <FieldLabel label={t('personality.fields.valuesLoved')} help={t('personality.fieldHelp.valuesLoved')} />
-            <AutoResizeTextarea
-              value={toLines(config.identity_core.values_loved)}
-              className="w-full"
-              onChange={(event) => patch((draft) => { draft.identity_core.values_loved = parseLines(event.target.value); })}
-            />
-          </label>
-          <label className="space-y-1.5">
-            <FieldLabel label={t('personality.fields.valuesRejected')} help={t('personality.fieldHelp.valuesRejected')} />
-            <AutoResizeTextarea
-              value={toLines(config.identity_core.values_rejected)}
-              className="w-full"
-              onChange={(event) => patch((draft) => { draft.identity_core.values_rejected = parseLines(event.target.value); })}
-            />
-          </label>
-        </div>
-      </div>
-    </Section>
-  );
-
   const renderIdentityCore = (defaultOpen = true) => (
     <Section title={t('personality.sections.identityCore')} description={t('personality.sectionDescriptions.identityCore')} defaultOpen={defaultOpen}>
       <div className="grid gap-3">
@@ -741,33 +705,6 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
       </div>
     </Section>
   );
-
-  const renderQuickVoice = () => {
-    const chatRegister = normalizeRegister(config.registers.chat);
-    return (
-      <Section title={t('personality.sections.idiolect')}>
-        <div className="grid gap-3">
-          <label className="space-y-1.5">
-            <FieldLabel label={t('personality.fields.sentenceStyle')} help={t('personality.fieldHelp.sentenceStyle')} />
-            <AutoResizeTextarea
-              value={config.idiolect.sentence_style}
-              className="w-full"
-              onChange={(event) => patch((draft) => { draft.idiolect.sentence_style = event.target.value; })}
-            />
-          </label>
-          <label className="space-y-1.5">
-            <FieldLabel label={t('personality.fields.chatBehavior')} help={t('personality.fieldHelp.chatBehavior')} />
-            <AutoResizeTextarea
-              value={chatRegister.behavior}
-              minHeight={88}
-              className="w-full"
-              onChange={(event) => updateRegister('chat', { ...chatRegister, behavior: event.target.value })}
-            />
-          </label>
-        </div>
-      </Section>
-    );
-  };
 
   const renderIdiolect = (defaultOpen = true) => (
     <Section title={t('personality.sections.idiolect')} description={t('personality.sectionDescriptions.idiolect')} defaultOpen={defaultOpen}>
@@ -1059,48 +996,18 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
     </Section>
   );
 
-  const validationMessage = (() => {
-    if (mode !== 'expert') return '';
-    if (!validation.isMinimumReady) {
-      return t('personality.validation.missing', { fields: missingFields.join(', ') });
-    }
-    if (!validation.isExpertReady) {
-      return t('personality.validation.expertMissing', { fields: expertFields.join(', ') });
-    }
-    return '';
-  })();
-
   return (
     <div className="space-y-3 pr-1">
-      {validationMessage ? (
-        <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-          {validationMessage}
-        </div>
-      ) : null}
-
-      <Tabs value={mode} onValueChange={(value) => setMode(value as EditorMode)}>
-        <TabsList className="grid w-full grid-cols-2 sm:w-auto">
-          <TabsTrigger value="quick">{t('personality.editorModes.quick')}</TabsTrigger>
-          <TabsTrigger value="expert">{t('personality.editorModes.expert')}</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="quick" className="mt-3 space-y-1">
-          {renderBasicProfile()}
-          {renderQuickIdentity()}
-          {renderQuickVoice()}
-        </TabsContent>
-
-        <TabsContent value="expert" className="mt-3 space-y-1">
-          {renderBasicProfile()}
-          {renderIdentityCore(false)}
-          {renderIdiolect(false)}
-          {renderRegisters(REGISTER_KEYS, false)}
-          {renderTriggers(true, false)}
-          {renderQuietHours(false)}
-          {renderAppearance()}
-          {renderLayers()}
-        </TabsContent>
-      </Tabs>
+      <div className="space-y-1">
+        {renderBasicProfile()}
+        {renderIdentityCore(false)}
+        {renderIdiolect(false)}
+        {renderRegisters(REGISTER_KEYS, false)}
+        {renderTriggers(true, false)}
+        {renderQuietHours(false)}
+        {renderAppearance()}
+        {renderLayers()}
+      </div>
 
       <Dialog open={layerConfirmOpen} onOpenChange={setLayerConfirmOpen}>
         <DialogContent className="max-w-md">
