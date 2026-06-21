@@ -27,6 +27,7 @@ class EvidenceBundleMixin:
         hits: List[Dict[str, Any]],
         *,
         query: str = "",
+        user_id: str | None = None,
     ) -> List[Dict[str, Any]]:
         """Group L1 hits into session-local evidence bundles with lightweight neighbors."""
         if not hits or getattr(self._memory, "l1", None) is None:
@@ -76,6 +77,7 @@ class EvidenceBundleMixin:
                     session_hits=grouped_hits[session_id],
                     neighbor_window=neighbor_window,
                     limit=limit,
+                    user_id=user_id,
                 )
                 for session_id, limit in zip(session_ids, session_limits)
             ),
@@ -117,6 +119,7 @@ class EvidenceBundleMixin:
         session_hits: List[Dict[str, Any]],
         neighbor_window: int,
         limit: int,
+        user_id: str | None = None,
     ) -> List[Dict[str, Any]]:
         """Load a bounded set of events for a single session."""
         store = getattr(self._memory, "l1", None)
@@ -139,6 +142,7 @@ class EvidenceBundleMixin:
                             session_id=session_id,
                             center_session_seq=session_seq,
                             window=max(neighbor_window, 0),
+                            user_id=user_id,
                             include_embedding_fields=False,
                         )
                         for session_seq in hit_session_seqs
@@ -156,7 +160,7 @@ class EvidenceBundleMixin:
                 if merged_events:
                     return merged_events
         try:
-            events = await store.query_events(session_id=session_id, limit=limit)
+            events = await store.query_events(session_id=session_id, user_id=user_id, limit=limit)
         except Exception:
             logger.debug("Failed to load session-local L1 events for evidence bundle", exc_info=True)
             return []

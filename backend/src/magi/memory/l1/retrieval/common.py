@@ -103,6 +103,7 @@ class L1EventQueryHostProtocol(Protocol):
         session_id: str,
         center_session_seq: int,
         window: int,
+        user_id: Optional[str] = None,
         limit: int | None = None,
         include_metadata_json: bool = True,
         include_embedding_fields: bool = True,

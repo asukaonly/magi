@@ -24,6 +24,7 @@ class _HybridRetrievalPostProcessingHostProtocol(Protocol):
         events: List[Dict[str, Any]],
         *,
         query: str,
+        user_id: str | None = None,
     ) -> List[Dict[str, Any]]: ...
 
 
@@ -85,6 +86,7 @@ class HybridRetrievalPostProcessingMixin:
         payload.l1_evidence_bundles = await host._build_l1_evidence_bundles(
             pre_fusion_l1_events,
             query=request.query,
+            user_id=request.user_id,
         )
         payload.trace["l1_evidence_bundle_count"] = len(payload.l1_evidence_bundles)
         payload.trace["l1_evidence_bundle_sessions_total"] = len(

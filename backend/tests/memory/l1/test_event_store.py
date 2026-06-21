@@ -546,6 +546,38 @@ async def test_l1_event_store_queries_session_sequence_window(tmp_path):
             "evt-session-window-2",
             "evt-session-window-3",
         ]
+
+        other_user_event = Event(
+            type=EventTypes.USER_MESSAGE,
+            data={
+                "user_id": "user-2",
+                "session_id": "session-window",
+                "turn_id": "other-user-turn",
+                "content": "Other user window item",
+                "author_type": "user",
+                "content_type": "text",
+            },
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id="corr-session-window-other-user",
+            event_id="evt-session-window-other-user",
+        )
+        await store.store(normalize_runtime_event(other_user_event))
+
+        scoped_window = await store.query_session_event_window(
+            session_id="session-window",
+            center_session_seq=2,
+            window=2,
+            user_id="user-1",
+        )
+
+        assert [event["event_id"] for event in scoped_window] == [
+            "evt-session-window-0",
+            "evt-session-window-1",
+            "evt-session-window-2",
+            "evt-session-window-3",
+            "evt-session-window-4",
+        ]
     finally:
         await store.shutdown()
 
