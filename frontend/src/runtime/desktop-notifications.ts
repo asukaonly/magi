@@ -135,33 +135,6 @@ export async function requestDesktopNotificationPermission(): Promise<boolean> {
   return ensureNotificationPermission();
 }
 
-export async function sendDesktopNotificationTest({
-  title = 'Magi',
-  body = '这是一条测试通知',
-}: {
-  title?: string;
-  body?: string;
-} = {}): Promise<boolean> {
-  if (!await ensureNotificationPermission()) {
-    return false;
-  }
-
-  try {
-    sendNotification({
-      title: normalizeString(title) || 'Magi',
-      body: normalizeString(body) || '这是一条测试通知',
-    });
-    try {
-      await getCurrentWindow().requestUserAttention(UserAttentionType.Informational);
-    } catch {
-      // Attention hints are platform dependent.
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 const notificationBody = (body: string, previewsEnabled: boolean): string => {
   if (!previewsEnabled) {
     return 'Magi 有一条新消息';

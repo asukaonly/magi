@@ -1,18 +1,13 @@
 import { useTranslation } from 'react-i18next';
-import { Bell } from 'lucide-react';
 
 import type { SystemConfig } from '@/api/modules/config';
 import { LabeledSelectField } from '@/components/settings';
 import { DesktopUpdateSection } from '@/components/settings/DesktopUpdateSection';
 import { SettingsGroup, SettingsSectionShell } from '@/components/settings/SettingsSectionPrimitives';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
-import {
-  requestDesktopNotificationPermission,
-  sendDesktopNotificationTest,
-} from '@/runtime/desktop-notifications';
+import { requestDesktopNotificationPermission } from '@/runtime/desktop-notifications';
 import { THEME_MODE_OPTIONS, type ThemeMode } from '@/stores/theme';
 
 interface SettingsPreferencesSectionProps {
@@ -76,13 +71,6 @@ export function SettingsPreferencesSection({
     });
   };
 
-  const handleDesktopNotificationTest = () => {
-    void sendDesktopNotificationTest({
-      title: t('settings.desktopNotificationTestTitle'),
-      body: t('settings.desktopNotificationTestBody'),
-    });
-  };
-
   return (
     <SettingsSectionShell>
       <SettingsGroup title={t('settings.fields.language')}>
@@ -142,18 +130,6 @@ export function SettingsPreferencesSection({
               draft.preferences.desktop_notification_previews_enabled = checked;
             })}
           />
-          <div className="flex justify-end px-1 pt-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!draftConfig.preferences.desktop_notifications_enabled}
-              onClick={handleDesktopNotificationTest}
-            >
-              <Bell className="h-3.5 w-3.5" />
-              {t('settings.testDesktopNotificationLabel')}
-            </Button>
-          </div>
         </div>
       </SettingsGroup>
 

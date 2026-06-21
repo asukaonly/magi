@@ -100,19 +100,6 @@ describe('desktop chat notifications', () => {
     expect(requestUserAttentionMock).toHaveBeenCalledWith(2);
   });
 
-  it('sends a manual test notification', async () => {
-    const { sendDesktopNotificationTest } = await import('@/runtime/desktop-notifications');
-
-    const sent = await sendDesktopNotificationTest();
-
-    expect(sent).toBe(true);
-    expect(sendNotificationMock).toHaveBeenCalledWith({
-      title: 'Magi',
-      body: '这是一条测试通知',
-    });
-    expect(requestUserAttentionMock).toHaveBeenCalledWith(2);
-  });
-
   it('hides message body when notification previews are disabled', async () => {
     const { notifyForUnreadChatMessage } = await import('@/runtime/desktop-notifications');
 

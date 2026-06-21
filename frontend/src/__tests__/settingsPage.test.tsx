@@ -16,7 +16,6 @@ const {
   syncAutoStartPreferenceMock,
   syncStartMinimizedPreferenceMock,
   requestDesktopNotificationPermissionMock,
-  sendDesktopNotificationTestMock,
   syncDesktopNotificationPreferencesMock,
   pickDirectoryMock,
   changeLanguageMock,
@@ -27,7 +26,6 @@ const {
   syncAutoStartPreferenceMock: vi.fn(),
   syncStartMinimizedPreferenceMock: vi.fn(),
   requestDesktopNotificationPermissionMock: vi.fn(),
-  sendDesktopNotificationTestMock: vi.fn(),
   syncDesktopNotificationPreferencesMock: vi.fn(),
   pickDirectoryMock: vi.fn(),
   changeLanguageMock: vi.fn(),
@@ -144,7 +142,6 @@ vi.mock('@/runtime/desktop', () => ({
 
 vi.mock('@/runtime/desktop-notifications', () => ({
   requestDesktopNotificationPermission: requestDesktopNotificationPermissionMock,
-  sendDesktopNotificationTest: sendDesktopNotificationTestMock,
   syncDesktopNotificationPreferences: syncDesktopNotificationPreferencesMock,
 }));
 
@@ -555,7 +552,6 @@ describe('settings page draft saving', () => {
     syncAutoStartPreferenceMock.mockReset();
     syncStartMinimizedPreferenceMock.mockReset();
     requestDesktopNotificationPermissionMock.mockResolvedValue(true);
-    sendDesktopNotificationTestMock.mockResolvedValue(true);
     pickDirectoryMock.mockReset();
     pickDirectoryMock.mockResolvedValue(undefined);
 
@@ -761,8 +757,6 @@ describe('settings page draft saving', () => {
     await user.click(notificationsSwitch);
     await waitFor(() => expect(requestDesktopNotificationPermissionMock).toHaveBeenCalledTimes(1));
     await user.click(previewsSwitch);
-    await user.click(screen.getByRole('button', { name: 'settings.testDesktopNotificationLabel' }));
-    expect(sendDesktopNotificationTestMock).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
     await waitFor(() =>
