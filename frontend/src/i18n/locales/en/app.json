@@ -1251,6 +1251,9 @@
     "skipQuitConfirmationLabel": "Skip quit confirmation",
     "desktopNotificationsLabel": "System notifications for new messages",
     "desktopNotificationPreviewsLabel": "Show message content in notifications",
+    "testDesktopNotificationLabel": "Send test notification",
+    "desktopNotificationTestTitle": "Magi",
+    "desktopNotificationTestBody": "This is a test notification.",
     "startupSettings": "Startup",
     "autoStartLabel": "Launch at login",
     "startMinimizedLabel": "Start minimized to tray",
@@ -2665,6 +2668,8 @@
         "meta": "Based on {{count}} understanding(s)",
         "empty": "No clear connection yet.",
         "rootLabel": "You",
+        "rootTitle": "Magi's view",
+        "rootMeta": "A compact outline of what Magi understands so far.",
         "groups": {
           "identity": "Identity",
           "preferences": "Preferences and interests",

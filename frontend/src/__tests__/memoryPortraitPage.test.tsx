@@ -85,9 +85,8 @@ describe('MemoryPortraitPage', () => {
     const root = screen.getByTestId('portrait-world-root');
     expect(root).toBeInTheDocument();
     expect(within(root).getByText('你')).toBeInTheDocument();
-    expect(within(root).queryByText('Magi 眼中的你')).not.toBeInTheDocument();
-    expect(within(root).queryByText('从记忆里连接出来的身份、偏好、习惯和互动方式')).not.toBeInTheDocument();
-    expect(root.className).not.toContain('border');
+    expect(within(root).getByText('Magi 眼中的你')).toBeInTheDocument();
+    expect(within(root).getByText('从记忆里连接出来的身份、偏好、习惯和互动方式')).toBeInTheDocument();
     expect(screen.getByText('你的世界')).toBeInTheDocument();
     expect(screen.getByText('身份信息')).toBeInTheDocument();
     expect(screen.getByText('偏好与关注')).toBeInTheDocument();
@@ -96,8 +95,8 @@ describe('MemoryPortraitPage', () => {
     expect(screen.queryByText('正在推进的项目')).not.toBeInTheDocument();
     expect(screen.queryByText('常用工具')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-world-trunk')).not.toBeInTheDocument();
-    expect(screen.getAllByTestId('portrait-world-trunk-segment')).toHaveLength(3);
-    expect(screen.getByTestId('portrait-world-root-connector').className).toContain('w-5');
+    expect(screen.queryAllByTestId('portrait-world-trunk-segment')).toHaveLength(0);
+    expect(screen.queryByTestId('portrait-world-root-connector')).not.toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-tree').querySelector('svg')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-review-queue')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-recent-state')).not.toBeInTheDocument();
@@ -126,9 +125,8 @@ describe('MemoryPortraitPage', () => {
     const root = screen.getByTestId('portrait-world-root');
     expect(root).toBeInTheDocument();
     expect(within(root).getByText('你')).toBeInTheDocument();
-    expect(within(root).queryByText('Magi 眼中的你')).not.toBeInTheDocument();
-    expect(within(root).queryByText('从记忆里连接出来的身份、偏好、习惯和互动方式')).not.toBeInTheDocument();
-    expect(root.className).not.toContain('border');
+    expect(within(root).getByText('Magi 眼中的你')).toBeInTheDocument();
+    expect(within(root).getByText('从记忆里连接出来的身份、偏好、习惯和互动方式')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-identity')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-preferences')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-routine')).toBeInTheDocument();
@@ -137,7 +135,7 @@ describe('MemoryPortraitPage', () => {
       expect(branch.className).not.toContain('border-l');
     });
     expect(screen.queryByTestId('portrait-world-trunk')).not.toBeInTheDocument();
-    expect(screen.getAllByTestId('portrait-world-trunk-segment')).toHaveLength(3);
+    expect(screen.queryAllByTestId('portrait-world-trunk-segment')).toHaveLength(0);
     expect(within(screen.getByTestId('portrait-world-branch-communication')).queryByTestId('portrait-world-trunk-segment')).not.toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-tree').querySelector('svg')).not.toBeInTheDocument();
     expect(screen.getByText('Magi 记忆系统')).toBeInTheDocument();
@@ -146,7 +144,7 @@ describe('MemoryPortraitPage', () => {
     expect(screen.getByText('习惯与工具')).toBeInTheDocument();
     expect(screen.queryByText('Chrome')).not.toBeInTheDocument();
     expect(within(screen.getByTestId('portrait-world-branch-routine')).getByText('项目管理工具')).toBeInTheDocument();
-    expect(screen.getByTestId('portrait-world-root-connector').className).toContain('w-5');
+    expect(screen.queryByTestId('portrait-world-root-connector')).not.toBeInTheDocument();
 
     const review = screen.getByTestId('portrait-review-queue');
     expect(within(review).getByText('需要你看一眼')).toBeInTheDocument();
