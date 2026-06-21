@@ -70,6 +70,16 @@ describe('desktop chat notifications', () => {
     expect(sendNotificationMock).not.toHaveBeenCalled();
   });
 
+  it('requests notification permission before the first notification is needed', async () => {
+    isPermissionGrantedMock.mockResolvedValueOnce(false);
+    const { requestDesktopNotificationPermission } = await import('@/runtime/desktop-notifications');
+
+    const granted = await requestDesktopNotificationPermission();
+
+    expect(granted).toBe(true);
+    expect(requestPermissionMock).toHaveBeenCalledTimes(1);
+  });
+
   it('sends a notification for unread content in another chat session', async () => {
     const { notifyForUnreadChatMessage } = await import('@/runtime/desktop-notifications');
 
@@ -86,6 +96,19 @@ describe('desktop chat notifications', () => {
     expect(sendNotificationMock).toHaveBeenCalledWith({
       title: 'Session B',
       body: 'the report is ready',
+    });
+    expect(requestUserAttentionMock).toHaveBeenCalledWith(2);
+  });
+
+  it('sends a manual test notification', async () => {
+    const { sendDesktopNotificationTest } = await import('@/runtime/desktop-notifications');
+
+    const sent = await sendDesktopNotificationTest();
+
+    expect(sent).toBe(true);
+    expect(sendNotificationMock).toHaveBeenCalledWith({
+      title: 'Magi',
+      body: '这是一条测试通知',
     });
     expect(requestUserAttentionMock).toHaveBeenCalledWith(2);
   });

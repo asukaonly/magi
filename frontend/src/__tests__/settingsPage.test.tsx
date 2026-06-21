@@ -17,6 +17,7 @@ const {
   syncStartMinimizedPreferenceMock,
   requestDesktopNotificationPermissionMock,
   sendDesktopNotificationTestMock,
+  syncDesktopNotificationPreferencesMock,
   pickDirectoryMock,
   changeLanguageMock,
   llmFormAutoChangeRef,
@@ -27,6 +28,7 @@ const {
   syncStartMinimizedPreferenceMock: vi.fn(),
   requestDesktopNotificationPermissionMock: vi.fn(),
   sendDesktopNotificationTestMock: vi.fn(),
+  syncDesktopNotificationPreferencesMock: vi.fn(),
   pickDirectoryMock: vi.fn(),
   changeLanguageMock: vi.fn(),
   llmFormAutoChangeRef: {
@@ -143,6 +145,7 @@ vi.mock('@/runtime/desktop', () => ({
 vi.mock('@/runtime/desktop-notifications', () => ({
   requestDesktopNotificationPermission: requestDesktopNotificationPermissionMock,
   sendDesktopNotificationTest: sendDesktopNotificationTestMock,
+  syncDesktopNotificationPreferences: syncDesktopNotificationPreferencesMock,
 }));
 
 vi.mock('@/api/modules/config', async () => {
