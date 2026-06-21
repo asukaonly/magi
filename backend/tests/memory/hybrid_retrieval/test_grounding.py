@@ -151,6 +151,69 @@ class TestBuildGroundingPlan:
         assert [candidate.entity_id for candidate in plan.subject_candidates] == ["person:melanie"]
         assert [candidate.entity_id for candidate in plan.object_candidates] == ["person:caroline"]
 
+    def test_collective_person_query_does_not_bind_self_or_first_person_subject(self):
+        conditions = L2Conditions(
+            content_query="What animal do both Nate and Joanna like?",
+            subject_hint="self",
+            predicate_family="preference",
+            semantic_frame=L2SemanticFrame(
+                query_family="affinity",
+                subject_scope="explicit",
+                answer_kind="topic",
+                answer_unit="mixed",
+                entity_mentions=["Nate", "Joanna"],
+            ),
+        )
+        entities = [
+            {
+                "entity_id": "person:nate",
+                "entity_type": "person",
+                "canonical_name": "Nate",
+                "confidence": 0.95,
+                "match_source": "exact",
+            },
+            {
+                "entity_id": "person:joanna",
+                "entity_type": "person",
+                "canonical_name": "Joanna",
+                "confidence": 0.95,
+                "match_source": "exact",
+            },
+        ]
+        plan = build_grounding_plan(
+            conditions,
+            resolved_entities=entities,
+            user_id="benchmark/locomo/run/conv-42",
+        )
+        assert plan.subject_candidates == []
+        assert [candidate.entity_id for candidate in plan.object_candidates] == [
+            "person:nate",
+            "person:joanna",
+        ]
+
+    def test_self_query_with_non_person_target_still_binds_user_subject(self):
+        conditions = L2Conditions(
+            content_query="Do I like Bilibili?",
+            subject_hint="self",
+            predicate_family="preference",
+        )
+        entities = [
+            {
+                "entity_id": "software:bilibili",
+                "entity_type": "software",
+                "canonical_name": "Bilibili",
+                "confidence": 0.95,
+                "match_source": "alias",
+            },
+        ]
+        plan = build_grounding_plan(
+            conditions,
+            resolved_entities=entities,
+            user_id="u1",
+        )
+        assert [candidate.entity_id for candidate in plan.subject_candidates] == ["user:u1"]
+        assert [candidate.entity_id for candidate in plan.object_candidates] == ["software:bilibili"]
+
     def test_confidence_computation(self):
         conditions = L2Conditions(
             content_query="test",

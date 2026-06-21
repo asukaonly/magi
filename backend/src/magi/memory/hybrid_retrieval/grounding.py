@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, List, Literal, Optional
 
@@ -142,14 +143,7 @@ def _ground_subjects(
     resolved_entities: list[dict[str, Any]],
     user_id: str | None,
 ) -> None:
-    semantic_frame = conditions.semantic_frame
-    if (
-        (
-            semantic_frame is not None
-            and semantic_frame.subject_scope == "self"
-        )
-        or conditions.subject_hint == "self"
-    ) and user_id:
+    if _should_bind_self_subject(conditions, resolved_entities, user_id):
         plan.subject_scope = "self"
         plan.subject_candidates.append(GroundedEntityCandidate(
             entity_id=f"user:{user_id}",
@@ -158,6 +152,8 @@ def _ground_subjects(
             score=1.0,
             source="rule",
         ))
+    elif _is_collective_person_query(conditions, resolved_entities):
+        return
     elif _wants_explicit_subject(conditions):
         subject = _pick_explicit_subject_entity(conditions, resolved_entities)
         if subject is not None:
@@ -186,6 +182,28 @@ def _ground_subjects(
         ))
 
 
+def _should_bind_self_subject(
+    conditions: L2Conditions,
+    resolved_entities: list[dict[str, Any]],
+    user_id: str | None,
+) -> bool:
+    if not user_id:
+        return False
+    semantic_frame = conditions.semantic_frame
+    wants_self = (
+        conditions.subject_hint == "self"
+        or (
+            semantic_frame is not None
+            and semantic_frame.subject_scope == "self"
+        )
+    )
+    if not wants_self:
+        return False
+    if not _person_entities(resolved_entities):
+        return True
+    return _query_has_self_reference(conditions.content_query)
+
+
 def _wants_explicit_subject(conditions: L2Conditions) -> bool:
     semantic_frame = conditions.semantic_frame
     return (
@@ -199,6 +217,47 @@ def _wants_explicit_subject(conditions: L2Conditions) -> bool:
             and semantic_frame.subject_scope == "explicit"
         )
     )
+
+
+def _is_collective_person_query(
+    conditions: L2Conditions,
+    resolved_entities: list[dict[str, Any]],
+) -> bool:
+    if len(_person_entities(resolved_entities)) < 2:
+        return False
+    query = str(conditions.content_query or "").lower()
+    markers = (
+        "both",
+        "share",
+        "shared",
+        "in common",
+        "common",
+        "mutual",
+        "together",
+        "共同",
+        "都",
+        "一起",
+        "共有",
+        "相同",
+    )
+    return any(marker in query for marker in markers)
+
+
+def _person_entities(resolved_entities: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    people: list[dict[str, Any]] = []
+    for entity in resolved_entities:
+        entity_type = str(entity.get("entity_type") or "").lower()
+        entity_id = str(entity.get("entity_id") or "").lower()
+        if entity_type in {"person", "user"} or entity_id.startswith(("person:", "user:")):
+            people.append(entity)
+    return people
+
+
+def _query_has_self_reference(query: str) -> bool:
+    lowered = str(query or "").lower()
+    if re.search(r"\b(i|me|my|mine|myself|we|us|our|ours|ourselves)\b", lowered):
+        return True
+    return any(marker in lowered for marker in ("我", "我的", "我们", "咱", "咱们"))
 
 
 def _pick_explicit_subject_entity(
