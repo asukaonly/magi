@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from urllib.parse import quote
 
 from pydantic import BaseModel, Field
 
@@ -25,13 +26,20 @@ class NetworkProxySettings(BaseModel):
     proxy_type: ProxyType = Field(default=ProxyType.HTTP)
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=7890, ge=1, le=65535)
+    username: str = Field(default="")
+    password: str = Field(default="")
 
     def proxy_url(self) -> str | None:
         """Build proxy URL string, or ``None`` when disabled."""
         if not self.enabled:
             return None
         scheme = "socks5" if self.proxy_type == ProxyType.SOCKS5 else "http"
-        return f"{scheme}://{self.host}:{self.port}"
+        username = self.username.strip()
+        password = self.password.strip()
+        auth = ""
+        if username:
+            auth = f"{quote(username, safe='')}:{quote(password, safe='')}@"
+        return f"{scheme}://{auth}{self.host}:{self.port}"
 
 
 __all__ = ["NetworkProxySettings", "ProxyType"]

@@ -1452,6 +1452,8 @@
       "proxyType": "代理类型",
       "proxyHost": "代理地址",
       "proxyPort": "代理端口",
+      "proxyUsername": "代理用户名",
+      "proxyPassword": "代理密码",
       "defaultChatWorkspace": "默认对话目录",
       "streamingChat": "流式输出",
       "conversationRhythm": "自然节奏回复",

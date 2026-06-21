@@ -244,6 +244,8 @@ class NetworkProxyConfigModel(BaseModel):
     proxy_type: str = Field(default="http")
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=7890, ge=1, le=65535)
+    username: str = Field(default="")
+    password: str = Field(default="")
 
 
 class PersonalitySettingsModel(BaseModel):

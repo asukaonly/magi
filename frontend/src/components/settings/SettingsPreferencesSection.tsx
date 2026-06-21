@@ -158,37 +158,67 @@ export function SettingsPreferencesSection({
             })}
           />
           {draftConfig.network.enabled && (
-            <div className="grid grid-cols-[1fr_auto] gap-4">
-              <label className="space-y-2.5">
-                <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyHost')}</span>
-                <Input
-                  aria-label={t('settings.fields.proxyHost')}
-                  value={draftConfig.network.host}
-                  placeholder="127.0.0.1"
-                  className={settingsInputClassName}
-                  onChange={(e) => patchDraftConfig((draft) => {
-                    draft.network.host = e.target.value;
-                  })}
-                />
-              </label>
-              <label className="w-32 space-y-2.5">
-                <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyPort')}</span>
-                <Input
-                  type="number"
-                  aria-label={t('settings.fields.proxyPort')}
-                  value={draftConfig.network.port}
-                  min={1}
-                  max={65535}
-                  placeholder="7890"
-                  className={cn(settingsInputClassName, 'tabular-nums')}
-                  onChange={(e) => patchDraftConfig((draft) => {
-                    const port = parseInt(e.target.value, 10);
-                    if (!Number.isNaN(port) && port >= 1 && port <= 65535) {
-                      draft.network.port = port;
-                    }
-                  })}
-                />
-              </label>
+            <div className="grid gap-4">
+              <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-4">
+                <label className="space-y-2.5">
+                  <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyHost')}</span>
+                  <Input
+                    aria-label={t('settings.fields.proxyHost')}
+                    value={draftConfig.network.host}
+                    placeholder="127.0.0.1"
+                    className={settingsInputClassName}
+                    onChange={(e) => patchDraftConfig((draft) => {
+                      draft.network.host = e.target.value;
+                    })}
+                  />
+                </label>
+                <label className="space-y-2.5">
+                  <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyPort')}</span>
+                  <Input
+                    type="number"
+                    aria-label={t('settings.fields.proxyPort')}
+                    value={draftConfig.network.port}
+                    min={1}
+                    max={65535}
+                    placeholder="7890"
+                    className={cn(settingsInputClassName, 'tabular-nums')}
+                    onChange={(e) => patchDraftConfig((draft) => {
+                      const port = parseInt(e.target.value, 10);
+                      if (!Number.isNaN(port) && port >= 1 && port <= 65535) {
+                        draft.network.port = port;
+                      }
+                    })}
+                  />
+                </label>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="space-y-2.5">
+                  <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyUsername')}</span>
+                  <Input
+                    aria-label={t('settings.fields.proxyUsername')}
+                    value={draftConfig.network.username ?? ''}
+                    placeholder={t('settings.fields.proxyUsername')}
+                    className={settingsInputClassName}
+                    onChange={(e) => patchDraftConfig((draft) => {
+                      draft.network.username = e.target.value;
+                    })}
+                  />
+                </label>
+                <label className="space-y-2.5">
+                  <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyPassword')}</span>
+                  <Input
+                    type="password"
+                    aria-label={t('settings.fields.proxyPassword')}
+                    value={draftConfig.network.password ?? ''}
+                    placeholder={t('settings.fields.proxyPassword')}
+                    autoComplete="off"
+                    className={settingsInputClassName}
+                    onChange={(e) => patchDraftConfig((draft) => {
+                      draft.network.password = e.target.value;
+                    })}
+                  />
+                </label>
+              </div>
             </div>
           )}
         </div>

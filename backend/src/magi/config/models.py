@@ -7,6 +7,7 @@ These models match the structure in backend/configs/config.example.yaml.
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, model_validator
 from enum import Enum
+from urllib.parse import quote
 
 from .constants import DEFAULT_MAX_TOKENS, MIN_MAX_TOKENS
 from .memory_models import (
@@ -618,13 +619,20 @@ class NetworkProxySettings(BaseModel):
     proxy_type: ProxyType = Field(default=ProxyType.HTTP)
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=7890, ge=1, le=65535)
+    username: str = Field(default="")
+    password: str = Field(default="")
 
     def proxy_url(self) -> str | None:
         """Build proxy URL string, or ``None`` when disabled."""
         if not self.enabled:
             return None
         scheme = "socks5" if self.proxy_type == ProxyType.SOCKS5 else "http"
-        return f"{scheme}://{self.host}:{self.port}"
+        username = self.username.strip()
+        password = self.password.strip()
+        auth = ""
+        if username:
+            auth = f"{quote(username, safe='')}:{quote(password, safe='')}@"
+        return f"{scheme}://{auth}{self.host}:{self.port}"
 
 
 # =============================================================================

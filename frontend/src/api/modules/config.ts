@@ -75,6 +75,8 @@ export interface NetworkProxyConfig {
   proxy_type: ProxyType;
   host: string;
   port: number;
+  username: string;
+  password: string;
 }
 
 export interface LLMProviderConfig {
@@ -761,6 +763,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     proxy_type: 'http',
     host: '127.0.0.1',
     port: 7890,
+    username: '',
+    password: '',
   },
   personality: DEFAULT_PERSONALITY_CONFIG,
   personalitySettings: DEFAULT_PERSONALITY_SETTINGS_CONFIG,

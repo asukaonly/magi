@@ -15,6 +15,8 @@ const {
   syncCloseToTrayPreferenceMock,
   syncAutoStartPreferenceMock,
   syncStartMinimizedPreferenceMock,
+  requestDesktopNotificationPermissionMock,
+  sendDesktopNotificationTestMock,
   pickDirectoryMock,
   changeLanguageMock,
   llmFormAutoChangeRef,
@@ -23,6 +25,8 @@ const {
   syncCloseToTrayPreferenceMock: vi.fn(),
   syncAutoStartPreferenceMock: vi.fn(),
   syncStartMinimizedPreferenceMock: vi.fn(),
+  requestDesktopNotificationPermissionMock: vi.fn(),
+  sendDesktopNotificationTestMock: vi.fn(),
   pickDirectoryMock: vi.fn(),
   changeLanguageMock: vi.fn(),
   llmFormAutoChangeRef: {
@@ -134,6 +138,11 @@ vi.mock('@/runtime/desktop', () => ({
   syncStartMinimizedPreference: syncStartMinimizedPreferenceMock,
   syncSkipQuitConfirmationPreference: vi.fn(),
   pickDirectory: pickDirectoryMock,
+}));
+
+vi.mock('@/runtime/desktop-notifications', () => ({
+  requestDesktopNotificationPermission: requestDesktopNotificationPermissionMock,
+  sendDesktopNotificationTest: sendDesktopNotificationTestMock,
 }));
 
 vi.mock('@/api/modules/config', async () => {
@@ -542,6 +551,8 @@ describe('settings page draft saving', () => {
     syncCloseToTrayPreferenceMock.mockReset();
     syncAutoStartPreferenceMock.mockReset();
     syncStartMinimizedPreferenceMock.mockReset();
+    requestDesktopNotificationPermissionMock.mockResolvedValue(true);
+    sendDesktopNotificationTestMock.mockResolvedValue(true);
     pickDirectoryMock.mockReset();
     pickDirectoryMock.mockResolvedValue(undefined);
 
@@ -745,7 +756,10 @@ describe('settings page draft saving', () => {
     expect(previewsSwitch).toHaveAttribute('data-state', 'checked');
 
     await user.click(notificationsSwitch);
+    await waitFor(() => expect(requestDesktopNotificationPermissionMock).toHaveBeenCalledTimes(1));
     await user.click(previewsSwitch);
+    await user.click(screen.getByRole('button', { name: 'settings.testDesktopNotificationLabel' }));
+    expect(sendDesktopNotificationTestMock).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
     await waitFor(() =>
@@ -754,6 +768,37 @@ describe('settings page draft saving', () => {
           preferences: expect.objectContaining({
             desktop_notifications_enabled: true,
             desktop_notification_previews_enabled: false,
+          }),
+        })
+      )
+    );
+  });
+
+  it('saves proxy credentials from network proxy settings', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+    await user.click(screen.getByRole('button', { name: 'settings.fields.networkProxy' }));
+    await user.click(await screen.findByRole('button', { name: 'HTTP' }));
+
+    await user.clear(screen.getByLabelText('settings.fields.proxyHost'));
+    await user.type(screen.getByLabelText('settings.fields.proxyHost'), 'proxy.example.test');
+    await user.type(screen.getByLabelText('settings.fields.proxyUsername'), 'magi-user');
+    await user.type(screen.getByLabelText('settings.fields.proxyPassword'), 'secret-pass');
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          network: expect.objectContaining({
+            enabled: true,
+            proxy_type: 'http',
+            host: 'proxy.example.test',
+            port: 7890,
+            username: 'magi-user',
+            password: 'secret-pass',
           }),
         })
       )

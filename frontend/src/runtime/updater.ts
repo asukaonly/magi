@@ -114,7 +114,13 @@ export function buildUpdaterProxyUrl(network?: NetworkProxyConfig | null): strin
     return undefined;
   }
 
-  return `${network.proxy_type}://${host}:${port}`;
+  const username = network.username?.trim() ?? '';
+  const password = network.password?.trim() ?? '';
+  const auth = username
+    ? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@`
+    : '';
+
+  return `${network.proxy_type}://${auth}${host}:${port}`;
 }
 
 export function isUpdaterRuntimeAvailable(): boolean {

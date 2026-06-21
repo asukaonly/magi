@@ -1453,6 +1453,8 @@
       "proxyType": "Proxy Type",
       "proxyHost": "Proxy Host",
       "proxyPort": "Proxy Port",
+      "proxyUsername": "Proxy Username",
+      "proxyPassword": "Proxy Password",
       "defaultChatWorkspace": "Default chat workspace",
       "streamingChat": "Streaming output",
       "conversationRhythm": "Natural reply rhythm",

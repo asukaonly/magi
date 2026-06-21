@@ -5968,6 +5968,11 @@ export interface components {
              */
             readonly host: string;
             /**
+             * Password
+             * @default
+             */
+            readonly password: string;
+            /**
              * Port
              * @default 7890
              */
@@ -5977,6 +5982,11 @@ export interface components {
              * @default http
              */
             readonly proxy_type: string;
+            /**
+             * Username
+             * @default
+             */
+            readonly username: string;
         };
         /** NotificationItemModel */
         readonly NotificationItemModel: {

@@ -8,7 +8,7 @@ import pytest
 import yaml
 
 from magi.config.loader import ConfigLoader
-from magi.config.models import ProxyType
+from magi.config.models import NetworkProxySettings, ProxyType
 
 
 def _patch_config_paths(monkeypatch, root: Path) -> None:
@@ -172,6 +172,19 @@ def test_loader_save_rejects_invalid_config_without_writing(tmp_path: Path, monk
     assert saved is False
     assert agent_file.read_text(encoding="utf-8") == original_yaml
     assert loader.load().network.proxy_type == ProxyType.HTTP
+
+
+def test_network_proxy_url_includes_encoded_credentials() -> None:
+    settings = NetworkProxySettings(
+        enabled=True,
+        proxy_type=ProxyType.HTTP,
+        host="proxy.example.test",
+        port=8080,
+        username="magi user",
+        password="pa:ss@word",
+    )
+
+    assert settings.proxy_url() == "http://magi%20user:pa%3Ass%40word@proxy.example.test:8080"
 
 
 @_requires_plugin_manifests
