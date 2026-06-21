@@ -6,7 +6,7 @@ const themedToastVariables = {
   '--normal-bg': 'hsl(var(--settings-shell-elevated))',
   '--normal-border': 'hsl(var(--settings-subnav-border) / 0.16)',
   '--normal-text': 'hsl(var(--foreground))',
-  '--success-bg': 'hsl(var(--primary) / 0.09)',
+  '--success-bg': 'hsl(var(--settings-shell-elevated))',
   '--success-border': 'hsl(var(--primary) / 0.2)',
   '--success-text': 'hsl(var(--primary))',
 } as CSSProperties;
