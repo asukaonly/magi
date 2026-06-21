@@ -12,6 +12,7 @@ from ..l2.predicate_catalog import (
     get_family_predicates,
     get_spec,
 )
+from .l2_semantic_utils import predicates_for_semantic_frame
 from .models import L2Conditions, L2SemanticFrame, TemporalContext
 
 
@@ -152,8 +153,16 @@ def _ground_subjects(
             score=1.0,
             source="rule",
         ))
+    elif _wants_multi_subject(conditions, resolved_entities):
+        subjects = _pick_multi_subject_entities(conditions, resolved_entities)
+        if subjects:
+            plan.subject_scope = "multi"
+            plan.subject_candidates.extend(_entity_candidate(subject) for subject in subjects)
     elif _is_collective_person_query(conditions, resolved_entities):
-        return
+        subjects = _person_entities(resolved_entities)
+        if subjects:
+            plan.subject_scope = "multi"
+            plan.subject_candidates.extend(_entity_candidate(subject) for subject in subjects)
     elif _wants_explicit_subject(conditions):
         subject = _pick_explicit_subject_entity(conditions, resolved_entities)
         if subject is not None:
@@ -219,6 +228,22 @@ def _wants_explicit_subject(conditions: L2Conditions) -> bool:
     )
 
 
+def _wants_multi_subject(
+    conditions: L2Conditions,
+    resolved_entities: list[dict[str, Any]],
+) -> bool:
+    if len(_person_entities(resolved_entities)) < 2:
+        return False
+    semantic_frame = conditions.semantic_frame
+    if semantic_frame is None:
+        return False
+    return (
+        semantic_frame.subject_scope == "multi"
+        or semantic_frame.subject_mode == "multi"
+        or semantic_frame.relation_shape == "shared_fact"
+    )
+
+
 def _is_collective_person_query(
     conditions: L2Conditions,
     resolved_entities: list[dict[str, Any]],
@@ -268,13 +293,38 @@ def _pick_explicit_subject_entity(
         return None
 
     semantic_frame = conditions.semantic_frame
-    mentions = list(semantic_frame.entity_mentions if semantic_frame else [])
+    mentions = list(semantic_frame.subject_mentions if semantic_frame else [])
+    if not mentions and semantic_frame is not None:
+        mentions = list(semantic_frame.entity_mentions)
     for mention in mentions:
         for entity in resolved_entities:
             if _entity_matches_surface(entity, mention):
                 return entity
 
     return resolved_entities[0]
+
+
+def _pick_multi_subject_entities(
+    conditions: L2Conditions,
+    resolved_entities: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    semantic_frame = conditions.semantic_frame
+    people = _person_entities(resolved_entities)
+    if semantic_frame is None or not semantic_frame.subject_mentions:
+        return people
+
+    ordered: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for mention in semantic_frame.subject_mentions:
+        for entity in people:
+            entity_id = str(entity.get("entity_id") or "")
+            if entity_id in seen:
+                continue
+            if _entity_matches_surface(entity, mention):
+                ordered.append(entity)
+                seen.add(entity_id)
+                break
+    return ordered or people
 
 
 def _entity_matches_surface(entity: dict[str, Any], surface: str) -> bool:
@@ -319,27 +369,37 @@ def _ground_predicates(
     conditions: L2Conditions,
 ) -> None:
     if conditions.predicates:
-        for pred in conditions.predicates:
-            spec = get_spec(pred)
-            plan.predicate_candidates.append(GroundedPredicateCandidate(
-                predicate=spec.canonical if spec else pred.upper(),
-                family=spec.family if spec else None,
-                score=1.0 if spec else 0.5,
-                source="alias" if spec else "rule",
-            ))
+        _append_predicate_candidates(plan, conditions.predicates, source="alias", score=1.0)
         if plan.predicate_candidates:
             plan.predicate_family = plan.predicate_candidates[0].family
 
-    elif conditions.predicate_family:
+    if conditions.semantic_frame is not None and not plan.predicate_candidates:
+        frame_preds = predicates_for_semantic_frame(conditions.semantic_frame)
+        if frame_preds:
+            _append_predicate_candidates(plan, frame_preds, source="rule", score=0.9)
+            plan.predicate_family = conditions.predicate_family or plan.predicate_candidates[0].family
+
+    if conditions.predicate_family and not plan.predicate_candidates:
         plan.predicate_family = conditions.predicate_family
         family_preds = get_family_predicates(conditions.predicate_family)
-        for pred in family_preds:
-            plan.predicate_candidates.append(GroundedPredicateCandidate(
-                predicate=pred,
-                family=conditions.predicate_family,
-                score=0.8,
-                source="family",
-            ))
+        _append_predicate_candidates(plan, family_preds, source="family", score=0.8)
+
+
+def _append_predicate_candidates(
+    plan: L2GroundingPlan,
+    predicates: list[str],
+    *,
+    source: Literal["alias", "family", "vector", "llm", "rule"],
+    score: float,
+) -> None:
+    for pred in predicates:
+        spec = get_spec(pred)
+        plan.predicate_candidates.append(GroundedPredicateCandidate(
+            predicate=spec.canonical if spec else pred.upper(),
+            family=spec.family if spec else None,
+            score=score if spec else 0.5,
+            source=source if spec else "rule",
+        ))
 
 
 def _infer_query_kind(plan: L2GroundingPlan, conditions: L2Conditions) -> str:
@@ -405,6 +465,13 @@ def _ground_object_constraints(
                 confidence=0.8,
             ))
 
+    explicit_objects = _pick_object_mention_entities(conditions, resolved_entities)
+    if explicit_objects:
+        for entity in explicit_objects:
+            if entity.get("entity_id") not in plan.subject_entity_ids:
+                plan.object_candidates.append(_entity_candidate(entity))
+        return
+
     for entity in resolved_entities:
         if entity.get("entity_id") not in plan.subject_entity_ids:
             plan.object_candidates.append(GroundedEntityCandidate(
@@ -414,6 +481,28 @@ def _ground_object_constraints(
                 score=entity.get("confidence", 0.7),
                 source=_map_match_source(entity.get("match_source")),
             ))
+
+
+def _pick_object_mention_entities(
+    conditions: L2Conditions,
+    resolved_entities: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    semantic_frame = conditions.semantic_frame
+    if semantic_frame is None or not semantic_frame.object_mentions:
+        return []
+
+    ordered: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for mention in semantic_frame.object_mentions:
+        for entity in resolved_entities:
+            entity_id = str(entity.get("entity_id") or "")
+            if entity_id in seen:
+                continue
+            if _entity_matches_surface(entity, mention):
+                ordered.append(entity)
+                seen.add(entity_id)
+                break
+    return ordered
 
 
 def _build_temporal_context(

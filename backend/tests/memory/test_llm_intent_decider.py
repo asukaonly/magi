@@ -163,6 +163,40 @@ class TestLLMParsing:
         assert frame.constraints[1].resolved_facet_value == "coffee_shop"
 
     @pytest.mark.asyncio
+    async def test_l2_semantic_frame_preserves_subject_roles(self, decider: LLMIntentDecider, mock_bridge):
+        mock_bridge.chat.return_value = json.dumps({
+            "content_query": "animal Nate and Joanna both like",
+            "relation_intent": "likes / is fond of",
+            "semantic_frame": {
+                "query_family": "affinity",
+                "subject_scope": "multi",
+                "subject_mode": "multi",
+                "relation_shape": "shared_fact",
+                "subject_mentions": ["Nate", "Joanna"],
+                "object_mentions": [],
+                "entity_mentions": ["Nate", "Joanna"],
+                "answer_kind": "topic",
+                "constraints": [],
+            },
+            "reasoning": "shared preference query",
+        })
+
+        result = await decider.evaluate(
+            IntentDeciderInput(query="What animal do both Nate and Joanna like?")
+        )
+
+        assert result is not None
+        assert result.entities == ["Nate", "Joanna"]
+        assert result.subject_hint == "explicit"
+        assert result.predicate_family == "preference"
+        frame = result.semantic_frame
+        assert isinstance(frame, L2SemanticFrame)
+        assert frame.subject_scope == "multi"
+        assert frame.subject_mode == "multi"
+        assert frame.relation_shape == "shared_fact"
+        assert frame.subject_mentions == ["Nate", "Joanna"]
+
+    @pytest.mark.asyncio
     async def test_invalid_subject_hint_dropped(self, decider: LLMIntentDecider, mock_bridge):
         mock_bridge.chat.return_value = json.dumps({
             "content_query": "x",
@@ -281,7 +315,9 @@ class TestLLMCallParams:
         await decider.evaluate(IntentDeciderInput(query="我喜欢什么天气"))
 
         system_prompt = mock_bridge.chat.call_args.kwargs["system_prompt"]
-        assert "predicate_family" in system_prompt
+        assert "semantic_frame is authoritative" in system_prompt
+        assert "subject_mode" in system_prompt
+        assert "relation_shape" in system_prompt
         assert "semantic_frame" in system_prompt
         assert "answer_kind" in system_prompt
 
@@ -346,6 +382,36 @@ class TestApplyRefinement:
         l2_conditions = result.plans[0].conditions
         assert isinstance(l2_conditions, L2Conditions)
         assert l2_conditions.semantic_frame is frame
+
+    def test_derives_l2_flat_fields_from_semantic_frame(self, decider: LLMIntentDecider):
+        rule_decision = _make_l2_rule_plan(query="What animal do both Nate and Joanna like?")
+        frame = L2SemanticFrame(
+            query_family="affinity",
+            subject_scope="multi",
+            subject_mode="multi",
+            relation_shape="shared_fact",
+            subject_mentions=["Nate", "Joanna"],
+            object_mentions=[],
+            entity_mentions=["Nate", "Joanna"],
+            answer_kind="topic",
+        )
+        refinement = LLMRefinement(
+            content_query="animal Nate and Joanna both like",
+            semantic_frame=frame,
+            reasoning="r",
+        )
+
+        result = decider.apply(
+            original_query="What animal do both Nate and Joanna like?",
+            rule_decision=rule_decision,
+            refinement=refinement,
+        )
+
+        l2_conditions = result.plans[0].conditions
+        assert isinstance(l2_conditions, L2Conditions)
+        assert l2_conditions.entities == ["Nate", "Joanna"]
+        assert l2_conditions.subject_hint == "explicit"
+        assert l2_conditions.predicate_family == "preference"
 
     def test_l3_l4_get_content_query_only(self, decider: LLMIntentDecider):
         rule_decision = IntentDecision(

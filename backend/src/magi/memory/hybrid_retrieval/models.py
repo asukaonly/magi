@@ -171,9 +171,20 @@ class L2SemanticFrame:
     """Structured semantic frame used for L2 query planning."""
 
     query_family: Literal["affinity", "relationship", "profile", "activity", "lookup"]
-    subject_scope: Literal["self", "explicit", "none"]
-    answer_kind: Literal["creator", "place", "topic", "person", "software", "unknown"]
-    answer_unit: Literal["identity", "presence", "place", "topic", "mixed"]
+    subject_scope: Literal["self", "explicit", "multi", "none"]
+    answer_kind: Literal["creator", "place", "topic", "person", "software", "media", "unknown"]
+    answer_unit: Literal["identity", "presence", "place", "topic", "mixed"] = "mixed"
+    subject_mode: Literal["self", "single", "multi", "none"] = "none"
+    relation_shape: Literal[
+        "single_fact",
+        "shared_fact",
+        "between_people",
+        "comparison",
+        "two_hop",
+        "unknown",
+    ] = "unknown"
+    subject_mentions: List[str] = field(default_factory=list)
+    object_mentions: List[str] = field(default_factory=list)
     entity_mentions: List[str] = field(default_factory=list)
     constraints: List[SemanticConstraint] = field(default_factory=list)
     ranking_mode: Literal["affinity", "confidence", "recency"] = "affinity"

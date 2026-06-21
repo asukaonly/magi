@@ -794,20 +794,18 @@ class TestL2Handler:
 
     @pytest.mark.asyncio
     async def test_software_affinity_queries_software_relationships(self):
+        edge = {
+            "triple_id": "software-1",
+            "subject_id": "user:u1",
+            "subject_type": "user",
+            "predicate": "USES",
+            "object_id": "software:bilibili",
+            "object_type": "software",
+            "status": "active",
+        }
         store = _make_l2_store(
-            batch_rels={
-                "user:u1": [
-                    {
-                        "triple_id": "software-1",
-                        "subject_id": "user:u1",
-                        "subject_type": "user",
-                        "predicate": "USES",
-                        "object_id": "software:bilibili",
-                        "object_type": "software",
-                        "status": "active",
-                    }
-                ]
-            },
+            batch_rels={"user:u1": [edge]},
+            rels=[edge],
         )
         entity_catalog = AsyncMock()
         entity_catalog.resolve_query_entities.return_value = [

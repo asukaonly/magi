@@ -151,7 +151,7 @@ class TestBuildGroundingPlan:
         assert [candidate.entity_id for candidate in plan.subject_candidates] == ["person:melanie"]
         assert [candidate.entity_id for candidate in plan.object_candidates] == ["person:caroline"]
 
-    def test_collective_person_query_does_not_bind_self_or_first_person_subject(self):
+    def test_collective_person_query_binds_all_people_not_self_or_first_only(self):
         conditions = L2Conditions(
             content_query="What animal do both Nate and Joanna like?",
             subject_hint="self",
@@ -185,11 +185,100 @@ class TestBuildGroundingPlan:
             resolved_entities=entities,
             user_id="benchmark/locomo/run/conv-42",
         )
-        assert plan.subject_candidates == []
-        assert [candidate.entity_id for candidate in plan.object_candidates] == [
+        assert plan.subject_scope == "multi"
+        assert [candidate.entity_id for candidate in plan.subject_candidates] == [
             "person:nate",
             "person:joanna",
         ]
+        assert plan.object_candidates == []
+
+    def test_role_aware_shared_fact_binds_all_subject_mentions(self):
+        conditions = L2Conditions(
+            content_query="What animal do both Nate and Joanna like?",
+            subject_hint="explicit",
+            predicate_family="preference",
+            semantic_frame=L2SemanticFrame(
+                query_family="affinity",
+                subject_scope="multi",
+                subject_mode="multi",
+                relation_shape="shared_fact",
+                subject_mentions=["Nate", "Joanna"],
+                object_mentions=[],
+                entity_mentions=["Nate", "Joanna"],
+                answer_kind="topic",
+            ),
+        )
+        entities = [
+            {
+                "entity_id": "person:joanna",
+                "entity_type": "person",
+                "canonical_name": "Joanna",
+                "confidence": 0.95,
+                "match_source": "exact",
+            },
+            {
+                "entity_id": "person:nate",
+                "entity_type": "person",
+                "canonical_name": "Nate",
+                "confidence": 0.95,
+                "match_source": "exact",
+            },
+        ]
+
+        plan = build_grounding_plan(
+            conditions,
+            resolved_entities=entities,
+            user_id="benchmark/locomo/run/conv-42",
+        )
+
+        assert plan.subject_scope == "multi"
+        assert [candidate.entity_id for candidate in plan.subject_candidates] == [
+            "person:nate",
+            "person:joanna",
+        ]
+        assert plan.object_candidates == []
+
+    def test_role_aware_between_people_binds_subject_and_object_mentions(self):
+        conditions = L2Conditions(
+            content_query="What does Melanie think about Caroline?",
+            subject_hint="explicit",
+            predicate_family="relationship",
+            semantic_frame=L2SemanticFrame(
+                query_family="relationship",
+                subject_scope="explicit",
+                subject_mode="single",
+                relation_shape="between_people",
+                subject_mentions=["Melanie"],
+                object_mentions=["Caroline"],
+                entity_mentions=["Caroline", "Melanie"],
+                answer_kind="topic",
+            ),
+        )
+        entities = [
+            {
+                "entity_id": "person:caroline",
+                "entity_type": "person",
+                "canonical_name": "Caroline",
+                "confidence": 0.95,
+                "match_source": "exact",
+            },
+            {
+                "entity_id": "person:melanie",
+                "entity_type": "person",
+                "canonical_name": "Melanie",
+                "confidence": 0.95,
+                "match_source": "exact",
+            },
+        ]
+
+        plan = build_grounding_plan(
+            conditions,
+            resolved_entities=entities,
+            user_id="benchmark/locomo/run/conv-26",
+        )
+
+        assert [candidate.entity_id for candidate in plan.subject_candidates] == ["person:melanie"]
+        assert [candidate.entity_id for candidate in plan.object_candidates] == ["person:caroline"]
 
     def test_self_query_with_non_person_target_still_binds_user_subject(self):
         conditions = L2Conditions(

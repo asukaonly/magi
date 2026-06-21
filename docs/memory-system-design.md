@@ -560,14 +560,15 @@ The evidence assembler and reducer fields are the mode contract, not a guarantee
 **Semantic frame**: The `L2SemanticFrame` expresses structured query slots:
 
 - `query_family` — affinity, relationship, profile, activity, lookup
-- `subject_scope` — self, explicit, none
-- `answer_kind` — creator, place, topic, person, software, unknown
-- `answer_unit` — identity, presence, place, mixed
+- `subject_scope` — self, explicit, multi, none
+- `subject_mode` — self, single, multi, none
+- `relation_shape` — single_fact, shared_fact, between_people, comparison, two_hop, unknown
+- `subject_mentions` / `object_mentions` — role-specific query mentions, used before generic entity order
+- `answer_kind` — creator, place, topic, person, software, media, unknown
 - `entity_mentions` — raw entity names or mentions extracted from the query for resolution
 - `constraints` — controlled constraint list, not arbitrary graph queries
-- `ranking_mode` — affinity, confidence, or recency; defaults to affinity
 
-Explicit-subject grounding must bind the resolved subject entity before graph retrieval. If the semantic frame or structured conditions say the query is about an explicit entity, the first matching entity mention is the graph subject and later resolved entities remain object candidates. Collective multi-person queries that ask for shared, common, or mutual facts must not force a single subject. L2 relationship results must also be scoped back through their `L1` evidence event IDs to the current memory owner; an edge that cannot be verified against the caller's L1 scope must not answer a fact-like query.
+The semantic frame is the authoritative L2 role contract. Top-level `entities`, `subject_hint`, and `predicate_family` are derived from it for older execution helpers rather than treated as a separate LLM contract. Explicit-subject grounding must bind the resolved subject entity before graph retrieval. If the semantic frame says the query is about a single explicit entity, the first matching `subject_mentions` entry is the graph subject and matching `object_mentions` entries remain object candidates. Collective multi-person queries that ask for shared, common, or mutual facts use `subject_mode=multi` / `relation_shape=shared_fact` and seed retrieval from every matching subject rather than forcing one person. L2 relationship results must also be scoped back through their `L1` evidence event IDs to the current memory owner; an edge that cannot be verified against the caller's L1 scope must not answer a fact-like query.
 
 **Query execution pipeline** conceptually follows this shape:
 

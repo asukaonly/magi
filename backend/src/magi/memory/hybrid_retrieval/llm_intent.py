@@ -22,6 +22,9 @@ from .l2_intent import (
     _VALID_SUBJECT_HINTS,
     _parse_semantic_frame,
     enrich_l2_conditions,
+    mentions_from_semantic_frame,
+    predicate_family_from_query_family,
+    subject_hint_from_semantic_frame,
 )
 from .models import (
     IntentDeciderInput,
@@ -42,29 +45,20 @@ The host has already chosen which memory layers to query (L1/L2/L3/L4) based on 
 caller's ``query_mode``. Your job is to **refine** the retrieval inputs that will be
 applied to those layers, not to re-decide the routing.
 
-You produce a single refinement object that is applied to every routed plan:
+You produce a single refinement object that is applied to every routed plan. Keep
+the object compact. semantic_frame is authoritative for L2 entity roles; do
+not also output duplicate top-level ``entities``, ``subject_hint``, or
+``predicate_family``.
 
 - ``content_query``: the answer-oriented retrieval phrase. Must match the user's
   query language. Do not hallucinate, do not expand with invented details, do not
   replace quoted titles with broad topics. Keep it tight.
-- ``entities`` (optional, L2): proper-noun mentions in the query.
-- ``subject_hint`` (optional, L2): "self" when the user is asking about themselves,
-  "explicit" when an entity is mentioned, "none" otherwise.
-- ``predicate_family`` (optional, L2): one of ``preference``, ``profile_fact``,
-  ``relationship``, ``activity``, ``unknown``. This drives downstream predicate
-  expansion but is NOT load-bearing for evidence-class filtering.
 - ``relation_intent`` (optional, L2): a short ENGLISH, relation-oriented phrase
-  describing the relationship between the user and the FIRST entity they connect
-  to. For one-hop questions that first entity IS the answer object. For TWO-hop
-  questions (whenever hop2_target_type is set) it is the relationship to the
-  INTERMEDIATE entity — NOT the final answer — because the second hop is resolved
-  separately via hop2_target_type. So "albums of the artists I like" / "我喜欢的歌
-  手的专辑" → "likes / is fond of" (user→artist, the intermediate), NOT "created
-  by"; "my colleague's boss" / "我同事的老板" → "works with / is a colleague of"
-  (user→colleague, the intermediate), NOT "managed by". One-hop examples:
-  "listening to / consuming media", "works at / employed by". Always output in
-  English even when the query is in another language — it is matched against an
-  English predicate vocabulary. Leave null when no clear relation is implied.
+  describing the main relation needed for the first hop. Always output in English
+  even when the query is in another language because it is matched against an
+  English predicate vocabulary. Examples: "likes / is fond of",
+  "works with / is a colleague of", "talks about / discusses",
+  "listening to / consuming media". Leave null when no clear relation is implied.
 - ``hop2_target_type`` (optional, L2): set this whenever reaching the answer
   requires first resolving an INTERMEDIATE entity — the question asks for a
   property or relation OF some entity that itself must be derived from the user,
@@ -93,22 +87,35 @@ You produce a single refinement object that is applied to every routed plan:
 - ``semantic_frame`` (optional, L2): structured query semantics with the schema:
     {
       "query_family": "affinity" | "relationship" | "profile" | "activity" | "lookup",
-      "subject_scope": "self" | "explicit" | "none",
-      "answer_kind": "creator" | "place" | "topic" | "person" | "software" | "unknown",
-      "answer_unit": "identity" | "presence" | "place" | "topic" | "mixed",
+      "subject_scope": "self" | "explicit" | "multi" | "none",
+      "subject_mode": "self" | "single" | "multi" | "none",
+      "relation_shape": "single_fact" | "shared_fact" | "between_people" |
+                        "comparison" | "two_hop" | "unknown",
+      "subject_mentions": [string, ...],
+      "object_mentions": [string, ...],
       "entity_mentions": [string, ...],
+      "answer_kind": "creator" | "place" | "topic" | "person" | "software" |
+                     "media" | "unknown",
       "constraints": [{"scope": "target"|"interaction",
                        "facet": "platform"|"located_in"|"category",
-                       "raw_value": string,
-                       "resolved_entity_id": string?,
-                       "resolved_facet_value": string?}],
-      "ranking_mode": "confidence" | string
+                       "raw_value": string}]
     }
+  Role rules:
+    * Use subject_mode="self" only for actual first-person queries ("I", "my",
+      "我", "我的"). Third-party dialogue speakers are not the local user.
+    * Use subject_mode="single" + subject_mentions for "What does A think about
+      B?", "Where did A go?", or one named person's facts.
+    * Use subject_mode="multi" + relation_shape="shared_fact" for questions
+      asking what multiple people both/share/have in common.
+    * Use relation_shape="between_people" when the question is about A's relation,
+      feeling, or action toward B; put A in subject_mentions and B in object_mentions.
 - ``reasoning``: brief one-sentence explanation.
 
 Rules:
 - Time range parsing is handled elsewhere. Do not output time ranges.
 - Layer routing is handled elsewhere. Do not output a ``layers`` array.
+- Do not output top-level ``entities``, ``subject_hint``, or ``predicate_family``;
+  the host derives them from semantic_frame.
 - For comparison questions ("X 还是 Y"), keep both candidates explicit in
   ``content_query``.
 - Keep quoted titles verbatim.
@@ -116,9 +123,6 @@ Rules:
 Return JSON only:
 {
   "content_query": "string",
-  "entities": ["string", ...],
-  "subject_hint": "self" | "explicit" | "none",
-  "predicate_family": "preference" | "profile_fact" | "relationship" | "activity" | "unknown",
   "relation_intent": "string | null",
   "hop2_target_type": "string | null",
   "evidence_focus": "declared" | "observed" | "both" | null,
@@ -261,6 +265,12 @@ class LLMIntentDecider:
             evidence_focus = evidence_focus_raw  # type: ignore[assignment]
 
         semantic_frame = _parse_semantic_frame(data.get("semantic_frame"))
+        if entities is None and semantic_frame is not None:
+            entities = mentions_from_semantic_frame(semantic_frame) or None
+        if subject_hint is None and semantic_frame is not None:
+            subject_hint = subject_hint_from_semantic_frame(semantic_frame)
+        if predicate_family is None and semantic_frame is not None:
+            predicate_family = predicate_family_from_query_family(semantic_frame.query_family)
         reasoning = str(data.get("reasoning") or "")
 
         if not content_query and entities is None and semantic_frame is None:
@@ -295,14 +305,35 @@ class LLMIntentDecider:
                     content_query=refined_query or conditions.content_query,
                 )
             elif plan.layer == "L2" and isinstance(conditions, L2Conditions):
+                semantic_entities = (
+                    mentions_from_semantic_frame(refinement.semantic_frame)
+                    if refinement.semantic_frame is not None
+                    else []
+                )
+                semantic_subject_hint = (
+                    subject_hint_from_semantic_frame(refinement.semantic_frame)
+                    if refinement.semantic_frame is not None
+                    else None
+                )
+                semantic_predicate_family = (
+                    predicate_family_from_query_family(refinement.semantic_frame.query_family)
+                    if refinement.semantic_frame is not None
+                    else None
+                )
                 if refined_query:
                     conditions.content_query = refined_query
                 if refinement.entities is not None:
                     conditions.entities = refinement.entities
+                elif semantic_entities:
+                    conditions.entities = semantic_entities
                 if refinement.subject_hint is not None:
                     conditions.subject_hint = refinement.subject_hint
+                elif semantic_subject_hint is not None:
+                    conditions.subject_hint = semantic_subject_hint
                 if refinement.predicate_family is not None:
                     conditions.predicate_family = refinement.predicate_family
+                elif semantic_predicate_family is not None:
+                    conditions.predicate_family = semantic_predicate_family
                 if refinement.relation_intent is not None:
                     conditions.relation_intent = refinement.relation_intent
                 if refinement.hop2_target_type is not None:
