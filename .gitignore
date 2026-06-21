@@ -105,6 +105,8 @@ docs/dev/
 
 # Benchmark outputs
 outputs/
+benchmark/outputs/
+benchmark/outputs-*/
 backend/magi-backend.spec
 /.magi/
 
