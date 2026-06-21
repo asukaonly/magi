@@ -143,7 +143,13 @@ def _ground_subjects(
     user_id: str | None,
 ) -> None:
     semantic_frame = conditions.semantic_frame
-    if semantic_frame and semantic_frame.subject_scope == "self" and user_id:
+    if (
+        (
+            semantic_frame is not None
+            and semantic_frame.subject_scope == "self"
+        )
+        or conditions.subject_hint == "self"
+    ) and user_id:
         plan.subject_scope = "self"
         plan.subject_candidates.append(GroundedEntityCandidate(
             entity_id=f"user:{user_id}",
@@ -152,20 +158,24 @@ def _ground_subjects(
             score=1.0,
             source="rule",
         ))
+    elif _wants_explicit_subject(conditions):
+        subject = _pick_explicit_subject_entity(conditions, resolved_entities)
+        if subject is not None:
+            plan.subject_scope = "explicit"
+            plan.subject_candidates.append(_entity_candidate(subject))
     elif conditions.subject_hint:
         plan.subject_scope = "explicit"
         for entity in resolved_entities:
             eid = entity.get("entity_id", "")
-            if conditions.subject_hint.lower() in eid.lower():
-                plan.subject_candidates.append(GroundedEntityCandidate(
-                    entity_id=eid,
-                    entity_type=entity.get("entity_type", "other"),
-                    surface=entity.get("canonical_name", eid),
-                    score=entity.get("confidence", 0.8),
-                    source=_map_match_source(entity.get("match_source")),
-                ))
+            if conditions.subject_hint.lower() in str(eid).lower():
+                plan.subject_candidates.append(_entity_candidate(entity))
 
-    if not plan.subject_candidates and user_id and not conditions.entities:
+    if (
+        not plan.subject_candidates
+        and user_id
+        and not conditions.entities
+        and not resolved_entities
+    ):
         plan.subject_scope = "self"
         plan.subject_candidates.append(GroundedEntityCandidate(
             entity_id=f"user:{user_id}",
@@ -174,6 +184,75 @@ def _ground_subjects(
             score=0.6,
             source="rule",
         ))
+
+
+def _wants_explicit_subject(conditions: L2Conditions) -> bool:
+    semantic_frame = conditions.semantic_frame
+    return (
+        conditions.subject_hint == "explicit"
+        or (
+            bool(conditions.entities)
+            and conditions.subject_hint in (None, "explicit")
+        )
+        or (
+            semantic_frame is not None
+            and semantic_frame.subject_scope == "explicit"
+        )
+    )
+
+
+def _pick_explicit_subject_entity(
+    conditions: L2Conditions,
+    resolved_entities: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not resolved_entities:
+        return None
+
+    semantic_frame = conditions.semantic_frame
+    mentions = list(semantic_frame.entity_mentions if semantic_frame else [])
+    for mention in mentions:
+        for entity in resolved_entities:
+            if _entity_matches_surface(entity, mention):
+                return entity
+
+    return resolved_entities[0]
+
+
+def _entity_matches_surface(entity: dict[str, Any], surface: str) -> bool:
+    wanted = _normalize_surface(surface)
+    if not wanted:
+        return False
+
+    entity_id = str(entity.get("entity_id") or "")
+    _, _, entity_slug = entity_id.partition(":")
+    candidates = [
+        entity_id,
+        entity_slug,
+        str(entity.get("canonical_name") or ""),
+        str(entity.get("name") or ""),
+        str(entity.get("surface") or ""),
+    ]
+    normalized_candidates = [_normalize_surface(candidate) for candidate in candidates]
+    return any(
+        candidate
+        and (candidate == wanted or candidate in wanted or wanted in candidate)
+        for candidate in normalized_candidates
+    )
+
+
+def _normalize_surface(value: str) -> str:
+    return "".join(ch for ch in str(value).lower() if ch.isalnum())
+
+
+def _entity_candidate(entity: dict[str, Any]) -> GroundedEntityCandidate:
+    entity_id = str(entity.get("entity_id") or "")
+    return GroundedEntityCandidate(
+        entity_id=entity_id,
+        entity_type=str(entity.get("entity_type") or "other"),
+        surface=str(entity.get("canonical_name") or entity.get("name") or entity_id),
+        score=float(entity.get("confidence", 0.8)),
+        source=_map_match_source(entity.get("match_source")),
+    )
 
 
 def _ground_predicates(

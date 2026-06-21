@@ -457,6 +457,69 @@ async def test_no_live_l1_when_l1_store_none():
     assert all(e.get("_channel") != "live_l1" for e in merged)
 
 
+@pytest.mark.asyncio
+async def test_filters_knowledge_edges_to_current_user_evidence_scope():
+    """Edges backed only by another user's L1 evidence must not leak into L2 recall."""
+
+    class _ScopedL1:
+        def __init__(self):
+            self.calls = []
+
+        async def filter_ids_by_user(self, event_ids, user_id):
+            self.calls.append((list(event_ids), user_id))
+            return [event_id for event_id in event_ids if event_id == "evt-local"]
+
+    store = _make_store()
+    store.batch_get_relationships = AsyncMock(
+        return_value={
+            "person:caroline": [
+                {
+                    "triple_id": "local",
+                    "subject_id": "person:caroline",
+                    "predicate": "LIKES",
+                    "object_id": "topic:abstract-art",
+                    "object_type": "topic",
+                    "status": "active",
+                    "evidence_event_ids": ["evt-local"],
+                },
+                {
+                    "triple_id": "foreign",
+                    "subject_id": "person:caroline",
+                    "predicate": "LIKES",
+                    "object_id": "topic:camping",
+                    "object_type": "topic",
+                    "status": "active",
+                    "evidence_event_ids": ["evt-foreign"],
+                },
+            ]
+        }
+    )
+    plan = _plan_with_subject(
+        subject_candidates=[
+            GroundedEntityCandidate(
+                entity_id="person:caroline",
+                entity_type="person",
+                surface="Caroline",
+                score=1.0,
+            )
+        ],
+        subject_scope="explicit",
+    )
+    l1 = _ScopedL1()
+
+    merged = await retrieve_knowledge(
+        plan,
+        store,
+        l1_store=l1,
+        user_id="benchmark/locomo/run/conv-26",
+    )
+
+    assert [edge["triple_id"] for edge in merged] == ["local"]
+    assert l1.calls == [
+        (["evt-local", "evt-foreign"], "benchmark/locomo/run/conv-26")
+    ]
+
+
 def test_l2_handler_holds_l1_store():
     from magi.memory.hybrid_retrieval.l2_handler import L2Handler
     from unittest.mock import MagicMock

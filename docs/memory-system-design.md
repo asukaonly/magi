@@ -567,6 +567,8 @@ The evidence assembler and reducer fields are the mode contract, not a guarantee
 - `constraints` — controlled constraint list, not arbitrary graph queries
 - `ranking_mode` — affinity, confidence, or recency; defaults to affinity
 
+Explicit-subject grounding must bind the resolved subject entity before graph retrieval. If the semantic frame or structured conditions say the query is about an explicit entity, the first matching entity mention is the graph subject and later resolved entities remain object candidates. L2 relationship results must also be scoped back through their `L1` evidence event IDs to the current memory owner; an edge that cannot be verified against the caller's L1 scope must not answer a fact-like query.
+
 **Query execution pipeline** conceptually follows this shape:
 
 ```text

@@ -92,6 +92,65 @@ class TestBuildGroundingPlan:
         assert len(plan.object_candidates) == 1
         assert plan.object_candidates[0].entity_id == "e1"
 
+    def test_explicit_subject_hint_binds_first_resolved_entity_as_subject(self):
+        conditions = L2Conditions(
+            content_query="What is Caroline's relationship status?",
+            subject_hint="explicit",
+            predicate_family="relationship",
+        )
+        entities = [
+            {
+                "entity_id": "person:caroline",
+                "entity_type": "person",
+                "canonical_name": "Caroline",
+                "confidence": 0.95,
+                "match_source": "exact",
+            },
+        ]
+        plan = build_grounding_plan(
+            conditions,
+            resolved_entities=entities,
+            user_id="benchmark/locomo/run/conv-26",
+        )
+        assert plan.subject_scope == "explicit"
+        assert [candidate.entity_id for candidate in plan.subject_candidates] == ["person:caroline"]
+        assert plan.object_candidates == []
+
+    def test_explicit_semantic_frame_binds_mentioned_entity_as_subject(self):
+        conditions = L2Conditions(
+            content_query="What does Melanie think about Caroline?",
+            semantic_frame=L2SemanticFrame(
+                query_family="profile",
+                subject_scope="explicit",
+                answer_kind="topic",
+                answer_unit="mixed",
+                entity_mentions=["Melanie", "Caroline"],
+            ),
+        )
+        entities = [
+            {
+                "entity_id": "person:caroline",
+                "entity_type": "person",
+                "canonical_name": "Caroline",
+                "confidence": 0.95,
+                "match_source": "exact",
+            },
+            {
+                "entity_id": "person:melanie",
+                "entity_type": "person",
+                "canonical_name": "Melanie",
+                "confidence": 0.95,
+                "match_source": "exact",
+            },
+        ]
+        plan = build_grounding_plan(
+            conditions,
+            resolved_entities=entities,
+            user_id="benchmark/locomo/run/conv-26",
+        )
+        assert [candidate.entity_id for candidate in plan.subject_candidates] == ["person:melanie"]
+        assert [candidate.entity_id for candidate in plan.object_candidates] == ["person:caroline"]
+
     def test_confidence_computation(self):
         conditions = L2Conditions(
             content_query="test",

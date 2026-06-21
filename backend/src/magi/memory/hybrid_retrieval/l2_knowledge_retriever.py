@@ -11,6 +11,7 @@ All channels run concurrently via asyncio.gather.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -30,6 +31,7 @@ async def retrieve_knowledge(
     embedding_service: Any = None,
     edge_vector_index: Any = None,
     l1_store: Any = None,
+    user_id: str | None = None,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """Run multi-channel knowledge retrieval and merge results.
@@ -44,6 +46,17 @@ async def retrieve_knowledge(
     ]
 
     graph_results, vector_results, topo_results = await asyncio.gather(*tasks)
+
+    if user_id and l1_store is not None:
+        graph_results = await _filter_edges_by_l1_user_scope(
+            graph_results, l1_store, user_id
+        )
+        vector_results = await _filter_edges_by_l1_user_scope(
+            vector_results, l1_store, user_id
+        )
+        topo_results = await _filter_edges_by_l1_user_scope(
+            topo_results, l1_store, user_id
+        )
 
     # Live L1 co-occurrence last-resort (RFC #65 P4): only when the structured
     # channel (hard + P2 soft + P3 hop2) is empty.
@@ -316,6 +329,62 @@ def _merge_channels(
 def _tag_channel(results: list[dict[str, Any]], channel: str) -> None:
     for r in results:
         r["_channel"] = channel
+
+
+async def _filter_edges_by_l1_user_scope(
+    edges: list[dict[str, Any]],
+    l1_store: Any,
+    user_id: str,
+) -> list[dict[str, Any]]:
+    """Keep only L2 edges backed by L1 evidence inside the current user scope."""
+    if not edges:
+        return []
+
+    filter_ids_by_user = getattr(l1_store, "filter_ids_by_user", None)
+    if not callable(filter_ids_by_user):
+        return []
+
+    edge_evidence: list[tuple[dict[str, Any], list[str]]] = []
+    all_event_ids: list[str] = []
+    for edge in edges:
+        evidence_ids = _parse_evidence_ids(edge.get("evidence_event_ids"))
+        edge_evidence.append((edge, evidence_ids))
+        all_event_ids.extend(evidence_ids)
+
+    unique_event_ids = list(dict.fromkeys(all_event_ids))
+    if not unique_event_ids:
+        return []
+
+    try:
+        scoped_ids = await filter_ids_by_user(unique_event_ids, user_id)
+    except Exception:
+        logger.warning("Failed to filter L2 edges by L1 user scope", exc_info=True)
+        return []
+
+    scoped = set(scoped_ids)
+    return [
+        edge
+        for edge, evidence_ids in edge_evidence
+        if any(event_id in scoped for event_id in evidence_ids)
+    ]
+
+
+def _parse_evidence_ids(raw: Any) -> list[str]:
+    if not raw:
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        return [str(item) for item in raw if item]
+    if isinstance(raw, str):
+        value = raw.strip()
+        if not value:
+            return []
+        try:
+            parsed = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return [value]
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed if item]
+    return []
 
 
 def _evidence_classes_for(plan: L2GroundingPlan) -> list[str] | None:
