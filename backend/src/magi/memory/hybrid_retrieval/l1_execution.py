@@ -122,6 +122,23 @@ class L1ExecutionMixin:
             conditions.content_query, user_id,
             len(bm25_ids), len(vec_ids), len(kw_ids), len(temporal_bm25_ids), fetch_k,
         )
+        logger.debug(
+            "L1 retrieval path samples | content_query=%r user_id=%s "
+            "bm25_ids_sample=%s vec_ids_sample=%s kw_ids_sample=%s "
+            "temporal_bm25_ids_sample=%s l1_retrieval_scopes=%s time_range=%s",
+            conditions.content_query,
+            user_id,
+            bm25_ids[:10],
+            vec_ids[:10],
+            kw_ids[:10],
+            temporal_bm25_ids[:10],
+            l1_retrieval_scopes,
+            (
+                {"start": time_range.start, "end": time_range.end}
+                if time_range is not None
+                else None
+            ),
+        )
 
         seed_ids: List[str] = list(dict.fromkeys(
             bm25_ids[:10] + vec_ids[:10] + kw_ids[:10] + temporal_bm25_ids[:10]

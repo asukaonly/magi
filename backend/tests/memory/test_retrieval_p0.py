@@ -10,10 +10,9 @@ Covers:
 
 from __future__ import annotations
 
-import time
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
-import aiosqlite
 import pytest
 
 from magi.memory.l1.event_store import L1EventStore
@@ -508,6 +507,35 @@ class TestTemporalPreFilter:
             assert "evt-inrange" in result_ids
             assert "evt-old" not in result_ids
             assert "evt-new" not in result_ids
+        finally:
+            await store.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_time_range_filter_logs_dropped_candidate_ids(self, tmp_path, caplog):
+        store = L1EventStore(db_path=str(tmp_path / "l1.db"))
+        await store.initialize()
+        try:
+            await _insert_event(store, "evt-old", "old event", ts=100.0)
+            await _insert_event(store, "evt-inrange", "in range event", ts=500.0)
+            await _insert_event(store, "evt-new", "new event", ts=900.0)
+
+            handler = L1Handler(store)
+            with caplog.at_level(
+                logging.DEBUG,
+                logger="magi.memory.hybrid_retrieval.l1_paths",
+            ):
+                await handler._fetch_and_filter(
+                    event_ids=["evt-old", "evt-inrange", "evt-new"],
+                    conditions=L1Conditions(content_query="event"),
+                    time_range=TimeRange(start=200.0, end=800.0),
+                    session_id=None,
+                    user_id=None,
+                )
+
+            assert "L1 fetch filters applied" in caplog.text
+            assert "input_count=3" in caplog.text
+            assert "output_count=1" in caplog.text
+            assert "dropped_ids_sample=['evt-old', 'evt-new']" in caplog.text
         finally:
             await store.shutdown()
 

@@ -241,6 +241,12 @@ class GroundingFilter:
             }
             payload.trace["grounding_filter"] = skip_trace
             payload.trace["grounding_filter_l2"] = dict(skip_trace)
+            logger.debug(
+                "Grounding filter skipped | query=%r reason=%s input_count=%d",
+                query,
+                skip_trace["skipped_reason"],
+                total,
+            )
             return payload
 
         if not query:
@@ -251,6 +257,12 @@ class GroundingFilter:
             }
             payload.trace["grounding_filter"] = skip_trace
             payload.trace["grounding_filter_l2"] = dict(skip_trace)
+            logger.debug(
+                "Grounding filter skipped | query=%r reason=%s input_count=%d",
+                query,
+                skip_trace["skipped_reason"],
+                total,
+            )
             return payload
 
         owner_screen = _apply_named_person_owner_prefilter(query, sliced_events, sliced_rels)
@@ -285,6 +297,15 @@ class GroundingFilter:
                         "kept_count": 0,
                         "all_dropped": True,
                     }
+                    logger.debug(
+                        "Grounding filter applied | query=%r input_events=%d "
+                        "input_relationships=%d kept_events=0 kept_relationships=0 "
+                        "why=%r all_dropped=True",
+                        query,
+                        len(events),
+                        len(rels),
+                        success_trace.get("why"),
+                    )
                     return payload
 
                 skip_trace = {
@@ -307,6 +328,14 @@ class GroundingFilter:
                         "dropped_relationships"
                     ],
                 }
+                logger.debug(
+                    "Grounding filter skipped | query=%r reason=%s input_count=%d "
+                    "kept_count=%d",
+                    query,
+                    skip_trace["skipped_reason"],
+                    total,
+                    total_after_owner_screen,
+                )
                 return payload
             total = total_after_owner_screen
 
@@ -394,6 +423,15 @@ class GroundingFilter:
                     "kept_count": 0,
                     "all_dropped": True,
                 }
+                logger.debug(
+                    "Grounding filter applied | query=%r input_events=%d "
+                    "input_relationships=%d kept_events=0 kept_relationships=0 "
+                    "why=%r all_dropped=True",
+                    query,
+                    len(events),
+                    len(rels),
+                    why or None,
+                )
                 return payload
 
             # kept_indices was non-empty but every index was out of range
@@ -433,6 +471,16 @@ class GroundingFilter:
             "input_count": len(rels),
             "kept_count": len(kept_rels),
         }
+        logger.debug(
+            "Grounding filter applied | query=%r input_events=%d input_relationships=%d "
+            "kept_events=%d kept_relationships=%d why=%r",
+            query,
+            len(events),
+            len(rels),
+            len(kept_events),
+            len(kept_rels),
+            why or None,
+        )
         return payload
 
 

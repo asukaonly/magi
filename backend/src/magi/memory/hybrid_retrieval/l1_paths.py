@@ -177,7 +177,7 @@ class L1SearchPathMixin:
         if not event_ids:
             return []
 
-        return await self._store.fetch_events(
+        results = await self._store.fetch_events(
             event_ids,
             session_id=session_id,
             user_id=user_id,
@@ -189,6 +189,38 @@ class L1SearchPathMixin:
             time_end=time_range.end if time_range else None,
             l1_retrieval_scopes=l1_retrieval_scopes,
         )
+        if logger.isEnabledFor(logging.DEBUG):
+            result_ids = [str(item.get("event_id") or "") for item in results]
+            result_id_set = set(result_ids)
+            dropped_ids = [event_id for event_id in event_ids if event_id not in result_id_set]
+            logger.debug(
+                "L1 fetch filters applied | content_query=%r input_count=%d "
+                "output_count=%d dropped_count=%d dropped_ids_sample=%s "
+                "result_ids_sample=%s filters=%s",
+                conditions.content_query,
+                len(event_ids),
+                len(results),
+                len(dropped_ids),
+                dropped_ids[:10],
+                result_ids[:10],
+                {
+                    "session_id": session_id,
+                    "user_id": user_id,
+                    "event_types": conditions.event_types or None,
+                    "source_filters": conditions.source_filters or None,
+                    "domain_filters": conditions.domain_filters or None,
+                    "exclude_domain": MemoryDomain.RUNTIME_TELEMETRY.label
+                    if not conditions.domain_filters
+                    else None,
+                    "time_range": (
+                        {"start": time_range.start, "end": time_range.end}
+                        if time_range is not None
+                        else None
+                    ),
+                    "l1_retrieval_scopes": l1_retrieval_scopes,
+                },
+            )
+        return results
 
 
 __all__ = ["L1SearchPathMixin"]

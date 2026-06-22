@@ -74,9 +74,18 @@ class HybridRetrievalPostProcessingMixin:
     ) -> RetrievalPayload:
         """Apply fusion, manifest selection, evidence bundling, and timeline summary."""
         host = cast(_HybridRetrievalPostProcessingHostProtocol, self)
+        pre_fusion_counts = self._layer_result_counts(payload)
         pre_fusion_l1_events = list(payload.l1_events)
 
         payload = host._result_fusion.apply(payload, max_tokens=host._config.default_max_tokens)
+        logger.debug(
+            "Retrieval result fusion applied | query=%r pre_counts=%s post_counts=%s "
+            "l1_event_ids_sample=%s",
+            request.query,
+            pre_fusion_counts,
+            self._layer_result_counts(payload),
+            [str(item.get("event_id") or "") for item in payload.l1_events[:10]],
+        )
 
         if host._config.manifest_selector_enabled:
             payload = await host._manifest_selector.select(
@@ -116,6 +125,19 @@ class HybridRetrievalPostProcessingMixin:
                 payload.trace["evidence_shape"] = mode_plan.evidence_shape
                 payload.trace["reducer_type"] = mode_plan.reducer_type
                 payload.trace["evidence_reduced"] = reduced
+
+        logger.debug(
+            "Retrieval post-processing completed | query=%r layer_counts=%s "
+            "final_result_count=%d l1_evidence_bundle_count=%d "
+            "l1_timeline_summary_count=%d evidence_shape=%s reducer_type=%s",
+            request.query,
+            payload.trace["layer_result_counts"],
+            payload.trace["final_result_count"],
+            payload.trace["l1_evidence_bundle_count"],
+            payload.trace["l1_timeline_summary_count"],
+            payload.trace.get("evidence_shape"),
+            payload.trace.get("reducer_type"),
+        )
 
         return payload
 
