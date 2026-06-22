@@ -1,5 +1,6 @@
 """Tests for config router extensions."""
 
+import asyncio
 from datetime import datetime, timezone
 
 import pytest
@@ -1526,6 +1527,50 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
 
     assert response.status_code == 200
     assert calls == ["save", "reload", "refresh", "enqueue"]
+
+
+def test_complete_onboarding_returns_when_runtime_init_exceeds_response_budget(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    payload = SystemConfigModel()
+    started = False
+
+    async def _slow_initialize_agent_runtime() -> None:
+        nonlocal started
+        started = True
+        await asyncio.sleep(60)
+
+    async def _fake_enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
+        assert reason == "onboarding_completed"
+
+    def _require_agent_runtime():
+        raise RuntimeError("Runtime is not initialized")
+
+    monkeypatch.setattr("magi.api.routers.config._build_update_paths", lambda _: {})
+    monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
+    monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
+    monkeypatch.setattr(
+        "magi.api.routers.config._enqueue_runtime_llm_refresh_command",
+        _fake_enqueue_runtime_llm_refresh_command,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.config.ONBOARDING_RUNTIME_INIT_RESPONSE_BUDGET_SECONDS",
+        0.001,
+    )
+    monkeypatch.setattr(
+        "magi.bootstrap.backend.initialize_agent_runtime",
+        _slow_initialize_agent_runtime,
+    )
+    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", _require_agent_runtime)
+
+    response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
+
+    assert response.status_code == 200
+    assert started is True
 
 
 def test_complete_onboarding_quick_mode_uses_locale_seed_personality(

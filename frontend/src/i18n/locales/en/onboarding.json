@@ -24,6 +24,8 @@
   },
   "messages": {
     "saveFailed": "Save failed",
+    "saveTimedOut": "The save request did not return. Check the backend status and try again. Your configuration may still be writing in the background.",
+    "personaSetupTimedOut": "Persona setup did not return in time, so Magi will continue for now. You can choose a persona again in Settings later.",
     "requiredFieldMissing": "Please complete required fields before continuing.",
     "chooseModeFirst": "Please select a mode before continuing.",
     "completedTitle": "Magi has found its voice",

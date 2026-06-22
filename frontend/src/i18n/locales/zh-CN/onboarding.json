@@ -24,6 +24,8 @@
   },
   "messages": {
     "saveFailed": "保存失败",
+    "saveTimedOut": "保存请求一直没有返回，请检查后端状态后重试。配置可能仍在后台写入。",
+    "personaSetupTimedOut": "人格初始化暂时没有返回，已先继续。稍后可以在设置里重新选择人格。",
     "requiredFieldMissing": "请先补全必填项再继续。",
     "chooseModeFirst": "请先选择模式再继续。",
     "validationFailed": "请补全必填配置项。",

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -56,6 +56,21 @@ describe('ProductTour', () => {
     render(<ProductTour onComplete={onComplete} />);
     await userEvent.click(screen.getByRole('button', { name: 'productTour.skip' }));
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+  });
+
+  it('ignores accidental outside and escape dismissal', async () => {
+    const onComplete = vi.fn();
+    render(<ProductTour onComplete={onComplete} />);
+
+    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+    fireEvent.pointerDown(document.body);
+    fireEvent.mouseDown(document.body);
+    fireEvent.click(document.body);
+
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
   it('connect opens the install panel and completes the prompt', async () => {

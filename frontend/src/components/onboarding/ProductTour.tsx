@@ -32,18 +32,18 @@ export function ProductTour({ onComplete }: ProductTourProps): JSX.Element {
     onComplete();
   }, [onComplete]);
 
-  const handleOpenChange = (nextOpen: boolean) => {
-    setOpen(nextOpen);
-    if (!nextOpen) {
-      finish();
-    }
+  const preventDismiss = (event: Event) => {
+    event.preventDefault();
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
         className="max-w-[44rem] overflow-hidden p-0"
-        disableOutsidePointerEvents={false}
+        hideClose
+        onEscapeKeyDown={preventDismiss}
+        onInteractOutside={preventDismiss}
+        onPointerDownOutside={preventDismiss}
       >
         <DialogHeader className="border-b border-border/55 bg-muted/25 px-7 py-6">
           <div className="mb-3 w-fit rounded-full border border-primary/20 bg-background px-3 py-1 text-xs font-medium text-primary">

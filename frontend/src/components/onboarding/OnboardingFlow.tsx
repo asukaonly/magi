@@ -26,6 +26,8 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 const STORAGE_KEY = STORAGE_KEYS.ONBOARDING_STATE;
 const RUNTIME_READY_WAIT_INTERVAL_MS = 500;
 const RUNTIME_READY_WAIT_TIMEOUT_MS = 12_000;
+const ONBOARDING_SAVE_TIMEOUT_MS = 20_000;
+const PERSONA_SETUP_TIMEOUT_MS = 15_000;
 const toI18nLanguage = (language?: string): 'en' | 'zh-CN' => (language === 'en' ? 'en' : 'zh-CN');
 
 interface RuntimeReadyResponse {
@@ -44,6 +46,34 @@ interface RuntimeReadyResponse {
 function waitFor(durationMs: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, durationMs);
+  });
+}
+
+
+class OnboardingTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OnboardingTimeoutError';
+  }
+}
+
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timeoutId: number | undefined;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      reject(new OnboardingTimeoutError(message));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+    }
   });
 }
 
@@ -297,6 +327,42 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     saveProgress(form.getFieldsValue(true));
   };
 
+  const persistPersonaSelection = async (locale: string) => {
+    await personasApi.seed(locale);
+
+    // Remember the client slug to assigned persona id mapping for activation.
+    const customIdBySlug: Record<string, string> = {};
+    for (const draft of customPersonas) {
+      try {
+        const created = await personasApi.create({
+          config_json: JSON.stringify(draft.config),
+          locale,
+        });
+        const createdId = created?.data?.persona_id;
+        if (createdId) customIdBySlug[draft.slug] = createdId;
+      } catch {
+        // Best-effort: a failed custom-persona create shouldn't block
+        // onboarding completion.
+      }
+    }
+
+    const listResult = await personasApi.list();
+    const personas = listResult.data || [];
+    let activatedPersonaId: string | undefined;
+    if (seedSlug && customIdBySlug[seedSlug]) {
+      activatedPersonaId = customIdBySlug[seedSlug];
+    } else if (seedSlug) {
+      const match = personas.find((p) => p.slug === seedSlug);
+      if (match) activatedPersonaId = match.persona_id;
+    }
+    if (!activatedPersonaId && personas.length > 0) {
+      activatedPersonaId = personas[0].persona_id;
+    }
+    if (activatedPersonaId) {
+      await personasApi.setActive(activatedPersonaId);
+    }
+  };
+
   const handleFinish = async () => {
     if (finishInFlightRef.current) {
       return;
@@ -309,45 +375,23 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       values.preferences.onboarding_completed = true;
       // Ensure the latest LLM state and selected persona slug land in the payload.
       values.llm = llmValue;
-      await configApi.completeOnboarding(values);
+      await withTimeout(
+        configApi.completeOnboarding(values),
+        ONBOARDING_SAVE_TIMEOUT_MS,
+        t('messages.saveTimedOut'),
+      );
 
       const locale = (values.preferences?.language || 'en').startsWith('zh') ? 'zh' : 'en';
       try {
-        await personasApi.seed(locale);
-
-        // Persist any onboarding-generated custom personas and remember the
-        // client-slug → assigned persona_id mapping for activation.
-        const customIdBySlug: Record<string, string> = {};
-        for (const draft of customPersonas) {
-          try {
-            const created = await personasApi.create({
-              config_json: JSON.stringify(draft.config),
-              locale,
-            });
-            const createdId = created?.data?.persona_id;
-            if (createdId) customIdBySlug[draft.slug] = createdId;
-          } catch {
-            // Best-effort: a failed custom-persona create shouldn't block
-            // onboarding completion.
-          }
+        await withTimeout(
+          persistPersonaSelection(locale),
+          PERSONA_SETUP_TIMEOUT_MS,
+          t('messages.personaSetupTimedOut'),
+        );
+      } catch (error: any) {
+        if (error instanceof OnboardingTimeoutError) {
+          toast.warning(error.message);
         }
-
-        const listResult = await personasApi.list();
-        const personas = listResult.data || [];
-        let activatedPersonaId: string | undefined;
-        if (seedSlug && customIdBySlug[seedSlug]) {
-          activatedPersonaId = customIdBySlug[seedSlug];
-        } else if (seedSlug) {
-          const match = personas.find((p) => p.slug === seedSlug);
-          if (match) activatedPersonaId = match.persona_id;
-        }
-        if (!activatedPersonaId && personas.length > 0) {
-          activatedPersonaId = personas[0].persona_id;
-        }
-        if (activatedPersonaId) {
-          await personasApi.setActive(activatedPersonaId);
-        }
-      } catch {
         // Persona registry is best-effort during onboarding;
         // the backend lifecycle fallback handles missing registry state.
       }
