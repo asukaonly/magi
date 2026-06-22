@@ -50,27 +50,51 @@ export interface DesktopShellState {
   setTimelinePanel: (next: Partial<TimelinePanelState>) => void;
 }
 
-const DEFAULT_TIMELINE_PANEL: TimelinePanelState = {
-  monthForCalendar: '',
-  selectedDate: '',
-  selectedRangeStart: '',
-  selectedRangeEnd: '',
-  moodDays: [],
-  standoutItems: [],
-  onSelectDate: null,
-  onSelectStandoutEpisode: null,
-  scale: 'day',
-  dateLabel: '',
-  viewportStart: 0,
-  draftQuery: '',
-  canGoNext: false,
-  onScaleChange: null,
-  onPrevious: null,
-  onNext: null,
-  onDraftQueryChange: null,
-  onSubmitQuery: null,
-  onSelectFromDateInput: null,
+const padNumber = (value: number): string => String(value).padStart(2, '0');
+
+const toUnixSeconds = (date: Date): number => Math.floor(date.getTime() / 1000);
+
+const isoDateForLocalDate = (date: Date): string =>
+  `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
+
+const monthKeyForLocalDate = (date: Date): string =>
+  `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}`;
+
+const latestCompleteDay = (): Date => {
+  const now = new Date();
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  day.setDate(day.getDate() - 1);
+  return day;
 };
+
+export const createDefaultTimelinePanel = (): TimelinePanelState => {
+  const date = latestCompleteDay();
+  const selectedDate = isoDateForLocalDate(date);
+
+  return {
+    monthForCalendar: monthKeyForLocalDate(date),
+    selectedDate,
+    selectedRangeStart: selectedDate,
+    selectedRangeEnd: selectedDate,
+    moodDays: [],
+    standoutItems: [],
+    onSelectDate: null,
+    onSelectStandoutEpisode: null,
+    scale: 'day',
+    dateLabel: '',
+    viewportStart: toUnixSeconds(date),
+    draftQuery: '',
+    canGoNext: false,
+    onScaleChange: null,
+    onPrevious: null,
+    onNext: null,
+    onDraftQueryChange: null,
+    onSubmitQuery: null,
+    onSelectFromDateInput: null,
+  };
+};
+
+const DEFAULT_TIMELINE_PANEL: TimelinePanelState = createDefaultTimelinePanel();
 
 export const useChatShellStore = create<DesktopShellState>((set) => ({
   currentSessionId: null,

@@ -120,4 +120,14 @@ describe('chat shell state', () => {
     store.resetPanel();
     expect(useChatShellStore.getState().activePanel).toBe('none');
   });
+
+  it('starts with timeline sidebar date fields ready to render', () => {
+    const { timelinePanel } = useChatShellStore.getState();
+
+    expect(timelinePanel.monthForCalendar).toMatch(/^\d{4}-\d{2}$/);
+    expect(timelinePanel.selectedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(timelinePanel.selectedRangeStart).toBe(timelinePanel.selectedDate);
+    expect(timelinePanel.selectedRangeEnd).toBe(timelinePanel.selectedDate);
+    expect(timelinePanel.viewportStart).toBeGreaterThan(0);
+  });
 });

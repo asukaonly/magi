@@ -42,6 +42,20 @@ function monthLabel(year: number, month: number, locale: string): string {
   }).format(new Date(year, month - 1, 1));
 }
 
+function resolveMonthParts(month: string): [number, number] {
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (match) {
+    const year = Number(match[1]);
+    const monthNum = Number(match[2]);
+    if (monthNum >= 1 && monthNum <= 12) {
+      return [year, monthNum];
+    }
+  }
+
+  const now = new Date();
+  return [now.getFullYear(), now.getMonth() + 1];
+}
+
 function weekdayLabels(locale: string): string[] {
   const monday = new Date(2024, 0, 1);
   return Array.from({ length: 7 }, (_, index) => {
@@ -78,7 +92,7 @@ export const MoodCalendar: React.FC<MoodCalendarProps> = ({
 }) => {
   const { i18n } = useTranslation("app");
   const locale = i18n.resolvedLanguage || i18n.language || undefined;
-  const [year, monthNum] = month.split("-").map(Number);
+  const [year, monthNum] = resolveMonthParts(month || selectedRangeStart.slice(0, 7));
   const firstOfMonth = new Date(year, monthNum - 1, 1);
   const daysInMonth = new Date(year, monthNum, 0).getDate();
   // Monday-start week — pad both leading and trailing with outside-month days

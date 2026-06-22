@@ -570,8 +570,17 @@ describe('sidebar navigation', () => {
     );
   });
 
-  it('navigates to the timeline route and updates shell state', async () => {
+  it('navigates to the timeline route before timeline shell state is hydrated', async () => {
     const user = userEvent.setup();
+    useChatShellStore.setState({
+      timelinePanel: {
+        ...useChatShellStore.getState().timelinePanel,
+        monthForCalendar: '',
+        selectedDate: '',
+        selectedRangeStart: '',
+        selectedRangeEnd: '',
+      },
+    });
 
     render(
       <MemoryRouter initialEntries={['/chat']}>
@@ -584,6 +593,7 @@ describe('sidebar navigation', () => {
 
     expect(screen.getByTestId('location')).toHaveTextContent('/timeline');
     expect(useChatShellStore.getState().activePanel).toBe('timeline');
+    expect(screen.getByTestId('sidebar-timeline-panel')).toBeInTheDocument();
   });
 
   it('renders memory destinations and routes to the selected memory page', async () => {
