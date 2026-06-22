@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, AlertCircle, RefreshCw } from 'lucide-react';
+import { Activity, AlertCircle, Radio, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -11,6 +11,7 @@ import {
 } from '@/api/modules/plugins';
 import PluginSettingsActions from '@/components/settings/PluginSettingsActions';
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
+import { SettingsEmptyState } from '@/components/settings/SettingsSectionPrimitives';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -123,6 +124,7 @@ interface ChannelsSectionProps {
   onFieldChange: (pluginId: string, key: string, value: any) => void;
   onSettingsActionUpdates: (pluginId: string, updates: Record<string, unknown>) => void;
   onRefreshPlugins: () => Promise<void>;
+  onBrowseMarketplace?: () => void;
   onReloadPlugin: (pluginId: string) => Promise<void>;
   onPluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
   reloading: Record<string, boolean>;
@@ -137,6 +139,7 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
   onFieldChange,
   onSettingsActionUpdates,
   onRefreshPlugins,
+  onBrowseMarketplace,
   onReloadPlugin,
   onPluginAction,
   reloading,
@@ -153,16 +156,20 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
   if (!selectedEntry) {
     return (
       <div className="space-y-6">
-        <p className="text-sm leading-6 text-muted-foreground">
-          {t('settings.channelsDesc')}
-        </p>
-
         {channelEntries.length === 0 ? (
-          <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-8 text-center text-sm text-muted-foreground">
-            {t('settings.channelsConfig.emptyState')}
-          </div>
+          <SettingsEmptyState
+            testId="settings-empty-state-channels"
+            icon={Radio}
+            title={t('settings.channelsConfig.emptyTitle')}
+            description={t('settings.channelsConfig.emptyDescription')}
+            actionLabel={t('settings.channelsConfig.emptyAction')}
+            onAction={onBrowseMarketplace}
+          />
         ) : (
-          <div>
+          <div className="space-y-6">
+            <p className="text-sm leading-6 text-muted-foreground">
+              {t('settings.channelsDesc')}
+            </p>
             {channelEntries.map(({ plugin, contribution }) => (
               <button
                 key={contribution.contribution_id}

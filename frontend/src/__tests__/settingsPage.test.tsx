@@ -179,6 +179,7 @@ vi.mock('@/api/modules/plugins', async () => {
       disable: vi.fn(),
       reload: vi.fn(),
       getSettingsResource: vi.fn(),
+      getRegistry: vi.fn(),
       updateSettings: vi.fn(),
       startSettingsAction: vi.fn(),
       pollSettingsAction: vi.fn(),
@@ -588,6 +589,7 @@ describe('settings page draft saving', () => {
       requested_types: ['steps'],
     } as any);
     vi.mocked(pluginsApi.list).mockResolvedValue(pluginsListFixture as any);
+    vi.mocked(pluginsApi.getRegistry).mockResolvedValue({ plugins: [], total: 0 } as any);
     vi.mocked(pluginsApi.rescan).mockResolvedValue(pluginsListFixture as any);
     vi.mocked(pluginsApi.enable).mockImplementation(async (pluginId: string) =>
       (pluginsListFixture.plugins.find((plugin) => plugin.manifest.plugin_id === pluginId) ?? pluginsListFixture.plugins[0]) as any
@@ -1407,6 +1409,39 @@ describe('settings page draft saving', () => {
     expect(within(photoNavItem).getByText('照片库')).toBeInTheDocument();
     expect(screen.getByText('引用照片库或导出目录，并决定保留多少原始媒体信息。')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'settings.timeline.actions.refresh' })).not.toBeInTheDocument();
+  });
+
+  it('shows a marketplace entry point when no timeline sources are registered', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    const emptyState = await screen.findByTestId('settings-empty-state-timeline-sources');
+
+    expect(within(emptyState).getByText('settings.timeline.workspace.emptyTitle')).toBeInTheDocument();
+    expect(within(emptyState).getByText('settings.timeline.workspace.emptyDescription')).toBeInTheDocument();
+
+    await user.click(within(emptyState).getByRole('button', { name: 'settings.timeline.workspace.emptyAction' }));
+
+    expect(await screen.findByRole('heading', { name: 'settings.tabs.pluginsMarketplace' })).toBeInTheDocument();
+  });
+
+  it('shows a matching marketplace entry point when no channel plugins are installed', async () => {
+    const user = userEvent.setup();
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.channels' }));
+    const emptyState = await screen.findByTestId('settings-empty-state-channels');
+
+    expect(within(emptyState).getByText('settings.channelsConfig.emptyTitle')).toBeInTheDocument();
+    expect(within(emptyState).getByText('settings.channelsConfig.emptyDescription')).toBeInTheDocument();
+
+    await user.click(within(emptyState).getByRole('button', { name: 'settings.channelsConfig.emptyAction' }));
+
+    expect(await screen.findByRole('heading', { name: 'settings.tabs.pluginsMarketplace' })).toBeInTheDocument();
   });
 
   it('groups multiple source entries under one capability workspace', async () => {

@@ -1378,7 +1378,10 @@
     "channelsDesc": "接入外部消息平台（如 Telegram），通过现有聊天链路与 AI 交互。",
     "channelsTelegramDesc": "配置 Telegram Bot 接入，支持私聊和群聊。",
     "channelsConfig": {
-      "emptyState": "当前没有已安装的消息渠道插件。可以在插件市场中查找并安装。"
+      "emptyState": "当前没有已安装的消息渠道插件。可以在插件市场中查找并安装。",
+      "emptyTitle": "还没有接入渠道",
+      "emptyDescription": "安装消息渠道插件后，你就可以从 Telegram 等外部平台和 Magi 对话。",
+      "emptyAction": "去插件市场安装"
     },
     "channels": {
       "statusOn": "已启用",
@@ -2103,6 +2106,9 @@
         "healthTitle": "健康快照",
         "healthDesc": "快速看清哪些来源状态正常，哪些来源需要处理。",
         "empty": "当前还没有注册任何时间线来源。",
+        "emptyTitle": "还没有传感器来源",
+        "emptyDescription": "安装一个传感器插件后，Magi 才能把浏览、照片、日历等活动接入时间线。",
+        "emptyAction": "去插件市场安装",
         "metricsSummary": "总数 · 启用 · 支持拉取：{{summary}}",
         "lastSync": "最近同步于 {{time}}",
         "lastSyncInline": "最近同步：{{time}}",

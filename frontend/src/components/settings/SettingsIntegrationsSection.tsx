@@ -26,6 +26,7 @@ interface SettingsIntegrationsSectionProps {
   handleReloadActionPlugin: (pluginId: string) => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
   loadPluginsAndSensors: () => Promise<void>;
+  onBrowseMarketplace?: () => void;
 }
 
 export function SettingsIntegrationsSection({
@@ -44,6 +45,7 @@ export function SettingsIntegrationsSection({
   handleReloadActionPlugin,
   loadPlugins,
   loadPluginsAndSensors,
+  onBrowseMarketplace,
 }: SettingsIntegrationsSectionProps) {
   const { t } = useTranslation('app');
 
@@ -84,6 +86,7 @@ export function SettingsIntegrationsSection({
           onFieldChange={handlePluginDraftChange}
           onSettingsActionUpdates={applyPersistedPluginSettings}
           onRefreshPlugins={() => loadPlugins({ silent: true })}
+          onBrowseMarketplace={onBrowseMarketplace}
           onReloadPlugin={handleReloadActionPlugin}
           onPluginAction={handlePluginAction}
           reloading={reloadingActionPlugins}

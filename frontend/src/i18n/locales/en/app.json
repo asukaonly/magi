@@ -1379,7 +1379,10 @@
     "channelsDesc": "Connect external messaging platforms (e.g. Telegram) to chat with AI via the existing pipeline.",
     "channelsTelegramDesc": "Configure Telegram Bot integration, supporting both DM and group chat.",
     "channelsConfig": {
-      "emptyState": "No channel plugins installed. Browse the marketplace to find and install one."
+      "emptyState": "No channel plugins installed. Browse the marketplace to find and install one.",
+      "emptyTitle": "No channels connected yet",
+      "emptyDescription": "Install a channel plugin to talk with Magi from external platforms such as Telegram.",
+      "emptyAction": "Browse marketplace"
     },
     "channels": {
       "statusOn": "Enabled",
@@ -2104,6 +2107,9 @@
         "healthTitle": "Health snapshot",
         "healthDesc": "A compact read on which sources are ready and which ones need attention.",
         "empty": "No timeline sources are registered yet.",
+        "emptyTitle": "No sensor sources yet",
+        "emptyDescription": "Install a sensor plugin so Magi can bring browser, photo, calendar, and other activity into the timeline.",
+        "emptyAction": "Browse marketplace",
         "metricsSummary": "Total · active · pull-ready: {{summary}}",
         "lastSync": "Last synced {{time}}",
         "lastSyncInline": "Last sync: {{time}}",

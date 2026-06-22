@@ -179,6 +179,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     ? 'memoryGeneral'
     : activeSection;
   const showSettingsFooter = !['personalitySelection', 'personalProfile'].includes(effectiveActiveSection);
+  const browsePluginMarketplace = () => {
+    setGroupExpanded('plugins', true);
+    handleNavItemClick('pluginsMarketplace', false);
+  };
 
   useImperativeHandle(ref, getHandle, [getHandle]);
 
@@ -290,6 +294,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             pluginDrafts={draftPluginDrafts}
             onSelectSource={setTimelineSelection}
             onRefreshSources={fetchTimelineStatuses}
+            onBrowseMarketplace={browsePluginMarketplace}
             onPluginFieldChange={handlePluginDraftChange}
             onPluginFieldsChange={handlePluginDraftChanges}
           />
@@ -346,6 +351,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             handleReloadActionPlugin={handleReloadActionPlugin}
             loadPlugins={loadPlugins}
             loadPluginsAndSensors={loadPluginsAndSensors}
+            onBrowseMarketplace={browsePluginMarketplace}
           />
         );
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, ScrollText } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 
@@ -14,6 +14,7 @@ import PluginSettingsTabs, {
   getActiveSettingsTab,
   isTabsSettingsLayout,
 } from '@/components/settings/PluginSettingsTabs';
+import { SettingsEmptyState } from '@/components/settings/SettingsSectionPrimitives';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -36,6 +37,7 @@ interface TimelineSourcesSectionProps {
   pluginDrafts: Record<string, Record<string, any>>;
   onSelectSource: (sourceName: string | null) => void;
   onRefreshSources: () => Promise<void>;
+  onBrowseMarketplace?: () => void;
   onPluginFieldChange: (pluginId: string, key: string, value: any) => void;
   onPluginFieldsChange: (pluginId: string, updates: Record<string, any>) => void;
 }
@@ -179,6 +181,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   pluginDrafts,
   onSelectSource,
   onRefreshSources,
+  onBrowseMarketplace,
   onPluginFieldChange,
   onPluginFieldsChange,
 }) => {
@@ -376,7 +379,14 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             {loadingStatus ? (
               <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-8 text-sm text-muted-foreground">{t('settings.timeline.statuses.loading')}</div>
             ) : capabilities.length === 0 ? (
-              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-8 text-sm text-muted-foreground">{t('settings.timeline.workspace.empty')}</div>
+              <SettingsEmptyState
+                testId="settings-empty-state-timeline-sources"
+                icon={ScrollText}
+                title={t('settings.timeline.workspace.emptyTitle')}
+                description={t('settings.timeline.workspace.emptyDescription')}
+                actionLabel={t('settings.timeline.workspace.emptyAction')}
+                onAction={onBrowseMarketplace}
+              />
             ) : (
               <div>
                 {capabilities.map((capability) => (
