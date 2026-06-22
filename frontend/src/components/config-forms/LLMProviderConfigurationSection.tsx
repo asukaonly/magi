@@ -480,9 +480,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
   const handleDraftProviderPlanChange = (planId: string) => {
     const selectedPlan = draftProviderPlans.find((plan) => plan.id === planId);
+    const defaultBaseUrl = selectedPlan?.default_base_url || baseDraftProviderMeta?.default_base_url || '';
     updateDraftProvider((provider) => {
       provider.provider_plan = planId || null;
-      provider.base_url = '';
+      provider.base_url = defaultBaseUrl;
       provider.services.chat.base_url = '';
       provider.services.embedding.base_url = '';
       provider.services.image_generation.base_url = '';

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
@@ -2255,6 +2255,27 @@ describe('config forms', () => {
     expect(within(dialog).getByLabelText('llm.providerConfiguration.serviceLabels.chat llm.fields.baseUrl')).toHaveAttribute(
       'placeholder',
       'llm.providerConfiguration.inheritBaseUrlPlaceholder'
+    );
+  });
+
+  it('fills the provider plan default base url when switching plans in settings', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    const providerRow = await screen.findByTestId('llm-provider-row-glm');
+    await user.click(within(providerRow).getByRole('button', { name: 'llm.providerConfiguration.editProvider' }));
+
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByText('llm.providerPlans.default'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Z.ai CodePlan' }));
+
+    expect(within(dialog).getByLabelText('llm.fields.baseUrl')).toHaveValue(
+      'https://open.bigmodel.cn/api/coding/paas/v4'
     );
   });
 

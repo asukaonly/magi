@@ -468,9 +468,10 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
       return;
     }
     const selectedPlan = activeProviderPlans.find((plan) => plan.id === planId);
+    const defaultBaseUrl = selectedPlan?.default_base_url || activeProviderMeta?.default_base_url || '';
     const nextProvider = cloneProvider(activeProvider);
     nextProvider.provider_plan = planId || null;
-    nextProvider.base_url = '';
+    nextProvider.base_url = defaultBaseUrl;
     nextProvider.services.chat.base_url = '';
     nextProvider.services.embedding.base_url = '';
     nextProvider.services.image_generation.base_url = '';
@@ -700,7 +701,7 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
                     aria-label={t('llmSetup.baseUrlOptionalLabel')}
                     className={fieldClassName}
                     value={activeProvider.base_url || ''}
-                    placeholder={t('llmSetup.baseUrlDefaultPlaceholder')}
+                    placeholder={activeProviderMeta?.default_base_url || t('llmSetup.baseUrlDefaultPlaceholder')}
                     onChange={(event) => {
                       const baseUrl = event.target.value;
                       updateActiveProvider((provider) => {

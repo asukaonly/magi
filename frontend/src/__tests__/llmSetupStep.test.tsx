@@ -104,6 +104,75 @@ function catalog() {
         ],
         resolved_embedding_models: [],
       },
+      {
+        id: 'glm',
+        provider_type: 'glm',
+        source: 'builtin',
+        display_name: 'Z.ai',
+        default_model: 'glm-5',
+        default_classify_model: 'glm-5',
+        default_base_url: 'https://open.bigmodel.cn/api/paas/v4',
+        api_format: 'openai',
+        resolved_chat_models: [
+          {
+            id: 'glm-5',
+            capabilities: chatCapabilities,
+            limits: {},
+            hidden: false,
+            preferred: true,
+            source: 'builtin',
+            input_modalities: ['text'],
+            output_modalities: ['text'],
+          },
+        ],
+        resolved_embedding_models: [
+          {
+            id: 'embedding-3',
+            dimensions: [1024],
+            capabilities: embeddingCapabilities,
+            hidden: false,
+            preferred: true,
+            source: 'builtin',
+            input_modalities: ['text'],
+            output_modalities: ['embedding'],
+          },
+        ],
+        plans: [
+          {
+            id: 'codeplan',
+            display_name: 'Z.ai CodePlan',
+            default_model: 'glm-5',
+            default_classify_model: 'glm-5-code',
+            default_base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
+            embedding_models: [],
+            image_generation_models: [],
+            resolved_chat_models: [
+              {
+                id: 'glm-5',
+                capabilities: chatCapabilities,
+                limits: {},
+                hidden: false,
+                preferred: true,
+                source: 'builtin',
+                input_modalities: ['text'],
+                output_modalities: ['text'],
+              },
+              {
+                id: 'glm-5-code',
+                capabilities: chatCapabilities,
+                limits: {},
+                hidden: false,
+                preferred: false,
+                source: 'builtin',
+                input_modalities: ['text'],
+                output_modalities: ['text'],
+              },
+            ],
+            resolved_embedding_models: [],
+            resolved_image_generation_models: [],
+          },
+        ],
+      },
     ],
   };
 }
@@ -240,5 +309,26 @@ describe('LLMSetupStep', () => {
     await user.click(await screen.findByTestId('llm-setup-provider-anthropic'));
 
     expect(screen.getByTestId('llm-setup-embedding-row')).toBeInTheDocument();
+  });
+
+  it('fills the provider plan default base URL when switching plans', async () => {
+    const user = userEvent.setup();
+    const onChangeSpy = vi.fn();
+    render(<Harness onChangeSpy={onChangeSpy} />);
+
+    await user.click(await screen.findByTestId('llm-setup-provider-glm'));
+    await user.click(screen.getByText('llm.providerPlans.default'));
+    await user.click(await screen.findByText('Z.ai CodePlan'));
+    await user.click(screen.getByTestId('llm-setup-advanced-toggle'));
+
+    expect(screen.getByTestId('llm-setup-base-url')).toHaveValue(
+      'https://open.bigmodel.cn/api/coding/paas/v4'
+    );
+
+    await waitFor(() => {
+      const latest = onChangeSpy.mock.calls[onChangeSpy.mock.calls.length - 1]?.[0] as LLMConfig;
+      expect(latest.providers.glm.provider_plan).toBe('codeplan');
+      expect(latest.providers.glm.base_url).toBe('https://open.bigmodel.cn/api/coding/paas/v4');
+    });
   });
 });
