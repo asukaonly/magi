@@ -129,6 +129,28 @@ const IMAGE_NATIVE_PROTOCOL_OPTIONS = [
 
 const createInstanceId = (providerType: string): string => `${providerType}_${Date.now()}`;
 
+function normalizeEndpointBaseUrl(value?: string | null): string {
+  return String(value || '').trim().replace(/\/+$/, '').toLowerCase();
+}
+
+function getPlanDefaultBaseUrl(
+  plan: NonNullable<ProviderTemplate['plans']>[number] | undefined,
+  fallbackBaseUrl = ''
+): string {
+  return plan?.default_base_url || plan?.endpoints?.[0]?.base_url || fallbackBaseUrl;
+}
+
+function getPlanEndpointValue(
+  plan: NonNullable<ProviderTemplate['plans']>[number] | undefined,
+  baseUrl?: string | null
+): string {
+  const normalizedBaseUrl = normalizeEndpointBaseUrl(baseUrl);
+  if (!plan?.endpoints?.length || !normalizedBaseUrl) {
+    return '';
+  }
+  return plan.endpoints.find((endpoint) => normalizeEndpointBaseUrl(endpoint.base_url) === normalizedBaseUrl)?.id || '';
+}
+
 const cloneConnection = (value?: Partial<LLMProviderConnectionConfig>, defaultEnabled = true): LLMProviderConnectionConfig => ({
   enabled: value?.enabled ?? defaultEnabled,
   api_key: value?.api_key || '',
@@ -301,6 +323,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     ? undefined
     : registry.providers.find((provider) => provider.id === draftProvider?.provider_type);
   const draftProviderPlans = baseDraftProviderMeta?.plans || activeProviderMeta?.plans || [];
+  const draftProviderPlan = draftProviderPlans.find((plan) => plan.id === draftProvider?.provider_plan);
+  const draftProviderPlanEndpoints = draftProviderPlan?.endpoints || [];
   const draftWorkbenchModels = useMemo(
     () => (draftProvider ? buildProviderWorkbenchModels(draftRegistry, resolvedDraftProviderId, draftProvider) : []),
     [draftProvider, draftRegistry, resolvedDraftProviderId]
@@ -480,7 +504,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
   const handleDraftProviderPlanChange = (planId: string) => {
     const selectedPlan = draftProviderPlans.find((plan) => plan.id === planId);
-    const defaultBaseUrl = selectedPlan?.default_base_url || baseDraftProviderMeta?.default_base_url || '';
+    const defaultBaseUrl = getPlanDefaultBaseUrl(selectedPlan, baseDraftProviderMeta?.default_base_url || '');
     updateDraftProvider((provider) => {
       provider.provider_plan = planId || null;
       provider.base_url = defaultBaseUrl;
@@ -500,6 +524,19 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
       if (selectedPlan?.image_generation_models !== undefined && selectedPlan.image_generation_models !== null) {
         provider.services.image_generation.enabled = selectedPlan.image_generation_models.length > 0;
       }
+    });
+  };
+
+  const handleDraftProviderPlanEndpointChange = (endpointId: string) => {
+    const selectedEndpoint = draftProviderPlan?.endpoints?.find((endpoint) => endpoint.id === endpointId);
+    if (!selectedEndpoint) {
+      return;
+    }
+    updateDraftProvider((provider) => {
+      provider.base_url = selectedEndpoint.base_url;
+      provider.services.chat.base_url = '';
+      provider.services.embedding.base_url = '';
+      provider.services.image_generation.base_url = '';
     });
   };
 
@@ -1140,6 +1177,21 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                             value: plan.id,
                           }))}
                           onChange={handleDraftProviderPlanChange}
+                        />
+                      </label>
+                    ) : null}
+                    {draftProvider.provider_type !== 'custom' && draftProviderPlanEndpoints.length > 0 ? (
+                      <label className="space-y-2">
+                        <span className="text-sm font-medium">{t('llm.fields.providerEndpoint')}</span>
+                        <SelectField
+                          value={getPlanEndpointValue(draftProviderPlan, draftProvider.base_url)}
+                          allowEmpty={false}
+                          placeholder={t('llm.providerPlans.customEndpoint')}
+                          options={draftProviderPlanEndpoints.map((endpoint) => ({
+                            label: endpoint.label || endpoint.country || endpoint.id,
+                            value: endpoint.id,
+                          }))}
+                          onChange={handleDraftProviderPlanEndpointChange}
                         />
                       </label>
                     ) : null}

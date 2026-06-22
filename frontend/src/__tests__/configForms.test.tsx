@@ -153,6 +153,21 @@ vi.mock('../api/modules/config', async () => {
             default_model: 'glm-5',
             default_classify_model: 'glm-5-code',
             default_base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
+            endpoints: [
+              {
+                id: 'china',
+                label: 'China',
+                country: 'China',
+                base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
+                api_format: 'openai',
+              },
+              {
+                id: 'global',
+                label: 'Global',
+                base_url: 'https://api.z.ai/api/coding/paas/v4',
+                api_format: 'openai',
+              },
+            ],
             embedding_models: [],
             image_generation_models: [],
             chat_models: [
@@ -2258,7 +2273,7 @@ describe('config forms', () => {
     );
   });
 
-  it('fills the provider plan default base url when switching plans in settings', async () => {
+  it('fills and switches provider plan endpoint base urls in settings', async () => {
     const user = userEvent.setup();
 
     render(
@@ -2273,9 +2288,14 @@ describe('config forms', () => {
     const dialog = screen.getByRole('dialog');
     await user.click(within(dialog).getByText('llm.providerPlans.default'));
     fireEvent.click(await screen.findByRole('button', { name: 'Z.ai CodePlan' }));
-
     expect(within(dialog).getByLabelText('llm.fields.baseUrl')).toHaveValue(
       'https://open.bigmodel.cn/api/coding/paas/v4'
+    );
+
+    await user.click(within(dialog).getByText('China'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Global' }));
+    expect(within(dialog).getByLabelText('llm.fields.baseUrl')).toHaveValue(
+      'https://api.z.ai/api/coding/paas/v4'
     );
   });
 

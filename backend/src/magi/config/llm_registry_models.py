@@ -49,6 +49,16 @@ class LLMModelMetaModel(BaseModel):
         return self
 
 
+class LLMProviderPlanEndpointModel(BaseModel):
+    """Selectable endpoint for a provider plan."""
+
+    id: str
+    label: str
+    country: Optional[str] = Field(default=None)
+    base_url: str
+    api_format: Optional[str] = Field(default=None)
+
+
 class LLMProviderPlanModel(BaseModel):
     """Optional commercial/runtime plan layered onto a provider."""
 
@@ -59,6 +69,7 @@ class LLMProviderPlanModel(BaseModel):
     default_model: Optional[str] = Field(default=None)
     default_classify_model: Optional[str] = Field(default=None)
     default_base_url: Optional[str] = Field(default=None)
+    endpoints: list[LLMProviderPlanEndpointModel] = Field(default_factory=list)
     chat_models: Optional[list[LLMModelMetaModel]] = Field(default=None)
     embedding_models: Optional[list["LLMEmbeddingModelMetaModel"]] = Field(default=None)
     image_generation_models: Optional[list["LLMImageGenerationModelMetaModel"]] = Field(

@@ -405,11 +405,12 @@
       "modelManualEntry": "添加模型",
       "modelManualEntryPlaceholder": "输入模型 ID",
       "apiKey": "API Key",
-      "baseUrl": "Base URL",
-      "displayName": "显示名称",
-      "apiFormat": "API 格式",
-      "providerPlan": "供应商计划",
-      "enabled": "启用",
+        "baseUrl": "Base URL",
+        "displayName": "显示名称",
+        "apiFormat": "API 格式",
+        "providerPlan": "供应商计划",
+        "providerEndpoint": "端点国家/区域",
+        "enabled": "启用",
       "modelKind": "模型类型",
       "modelManualEntryChat": "添加聊天模型",
       "modelManualEntryEmbedding": "添加向量模型",
@@ -421,9 +422,10 @@
       "embedding": "向量模型",
       "image": "生图模型"
     },
-    "providerPlans": {
-      "default": "默认计划"
-    },
+      "providerPlans": {
+        "default": "默认计划",
+        "customEndpoint": "自定义 Base URL"
+      },
     "modelFields": {
       "modelId": "模型 ID",
       "icon": "图标",

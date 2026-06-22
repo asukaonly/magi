@@ -420,6 +420,16 @@ providers:
         default_model: glm-5.1
         default_classify_model: glm-4.5-air
         default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
+        endpoints:
+          - id: china
+            label: China
+            country: China
+            base_url: https://open.bigmodel.cn/api/coding/paas/v4
+            api_format: openai
+          - id: global
+            label: Global
+            base_url: https://api.z.ai/api/coding/paas/v4
+            api_format: openai
         embedding_models: []
         image_generation_models: []
         audio_generation_models: []
@@ -1072,6 +1082,16 @@ providers:
         default_model: qwen3.7-plus
         default_classify_model: qwen3.6-plus
         default_base_url: https://coding.dashscope.aliyuncs.com/v1
+        endpoints:
+          - id: china
+            label: China
+            country: China
+            base_url: https://coding.dashscope.aliyuncs.com/v1
+            api_format: openai
+          - id: global
+            label: Global
+            base_url: https://coding-intl.dashscope.aliyuncs.com/v1
+            api_format: openai
         embedding_models: []
         image_generation_models: []
         audio_generation_models: []
@@ -1480,6 +1500,16 @@ providers:
         default_model: MiniMax-M3
         default_classify_model: MiniMax-M3
         default_base_url: https://api.minimaxi.com/v1
+        endpoints:
+          - id: china
+            label: China
+            country: China
+            base_url: https://api.minimaxi.com/v1
+            api_format: openai
+          - id: global
+            label: Global
+            base_url: https://api.minimax.io/v1
+            api_format: openai
         embedding_models: []
         image_generation_models: []
         audio_generation_models: []
@@ -1630,6 +1660,22 @@ providers:
         default_model: mimo-v2.5-pro
         default_classify_model: mimo-v2.5
         default_base_url: https://token-plan-cn.xiaomimimo.com/v1
+        endpoints:
+          - id: china
+            label: China
+            country: China
+            base_url: https://token-plan-cn.xiaomimimo.com/v1
+            api_format: openai
+          - id: singapore
+            label: Singapore
+            country: Singapore
+            base_url: https://token-plan-sgp.xiaomimimo.com/v1
+            api_format: openai
+          - id: europe
+            label: Europe
+            country: Netherlands
+            base_url: https://token-plan-ams.xiaomimimo.com/v1
+            api_format: openai
         embedding_models: []
         image_generation_models: []
         audio_generation_models: []

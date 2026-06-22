@@ -5260,6 +5260,22 @@ export interface components {
             readonly timeout: number;
         };
         /**
+         * LLMProviderPlanEndpointModel
+         * @description Selectable endpoint for a provider plan.
+         */
+        readonly LLMProviderPlanEndpointModel: {
+            /** Api Format */
+            readonly api_format?: string | null;
+            /** Base Url */
+            readonly base_url: string;
+            /** Country */
+            readonly country?: string | null;
+            /** Id */
+            readonly id: string;
+            /** Label */
+            readonly label: string;
+        };
+        /**
          * LLMProviderPlanModel
          * @description Optional commercial/runtime plan layered onto a provider.
          */
@@ -5280,6 +5296,8 @@ export interface components {
             readonly display_name?: string | null;
             /** Embedding Models */
             readonly embedding_models?: readonly components["schemas"]["LLMEmbeddingModelMetaModel"][] | null;
+            /** Endpoints */
+            readonly endpoints?: readonly components["schemas"]["LLMProviderPlanEndpointModel"][];
             /** Fields */
             readonly fields?: {
                 readonly [key: string]: components["schemas"]["LLMProviderFieldModel"];

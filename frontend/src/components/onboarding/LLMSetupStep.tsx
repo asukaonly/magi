@@ -115,6 +115,28 @@ function getProviderType(meta: LLMProviderMeta): LLMProvider {
   return (meta.provider_type || meta.id) as LLMProvider;
 }
 
+function normalizeEndpointBaseUrl(value?: string | null): string {
+  return String(value || '').trim().replace(/\/+$/, '').toLowerCase();
+}
+
+function getPlanDefaultBaseUrl(
+  plan: NonNullable<LLMProviderMeta['plans']>[number] | undefined,
+  fallbackBaseUrl = ''
+): string {
+  return plan?.default_base_url || plan?.endpoints?.[0]?.base_url || fallbackBaseUrl;
+}
+
+function getPlanEndpointValue(
+  plan: NonNullable<LLMProviderMeta['plans']>[number] | undefined,
+  baseUrl?: string | null
+): string {
+  const normalizedBaseUrl = normalizeEndpointBaseUrl(baseUrl);
+  if (!plan?.endpoints?.length || !normalizedBaseUrl) {
+    return '';
+  }
+  return plan.endpoints.find((endpoint) => normalizeEndpointBaseUrl(endpoint.base_url) === normalizedBaseUrl)?.id || '';
+}
+
 function createProviderFromMeta(meta: LLMProviderMeta, existing?: LLMProviderConfig): LLMProviderConfig {
   const providerType = getProviderType(meta);
   const apiKey = existing?.api_key || existing?.services?.chat?.api_key || '';
@@ -315,6 +337,8 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
     ? undefined
     : registry?.providers.find((provider) => provider.id === activeProvider?.provider_type);
   const activeProviderPlans = activeProviderMeta?.plans || [];
+  const activeProviderPlan = activeProviderPlans.find((plan) => plan.id === activeProvider?.provider_plan);
+  const activeProviderPlanEndpoints = activeProviderPlan?.endpoints || [];
   const selectedCardId = activeProvider?.provider_type === 'custom'
     ? 'custom'
     : activeProvider?.provider_type || '';
@@ -468,7 +492,7 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
       return;
     }
     const selectedPlan = activeProviderPlans.find((plan) => plan.id === planId);
-    const defaultBaseUrl = selectedPlan?.default_base_url || activeProviderMeta?.default_base_url || '';
+    const defaultBaseUrl = getPlanDefaultBaseUrl(selectedPlan, activeProviderMeta?.default_base_url || '');
     const nextProvider = cloneProvider(activeProvider);
     nextProvider.provider_plan = planId || null;
     nextProvider.base_url = defaultBaseUrl;
@@ -490,6 +514,22 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
       core: selectedPlan?.default_model || undefined,
       context_decider: selectedPlan?.default_classify_model || selectedPlan?.default_model || undefined,
       embedding: nextProvider.services.embedding.enabled ? undefined : '',
+    });
+  };
+
+  const handleActiveProviderPlanEndpointChange = (endpointId: string) => {
+    if (!activeProviderId || !activeProvider || !activeProviderPlan) {
+      return;
+    }
+    const selectedEndpoint = activeProviderPlan.endpoints?.find((endpoint) => endpoint.id === endpointId);
+    if (!selectedEndpoint) {
+      return;
+    }
+    updateActiveProvider((provider) => {
+      provider.base_url = selectedEndpoint.base_url;
+      provider.services.chat.base_url = '';
+      provider.services.embedding.base_url = '';
+      provider.services.image_generation.base_url = '';
     });
   };
 
@@ -607,6 +647,22 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
                   value: plan.id,
                 }))}
                 onChange={handleActiveProviderPlanChange}
+              />
+            </label>
+          ) : null}
+
+          {activeProvider.provider_type !== 'custom' && activeProviderPlanEndpoints.length > 0 ? (
+            <label className="block space-y-2">
+              <span className="text-sm font-medium">{t('llm.fields.providerEndpoint')}</span>
+              <SelectField
+                value={getPlanEndpointValue(activeProviderPlan, activeProvider.base_url || activeProvider.services.chat.base_url)}
+                allowEmpty={false}
+                placeholder={t('llm.providerPlans.customEndpoint')}
+                options={activeProviderPlanEndpoints.map((endpoint) => ({
+                  label: endpoint.label || endpoint.country || endpoint.id,
+                  value: endpoint.id,
+                }))}
+                onChange={handleActiveProviderPlanEndpointChange}
               />
             </label>
           ) : null}

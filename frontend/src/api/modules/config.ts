@@ -245,11 +245,20 @@ export interface LLMProviderPlanMeta {
   default_model?: string | null;
   default_classify_model?: string | null;
   default_base_url?: string | null;
+  endpoints?: LLMProviderPlanEndpointMeta[];
   chat_models?: LLMChatModelMeta[] | null;
   embedding_models?: LLMEmbeddingModelMeta[] | null;
   image_generation_models?: LLMGenerationModelMeta[] | null;
   audio_generation_models?: LLMGenerationModelMeta[] | null;
   fields?: Record<string, LLMProviderFieldConfig> | null;
+}
+
+export interface LLMProviderPlanEndpointMeta {
+  id: string;
+  label: string;
+  country?: string | null;
+  base_url: string;
+  api_format?: ApiFormat | string | null;
 }
 
 export interface LLMCustomProviderMeta {

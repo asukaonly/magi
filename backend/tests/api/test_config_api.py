@@ -740,6 +740,8 @@ def test_build_provider_catalog_exposes_and_applies_provider_plan():
 
     assert glm_entry.provider_plan == "codeplan"
     assert [plan.id for plan in glm_entry.plans] == ["codeplan"]
+    assert [endpoint.label for endpoint in glm_entry.plans[0].endpoints] == ["China", "Global"]
+    assert glm_entry.plans[0].endpoints[1].base_url == "https://api.z.ai/api/coding/paas/v4"
     assert glm_entry.default_base_url == "https://open.bigmodel.cn/api/coding/paas/v4"
     assert glm_entry.default_classify_model == "glm-4.5-air"
     assert [model.id for model in glm_entry.resolved_embedding_models] == []
@@ -792,6 +794,14 @@ def test_build_provider_catalog_exposes_and_applies_dashscope_codeplan():
 
     assert dashscope_entry.provider_plan == "codeplan"
     assert [plan.id for plan in dashscope_entry.plans] == ["codeplan"]
+    assert [endpoint.label for endpoint in dashscope_entry.plans[0].endpoints] == [
+        "China",
+        "Global",
+    ]
+    assert (
+        dashscope_entry.plans[0].endpoints[1].base_url
+        == "https://coding-intl.dashscope.aliyuncs.com/v1"
+    )
     assert dashscope_entry.default_base_url == "https://coding.dashscope.aliyuncs.com/v1"
     assert dashscope_entry.default_model == "qwen3.7-plus"
     assert dashscope_entry.default_classify_model == "qwen3.6-plus"
@@ -838,6 +848,11 @@ def test_build_provider_catalog_exposes_and_applies_minimax_tokenplan():
 
     assert minimax_entry.provider_plan == "tokenplan"
     assert [plan.id for plan in minimax_entry.plans] == ["tokenplan"]
+    assert [endpoint.label for endpoint in minimax_entry.plans[0].endpoints] == [
+        "China",
+        "Global",
+    ]
+    assert minimax_entry.plans[0].endpoints[1].base_url == "https://api.minimax.io/v1"
     assert minimax_entry.default_base_url == "https://api.minimaxi.com/v1"
     assert minimax_entry.default_model == "MiniMax-M3"
     assert minimax_entry.default_classify_model == "MiniMax-M3"
@@ -878,6 +893,15 @@ def test_build_provider_catalog_exposes_and_applies_xiaomi_tokenplan():
 
     assert xiaomi_entry.provider_plan == "tokenplan"
     assert [plan.id for plan in xiaomi_entry.plans] == ["tokenplan"]
+    assert [endpoint.label for endpoint in xiaomi_entry.plans[0].endpoints] == [
+        "China",
+        "Singapore",
+        "Europe",
+    ]
+    assert (
+        xiaomi_entry.plans[0].endpoints[2].base_url
+        == "https://token-plan-ams.xiaomimimo.com/v1"
+    )
     assert xiaomi_entry.default_base_url == "https://token-plan-cn.xiaomimimo.com/v1"
     assert xiaomi_entry.default_model == "mimo-v2.5-pro"
     assert xiaomi_entry.default_classify_model == "mimo-v2.5"

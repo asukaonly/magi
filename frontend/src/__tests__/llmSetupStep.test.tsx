@@ -144,6 +144,21 @@ function catalog() {
             default_model: 'glm-5',
             default_classify_model: 'glm-5-code',
             default_base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
+            endpoints: [
+              {
+                id: 'china',
+                label: 'China',
+                country: 'China',
+                base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
+                api_format: 'openai',
+              },
+              {
+                id: 'global',
+                label: 'Global',
+                base_url: 'https://api.z.ai/api/coding/paas/v4',
+                api_format: 'openai',
+              },
+            ],
             embedding_models: [],
             image_generation_models: [],
             resolved_chat_models: [
@@ -311,7 +326,7 @@ describe('LLMSetupStep', () => {
     expect(screen.getByTestId('llm-setup-embedding-row')).toBeInTheDocument();
   });
 
-  it('fills the provider plan default base URL when switching plans', async () => {
+  it('fills and switches provider plan endpoint base URLs', async () => {
     const user = userEvent.setup();
     const onChangeSpy = vi.fn();
     render(<Harness onChangeSpy={onChangeSpy} />);
@@ -319,16 +334,18 @@ describe('LLMSetupStep', () => {
     await user.click(await screen.findByTestId('llm-setup-provider-glm'));
     await user.click(screen.getByText('llm.providerPlans.default'));
     await user.click(await screen.findByText('Z.ai CodePlan'));
+    await user.click(await screen.findByText('China'));
+    await user.click(await screen.findByText('Global'));
     await user.click(screen.getByTestId('llm-setup-advanced-toggle'));
 
     expect(screen.getByTestId('llm-setup-base-url')).toHaveValue(
-      'https://open.bigmodel.cn/api/coding/paas/v4'
+      'https://api.z.ai/api/coding/paas/v4'
     );
 
     await waitFor(() => {
       const latest = onChangeSpy.mock.calls[onChangeSpy.mock.calls.length - 1]?.[0] as LLMConfig;
       expect(latest.providers.glm.provider_plan).toBe('codeplan');
-      expect(latest.providers.glm.base_url).toBe('https://open.bigmodel.cn/api/coding/paas/v4');
+      expect(latest.providers.glm.base_url).toBe('https://api.z.ai/api/coding/paas/v4');
     });
   });
 });
