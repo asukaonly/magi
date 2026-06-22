@@ -46,9 +46,12 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       >
         {/* Logo / Brand */}
         <div className="mb-10 inline-flex items-center gap-4">
-          <div className="flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-[1.4rem] border border-[#ead9c8]/80 bg-[#fff7ef]/82 shadow-[0_18px_38px_-28px_rgba(120,80,44,0.42)] backdrop-blur-sm dark:border-[#584438]/70 dark:bg-[#241c18]/82 dark:shadow-[0_20px_40px_-30px_rgba(0,0,0,0.62)]">
-            <img src={magiMark} alt="" className="h-12 w-12" aria-hidden="true" />
-          </div>
+          <img
+            src={magiMark}
+            alt=""
+            className="h-[4.5rem] w-[4.5rem] shrink-0"
+            aria-hidden="true"
+          />
           <div className="text-[2.4rem] font-semibold leading-none text-[#8b5737] dark:text-[#efb084] sm:text-[3.25rem]">
             {t('welcome.brand')}
           </div>
