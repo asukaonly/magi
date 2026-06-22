@@ -37,8 +37,10 @@ _RECENT_QUANTITY_UNIT_SECONDS: dict[str, int] = {
     "month": 2592000,
 }
 
-_ZH_YEAR_MONTH_RE = re.compile(r"(?<!\d)(\d{4})\s*年\s*(\d{1,2})\s*月(?!\s*\d\s*[号日])")
-_ZH_RELATIVE_RE = re.compile(r"\d+\s*(?:天|小时|周|个?月)前")
+_ZH_YEAR_MONTH_DAY_RE = re.compile(r"(?<!\d)(\d{2}|\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*[号日]")
+_ZH_YEAR_MONTH_RE = re.compile(r"(?<!\d)(\d{2}|\d{4})\s*年\s*(\d{1,2})\s*月(?!\s*\d\s*[号日])")
+_ZH_YEAR_RE = re.compile(r"(?<!\d)(\d{2}|\d{4})\s*年(?!\s*(?:前|后|\d{1,2}\s*月))")
+_ZH_RELATIVE_RE = re.compile(r"\d+\s*(?:天|小时|周|个?月|年)前")
 _ZH_DATE_RE = re.compile(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[号日]")
 _ZH_LAST_WEEKDAY_RE = re.compile(r"上(?:周|星期)([一二三四五六日天])")
 _ZH_THIS_WEEK_RE = re.compile(r"(?:这|本)(?:周|星期)")
@@ -58,6 +60,51 @@ _MONTH_HINT_RE = re.compile(r"month|月", re.IGNORECASE)
 _DAY_NUMBER_SUFFIX_RE = re.compile(r"\d+\s*[号日]|\d+(?:st|nd|rd|th)\b", re.IGNORECASE)
 _LEADING_PREP_RE = re.compile(r"^(?:in|at|on|for|from)\s+", re.IGNORECASE)
 _DATE_ONLY_BOUNDARY_RE = re.compile(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}$")
+_EN_YEAR_MONTH_NUMERIC_RE = re.compile(r"(?<!\d)(\d{4})[-/](\d{1,2})(?![-/]\d)")
+_EN_MONTH_NAME_RE = re.compile(
+    r"\b("
+    r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|"
+    r"nov(?:ember)?|dec(?:ember)?"
+    r")\.?\s+(\d{4})\b"
+    r"|\b(\d{4})\s+("
+    r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|"
+    r"nov(?:ember)?|dec(?:ember)?"
+    r")\.?\b",
+    re.IGNORECASE,
+)
+_EN_PREPOSITIONAL_YEAR_RE = re.compile(
+    r"\b(?:in|from|during|since|year)\s+'?(\d{2}|\d{4})\b(?!\s*(?:years?|yrs?)\b)",
+    re.IGNORECASE,
+)
+_EN_STANDALONE_FOUR_DIGIT_YEAR_RE = re.compile(r"(?<![-/\d])((?:19|20)\d{2})(?![-/\d])")
+_MONTH_NAME_TO_NUMBER: dict[str, int] = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
 _COMMON_BOUNDARY_FORMATS: tuple[str, ...] = (
     "%Y/%m/%d",
     "%Y-%m-%d",
@@ -158,6 +205,10 @@ def parse_time_from_query(query: str) -> TimeRange | None:
     if zh_result is not None:
         return zh_result
 
+    en_result = try_english_explicit_temporal(query, now)
+    if en_result is not None:
+        return en_result
+
     try:
         from dateparser.search import search_dates
     except ImportError:
@@ -229,10 +280,21 @@ def _parse_recent_quantity(query: str, now: datetime) -> TimeRange | None:
 
 
 def try_chinese_temporal(query: str, now: datetime) -> TimeRange | None:
+    match = _ZH_YEAR_MONTH_DAY_RE.search(query)
+    if match:
+        year = _resolve_numeric_year(match.group(1), now)
+        month, day = int(match.group(2)), int(match.group(3))
+        if year is not None:
+            try:
+                return day_range(datetime(year, month, day, tzinfo=timezone.utc))
+            except ValueError:
+                pass
+
     match = _ZH_YEAR_MONTH_RE.search(query)
     if match:
-        year, month = int(match.group(1)), int(match.group(2))
-        if 1 <= month <= 12:
+        year = _resolve_numeric_year(match.group(1), now)
+        month = int(match.group(2))
+        if year is not None and 1 <= month <= 12:
             return month_range(year=year, month=month, now=now)
 
     match = _ZH_RELATIVE_RE.search(query)
@@ -250,6 +312,12 @@ def try_chinese_temporal(query: str, now: datetime) -> TimeRange | None:
         if dt:
             dt_utc = dt.replace(tzinfo=timezone.utc)
             return range_from_match(phrase, dt_utc, now)
+
+    match = _ZH_YEAR_RE.search(query)
+    if match:
+        year = _resolve_numeric_year(match.group(1), now)
+        if year is not None:
+            return year_range(year=year, now=now)
 
     match = _ZH_LAST_WEEKDAY_RE.search(query)
     if match:
@@ -274,6 +342,38 @@ def try_chinese_temporal(query: str, now: datetime) -> TimeRange | None:
             start=start_of_day(monday),
             end=now.timestamp(),
         )
+
+    return None
+
+
+def try_english_explicit_temporal(query: str, now: datetime) -> TimeRange | None:
+    match = _EN_YEAR_MONTH_NUMERIC_RE.search(query)
+    if match:
+        year = _resolve_numeric_year(match.group(1), now)
+        month = int(match.group(2))
+        if year is not None and 1 <= month <= 12:
+            return month_range(year=year, month=month, now=now)
+
+    match = _EN_MONTH_NAME_RE.search(query)
+    if match:
+        month_text = (match.group(1) or match.group(4) or "").lower().rstrip(".")
+        year_text = match.group(2) or match.group(3)
+        year = _resolve_numeric_year(year_text, now)
+        month = _MONTH_NAME_TO_NUMBER.get(month_text)
+        if year is not None and month is not None:
+            return month_range(year=year, month=month, now=now)
+
+    match = _EN_PREPOSITIONAL_YEAR_RE.search(query)
+    if match:
+        year = _resolve_numeric_year(match.group(1), now)
+        if year is not None:
+            return year_range(year=year, now=now)
+
+    match = _EN_STANDALONE_FOUR_DIGIT_YEAR_RE.search(query)
+    if match:
+        year = _resolve_numeric_year(match.group(1), now)
+        if year is not None:
+            return year_range(year=year, now=now)
 
     return None
 
@@ -322,6 +422,36 @@ def month_range(*, year: int, month: int, now: datetime) -> TimeRange:
         start=start_of_day(month_start),
         end=min(end_of_day(month_end), now.timestamp()),
     )
+
+
+def year_range(*, year: int, now: datetime) -> TimeRange:
+    year_start = datetime(year, 1, 1, tzinfo=timezone.utc)
+    year_end = datetime(year, 12, 31, tzinfo=timezone.utc)
+    return TimeRange(
+        start=start_of_day(year_start),
+        end=min(end_of_day(year_end), now.timestamp()),
+    )
+
+
+def _resolve_numeric_year(text: str | None, now: datetime) -> int | None:
+    if text is None:
+        return None
+    stripped = str(text).strip()
+    if not stripped.isdigit() or len(stripped) not in {2, 4}:
+        return None
+
+    value = int(stripped)
+    if len(stripped) == 4:
+        year = value
+    else:
+        century = (now.year // 100) * 100
+        year = century + value
+        if year > now.year:
+            year -= 100
+
+    if year < 1900 or year > now.year:
+        return None
+    return year
 
 
 def start_of_day(dt: datetime) -> float:

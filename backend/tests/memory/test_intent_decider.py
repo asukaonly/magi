@@ -12,9 +12,6 @@ from magi.memory.hybrid_retrieval.models import (
     IntentDeciderInput,
     L1Conditions,
     L2Conditions,
-    L3Conditions,
-    L4Conditions,
-    TimeRange,
 )
 
 
@@ -179,6 +176,13 @@ class TestTimeParsingRelative:
         diff = result.time_range.end - result.time_range.start
         assert diff >= 27 * 86400  # at least 27 days
 
+    def test_n_years_ago_zh(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="24年前我去过哪里")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        expected_year = datetime.now(tz=timezone.utc).year - 24
+        assert datetime.fromtimestamp(result.time_range.start, tz=timezone.utc).year == expected_year
+
     def test_in_a_week_ago_strips_preposition(self, decider: RuleBasedIntentDecider):
         # "participated in a week ago" → search_dates captures "in a week ago"
         # (future).  Fallback should strip "in" and resolve "a week ago".
@@ -218,6 +222,26 @@ class TestTimeParsingWeekday:
 
 
 class TestTimeParsingSpecificDate:
+    def test_chinese_two_digit_year_range(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="我24年去东京拍了什么照片")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        assert result.time_range.start == datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
+        assert (
+            result.time_range.end
+            == datetime(2024, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
+        )
+
+    def test_chinese_four_digit_year_range(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="我2024年去东京拍了什么照片")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        assert result.time_range.start == datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
+        assert (
+            result.time_range.end
+            == datetime(2024, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
+        )
+
     def test_chinese_year_month_range(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="2022年9月我在哪里拍了照片")
         result = decider.evaluate(inp)
@@ -226,6 +250,24 @@ class TestTimeParsingSpecificDate:
         expected_end = datetime(2022, 9, 30, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
         assert abs(result.time_range.start - expected_start) < 2
         assert abs(result.time_range.end - expected_end) < 2
+
+    def test_chinese_two_digit_year_month_range(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="24年12月在东京拍了什么")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        expected_start = datetime(2024, 12, 1, tzinfo=timezone.utc).timestamp()
+        expected_end = datetime(2024, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
+        assert result.time_range.start == expected_start
+        assert result.time_range.end == expected_end
+
+    def test_chinese_year_month_day_range(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="2024年12月28日我拍了什么")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        expected_start = datetime(2024, 12, 28, tzinfo=timezone.utc).timestamp()
+        expected_end = datetime(2024, 12, 28, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
+        assert result.time_range.start == expected_start
+        assert result.time_range.end == expected_end
 
     def test_chinese_date(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="3月10号发生了什么")
@@ -270,6 +312,39 @@ class TestDateparserEnglish:
         assert result.time_range is not None
         diff = result.time_range.end - result.time_range.start
         assert diff >= 27 * 86400
+
+    def test_four_digit_year_en(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="what photos did I take in 2024")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        assert result.time_range.start == datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
+        assert (
+            result.time_range.end
+            == datetime(2024, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
+        )
+
+    def test_two_digit_year_en_with_temporal_preposition(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="what photos did I take in 24")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        assert result.time_range.start == datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
+
+    def test_month_year_en(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="photos from Dec 2024")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        assert result.time_range.start == datetime(2024, 12, 1, tzinfo=timezone.utc).timestamp()
+        assert (
+            result.time_range.end
+            == datetime(2024, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
+        )
+
+    def test_years_ago_en_remains_relative(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="what happened 24 years ago")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        expected_year = datetime.now(tz=timezone.utc).year - 24
+        assert datetime.fromtimestamp(result.time_range.start, tz=timezone.utc).year == expected_year
 
     def test_no_temporal_expression(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="tell me about Python programming")
@@ -383,7 +458,6 @@ class TestRawTimeRange:
 
     def test_raw_overrides_query_keywords(self, decider: RuleBasedIntentDecider):
         """raw_time_range should override query text parsing."""
-        now = time.time()
         raw = {"start": 1000, "end": 2000}
         inp = IntentDeciderInput(query="昨天发生了什么", raw_time_range=raw)
         result = decider.evaluate(inp)
