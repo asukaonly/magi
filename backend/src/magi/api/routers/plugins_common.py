@@ -378,6 +378,23 @@ def _serialize_sensor_capability(
     )
     entry_display_name = str(metadata.get("entry_display_name") or fallback_display_name)
     entry_description = str(metadata.get("entry_description") or fallback_description)
+    entry_display_name_translated = translate_with_fallback(
+        i18n,
+        f"{plugin_id_normalized}.entries.{entry_id}.display_name",
+        entry_display_name,
+    )
+    entry_description_translated = translate_with_fallback(
+        i18n,
+        f"{plugin_id_normalized}.entries.{entry_id}.description",
+        entry_description,
+    )
+    single_source_capability = capability_id == entry_id
+    capability_display_fallback = (
+        entry_display_name_translated if single_source_capability else capability_display_name
+    )
+    capability_description_fallback = (
+        entry_description_translated if single_source_capability else capability_description
+    )
 
     return {
         "capability_id": capability_id,
@@ -385,27 +402,19 @@ def _serialize_sensor_capability(
         "capability_display_name_translated": translate_with_fallback(
             i18n,
             f"{plugin_id_normalized}.capabilities.{capability_id}.display_name",
-            capability_display_name,
+            capability_display_fallback,
         ),
         "capability_description": capability_description,
         "capability_description_translated": translate_with_fallback(
             i18n,
             f"{plugin_id_normalized}.capabilities.{capability_id}.description",
-            capability_description,
+            capability_description_fallback,
         ),
         "entry_id": entry_id,
         "entry_display_name": entry_display_name,
-        "entry_display_name_translated": translate_with_fallback(
-            i18n,
-            f"{plugin_id_normalized}.entries.{entry_id}.display_name",
-            entry_display_name,
-        ),
+        "entry_display_name_translated": entry_display_name_translated,
         "entry_description": entry_description,
-        "entry_description_translated": translate_with_fallback(
-            i18n,
-            f"{plugin_id_normalized}.entries.{entry_id}.description",
-            entry_description,
-        ),
+        "entry_description_translated": entry_description_translated,
     }
 
 

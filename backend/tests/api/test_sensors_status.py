@@ -335,6 +335,28 @@ def test_serialize_sensor_capability_adds_group_and_entry_translations() -> None
     }
 
 
+def test_serialize_sensor_capability_uses_entry_translation_for_single_source_groups() -> None:
+    metadata = {}
+    i18n = _FakeI18n(
+        {
+            "screen_time.entries.screen_time.display_name": "应用使用",
+            "screen_time.entries.screen_time.description": "统计前台应用的使用时长。",
+        }
+    )
+
+    serialized = _serialize_sensor_capability(
+        metadata,
+        i18n,
+        plugin_id="screen-time",
+        fallback_source_name="screen_time",
+        fallback_display_name="App Usage",
+        fallback_description="Polls the foreground app.",
+    )
+
+    assert serialized["capability_display_name_translated"] == "应用使用"
+    assert serialized["capability_description_translated"] == "统计前台应用的使用时长。"
+
+
 # ──────────────────────────────────────────────────────────────────────
 # _serialize_activation_flow
 # ──────────────────────────────────────────────────────────────────────
