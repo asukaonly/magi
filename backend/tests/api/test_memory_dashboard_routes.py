@@ -175,8 +175,11 @@ def test_memory_dashboard_reports_statistics_sources_and_pending(monkeypatch):
         "total_pending": 16,
         "l2": {
             "extract_pending": 7,
+            "extract_active": 0,
             "reconcile_pending": 3,
+            "reconcile_active": 0,
             "snapshot_pending": 3,
+            "snapshot_active": 0,
             "projection_pending": 5,
             "projection_claimed": 2,
             "projection_failed": 1,

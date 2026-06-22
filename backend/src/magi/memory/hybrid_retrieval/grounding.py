@@ -205,6 +205,10 @@ def _should_bind_self_subject(
             semantic_frame is not None
             and semantic_frame.subject_scope == "self"
         )
+        or (
+            conditions.predicate_family == "relationship"
+            and _query_has_self_reference(conditions.content_query)
+        )
     )
     if not wants_self:
         return False
