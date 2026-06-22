@@ -230,6 +230,9 @@ describe('PersonalityModern', () => {
     fireEvent.click(screen.getByRole('button', { name: 'personality.sections.registers' }));
     expect(screen.getByText('personality.registers.crisis')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'personality.sections.personaLayers' }));
+    const confirmDialog = screen.getByRole('dialog');
+    expect(confirmDialog.querySelector('.lucide-info')).toBeInTheDocument();
+    expect(screen.getByTestId('personality-layer-confirm-actions')).not.toHaveClass('border-t');
     expect(screen.getByText('personality.actions.viewLayersConfirm')).toBeInTheDocument();
     expect(screen.queryByDisplayValue('surface')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'personality.actions.viewLayersReveal' }));

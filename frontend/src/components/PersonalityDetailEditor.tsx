@@ -1,5 +1,5 @@
 import React from 'react';
-import { CircleHelp, Plus, Trash2, Upload } from 'lucide-react';
+import { CircleHelp, Info, Plus, Trash2, Upload } from 'lucide-react';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,8 +11,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -1038,17 +1036,38 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
       </div>
 
       <Dialog open={layerConfirmOpen} onOpenChange={setLayerConfirmOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('personality.actions.viewLayersTitle')}</DialogTitle>
-            <DialogDescription>{t('personality.actions.viewLayersConfirm')}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setLayerConfirmOpen(false)}>
+        <DialogContent className="max-w-[420px] overflow-hidden rounded-xl border-border/45 bg-card/95 p-0 shadow-[0_24px_80px_hsl(var(--foreground)/0.14)]">
+          <div className="flex items-start gap-3 px-5 pb-3 pt-5">
+            <span
+              aria-hidden="true"
+              className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.12)]"
+            >
+              <Info className="h-4 w-4" />
+            </span>
+            <div className="min-w-0 space-y-1.5 pr-8">
+              <DialogTitle className="text-[15px] font-semibold leading-6 text-foreground">
+                {t('personality.actions.viewLayersTitle')}
+              </DialogTitle>
+              <DialogDescription className="text-[13px] leading-5 text-muted-foreground">
+                {t('personality.actions.viewLayersConfirm')}
+              </DialogDescription>
+            </div>
+          </div>
+          <div
+            data-testid="personality-layer-confirm-actions"
+            className="flex items-center justify-end gap-2 px-5 pb-5 pt-2"
+          >
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 rounded-md px-4"
+              onClick={() => setLayerConfirmOpen(false)}
+            >
               {t('personality.cancel')}
             </Button>
             <Button
               type="button"
+              className="h-9 rounded-md px-4 shadow-[0_10px_24px_hsl(var(--primary)/0.16)]"
               onClick={() => {
                 setLayersUnlocked(true);
                 setLayersOpen(true);
@@ -1057,7 +1076,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
             >
               {t('personality.actions.viewLayersReveal')}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
