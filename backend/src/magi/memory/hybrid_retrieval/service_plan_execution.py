@@ -8,6 +8,7 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, Optional, cast
 
 from .handlers import L1Handler
+from .debug_detail import log_detail
 from .models import LayerQueryPlan, RetrievalPayload, RetrievalQuery
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class HybridRetrievalPlanExecutionMixin:
             return
         host = cast(Any, self)
         for plan in plans:
-            logger.debug(
+            logger.info(
                 "%s executing | layer=%s fallback=%s conditions=%s time_range=%s "
                 "session_id=%s user_id=%s",
                 label,
@@ -84,6 +85,19 @@ class HybridRetrievalPlanExecutionMixin:
                 plan.is_fallback,
                 trace_record["count"],
                 _result_summary(plan.layer, result),
+            )
+            log_detail(
+                logger,
+                "RETRIEVAL PLAN RESULT DETAIL",
+                {
+                    "label": label,
+                    "layer": plan.layer,
+                    "fallback": plan.is_fallback,
+                    "count": trace_record["count"],
+                    "conditions": _compact_value(_conditions_dict(getattr(plan, "conditions", None))),
+                    "time_range": _time_range_dict(getattr(plan, "time_range", None)),
+                    "summary": _result_summary(plan.layer, result),
+                },
             )
             host._merge_result(payload, plan.layer, result)
 

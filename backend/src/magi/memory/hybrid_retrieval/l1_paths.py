@@ -6,6 +6,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from .answerability import extract_query_tokens, extract_quoted_spans
+from .debug_detail import DETAIL_LIMIT, event_record, log_detail
 from .models import L1Conditions, TimeRange
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,24 @@ class L1SearchPathMixin:
         l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> List[str]:
         """BM25 search via FTS5, optionally scoped to *user_id*."""
+        ids, details = await self._bm25_path_with_details(
+            query,
+            limit,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
+        self._last_bm25_path_details = details
+        return ids
+
+    async def _bm25_path_with_details(
+        self,
+        query: str,
+        limit: int,
+        *,
+        user_id: Optional[str] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
+    ) -> tuple[List[str], Dict[str, Dict[str, Any]]]:
+        """BM25 search with rank and score details for temporary debugging."""
         try:
             hits = await self._store.bm25_search(
                 query,
@@ -30,10 +49,15 @@ class L1SearchPathMixin:
                 user_id=user_id,
                 l1_retrieval_scopes=l1_retrieval_scopes,
             )
-            return [event_id for event_id, _score in hits]
+            details: Dict[str, Dict[str, Any]] = {}
+            ids: List[str] = []
+            for rank, (event_id, score) in enumerate(hits, start=1):
+                ids.append(event_id)
+                details[event_id] = {"rank": rank, "score": score}
+            return ids, details
         except Exception as exc:
             logger.warning("BM25 path failed: %s", exc)
-            return []
+            return [], {}
 
     async def _temporal_bm25_path(
         self,
@@ -45,6 +69,26 @@ class L1SearchPathMixin:
         l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> List[str]:
         """Time-constrained BM25 search to boost recall for temporal queries."""
+        ids, details = await self._temporal_bm25_path_with_details(
+            query,
+            limit,
+            time_range,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
+        self._last_temporal_bm25_path_details = details
+        return ids
+
+    async def _temporal_bm25_path_with_details(
+        self,
+        query: str,
+        limit: int,
+        time_range: TimeRange,
+        *,
+        user_id: Optional[str] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
+    ) -> tuple[List[str], Dict[str, Dict[str, Any]]]:
+        """Time-constrained BM25 search with rank and score details."""
         try:
             hits = await self._store.bm25_search(
                 query,
@@ -55,10 +99,15 @@ class L1SearchPathMixin:
                 strict=True,
                 l1_retrieval_scopes=l1_retrieval_scopes,
             )
-            return [event_id for event_id, _score in hits]
+            details: Dict[str, Dict[str, Any]] = {}
+            ids: List[str] = []
+            for rank, (event_id, score) in enumerate(hits, start=1):
+                ids.append(event_id)
+                details[event_id] = {"rank": rank, "score": score}
+            return ids, details
         except Exception as exc:
             logger.warning("Temporal BM25 path failed: %s", exc)
-            return []
+            return [], {}
 
     async def _vector_path(
         self,
@@ -69,6 +118,24 @@ class L1SearchPathMixin:
         l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> List[str]:
         """Vector similarity search via sqlite-vec."""
+        ids, details = await self._vector_path_with_details(
+            query,
+            limit,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
+        self._last_vector_path_details = details
+        return ids
+
+    async def _vector_path_with_details(
+        self,
+        query: str,
+        limit: int,
+        *,
+        user_id: Optional[str] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
+    ) -> tuple[List[str], Dict[str, Dict[str, Any]]]:
+        """Vector search with event rank, best distance, and chunk details."""
         try:
             chunk_density_multiplier = 10
             vec_limit = limit * chunk_density_multiplier
@@ -76,24 +143,53 @@ class L1SearchPathMixin:
                 query=query, limit=vec_limit, user_id=user_id,
             )
             if not hits:
-                return []
+                return [], {}
 
             seen: set[str] = set()
             event_ids: List[str] = []
-            for hit in hits:
+            details: Dict[str, Dict[str, Any]] = {}
+            for chunk_rank, hit in enumerate(hits, start=1):
                 event_id = hit.entity_id.split("::")[0] if "::" in hit.entity_id else hit.entity_id
+                detail = details.setdefault(
+                    event_id,
+                    {
+                        "rank": len(event_ids) + 1,
+                        "best_distance": float(hit.distance),
+                        "best_chunk_id": hit.entity_id,
+                        "best_chunk_rank": chunk_rank,
+                        "chunk_hits": [],
+                    },
+                )
+                detail["best_distance"] = min(float(detail["best_distance"]), float(hit.distance))
+                if float(hit.distance) <= float(detail.get("best_distance") or hit.distance):
+                    detail["best_chunk_id"] = hit.entity_id
+                    detail["best_chunk_rank"] = chunk_rank
+                if len(detail["chunk_hits"]) < 5:
+                    detail["chunk_hits"].append(
+                        {
+                            "chunk_rank": chunk_rank,
+                            "chunk_id": hit.entity_id,
+                            "distance": float(hit.distance),
+                        }
+                    )
                 if event_id not in seen:
                     seen.add(event_id)
                     event_ids.append(event_id)
 
-            return await self._filter_ids_by_l1_retrieval_scope(
+            filtered_ids = await self._filter_ids_by_l1_retrieval_scope(
                 event_ids,
                 l1_retrieval_scopes,
                 user_id=user_id,
             )
+            filtered_set = set(filtered_ids)
+            return filtered_ids, {
+                event_id: details[event_id]
+                for event_id in filtered_ids
+                if event_id in details and event_id in filtered_set
+            }
         except Exception as exc:
             logger.warning("Vector path failed: %s", exc)
-            return []
+            return [], {}
 
     async def _keyword_path(
         self,
@@ -189,38 +285,132 @@ class L1SearchPathMixin:
             time_end=time_range.end if time_range else None,
             l1_retrieval_scopes=l1_retrieval_scopes,
         )
-        if logger.isEnabledFor(logging.DEBUG):
-            result_ids = [str(item.get("event_id") or "") for item in results]
-            result_id_set = set(result_ids)
-            dropped_ids = [event_id for event_id in event_ids if event_id not in result_id_set]
-            logger.debug(
-                "L1 fetch filters applied | content_query=%r input_count=%d "
-                "output_count=%d dropped_count=%d dropped_ids_sample=%s "
-                "result_ids_sample=%s filters=%s",
-                conditions.content_query,
-                len(event_ids),
-                len(results),
-                len(dropped_ids),
-                dropped_ids[:10],
-                result_ids[:10],
+        result_ids = [str(item.get("event_id") or "") for item in results]
+        result_id_set = set(result_ids)
+        dropped_ids = [event_id for event_id in event_ids if event_id not in result_id_set]
+        dropped_rows: list[dict[str, Any]] = []
+        if dropped_ids:
+            try:
+                dropped_rows = await self._store.fetch_events(
+                    dropped_ids[:DETAIL_LIMIT],
+                    user_id=user_id,
+                    l1_retrieval_scopes=l1_retrieval_scopes,
+                )
+            except Exception:
+                logger.debug("Failed to hydrate dropped L1 rows for debug log", exc_info=True)
+        dropped_by_id = {str(row.get("event_id") or ""): row for row in dropped_rows}
+        filters = {
+            "session_id": session_id,
+            "user_id": user_id,
+            "event_types": conditions.event_types or None,
+            "source_filters": conditions.source_filters or None,
+            "domain_filters": conditions.domain_filters or None,
+            "exclude_domain": MemoryDomain.RUNTIME_TELEMETRY.label
+            if not conditions.domain_filters
+            else None,
+            "time_range": (
+                {"start": time_range.start, "end": time_range.end}
+                if time_range is not None
+                else None
+            ),
+            "l1_retrieval_scopes": l1_retrieval_scopes,
+        }
+        logger.info(
+            "L1 fetch filters applied | content_query=%r input_count=%d "
+            "output_count=%d dropped_count=%d dropped_ids_sample=%s "
+            "result_ids_sample=%s filters=%s",
+            conditions.content_query,
+            len(event_ids),
+            len(results),
+            len(dropped_ids),
+            dropped_ids[:10],
+            result_ids[:10],
+            filters,
+        )
+        log_detail(
+            logger,
+            "L1 FETCH FILTER DETAIL",
+            {
+                "content_query": conditions.content_query,
+                "input_count": len(event_ids),
+                "output_count": len(results),
+                "dropped_count": len(dropped_ids),
+                "filters": filters,
+                "result_events": [
+                    event_record(event, rank=rank)
+                    for rank, event in enumerate(results[:DETAIL_LIMIT], start=1)
+                ],
+                "dropped_events": [
+                    event_record(dropped_by_id.get(event_id), rank=rank) | {"event_id": event_id}
+                    for rank, event_id in enumerate(dropped_ids[:DETAIL_LIMIT], start=1)
+                ],
+            },
+        )
+        return results
+
+    async def _log_l1_path_detail(
+        self,
+        *,
+        content_query: str,
+        user_id: Optional[str],
+        time_range: Optional[TimeRange],
+        l1_retrieval_scopes: Optional[List[str]],
+        paths: Dict[str, List[str]],
+        path_details: Dict[str, Dict[str, Dict[str, Any]]],
+    ) -> None:
+        """Log rich L1 path candidates at INFO level for temporary diagnosis."""
+        try:
+            selected_ids: list[str] = []
+            for ids in paths.values():
+                selected_ids.extend(ids[:DETAIL_LIMIT])
+            selected_ids = list(dict.fromkeys(selected_ids))
+            rows = await self._store.fetch_events(
+                selected_ids,
+                user_id=user_id,
+                l1_retrieval_scopes=l1_retrieval_scopes,
+            )
+            by_id = {str(row.get("event_id") or ""): row for row in rows}
+            log_detail(
+                logger,
+                "L1 PATH DETAIL",
                 {
-                    "session_id": session_id,
+                    "content_query": content_query,
                     "user_id": user_id,
-                    "event_types": conditions.event_types or None,
-                    "source_filters": conditions.source_filters or None,
-                    "domain_filters": conditions.domain_filters or None,
-                    "exclude_domain": MemoryDomain.RUNTIME_TELEMETRY.label
-                    if not conditions.domain_filters
-                    else None,
                     "time_range": (
                         {"start": time_range.start, "end": time_range.end}
                         if time_range is not None
                         else None
                     ),
                     "l1_retrieval_scopes": l1_retrieval_scopes,
+                    "paths": {
+                        name: {
+                            "total_count": len(ids),
+                            "logged_count": min(len(ids), DETAIL_LIMIT),
+                            "candidates": [
+                                event_record(
+                                    by_id.get(event_id),
+                                    rank=rank,
+                                    path=name,
+                                    path_rank=path_details.get(name, {}).get(event_id, {}).get("rank"),
+                                    path_score=(
+                                        path_details.get(name, {}).get(event_id, {}).get("score")
+                                        if "score" in path_details.get(name, {}).get(event_id, {})
+                                        else path_details.get(name, {}).get(event_id, {}).get("best_distance")
+                                    ),
+                                )
+                                | {
+                                    "path_detail": path_details.get(name, {}).get(event_id, {}),
+                                    "event_id": event_id,
+                                }
+                                for rank, event_id in enumerate(ids[:DETAIL_LIMIT], start=1)
+                            ],
+                        }
+                        for name, ids in paths.items()
+                    },
                 },
             )
-        return results
+        except Exception:
+            logger.warning("Failed to log L1 path detail", exc_info=True)
 
 
 __all__ = ["L1SearchPathMixin"]

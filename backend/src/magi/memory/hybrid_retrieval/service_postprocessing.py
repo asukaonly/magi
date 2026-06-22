@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Protocol, cast
 
+from .debug_detail import DETAIL_LIMIT, event_records, log_detail
 from .models import RetrievalPayload, RetrievalQuery
 from .service_policy import count_payload_results
 from .timeline_condense import build_timeline_summary
@@ -78,6 +79,21 @@ class HybridRetrievalPostProcessingMixin:
         pre_fusion_l1_events = list(payload.l1_events)
 
         payload = host._result_fusion.apply(payload, max_tokens=host._config.default_max_tokens)
+        post_fusion_l1_ids = [str(item.get("event_id") or "") for item in payload.l1_events]
+        post_fusion_l1_set = set(post_fusion_l1_ids)
+        pre_fusion_l1_unique: list[dict[str, Any]] = []
+        seen_l1_ids: set[str] = set()
+        for item in pre_fusion_l1_events:
+            event_id = str(item.get("event_id") or "")
+            if event_id in seen_l1_ids:
+                continue
+            seen_l1_ids.add(event_id)
+            pre_fusion_l1_unique.append(item)
+        dropped_l1_events = [
+            item
+            for item in pre_fusion_l1_unique
+            if str(item.get("event_id") or "") not in post_fusion_l1_set
+        ]
         logger.debug(
             "Retrieval result fusion applied | query=%r pre_counts=%s post_counts=%s "
             "l1_event_ids_sample=%s",
@@ -85,6 +101,23 @@ class HybridRetrievalPostProcessingMixin:
             pre_fusion_counts,
             self._layer_result_counts(payload),
             [str(item.get("event_id") or "") for item in payload.l1_events[:10]],
+        )
+        log_detail(
+            logger,
+            "RETRIEVAL FUSION DETAIL",
+            {
+                "query": request.query,
+                "max_tokens": host._config.default_max_tokens,
+                "pre_counts": pre_fusion_counts,
+                "post_counts": self._layer_result_counts(payload),
+                "pre_l1_count": len(pre_fusion_l1_events),
+                "pre_l1_unique_count": len(pre_fusion_l1_unique),
+                "post_l1_count": len(payload.l1_events),
+                "dropped_l1_count": len(dropped_l1_events),
+                "pre_l1_events": event_records(pre_fusion_l1_unique, limit=DETAIL_LIMIT),
+                "post_l1_events": event_records(payload.l1_events, limit=DETAIL_LIMIT),
+                "dropped_l1_events": event_records(dropped_l1_events, limit=DETAIL_LIMIT),
+            },
         )
 
         if host._config.manifest_selector_enabled:

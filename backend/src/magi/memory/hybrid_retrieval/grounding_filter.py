@@ -57,6 +57,7 @@ from typing import Any
 
 from magi.memory.dialogue_transcripts import extract_dialogue_speaker
 
+from .debug_detail import event_records, log_detail, relationship_records
 from .models import RetrievalPayload, RetrievalQuery
 
 logger = logging.getLogger(__name__)
@@ -340,6 +341,20 @@ class GroundingFilter:
             total = total_after_owner_screen
 
         prompt_payload = _build_unified_prompt_payload(query, sliced_events, sliced_rels)
+        log_detail(
+            logger,
+            "GROUNDING FILTER INPUT DETAIL",
+            {
+                "query": query,
+                "input_events_total": len(events),
+                "input_relationships_total": len(rels),
+                "sliced_events_count": len(sliced_events),
+                "sliced_relationships_count": len(sliced_rels),
+                "events": event_records(sliced_events, limit=SKIP_THRESHOLD_MAX),
+                "relationships": relationship_records(sliced_rels, limit=SKIP_THRESHOLD_MAX),
+                "prompt_payload": prompt_payload,
+            },
+        )
         t0 = time.monotonic()
         try:
             raw = await asyncio.wait_for(
@@ -379,6 +394,17 @@ class GroundingFilter:
 
         elapsed_ms = (time.monotonic() - t0) * 1000
         kept_indices, why = _parse_keep_response(raw)
+        log_detail(
+            logger,
+            "GROUNDING FILTER RAW OUTPUT DETAIL",
+            {
+                "query": query,
+                "raw": raw,
+                "parsed_keep": kept_indices,
+                "parsed_why": why,
+                "elapsed_ms": round(elapsed_ms, 1),
+            },
+        )
         if kept_indices is None:
             deg = _degraded_trace(total, reason="bad_response_shape", elapsed_ms=elapsed_ms)
             payload.trace["grounding_filter"] = deg
@@ -423,7 +449,24 @@ class GroundingFilter:
                     "kept_count": 0,
                     "all_dropped": True,
                 }
-                logger.debug(
+                log_detail(
+                    logger,
+                    "GROUNDING FILTER OUTPUT DETAIL",
+                    {
+                        "query": query,
+                        "kept_indices": [],
+                        "dropped_event_ids": [
+                            str(item.get("event_id") or "") for item in sliced_events
+                        ],
+                        "dropped_relationship_ids": [
+                            str(item.get("triple_id") or item.get("id") or "")
+                            for item in sliced_rels
+                        ],
+                        "why": why or None,
+                        "trace": success_trace,
+                    },
+                )
+                logger.info(
                     "Grounding filter applied | query=%r input_events=%d "
                     "input_relationships=%d kept_events=0 kept_relationships=0 "
                     "why=%r all_dropped=True",
@@ -471,7 +514,31 @@ class GroundingFilter:
             "input_count": len(rels),
             "kept_count": len(kept_rels),
         }
-        logger.debug(
+        log_detail(
+            logger,
+            "GROUNDING FILTER OUTPUT DETAIL",
+            {
+                "query": query,
+                "kept_indices": kept_indices,
+                "valid_event_indices": valid_ev_indices,
+                "valid_relationship_indices": valid_rel_indices,
+                "kept_events": event_records(kept_events, limit=SKIP_THRESHOLD_MAX),
+                "kept_relationships": relationship_records(kept_rels, limit=SKIP_THRESHOLD_MAX),
+                "dropped_event_ids": [
+                    str(item.get("event_id") or "")
+                    for index, item in enumerate(sliced_events, start=1)
+                    if index not in valid_ev_indices
+                ],
+                "dropped_relationship_ids": [
+                    str(item.get("triple_id") or item.get("id") or "")
+                    for index, item in enumerate(sliced_rels, start=n_ev + 1)
+                    if index not in valid_rel_indices
+                ],
+                "why": why or None,
+                "trace": payload.trace["grounding_filter"],
+            },
+        )
+        logger.info(
             "Grounding filter applied | query=%r input_events=%d input_relationships=%d "
             "kept_events=%d kept_relationships=%d why=%r",
             query,

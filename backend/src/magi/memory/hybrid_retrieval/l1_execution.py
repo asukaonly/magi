@@ -7,6 +7,7 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .handler_base import rrf_fuse
+from .debug_detail import DETAIL_LIMIT, event_record, event_records, log_detail
 from .models import L1Conditions, TimeRange
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ class L1ExecutionMixin:
         l1_retrieval_scopes = getattr(self, "_l1_retrieval_scopes", None)
         fetch_k = max(conditions.limit * cfg.rrf_over_fetch_multiplier, cfg.rrf_over_fetch_minimum)
 
-        ranked_lists, weights = await self._collect_candidate_lists(
+        ranked_lists, weights, path_debug = await self._collect_candidate_lists(
             conditions,
             time_range,
             fetch_k,
@@ -45,9 +46,14 @@ class L1ExecutionMixin:
         top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
         if not top_ids:
             return []
-        logger.debug(
-            "L1 RRF fusion completed | top_ids_count=%d top_ids_sample=%s",
-            len(top_ids), top_ids[:5],
+
+        await self._log_l1_rrf_detail(
+            conditions=conditions,
+            time_range=time_range,
+            fused=fused[:fetch_k],
+            path_debug=path_debug,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
         )
 
         return await self._hydrate_and_rerank(
@@ -55,6 +61,7 @@ class L1ExecutionMixin:
             session_id=session_id,
             user_id=user_id,
             l1_retrieval_scopes=l1_retrieval_scopes,
+            path_debug=path_debug,
         )
 
     async def _collect_candidate_lists(
@@ -66,9 +73,12 @@ class L1ExecutionMixin:
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
         l1_retrieval_scopes: Optional[List[str]] = None,
-    ) -> Tuple[List[Sequence[str]], List[float]]:
+    ) -> Tuple[List[Sequence[str]], List[float], Dict[str, Any]]:
         """Run all retrieval paths and return (ranked_lists, weights) for RRF fusion."""
         cfg = self._config
+        self._last_bm25_path_details = {}
+        self._last_vector_path_details = {}
+        self._last_temporal_bm25_path_details = {}
 
         retrieval_coros = [
             self._bm25_path(
@@ -106,11 +116,27 @@ class L1ExecutionMixin:
         results_or_errors = await asyncio.gather(*retrieval_coros, return_exceptions=True)
 
         bm25_ids: List[str] = results_or_errors[0] if isinstance(results_or_errors[0], list) else []
+        bm25_details = (
+            getattr(self, "_last_bm25_path_details", {})
+            if isinstance(getattr(self, "_last_bm25_path_details", {}), dict)
+            else {}
+        )
         vec_ids: List[str] = results_or_errors[1] if isinstance(results_or_errors[1], list) else []
+        vec_details = (
+            getattr(self, "_last_vector_path_details", {})
+            if isinstance(getattr(self, "_last_vector_path_details", {}), dict)
+            else {}
+        )
         kw_ids: List[str] = results_or_errors[2] if isinstance(results_or_errors[2], list) else []
         temporal_bm25_ids: List[str] = []
+        temporal_bm25_details: Dict[str, Dict[str, Any]] = {}
         if has_temporal:
             temporal_bm25_ids = results_or_errors[3] if isinstance(results_or_errors[3], list) else []
+            temporal_bm25_details = (
+                getattr(self, "_last_temporal_bm25_path_details", {})
+                if isinstance(getattr(self, "_last_temporal_bm25_path_details", {}), dict)
+                else {}
+            )
 
         for i, res in enumerate(results_or_errors):
             if isinstance(res, BaseException):
@@ -138,6 +164,24 @@ class L1ExecutionMixin:
                 if time_range is not None
                 else None
             ),
+        )
+        await self._log_l1_path_detail(
+            content_query=conditions.content_query,
+            user_id=user_id,
+            time_range=time_range,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+            paths={
+                "bm25": bm25_ids,
+                "vector": vec_ids,
+                "keyword": kw_ids,
+                "temporal_bm25": temporal_bm25_ids,
+            },
+            path_details={
+                "bm25": bm25_details,
+                "vector": vec_details,
+                "keyword": {},
+                "temporal_bm25": temporal_bm25_details,
+            },
         )
 
         seed_ids: List[str] = list(dict.fromkeys(
@@ -179,7 +223,34 @@ class L1ExecutionMixin:
             ranked_lists.append(temporal_bm25_ids)
             weights.append(cfg.rrf_weight_temporal_bm25)
 
-        return ranked_lists, weights
+        path_names = ["bm25", "vector", "keyword"]
+        if entity_ids:
+            path_names.append("entity")
+        if graph_ids:
+            path_names.append("graph")
+        if temporal_bm25_ids:
+            path_names.append("temporal_bm25")
+
+        return ranked_lists, weights, {
+            "path_names": path_names,
+            "paths": {
+                "bm25": bm25_ids,
+                "vector": vec_ids,
+                "keyword": kw_ids,
+                "entity": entity_ids,
+                "graph": graph_ids,
+                "temporal_bm25": temporal_bm25_ids,
+            },
+            "details": {
+                "bm25": bm25_details,
+                "vector": vec_details,
+                "keyword": {},
+                "entity": {},
+                "graph": {},
+                "temporal_bm25": temporal_bm25_details,
+            },
+            "weights": dict(zip(path_names, weights)),
+        }
 
     async def _hydrate_and_rerank(
         self,
@@ -191,6 +262,7 @@ class L1ExecutionMixin:
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
         l1_retrieval_scopes: Optional[List[str]] = None,
+        path_debug: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """Fetch full event rows, apply filters, and rerank."""
         results = await self._fetch_and_filter(
@@ -200,12 +272,29 @@ class L1ExecutionMixin:
             l1_retrieval_scopes=l1_retrieval_scopes,
         )
 
-        logger.debug(
-            "L1 fetch_and_filter completed | input_count=%d output_count=%d "
-            "session_id=%s user_id=%s time_range=%s source_filters=%s domain_filters=%s",
-            len(top_ids), len(results),
-            session_id, user_id, time_range,
-            conditions.source_filters, conditions.domain_filters,
+        log_detail(
+            logger,
+            "L1 HYDRATED DETAIL",
+            {
+                "content_query": conditions.content_query,
+                "input_count": len(top_ids),
+                "output_count": len(results),
+                "session_id": session_id,
+                "user_id": user_id,
+                "time_range": (
+                    {"start": time_range.start, "end": time_range.end}
+                    if time_range is not None
+                    else None
+                ),
+                "source_filters": conditions.source_filters,
+                "domain_filters": conditions.domain_filters,
+                "l1_retrieval_scopes": l1_retrieval_scopes,
+                "events": event_records(results, limit=DETAIL_LIMIT),
+                "path_ranks": self._path_ranks_for_ids(
+                    [str(item.get("event_id") or "") for item in results],
+                    path_debug,
+                ),
+            },
         )
 
         reranked = await self._reranker.rerank(
@@ -215,13 +304,99 @@ class L1ExecutionMixin:
             fused_scores=dict(fused),
         )
         final = reranked[:conditions.limit]
-        logger.debug(
-            "L1 execute returning | reranked_count=%d limit=%d final_count=%d "
-            "final_event_ids=%s",
-            len(reranked), conditions.limit, len(final),
-            [event.get("event_id") for event in final[:5]],
+        log_detail(
+            logger,
+            "L1 RERANK DETAIL",
+            {
+                "content_query": conditions.content_query,
+                "reranked_count": len(reranked),
+                "limit": conditions.limit,
+                "final_count": len(final),
+                "reranked_events": event_records(reranked, limit=DETAIL_LIMIT),
+                "final_events": event_records(final, limit=DETAIL_LIMIT),
+            },
         )
         return final
+
+    async def _log_l1_rrf_detail(
+        self,
+        *,
+        conditions: L1Conditions,
+        time_range: Optional[TimeRange],
+        fused: List[Tuple[str, float]],
+        path_debug: Dict[str, Any],
+        user_id: Optional[str],
+        l1_retrieval_scopes: Optional[List[str]],
+    ) -> None:
+        try:
+            ids = [event_id for event_id, _score in fused[:DETAIL_LIMIT]]
+            rows = await self._store.fetch_events(
+                ids,
+                user_id=user_id,
+                l1_retrieval_scopes=l1_retrieval_scopes,
+            )
+            by_id = {str(row.get("event_id") or ""): row for row in rows}
+            path_ranks = self._path_ranks_for_ids(ids, path_debug)
+            log_detail(
+                logger,
+                "L1 RRF DETAIL",
+                {
+                    "content_query": conditions.content_query,
+                    "time_range": (
+                        {"start": time_range.start, "end": time_range.end}
+                        if time_range is not None
+                        else None
+                    ),
+                    "path_weights": path_debug.get("weights", {}),
+                    "candidate_count": len(fused),
+                    "logged_count": min(len(fused), DETAIL_LIMIT),
+                    "candidates": [
+                        event_record(
+                            by_id.get(event_id),
+                            rank=rank,
+                            fused_score=score,
+                        )
+                        | {
+                            "event_id": event_id,
+                            "path_ranks": path_ranks.get(event_id, {}),
+                        }
+                        for rank, (event_id, score) in enumerate(fused[:DETAIL_LIMIT], start=1)
+                    ],
+                },
+            )
+        except Exception:
+            logger.warning("Failed to log L1 RRF detail", exc_info=True)
+
+    @staticmethod
+    def _path_ranks_for_ids(
+        event_ids: List[str],
+        path_debug: Optional[Dict[str, Any]],
+    ) -> Dict[str, Dict[str, Any]]:
+        if not path_debug:
+            return {}
+        paths = path_debug.get("paths", {}) if isinstance(path_debug, dict) else {}
+        details = path_debug.get("details", {}) if isinstance(path_debug, dict) else {}
+        result: Dict[str, Dict[str, Any]] = {}
+        for event_id in event_ids:
+            per_path: Dict[str, Any] = {}
+            for path_name, ids in paths.items():
+                if not isinstance(ids, list):
+                    continue
+                try:
+                    rank = ids.index(event_id) + 1
+                except ValueError:
+                    continue
+                per_path[path_name] = {
+                    "rank": rank,
+                    "detail": (
+                        details.get(path_name, {}).get(event_id, {})
+                        if isinstance(details.get(path_name, {}), dict)
+                        else {}
+                    ),
+                }
+            if per_path:
+                result[event_id] = per_path
+        return result
 
 
 __all__ = ["L1ExecutionMixin"]
