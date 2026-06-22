@@ -798,6 +798,92 @@ def test_build_provider_catalog_exposes_and_applies_dashscope_codeplan():
     assert [model.id for model in dashscope_entry.resolved_image_generation_models] == []
 
 
+def test_resolve_provider_model_catalog_applies_minimax_tokenplan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="minimax",
+        display_name="MiniMax",
+        provider_plan="tokenplan",
+    )
+
+    resolved = resolve_provider_model_catalog(registry, "minimax", provider)
+
+    assert [model.id for model in resolved.chat_models] == [
+        "MiniMax-M3",
+        "MiniMax-M2.7",
+        "MiniMax-M2.5",
+        "MiniMax-M2.5-highspeed",
+        "MiniMax-M2.1",
+    ]
+    assert resolved.embedding_models == []
+    assert resolved.image_generation_models == []
+
+    m3 = resolved.chat_models[0]
+    assert m3.vendor == ModelVendor.MINIMAX
+    assert m3.cost is not None
+    assert m3.cost.input_per_million_tokens is None
+
+
+def test_build_provider_catalog_exposes_and_applies_minimax_tokenplan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="minimax",
+        display_name="MiniMax",
+        provider_plan="tokenplan",
+    )
+
+    catalog = build_provider_catalog(registry, {"minimax": provider})
+    minimax_entry = next(entry for entry in catalog if entry.id == "minimax")
+
+    assert minimax_entry.provider_plan == "tokenplan"
+    assert [plan.id for plan in minimax_entry.plans] == ["tokenplan"]
+    assert minimax_entry.default_base_url == "https://api.minimaxi.com/v1"
+    assert minimax_entry.default_model == "MiniMax-M3"
+    assert minimax_entry.default_classify_model == "MiniMax-M3"
+    assert [model.id for model in minimax_entry.resolved_embedding_models] == []
+    assert [model.id for model in minimax_entry.resolved_image_generation_models] == []
+
+
+def test_resolve_provider_model_catalog_applies_xiaomi_tokenplan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="xiaomimimo",
+        display_name="Xiaomi MiMo",
+        provider_plan="tokenplan",
+    )
+
+    resolved = resolve_provider_model_catalog(registry, "xiaomimimo", provider)
+
+    assert [model.id for model in resolved.chat_models] == [
+        "mimo-v2.5-pro",
+        "mimo-v2.5",
+    ]
+    assert resolved.embedding_models == []
+    assert resolved.image_generation_models == []
+    assert resolved.chat_models[0].cost is not None
+    assert resolved.chat_models[0].cost.input_per_million_tokens is None
+
+
+def test_build_provider_catalog_exposes_and_applies_xiaomi_tokenplan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="xiaomimimo",
+        display_name="Xiaomi MiMo",
+        provider_plan="tokenplan",
+    )
+
+    catalog = build_provider_catalog(registry, {"xiaomimimo": provider})
+    xiaomi_entry = next(entry for entry in catalog if entry.id == "xiaomimimo")
+
+    assert xiaomi_entry.provider_plan == "tokenplan"
+    assert [plan.id for plan in xiaomi_entry.plans] == ["tokenplan"]
+    assert xiaomi_entry.default_base_url == "https://token-plan-cn.xiaomimimo.com/v1"
+    assert xiaomi_entry.default_model == "mimo-v2.5-pro"
+    assert xiaomi_entry.default_classify_model == "mimo-v2.5"
+    assert [model.id for model in xiaomi_entry.resolved_embedding_models] == []
+    assert [model.id for model in xiaomi_entry.resolved_image_generation_models] == []
+
+
 def test_update_paths_apply_provider_plan_defaults():
     config = SystemConfigModel()
     config.llm.providers = {
@@ -859,6 +945,29 @@ def test_dashscope_codeplan_pricing_does_not_apply_pay_as_you_go_rates():
         provider="dashscope",
         provider_plan="codeplan",
         model="qwen3.7-plus",
+        prompt_tokens=1_000_000,
+        completion_tokens=1_000_000,
+        registry=registry,
+    )
+
+    assert amount is None
+    assert currency is None
+
+
+@pytest.mark.parametrize(
+    ("provider", "model"),
+    [
+        ("minimax", "MiniMax-M3"),
+        ("xiaomimimo", "mimo-v2.5-pro"),
+    ],
+)
+def test_tokenplan_pricing_does_not_apply_pay_as_you_go_rates(provider, model):
+    registry = _default_llm_provider_registry()
+
+    amount, currency = calculate_chat_cost(
+        provider=provider,
+        provider_plan="tokenplan",
+        model=model,
         prompt_tokens=1_000_000,
         completion_tokens=1_000_000,
         registry=registry,
