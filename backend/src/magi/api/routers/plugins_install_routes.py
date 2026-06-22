@@ -123,6 +123,7 @@ async def inspect_plugin_upload(file: UploadFile):
         description=manifest.description,
         author=manifest.author,
         icon=manifest.icon,
+        display_group=manifest.display_group,
         official=False,  # sideload is never official
         contribution_types=[c.value for c in manifest.contribution_types],
         source="external",

@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from ...plugins.contracts import PluginCapability
+from ...plugins.contracts import PluginCapability, PluginDisplayGroupSpec
 
 
 class PluginSettingsUpdateRequest(BaseModel):
@@ -34,6 +34,7 @@ class PluginManifestResponse(BaseModel):
     description: str
     author: str
     icon: str = ""
+    display_group: PluginDisplayGroupSpec | None = None
     official: bool
     contribution_types: list[str]
     source: str
@@ -81,6 +82,7 @@ class PluginRegistryEntryResponse(BaseModel):
     description_i18n: dict[str, str] = Field(default_factory=dict)
     author: str = ""
     icon: str = ""
+    display_group: PluginDisplayGroupSpec | None = None
     official: bool = False
     data_locality: str = ""
     contribution_types: list[str] = Field(default_factory=list)

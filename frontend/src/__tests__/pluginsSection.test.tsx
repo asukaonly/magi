@@ -24,6 +24,20 @@ const pluginPackage = (pluginId: string, name: string): PluginPackageState => ({
     plugin_dir: `/tmp/${pluginId}`,
     manifest_path: `/tmp/${pluginId}/plugin.toml`,
     capabilities: [],
+    display_group: pluginId.includes('history')
+      ? {
+        id: 'browser_history',
+        name: 'Browser History',
+        name_i18n: { 'zh-CN': '浏览历史' },
+        description: 'Manage browser history sources from installed browser plugins.',
+        description_i18n: { 'zh-CN': '统一管理浏览器历史入口。' },
+        icon: 'lucide:globe',
+        order: 10,
+        member_label: name.replace(/\s*History$/i, ''),
+        member_label_i18n: { 'zh-CN': name.replace(/\s*History$/i, '') },
+        member_order: pluginId.startsWith('chrome') ? 10 : pluginId.startsWith('safari') ? 20 : 50,
+      }
+      : undefined,
   },
   enabled: true,
   trusted: true,
@@ -55,6 +69,7 @@ describe('PluginsSection', () => {
         plugins={[
           pluginPackage('chrome-history', 'Chrome History'),
           pluginPackage('safari-history', 'Safari History'),
+          pluginPackage('brave-history', 'Brave History'),
           pluginPackage('photo-library', 'Photo Library'),
         ]}
         drafts={{}}
@@ -68,8 +83,10 @@ describe('PluginsSection', () => {
     expect(screen.getByTestId('installed-plugin-browser-history')).toHaveTextContent('浏览历史');
     expect(screen.getByTestId('installed-plugin-browser-history')).toHaveTextContent('Chrome');
     expect(screen.getByTestId('installed-plugin-browser-history')).toHaveTextContent('Safari');
+    expect(screen.getByTestId('installed-plugin-browser-history')).toHaveTextContent('Brave');
     expect(screen.queryByTestId('installed-plugin-chrome-history')).not.toBeInTheDocument();
     expect(screen.queryByTestId('installed-plugin-safari-history')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('installed-plugin-brave-history')).not.toBeInTheDocument();
     expect(screen.getByTestId('installed-plugin-photo-library')).toHaveTextContent('Photo Library');
   });
 });

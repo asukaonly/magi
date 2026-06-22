@@ -26,6 +26,7 @@ class _FakeManager:
                         "description": "Built-in tools",
                         "author": "Magi Team",
                         "icon": "lucide:wrench",
+                        "display_group": None,
                         "official": True,
                         "contribution_types": [type("ContributionType", (), {"value": "tool"})()],
                         "source": "builtin",

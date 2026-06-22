@@ -41,6 +41,47 @@ def test_manifest_and_registry_entry_parse_icon_id():
     assert entry.icon == "brand:googlechrome"
 
 
+def test_manifest_and_registry_entry_parse_display_group():
+    manifest = PluginManifest.model_validate({
+        "id": "brave-history",
+        "name": "Brave History",
+        "version": "0.1.0",
+        "display_group": {
+            "id": "browser_history",
+            "name": "Browser History",
+            "name_i18n": {"zh-CN": "浏览历史"},
+            "description": "Manage browser history sources.",
+            "description_i18n": {"zh-CN": "统一管理浏览器历史入口。"},
+            "icon": "lucide:globe",
+            "member_label": "Brave",
+            "member_order": 50,
+        },
+    })
+    entry = PluginRegistryEntry.model_validate({
+        "plugin_id": "brave-history",
+        "name": "Brave History",
+        "version": "0.1.0",
+        "path": "plugins/brave-history",
+        "platforms": ["macos"],
+        "display_group": {
+            "id": "browser_history",
+            "name": "Browser History",
+            "name_i18n": {"zh-CN": "浏览历史"},
+            "description": "Manage browser history sources.",
+            "description_i18n": {"zh-CN": "统一管理浏览器历史入口。"},
+            "icon": "lucide:globe",
+            "member_label": "Brave",
+            "member_order": 50,
+        },
+    })
+
+    assert manifest.display_group is not None
+    assert manifest.display_group.id == "browser_history"
+    assert manifest.display_group.member_label == "Brave"
+    assert entry.display_group is not None
+    assert entry.display_group.member_order == 50
+
+
 def test_registry_entry_parses_suggestion_descriptor():
     entry = PluginRegistryEntry.model_validate({
         "plugin_id": "chrome-history", "name": "Chrome History", "version": "0.1.0",

@@ -307,6 +307,22 @@ class SuggestionDescriptor(BaseModel):
     """Optional icon path; if unset, the plugin's default icon is used."""
 
 
+class PluginDisplayGroupSpec(BaseModel):
+    """User-facing grouping metadata for marketplace and installed plugin UIs."""
+
+    id: str
+    """Stable group id shared by related plugin implementations."""
+    name: str
+    name_i18n: dict[str, str] = Field(default_factory=dict)
+    description: str = ""
+    description_i18n: dict[str, str] = Field(default_factory=dict)
+    icon: str = ""
+    order: int = 100
+    member_label: str = ""
+    member_label_i18n: dict[str, str] = Field(default_factory=dict)
+    member_order: int = 100
+
+
 class PluginManifest(BaseModel):
     """Parsed manifest for a plugin package.
 
@@ -365,6 +381,9 @@ class PluginManifest(BaseModel):
     See :class:`SuggestionDescriptor` and the onboarding redesign spec
     (``docs/superpowers/specs/2026-05-28-onboarding-redesign-design.md``).
     """
+    display_group: PluginDisplayGroupSpec | None = None
+    """Optional user-facing grouping metadata. Sibling plugins with the same
+    ``display_group.id`` render as one marketplace/installed-plugin card."""
     permissions: Optional[PluginPermissions] = None
     """Declared capabilities + legacy permission keys, from the
     ``[plugin.permissions]`` table. See :class:`PluginCapability`."""
@@ -440,6 +459,9 @@ class PluginRegistryEntry(BaseModel):
     capabilities: list[PluginCapability] = Field(default_factory=list)
     """Self-declared capabilities, copied verbatim from the plugin's
     ``[[plugin.permissions.capabilities]]`` by build-registry.py."""
+    display_group: PluginDisplayGroupSpec | None = None
+    """Optional declaration that this plugin should appear under a shared
+    user-facing group instead of a standalone card."""
 
 
 class PluginRegistryIndex(BaseModel):

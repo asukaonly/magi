@@ -12,6 +12,7 @@ from magi_plugin_sdk.contracts import (  # noqa: F401
     ExtensionFieldSpec,
     PluginCapability,
     PluginContribution,
+    PluginDisplayGroupSpec,
     PluginManifest,
     PluginPackageState,
     PluginPermissions,
@@ -26,4 +27,3 @@ from magi_plugin_sdk.contracts import (  # noqa: F401
     TemporalSummaryFeatureBudget,
     TemporalSummarySourceFeatures,
 )
-

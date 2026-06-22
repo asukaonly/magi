@@ -1,37 +1,14 @@
 import type {
   PluginCapability,
+  PluginDisplayGroupSpec,
   PluginPackageState,
   PluginRegistryEntry,
 } from '@/api/modules/plugins';
 
-export interface PluginDisplayGroupDefinition {
-  id: string;
-  pluginIds: string[];
-  name: string;
-  name_i18n: Record<string, string>;
-  description: string;
-  description_i18n: Record<string, string>;
-  icon: string;
-}
-
-export const PLUGIN_DISPLAY_GROUPS: PluginDisplayGroupDefinition[] = [
-  {
-    id: 'browser-history',
-    pluginIds: ['chrome-history', 'safari-history', 'firefox-history', 'edge-history'],
-    name: 'Browser History',
-    name_i18n: { 'zh-CN': '浏览历史' },
-    description: 'Manage browser history sources from Chrome, Safari, Firefox, and Edge.',
-    description_i18n: {
-      'zh-CN': '统一管理 Chrome、Safari、Firefox、Edge 等浏览器历史入口。',
-    },
-    icon: 'lucide:globe',
-  },
-];
-
 export interface InstalledPluginDisplayItem {
   kind: 'single' | 'group';
   id: string;
-  group?: PluginDisplayGroupDefinition;
+  group?: PluginDisplayGroupSpec;
   plugins: PluginPackageState[];
   primary: PluginPackageState;
   order: number;
@@ -40,7 +17,7 @@ export interface InstalledPluginDisplayItem {
 export interface MarketplacePluginDisplayItem {
   kind: 'single' | 'group';
   id: string;
-  group?: PluginDisplayGroupDefinition;
+  group?: PluginDisplayGroupSpec;
   entries: PluginRegistryEntry[];
   primary: PluginRegistryEntry;
   order: number;
@@ -55,27 +32,46 @@ export function localizedPluginText(
   return i18nMap[lang] ?? i18nMap[lang.split('-')[0]] ?? base;
 }
 
-export function getPluginDisplayGroupForPluginId(pluginId: string): PluginDisplayGroupDefinition | null {
-  return PLUGIN_DISPLAY_GROUPS.find((group) => group.pluginIds.includes(pluginId)) ?? null;
-}
+const displayItemId = (groupId: string): string => groupId.replace(/_/g, '-');
+
+const groupSortValue = (group?: PluginDisplayGroupSpec | null): number =>
+  Number.isFinite(group?.order) ? Number(group?.order) : 999;
+
+const memberSortValue = (group?: PluginDisplayGroupSpec | null): number =>
+  Number.isFinite(group?.member_order) ? Number(group?.member_order) : 999;
 
 export function buildInstalledPluginDisplayItems(
   plugins: PluginPackageState[],
 ): InstalledPluginDisplayItem[] {
   const groupedPluginIds = new Set<string>();
-  const items: InstalledPluginDisplayItem[] = [];
+  const grouped = new Map<string, Array<{ plugin: PluginPackageState; index: number }>>();
 
-  for (const group of PLUGIN_DISPLAY_GROUPS) {
-    const members = plugins.filter((plugin) => group.pluginIds.includes(plugin.manifest.plugin_id));
-    if (members.length === 0) continue;
-    members.forEach((plugin) => groupedPluginIds.add(plugin.manifest.plugin_id));
+  plugins.forEach((plugin, index) => {
+    const group = plugin.manifest.display_group;
+    if (!group?.id) return;
+    const members = grouped.get(group.id) ?? [];
+    members.push({ plugin, index });
+    grouped.set(group.id, members);
+    groupedPluginIds.add(plugin.manifest.plugin_id);
+  });
+
+  const items: InstalledPluginDisplayItem[] = [];
+  for (const [groupId, members] of grouped.entries()) {
+    const sortedMembers = [...members].sort((left, right) => {
+      const leftOrder = memberSortValue(left.plugin.manifest.display_group);
+      const rightOrder = memberSortValue(right.plugin.manifest.display_group);
+      return leftOrder === rightOrder ? left.index - right.index : leftOrder - rightOrder;
+    });
+    const pluginsInGroup = sortedMembers.map((member) => member.plugin);
+    const group = pluginsInGroup[0]?.manifest.display_group;
+    if (!group) continue;
     items.push({
       kind: 'group',
-      id: group.id,
+      id: displayItemId(groupId),
       group,
-      plugins: members,
-      primary: members[0],
-      order: plugins.findIndex((plugin) => group.pluginIds.includes(plugin.manifest.plugin_id)),
+      plugins: pluginsInGroup,
+      primary: pluginsInGroup[0],
+      order: Math.min(...members.map((member) => member.index), groupSortValue(group)),
     });
   }
 
@@ -97,19 +93,34 @@ export function buildMarketplacePluginDisplayItems(
   entries: PluginRegistryEntry[],
 ): MarketplacePluginDisplayItem[] {
   const groupedPluginIds = new Set<string>();
-  const items: MarketplacePluginDisplayItem[] = [];
+  const grouped = new Map<string, Array<{ entry: PluginRegistryEntry; index: number }>>();
 
-  for (const group of PLUGIN_DISPLAY_GROUPS) {
-    const members = entries.filter((entry) => group.pluginIds.includes(entry.plugin_id));
-    if (members.length === 0) continue;
-    members.forEach((entry) => groupedPluginIds.add(entry.plugin_id));
+  entries.forEach((entry, index) => {
+    const group = entry.display_group;
+    if (!group?.id) return;
+    const members = grouped.get(group.id) ?? [];
+    members.push({ entry, index });
+    grouped.set(group.id, members);
+    groupedPluginIds.add(entry.plugin_id);
+  });
+
+  const items: MarketplacePluginDisplayItem[] = [];
+  for (const [groupId, members] of grouped.entries()) {
+    const sortedMembers = [...members].sort((left, right) => {
+      const leftOrder = memberSortValue(left.entry.display_group);
+      const rightOrder = memberSortValue(right.entry.display_group);
+      return leftOrder === rightOrder ? left.index - right.index : leftOrder - rightOrder;
+    });
+    const entriesInGroup = sortedMembers.map((member) => member.entry);
+    const group = entriesInGroup[0]?.display_group;
+    if (!group) continue;
     items.push({
       kind: 'group',
-      id: group.id,
+      id: displayItemId(groupId),
       group,
-      entries: members,
-      primary: members[0],
-      order: entries.findIndex((entry) => group.pluginIds.includes(entry.plugin_id)),
+      entries: entriesInGroup,
+      primary: entriesInGroup[0],
+      order: Math.min(...members.map((member) => member.index), groupSortValue(group)),
     });
   }
 
@@ -183,18 +194,28 @@ export function getMarketplaceItemCapabilities(item: MarketplacePluginDisplayIte
 
 export function getMarketplaceItemMemberNames(item: MarketplacePluginDisplayItem, lang: string): string[] {
   if (item.kind !== 'group') return [];
-  return item.entries.map((entry) =>
-    localizedPluginText(entry.name.replace(/\s*History$/i, ''), entry.name_i18n, lang)
+  return item.entries.map((entry) => {
+    const group = entry.display_group;
+    return localizedPluginText(
+      group?.member_label || entry.name.replace(/\s*History$/i, ''),
+      group?.member_label_i18n || entry.name_i18n,
+      lang,
+    )
       .replace(/\s*浏览历史$/u, '')
-      .trim()
-  );
+      .trim();
+  });
 }
 
 export function getInstalledItemMemberNames(item: InstalledPluginDisplayItem, lang: string): string[] {
   if (item.kind !== 'group') return [];
-  return item.plugins.map((plugin) =>
-    localizedPluginText(plugin.manifest.name.replace(/\s*History$/i, ''), undefined, lang)
+  return item.plugins.map((plugin) => {
+    const group = plugin.manifest.display_group;
+    return localizedPluginText(
+      group?.member_label || plugin.manifest.name.replace(/\s*History$/i, ''),
+      group?.member_label_i18n,
+      lang,
+    )
       .replace(/\s*浏览历史$/u, '')
-      .trim()
-  );
+      .trim();
+  });
 }

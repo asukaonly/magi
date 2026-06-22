@@ -6614,6 +6614,53 @@ export interface components {
             /** Surface */
             readonly surface: string;
         };
+        /**
+         * PluginDisplayGroupSpec
+         * @description User-facing grouping metadata for marketplace and installed plugin UIs.
+         */
+        readonly PluginDisplayGroupSpec: {
+            /**
+             * Description
+             * @default
+             */
+            readonly description: string;
+            /** Description I18N */
+            readonly description_i18n?: {
+                readonly [key: string]: string;
+            };
+            /**
+             * Icon
+             * @default
+             */
+            readonly icon: string;
+            /** Id */
+            readonly id: string;
+            /**
+             * Member Label
+             * @default
+             */
+            readonly member_label: string;
+            /** Member Label I18N */
+            readonly member_label_i18n?: {
+                readonly [key: string]: string;
+            };
+            /**
+             * Member Order
+             * @default 100
+             */
+            readonly member_order: number;
+            /** Name */
+            readonly name: string;
+            /** Name I18N */
+            readonly name_i18n?: {
+                readonly [key: string]: string;
+            };
+            /**
+             * Order
+             * @default 100
+             */
+            readonly order: number;
+        };
         /** PluginInstallJobSnapshot */
         readonly PluginInstallJobSnapshot: {
             /** Created At Ms */
@@ -6685,6 +6732,7 @@ export interface components {
             readonly contribution_types: readonly string[];
             /** Description */
             readonly description: string;
+            readonly display_group?: components["schemas"]["PluginDisplayGroupSpec"] | null;
             /**
              * Icon
              * @default
@@ -6750,6 +6798,7 @@ export interface components {
             readonly description_i18n?: {
                 readonly [key: string]: string;
             };
+            readonly display_group?: components["schemas"]["PluginDisplayGroupSpec"] | null;
             /**
              * Homepage
              * @default

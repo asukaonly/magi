@@ -16,6 +16,19 @@ describe('PluginMarketplace', () => {
     vi.restoreAllMocks();
   });
 
+  const browserDisplayGroup = (memberLabel: string, memberOrder: number) => ({
+    id: 'browser_history',
+    name: 'Browser History',
+    name_i18n: { 'zh-CN': '浏览历史' },
+    description: 'Manage browser history sources from installed browser plugins.',
+    description_i18n: { 'zh-CN': '统一管理浏览器历史入口。' },
+    icon: 'lucide:globe',
+    order: 10,
+    member_label: memberLabel,
+    member_label_i18n: { 'zh-CN': memberLabel },
+    member_order: memberOrder,
+  });
+
   it('shows registry-provided plugin icons on standalone marketplace cards', async () => {
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       registry_version: '1',
@@ -65,6 +78,7 @@ describe('PluginMarketplace', () => {
           description_i18n: { 'zh-CN': '读取本地 Chrome 浏览记录。' },
           author: 'Magi Team',
           icon: 'brand:googlechrome',
+          display_group: browserDisplayGroup('Chrome', 10),
           official: true,
           data_locality: 'local_only',
           contribution_types: ['sensor'],
@@ -87,6 +101,7 @@ describe('PluginMarketplace', () => {
           description_i18n: { 'zh-CN': '读取本地 Safari 浏览记录。' },
           author: 'Magi Team',
           icon: 'brand:safari',
+          display_group: browserDisplayGroup('Safari', 20),
           official: true,
           data_locality: 'local_only',
           contribution_types: ['sensor'],
@@ -95,6 +110,29 @@ describe('PluginMarketplace', () => {
           homepage: '',
           repository: '',
           path: 'safari-history',
+          installed: false,
+          installed_version: null,
+          update_available: false,
+          capabilities: [],
+        },
+        {
+          plugin_id: 'brave-history',
+          name: 'Brave History',
+          name_i18n: { 'zh-CN': 'Brave 浏览历史' },
+          version: '0.1.0',
+          description: 'Read local Brave browsing history.',
+          description_i18n: { 'zh-CN': '读取本地 Brave 浏览记录。' },
+          author: 'Magi Team',
+          icon: 'brand:brave',
+          display_group: browserDisplayGroup('Brave', 50),
+          official: true,
+          data_locality: 'local_only',
+          contribution_types: ['sensor'],
+          platforms: [],
+          min_sdk_version: '0.1.0',
+          homepage: '',
+          repository: '',
+          path: 'brave-history',
           installed: false,
           installed_version: null,
           update_available: false,
@@ -136,8 +174,10 @@ describe('PluginMarketplace', () => {
     expect(browserCard).toHaveTextContent('v0.1.0');
     expect(browserCard).toHaveTextContent('Chrome');
     expect(browserCard).toHaveTextContent('Safari');
+    expect(browserCard).toHaveTextContent('Brave');
     expect(screen.queryByTestId('marketplace-plugin-chrome-history')).not.toBeInTheDocument();
     expect(screen.queryByTestId('marketplace-plugin-safari-history')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('marketplace-plugin-brave-history')).not.toBeInTheDocument();
     expect(await screen.findByTestId('marketplace-plugin-photo-library')).toHaveTextContent('照片库');
 
     await user.click(within(browserCard).getByRole('button', { name: 'settings.marketplace.actions.install' }));
@@ -146,6 +186,7 @@ describe('PluginMarketplace', () => {
     await waitFor(() => {
       expect(install).toHaveBeenCalledWith('chrome-history', expect.any(Function));
       expect(install).toHaveBeenCalledWith('safari-history', expect.any(Function));
+      expect(install).toHaveBeenCalledWith('brave-history', expect.any(Function));
     });
   });
 
@@ -163,6 +204,7 @@ describe('PluginMarketplace', () => {
           description_i18n: { 'zh-CN': '读取本地 Chrome 浏览记录。' },
           author: 'Magi Team',
           icon: 'brand:googlechrome',
+          display_group: browserDisplayGroup('Chrome', 10),
           official: true,
           data_locality: 'local_only',
           contribution_types: ['sensor'],
@@ -185,6 +227,7 @@ describe('PluginMarketplace', () => {
           description_i18n: { 'zh-CN': '读取本地 Safari 浏览记录。' },
           author: 'Magi Team',
           icon: 'brand:safari',
+          display_group: browserDisplayGroup('Safari', 20),
           official: true,
           data_locality: 'local_only',
           contribution_types: ['sensor'],

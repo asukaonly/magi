@@ -13,6 +13,19 @@ export interface PluginCapability {
   reason_i18n: Record<string, string>;
 }
 
+export interface PluginDisplayGroupSpec {
+  id: string;
+  name: string;
+  name_i18n: Record<string, string>;
+  description: string;
+  description_i18n: Record<string, string>;
+  icon?: string;
+  order: number;
+  member_label: string;
+  member_label_i18n: Record<string, string>;
+  member_order: number;
+}
+
 export interface ExtensionFieldOption {
   label: string;
   value: string;
@@ -205,6 +218,7 @@ export interface PluginManifest {
   description: string;
   author: string;
   icon?: string;
+  display_group?: PluginDisplayGroupSpec | null;
   official: boolean;
   contribution_types: string[];
   source: string;
@@ -346,6 +360,7 @@ export interface PluginRegistryEntry {
   description_i18n: Record<string, string>;
   author: string;
   icon?: string;
+  display_group?: PluginDisplayGroupSpec | null;
   official: boolean;
   /** Privacy signal: "local_only" renders a Local-only badge; "" is unspecified. */
   data_locality?: string;
