@@ -10,6 +10,21 @@ from magi.i18n import language_context
 from magi.utils.runtime import RuntimePaths
 
 
+class FakeHeicPreviewConverter:
+    def __init__(self, *, output: bytes = b"fake-jpeg-preview") -> None:
+        self.output = output
+        self.calls: list[tuple[bytes, str]] = []
+
+    def convert_heic_to_jpeg(self, *, content: bytes, original_name: str) -> bytes:
+        self.calls.append((content, original_name))
+        return self.output
+
+
+class FailingHeicPreviewConverter:
+    def convert_heic_to_jpeg(self, *, content: bytes, original_name: str) -> bytes:
+        raise RuntimeError("decoder unavailable")
+
+
 def test_ingest_text_attachment_returns_unparsed_upload_metadata(tmp_path: Path) -> None:
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
@@ -67,6 +82,76 @@ def test_ingest_attachment_rejects_unsupported_file_type(tmp_path: Path) -> None
             original_name="archive.zip",
             content=b"PK",
             mime_type="application/zip",
+        )
+
+
+def test_ingest_attachment_converts_heic_to_jpeg_preview(tmp_path: Path) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    converter = FakeHeicPreviewConverter()
+    service = LocalChatAttachmentIngestionService(
+        runtime_paths=runtime_paths,
+        heic_preview_converter=converter,
+    )
+
+    payload = service.ingest_attachment(
+        session_id="session-1",
+        turn_id="turn-1",
+        original_name="IMG_3367.HEIC",
+        content=b"fake-heic",
+        mime_type="image/heic",
+    )
+
+    assert converter.calls == [(b"fake-heic", "IMG_3367.HEIC")]
+    assert payload["kind"] == "image"
+    assert payload["original_name"] == "IMG_3367.jpg"
+    assert payload["mime_type"] == "image/jpeg"
+    assert payload["source_original_name"] == "IMG_3367.HEIC"
+    assert payload["source_original_mime_type"] == "image/heic"
+    assert payload["preview_generated"] is True
+    assert Path(str(payload["storage_path"])).read_bytes() == b"fake-jpeg-preview"
+
+
+def test_ingest_local_file_converts_heic_path_to_jpeg_preview(tmp_path: Path) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    converter = FakeHeicPreviewConverter(output=b"local-preview")
+    service = LocalChatAttachmentIngestionService(
+        runtime_paths=runtime_paths,
+        heic_preview_converter=converter,
+    )
+    source_path = tmp_path / "IMG_3379.heic"
+    source_path.write_bytes(b"local-heic")
+
+    payload = service.ingest_local_file(
+        session_id="session-1",
+        turn_id="turn-1",
+        file_path=str(source_path),
+    )
+
+    assert converter.calls == [(b"local-heic", "IMG_3379.heic")]
+    assert payload["kind"] == "image"
+    assert payload["original_name"] == "IMG_3379.jpg"
+    assert payload["mime_type"] == "image/jpeg"
+    assert payload["source_path"] == str(source_path)
+    assert payload["source_origin"] == "local_file"
+    assert payload["source_original_name"] == "IMG_3379.heic"
+    assert payload["source_original_mime_type"] == "image/heic"
+    assert Path(str(payload["storage_path"])).read_bytes() == b"local-preview"
+
+
+def test_ingest_attachment_reports_heic_conversion_failure(tmp_path: Path) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    service = LocalChatAttachmentIngestionService(
+        runtime_paths=runtime_paths,
+        heic_preview_converter=FailingHeicPreviewConverter(),
+    )
+
+    with language_context("en"), pytest.raises(ValueError, match="HEIC image conversion failed"):
+        service.ingest_attachment(
+            session_id="session-1",
+            turn_id="turn-1",
+            original_name="IMG_3578.HEIC",
+            content=b"fake-heic",
+            mime_type="image/heic",
         )
 
 

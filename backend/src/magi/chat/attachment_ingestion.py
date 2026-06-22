@@ -11,6 +11,7 @@ from ..core.logger import get_logger
 from ..i18n import t
 from ..utils.runtime import RuntimePaths, get_runtime_paths
 from .attachment_storage import LocalChatAttachmentStorage, StoredChatAttachment
+from .image_preview_conversion import HeicPreviewConverter, PillowHeicPreviewConverter
 from .pdf_attachment_parser import PDF_PARSER_BACKEND, PDF_PARSER_BACKEND_VERSION, LocalPdfAttachmentParser
 from .text_attachment_parser import LocalTextAttachmentParser
 
@@ -27,6 +28,15 @@ SUPPORTED_IMAGE_EXTENSIONS = {
     ".png",
     ".webp",
 }
+CONVERTIBLE_HEIC_MIME_TYPES = {
+    "image/heic",
+    "image/heif",
+}
+CONVERTIBLE_HEIC_EXTENSIONS = {
+    ".heic",
+    ".heif",
+}
+PREVIEW_IMAGE_MIME_TYPE = "image/jpeg"
 SUPPORTED_PDF_MIME_TYPES = {"application/pdf"}
 SUPPORTED_TEXT_MIME_TYPES = {
     "application/json",
@@ -101,11 +111,13 @@ class LocalChatAttachmentIngestionService:
         storage: LocalChatAttachmentStorage | None = None,
         text_parser: LocalTextAttachmentParser | None = None,
         pdf_parser: LocalPdfAttachmentParser | None = None,
+        heic_preview_converter: HeicPreviewConverter | None = None,
     ) -> None:
         self._runtime_paths = runtime_paths or get_runtime_paths()
         self._storage = storage or LocalChatAttachmentStorage(runtime_paths=self._runtime_paths)
         self._text_parser = text_parser or LocalTextAttachmentParser()
         self._pdf_parser = pdf_parser or LocalPdfAttachmentParser()
+        self._heic_preview_converter = heic_preview_converter or PillowHeicPreviewConverter()
 
     def ingest_attachment(
         self,
@@ -120,6 +132,27 @@ class LocalChatAttachmentIngestionService:
 
         normalized_name = Path(str(original_name or "").strip()).name
         normalized_mime_type = str(mime_type or "application/octet-stream").strip().lower()
+        conversion_payload: dict[str, object] = {}
+        if self._is_convertible_heic(original_name=normalized_name, mime_type=normalized_mime_type):
+            if not content:
+                raise ValueError(t("chat.attachments.empty_file", fallback="Empty file is not allowed."))
+            source_original_name = normalized_name
+            source_original_mime_type = normalized_mime_type
+            try:
+                content = self._heic_preview_converter.convert_heic_to_jpeg(
+                    content=bytes(content),
+                    original_name=source_original_name,
+                )
+            except Exception as exc:
+                raise ValueError(f"HEIC image conversion failed: {exc}") from exc
+            normalized_name = self._jpeg_preview_name(source_original_name)
+            normalized_mime_type = PREVIEW_IMAGE_MIME_TYPE
+            conversion_payload = {
+                "source_original_name": source_original_name,
+                "source_original_mime_type": source_original_mime_type,
+                "preview_generated": True,
+                "preview_mime_type": PREVIEW_IMAGE_MIME_TYPE,
+            }
         attachment_kind = self._classify_attachment_kind(
             original_name=normalized_name,
             mime_type=normalized_mime_type,
@@ -141,7 +174,9 @@ class LocalChatAttachmentIngestionService:
                 content=content,
                 mime_type=normalized_mime_type,
             )
-            return self._build_uploaded_payload(stored=stored, attachment_kind=attachment_kind)
+            payload = self._build_uploaded_payload(stored=stored, attachment_kind=attachment_kind)
+            payload.update(conversion_payload)
+            return payload
 
         stored = self._storage.store_file_attachment(
             session_id=session_id,
@@ -151,7 +186,9 @@ class LocalChatAttachmentIngestionService:
             mime_type=normalized_mime_type,
         )
 
-        return self._build_uploaded_payload(stored=stored, attachment_kind=attachment_kind)
+        payload = self._build_uploaded_payload(stored=stored, attachment_kind=attachment_kind)
+        payload.update(conversion_payload)
+        return payload
 
     def ingest_local_file(
         self,
@@ -440,3 +477,14 @@ class LocalChatAttachmentIngestionService:
         if mime_type.startswith("text/") or mime_type in SUPPORTED_TEXT_MIME_TYPES or extension in SUPPORTED_TEXT_EXTENSIONS:
             return "text_file"
         return None
+
+    @staticmethod
+    def _is_convertible_heic(*, original_name: str, mime_type: str) -> bool:
+        extension = Path(original_name).suffix.lower()
+        return mime_type in CONVERTIBLE_HEIC_MIME_TYPES or extension in CONVERTIBLE_HEIC_EXTENSIONS
+
+    @staticmethod
+    def _jpeg_preview_name(original_name: str) -> str:
+        path = Path(str(original_name or "").strip()).name
+        stem = Path(path).stem if path else "attachment"
+        return f"{stem or 'attachment'}.jpg"
