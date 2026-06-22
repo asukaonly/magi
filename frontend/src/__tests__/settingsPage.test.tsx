@@ -631,6 +631,17 @@ describe('settings page draft saving', () => {
     } as any);
   });
 
+  it('aligns the settings header and footer with the section body', async () => {
+    render(<SettingsPage />);
+
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+
+    expect(screen.getByTestId('settings-main-header')).toHaveClass('px-5');
+    expect(screen.getByTestId('settings-main-header')).not.toHaveClass('px-10');
+    expect(screen.getByTestId('settings-main-footer')).toHaveClass('px-5');
+    expect(screen.getByTestId('settings-main-footer')).not.toHaveClass('px-10');
+  });
+
   it('keeps regular config changes local until save', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
