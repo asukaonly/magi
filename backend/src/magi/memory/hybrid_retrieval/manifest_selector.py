@@ -20,7 +20,7 @@ _SYSTEM_PROMPT = (
     "You are a memory retrieval ranker. Given a user query and numbered memory candidates "
     "from different layers (L1=events, L2=knowledge, L3=reflections, L4=procedures), "
     "select the candidates most relevant to answering the query.\n"
-    "Return strict JSON: {\"selected\": [0, 3, 7, ...]} where values are candidate indices.\n"
+    'Return strict JSON: {"selected": [0, 3, 7, ...]} where values are candidate indices.\n'
     "Order by relevance (most relevant first). Only include candidates that help answer the query."
 )
 
@@ -64,7 +64,7 @@ class ManifestSelector:
             prompt_lines.append(f"[{idx}] ({layer}) {text}")
         prompt_lines.append(
             f"\nSelect up to {self._config.manifest_selector_max_output} "
-            "most relevant candidates. Return JSON: {\"selected\": [idx, ...]}"
+            'most relevant candidates. Return JSON: {"selected": [idx, ...]}'
         )
         user_prompt = "\n".join(prompt_lines)
 
@@ -85,12 +85,15 @@ class ManifestSelector:
             )
             elapsed_ms = (time.monotonic() - t0) * 1000
             selected_indices = self._parse_response(
-                raw, len(candidates_for_llm),
+                raw,
+                len(candidates_for_llm),
                 max_output=self._config.manifest_selector_max_output,
             )
             logger.info(
                 "ManifestSelector completed: %d/%d candidates selected, elapsed=%.1fms",
-                len(selected_indices), len(candidates_for_llm), elapsed_ms,
+                len(selected_indices),
+                len(candidates_for_llm),
+                elapsed_ms,
             )
             payload = self._apply_selection(payload, selected_indices, index_map)
             payload.trace["manifest_selector"] = "applied"
@@ -134,7 +137,9 @@ class ManifestSelector:
             name = card.get("name") or card.get("entity_id") or ""
             etype = card.get("entity_type") or ""
             attrs = card.get("attributes") or {}
-            text = _truncate(f"{name} ({etype}): {json.dumps(attrs, ensure_ascii=False)}", max_chars)
+            text = _truncate(
+                f"{name} ({etype}): {json.dumps(attrs, ensure_ascii=False)}", max_chars
+            )
             candidates.append(("L2", text))
             index_map.append(("l2_entity_cards", i))
 
@@ -154,6 +159,15 @@ class ManifestSelector:
             candidates.append(("L2", text))
             index_map.append(("l2_assertions", i))
 
+        for i, experience in enumerate(payload.l2_experiences):
+            title = experience.get("user_label") or experience.get("title") or ""
+            interpretation = (
+                experience.get("magi_interpretation") or experience.get("user_note") or ""
+            )
+            text = _truncate(f"{title}: {interpretation}", max_chars)
+            candidates.append(("L2", text))
+            index_map.append(("l2_experiences", i))
+
         for i, refl in enumerate(payload.l3_reflections):
             text = _truncate(str(refl.get("content") or refl.get("summary") or ""), max_chars)
             period = refl.get("period") or ""
@@ -162,7 +176,9 @@ class ManifestSelector:
             index_map.append(("l3_reflections", i))
 
         for i, proc in enumerate(payload.l4_procedures):
-            text = _truncate(str(proc.get("optimized_prompt") or proc.get("content") or ""), max_chars)
+            text = _truncate(
+                str(proc.get("optimized_prompt") or proc.get("content") or ""), max_chars
+            )
             candidates.append(("L4", text))
             index_map.append(("l4_procedures", i))
 
@@ -217,6 +233,7 @@ class ManifestSelector:
             "l2_entity_cards": "l2_entity_cards",
             "l2_relationships": "l2_relationships",
             "l2_assertions": "l2_assertions",
+            "l2_experiences": "l2_experiences",
             "l3_reflections": "l3_reflections",
             "l4_procedures": "l4_procedures",
         }
@@ -240,4 +257,4 @@ def _truncate(text: str, max_chars: int) -> str:
     """Truncate text to max_chars with ellipsis."""
     if len(text) <= max_chars:
         return text
-    return text[:max_chars - 3] + "..."
+    return text[: max_chars - 3] + "..."

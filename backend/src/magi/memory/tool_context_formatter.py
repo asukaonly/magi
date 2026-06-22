@@ -11,6 +11,7 @@ from .tool_context_layers import (
     compact_assertions as _compact_assertions,
     compact_entity_cards as _compact_entity_cards,
     compact_evidence_bundles as _compact_evidence_bundles,
+    compact_experiences as _compact_experiences,
     compact_l1_events as _compact_l1_events,
     compact_procedures as _compact_procedures,
     compact_reflections as _compact_reflections,
@@ -75,6 +76,10 @@ def compact_memory_tool_data(
     if "l2_assertions" in results:
         compact_results["l2_assertions"] = _compact_assertions(
             results.get("l2_assertions"), max_items=max_items, max_text_chars=max_text_chars
+        )
+    if "l2_experiences" in results:
+        compact_results["l2_experiences"] = _compact_experiences(
+            results.get("l2_experiences"), max_items=max_items, max_text_chars=max_text_chars
         )
     if "l3_reflections" in results:
         compact_results["l3_reflections"] = _compact_reflections(

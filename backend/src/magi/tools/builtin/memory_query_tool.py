@@ -6,21 +6,28 @@ from dataclasses import asdict
 from typing import Any, Dict, Optional
 
 from ...plugins.provider import resolve_plugin_manager
-from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
-
+from ..schema import (
+    Tool,
+    ToolExecutionContext,
+    ToolParameter,
+    ToolResult,
+    ToolSchema,
+    ParameterType,
+)
 
 _QUERY_MODE_DESCRIPTION = (
     "The retrieval mode that best matches the user's intent. Pick exactly one. "
     "Examples:\n"
-    "  - exact_fact: \"What's my default editor?\" / \"我喜欢什么音乐\" / \"我爸的电话\".\n"
-    "  - current_state: \"What am I working on right now?\" / \"我现在的项目是什么\".\n"
-    "  - episode_recall: \"What did I do at 3pm yesterday?\" / \"上周二的会议讨论了什么\".\n"
-    "  - cross_session: \"How many times did I talk about X?\" / \"列出所有讨论过 X 的会话\".\n"
-    "  - temporal_compare: \"How has my code style changed?\" / \"和上个月相比我看的网站有什么变化\".\n"
-    "  - summary: \"Recap what I did last week\" / \"总结一下我上周\" (broad period recap, multiple kinds of activity).\n"
-    "  - activity_summary: \"What did I browse yesterday?\" / \"我最近在 Chrome 上看什么\" / \"我这周听了什么音乐\" "
+    '  - exact_fact: "What\'s my default editor?" / "我喜欢什么音乐" / "我爸的电话".\n'
+    '  - current_state: "What am I working on right now?" / "我现在的项目是什么".\n'
+    '  - episode_recall: "What did I do at 3pm yesterday?" / "上周二的会议讨论了什么".\n'
+    '  - experience_recall: "Tell me about that Japan trip" / "回忆一下那次日本旅行".\n'
+    '  - cross_session: "How many times did I talk about X?" / "列出所有讨论过 X 的会话".\n'
+    '  - temporal_compare: "How has my code style changed?" / "和上个月相比我看的网站有什么变化".\n'
+    '  - summary: "Recap what I did last week" / "总结一下我上周" (broad period recap, multiple kinds of activity).\n'
+    '  - activity_summary: "What did I browse yesterday?" / "我最近在 Chrome 上看什么" / "我这周听了什么音乐" '
     "(one specific kind of activity within a time window — pair with summary_categories).\n"
-    "  - strategy: \"How did I solve this kind of bug last time?\" / \"之前那套部署流程是怎么走的\"."
+    '  - strategy: "How did I solve this kind of bug last time?" / "之前那套部署流程是怎么走的".'
 )
 
 
@@ -103,9 +110,9 @@ class MemoryQueryTool(Tool):
                     name="time_range",
                     type=ParameterType.OBJECT,
                     description=(
-                        "Optional time-range constraint. Either {\"relative\": \"<n>d|<n>h|<n>w\"} "
-                        "(e.g. {\"relative\": \"7d\"} for last week) or "
-                        "{\"start\": ISO8601|unix_seconds|common_date_text, \"end\": ISO8601|unix_seconds|common_date_text}. "
+                        'Optional time-range constraint. Either {"relative": "<n>d|<n>h|<n>w"} '
+                        '(e.g. {"relative": "7d"} for last week) or '
+                        '{"start": ISO8601|unix_seconds|common_date_text, "end": ISO8601|unix_seconds|common_date_text}. '
                         "Common date text examples: YYYY/MM/DD, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS. "
                         "Date-only end boundaries expand to the end of that day. "
                         "Omit when the user's intent is "
@@ -150,13 +157,24 @@ class MemoryQueryTool(Tool):
                         "(e.g. 'which cafes have I been to', 'list the repos I cloned'). "
                         "'current_state' for a single current value/preference; "
                         "'episode_recall' for a narrative of what happened in a session; "
+                        "'experience_recall' for a coherent remembered period/project/trip; "
                         "'temporal_compare' for before/after; 'summary'/'activity_summary' for "
                         "digests; 'strategy' for how-to/procedures; 'exact_fact' for a single "
                         "specific fact. If unsure, omit it and the system falls back to "
                         "heuristic detection."
                     ),
                     required=False,
-                    enum=["exact_fact", "current_state", "episode_recall", "cross_session", "temporal_compare", "summary", "activity_summary", "strategy"],
+                    enum=[
+                        "exact_fact",
+                        "current_state",
+                        "episode_recall",
+                        "experience_recall",
+                        "cross_session",
+                        "temporal_compare",
+                        "summary",
+                        "activity_summary",
+                        "strategy",
+                    ],
                 ),
                 ToolParameter(
                     name="summary_categories",
@@ -285,18 +303,24 @@ class MemoryQueryTool(Tool):
                 conversation_context=conversation_context,
             )
             payload = await mq.query(request)
-            payload_dict = asdict(payload) if hasattr(payload, "__dataclass_fields__") else {
-                "l0_workbench": getattr(payload, "l0_workbench", []),
-                "l1_events": getattr(payload, "l1_events", []),
-                "l1_evidence_bundles": getattr(payload, "l1_evidence_bundles", []),
-                "l1_timeline_summary": getattr(payload, "l1_timeline_summary", []),
-                "l2_entity_cards": getattr(payload, "l2_entity_cards", []),
-                "l2_relationships": getattr(payload, "l2_relationships", []),
-                "l2_assertions": getattr(payload, "l2_assertions", []),
-                "l3_reflections": getattr(payload, "l3_reflections", []),
-                "l4_procedures": getattr(payload, "l4_procedures", []),
-                "trace": getattr(payload, "trace", {}),
-            }
+            payload_dict = (
+                asdict(payload)
+                if hasattr(payload, "__dataclass_fields__")
+                else {
+                    "l0_workbench": getattr(payload, "l0_workbench", []),
+                    "l1_events": getattr(payload, "l1_events", []),
+                    "l1_evidence_bundles": getattr(payload, "l1_evidence_bundles", []),
+                    "l1_timeline_summary": getattr(payload, "l1_timeline_summary", []),
+                    "l2_entity_cards": getattr(payload, "l2_entity_cards", []),
+                    "l2_relationships": getattr(payload, "l2_relationships", []),
+                    "l2_assertions": getattr(payload, "l2_assertions", []),
+                    "l2_experiences": getattr(payload, "l2_experiences", []),
+                    "l2_episodes": getattr(payload, "l2_episodes", []),
+                    "l3_reflections": getattr(payload, "l3_reflections", []),
+                    "l4_procedures": getattr(payload, "l4_procedures", []),
+                    "trace": getattr(payload, "trace", {}),
+                }
+            )
             try:
                 plugin_manager = resolve_plugin_manager()
             except RuntimeError:
@@ -305,13 +329,13 @@ class MemoryQueryTool(Tool):
             # Phase 5: batch-resolve canonical names so the projection layer drops
             # findings whose entity_ids would otherwise leak raw hashes.
             entity_ids: set[str] = set()
-            for rel in (payload_dict.get("l2_relationships") or []):
+            for rel in payload_dict.get("l2_relationships") or []:
                 if isinstance(rel, dict):
                     if rel.get("subject_id"):
                         entity_ids.add(str(rel["subject_id"]))
                     if rel.get("object_id"):
                         entity_ids.add(str(rel["object_id"]))
-            for assertion in (payload_dict.get("l2_assertions") or []):
+            for assertion in payload_dict.get("l2_assertions") or []:
                 if isinstance(assertion, dict):
                     if assertion.get("entity_id"):
                         entity_ids.add(str(assertion["entity_id"]))
@@ -321,7 +345,7 @@ class MemoryQueryTool(Tool):
                         entity_ids.add(str(assertion["target_entity_id"]))
             # Round 3 C1: entity_cards feed the entity_refs surface — their
             # entity_ids must also be resolved so refs don't silently drop.
-            for card in (payload_dict.get("l2_entity_cards") or []):
+            for card in payload_dict.get("l2_entity_cards") or []:
                 if isinstance(card, dict) and card.get("entity_id"):
                     entity_ids.add(str(card["entity_id"]))
             # Round 3 C1: resolved_entities from the L2 query trace are the
@@ -330,7 +354,7 @@ class MemoryQueryTool(Tool):
             if isinstance(trace_dict, dict):
                 l2_trace = trace_dict.get("l2_query_trace")
                 if isinstance(l2_trace, dict):
-                    for ent in (l2_trace.get("resolved_entities") or []):
+                    for ent in l2_trace.get("resolved_entities") or []:
                         if isinstance(ent, dict) and ent.get("entity_id"):
                             entity_ids.add(str(ent["entity_id"]))
 
@@ -349,9 +373,7 @@ class MemoryQueryTool(Tool):
             canonical_names: dict[str, str] | None = None
             if db_path:
                 canonical_names = (
-                    await mq.get_canonical_names(db_path, entity_ids)
-                    if entity_ids
-                    else {}
+                    await mq.get_canonical_names(db_path, entity_ids) if entity_ids else {}
                 )
 
             historical_recall = asdict(

@@ -13,6 +13,7 @@ from .predicate_resolver import resolve_predicates
 from .l2_subdomain_retrievers import (
     retrieve_assertions,
     retrieve_episodes,
+    retrieve_experiences,
     retrieve_snapshots,
 )
 from .models import L2Conditions, TimeRange
@@ -94,12 +95,25 @@ class L2QueryExecutionMixin:
             limit=conditions.limit,
         )
 
-        knowledge_edges, assertions, snapshots, episodes = await asyncio.gather(
+        experience_task = (
+            retrieve_experiences(
+                plan,
+                host._store,
+                limit=conditions.limit,
+            )
+            if conditions.include_experiences
+            else _empty_list()
+        )
+
+        knowledge_edges, assertions, snapshots, episodes, experiences = await asyncio.gather(
             knowledge_task,
             assertion_task,
             snapshot_task,
             episode_task,
+            experience_task,
         )
+
+        episodes = _merge_experience_source_episodes(episodes, experiences)
 
         candidates = fuse_l2_candidates(
             plan,
@@ -117,6 +131,7 @@ class L2QueryExecutionMixin:
             "relationships": projected.get("relationships", []),
             "assertions": projected.get("assertions", []),
             "episodes": projected.get("episodes", []),
+            "experiences": experiences,
             "state_facts": projected.get("state_facts", []),
             "state_history": projected.get("state_history", []),
         }
@@ -128,6 +143,7 @@ class L2QueryExecutionMixin:
                 "assertions": len(assertions),
                 "snapshots": len(snapshots),
                 "episodes": len(episodes),
+                "experiences": len(experiences),
             },
             "fusion_candidate_count": len(candidates),
             "output_counts": {
@@ -135,6 +151,7 @@ class L2QueryExecutionMixin:
                 "relationships": len(results["relationships"]),
                 "assertions": len(results["assertions"]),
                 "episodes": len(results["episodes"]),
+                "experiences": len(results["experiences"]),
                 "state_history": len(results["state_history"]),
             },
         }
@@ -145,6 +162,25 @@ class L2QueryExecutionMixin:
 
 async def _empty_list() -> list:
     return []
+
+
+def _merge_experience_source_episodes(
+    episodes: list[dict[str, Any]],
+    experiences: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged = list(episodes)
+    seen = {str(ep.get("episode_id") or "") for ep in merged}
+    for experience in experiences:
+        for source_episode in experience.get("source_episodes") or []:
+            episode_id = str(source_episode.get("episode_id") or "")
+            if not episode_id or episode_id in seen:
+                continue
+            episode = dict(source_episode)
+            episode["_candidate_kind"] = "episode"
+            episode["_from_experience_id"] = experience.get("experience_id")
+            merged.append(episode)
+            seen.add(episode_id)
+    return merged
 
 
 def _build_grounding_plan_trace(plan: L2GroundingPlan) -> dict[str, Any]:
@@ -165,9 +201,7 @@ def _build_grounding_plan_trace(plan: L2GroundingPlan) -> dict[str, Any]:
         "object_count": len(plan.object_candidates),
         "predicate_count": len(plan.predicate_candidates),
         "allowed_evidence_classes": (
-            sorted(plan.allowed_evidence_classes)
-            if plan.allowed_evidence_classes
-            else None
+            sorted(plan.allowed_evidence_classes) if plan.allowed_evidence_classes else None
         ),
         "evidence_focus_source": plan.evidence_focus_source,
         "predicate_source": plan.predicate_source,

@@ -120,6 +120,7 @@ async def query_eval_memory(body: EvalQueryRequest):
             l2_relationships=list(result.l2_relationships),
             l2_assertions=list(result.l2_assertions),
             l2_episodes=list(result.l2_episodes),
+            l2_experiences=list(result.l2_experiences),
             query_timestamp=body.query_timestamp,
             show_prompt=body.show_prompt,
         )

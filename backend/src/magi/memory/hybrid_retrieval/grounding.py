@@ -52,6 +52,7 @@ class L2GroundingPlan:
     No LLM call in the critical path.
     """
     query_kind: str = "unknown"
+    content_query: str = ""
     subject_candidates: List[GroundedEntityCandidate] = field(default_factory=list)
     object_candidates: List[GroundedEntityCandidate] = field(default_factory=list)
     predicate_candidates: List[GroundedPredicateCandidate] = field(default_factory=list)
@@ -120,6 +121,7 @@ def build_grounding_plan(
     This is Phase 1 grounding: no LLM call, purely deterministic rules + catalog.
     """
     plan = L2GroundingPlan()
+    plan.content_query = conditions.content_query
 
     _ground_subjects(plan, conditions, resolved_entities, user_id)
     _ground_predicates(plan, conditions)

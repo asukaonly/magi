@@ -37,6 +37,7 @@ def _make_payload(
     l1_events: list | None = None,
     l2_relationships: list | None = None,
     l2_assertions: list | None = None,
+    l2_experiences: list | None = None,
     l3_reflections: list | None = None,
     l4_procedures: list | None = None,
     trace: dict | None = None,
@@ -45,6 +46,7 @@ def _make_payload(
         l1_events=l1_events or [],
         l2_relationships=l2_relationships or [],
         l2_assertions=l2_assertions or [],
+        l2_experiences=l2_experiences or [],
         l3_reflections=l3_reflections or [],
         l4_procedures=l4_procedures or [],
         trace=trace or {},
@@ -53,6 +55,29 @@ def _make_payload(
 
 class TestCrossLayerFusion:
     """Results from all layers surface; per-layer quota governs counts."""
+
+    def test_experience_recall_projects_experiences(self):
+        payload = _make_payload(
+            l2_experiences=[
+                {
+                    "experience_id": "exp-japan",
+                    "title": "日本旅行",
+                    "user_label": "2026年5月日本旅行",
+                    "magi_interpretation": "在路线、车票和城市切换之间整理旅行节奏。",
+                    "time_start": 1777564800.0,
+                    "time_end": 1778342400.0,
+                    "_retrieval_score": 0.91,
+                }
+            ],
+        )
+
+        findings = build_findings(
+            payload, _make_query(query="那次日本旅行", mode="experience_recall")
+        )
+
+        assert findings[0]["kind"] == "experience"
+        assert "日本旅行" in findings[0]["statement"]
+        assert findings[0]["source_layer"] == "L2"
 
     def test_both_l1_and_l2_surface_in_exact_fact(self):
         """Per-layer quota: both L1 and L2 get their quota slots.
@@ -67,8 +92,13 @@ class TestCrossLayerFusion:
                 {"content": "some low-score event", "score": 0.2, "timestamp": 1.0},
             ],
             l2_relationships=[
-                {"subject": "self", "predicate": "LIKES", "object": "topic:music",
-                 "confidence": 0.9, "first_observed_at": 1.0},
+                {
+                    "subject": "self",
+                    "predicate": "LIKES",
+                    "object": "topic:music",
+                    "confidence": 0.9,
+                    "first_observed_at": 1.0,
+                },
             ],
         )
         findings = build_findings(payload, _make_query(mode="exact_fact"))
@@ -85,8 +115,13 @@ class TestCrossLayerFusion:
                 {"content": "WiFi password is mypass123", "score": 0.85, "timestamp": 1.0},
             ],
             l2_relationships=[
-                {"subject": "self", "predicate": "USES", "object": "software:wifi-app",
-                 "confidence": 0.2, "first_observed_at": 1.0},
+                {
+                    "subject": "self",
+                    "predicate": "USES",
+                    "object": "software:wifi-app",
+                    "confidence": 0.2,
+                    "first_observed_at": 1.0,
+                },
             ],
         )
         findings = build_findings(payload, _make_query(mode="exact_fact"))
@@ -100,8 +135,13 @@ class TestCrossLayerFusion:
         still appear if L4 has nothing good."""
         payload = _make_payload(
             l2_relationships=[
-                {"subject": "self", "predicate": "LIKES", "object": "topic:python",
-                 "confidence": 0.95, "first_observed_at": 1.0},
+                {
+                    "subject": "self",
+                    "predicate": "LIKES",
+                    "object": "topic:python",
+                    "confidence": 0.95,
+                    "first_observed_at": 1.0,
+                },
             ],
         )
         findings = build_findings(payload, _make_query(mode="strategy"))
@@ -122,10 +162,20 @@ class TestCrossLayerFusion:
                 {"content": "Event Hi", "score": 0.9, "timestamp": 2.0},
             ],
             l2_relationships=[
-                {"subject": "self", "predicate": "LIKES", "object": "topic:lo",
-                 "confidence": 0.4, "first_observed_at": 1.0},
-                {"subject": "self", "predicate": "LIKES", "object": "topic:hi",
-                 "confidence": 0.9, "first_observed_at": 2.0},
+                {
+                    "subject": "self",
+                    "predicate": "LIKES",
+                    "object": "topic:lo",
+                    "confidence": 0.4,
+                    "first_observed_at": 1.0,
+                },
+                {
+                    "subject": "self",
+                    "predicate": "LIKES",
+                    "object": "topic:hi",
+                    "confidence": 0.9,
+                    "first_observed_at": 2.0,
+                },
             ],
         )
         findings = build_findings(payload, _make_query(mode="exact_fact"))
@@ -147,8 +197,7 @@ class TestCrossLayerFusion:
         """
         payload = _make_payload(
             l1_events=[
-                {"content": f"Event {i}", "score": 0.5, "timestamp": float(i)}
-                for i in range(20)
+                {"content": f"Event {i}", "score": 0.5, "timestamp": float(i)} for i in range(20)
             ],
         )
         findings = build_findings(payload, _make_query(mode="exact_fact", limit=5))
@@ -162,10 +211,20 @@ class TestConfidenceFloor:
     def test_below_floor_penalized(self):
         payload = _make_payload(
             l2_relationships=[
-                {"subject": "self", "predicate": "LIKES", "object": "topic:noise",
-                 "confidence": 0.2, "first_observed_at": 1.0},
-                {"subject": "self", "predicate": "LIKES", "object": "topic:signal",
-                 "confidence": 0.8, "first_observed_at": 1.0},
+                {
+                    "subject": "self",
+                    "predicate": "LIKES",
+                    "object": "topic:noise",
+                    "confidence": 0.2,
+                    "first_observed_at": 1.0,
+                },
+                {
+                    "subject": "self",
+                    "predicate": "LIKES",
+                    "object": "topic:signal",
+                    "confidence": 0.8,
+                    "first_observed_at": 1.0,
+                },
             ],
         )
         findings = build_findings(payload, _make_query(mode="exact_fact"))
@@ -270,9 +329,13 @@ class TestEchoFiltering:
             ],
         )
 
-        findings = build_findings(payload, _make_query(query="上次你怎么说部署", mode="episode_recall"))
+        findings = build_findings(
+            payload, _make_query(query="上次你怎么说部署", mode="episode_recall")
+        )
 
-        assert findings[0]["statement"] == "上次我给出的部署步骤是先构建 sidecar，再运行 Tauri 打包。"
+        assert (
+            findings[0]["statement"] == "上次我给出的部署步骤是先构建 sidecar，再运行 Tauri 打包。"
+        )
 
     def test_fact_recall_keeps_user_self_report_with_habit_adverb(self):
         payload = _make_payload(
@@ -290,7 +353,9 @@ class TestEchoFiltering:
             ],
         )
 
-        findings = build_findings(payload, _make_query(query="我什么时候看坤的真爱粉直播", mode="exact_fact"))
+        findings = build_findings(
+            payload, _make_query(query="我什么时候看坤的真爱粉直播", mode="exact_fact")
+        )
 
         assert findings[0]["statement"] == "我一般下午看坤的真爱粉直播。"
 
@@ -493,10 +558,20 @@ class TestPredicateBonus:
         """
         payload = _make_payload(
             l2_relationships=[
-                {"subject": "self", "predicate": "USES", "object": "topic:jazz",
-                 "confidence": 0.7, "first_observed_at": 1.0},
-                {"subject": "self", "predicate": "LIKES", "object": "topic:rock",
-                 "confidence": 0.9, "first_observed_at": 1.0},
+                {
+                    "subject": "self",
+                    "predicate": "USES",
+                    "object": "topic:jazz",
+                    "confidence": 0.7,
+                    "first_observed_at": 1.0,
+                },
+                {
+                    "subject": "self",
+                    "predicate": "LIKES",
+                    "object": "topic:rock",
+                    "confidence": 0.9,
+                    "first_observed_at": 1.0,
+                },
             ],
             trace={"l2_query_trace": {"semantic_frame": {"answer_kind": "topic"}}},
         )
@@ -517,10 +592,20 @@ class TestPredicateBonus:
         """
         payload = _make_payload(
             l2_relationships=[
-                {"subject": "self", "predicate": "LIKES", "object": "topic:pop",
-                 "confidence": 0.70, "first_observed_at": 1.0},
-                {"subject": "self", "predicate": "DISLIKES", "object": "topic:country",
-                 "confidence": 0.85, "first_observed_at": 1.0},
+                {
+                    "subject": "self",
+                    "predicate": "LIKES",
+                    "object": "topic:pop",
+                    "confidence": 0.70,
+                    "first_observed_at": 1.0,
+                },
+                {
+                    "subject": "self",
+                    "predicate": "DISLIKES",
+                    "object": "topic:country",
+                    "confidence": 0.85,
+                    "first_observed_at": 1.0,
+                },
             ],
         )
         findings = build_findings(payload, _make_query(query="我讨厌什么", mode="exact_fact"))
@@ -531,18 +616,32 @@ class TestPerLayerQuota:
     def test_l2_does_not_starve_l1_under_quota(self):
         payload = _make_payload(
             l1_events=[
-                {"event_id": f"e{i}", "source": "chrome_history", "author_type": "external",
-                 "content_type": "observation", "evidence_class": "external_observation",
-                 "content": f"Chrome 浏览 咖啡馆 {i}", "score": 0.3, "timestamp": float(i)}
+                {
+                    "event_id": f"e{i}",
+                    "source": "chrome_history",
+                    "author_type": "external",
+                    "content_type": "observation",
+                    "evidence_class": "external_observation",
+                    "content": f"Chrome 浏览 咖啡馆 {i}",
+                    "score": 0.3,
+                    "timestamp": float(i),
+                }
                 for i in range(10)
             ],
             l2_assertions=[
-                {"subject": f"s{i}", "predicate": "likes", "claim": f"c{i}",
-                 "confidence": 0.99, "source_layer": "L2"}
+                {
+                    "subject": f"s{i}",
+                    "predicate": "likes",
+                    "claim": f"c{i}",
+                    "confidence": 0.99,
+                    "source_layer": "L2",
+                }
                 for i in range(20)
             ],
         )
-        findings = build_findings(payload, _make_query(query="我喝过哪些咖啡馆", mode="cross_session"))
+        findings = build_findings(
+            payload, _make_query(query="我喝过哪些咖啡馆", mode="cross_session")
+        )
         layers = [f["source_layer"] for f in findings]
         # cross_session quota gives L1=12, L2=8 — under the OLD cross-layer nlargest
         # the 20 high-confidence (0.99) L2 assertions would crowd out the low-score
@@ -556,12 +655,26 @@ class TestPerLayerQuota:
         come first."""
         payload = _make_payload(
             l1_events=[
-                {"event_id": "lo", "source": "screenshot_timeline", "author_type": "external",
-                 "content_type": "observation", "evidence_class": "external_observation",
-                 "content": "低分事件", "score": 0.2, "timestamp": 1.0},
-                {"event_id": "hi", "source": "screenshot_timeline", "author_type": "external",
-                 "content_type": "observation", "evidence_class": "external_observation",
-                 "content": "高分事件", "score": 0.9, "timestamp": 2.0},
+                {
+                    "event_id": "lo",
+                    "source": "screenshot_timeline",
+                    "author_type": "external",
+                    "content_type": "observation",
+                    "evidence_class": "external_observation",
+                    "content": "低分事件",
+                    "score": 0.2,
+                    "timestamp": 1.0,
+                },
+                {
+                    "event_id": "hi",
+                    "source": "screenshot_timeline",
+                    "author_type": "external",
+                    "content_type": "observation",
+                    "evidence_class": "external_observation",
+                    "content": "高分事件",
+                    "score": 0.9,
+                    "timestamp": 2.0,
+                },
             ],
         )
         findings = build_findings(payload, _make_query(query="事件", mode="event_stream"))
@@ -571,9 +684,16 @@ class TestPerLayerQuota:
     def test_quota_falls_back_to_default_for_unknown_mode(self):
         payload = _make_payload(
             l1_events=[
-                {"event_id": "e1", "source": "screenshot_timeline", "author_type": "external",
-                 "content_type": "observation", "evidence_class": "external_observation",
-                 "content": "事件", "score": 0.5, "timestamp": 1.0},
+                {
+                    "event_id": "e1",
+                    "source": "screenshot_timeline",
+                    "author_type": "external",
+                    "content_type": "observation",
+                    "evidence_class": "external_observation",
+                    "content": "事件",
+                    "score": 0.5,
+                    "timestamp": 1.0,
+                },
             ],
         )
         findings = build_findings(payload, _make_query(query="x", mode="exact_fact"))

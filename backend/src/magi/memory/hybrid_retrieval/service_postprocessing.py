@@ -100,6 +100,7 @@ class HybridRetrievalPostProcessingMixin:
         payload.trace["l2_entity_card_count"] = len(payload.l2_entity_cards)
         payload.trace["l2_relationship_count"] = len(payload.l2_relationships)
         payload.trace["l2_assertion_count"] = len(payload.l2_assertions)
+        payload.trace["l2_experience_count"] = len(payload.l2_experiences)
         payload.trace["layer_result_counts"] = self._layer_result_counts(payload)
         payload.trace["final_result_count"] = self._count_results(payload)
 
@@ -140,6 +141,7 @@ class HybridRetrievalPostProcessingMixin:
                 payload.l2_relationships.extend(result.get("relationships", []))
                 payload.l2_assertions.extend(result.get("assertions", []))
                 payload.l2_episodes.extend(result.get("episodes", []))
+                payload.l2_experiences.extend(result.get("experiences", []))
                 payload.l2_state_facts.extend(result.get("state_facts", []))
                 payload.l2_state_history.extend(result.get("state_history", []))
                 if isinstance(result.get("trace"), dict):
@@ -182,6 +184,7 @@ class HybridRetrievalPostProcessingMixin:
                     "relationships",
                     "assertions",
                     "episodes",
+                    "experiences",
                     "state_facts",
                     "state_history",
                 )
@@ -197,6 +200,7 @@ class HybridRetrievalPostProcessingMixin:
                 + len(payload.l2_relationships)
                 + len(payload.l2_assertions)
                 + len(payload.l2_episodes)
+                + len(payload.l2_experiences)
                 + len(payload.l2_state_facts)
                 + len(payload.l2_state_history)
             ),

@@ -35,28 +35,106 @@ def _resolve_layer_quota(mode: str) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 
 _MODE_KIND_WEIGHTS: dict[str, dict[str, float]] = {
-    "exact_fact":       {"relationship": 0.30, "assertion": 0.20, "event": 0.00, "reflection": 0.05, "procedure": 0.00},
-    "current_state":    {"assertion": 0.30, "relationship": 0.15, "event": 0.05, "reflection": 0.05, "procedure": 0.00},
-    "episode_recall":   {"event": 0.20, "reflection": 0.10, "relationship": 0.05, "assertion": 0.05, "procedure": 0.00},
-    "activity_summary": {"reflection": 0.30, "event": 0.15, "relationship": 0.00, "assertion": 0.00, "procedure": 0.00},
-    "summary":          {"reflection": 0.30, "event": 0.10, "relationship": 0.05, "assertion": 0.05, "procedure": 0.00},
-    "strategy":         {"procedure": 0.30, "reflection": 0.20, "event": 0.05, "relationship": 0.00, "assertion": 0.00},
-    "cross_session":    {"event": 0.20, "relationship": 0.10, "reflection": 0.10, "assertion": 0.05, "procedure": 0.00},
-    "temporal_compare": {"event": 0.15, "assertion": 0.15, "relationship": 0.10, "reflection": 0.10, "procedure": 0.00},
-    "event_stream":     {"event": 0.25, "reflection": 0.05, "relationship": 0.00, "assertion": 0.00, "procedure": 0.00},
+    "exact_fact": {
+        "relationship": 0.30,
+        "assertion": 0.20,
+        "experience": 0.00,
+        "event": 0.00,
+        "reflection": 0.05,
+        "procedure": 0.00,
+    },
+    "current_state": {
+        "assertion": 0.30,
+        "relationship": 0.15,
+        "experience": 0.00,
+        "event": 0.05,
+        "reflection": 0.05,
+        "procedure": 0.00,
+    },
+    "episode_recall": {
+        "experience": 0.18,
+        "event": 0.20,
+        "reflection": 0.10,
+        "relationship": 0.05,
+        "assertion": 0.05,
+        "procedure": 0.00,
+    },
+    "experience_recall": {
+        "experience": 0.35,
+        "event": 0.15,
+        "reflection": 0.10,
+        "relationship": 0.05,
+        "assertion": 0.05,
+        "procedure": 0.00,
+    },
+    "activity_summary": {
+        "reflection": 0.30,
+        "experience": 0.05,
+        "event": 0.15,
+        "relationship": 0.00,
+        "assertion": 0.00,
+        "procedure": 0.00,
+    },
+    "summary": {
+        "reflection": 0.30,
+        "experience": 0.10,
+        "event": 0.10,
+        "relationship": 0.05,
+        "assertion": 0.05,
+        "procedure": 0.00,
+    },
+    "strategy": {
+        "procedure": 0.30,
+        "reflection": 0.20,
+        "experience": 0.00,
+        "event": 0.05,
+        "relationship": 0.00,
+        "assertion": 0.00,
+    },
+    "cross_session": {
+        "event": 0.20,
+        "experience": 0.10,
+        "relationship": 0.10,
+        "reflection": 0.10,
+        "assertion": 0.05,
+        "procedure": 0.00,
+    },
+    "temporal_compare": {
+        "event": 0.15,
+        "assertion": 0.15,
+        "relationship": 0.10,
+        "experience": 0.10,
+        "reflection": 0.10,
+        "procedure": 0.00,
+    },
+    "event_stream": {
+        "event": 0.25,
+        "experience": 0.00,
+        "reflection": 0.05,
+        "relationship": 0.00,
+        "assertion": 0.00,
+        "procedure": 0.00,
+    },
 }
 
 _CONFIDENCE_FLOOR = 0.35
 
 _PREDICATE_BONUS: dict[str, dict[str, dict[str, float]]] = {
     "positive": {
-        "creator":  {"FOLLOWS": 0.25, "LIKES": 0.10, "INTERESTED_IN": 0.05, "DISLIKES": 0.00},
-        "place":    {"LIKES": 0.20, "VISITED": 0.15, "DISLIKES": 0.00},
-        "topic":    {"INTERESTED_IN": 0.30, "LIKES": 0.10, "DISLIKES": 0.00},
+        "creator": {"FOLLOWS": 0.25, "LIKES": 0.10, "INTERESTED_IN": 0.05, "DISLIKES": 0.00},
+        "place": {"LIKES": 0.20, "VISITED": 0.15, "DISLIKES": 0.00},
+        "topic": {"INTERESTED_IN": 0.30, "LIKES": 0.10, "DISLIKES": 0.00},
         "software": {"LIKES": 0.20, "USES": 0.15, "DISLIKES": 0.00},
     },
     "negative": {
-        "_default": {"DISLIKES": 0.25, "LIKES": 0.05, "INTERESTED_IN": 0.03, "FOLLOWS": 0.00, "USES": 0.00, "VISITED": 0.00},
+        "_default": {
+            "DISLIKES": 0.25,
+            "LIKES": 0.05,
+            "INTERESTED_IN": 0.03,
+            "FOLLOWS": 0.00,
+            "USES": 0.00,
+            "VISITED": 0.00,
+        },
     },
 }
 
@@ -64,6 +142,7 @@ _PREDICATE_BONUS: dict[str, dict[str, dict[str, float]]] = {
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def build_findings(
     payload: RetrievalPayload,
@@ -95,15 +174,12 @@ def build_findings(
         )
     )
 
-    rel_findings, rel_dropped = _project_relationships(
-        payload.l2_relationships, canonical_names
-    )
+    rel_findings, rel_dropped = _project_relationships(payload.l2_relationships, canonical_names)
     candidates.extend(rel_findings)
 
-    asrt_findings, asrt_dropped = _project_assertions(
-        payload.l2_assertions, canonical_names
-    )
+    asrt_findings, asrt_dropped = _project_assertions(payload.l2_assertions, canonical_names)
     candidates.extend(asrt_findings)
+    candidates.extend(_project_experiences(payload.l2_experiences))
 
     candidates.extend(_project_reflections(payload.l3_reflections))
     candidates.extend(_project_procedures(payload.l4_procedures))
@@ -118,9 +194,7 @@ def build_findings(
     if request.exclude_user_text:
         echo_texts.append(request.exclude_user_text)
     candidates = [
-        c
-        for c in candidates
-        if not any(is_echo_finding(c, text) for text in echo_texts if text)
+        c for c in candidates if not any(is_echo_finding(c, text) for text in echo_texts if text)
     ]
 
     # NOTE: request.limit is intentionally NOT a hard cap here — per-mode
@@ -184,6 +258,8 @@ def _derive_finding_topic(finding: dict[str, Any]) -> str:
         candidate = _extract_relationship_topic(finding)
     elif kind == "assertion":
         candidate = _extract_assertion_topic(finding)
+    elif kind == "experience":
+        candidate = _extract_experience_topic(finding)
     elif kind == "procedure":
         candidate = _extract_procedure_topic(finding)
     else:
@@ -217,6 +293,10 @@ def _extract_assertion_topic(finding: dict[str, Any]) -> str:
     return statement
 
 
+def _extract_experience_topic(finding: dict[str, Any]) -> str:
+    return str(finding.get("title") or finding.get("statement") or "").strip()
+
+
 def _extract_procedure_topic(finding: dict[str, Any]) -> str:
     statement = str(finding.get("statement") or "").strip()
     return statement
@@ -235,6 +315,7 @@ def _truncate_topic(text: str) -> str:
 # Scoring
 # ---------------------------------------------------------------------------
 
+
 def _attach_score(
     finding: dict[str, Any],
     *,
@@ -249,6 +330,8 @@ def _attach_score(
 
     if kind == "event":
         base = retrieval_score if retrieval_score > 0 else max(raw_confidence, 0.3)
+    elif kind == "experience":
+        base = retrieval_score if retrieval_score > 0 else max(raw_confidence, 0.5)
     elif kind == "procedure":
         base = max(raw_confidence, 0.3)
     else:
@@ -265,9 +348,13 @@ def _attach_score(
         _, predicate, _ = split_relationship_statement(statement)
         predicate_upper = predicate.upper()
         if polarity == "negative":
-            predicate_bonus = _PREDICATE_BONUS["negative"].get("_default", {}).get(predicate_upper, 0.0)
+            predicate_bonus = (
+                _PREDICATE_BONUS["negative"].get("_default", {}).get(predicate_upper, 0.0)
+            )
         else:
-            predicate_bonus = _PREDICATE_BONUS["positive"].get(answer_kind, {}).get(predicate_upper, 0.0)
+            predicate_bonus = (
+                _PREDICATE_BONUS["positive"].get(answer_kind, {}).get(predicate_upper, 0.0)
+            )
 
     finding["_score"] = base + mode_bonus + predicate_bonus
 
@@ -275,6 +362,7 @@ def _attach_score(
 # ---------------------------------------------------------------------------
 # Per-layer projection helpers
 # ---------------------------------------------------------------------------
+
 
 def _project_relationships(
     items: list[dict[str, Any]],
@@ -307,12 +395,8 @@ def _project_relationships(
         if canonical_names is not None:
             # Round 4: try catalog → slug → '(未命名 {type})' → fall through
             # to pre-resolved upstream value → drop.
-            resolved_subject = (
-                display_name_for(subject_id, canonical_names) if subject_id else None
-            )
-            resolved_object = (
-                display_name_for(object_id, canonical_names) if object_id else None
-            )
+            resolved_subject = display_name_for(subject_id, canonical_names) if subject_id else None
+            resolved_object = display_name_for(object_id, canonical_names) if object_id else None
             subject = (resolved_subject or pre_subject).strip()
             object_value = (resolved_object or pre_object).strip()
             if not subject or not object_value:
@@ -370,9 +454,7 @@ def _project_assertions(
         pre_subject = str(item.get("subject") or "").strip()
 
         if canonical_names is not None:
-            resolved_subject = (
-                display_name_for(entity_id, canonical_names) if entity_id else None
-            )
+            resolved_subject = display_name_for(entity_id, canonical_names) if entity_id else None
             subject = (resolved_subject or pre_subject).strip()
             if not subject:
                 dropped += 1
@@ -380,7 +462,9 @@ def _project_assertions(
         else:
             subject = (pre_subject or entity_id).strip()
 
-        predicate = str(item.get("predicate") or item.get("trait_name") or item.get("trait_family") or "").strip()
+        predicate = str(
+            item.get("predicate") or item.get("trait_name") or item.get("trait_family") or ""
+        ).strip()
 
         # Round 3 C3 + Round 4 C2: when claim/content/trait_value are empty,
         # resolve target_entity_id through display_name_for (catalog name →
@@ -425,10 +509,44 @@ def _project_assertions(
                 "status": item.get("validation_state") or item.get("status"),
                 "occurred_at": item.get("created_at"),
                 "updated_at": item.get("updated_at") or item.get("last_validated_at"),
-                "_retrieval_score": float(item.get("confidence") or item.get("confidence_score") or 0.0),
+                "_retrieval_score": float(
+                    item.get("confidence") or item.get("confidence_score") or 0.0
+                ),
             }
         )
     return findings, dropped
+
+
+def _project_experiences(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("user_label") or item.get("title") or "").strip()
+        interpretation = str(item.get("magi_interpretation") or item.get("user_note") or "").strip()
+        if title and interpretation:
+            statement = f"{title}：{interpretation}"
+        else:
+            statement = title or interpretation
+        if not statement:
+            continue
+        finding = {
+            "kind": "experience",
+            "statement": statement,
+            "title": title,
+            "source_layer": "L2",
+            "confidence": item.get("narrative_score") or 0.7,
+            "status": item.get("status") or "active",
+            "occurred_at": item.get("time_start"),
+            "updated_at": item.get("updated_at") or item.get("time_end"),
+            "source_episode_ids": list(item.get("source_episode_ids") or []),
+            "source_event_ids": list(item.get("source_event_ids") or []),
+            "_retrieval_score": float(
+                item.get("_retrieval_score") or item.get("narrative_score") or 0.0
+            ),
+        }
+        findings.append(finding)
+    return findings
 
 
 _FACT_LIKE_QUERY_MODES = frozenset(
@@ -671,7 +789,9 @@ def _project_procedures(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for item in items:
         if not isinstance(item, dict):
             continue
-        description = str(item.get("description") or item.get("summary") or item.get("skill_name") or "").strip()
+        description = str(
+            item.get("description") or item.get("summary") or item.get("skill_name") or ""
+        ).strip()
         if not description:
             continue
         findings.append(
@@ -692,6 +812,7 @@ def _project_procedures(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Inference helpers (preserved from original)
 # ---------------------------------------------------------------------------
+
 
 def _infer_answer_kind(*, payload: RetrievalPayload, request: RetrievalQuery) -> str:
     l2_trace = payload.trace.get("l2_query_trace")

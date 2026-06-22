@@ -8,14 +8,18 @@ from typing import Any
 from .tool_context_common import coalesce_text, truncate_text
 
 
-def compact_workbench_items(items: Any, *, max_items: int, max_text_chars: int) -> list[dict[str, Any]]:
+def compact_workbench_items(
+    items: Any, *, max_items: int, max_text_chars: int
+) -> list[dict[str, Any]]:
     if not isinstance(items, list):
         return []
     compact: list[dict[str, Any]] = []
     for item in items[:max_items]:
         if not isinstance(item, dict):
             continue
-        preview, truncated = truncate_text(item.get("content") or item.get("summary"), max_text_chars=max_text_chars)
+        preview, truncated = truncate_text(
+            item.get("content") or item.get("summary"), max_text_chars=max_text_chars
+        )
         compact.append(
             {
                 "type": item.get("type"),
@@ -50,7 +54,9 @@ def compact_l1_events(items: Any, *, max_items: int, max_text_chars: int) -> lis
     return compact
 
 
-def compact_timeline_summary(items: Any, *, max_items: int, max_text_chars: int) -> list[dict[str, Any]]:
+def compact_timeline_summary(
+    items: Any, *, max_items: int, max_text_chars: int
+) -> list[dict[str, Any]]:
     if not isinstance(items, list):
         return []
     compact: list[dict[str, Any]] = []
@@ -89,7 +95,9 @@ def compact_evidence_bundles(items: Any, *, max_items: int) -> list[dict[str, An
     return compact
 
 
-def compact_entity_cards(items: Any, *, max_items: int, max_text_chars: int) -> list[dict[str, Any]]:
+def compact_entity_cards(
+    items: Any, *, max_items: int, max_text_chars: int
+) -> list[dict[str, Any]]:
     if not isinstance(items, list):
         return []
     compact: list[dict[str, Any]] = []
@@ -154,11 +162,39 @@ def compact_assertions(items: Any, *, max_items: int, max_text_chars: int) -> li
         compact.append(
             {
                 "subject": coalesce_text(item.get("subject"), item.get("entity_id")),
-                "predicate": coalesce_text(item.get("predicate"), item.get("trait_name"), item.get("trait_family")),
+                "predicate": coalesce_text(
+                    item.get("predicate"), item.get("trait_name"), item.get("trait_family")
+                ),
                 "claim_preview": preview,
                 "claim_truncated": truncated,
                 "target_entity_id": coalesce_text(item.get("target_entity_id")),
                 "confidence": item.get("confidence") or item.get("confidence_score"),
+            }
+        )
+    return compact
+
+
+def compact_experiences(items: Any, *, max_items: int, max_text_chars: int) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    compact: list[dict[str, Any]] = []
+    for item in items[:max_items]:
+        if not isinstance(item, dict):
+            continue
+        interpretation, truncated = truncate_text(
+            item.get("magi_interpretation") or item.get("user_note"),
+            max_text_chars=max_text_chars,
+        )
+        compact.append(
+            {
+                "experience_id": item.get("experience_id"),
+                "title": coalesce_text(item.get("user_label"), item.get("title")),
+                "time_start": item.get("time_start"),
+                "time_end": item.get("time_end"),
+                "magi_interpretation": interpretation,
+                "interpretation_truncated": truncated,
+                "source_episode_count": item.get("source_episode_count"),
+                "source_event_count": item.get("source_event_count"),
             }
         )
     return compact
@@ -237,6 +273,7 @@ def extract_procedure_hint(optimized_prompt: Any) -> str | None:
 __all__ = [
     "compact_assertions",
     "compact_entity_cards",
+    "compact_experiences",
     "compact_evidence_bundles",
     "compact_l1_events",
     "compact_procedures",

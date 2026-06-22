@@ -106,6 +106,7 @@ def _coerce_payload(payload: RetrievalPayload | dict[str, Any]) -> RetrievalPayl
         l3_reflections=list(payload.get("l3_reflections") or []),
         l4_procedures=list(payload.get("l4_procedures") or []),
         l2_episodes=list(payload.get("l2_episodes") or []),
+        l2_experiences=list(payload.get("l2_experiences") or []),
         l2_state_facts=list(payload.get("l2_state_facts") or []),
         l2_state_history=list(payload.get("l2_state_history") or []),
         trace=dict(payload.get("trace") or {}),

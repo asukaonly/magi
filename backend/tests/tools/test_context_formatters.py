@@ -5,6 +5,7 @@ from magi.agent.execution.tool_context_formatters import (
     compact_glob_tool_data,
     compact_read_chat_attachment_tool_data,
 )
+from magi.memory.tool_context_formatter import compact_memory_tool_data
 
 
 def test_compact_glob_tool_data_trims_matches() -> None:
@@ -19,7 +20,9 @@ def test_compact_glob_tool_data_trims_matches() -> None:
         for i in range(45)
     ]
 
-    compact = compact_glob_tool_data({"pattern": "**/*.py", "base_path": "/tmp", "matches": matches, "count": 45}, max_items=40)
+    compact = compact_glob_tool_data(
+        {"pattern": "**/*.py", "base_path": "/tmp", "matches": matches, "count": 45}, max_items=40
+    )
 
     assert compact["count"] == 45
     assert compact["omitted_matches"] == 5
@@ -66,3 +69,27 @@ def test_compact_read_chat_attachment_tool_data_trims_text() -> None:
     assert compact["text_preview"] == "abc"
     assert compact["text_truncated"] is True
     assert compact["summary"] == "Read report"
+
+
+def test_compact_memory_tool_data_renders_l2_experiences() -> None:
+    compact = compact_memory_tool_data(
+        {
+            "results": {
+                "l2_experiences": [
+                    {
+                        "experience_id": "exp-japan",
+                        "title": "日本旅行",
+                        "magi_interpretation": "在路线、车票和城市切换之间整理旅行节奏。",
+                        "source_event_count": 18,
+                    }
+                ],
+                "trace": {"l2_experience_count": 1},
+            }
+        },
+        max_items=5,
+        max_text_chars=80,
+    )
+
+    assert "Experiences:" in compact["memory_context"]
+    assert "日本旅行" in compact["memory_context"]
+    assert compact["meta"]["l2_experience_count"] == 1

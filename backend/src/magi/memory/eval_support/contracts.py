@@ -55,6 +55,7 @@ class EvalMemoryQueryResult:
     l2_relationships: list[dict[str, Any]] = field(default_factory=list)
     l2_assertions: list[dict[str, Any]] = field(default_factory=list)
     l2_episodes: list[dict[str, Any]] = field(default_factory=list)
+    l2_experiences: list[dict[str, Any]] = field(default_factory=list)
     trace: dict[str, Any] = field(default_factory=dict)
     answer: str | None = None
     answer_trace: dict[str, Any] = field(default_factory=dict)

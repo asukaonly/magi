@@ -77,6 +77,7 @@ class ResultFusion:
         # L2 entity cards: dedup by entity_id
         payload.l2_entity_cards = self._dedup_by_key(payload.l2_entity_cards, "entity_id")
         payload.l2_assertions = self._dedup_by_key(payload.l2_assertions, "assertion_id")
+        payload.l2_experiences = self._dedup_by_key(payload.l2_experiences, "experience_id")
 
         # L3 reflections: dedup by summary_id or id
         payload.l3_reflections = self._dedup_by_key(payload.l3_reflections, "summary_id", "id")
@@ -139,29 +140,53 @@ class ResultFusion:
         )
         remaining -= estimate_tokens(payload.l1_events, char_per_token)
 
-        # L2: configurable share of remaining (entity cards, relationships, assertions)
+        # L2: configurable share of remaining.
         l2_budget = remaining * l2_budget_ratio
-        l2_all = payload.l2_entity_cards + payload.l2_relationships + payload.l2_assertions
+        l2_all = (
+            payload.l2_experiences
+            + payload.l2_entity_cards
+            + payload.l2_relationships
+            + payload.l2_assertions
+        )
         l2_tokens = estimate_tokens(l2_all, char_per_token)
         if l2_tokens > l2_budget:
-            payload.l2_entity_cards = truncate_to_budget(payload.l2_entity_cards, l2_budget * 0.3, char_per_token)
-            l2_budget_left = l2_budget - estimate_tokens(payload.l2_entity_cards, char_per_token)
-            payload.l2_relationships = truncate_to_budget(payload.l2_relationships, l2_budget_left * 0.6, char_per_token)
+            payload.l2_experiences = truncate_to_budget(
+                payload.l2_experiences, l2_budget * 0.35, char_per_token
+            )
+            l2_budget_left = l2_budget - estimate_tokens(payload.l2_experiences, char_per_token)
+            payload.l2_entity_cards = truncate_to_budget(
+                payload.l2_entity_cards, l2_budget_left * 0.25, char_per_token
+            )
+            l2_budget_left -= estimate_tokens(payload.l2_entity_cards, char_per_token)
+            payload.l2_relationships = truncate_to_budget(
+                payload.l2_relationships, l2_budget_left * 0.5, char_per_token
+            )
             l2_budget_left -= estimate_tokens(payload.l2_relationships, char_per_token)
-            payload.l2_assertions = truncate_to_budget(payload.l2_assertions, l2_budget_left, char_per_token)
-            l2_all = payload.l2_entity_cards + payload.l2_relationships + payload.l2_assertions
+            payload.l2_assertions = truncate_to_budget(
+                payload.l2_assertions, l2_budget_left, char_per_token
+            )
+            l2_all = (
+                payload.l2_experiences
+                + payload.l2_entity_cards
+                + payload.l2_relationships
+                + payload.l2_assertions
+            )
         remaining -= estimate_tokens(l2_all, char_per_token)
 
         # L3: configurable share of remaining
         l3_budget = remaining * l3_budget_ratio
         payload.l3_reflections = truncate_to_budget(
-            payload.l3_reflections, l3_budget, char_per_token,
+            payload.l3_reflections,
+            l3_budget,
+            char_per_token,
         )
         remaining -= estimate_tokens(payload.l3_reflections, char_per_token)
 
         # L4: eats the rest
         payload.l4_procedures = truncate_to_budget(
-            payload.l4_procedures, remaining, char_per_token,
+            payload.l4_procedures,
+            remaining,
+            char_per_token,
         )
 
         return payload
@@ -215,6 +240,7 @@ class ResultFusion:
     @staticmethod
     def _rank_l1_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Rank L1 items by answerability-oriented metadata before truncation."""
+
         def _sort_key(item: Dict[str, Any]) -> tuple[float, float, int]:
             retrieval_score = float(item.get("retrieval_score") or 0.0)
             timestamp = float(item.get("timestamp") or 0.0)

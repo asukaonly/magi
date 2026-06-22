@@ -57,6 +57,7 @@ class RetrievalPayload:
     l4_procedures: List[Dict[str, Any]] = field(default_factory=list)
     # P3 episodic + state retrieval fields
     l2_episodes: List[Dict[str, Any]] = field(default_factory=list)
+    l2_experiences: List[Dict[str, Any]] = field(default_factory=list)
     l2_state_facts: List[Dict[str, Any]] = field(default_factory=list)
     l2_state_history: List[Dict[str, Any]] = field(default_factory=list)
     trace: Dict[str, Any] = field(default_factory=dict)
@@ -146,6 +147,7 @@ class L2Conditions:
     include_tom_snapshot: bool = True
     include_relationships: bool = True
     include_assertions: bool = True
+    include_experiences: bool = False
     relation_direction: Optional[str] = None
     hop_count: int = 1
     status_filter: Optional[List[str]] = None

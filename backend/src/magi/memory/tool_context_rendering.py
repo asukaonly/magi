@@ -21,6 +21,7 @@ def compact_trace_meta(trace: Any) -> dict[str, Any]:
         "l2_entity_card_count",
         "l2_relationship_count",
         "l2_assertion_count",
+        "l2_experience_count",
         "l2_query_trace",
         "rule_backstop_triggered",
         "rule_backstop_reason",
@@ -96,6 +97,21 @@ def render_memory_context(compact_results: Dict[str, Any]) -> str:
                 f"{subject} {predicate}: {claim_preview} "
                 f"(confidence={item.get('confidence')})"
             )
+        sections.append("\n".join(lines))
+
+    experiences = list(compact_results.get("l2_experiences") or [])
+    if experiences:
+        lines = ["Experiences:"]
+        for item in experiences:
+            title = coalesce_text(item.get("user_label"), item.get("title"), "untitled")
+            interpretation = coalesce_text(item.get("magi_interpretation"), item.get("user_note"))
+            line = f"- {title}"
+            if interpretation:
+                line += f": {interpretation}"
+            source_event_count = item.get("source_event_count")
+            if source_event_count is not None:
+                line += f" (events={source_event_count})"
+            lines.append(line)
         sections.append("\n".join(lines))
 
     reflections = list(compact_results.get("l3_reflections") or [])

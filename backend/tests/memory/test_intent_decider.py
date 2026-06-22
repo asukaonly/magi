@@ -340,7 +340,10 @@ class TestRawTimeRange:
 
         assert result.time_range is not None
         assert result.time_range.start == datetime(2026, 5, 10, tzinfo=timezone.utc).timestamp()
-        assert result.time_range.end == datetime(2026, 5, 10, 12, 34, 56, tzinfo=timezone.utc).timestamp()
+        assert (
+            result.time_range.end
+            == datetime(2026, 5, 10, 12, 34, 56, tzinfo=timezone.utc).timestamp()
+        )
 
     def test_end_date_only_expands_to_end_of_day(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(
@@ -354,8 +357,14 @@ class TestRawTimeRange:
         result = decider.evaluate(inp)
 
         assert result.time_range is not None
-        assert result.time_range.start == datetime(2026, 5, 10, 0, 0, 0, tzinfo=timezone.utc).timestamp()
-        assert result.time_range.end == datetime(2026, 5, 10, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
+        assert (
+            result.time_range.start
+            == datetime(2026, 5, 10, 0, 0, 0, tzinfo=timezone.utc).timestamp()
+        )
+        assert (
+            result.time_range.end
+            == datetime(2026, 5, 10, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
+        )
 
     def test_relative_7d(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="recent", raw_time_range={"relative": "7d"})
@@ -434,7 +443,9 @@ class TestLayerRouting:
         assert [plan.layer for plan in result.plans] == ["L1"]
         assert result.plans[0].is_fallback is False
 
-    def test_query_mode_exact_fact_prefers_l2_with_l1_fallback(self, decider: RuleBasedIntentDecider):
+    def test_query_mode_exact_fact_prefers_l2_with_l1_fallback(
+        self, decider: RuleBasedIntentDecider
+    ):
         inp = IntentDeciderInput(query="我喜欢什么天气", query_mode_hint="exact_fact")
         result = decider.evaluate(inp)
 
@@ -442,17 +453,42 @@ class TestLayerRouting:
         assert result.plans[0].is_fallback is False
         assert result.plans[1].is_fallback is True
 
-    def test_query_mode_current_state_prefers_l2_with_l1_fallback(self, decider: RuleBasedIntentDecider):
+    def test_query_mode_current_state_prefers_l2_with_l1_fallback(
+        self, decider: RuleBasedIntentDecider
+    ):
         inp = IntentDeciderInput(query="我的默认工作目录是什么", query_mode_hint="current_state")
         result = decider.evaluate(inp)
 
         assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
 
-    def test_query_mode_episode_recall_prefers_l1_with_l2_fallback(self, decider: RuleBasedIntentDecider):
+    def test_query_mode_episode_recall_prefers_l1_with_l2_fallback(
+        self, decider: RuleBasedIntentDecider
+    ):
         inp = IntentDeciderInput(query="你记得我们之前约定了什么", query_mode_hint="episode_recall")
         result = decider.evaluate(inp)
 
         assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
+
+    def test_query_mode_episode_recall_also_checks_experiences(
+        self, decider: RuleBasedIntentDecider
+    ):
+        inp = IntentDeciderInput(query="那次日本旅行发生了什么", query_mode_hint="episode_recall")
+        result = decider.evaluate(inp)
+
+        l2_plan = next(plan for plan in result.plans if plan.layer == "L2")
+        assert isinstance(l2_plan.conditions, L2Conditions)
+        assert l2_plan.conditions.include_experiences is True
+
+    def test_query_mode_experience_recall_prefers_experience_layer(
+        self, decider: RuleBasedIntentDecider
+    ):
+        inp = IntentDeciderInput(query="回忆一下日本旅行", query_mode_hint="experience_recall")
+        result = decider.evaluate(inp)
+
+        assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
+        assert result.plans[0].is_fallback is False
+        assert isinstance(result.plans[0].conditions, L2Conditions)
+        assert result.plans[0].conditions.include_experiences is True
 
     def test_query_mode_strategy_prefers_l4_with_l1_fallback(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="按之前那套流程修一下这个 bug", query_mode_hint="strategy")
@@ -535,7 +571,9 @@ class TestSemanticFrameEnrichment:
         self,
         decider: RuleBasedIntentDecider,
     ):
-        inp = IntentDeciderInput(query="我在杭州的时候喜欢去哪些咖啡馆", query_mode_hint="exact_fact")
+        inp = IntentDeciderInput(
+            query="我在杭州的时候喜欢去哪些咖啡馆", query_mode_hint="exact_fact"
+        )
         result = decider.evaluate(inp)
 
         conditions = result.plans[0].conditions
@@ -543,7 +581,9 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame is not None
         assert conditions.semantic_frame.constraints == []
 
-    def test_l2_topic_affinity_semantic_frame_for_topic_query(self, decider: RuleBasedIntentDecider):
+    def test_l2_topic_affinity_semantic_frame_for_topic_query(
+        self, decider: RuleBasedIntentDecider
+    ):
         inp = IntentDeciderInput(query="我喜欢什么题材", query_mode_hint="exact_fact")
         result = decider.evaluate(inp)
 
@@ -557,7 +597,9 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame.answer_unit == "mixed"
 
     def test_l2_unknown_predicate_no_semantic_frame(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="上次我看的主播他说的主题是什么", query_mode_hint="exact_fact")
+        inp = IntentDeciderInput(
+            query="上次我看的主播他说的主题是什么", query_mode_hint="exact_fact"
+        )
         result = decider.evaluate(inp)
 
         assert result.plans[0].layer == "L2"

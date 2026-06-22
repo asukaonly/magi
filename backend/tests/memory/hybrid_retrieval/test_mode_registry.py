@@ -17,3 +17,11 @@ def test_enumerate_mode_gets_more_l1_l2_than_single_point():
 def test_event_stream_is_l1_heavy():
     q = MODE_REGISTRY["event_stream"].layer_quota
     assert q.get("L1", 0) >= 12
+
+
+def test_experience_recall_uses_l2_with_l1_fallback():
+    plan = MODE_REGISTRY["experience_recall"]
+
+    assert plan.primary_layers == ["L2", "L1"]
+    assert "experience" in plan.retrieval_units
+    assert plan.layer_quota and plan.layer_quota.get("L2", 0) >= 4

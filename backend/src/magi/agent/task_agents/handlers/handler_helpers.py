@@ -41,6 +41,7 @@ MEMORY_QUERY_GUIDANCE_BLOCK = "\n".join(
         "- Enumerating multiple items across time → `cross_session`",
         "- A single current value or latest status → `current_state`",
         "- A story or sequence of events → `episode_recall`",
+        "- A remembered period, trip, project, or coherent life/work experience → `experience_recall`",
         "- A single specific fact → `exact_fact`",
         "If genuinely unsure, omit it and the system falls back to heuristic detection.",
         "",

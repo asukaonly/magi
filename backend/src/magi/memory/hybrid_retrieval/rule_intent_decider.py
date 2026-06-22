@@ -97,10 +97,10 @@ class RuleBasedIntentDecider:
 
         plans: list[LayerQueryPlan] = []
         for layer in plan_def.primary_layers:
-            plans.append(self._make_plan(layer, inp, is_fallback=False))
+            plans.append(self._make_plan(layer, inp, is_fallback=False, mode=mode))
         for layer in plan_def.fallback_layers:
             if layer not in plan_def.primary_layers:
-                plans.append(self._make_plan(layer, inp, is_fallback=True))
+                plans.append(self._make_plan(layer, inp, is_fallback=True, mode=mode))
 
         return plans
 
@@ -110,6 +110,7 @@ class RuleBasedIntentDecider:
         inp: IntentDeciderInput,
         *,
         is_fallback: bool,
+        mode: str | None = None,
         source_filters: Optional[list[str]] = None,
         domain_filters: Optional[list[str]] = None,
     ) -> LayerQueryPlan:
@@ -130,6 +131,7 @@ class RuleBasedIntentDecider:
                 include_tom_snapshot=True,
                 include_relationships=True,
                 include_assertions=True,
+                include_experiences=mode in {"episode_recall", "experience_recall"},
             )
             enrich_l2_conditions(conditions, inp.query)
             if conditions.allowed_evidence_classes is None:

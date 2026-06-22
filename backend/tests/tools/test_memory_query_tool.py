@@ -1,4 +1,5 @@
 """Unit tests for MemoryQueryTool."""
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -26,21 +27,25 @@ def _make_fake_mq(fake_service=None):
 
 def _real_build_query(**kwargs):
     from magi.memory.hybrid_retrieval import build_query
+
     return build_query(**kwargs)
 
 
 def _real_project(**kwargs):
     from magi.memory.retrieval_projection import project_historical_recall
+
     return project_historical_recall(**kwargs)
 
 
 def _real_make_turn(**kwargs):
     from magi.memory.hybrid_retrieval.models import ConversationTurn
+
     return ConversationTurn(**kwargs)
 
 
 def _make_context(fake_mq=None, **kwargs):
     from magi.tools.schema import ToolExecutionContext
+
     caps = ToolCapabilities(memory_query=fake_mq)
     return ToolExecutionContext(agent_id="test", capabilities=caps, **kwargs)
 
@@ -98,6 +103,7 @@ class TestMemoryQueryTool:
         assert query_mode_param.required is False
         assert query_mode_param.enum is not None
         assert "exact_fact" in query_mode_param.enum
+        assert "experience_recall" in query_mode_param.enum
         time_range_param = next(p for p in schema.parameters if p.name == "time_range")
         assert time_range_param.required is False
         assert "user preferences" in schema.description
@@ -176,7 +182,10 @@ class TestMemoryQueryTool:
 
         assert result.success is True
         assert result.data["historical_recall"]["summary"] == "你讨厌潮湿天气。"
-        assert result.data["historical_recall"]["findings"][0]["statement"] == "user:local_user DISLIKES weather_state:humid"
+        assert (
+            result.data["historical_recall"]["findings"][0]["statement"]
+            == "user:local_user DISLIKES weather_state:humid"
+        )
         assert result.data["debug"]["retrieval_trace"]["query_mode"] == "detail"
         request = fake_mq.query.await_args.args[0]
         assert request.query_mode == "exact_fact"
@@ -206,7 +215,9 @@ class TestMemoryQueryTool:
             env_vars={"user_id": "local_user", "session_id": "session-123"},
         )
 
-        result = await tool.execute({"query": "我喜欢什么天气", "query_mode": "exact_fact"}, context)
+        result = await tool.execute(
+            {"query": "我喜欢什么天气", "query_mode": "exact_fact"}, context
+        )
 
         assert result.success is True
         request = fake_mq.query.await_args.args[0]
@@ -239,7 +250,11 @@ class TestMemoryQueryTool:
         )
 
         result = await tool.execute(
-            {"query": "这一轮我刚刚说了什么", "query_mode": "episode_recall", "session_id": "session-explicit"},
+            {
+                "query": "这一轮我刚刚说了什么",
+                "query_mode": "episode_recall",
+                "session_id": "session-explicit",
+            },
             context,
         )
 

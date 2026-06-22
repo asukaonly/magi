@@ -1,4 +1,5 @@
 """Pydantic schemas for memory API routes."""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
@@ -12,7 +13,8 @@ class RetrievalRequest(BaseModel):
         default=None,
         description=(
             "Optional retrieval mode. Omit for auto routing; supported values include "
-            "event_stream, exact_fact, current_state, episode_recall, summary, strategy, "
+            "event_stream, exact_fact, current_state, episode_recall, experience_recall, "
+            "summary, strategy, "
             "plus legacy detail|experience|graph."
         ),
     )
@@ -61,17 +63,27 @@ class EvalQueryRequest(BaseModel):
     query: str = Field(..., description="Benchmark memory query")
     query_timestamp: Optional[float] = Field(default=None, description="Optional query timestamp")
     top_k: int = Field(default=10, ge=1, le=200, description="Top-k retrieval limit")
-    mode: str = Field(default="auto", description="Retrieval mode hint, including l1_only for debug-only L1 reads")
-    answer_with_llm: bool = Field(default=False, description="Whether to synthesize a final answer with the runtime LLM")
-    show_prompt: bool = Field(default=False, description="Whether to include the synthesized LLM prompt in debug output")
+    mode: str = Field(
+        default="auto", description="Retrieval mode hint, including l1_only for debug-only L1 reads"
+    )
+    answer_with_llm: bool = Field(
+        default=False, description="Whether to synthesize a final answer with the runtime LLM"
+    )
+    show_prompt: bool = Field(
+        default=False, description="Whether to include the synthesized LLM prompt in debug output"
+    )
 
 
 class EvalJudgeAnswerRequest(BaseModel):
     system_prompt: str = Field(..., min_length=1, description="Judge system prompt")
     prompt: str = Field(..., min_length=1, description="Judge user prompt")
     max_tokens: int = Field(default=512, ge=1, le=4096, description="Maximum judge output tokens")
-    temperature: float = Field(default=0.0, ge=0.0, le=2.0, description="Judge sampling temperature")
-    timeout_seconds: Optional[float] = Field(default=120.0, ge=1.0, le=600.0, description="Judge request timeout")
+    temperature: float = Field(
+        default=0.0, ge=0.0, le=2.0, description="Judge sampling temperature"
+    )
+    timeout_seconds: Optional[float] = Field(
+        default=120.0, ge=1.0, le=600.0, description="Judge request timeout"
+    )
 
 
 class EvalFinalizeReplayRequest(BaseModel):
@@ -98,11 +110,21 @@ class L2EntityActionBody(BaseModel):
 
 
 class GraphConflictRuleBody(BaseModel):
-    opposite_predicates: List[str] = Field(default_factory=list, description="Predicates that conflict as logical opposites")
-    opposite_resolution: Literal["mark_deprecated", "mark_conflicted"] = Field(default="mark_deprecated", description="mark_deprecated|mark_conflicted")
-    exclusive_group: Optional[str] = Field(default=None, description="Optional mutual-exclusion group")
-    exclusive_scope: Literal["same_subject"] = Field(default="same_subject", description="Conflict scope")
-    exclusive_resolution: Literal["mark_deprecated", "mark_conflicted"] = Field(default="mark_deprecated", description="mark_deprecated|mark_conflicted")
+    opposite_predicates: List[str] = Field(
+        default_factory=list, description="Predicates that conflict as logical opposites"
+    )
+    opposite_resolution: Literal["mark_deprecated", "mark_conflicted"] = Field(
+        default="mark_deprecated", description="mark_deprecated|mark_conflicted"
+    )
+    exclusive_group: Optional[str] = Field(
+        default=None, description="Optional mutual-exclusion group"
+    )
+    exclusive_scope: Literal["same_subject"] = Field(
+        default="same_subject", description="Conflict scope"
+    )
+    exclusive_resolution: Literal["mark_deprecated", "mark_conflicted"] = Field(
+        default="mark_deprecated", description="mark_deprecated|mark_conflicted"
+    )
 
     @field_validator("opposite_predicates", mode="before")
     @classmethod
@@ -196,13 +218,17 @@ class EpisodeSplitRequest(BaseModel):
 
 class ForgetEntityRequest(BaseModel):
     entity_id: str = Field(..., min_length=1, max_length=500)
-    delete_l1_events: bool = Field(default=False, description="Also soft-delete L1 events mentioning this entity")
+    delete_l1_events: bool = Field(
+        default=False, description="Also soft-delete L1 events mentioning this entity"
+    )
 
 
 class ForgetTimeRangeRequest(BaseModel):
     start: float = Field(..., description="Range start (epoch seconds)")
     end: float = Field(..., description="Range end (epoch seconds)")
-    delete_l1_events: bool = Field(default=False, description="Also soft-delete L1 events in this range")
+    delete_l1_events: bool = Field(
+        default=False, description="Also soft-delete L1 events in this range"
+    )
 
 
 class ForgetEpisodeRequest(BaseModel):

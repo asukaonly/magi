@@ -1,4 +1,5 @@
 """Eval memory answer synthesis helpers for memory API routes."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -36,7 +37,7 @@ def format_l2_context(
 ) -> str:
     """Format L2 knowledge graph data as LLM-readable context."""
     blocks: list[str] = []
-    for rel in (relationships or []):
+    for rel in relationships or []:
         summary = str(rel.get("natural_summary") or rel.get("evidence_text") or "").strip()
         if not summary:
             subj = str(rel.get("subject_id") or "")
@@ -44,12 +45,12 @@ def format_l2_context(
             obj = str(rel.get("object_id") or "")
             summary = f"{subj} {pred} {obj}"
         blocks.append(f"- [relationship] {summary}")
-    for card in (entity_cards or []):
+    for card in entity_cards or []:
         entity_id = str(card.get("entity_id") or "")
         summary = str(card.get("summary") or card.get("snapshot") or "").strip()
         if summary:
             blocks.append(f"- [entity] {entity_id}: {summary}")
-    for assertion in (assertions or []):
+    for assertion in assertions or []:
         text = str(assertion.get("assertion_text") or assertion.get("value") or "").strip()
         if text:
             blocks.append(f"- [assertion] {text}")
@@ -59,24 +60,28 @@ def format_l2_context(
 def is_counting_or_aggregation_question(question: str) -> bool:
     """Detect questions that require multi-step counting, aggregation, or temporal math."""
     lowered = str(question or "").lower()
-    return bool(re.search(
-        r"\bhow many\b|\btotal\b|\bcombined\b|\ball together\b|\bsum\b|\baverage\b|\bhow old\b|\bhow long\b|\bhow much faster\b|\bhow much older\b",
-        lowered,
-    ))
+    return bool(
+        re.search(
+            r"\bhow many\b|\btotal\b|\bcombined\b|\ball together\b|\bsum\b|\baverage\b|\bhow old\b|\bhow long\b|\bhow much faster\b|\bhow much older\b",
+            lowered,
+        )
+    )
 
 
 def is_temporal_reasoning_question(question: str) -> bool:
     """Detect questions that benefit from step-by-step temporal reasoning."""
     lowered = str(question or "").lower()
-    return bool(re.search(
-        r"\bhow many days\b|\bhow many weeks\b|\bhow many months\b|\bhow long ago\b|"
-        r"\bdays? ago\b|\bweeks? ago\b|\bmonths? ago\b|\byears? ago\b|"
-        r"\bmost recent\b|\bhappened first\b|\bwhich came first\b|"
-        r"\bwhat day\b|\bwhat date\b|\bbefore or after\b|"
-        r"\bfirst\b.{1,30}\bor\b.{1,30}\b(?:last|later|second)\b|"
-        r"\blast\b.{1,30}\btime\b.{1,30}\b(?:did|was|were)\b",
-        lowered,
-    ))
+    return bool(
+        re.search(
+            r"\bhow many days\b|\bhow many weeks\b|\bhow many months\b|\bhow long ago\b|"
+            r"\bdays? ago\b|\bweeks? ago\b|\bmonths? ago\b|\byears? ago\b|"
+            r"\bmost recent\b|\bhappened first\b|\bwhich came first\b|"
+            r"\bwhat day\b|\bwhat date\b|\bbefore or after\b|"
+            r"\bfirst\b.{1,30}\bor\b.{1,30}\b(?:last|later|second)\b|"
+            r"\blast\b.{1,30}\btime\b.{1,30}\b(?:did|was|were)\b",
+            lowered,
+        )
+    )
 
 
 def _build_eval_answer_system_prompt() -> str:
@@ -140,6 +145,7 @@ async def synthesize_eval_answer(
     l2_relationships: list[dict[str, Any]] | None = None,
     l2_assertions: list[dict[str, Any]] | None = None,
     l2_episodes: list[dict[str, Any]] | None = None,
+    l2_experiences: list[dict[str, Any]] | None = None,
     query_timestamp: float | None = None,
     show_prompt: bool = False,
     llm_pool: Any | None = None,
@@ -149,7 +155,10 @@ async def synthesize_eval_answer(
     if resolved_llm_pool is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=memory_t("memory.errors.scenario_llm_pool_uninitialized", "Scenario LLM pool is not initialized"),
+            detail=memory_t(
+                "memory.errors.scenario_llm_pool_uninitialized",
+                "Scenario LLM pool is not initialized",
+            ),
         )
     active_logger = log if log is not None else logger
 
@@ -188,8 +197,7 @@ async def synthesize_eval_answer(
 
     if prompt_payload.prioritize_timeline:
         user_prompt = (
-            relative_time_instruction +
-            f"{prompt_payload.timeline_instruction}"
+            relative_time_instruction + f"{prompt_payload.timeline_instruction}"
             f"{prompt_payload.preference_instruction}"
             f"{question_date_line}"
             f"Question:\n{question}\n\n"
@@ -201,8 +209,7 @@ async def synthesize_eval_answer(
         )
     else:
         user_prompt = (
-            relative_time_instruction +
-            f"{prompt_payload.timeline_instruction}"
+            relative_time_instruction + f"{prompt_payload.timeline_instruction}"
             f"{prompt_payload.preference_instruction}"
             f"{question_date_line}"
             f"Question:\n{question}\n\n"
