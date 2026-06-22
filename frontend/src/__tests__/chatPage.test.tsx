@@ -1084,7 +1084,8 @@ describe('ChatPage', () => {
       'src',
       'http://127.0.0.1:8000/api/messages/session/session-1/attachments/att-image-preview/content?user_id=local_user',
     );
-    expect(within(dialog).getAllByText('diagram.png').length).toBeGreaterThan(0);
+    expect(within(dialog).getByText('diagram.png')).toHaveClass('sr-only');
+    expect(within(dialog).queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
   });
 
   it('enters reply mode, shows quote strips, and sends reply target metadata', async () => {

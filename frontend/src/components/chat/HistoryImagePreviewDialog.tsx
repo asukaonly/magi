@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
 type HistoryImagePreview = {
   name: string;
@@ -19,24 +19,19 @@ export const HistoryImagePreviewDialog = ({
 
   return (
     <Dialog open={Boolean(preview)} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl overflow-hidden border-border/70 bg-background/95 p-0">
-        <DialogHeader className="sr-only">
-          <DialogTitle>{preview?.name || t('chat.attachments.previewTitle')}</DialogTitle>
-          <DialogDescription>{t('chat.attachments.previewDescription')}</DialogDescription>
-        </DialogHeader>
+      <DialogContent
+        aria-describedby={undefined}
+        hideClose
+        overlayClassName="bg-foreground/65 backdrop-blur-md"
+        className="w-auto max-w-[min(94vw,1280px)] overflow-visible border-0 bg-transparent p-0 shadow-none outline-none"
+      >
+        <DialogTitle className="sr-only">{preview?.name || t('chat.attachments.previewTitle')}</DialogTitle>
         {preview ? (
-          <div className="flex max-h-[85vh] flex-col">
-            <div className="border-b border-border/60 px-6 py-4 pr-12">
-              <div className="truncate text-sm font-medium text-foreground">{preview.name}</div>
-            </div>
-            <div className="flex min-h-0 flex-1 items-center justify-center bg-muted/30 p-4">
-              <img
-                src={preview.url}
-                alt={preview.name}
-                className="max-h-[70vh] w-auto max-w-full rounded-2xl object-contain shadow-sm"
-              />
-            </div>
-          </div>
+          <img
+            src={preview.url}
+            alt={preview.name}
+            className="block max-h-[min(88vh,980px)] max-w-[min(94vw,1280px)] rounded-[18px] object-contain shadow-[0_28px_90px_hsl(var(--foreground)/0.42)]"
+          />
         ) : null}
       </DialogContent>
     </Dialog>
