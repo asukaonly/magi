@@ -181,7 +181,7 @@ export const MemoryEpisodesPage = () => {
       title={t('memory.episodes.title')}
       description={t('memory.episodes.subtitle')}
       hideHeader
-      className="max-w-[1180px] gap-6 px-6 py-7"
+      className="max-w-[1180px] gap-5 px-4 py-5"
       contentClassName="pb-8"
     >
       {loading ? (
@@ -643,7 +643,7 @@ export const MemoryExperienceDetailPage = () => {
       title={title || t('memory.episodes.title')}
       description={t('memory.episodes.subtitle')}
       hideHeader
-      className="max-w-[1180px] gap-5 px-6 py-7"
+      className="max-w-[1180px] gap-5 px-4 py-5"
       contentClassName="pb-8"
     >
       {loading ? (

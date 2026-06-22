@@ -29,7 +29,7 @@ export const MemoryPageFrame = ({
   <div
     data-testid="memory-theme-root"
     className={cn(
-      'memory-theme-surface mx-auto flex h-full max-w-[1380px] flex-col gap-4 px-6 py-6',
+      'memory-theme-surface mx-auto flex h-full max-w-[1380px] flex-col gap-4 px-4 py-4',
       scrollable ? 'overflow-y-auto' : 'overflow-hidden',
       className
     )}

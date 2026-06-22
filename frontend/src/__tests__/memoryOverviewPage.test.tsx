@@ -291,6 +291,8 @@ describe('MemoryOverviewPage', () => {
     render(<MemoryOverviewPage />);
 
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
+    expect(screen.getByTestId('memory-theme-root')).toHaveClass('px-4', 'py-4');
+    expect(screen.getByTestId('memory-theme-root')).not.toHaveClass('px-6', 'py-6');
     expect(await screen.findByText('Total memories')).toBeInTheDocument();
     expect(await screen.findByText('28')).toBeInTheDocument();
     expect(screen.getByText('Today +9')).toBeInTheDocument();
