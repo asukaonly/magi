@@ -8,7 +8,6 @@ from ..config import AppConfig
 from ..config.models import LLMProvider
 from ..config.models import LLMScenario
 
-
 AdapterFactory = Callable[..., object]
 
 _OPTIONAL_SCENARIO_FALLBACKS = {
@@ -54,7 +53,11 @@ class ScenarioLLMPool:
             raise ValueError(
                 f"LLM scenario '{scenario.value}' references disabled provider '{selection.provider_id}'"
             )
-        service = provider.services.embedding if scenario == LLMScenario.EMBEDDING else provider.services.chat
+        service = (
+            provider.services.embedding
+            if scenario == LLMScenario.EMBEDDING
+            else provider.services.chat
+        )
         service_label = "embedding" if scenario == LLMScenario.EMBEDDING else "chat"
         if not service.enabled:
             raise ValueError(
@@ -68,15 +71,21 @@ class ScenarioLLMPool:
 
         provider_type = self._resolve_runtime_provider_type(provider, selection.model)
         proxy_url = self._config.network.proxy_url() if hasattr(self._config, "network") else None
-        adapter = self._adapter_factory(
-            provider_type=provider_type,
-            api_key=api_key,
-            model=selection.model,
-            base_url=service.base_url or provider.base_url,
-            timeout=self._config.llm.timeout,
-            embedding_dimension=selection.embedding_dimension if scenario == LLMScenario.EMBEDDING else None,
-            proxy_url=proxy_url,
-        )
+        adapter_kwargs = {
+            "provider_type": provider_type,
+            "api_key": api_key,
+            "model": selection.model,
+            "base_url": service.base_url or provider.base_url,
+            "timeout": self._config.llm.timeout,
+            "embedding_dimension": (
+                selection.embedding_dimension if scenario == LLMScenario.EMBEDDING else None
+            ),
+            "proxy_url": proxy_url,
+        }
+        provider_plan = str(getattr(provider, "provider_plan", "") or "").strip() or None
+        if provider_plan:
+            adapter_kwargs["provider_plan"] = provider_plan
+        adapter = self._adapter_factory(**adapter_kwargs)
         for configurator in self._adapter_configurators:
             configurator(adapter)
         return adapter
@@ -103,7 +112,13 @@ class ScenarioLLMPool:
         (with a model-id-based heuristic as a last-resort default).
         """
         del selected_model  # vendor inference moved to ProviderBridgeOptionsMixin
-        provider_type = str(getattr(getattr(provider, "provider_type", ""), "value", getattr(provider, "provider_type", "")))
+        provider_type = str(
+            getattr(
+                getattr(provider, "provider_type", ""),
+                "value",
+                getattr(provider, "provider_type", ""),
+            )
+        )
         if provider_type != LLMProvider.CUSTOM.value:
             return provider_type
 

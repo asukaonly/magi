@@ -8,7 +8,6 @@ from ..config import get_config
 from ..config.models import LLMProvider, LLMProviderSettings, LLMScenario, LLMSettings
 from .factory import create_llm_adapter
 
-
 AdapterFactory = Callable[..., object]
 BUILTIN_DEFAULT_BASE_URLS = {
     "openai": "https://api.openai.com/v1",
@@ -33,10 +32,14 @@ def _resolve_runtime_provider_type(provider: LLMProviderSettings) -> str:
     raise ValueError(f"Unsupported custom provider api_format: {provider.api_format}")
 
 
-def _resolve_default_base_url(provider: LLMProviderSettings, explicit_default: str | None = None) -> str | None:
+def _resolve_default_base_url(
+    provider: LLMProviderSettings, explicit_default: str | None = None
+) -> str | None:
     provider_type = str(getattr(provider.provider_type, "value", provider.provider_type))
     if explicit_default:
         return explicit_default
+    if provider_type == LLMProvider.GLM.value and provider.provider_plan == "codeplan":
+        return "https://open.bigmodel.cn/api/coding/paas/v4"
     return BUILTIN_DEFAULT_BASE_URLS.get(provider_type)
 
 
@@ -65,14 +68,19 @@ def build_adapter_from_provider(
         config = get_config()
         proxy_url = config.network.proxy_url() if hasattr(config, "network") else None
 
-    return adapter_factory(
-        provider_type=_resolve_runtime_provider_type(provider),
-        api_key=api_key,
-        model=model.strip(),
-        base_url=(chat_service.base_url or provider.base_url or "").strip() or _resolve_default_base_url(provider, default_base_url) or None,
-        timeout=timeout,
-        proxy_url=proxy_url,
-    )
+    adapter_kwargs = {
+        "provider_type": _resolve_runtime_provider_type(provider),
+        "api_key": api_key,
+        "model": model.strip(),
+        "base_url": (chat_service.base_url or provider.base_url or "").strip()
+        or _resolve_default_base_url(provider, default_base_url)
+        or None,
+        "timeout": timeout,
+        "proxy_url": proxy_url,
+    }
+    if provider.provider_plan:
+        adapter_kwargs["provider_plan"] = provider.provider_plan
+    return adapter_factory(**adapter_kwargs)
 
 
 def resolve_adapter_for_scenario(

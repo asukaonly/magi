@@ -12,10 +12,10 @@ from .constants import DEFAULT_MAX_TOKENS, MIN_MAX_TOKENS
 
 class LLMProvider(str, Enum):
     """LLM provider type."""
+
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GLM = "glm"
-    GLM_CODEPLAN = "glm_codeplan"
     GEMINI = "gemini"
     DEEPSEEK = "deepseek"
     DASHSCOPE = "dashscope"
@@ -67,7 +67,9 @@ class LLMModelMetadataOverrideSettings(BaseModel):
     label: Optional[str] = Field(default=None)
     description: Optional[str] = Field(default=None)
     icon: Optional[str] = Field(default=None)
-    capabilities: LLMCapabilityOverridesSettings = Field(default_factory=LLMCapabilityOverridesSettings)
+    capabilities: LLMCapabilityOverridesSettings = Field(
+        default_factory=LLMCapabilityOverridesSettings
+    )
     limits: LLMLimitsOverrideSettings = Field(default_factory=LLMLimitsOverrideSettings)
     input_modalities: Optional[List[str]] = Field(default=None)
     output_modalities: Optional[List[str]] = Field(default=None)
@@ -125,12 +127,15 @@ class LLMProviderSettings(BaseModel):
     enabled: bool = Field(default=True)
     provider_type: LLMProvider = Field(default=LLMProvider.OPENAI)
     display_name: str = Field(default="OpenAI")
+    provider_plan: Optional[str] = Field(default=None)
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     api_format: Optional[str] = Field(default=None)
     custom_models: List[str] = Field(default_factory=list)
     custom_default_model: Optional[str] = Field(default=None)
-    model_metadata_overrides: Dict[str, LLMModelMetadataOverrideSettings] = Field(default_factory=dict)
+    model_metadata_overrides: Dict[str, LLMModelMetadataOverrideSettings] = Field(
+        default_factory=dict
+    )
 
     @model_validator(mode="after")
     def validate_custom_model_defaults(self) -> "LLMProviderSettings":
@@ -190,9 +195,7 @@ class LLMSettings(BaseModel):
 
         seen_provider_types: set[str] = set()
         for provider in self.providers.values():
-            provider_type = str(
-                getattr(provider.provider_type, "value", provider.provider_type)
-            )
+            provider_type = str(getattr(provider.provider_type, "value", provider.provider_type))
             if provider_type == LLMProvider.CUSTOM.value:
                 continue
             if provider_type in seen_provider_types:

@@ -27,6 +27,7 @@ def _load_provider_registry() -> LLMProviderRegistryModel:
 def calculate_chat_cost(
     *,
     provider: str,
+    provider_plan: str | None = None,
     model: str,
     prompt_tokens: int,
     completion_tokens: int,
@@ -47,7 +48,7 @@ def calculate_chat_cost(
     and conversion (if any) is left to the presentation layer.
     """
     effective_registry = registry or _load_provider_registry()
-    model_meta = find_chat_model_meta(effective_registry, provider, model)
+    model_meta = find_chat_model_meta(effective_registry, provider, model, provider_plan)
     if model_meta is None or model_meta.cost is None:
         return None, None
 
@@ -83,7 +84,9 @@ def calculate_chat_cost(
     if input_rate is not None:
         total += uncached_input_count * input_rate
     if cache_read_count:
-        total += cache_read_count * (cached_input_rate if cached_input_rate is not None else input_rate or 0.0)
+        total += cache_read_count * (
+            cached_input_rate if cached_input_rate is not None else input_rate or 0.0
+        )
     if cache_write_5m_count:
         total += cache_write_5m_count * five_minute_write_rate
     if cache_write_1h_count:
@@ -98,6 +101,7 @@ def calculate_chat_cost(
 def calculate_embedding_cost(
     *,
     provider: str,
+    provider_plan: str | None = None,
     model: str,
     prompt_tokens: int,
     registry: LLMProviderRegistryModel | None = None,
@@ -109,7 +113,7 @@ def calculate_embedding_cost(
     model has no pricing metadata.
     """
     effective_registry = registry or _load_provider_registry()
-    meta = find_embedding_model_meta(effective_registry, provider, model)
+    meta = find_embedding_model_meta(effective_registry, provider, model, provider_plan)
     if meta is None or meta.cost is None:
         return None, None
     input_rate = meta.cost.input_per_million_tokens
@@ -122,6 +126,7 @@ def calculate_embedding_cost(
 def calculate_image_generation_cost(
     *,
     provider: str,
+    provider_plan: str | None = None,
     model: str,
     image_count: int,
     registry: LLMProviderRegistryModel | None = None,
@@ -133,7 +138,7 @@ def calculate_image_generation_cost(
     pricing metadata, so callers can tell "no pricing data" apart from a real 0.
     """
     effective_registry = registry or _load_provider_registry()
-    meta = find_image_generation_model_meta(effective_registry, provider, model)
+    meta = find_image_generation_model_meta(effective_registry, provider, model, provider_plan)
     if meta is None or meta.cost is None:
         return None, None
     per_image = meta.cost.per_image
@@ -146,6 +151,7 @@ def calculate_image_generation_cost(
 def calculate_chat_cost_usd(
     *,
     provider: str,
+    provider_plan: str | None = None,
     model: str,
     prompt_tokens: int,
     completion_tokens: int,
@@ -161,6 +167,7 @@ def calculate_chat_cost_usd(
     """
     amount, currency = calculate_chat_cost(
         provider=provider,
+        provider_plan=provider_plan,
         model=model,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,

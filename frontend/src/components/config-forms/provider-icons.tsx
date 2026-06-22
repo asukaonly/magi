@@ -35,7 +35,6 @@ const ICON_SVGS: Record<string, string> = {
   openai: openaiIcon,
   anthropic: anthropicIcon,
   glm: zaiIcon,
-  glm_codeplan: zaiIcon,
   zai: zaiIcon,
   gemini: geminiIcon,
   grok: grokIcon,

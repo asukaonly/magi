@@ -13,6 +13,7 @@ import {
   type LLMProviderRegistry,
   type LLMScenario,
 } from '@/api/modules/config';
+import { SelectField } from '@/components/config-forms/fields';
 import { ProviderIcon } from '@/components/config-forms/provider-icons';
 import {
   applySelectionDefaults,
@@ -47,7 +48,6 @@ const QUICK_PROVIDER_PRIORITY = [
   'deepseek',
   'dashscope',
   'glm',
-  'glm_codeplan',
   'kimi',
   'grok',
   'minimax',
@@ -124,6 +124,7 @@ function createProviderFromMeta(meta: LLMProviderMeta, existing?: LLMProviderCon
     enabled: true,
     provider_type: providerType,
     display_name: existing?.display_name || meta.display_name || meta.id,
+    provider_plan: existing?.provider_plan || meta.provider_plan || null,
     api_key: apiKey,
     base_url: baseUrl,
     services: {
@@ -156,6 +157,7 @@ function createCustomProvider(
     enabled: true,
     provider_type: 'custom',
     display_name: source?.display_name || displayName,
+    provider_plan: source?.provider_plan || null,
     api_key: apiKey,
     base_url: baseUrl,
     services: {
@@ -309,6 +311,10 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
 
   const activeProviderId = getActiveProviderId(value);
   const activeProvider = activeProviderId ? value.providers?.[activeProviderId] : undefined;
+  const activeProviderMeta = activeProvider?.provider_type === 'custom'
+    ? undefined
+    : registry?.providers.find((provider) => provider.id === activeProvider?.provider_type);
+  const activeProviderPlans = activeProviderMeta?.plans || [];
   const selectedCardId = activeProvider?.provider_type === 'custom'
     ? 'custom'
     : activeProvider?.provider_type || '';
@@ -400,6 +406,25 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
     onChange(buildNextConfig(value, registry, providerId, provider, overrides));
   };
 
+  const commitProviderWithResolvedRegistry = async (
+    providerId: string,
+    provider: LLMProviderConfig,
+    overrides?: Partial<Record<'core' | 'context_decider' | 'embedding', string>>
+  ) => {
+    if (!customTemplate) {
+      commitProvider(providerId, provider, overrides);
+      return;
+    }
+    try {
+      const catalog = await configApi.resolveLLMProviderCatalog({ providers: { [providerId]: provider } });
+      const nextRegistry = buildRegistryFromCatalog(catalog, customTemplate);
+      setRegistry(nextRegistry);
+      onChange(buildNextConfig(value, nextRegistry, providerId, provider, overrides));
+    } catch {
+      commitProvider(providerId, provider, overrides);
+    }
+  };
+
   const handleSelectCard = (card: QuickProviderCard) => {
     if (!registry) {
       return;
@@ -436,6 +461,35 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
     const nextProvider = cloneProvider(activeProvider);
     updater(nextProvider);
     commitProvider(activeProviderId, nextProvider, overrides);
+  };
+
+  const handleActiveProviderPlanChange = (planId: string) => {
+    if (!activeProviderId || !activeProvider) {
+      return;
+    }
+    const selectedPlan = activeProviderPlans.find((plan) => plan.id === planId);
+    const nextProvider = cloneProvider(activeProvider);
+    nextProvider.provider_plan = planId || null;
+    nextProvider.base_url = '';
+    nextProvider.services.chat.base_url = '';
+    nextProvider.services.embedding.base_url = '';
+    nextProvider.services.image_generation.base_url = '';
+    if (!planId) {
+      nextProvider.services.embedding.enabled = Boolean(activeProviderMeta?.resolved_embedding_models?.length);
+      nextProvider.services.image_generation.enabled = false;
+    } else {
+      if (selectedPlan?.embedding_models !== undefined && selectedPlan.embedding_models !== null) {
+        nextProvider.services.embedding.enabled = selectedPlan.embedding_models.length > 0;
+      }
+      if (selectedPlan?.image_generation_models !== undefined && selectedPlan.image_generation_models !== null) {
+        nextProvider.services.image_generation.enabled = selectedPlan.image_generation_models.length > 0;
+      }
+    }
+    void commitProviderWithResolvedRegistry(activeProviderId, nextProvider, {
+      core: selectedPlan?.default_model || undefined,
+      context_decider: selectedPlan?.default_classify_model || selectedPlan?.default_model || undefined,
+      embedding: nextProvider.services.embedding.enabled ? undefined : '',
+    });
   };
 
   const currentCoreModel = value.selections?.core?.model || '';
@@ -539,6 +593,22 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
                 : t('llmSetup.builtinSelectedHint')}
             </p>
           </div>
+
+          {activeProvider.provider_type !== 'custom' && activeProviderPlans.length > 0 ? (
+            <label className="block space-y-2">
+              <span className="text-sm font-medium">{t('llm.fields.providerPlan')}</span>
+              <SelectField
+                value={activeProvider.provider_plan || ''}
+                allowEmpty
+                placeholder={t('llm.providerPlans.default')}
+                options={activeProviderPlans.map((plan) => ({
+                  label: plan.display_name || plan.id,
+                  value: plan.id,
+                }))}
+                onChange={handleActiveProviderPlanChange}
+              />
+            </label>
+          ) : null}
 
           <div className="grid gap-4 md:grid-cols-2">
             {activeProvider.provider_type === 'custom' ? (

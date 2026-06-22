@@ -146,6 +146,55 @@ vi.mock('../api/modules/config', async () => {
             dimensions: [1024],
           },
         ],
+        plans: [
+          {
+            id: 'codeplan',
+            display_name: 'Z.ai CodePlan',
+            default_model: 'glm-5',
+            default_classify_model: 'glm-5-code',
+            default_base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
+            embedding_models: [],
+            image_generation_models: [],
+            chat_models: [
+              {
+                id: 'glm-5',
+                label: 'GLM-5',
+                capabilities: {
+                  vision: false,
+                  image_output: false,
+                  tool_calling: true,
+                  reasoning: true,
+                  embedding: false,
+                },
+                limits: {
+                  context_window: 128000,
+                  max_output_tokens: 32000,
+                },
+                provider_options_example: {
+                  thinking: { type: 'disabled' },
+                },
+              },
+              {
+                id: 'glm-5-code',
+                label: 'GLM-5 Code',
+                capabilities: {
+                  vision: false,
+                  image_output: false,
+                  tool_calling: true,
+                  reasoning: true,
+                  embedding: false,
+                },
+                limits: {
+                  context_window: 128000,
+                  max_output_tokens: 32000,
+                },
+                provider_options_example: {
+                  thinking: { type: 'disabled' },
+                },
+              },
+            ],
+          },
+        ],
         fields: {
           api_key: { visible: true, required: true },
           base_url: { visible: true, required: false },
@@ -404,7 +453,6 @@ vi.mock('../api/modules/config', async () => {
     local: 'openai',
     anthropic: 'anthropic',
     glm: 'glm',
-    glm_codeplan: 'glm',
     dashscope: 'dashscope',
     grok: 'grok',
     gemini: 'generic',
@@ -413,10 +461,22 @@ vi.mock('../api/modules/config', async () => {
   };
 
   const resolveProviderModelsForTest = (provider: Record<string, any>) => {
-    const builtinMeta =
+    const baseBuiltinMeta =
       provider.provider_type === 'custom'
         ? undefined
         : providerRegistry.providers.find((item: any) => item.id === provider.provider_type);
+    const selectedPlan = baseBuiltinMeta?.plans?.find((plan: any) => plan.id === provider.provider_plan);
+    const builtinMeta = selectedPlan
+      ? {
+          ...baseBuiltinMeta,
+          default_model: selectedPlan.default_model || baseBuiltinMeta.default_model,
+          default_classify_model: selectedPlan.default_classify_model || baseBuiltinMeta.default_classify_model,
+          default_base_url: selectedPlan.default_base_url || baseBuiltinMeta.default_base_url,
+          chat_models: selectedPlan.chat_models ?? baseBuiltinMeta.chat_models,
+          embedding_models: selectedPlan.embedding_models ?? baseBuiltinMeta.embedding_models,
+          image_generation_models: selectedPlan.image_generation_models ?? baseBuiltinMeta.image_generation_models,
+        }
+      : baseBuiltinMeta;
     const overrides = provider.model_metadata_overrides || {};
     const customModels = provider.custom_models || [];
     const chatModels = new Map<string, any>();
@@ -607,10 +667,22 @@ vi.mock('../api/modules/config', async () => {
   };
 
   const toCatalogProvider = (providerId: string, provider: Record<string, any>) => {
-    const builtinMeta =
+    const baseBuiltinMeta =
       provider.provider_type === 'custom'
         ? undefined
         : providerRegistry.providers.find((item: any) => item.id === provider.provider_type);
+    const selectedPlan = baseBuiltinMeta?.plans?.find((plan: any) => plan.id === provider.provider_plan);
+    const builtinMeta = selectedPlan
+      ? {
+          ...baseBuiltinMeta,
+          default_model: selectedPlan.default_model || baseBuiltinMeta.default_model,
+          default_classify_model: selectedPlan.default_classify_model || baseBuiltinMeta.default_classify_model,
+          default_base_url: selectedPlan.default_base_url || baseBuiltinMeta.default_base_url,
+          chat_models: selectedPlan.chat_models ?? baseBuiltinMeta.chat_models,
+          embedding_models: selectedPlan.embedding_models ?? baseBuiltinMeta.embedding_models,
+          image_generation_models: selectedPlan.image_generation_models ?? baseBuiltinMeta.image_generation_models,
+        }
+      : baseBuiltinMeta;
     const resolved = resolveProviderModelsForTest(provider);
     return {
       ...(builtinMeta || {}),
@@ -627,6 +699,8 @@ vi.mock('../api/modules/config', async () => {
         builtinMeta?.default_model ||
         resolved.chat_models[0]?.id,
       default_base_url: provider.services?.chat?.base_url || builtinMeta?.default_base_url || '',
+      provider_plan: provider.provider_plan || null,
+      plans: baseBuiltinMeta?.plans || [],
       api_format: provider.api_format,
       fields: provider.provider_type === 'custom' ? providerRegistry.custom_provider.fields : builtinMeta?.fields,
       resolved_chat_models: resolved.chat_models,
@@ -654,6 +728,7 @@ vi.mock('../api/modules/config', async () => {
           tts: { enabled: false, api_key: '', base_url: providerMeta.default_base_url || '', model: '', voice: '', response_format: '' },
         },
         api_format: providers[providerMeta.id]?.api_format,
+        provider_plan: providers[providerMeta.id]?.provider_plan || null,
         custom_models: providers[providerMeta.id]?.custom_models || [],
         custom_default_model: providers[providerMeta.id]?.custom_default_model || '',
         model_metadata_overrides: providers[providerMeta.id]?.model_metadata_overrides || {},

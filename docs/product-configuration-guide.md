@@ -199,6 +199,7 @@ Current product expectations:
 - providers are explicit configured instances; a fresh config starts with no providers
 - multiple provider instances can share the same provider type when they represent different accounts, gateways, or service scopes
 - each provider instance stores provider-level default `api_key` and `base_url` values plus service-specific overrides under `services.chat`, `services.embedding`, `services.image_generation`, and future service blocks
+- provider instances may select a backend-registry `provider_plan` when the same provider offers alternate commercial/runtime plans; a plan can override the default Base URL, default models, service model availability, provider fields, and registry pricing without becoming a separate provider type
 - provider image generation services should remain disabled by default until the user enables them
 - service-specific API credentials and custom Base URLs are optional overrides; blank service fields inherit the provider-level defaults
 - Settings can expose more fields than first-run LLM setup
@@ -211,6 +212,7 @@ Current product expectations:
 - custom providers may define manual chat model IDs and a selectable default model
 - advanced users can override capability flags, model limits, model cost metadata, and provider-specific JSON options for the current model
 - provider and model catalogs should be delivered by dedicated LLM catalog endpoints that already merge saved provider instances, manual chat/embedding model IDs, and metadata overrides on the backend
+- provider catalog entries should expose available provider plans and resolve selected plan metadata before returning default models, default Base URL, service model lists, and pricing-bearing model metadata to the frontend
 - custom-provider creation fields and defaults should be delivered by a dedicated template endpoint rather than piggybacking on generic config responses
 - image generation model catalogs should expose provider-owned capability metadata such as supported sizes, supported quality values, maximum image count, and native generation protocol
 - image generation runtime configuration is not inferred from chat settings; it uses `services.image_generation` for timeout and native protocol, and uses service-specific API key/Base URL overrides when present before falling back to the provider-level defaults
@@ -223,6 +225,7 @@ At a minimum, the product should support:
 
 - adding, editing, enabling, disabling, and deleting provider instances
 - provider-template selection
+- provider-plan selection for provider templates that expose alternate plans
 - provider-level API key and Base URL input
 - collapsible service sections with service-specific API key and custom endpoint override input plus explicit inheritance hints
 - service-local model catalog management in the provider editor, with connection testing available from the chat service section

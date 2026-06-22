@@ -98,6 +98,7 @@ export const cloneProvider = (value?: Partial<LLMProviderConfig>): LLMProviderCo
   enabled: Boolean(value?.enabled),
   provider_type: value?.provider_type || 'openai',
   display_name: value?.display_name || '',
+  provider_plan: value?.provider_plan || null,
   api_key: value?.api_key || '',
   base_url: value?.base_url || '',
   services: cloneServices(value?.services),

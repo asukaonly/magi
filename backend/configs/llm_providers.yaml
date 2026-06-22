@@ -413,165 +413,157 @@ providers:
         supports_reference: false
         max_n: 1
         native_protocol: zai_images
-    fields:
-      model:
-        visible: true
-        required: true
-      api_key:
-        visible: true
-        required: true
-      base_url:
-        visible: true
-        required: false
-
-  - id: glm_codeplan
-    display_name: Z.ai CodePlan
-    description: Z.ai CodePlan models (no embedding support)
-    icon: zai
-    default_model: glm-5.1
-    default_classify_model: glm-4.5-air
-    default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
-    chat_models:
-      - id: glm-5.1
-        label: GLM-5.1
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 204800
-          max_output_tokens: 131072
-          max_concurrency: 4
-        cost:
-          currency: USD
-          input_per_million_tokens: 1.4
-          cached_input_per_million_tokens: 0.26
-          output_per_million_tokens: 4.4
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
-      - id: glm-5
-        label: GLM-5
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 204800
-          max_output_tokens: 131072
-          max_concurrency: 4
-        cost:
-          currency: USD
-          input_per_million_tokens: 1.0
-          cached_input_per_million_tokens: 0.2
-          output_per_million_tokens: 3.2
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
-      - id: glm-5-turbo
-        label: GLM-5 Turbo
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 204800
-          max_output_tokens: 131072
-          max_concurrency: 6
-        cost:
-          currency: USD
-          input_per_million_tokens: 1.2
-          cached_input_per_million_tokens: 0.24
-          output_per_million_tokens: 4.0
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
-      - id: glm-4.7
-        label: GLM-4.7
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 204800
-          max_output_tokens: 131072
-          max_concurrency: 4
-        cost:
-          currency: USD
-          input_per_million_tokens: 0.6
-          cached_input_per_million_tokens: 0.11
-          output_per_million_tokens: 2.2
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
-      - id: glm-4.6
-        label: GLM-4.6
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 204800
-          max_output_tokens: 131072
-          max_concurrency: 4
-        cost:
-          currency: USD
-          input_per_million_tokens: 0.6
-          cached_input_per_million_tokens: 0.11
-          output_per_million_tokens: 2.2
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
-      - id: glm-4.5
-        label: GLM-4.5
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 128000
-          max_output_tokens: 98304
-          max_concurrency: 4
-        cost:
-          currency: USD
-          input_per_million_tokens: 0.6
-          cached_input_per_million_tokens: 0.11
-          output_per_million_tokens: 2.2
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
-      - id: glm-4.5-air
-        label: GLM-4.5 Air
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 128000
-          max_output_tokens: 98304
-          max_concurrency: 6
-        cost:
-          currency: USD
-          input_per_million_tokens: 0.2
-          cached_input_per_million_tokens: 0.03
-          output_per_million_tokens: 1.1
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
+    plans:
+      - id: codeplan
+        display_name: Z.ai CodePlan
+        description: Z.ai CodePlan models (no embedding support)
+        default_model: glm-5.1
+        default_classify_model: glm-4.5-air
+        default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
+        embedding_models: []
+        image_generation_models: []
+        audio_generation_models: []
+        chat_models:
+          - id: glm-5.1
+            label: GLM-5.1
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 4
+            cost:
+              currency: USD
+              input_per_million_tokens: 1.4
+              cached_input_per_million_tokens: 0.26
+              output_per_million_tokens: 4.4
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: glm-5
+            label: GLM-5
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 4
+            cost:
+              currency: USD
+              input_per_million_tokens: 1.0
+              cached_input_per_million_tokens: 0.2
+              output_per_million_tokens: 3.2
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: glm-5-turbo
+            label: GLM-5 Turbo
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 6
+            cost:
+              currency: USD
+              input_per_million_tokens: 1.2
+              cached_input_per_million_tokens: 0.24
+              output_per_million_tokens: 4.0
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: glm-4.7
+            label: GLM-4.7
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 4
+            cost:
+              currency: USD
+              input_per_million_tokens: 0.6
+              cached_input_per_million_tokens: 0.11
+              output_per_million_tokens: 2.2
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: glm-4.6
+            label: GLM-4.6
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 4
+            cost:
+              currency: USD
+              input_per_million_tokens: 0.6
+              cached_input_per_million_tokens: 0.11
+              output_per_million_tokens: 2.2
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: glm-4.5
+            label: GLM-4.5
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 128000
+              max_output_tokens: 98304
+              max_concurrency: 4
+            cost:
+              currency: USD
+              input_per_million_tokens: 0.6
+              cached_input_per_million_tokens: 0.11
+              output_per_million_tokens: 2.2
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: glm-4.5-air
+            label: GLM-4.5 Air
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 128000
+              max_output_tokens: 98304
+              max_concurrency: 6
+            cost:
+              currency: USD
+              input_per_million_tokens: 0.2
+              cached_input_per_million_tokens: 0.03
+              output_per_million_tokens: 1.1
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
     fields:
       model:
         visible: true

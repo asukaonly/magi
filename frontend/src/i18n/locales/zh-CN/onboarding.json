@@ -406,6 +406,7 @@
       "baseUrl": "Base URL",
       "displayName": "显示名称",
       "apiFormat": "API 格式",
+      "providerPlan": "供应商计划",
       "enabled": "启用",
       "modelKind": "模型类型",
       "modelManualEntryChat": "添加聊天模型",
@@ -417,6 +418,9 @@
       "chat": "聊天模型",
       "embedding": "向量模型",
       "image": "生图模型"
+    },
+    "providerPlans": {
+      "default": "默认计划"
     },
     "modelFields": {
       "modelId": "模型 ID",
@@ -507,10 +511,6 @@
       "glm": {
         "name": "Z.ai",
         "desc": "Z.ai 的通用模型，中文场景体验友好"
-      },
-      "glm_codeplan": {
-        "name": "Z.ai CodePlan",
-        "desc": "Z.ai CodePlan 编程模型，不支持向量"
       },
       "dashscope": {
         "name": "阿里云百炼",

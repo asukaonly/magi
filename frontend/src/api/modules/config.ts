@@ -24,13 +24,13 @@ export type LLMProvider =
   | 'openai'
   | 'anthropic'
   | 'glm'
-  | 'glm_codeplan'
   | 'gemini'
   | 'grok'
   | 'deepseek'
   | 'dashscope'
   | 'kimi'
   | 'minimax'
+  | 'xiaomimimo'
   | 'custom'
   | 'local';
 export type ApiFormat = 'openai' | 'anthropic';
@@ -81,6 +81,7 @@ export interface LLMProviderConfig {
   enabled: boolean;
   provider_type: LLMProvider;
   display_name: string;
+  provider_plan?: string | null;
   api_key?: string;
   base_url?: string;
   services: LLMProviderServicesConfig;
@@ -219,6 +220,8 @@ export interface LLMProviderMeta {
   default_model?: string;
   default_classify_model?: string;
   default_base_url?: string;
+  provider_plan?: string | null;
+  plans?: LLMProviderPlanMeta[];
   api_format?: ApiFormat;
   chat_models?: LLMChatModelMeta[];
   embedding_models?: LLMEmbeddingModelMeta[];
@@ -228,6 +231,21 @@ export interface LLMProviderMeta {
   resolved_chat_models?: LLMResolvedChatModelMeta[];
   resolved_embedding_models?: LLMResolvedEmbeddingModelMeta[];
   resolved_image_generation_models?: LLMResolvedImageGenerationModelMeta[];
+}
+
+export interface LLMProviderPlanMeta {
+  id: string;
+  display_name?: string | null;
+  description?: string | null;
+  icon?: string | null;
+  default_model?: string | null;
+  default_classify_model?: string | null;
+  default_base_url?: string | null;
+  chat_models?: LLMChatModelMeta[] | null;
+  embedding_models?: LLMEmbeddingModelMeta[] | null;
+  image_generation_models?: LLMGenerationModelMeta[] | null;
+  audio_generation_models?: LLMGenerationModelMeta[] | null;
+  fields?: Record<string, LLMProviderFieldConfig> | null;
 }
 
 export interface LLMCustomProviderMeta {

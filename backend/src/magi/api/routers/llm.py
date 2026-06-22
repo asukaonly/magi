@@ -14,6 +14,7 @@ from ...config.llm_registry import (
     LLMProviderCatalogEntryModel,
     build_provider_catalog,
     find_provider_meta,
+    resolve_provider_plan_meta,
 )
 from ...config.models import LLMProviderSettings
 from ...core.logger import get_logger
@@ -30,7 +31,6 @@ from ..services.llm_testing_service import (
     discover_openai_compatible_models as _discover_openai_compatible_models,
     test_llm_provider_connection as _test_llm_provider_connection,
 )
-
 
 llm_router = APIRouter()
 logger = get_logger(__name__)
@@ -61,7 +61,9 @@ class LLMCustomProviderTemplateResponseModel(BaseModel):
     data: Optional[LLMCustomProviderTemplateDataModel] = None
 
 
-def _build_custom_provider_defaults(registry_meta: LLMCustomProviderMetaModel) -> LLMProviderConfigModel:
+def _build_custom_provider_defaults(
+    registry_meta: LLMCustomProviderMetaModel,
+) -> LLMProviderConfigModel:
     return LLMProviderConfigModel(
         enabled=True,
         provider_type="custom",
@@ -107,7 +109,9 @@ async def resolve_llm_provider_catalog(payload: LLMProviderCatalogResolveRequest
     )
     return LLMProviderCatalogResponseModel(
         success=True,
-        message=core_i18n.t("llm.providers.catalog.resolved", fallback="LLM provider catalog resolved"),
+        message=core_i18n.t(
+            "llm.providers.catalog.resolved", fallback="LLM provider catalog resolved"
+        ),
         data=LLMProviderCatalogDataModel(providers=catalog),
     )
 
@@ -117,7 +121,9 @@ async def get_llm_custom_provider_template():
     registry = _load_llm_provider_registry()
     return LLMCustomProviderTemplateResponseModel(
         success=True,
-        message=core_i18n.t("llm.providers.custom_template.loaded", fallback="LLM custom provider template loaded"),
+        message=core_i18n.t(
+            "llm.providers.custom_template.loaded", fallback="LLM custom provider template loaded"
+        ),
         data=LLMCustomProviderTemplateDataModel(
             template=registry.custom_provider,
             defaults=_build_custom_provider_defaults(registry.custom_provider),
@@ -134,21 +140,35 @@ async def discover_llm_provider_models(payload: DiscoverLLMModelsRequestModel):
     )
     return DiscoverLLMModelsApiResponseModel(
         success=True,
-        message=core_i18n.t("llm.providers.models.discovered", fallback="LLM provider models discovered"),
-        data=DiscoverLLMModelsResponseModel(models=models, default_model=models[0] if models else None),
+        message=core_i18n.t(
+            "llm.providers.models.discovered", fallback="LLM provider models discovered"
+        ),
+        data=DiscoverLLMModelsResponseModel(
+            models=models, default_model=models[0] if models else None
+        ),
     )
 
 
 @llm_router.post("/providers/test", response_model=TestLLMProviderApiResponseModel)
 async def test_llm_provider_connection(payload: TestLLMProviderRequestModel):
     provider_payload = LLMProviderConfigModel.model_validate(payload.provider)
+    registry = _load_llm_provider_registry()
     registry_meta = find_provider_meta(
-        _load_llm_provider_registry(),
+        registry,
         str(provider_payload.provider_type or payload.provider_id).strip().lower(),
     )
+    effective_meta = (
+        resolve_provider_plan_meta(registry_meta, provider_payload.provider_plan)
+        if registry_meta is not None
+        else None
+    )
     chat_service = provider_payload.services.chat
-    if not (provider_payload.base_url or "").strip() and registry_meta and registry_meta.default_base_url:
-        provider_payload.base_url = registry_meta.default_base_url
+    if (
+        not (provider_payload.base_url or "").strip()
+        and effective_meta
+        and effective_meta.default_base_url
+    ):
+        provider_payload.base_url = effective_meta.default_base_url
     if not (chat_service.api_key or "").strip() and provider_payload.api_key:
         chat_service.api_key = provider_payload.api_key
     if not (chat_service.base_url or "").strip() and provider_payload.base_url:
@@ -167,6 +187,8 @@ async def test_llm_provider_connection(payload: TestLLMProviderRequestModel):
 
     return TestLLMProviderApiResponseModel(
         success=True,
-        message=core_i18n.t("llm.providers.connection.succeeded", fallback="LLM provider connection succeeded"),
+        message=core_i18n.t(
+            "llm.providers.connection.succeeded", fallback="LLM provider connection succeeded"
+        ),
         data=TestLLMProviderResponseModel(**result),
     )

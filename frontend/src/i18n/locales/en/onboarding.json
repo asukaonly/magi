@@ -405,6 +405,7 @@
       "baseUrl": "Base URL",
       "displayName": "Display Name",
       "apiFormat": "API Format",
+      "providerPlan": "Provider Plan",
       "enabled": "Enabled",
       "modelKind": "Model Type",
       "modelManualEntryChat": "Add Chat Model",
@@ -416,6 +417,9 @@
       "chat": "Chat",
       "embedding": "Embedding",
       "image": "Image Generation"
+    },
+    "providerPlans": {
+      "default": "Default Plan"
     },
     "modelFields": {
       "modelId": "Model ID",
@@ -506,10 +510,6 @@
       "glm": {
         "name": "Z.ai",
         "desc": "Fast general-purpose models from Z.ai"
-      },
-      "glm_codeplan": {
-        "name": "Z.ai CodePlan",
-        "desc": "Z.ai CodePlan coding models, no embedding support"
       },
       "dashscope": {
         "name": "Alibaba Bailian",

@@ -4757,6 +4757,21 @@ export interface components {
             } | null;
         };
         /**
+         * LLMAudioGenerationModelMetaModel
+         * @description Metadata for audio generation models.
+         */
+        readonly LLMAudioGenerationModelMetaModel: {
+            readonly cost?: components["schemas"]["LLMModelCostModel"] | null;
+            /** Id */
+            readonly id: string;
+            /** Label */
+            readonly label?: string | null;
+            /** Provider Options Example */
+            readonly provider_options_example?: {
+                readonly [key: string]: unknown;
+            };
+        };
+        /**
          * LLMCapabilitiesSettings
          * @description Declared capability flags for the active LLM.
          */
@@ -4802,6 +4817,32 @@ export interface components {
             readonly tool_calling?: boolean | null;
             /** Vision */
             readonly vision?: boolean | null;
+        };
+        /**
+         * LLMChatCapabilitiesModel
+         * @description Chat model capabilities in provider registry.
+         */
+        readonly LLMChatCapabilitiesModel: {
+            /**
+             * Image Output
+             * @default false
+             */
+            readonly image_output: boolean;
+            /**
+             * Reasoning
+             * @default true
+             */
+            readonly reasoning: boolean;
+            /**
+             * Tool Calling
+             * @default true
+             */
+            readonly tool_calling: boolean;
+            /**
+             * Vision
+             * @default false
+             */
+            readonly vision: boolean;
         };
         /**
          * LLMConcurrencyOverrideSettings
@@ -4862,6 +4903,24 @@ export interface components {
             readonly message: string;
             /** Success */
             readonly success: boolean;
+        };
+        /**
+         * LLMEmbeddingModelMetaModel
+         * @description Metadata for embedding/vector models.
+         */
+        readonly LLMEmbeddingModelMetaModel: {
+            readonly cost?: components["schemas"]["LLMModelCostModel"] | null;
+            /** Dimensions */
+            readonly dimensions?: readonly number[];
+            /** Id */
+            readonly id: string;
+            /** Label */
+            readonly label?: string | null;
+            readonly limits?: components["schemas"]["LLMLimitsSettings"];
+            /** Provider Options Example */
+            readonly provider_options_example?: {
+                readonly [key: string]: unknown;
+            };
         };
         /**
          * LLMImageGenerationModelMetaModel
@@ -4958,6 +5017,25 @@ export interface components {
             readonly source_note?: string | null;
         };
         /**
+         * LLMModelMetaModel
+         * @description Metadata for chat/inference models.
+         */
+        readonly LLMModelMetaModel: {
+            readonly capabilities?: components["schemas"]["LLMChatCapabilitiesModel"];
+            readonly cost?: components["schemas"]["LLMModelCostModel"] | null;
+            /** Id */
+            readonly id: string;
+            /** Label */
+            readonly label?: string | null;
+            readonly limits?: components["schemas"]["LLMLimitsSettings"];
+            /** Provider Options Example */
+            readonly provider_options_example?: {
+                readonly [key: string]: unknown;
+            };
+            /** @description Behavioral vendor (decides reasoning payload, tool-calling format, etc.). Defaults via provider-level inference if not set. */
+            readonly vendor?: components["schemas"]["ModelVendor"] | null;
+        };
+        /**
          * LLMModelMetadataOverrideSettings
          * @description User-defined metadata override for any provider model.
          */
@@ -4995,7 +5073,7 @@ export interface components {
          * @description LLM provider type.
          * @enum {string}
          */
-        readonly LLMProvider: "openai" | "anthropic" | "glm" | "glm_codeplan" | "gemini" | "grok" | "deepseek" | "dashscope" | "kimi" | "minimax" | "xiaomimimo" | "local" | "custom";
+        readonly LLMProvider: "openai" | "anthropic" | "glm" | "gemini" | "grok" | "deepseek" | "dashscope" | "kimi" | "minimax" | "xiaomimimo" | "local" | "custom";
         /** LLMProviderCatalogDataModel */
         readonly LLMProviderCatalogDataModel: {
             /** Providers */
@@ -5028,6 +5106,10 @@ export interface components {
             readonly id: string;
             /** Image Generation Models */
             readonly image_generation_models?: readonly components["schemas"]["LLMImageGenerationModelMetaModel"][];
+            /** Plans */
+            readonly plans?: readonly components["schemas"]["LLMProviderPlanModel"][];
+            /** Provider Plan */
+            readonly provider_plan?: string | null;
             /** Provider Type */
             readonly provider_type: string;
             /** Resolved Chat Models */
@@ -5083,6 +5165,8 @@ export interface components {
             readonly model_metadata_overrides?: {
                 readonly [key: string]: components["schemas"]["LLMModelMetadataOverrideSettings"];
             };
+            /** Provider Plan */
+            readonly provider_plan?: string | null;
             /**
              * Provider Type
              * @default openai
@@ -5175,6 +5259,38 @@ export interface components {
              */
             readonly timeout: number;
         };
+        /**
+         * LLMProviderPlanModel
+         * @description Optional commercial/runtime plan layered onto a provider.
+         */
+        readonly LLMProviderPlanModel: {
+            /** Audio Generation Models */
+            readonly audio_generation_models?: readonly components["schemas"]["LLMAudioGenerationModelMetaModel"][] | null;
+            /** Chat Models */
+            readonly chat_models?: readonly components["schemas"]["LLMModelMetaModel"][] | null;
+            /** Default Base Url */
+            readonly default_base_url?: string | null;
+            /** Default Classify Model */
+            readonly default_classify_model?: string | null;
+            /** Default Model */
+            readonly default_model?: string | null;
+            /** Description */
+            readonly description?: string | null;
+            /** Display Name */
+            readonly display_name?: string | null;
+            /** Embedding Models */
+            readonly embedding_models?: readonly components["schemas"]["LLMEmbeddingModelMetaModel"][] | null;
+            /** Fields */
+            readonly fields?: {
+                readonly [key: string]: components["schemas"]["LLMProviderFieldModel"];
+            } | null;
+            /** Icon */
+            readonly icon?: string | null;
+            /** Id */
+            readonly id: string;
+            /** Image Generation Models */
+            readonly image_generation_models?: readonly components["schemas"]["LLMImageGenerationModelMetaModel"][] | null;
+        };
         /** LLMProviderServicesConfigModel */
         readonly LLMProviderServicesConfigModel: {
             readonly chat?: components["schemas"]["LLMProviderConnectionConfigModel"];
@@ -5221,6 +5337,8 @@ export interface components {
             readonly model_metadata_overrides?: {
                 readonly [key: string]: components["schemas"]["LLMModelMetadataOverrideSettings"];
             };
+            /** Provider Plan */
+            readonly provider_plan?: string | null;
             /** @default openai */
             readonly provider_type: components["schemas"]["LLMProvider"];
             readonly services?: components["schemas"]["LLMProviderServicesSettings"];

@@ -62,6 +62,9 @@ class ProviderBridgeOptionsMixin:
     def _provider_name(self) -> str:
         return str(getattr(self.llm, "provider_name", "") or "").lower()
 
+    def _provider_plan(self) -> str | None:
+        return str(getattr(self.llm, "provider_plan", "") or "").strip().lower() or None
+
     def is_anthropic(self) -> bool:
         """Return True when the adapter speaks the Anthropic Messages API.
 
@@ -76,6 +79,7 @@ class ProviderBridgeOptionsMixin:
             _load_provider_registry(),
             self._provider_name(),
             str(getattr(self.llm, "model_name", "unknown")),
+            self._provider_plan(),
         )
         if model_meta is not None:
             return bool(model_meta.capabilities.reasoning)
@@ -111,7 +115,7 @@ class ProviderBridgeOptionsMixin:
 
         # 2: packaged registry
         model_meta = find_chat_model_meta(
-            _load_provider_registry(), provider_name, model_name
+            _load_provider_registry(), provider_name, model_name, self._provider_plan()
         )
         if model_meta is not None and model_meta.vendor is not None:
             return model_meta.vendor
@@ -314,12 +318,15 @@ class ProviderBridgeOptionsMixin:
 
     def _build_concurrency_key(self, request_family: str) -> str:
         base_url = getattr(self.llm, "base_url", None)
-        return cast(str, LLMConcurrencyLimiter.build_key(
-            provider_name=self._provider_name(),
-            model_name=str(getattr(self.llm, "model_name", "unknown")),
-            request_family=request_family,
-            base_url=base_url,
-        ))
+        return cast(
+            str,
+            LLMConcurrencyLimiter.build_key(
+                provider_name=self._provider_name(),
+                model_name=str(getattr(self.llm, "model_name", "unknown")),
+                request_family=request_family,
+                base_url=base_url,
+            ),
+        )
 
     def _resolve_chat_concurrency_limit(self) -> int:
         """Resolve the effective concurrency cap for chat requests."""
@@ -336,6 +343,7 @@ class ProviderBridgeOptionsMixin:
             _load_provider_registry(),
             self._provider_name(),
             str(getattr(self.llm, "model_name", "unknown")),
+            self._provider_plan(),
         )
         if model_meta is not None and model_meta.limits.max_concurrency is not None:
             return int(model_meta.limits.max_concurrency)

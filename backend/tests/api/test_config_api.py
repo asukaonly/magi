@@ -32,10 +32,12 @@ from magi.config.models import (
 )
 from magi.config.agent_models import BackgroundTasksSettings as AgentBackgroundTasksSettings
 from magi.config.llm_registry import (
+    build_provider_catalog,
     build_runtime_llm_defaults,
     resolve_provider_model_catalog,
     resolve_llm_profile,
 )
+from magi.llm.pricing import calculate_chat_cost
 from magi.i18n import language_context
 from magi.system_suggestions.contracts import DismissalKind, DismissalRecord
 
@@ -700,6 +702,101 @@ def test_resolve_provider_model_catalog_applies_builtin_and_manual_overrides():
     assert manual_embedding_model.capabilities.embedding is True
 
 
+def test_resolve_provider_model_catalog_applies_provider_plan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="glm",
+        display_name="Z.ai",
+        provider_plan="codeplan",
+    )
+
+    resolved = resolve_provider_model_catalog(registry, "glm", provider)
+
+    assert [model.id for model in resolved.chat_models] == [
+        "glm-5.1",
+        "glm-5",
+        "glm-5-turbo",
+        "glm-4.7",
+        "glm-4.6",
+        "glm-4.5",
+        "glm-4.5-air",
+    ]
+    assert resolved.embedding_models == []
+    assert resolved.image_generation_models == []
+
+
+def test_build_provider_catalog_exposes_and_applies_provider_plan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="glm",
+        display_name="Z.ai",
+        provider_plan="codeplan",
+    )
+
+    catalog = build_provider_catalog(registry, {"glm": provider})
+    glm_entry = next(entry for entry in catalog if entry.id == "glm")
+
+    assert glm_entry.provider_plan == "codeplan"
+    assert [plan.id for plan in glm_entry.plans] == ["codeplan"]
+    assert glm_entry.default_base_url == "https://open.bigmodel.cn/api/coding/paas/v4"
+    assert glm_entry.default_classify_model == "glm-4.5-air"
+    assert [model.id for model in glm_entry.resolved_embedding_models] == []
+
+
+def test_update_paths_apply_provider_plan_defaults():
+    config = SystemConfigModel()
+    config.llm.providers = {
+        "glm": LLMProviderConfigModel(
+            provider_type="glm",
+            display_name="Z.ai",
+            provider_plan="codeplan",
+            api_key="sk-glm",
+            base_url="",
+        )
+    }
+    config.llm.selections["context_decider"] = LLMSelectionConfigModel(
+        provider_id="glm",
+        model="",
+    )
+    config.llm.selections["core"] = LLMSelectionConfigModel(
+        provider_id="glm",
+        model="",
+    )
+
+    updates = _build_update_paths(config)
+
+    persisted_provider = updates["llm.providers"]["glm"]
+    assert persisted_provider["provider_type"] == "glm"
+    assert persisted_provider["provider_plan"] == "codeplan"
+    assert persisted_provider["base_url"] == "https://open.bigmodel.cn/api/coding/paas/v4"
+    assert updates["llm.selections"]["context_decider"]["model"] == "glm-4.5-air"
+    assert updates["llm.selections"]["core"]["model"] == "glm-5.1"
+
+
+def test_provider_plan_pricing_uses_plan_model_metadata():
+    registry = _default_llm_provider_registry()
+
+    standard_amount, _ = calculate_chat_cost(
+        provider="glm",
+        model="glm-4.5-air",
+        prompt_tokens=1_000_000,
+        completion_tokens=1_000_000,
+        registry=registry,
+    )
+    plan_amount, currency = calculate_chat_cost(
+        provider="glm",
+        provider_plan="codeplan",
+        model="glm-4.5-air",
+        prompt_tokens=1_000_000,
+        completion_tokens=1_000_000,
+        registry=registry,
+    )
+
+    assert standard_amount is None
+    assert plan_amount == pytest.approx(1.3)
+    assert currency == "USD"
+
+
 def test_resolve_provider_model_catalog_ignores_manual_image_generation_overrides():
     registry = _default_llm_provider_registry()
     provider = LLMProviderSettings(
@@ -1344,11 +1441,13 @@ def test_complete_onboarding_quick_mode_uses_scenario_seed_personality(
 
 def test_user_preferences_has_product_tour_completed_default_false():
     from magi.api.routers.config_schemas import UserPreferencesModel
+
     prefs = UserPreferencesModel()
     assert prefs.product_tour_completed is False
 
 
 def test_user_preferences_product_tour_completed_roundtrip():
     from magi.api.routers.config_schemas import UserPreferencesModel
+
     prefs = UserPreferencesModel(product_tour_completed=True)
     assert prefs.model_dump()["product_tour_completed"] is True
