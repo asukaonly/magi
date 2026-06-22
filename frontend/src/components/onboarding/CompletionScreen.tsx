@@ -37,7 +37,10 @@ export const CompletionScreen: React.FC<CompletionScreenProps> = ({
       </Card>
 
       <div className="mx-auto w-full max-w-3xl">
-        <EmptyStateAvailableSensors showBrowseAll={false} />
+        <EmptyStateAvailableSensors
+          showBrowseAll={false}
+          fallbackPluginIds={['chrome-history', 'git-activity']}
+        />
       </div>
     </div>
   );

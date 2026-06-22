@@ -99,7 +99,7 @@ It focuses on:
 
 Onboarding should not reuse the full Settings LLM editor as the default path. Expert fields such as service-specific endpoints, image generation services, per-scenario model routing, model metadata overrides, and detailed memory/tool settings should remain collapsed or move to Settings after onboarding.
 
-Plugin and sensor activation should stay progressive. The first-run flow may explain that data sources improve context and surface direct connection cards on the completion screen, but it should not require plugin choices before the user enters the main app.
+Plugin and sensor activation should stay progressive. The first-run flow may explain that data sources improve context and surface direct connection cards on the completion screen, but it should not require plugin choices before the user enters the main app. If the installable suggestion endpoint is unavailable, the completion screen should still show a small conservative fallback set of connection cards rather than collapsing to an empty state.
 
 ## Settings Page
 

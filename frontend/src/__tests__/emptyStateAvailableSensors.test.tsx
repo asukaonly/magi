@@ -69,6 +69,27 @@ describe('EmptyStateAvailableSensors', () => {
     expect(screen.queryByTestId('empty-state-browse-all')).not.toBeInTheDocument();
   });
 
+  it('renders fallback cards when an embedded surface has no installable items', async () => {
+    const openPanel = vi.spyOn(usePluginInstallPanelStore.getState(), 'openPanel');
+    mockUseInstallableSensors.mockReturnValue({
+      items: [],
+      loading: false,
+      refresh: vi.fn(),
+    });
+    render(
+      <EmptyStateAvailableSensors
+        showBrowseAll={false}
+        fallbackPluginIds={['chrome-history', 'git-activity']}
+      />,
+    );
+    expect(screen.getByTestId('empty-state-connect-chrome-history')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-state-connect-git-activity')).toBeInTheDocument();
+    expect(screen.queryByTestId('empty-state-browse-all')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('empty-state-connect-chrome-history'));
+    expect(openPanel).toHaveBeenCalledWith('chrome-history', { install: true });
+  });
+
   it('renders a card for each installable item with display metadata', () => {
     mockUseInstallableSensors.mockReturnValue({
       items: [
