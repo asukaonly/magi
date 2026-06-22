@@ -1563,14 +1563,18 @@ describe('settings page draft saving', () => {
 
     await user.click(screen.getByTestId('timeline-nav-source-photo_library'));
     const photoWorkspace = await screen.findByTestId('timeline-capability-detail-photo_library');
-    expect(within(photoWorkspace).getByTestId('timeline-entry-row-photo_library_apple_photos')).toHaveTextContent('Apple Photos');
-    expect(within(photoWorkspace).getByTestId('timeline-entry-row-photo_library_directory')).toHaveTextContent('本地照片');
+    expect(within(photoWorkspace).getByTestId('timeline-entry-selector-photo_library')).toBeInTheDocument();
+    expect(within(photoWorkspace).getByTestId('timeline-entry-option-photo_library_apple_photos')).toHaveTextContent('Apple Photos');
+    expect(within(photoWorkspace).getByTestId('timeline-entry-option-photo_library_directory')).toHaveTextContent('本地照片');
     expect(within(photoWorkspace).getByTestId('timeline-entry-detail-photo_library_apple_photos')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('timeline-nav-source-browser_history'));
     const browserWorkspace = await screen.findByTestId('timeline-capability-detail-browser_history');
-    expect(within(browserWorkspace).getByTestId('timeline-entry-row-chrome_history')).toHaveTextContent('Chrome');
-    expect(within(browserWorkspace).getByTestId('timeline-entry-row-safari_history')).toHaveTextContent('Safari');
+    expect(within(browserWorkspace).getByTestId('timeline-entry-selector-browser_history')).toBeInTheDocument();
+    expect(within(browserWorkspace).getByTestId('timeline-entry-option-chrome_history')).toHaveTextContent('Chrome');
+    expect(within(browserWorkspace).getByTestId('timeline-entry-option-safari_history')).toHaveTextContent('Safari');
+    await user.click(within(browserWorkspace).getByTestId('timeline-entry-option-safari_history'));
+    expect(within(browserWorkspace).getByTestId('timeline-entry-detail-safari_history')).toBeInTheDocument();
   });
 
   it('renders photo-library source tabs and scopes fields to the selected source', async () => {

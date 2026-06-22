@@ -21,7 +21,6 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import {
   buildTimelineCapabilities,
-  getTimelineCapabilityDescription,
   getTimelineCapabilityDisplayName,
   getTimelineEntryDescription,
   getTimelineEntryDisplayName,
@@ -113,39 +112,49 @@ const SourceRow: React.FC<{
   </button>
 );
 
-const EntryRow: React.FC<{
+const EntryOption: React.FC<{
   source: SensorSourceStatusItem;
   selected: boolean;
   title: string;
   description: string;
+  statusLabel: string;
+  enabled: boolean;
+  attention: boolean;
   onClick: () => void;
-}> = ({ source, selected, title, description, onClick }) => (
+}> = ({ source, selected, title, description, statusLabel, enabled, attention, onClick }) => (
   <button
     type="button"
     onClick={onClick}
-    data-testid={`timeline-entry-row-${source.source_name}`}
+    data-testid={`timeline-entry-option-${source.source_name}`}
+    role="tab"
+    aria-selected={selected}
     className={cn(
-      'w-full border-b border-[hsl(var(--settings-subnav-border)/0.6)] px-4 py-3 text-left last:border-b-0',
-      'transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
-      selected ? 'bg-[hsl(var(--settings-shell-elevated)/0.78)]' : 'hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
+      'min-h-[104px] rounded-lg px-4 py-3 text-left transition-[background-color,box-shadow,color] duration-200',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+      selected
+        ? 'bg-[hsl(var(--settings-shell-elevated)/0.9)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.7),0_12px_26px_hsl(var(--foreground)/0.045)]'
+        : 'bg-[hsl(var(--settings-shell)/0.32)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34)] hover:bg-[hsl(var(--settings-shell-elevated)/0.58)]'
     )}
   >
-    <div className="flex items-center justify-between gap-3">
-      <div className="min-w-0">
+    <div className="flex h-full flex-col justify-between gap-3">
+      <div className="min-w-0 space-y-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium text-foreground">{title}</span>
-          {source.last_error || source.available === false ? (
+          {attention ? (
             <span className="h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
           ) : null}
         </div>
         <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{description}</p>
       </div>
-      <Badge variant={source.enabled ? 'default' : 'secondary'} className="shrink-0 rounded-md">
-        {source.enabled ? 'ON' : 'OFF'}
-      </Badge>
-    </div>
-    <div className="mt-2 text-[11px] text-muted-foreground">
-      {source.last_error || formatTimestamp(source.last_sync_at) || '—'}
+      <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+        <span>{source.last_error || formatTimestamp(source.last_sync_at) || '—'}</span>
+        <Badge
+          variant={attention ? 'destructive' : enabled ? 'default' : 'secondary'}
+          className="shrink-0 rounded-md"
+        >
+          {statusLabel}
+        </Badge>
+      </div>
     </div>
   </button>
 );
@@ -441,97 +450,108 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     : detailFields;
   const showPullSupportHint = !selectedSource.supports_pull_sync || Boolean(selectedSource.last_error);
   const capabilityDisplayName = selectedCapability?.displayName ?? getTimelineCapabilityDisplayName(t, selectedSource);
-  const capabilityDescription = selectedCapability?.description ?? getTimelineCapabilityDescription(t, selectedSource);
   const entryDisplayName = getTimelineEntryDisplayName(t, selectedSource);
   const entryDescription = getTimelineEntryDescription(t, selectedSource);
   const capabilityId = selectedCapability?.id ?? selectedSource.source_name;
+  const entrySources = selectedCapability?.sources ?? [selectedSource];
+  const hasMultipleEntries = entrySources.length > 1;
+  const getEntryEnabled = (source: SensorSourceStatusItem) =>
+    Boolean(resolveSourceValue(source, getSourceEnabledKey(source), source.enabled));
+  const getEntryAttention = (source: SensorSourceStatusItem) =>
+    Boolean(source.last_error || source.available === false);
+  const getEntryStatusLabel = (source: SensorSourceStatusItem) => {
+    if (getEntryAttention(source)) {
+      return t('settings.timeline.statuses.attention');
+    }
+    return getEntryEnabled(source)
+      ? t('settings.timeline.statuses.enabled')
+      : t('settings.timeline.statuses.disabled');
+  };
   const unavailableReason = selectedSource.available === false
     ? (selectedSource.unavailable_reason_translated || selectedSource.unavailable_reason)
     : null;
 
   return (
-    <div className="w-full space-y-8" data-testid={`timeline-capability-detail-${capabilityId}`}>
-      <div data-testid={`timeline-source-detail-${capabilityId}`} className="space-y-8">
-      <header className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div
-            className="flex flex-wrap items-center gap-2"
-            data-testid="timeline-source-header-status"
-          >
-            <Badge variant={(selectedCapability?.enabledCount ?? (sourceEnabled ? 1 : 0)) > 0 ? 'default' : 'secondary'} className="rounded-md">
-              {selectedCapability?.enabledCount ?? (sourceEnabled ? 1 : 0)} {t('settings.timeline.statuses.enabled')}
-            </Badge>
-            {(selectedCapability?.attentionCount ?? (selectedSource.last_error ? 1 : 0)) > 0 ? (
-              <Badge variant="destructive" className="rounded-md">
-                {t('settings.timeline.statuses.attention')}
-              </Badge>
-            ) : (
-              <Badge variant="secondary" className="rounded-md">
-                {t('settings.timeline.statuses.healthy')}
-              </Badge>
-            )}
-            <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{capabilityId}</span>
+    <div className="w-full space-y-6" data-testid={`timeline-capability-detail-${capabilityId}`}>
+      <div data-testid={`timeline-source-detail-${capabilityId}`} className="space-y-6">
+        <header className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] pb-5">
+          <div className="flex flex-wrap items-start justify-between gap-5">
+            <div className="min-w-0 space-y-3">
+              <div className="flex flex-wrap items-center gap-2" data-testid="timeline-source-header-status">
+                <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                  {capabilityDisplayName}
+                </h2>
+                <Badge variant={(selectedCapability?.enabledCount ?? (sourceEnabled ? 1 : 0)) > 0 ? 'default' : 'secondary'} className="rounded-md">
+                  {selectedCapability?.enabledCount ?? (sourceEnabled ? 1 : 0)} {t('settings.timeline.statuses.enabled')}
+                </Badge>
+                {(selectedCapability?.attentionCount ?? (selectedSource.last_error ? 1 : 0)) > 0 ? (
+                  <Badge variant="destructive" className="rounded-md">
+                    {t('settings.timeline.statuses.attention')}
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary" className="rounded-md">
+                    {t('settings.timeline.statuses.healthy')}
+                  </Badge>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
+                <span>
+                  {t('settings.timeline.workspace.entries')}
+                  <span className="ml-2 font-medium text-foreground">{selectedCapability?.sources.length ?? 1}</span>
+                </span>
+                <span>
+                  {t('settings.timeline.statuses.attention')}
+                  <span className="ml-2 font-medium text-foreground">
+                    {selectedCapability?.attentionCount ?? (selectedSource.last_error ? 1 : 0)}
+                  </span>
+                </span>
+                <span>
+                  {t('settings.timeline.workspace.lastRun')}
+                  <span className="ml-2 font-medium text-foreground">
+                    {formatTimestamp(selectedCapability?.lastSyncAt ?? selectedSource.last_sync_at) || '—'}
+                  </span>
+                </span>
+              </div>
+            </div>
           </div>
-        </div>
+        </header>
 
-        <div className="space-y-2">
-          <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-            {capabilityDisplayName}
-          </h2>
-          <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-            {capabilityDescription}
-          </p>
-        </div>
-        <div className="grid gap-5 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 md:grid-cols-2 xl:grid-cols-4">
-          <StatusMetric
-            label={t('settings.timeline.workspace.entries')}
-            value={String(selectedCapability?.sources.length ?? 1)}
-          />
-          <StatusMetric
-            label={t('settings.timeline.statuses.enabled')}
-            value={String(selectedCapability?.enabledCount ?? (sourceEnabled ? 1 : 0))}
-          />
-          <StatusMetric
-            label={t('settings.timeline.statuses.attention')}
-            value={String(selectedCapability?.attentionCount ?? (selectedSource.last_error ? 1 : 0))}
-          />
-          <StatusMetric
-            label={t('settings.timeline.workspace.lastRun')}
-            value={formatTimestamp(selectedCapability?.lastSyncAt ?? selectedSource.last_sync_at) || '—'}
-          />
-        </div>
-      </header>
-
-      <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <section className="overflow-hidden rounded-2xl border border-[hsl(var(--settings-subnav-border)/0.72)] bg-[hsl(var(--settings-shell)/0.32)]">
-          <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] px-4 py-3">
-            <h3 className="text-sm font-semibold text-foreground">{t('settings.timeline.workspace.entriesTitle')}</h3>
-            <p className="mt-1 text-xs text-muted-foreground">{t('settings.timeline.workspace.entriesDesc')}</p>
-          </div>
-          {(selectedCapability?.sources ?? [selectedSource]).map((source) => (
-            <EntryRow
-              key={source.source_name}
-              source={source}
-              selected={source.source_name === selectedSource.source_name}
-              title={getTimelineEntryDisplayName(t, source)}
-              description={getTimelineEntryDescription(t, source)}
-              onClick={() => setSelectedEntryName(source.source_name)}
-            />
-          ))}
-        </section>
-
-        <section
-          className="min-w-0 space-y-6"
-          data-testid={`timeline-entry-detail-${selectedSource.source_name}`}
-        >
-          <div
-            data-testid={
-              selectedSource.source_name !== capabilityId
-                ? `timeline-source-detail-${selectedSource.source_name}`
-                : undefined
-            }
-            className="space-y-6"
+        {hasMultipleEntries ? (
+          <section
+            className="space-y-3"
+            data-testid={`timeline-entry-selector-${capabilityId}`}
           >
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3" role="tablist" aria-label={capabilityDisplayName}>
+              {entrySources.map((source) => (
+                <EntryOption
+                  key={source.source_name}
+                  source={source}
+                  selected={source.source_name === selectedSource.source_name}
+                  title={getTimelineEntryDisplayName(t, source)}
+                  description={getTimelineEntryDescription(t, source)}
+                  statusLabel={getEntryStatusLabel(source)}
+                  enabled={getEntryEnabled(source)}
+                  attention={getEntryAttention(source)}
+                  onClick={() => setSelectedEntryName(source.source_name)}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        <div>
+          <section
+            className="min-w-0 space-y-6"
+            data-testid={`timeline-entry-detail-${selectedSource.source_name}`}
+          >
+            <div
+              data-testid={
+                selectedSource.source_name !== capabilityId
+                  ? `timeline-source-detail-${selectedSource.source_name}`
+                  : undefined
+              }
+              className="space-y-6"
+            >
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
