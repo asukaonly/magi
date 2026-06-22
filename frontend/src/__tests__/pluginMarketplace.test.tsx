@@ -148,4 +148,89 @@ describe('PluginMarketplace', () => {
       expect(install).toHaveBeenCalledWith('safari-history', expect.any(Function));
     });
   });
+
+  it('shows one grouped progress panel while installing grouped browser entries', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      registry_version: '1',
+      plugins: [
+        {
+          plugin_id: 'chrome-history',
+          name: 'Chrome History',
+          name_i18n: { 'zh-CN': 'Chrome 浏览历史' },
+          version: '0.1.0',
+          description: 'Read local Chrome browsing history.',
+          description_i18n: { 'zh-CN': '读取本地 Chrome 浏览记录。' },
+          author: 'Magi Team',
+          icon: 'brand:googlechrome',
+          official: true,
+          data_locality: 'local_only',
+          contribution_types: ['sensor'],
+          platforms: [],
+          min_sdk_version: '0.1.0',
+          homepage: '',
+          repository: '',
+          path: 'chrome-history',
+          installed: false,
+          installed_version: null,
+          update_available: false,
+          capabilities: [],
+        },
+        {
+          plugin_id: 'safari-history',
+          name: 'Safari History',
+          name_i18n: { 'zh-CN': 'Safari 浏览历史' },
+          version: '0.1.0',
+          description: 'Read local Safari browsing history.',
+          description_i18n: { 'zh-CN': '读取本地 Safari 浏览记录。' },
+          author: 'Magi Team',
+          icon: 'brand:safari',
+          official: true,
+          data_locality: 'local_only',
+          contribution_types: ['sensor'],
+          platforms: [],
+          min_sdk_version: '0.1.0',
+          homepage: '',
+          repository: '',
+          path: 'safari-history',
+          installed: false,
+          installed_version: null,
+          update_available: false,
+          capabilities: [],
+        },
+      ],
+    });
+    vi.spyOn(pluginsApi, 'installFromRegistryWithProgress').mockImplementation(
+      async (pluginId, onProgress) => {
+        onProgress?.({
+          job_id: `job-${pluginId}`,
+          operation: 'install',
+          plugin_id: pluginId,
+          filename: null,
+          status: 'running',
+          stage: 'install',
+          progress_pct: pluginId === 'chrome-history' ? 35 : 70,
+          message: `Installing ${pluginId}`,
+          logs: [],
+          result: null,
+          created_at_ms: 1,
+          updated_at_ms: 1,
+          finished_at_ms: null,
+        });
+        return {} as any;
+      }
+    );
+
+    render(<PluginMarketplace installedPlugins={[]} onInstallComplete={vi.fn()} />);
+
+    const browserCard = await screen.findByTestId('marketplace-plugin-browser-history');
+    await user.click(within(browserCard).getByRole('button', { name: 'settings.marketplace.actions.install' }));
+    await user.click(await screen.findByText('settings.marketplace.consent.confirm.install'));
+
+    await waitFor(() => {
+      expect(within(browserCard).getByText('settings.marketplace.installProgress.groupTitle')).toBeInTheDocument();
+    });
+    expect(within(browserCard).queryByText(/Chrome 浏览历史/)).not.toBeInTheDocument();
+    expect(within(browserCard).queryByText(/Safari 浏览历史/)).not.toBeInTheDocument();
+  });
 });

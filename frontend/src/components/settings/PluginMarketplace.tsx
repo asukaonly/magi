@@ -392,6 +392,15 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
             const isProcessing = !!operation;
             const updateAvailable = item.entries.some((candidate) => candidate.update_available);
             const dataLocalOnly = item.entries.every((candidate) => candidate.data_locality === 'local_only');
+            const entrySnapshots = item.entries
+              .map((candidate) => installSnapshots[candidate.plugin_id])
+              .filter(Boolean);
+            const groupedSnapshot = item.kind === 'group'
+              ? (
+                entrySnapshots.find((snapshot) => snapshot.status === 'queued' || snapshot.status === 'running')
+                || entrySnapshots[entrySnapshots.length - 1]
+              )
+              : null;
 
             return (
               <div
@@ -542,17 +551,24 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                   </div>
                 </div>
 
-                {item.entries.map((candidate) => (
-                  installSnapshots[candidate.plugin_id] ? (
-                    <PluginInstallProgressPanel
-                      key={candidate.plugin_id}
-                      snapshot={installSnapshots[candidate.plugin_id]}
-                      title={t('settings.marketplace.installProgress.itemTitle', {
-                        name: localized(candidate.name, candidate.name_i18n, language),
-                      })}
-                    />
-                  ) : null
-                ))}
+                {groupedSnapshot ? (
+                  <PluginInstallProgressPanel
+                    snapshot={groupedSnapshot}
+                    title={t('settings.marketplace.installProgress.groupTitle', { name: itemName })}
+                  />
+                ) : (
+                  item.entries.map((candidate) => (
+                    installSnapshots[candidate.plugin_id] ? (
+                      <PluginInstallProgressPanel
+                        key={candidate.plugin_id}
+                        snapshot={installSnapshots[candidate.plugin_id]}
+                        title={t('settings.marketplace.installProgress.itemTitle', {
+                          name: localized(candidate.name, candidate.name_i18n, language),
+                        })}
+                      />
+                    ) : null
+                  ))
+                )}
               </div>
             );
           })}

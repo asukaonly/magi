@@ -20,4 +20,11 @@ describe('PluginIcon', () => {
     expect(screen.getByTestId('plugin-icon-photo-library')).toBeInTheDocument();
     expect(screen.queryByTestId('plugin-icon-fallback')).not.toBeInTheDocument();
   });
+
+  it('resolves GitHub Activity to the GitHub brand icon when the registry icon is missing', () => {
+    render(<PluginIcon pluginId="github-activity" sourceName="GitHub Activity" />);
+
+    expect(screen.getByTestId('plugin-icon-github')).toBeInTheDocument();
+    expect(screen.queryByTestId('plugin-icon-fallback')).not.toBeInTheDocument();
+  });
 });

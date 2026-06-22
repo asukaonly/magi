@@ -2317,6 +2317,7 @@
         "updateFailed": "Failed to update plugin: {{message}}"
       },
       "installProgress": {
+        "groupTitle": "Installing {{name}}",
         "itemTitle": "Installing {{name}}",
         "uploadTitle": "Installing uploaded plugin"
       },

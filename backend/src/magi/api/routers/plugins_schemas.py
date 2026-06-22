@@ -33,6 +33,7 @@ class PluginManifestResponse(BaseModel):
     version: str
     description: str
     author: str
+    icon: str = ""
     official: bool
     contribution_types: list[str]
     source: str
@@ -79,6 +80,7 @@ class PluginRegistryEntryResponse(BaseModel):
     description: str = ""
     description_i18n: dict[str, str] = Field(default_factory=dict)
     author: str = ""
+    icon: str = ""
     official: bool = False
     data_locality: str = ""
     contribution_types: list[str] = Field(default_factory=list)

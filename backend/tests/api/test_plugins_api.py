@@ -25,6 +25,7 @@ class _FakeManager:
                         "version": "1.0.0",
                         "description": "Built-in tools",
                         "author": "Magi Team",
+                        "icon": "lucide:wrench",
                         "official": True,
                         "contribution_types": [type("ContributionType", (), {"value": "tool"})()],
                         "source": "builtin",
@@ -169,6 +170,7 @@ def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     response = client.get("/api/plugins")
     assert response.status_code == 200
     assert response.json()["plugins"][0]["manifest"]["plugin_id"] == "core-tools"
+    assert response.json()["plugins"][0]["manifest"]["icon"] == "lucide:wrench"
 
     update_response = client.put("/api/plugins/core-tools/settings", json={"updates": {"display.label": "Core"}})
     assert update_response.status_code == 200

@@ -2316,6 +2316,7 @@
         "updateFailed": "插件更新失败：{{message}}"
       },
       "installProgress": {
+        "groupTitle": "正在安装 {{name}}",
         "itemTitle": "正在安装 {{name}}",
         "uploadTitle": "正在安装上传的插件"
       },

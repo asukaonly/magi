@@ -77,6 +77,8 @@ const BRAND_ALIASES: Record<string, string> = {
   'netease-music': 'neteasecloudmusic',
   git_activity: 'git',
   'git-activity': 'git',
+  github_activity: 'github',
+  'github-activity': 'github',
   obsidian_vault: 'obsidian',
   'obsidian-vault': 'obsidian',
   weixin: 'wechat',

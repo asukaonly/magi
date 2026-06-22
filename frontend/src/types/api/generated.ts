@@ -6685,6 +6685,11 @@ export interface components {
             readonly contribution_types: readonly string[];
             /** Description */
             readonly description: string;
+            /**
+             * Icon
+             * @default
+             */
+            readonly icon: string;
             /** Manifest Path */
             readonly manifest_path: string;
             /** Name */
@@ -6750,6 +6755,11 @@ export interface components {
              * @default
              */
             readonly homepage: string;
+            /**
+             * Icon
+             * @default
+             */
+            readonly icon: string;
             /**
              * Installed
              * @default false
