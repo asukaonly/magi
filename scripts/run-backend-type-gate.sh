@@ -53,6 +53,7 @@ TYPE_GATE_FILES=(
   magi/llm/usage_tracing.py
   magi/memory/l2/batch_models.py
   magi/memory/l2/candidate_models.py
+  magi/memory/l2/assertion_family_policy.py
   magi/memory/l2/entities/models.py
   magi/memory/l2/episode_models.py
   magi/memory/evidence/policy.py

@@ -6,16 +6,27 @@ from dataclasses import dataclass, field
 import hashlib
 import re
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import Any, Protocol, cast
 
 from ....core.logger import get_logger
-from ..extraction_profiles import ExtractionProfile
 from ..entities.catalog.lookup import get_canonical_names
 from ..ontology import ASSERTION_FAMILY_ALLOWLIST, PREDICATE_REGISTRY
 
 logger = get_logger(__name__)
 
 _VALUE_STRATEGIES = frozenset({"canonical_name", "object_id", "object_slug"})
+
+
+class _DerivedAssertionProfile(Protocol):
+    profile_id: str
+    source_types: frozenset[str]
+    derived_assertion_specs: tuple[dict[str, Any], ...]
+    allowed_assertion_families: frozenset[str]
+    allowed_assertion_traits: frozenset[str] | None
+
+    @property
+    def effective_structured_allowed_predicates(self) -> frozenset[str]:
+        ...
 
 
 @dataclass(slots=True, frozen=True)
@@ -82,10 +93,14 @@ def builtin_interest_rule(*, min_observations: int = 3) -> GraphDerivedAssertion
 
 
 def build_graph_derived_rules_from_profiles(
-    profiles: Mapping[str, ExtractionProfile] | Iterable[ExtractionProfile],
+    profiles: Mapping[str, _DerivedAssertionProfile] | Iterable[_DerivedAssertionProfile],
 ) -> tuple[GraphDerivedAssertionRule, ...]:
     """Compile plugin-contributed derived assertion specs into host-owned rules."""
-    profile_values = profiles.values() if isinstance(profiles, Mapping) else profiles
+    profile_values: Iterable[_DerivedAssertionProfile]
+    if isinstance(profiles, Mapping):
+        profile_values = profiles.values()
+    else:
+        profile_values = cast(Iterable[_DerivedAssertionProfile], profiles)
     rules: list[GraphDerivedAssertionRule] = []
     for profile in profile_values:
         for index, spec in enumerate(profile.derived_assertion_specs):
@@ -281,7 +296,7 @@ def _safe_slug(slug: str) -> str:
 
 def _rule_from_profile_spec(
     *,
-    profile: ExtractionProfile,
+    profile: _DerivedAssertionProfile,
     spec: dict[str, Any],
     index: int,
 ) -> GraphDerivedAssertionRule | None:
