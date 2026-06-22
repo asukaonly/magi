@@ -13,6 +13,7 @@ import type {
 } from '../../api/modules/config';
 import { personasApi } from '../../api/modules/personas';
 import type { SeedPreview } from '../../api/modules/personas';
+import { listInstallable, type InstallableItem } from '../../api/modules/systemSuggestions';
 import { cloneLLMConfig } from '../config-forms/llm-form-state';
 import GuidedConfigFrame from '../config-forms/GuidedConfigFrame';
 import WelcomeScreen from './WelcomeScreen';
@@ -93,12 +94,22 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [customPersonas, setCustomPersonas] = useState<CustomPersonaDraft[]>([]);
   // True while a custom persona is being generated on the persona step.
   const [personaGenerating, setPersonaGenerating] = useState(false);
+  const [installableItems, setInstallableItems] = useState<InstallableItem[]>([]);
+  const [installableLoading, setInstallableLoading] = useState(true);
+  const installablePreloadStartedRef = useRef(false);
+  const mountedRef = useRef(true);
 
   // Persona previews (loaded once on mount for the active locale).
   const [seedPreviews, setSeedPreviews] = useState<SeedPreview[]>([]);
 
   const activeLanguage = i18n.resolvedLanguage || i18n.language;
   const debugI18n = localStorage.getItem('magi_i18n_debug') === '1';
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const formLanguage = initialConfig.preferences?.language || 'zh';
@@ -197,6 +208,31 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       form.setFieldValue(['preferences', 'language'], 'zh');
     }
   }, [form]);
+
+  useEffect(() => {
+    if (current < 1 || installablePreloadStartedRef.current) {
+      return;
+    }
+
+    installablePreloadStartedRef.current = true;
+    setInstallableLoading(true);
+    void listInstallable()
+      .then((items) => {
+        if (mountedRef.current) {
+          setInstallableItems(items);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current) {
+          setInstallableItems([]);
+        }
+      })
+      .finally(() => {
+        if (mountedRef.current) {
+          setInstallableLoading(false);
+        }
+      });
+  }, [current]);
 
   const saveProgress = (
     values: SystemConfig,
@@ -415,6 +451,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           onFinish={handleFinish}
           loading={saving || finishingRuntime}
           loadingLabel={finishingRuntime ? t('actions.startingRuntime') : t('actions.saving')}
+          installableItems={installableItems}
+          installableLoading={installableLoading}
         />
       );
     }

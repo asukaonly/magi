@@ -4,17 +4,22 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
+import type { InstallableItem } from '@/api/modules/systemSuggestions';
 
 interface CompletionScreenProps {
   onFinish: () => void;
   loading?: boolean;
   loadingLabel?: string;
+  installableItems?: InstallableItem[];
+  installableLoading?: boolean;
 }
 
 export const CompletionScreen: React.FC<CompletionScreenProps> = ({
   onFinish,
   loading = false,
   loadingLabel,
+  installableItems,
+  installableLoading,
 }) => {
   const { t } = useTranslation('onboarding');
 
@@ -40,6 +45,8 @@ export const CompletionScreen: React.FC<CompletionScreenProps> = ({
             <EmptyStateAvailableSensors
               showBrowseAll={false}
               fallbackPluginIds={['chrome-history', 'git-activity']}
+              installableItems={installableItems}
+              installableLoading={installableLoading}
             />
           </div>
         </CardContent>

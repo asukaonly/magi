@@ -8,6 +8,11 @@
     "installAndConnect": "Install & enable",
     "connecting": "Connecting…",
     "recommend": "Suggested: {{plugin}}",
+    "enterChat": "Enter chat",
+    "firstContextKicker": "Optional context source",
+    "firstContextTitle": "Give Magi one starting point",
+    "firstContextBody": "Connect a daily source and Magi will build its first piece of context. You can skip this now and add sources later.",
+    "firstContextNote": "Magi only reads sources you enable. You can turn each plugin off or adjust it from Settings.",
     "chat": {
       "title": "Chat with me",
       "body": "Talk with your persona right here."

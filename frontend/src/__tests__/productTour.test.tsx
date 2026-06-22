@@ -1,53 +1,71 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { ProductTour } from '@/components/onboarding/ProductTour';
-import * as ss from '@/api/modules/systemSuggestions';
+import type { InstallableItem } from '@/api/modules/systemSuggestions';
 import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k, i18n: { language: 'zh-CN' } }) }));
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (k: string) => k, i18n: { language: 'zh-CN' } }),
+}));
 
-function mountTargets() {
-  for (const id of ['tour-target-conversation', 'tour-target-timeline', 'tour-target-memory', 'tour-target-bell']) {
-    const el = document.createElement('div');
-    el.setAttribute('data-testid', id);
-    document.body.appendChild(el);
-  }
+const mockUseInstallableSensors = vi.fn();
+vi.mock('@/hooks/useInstallableSensors', () => ({
+  useInstallableSensors: () => mockUseInstallableSensors(),
+}));
+
+function item(overrides: Partial<InstallableItem> = {}): InstallableItem {
+  return {
+    plugin_id: 'chrome-history',
+    category: 'browser_history',
+    installed: false,
+    rationale: { zh: '', en: '' },
+    ...overrides,
+  };
 }
 
 describe('ProductTour', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mockUseInstallableSensors.mockReset();
+    mockUseInstallableSensors.mockReturnValue({
+      items: [item()],
+      loading: false,
+      refresh: vi.fn(),
+    });
     usePluginInstallPanelStore.getState().closePanel();
-    document.body.innerHTML = '';
-    mountTargets();
-    vi.spyOn(ss, 'listInstallable').mockResolvedValue([
-      { plugin_id: 'chrome-history', category: 'browser_history', installed: false, rationale: { zh: '', en: '' } },
-    ]);
   });
 
-  it('steps through and calls onComplete after the last step', async () => {
+  it('renders the first context setup prompt', () => {
+    render(<ProductTour onComplete={vi.fn()} />);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('productTour.firstContextTitle')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-state-connect-chrome-history')).toBeInTheDocument();
+  });
+
+  it('enter chat calls onComplete', async () => {
     const onComplete = vi.fn();
     render(<ProductTour onComplete={onComplete} />);
-    // step 1 → next ×3 → done
-    for (let i = 0; i < 3; i++) await userEvent.click(await screen.findByRole('button', { name: 'productTour.next' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'productTour.done' }));
-    await waitFor(() => expect(onComplete).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole('button', { name: 'productTour.enterChat' }));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
   });
 
   it('skip calls onComplete', async () => {
     const onComplete = vi.fn();
     render(<ProductTour onComplete={onComplete} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'productTour.skip' }));
-    await waitFor(() => expect(onComplete).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole('button', { name: 'productTour.skip' }));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
   });
 
-  it('connect opens the install panel install-first for an uninstalled source', async () => {
+  it('connect opens the install panel and completes the prompt', async () => {
+    const onComplete = vi.fn();
     const openPanel = vi.spyOn(usePluginInstallPanelStore.getState(), 'openPanel');
-    render(<ProductTour onComplete={vi.fn()} />);
-    // Advance to the connect step (index 1: timeline) and click the named connect button.
-    await userEvent.click(await screen.findByRole('button', { name: 'productTour.next' }));
-    await userEvent.click(await screen.findByTestId('tour-connect-chrome-history'));
+
+    render(<ProductTour onComplete={onComplete} />);
+    await userEvent.click(screen.getByTestId('empty-state-connect-chrome-history'));
+
     expect(openPanel).toHaveBeenCalledWith('chrome-history', { install: true });
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
   });
 });

@@ -15,6 +15,7 @@ const { localStorageMock } = vi.hoisted(() => {
 import { apiClient } from '@/api/client';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { personasApi } from '@/api/modules/personas';
+import * as systemSuggestions from '@/api/modules/systemSuggestions';
 import OnboardingFlow from '@/components/onboarding/OnboardingFlow';
 
 vi.mock('react-i18next', () => ({
@@ -112,6 +113,14 @@ describe('OnboardingFlow (linear 4-step)', () => {
       success: true,
       data: stubSeedPreviews(),
     } as any);
+    vi.spyOn(systemSuggestions, 'listInstallable').mockResolvedValue([
+      {
+        plugin_id: 'chrome-history',
+        category: 'browser_history',
+        installed: false,
+        rationale: { zh: '', en: '' },
+      },
+    ]);
     vi.spyOn(personasApi, 'seed').mockResolvedValue({
       success: true,
       data: { created_ids: [] },

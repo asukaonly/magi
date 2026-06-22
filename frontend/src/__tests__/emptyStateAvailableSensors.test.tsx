@@ -46,6 +46,38 @@ describe('EmptyStateAvailableSensors', () => {
     expect(screen.queryByTestId('empty-state-browse-all')).not.toBeInTheDocument();
   });
 
+  it('renders fallback cards while an embedded surface is still loading', () => {
+    mockUseInstallableSensors.mockReturnValue({
+      items: [],
+      loading: true,
+      refresh: vi.fn(),
+    });
+    render(
+      <EmptyStateAvailableSensors
+        showBrowseAll={false}
+        fallbackPluginIds={['chrome-history', 'git-activity']}
+      />,
+    );
+    expect(screen.getByTestId('empty-state-connect-chrome-history')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-state-connect-git-activity')).toBeInTheDocument();
+    expect(screen.queryByTestId('empty-state-browse-all')).not.toBeInTheDocument();
+  });
+
+  it('uses preloaded installable items when provided', () => {
+    mockUseInstallableSensors.mockReturnValue({
+      items: [],
+      loading: true,
+      refresh: vi.fn(),
+    });
+    render(
+      <EmptyStateAvailableSensors
+        installableItems={[item({ plugin_id: 'git-activity', category: 'code_activity', installed: true })]}
+        installableLoading={false}
+      />,
+    );
+    expect(screen.getByTestId('empty-state-connect-git-activity')).toBeInTheDocument();
+  });
+
   it('still renders the browse-all exit when no cards are available', () => {
     mockUseInstallableSensors.mockReturnValue({
       items: [],

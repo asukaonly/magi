@@ -2,14 +2,15 @@ import { create } from 'zustand';
 import { configApi } from '@/api/modules/config';
 
 /**
- * Shared one-time product-tour gate.
+ * Shared one-time first-run context prompt gate.
  *
  * MUST be a shared store (not per-component local state): the flag is read by
- * BOTH `MainLayout` (to mount/unmount the tour) AND `useChatSessionLifecycle`
- * (to release the deferred persona opening once the tour finishes). With local
- * state each consumer had its own copy, so completing the tour in MainLayout
- * never reached the lifecycle hook and the opening never fired. A single store
- * makes the completion flip propagate to every consumer.
+ * BOTH `MainLayout` (to mount/unmount the prompt) AND
+ * `useChatSessionLifecycle` (to release the deferred persona opening once the
+ * prompt finishes). With local state each consumer had its own copy, so
+ * completing the prompt in MainLayout never reached the lifecycle hook and the
+ * opening never fired. A single store makes the completion flip propagate to
+ * every consumer.
  */
 interface ProductTourState {
   completed: boolean;
@@ -19,7 +20,7 @@ interface ProductTourState {
 }
 
 export const useProductTourStore = create<ProductTourState>((set) => ({
-  completed: true, // assume done until we learn otherwise (avoids a flash of the tour)
+  completed: true, // assume done until we learn otherwise (avoids a prompt flash)
   loaded: false,
   refresh: async () => {
     try {
@@ -31,7 +32,7 @@ export const useProductTourStore = create<ProductTourState>((set) => ({
     }
   },
   markCompleted: async () => {
-    set({ completed: true }); // optimistic — propagates to ALL consumers (releases the opening)
+    set({ completed: true }); // optimistic: propagates to ALL consumers and releases the opening
     try {
       const response = await configApi.get();
       const current = (response as any)?.data;

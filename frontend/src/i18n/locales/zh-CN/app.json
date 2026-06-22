@@ -8,6 +8,11 @@
     "installAndConnect": "安装并启用",
     "connecting": "连接中…",
     "recommend": "推荐：{{plugin}}",
+    "enterChat": "先进入聊天",
+    "firstContextKicker": "可选的数据源",
+    "firstContextTitle": "给 Magi 一个愿意分享的起点",
+    "firstContextBody": "连接一个日常数据源，它会先整理第一份上下文。你也可以跳过，之后随时再打开。",
+    "firstContextNote": "Magi 只会读取你主动启用的来源；每个插件都可以在设置里关闭或调整。",
     "chat": {
       "title": "和我聊天",
       "body": "在这里和你的人格对话。"
