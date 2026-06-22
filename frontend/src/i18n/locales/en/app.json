@@ -8,6 +8,12 @@
     "installAndConnect": "Install & enable",
     "connecting": "Connecting…",
     "recommend": "Suggested: {{plugin}}",
+    "enterChat": "Enter chat",
+    "connectLater": "Connect later",
+    "firstContextKicker": "Optional context source",
+    "firstContextTitle": "Give Magi one starting point",
+    "firstContextBody": "Connect a daily source and Magi will build its first piece of context. You can skip this now and add sources later.",
+    "firstContextNote": "Magi only reads sources you enable. You can turn each plugin off or adjust it from Settings.",
     "chat": {
       "title": "Chat with me",
       "body": "Talk with your persona right here."
@@ -29,6 +35,15 @@
     "startupFailed": "Backend startup failed",
     "retry": "Retry",
     "starting": "Starting Magi backend...",
+    "initializeFailedFallback": "Failed to initialize runtime",
+    "diagnosticsHint": "Magi could not finish starting. The details below include the startup error and the latest backend log output.",
+    "summaryLabel": "Error summary",
+    "logPathLabel": "Log file",
+    "recentLogLabel": "Recent backend log",
+    "noLogAvailable": "No backend log output is available yet.",
+    "logReadError": "Could not read backend log: {{error}}",
+    "copyDiagnostics": "Copy diagnostics",
+    "copiedDiagnostics": "Copied",
     "phase": {
       "spawning": "Launching backend process...",
       "waiting_for_worker": "Initializing runtime...",

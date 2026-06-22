@@ -8,6 +8,12 @@
     "installAndConnect": "安装并启用",
     "connecting": "连接中…",
     "recommend": "推荐：{{plugin}}",
+    "enterChat": "先进入聊天",
+    "connectLater": "稍后再连接",
+    "firstContextKicker": "可选的数据源",
+    "firstContextTitle": "给 Magi 一个愿意分享的起点",
+    "firstContextBody": "连接一个日常数据源，它会先整理第一份上下文。你也可以跳过，之后随时再打开。",
+    "firstContextNote": "Magi 只会读取你主动启用的来源；每个插件都可以在设置里关闭或调整。",
     "chat": {
       "title": "和我聊天",
       "body": "在这里和你的人格对话。"
@@ -29,6 +35,15 @@
     "startupFailed": "后端启动失败",
     "retry": "重试",
     "starting": "正在启动 Magi 后端...",
+    "initializeFailedFallback": "运行时初始化失败",
+    "diagnosticsHint": "Magi 没能完成启动。下面包含启动错误和最新的后端日志输出。",
+    "summaryLabel": "错误摘要",
+    "logPathLabel": "日志文件",
+    "recentLogLabel": "最近后端日志",
+    "noLogAvailable": "暂时还没有读到后端日志输出。",
+    "logReadError": "无法读取后端日志：{{error}}",
+    "copyDiagnostics": "复制诊断信息",
+    "copiedDiagnostics": "已复制",
     "phase": {
       "spawning": "正在启动后端进程...",
       "waiting_for_worker": "正在初始化运行时...",

@@ -42,7 +42,6 @@ class LLMProvider(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GLM = "glm"
-    GLM_CODEPLAN = "glm_codeplan"
     GEMINI = "gemini"
     GROK = "grok"
     DEEPSEEK = "deepseek"
@@ -272,6 +271,7 @@ class LLMProviderSettings(BaseModel):
     enabled: bool = Field(default=True)
     provider_type: LLMProvider = Field(default=LLMProvider.OPENAI)
     display_name: str = Field(default="OpenAI")
+    provider_plan: Optional[str] = Field(default=None)
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     services: LLMProviderServicesSettings = Field(default_factory=LLMProviderServicesSettings)

@@ -5,7 +5,7 @@ import { create } from 'zustand';
  *
  * MUST be a shared store (not per-component local state): the panel is mounted
  * ONCE in MainLayout but triggered from three independent entry points (the
- * first-run product tour, the empty-state sensor cards, and the chat
+ * first-run context prompt, the empty-state sensor cards, and the chat
  * side-card). A store lets every entry point open the same panel without each
  * rendering its own dialog copy.
  *

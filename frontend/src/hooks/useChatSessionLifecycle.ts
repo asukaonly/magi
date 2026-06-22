@@ -16,9 +16,9 @@ const BOOTSTRAP_PENDING_MESSAGE_ID = 'bootstrap-init-pending';
 /**
  * Pure gate deciding whether the persona's bootstrap opening may fire yet.
  *
- * The opening is deferred until the one-time product tour is resolved: we hold
- * it while the tour state is still loading and while the tour is pending, and
- * only release it once the tour is loaded AND completed (or skipped). Extracted
+ * The opening is deferred until the one-time first-run context prompt is
+ * resolved: we hold it while that state is still loading or pending, and only
+ * release it once the prompt is loaded AND completed (or skipped). Extracted
  * as a pure helper so the gate is unit-testable independently of the hook.
  */
 export function shouldFireBootstrap(args: {
@@ -77,8 +77,8 @@ export function useChatSessionLifecycle({
   const [coreModelSupportsVision, setCoreModelSupportsVision] = useState(false);
   const [allowInterjection, setAllowInterjection] = useState(true);
   const bootstrappedSessionIdRef = useRef<string | null>(null);
-  // Defer the persona's bootstrap opening until the one-time product tour is
-  // resolved. When the tour completes, the flag flips and the firing effect
+  // Defer the persona's bootstrap opening until the one-time first-run context
+  // prompt is resolved. When it completes, the flag flips and the firing effect
   // below re-runs (re-fetching the greeting), releasing the held opening.
   const { completed: tourCompleted, loaded: tourLoaded } = useProductTourFlag();
 
@@ -226,7 +226,7 @@ export function useChatSessionLifecycle({
     void requestHistoryRef.current(currentSessionId);
     void loadPersonalityRef.current();
     // tourCompleted/tourLoaded are deps so this same effect also re-evaluates the
-    // *deferred* bootstrap opening once the one-time product tour resolves:
+    // *deferred* bootstrap opening once the first-run context prompt resolves:
     // loadPersonality re-fetches the greeting and shouldFireBootstrap then releases
     // the held opening. Folding it into this effect (rather than a second one)
     // avoids a redundant loadPersonality/getGreeting call on every session switch.

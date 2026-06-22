@@ -146,6 +146,7 @@ const createProviderFromTemplate = (
       enabled: true,
       provider_type: 'custom',
       display_name: customDefaults?.display_name || customDisplayName,
+      provider_plan: customDefaults?.provider_plan || null,
       api_key: customDefaults?.api_key || '',
       base_url: customDefaults?.base_url || '',
       services: {
@@ -175,6 +176,7 @@ const createProviderFromTemplate = (
     enabled: true,
     provider_type: providerType,
     display_name: template.display_name || template.id,
+    provider_plan: template.provider_plan || null,
     api_key: '',
     base_url: template.default_base_url || '',
     services: {
@@ -295,6 +297,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     ? undefined
     : draftRegistry.providers.find((provider) => provider.id === resolvedDraftProviderId)
       || draftRegistry.providers.find((provider) => provider.id === draftProvider?.provider_type);
+  const baseDraftProviderMeta = draftProvider?.provider_type === 'custom'
+    ? undefined
+    : registry.providers.find((provider) => provider.id === draftProvider?.provider_type);
+  const draftProviderPlans = baseDraftProviderMeta?.plans || activeProviderMeta?.plans || [];
   const draftWorkbenchModels = useMemo(
     () => (draftProvider ? buildProviderWorkbenchModels(draftRegistry, resolvedDraftProviderId, draftProvider) : []),
     [draftProvider, draftRegistry, resolvedDraftProviderId]
@@ -469,6 +475,31 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   const updateDraftService = (serviceName: ServiceName, updater: (service: any) => void) => {
     updateDraftProvider((provider) => {
       updater(provider.services[serviceName]);
+    });
+  };
+
+  const handleDraftProviderPlanChange = (planId: string) => {
+    const selectedPlan = draftProviderPlans.find((plan) => plan.id === planId);
+    const defaultBaseUrl = selectedPlan?.default_base_url || baseDraftProviderMeta?.default_base_url || '';
+    updateDraftProvider((provider) => {
+      provider.provider_plan = planId || null;
+      provider.base_url = defaultBaseUrl;
+      provider.services.chat.base_url = '';
+      provider.services.embedding.base_url = '';
+      provider.services.image_generation.base_url = '';
+
+      if (!planId) {
+        provider.services.embedding.enabled = Boolean(baseDraftProviderMeta?.resolved_embedding_models?.length);
+        provider.services.image_generation.enabled = false;
+        return;
+      }
+
+      if (selectedPlan?.embedding_models !== undefined && selectedPlan.embedding_models !== null) {
+        provider.services.embedding.enabled = selectedPlan.embedding_models.length > 0;
+      }
+      if (selectedPlan?.image_generation_models !== undefined && selectedPlan.image_generation_models !== null) {
+        provider.services.image_generation.enabled = selectedPlan.image_generation_models.length > 0;
+      }
     });
   };
 
@@ -911,6 +942,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
             const providerMeta = provider.provider_type === 'custom'
               ? undefined
               : registry.providers.find((item) => item.id === provider.provider_type);
+            const providerPlan = providerMeta?.plans?.find((plan) => plan.id === provider.provider_plan);
             const references = scenarioReferences[providerId] || [];
             const providerIssues = providerIssuesById.get(providerId) || [];
             const serviceLabels = SERVICE_NAMES
@@ -945,6 +977,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       {provider.provider_type === 'custom'
                         ? t('llm.providerConfiguration.providerKinds.custom')
                         : providerMeta?.display_name || provider.provider_type}
+                      {providerPlan ? ` / ${providerPlan.display_name || providerPlan.id}` : ''}
                     </span>
                     <span className="flex flex-wrap gap-1.5 pt-1">
                       {serviceLabels.map((label) => (
@@ -1093,6 +1126,20 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                           triggerClassName={selectTriggerClassName}
                           menuClassName={selectMenuClassName}
                           onChange={(nextValue) => updateDraftProvider((provider) => { provider.api_format = nextValue as ApiFormat; })}
+                        />
+                      </label>
+                    ) : draftProviderPlans.length > 0 ? (
+                      <label className="space-y-2">
+                        <span className="text-sm font-medium">{t('llm.fields.providerPlan')}</span>
+                        <SelectField
+                          value={draftProvider.provider_plan || ''}
+                          allowEmpty
+                          placeholder={t('llm.providerPlans.default')}
+                          options={draftProviderPlans.map((plan) => ({
+                            label: plan.display_name || plan.id,
+                            value: plan.id,
+                          }))}
+                          onChange={handleDraftProviderPlanChange}
                         />
                       </label>
                     ) : null}

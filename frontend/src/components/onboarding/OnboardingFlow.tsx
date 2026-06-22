@@ -13,6 +13,7 @@ import type {
 } from '../../api/modules/config';
 import { personasApi } from '../../api/modules/personas';
 import type { SeedPreview } from '../../api/modules/personas';
+import { listInstallable, type InstallableItem } from '../../api/modules/systemSuggestions';
 import { cloneLLMConfig } from '../config-forms/llm-form-state';
 import GuidedConfigFrame from '../config-forms/GuidedConfigFrame';
 import WelcomeScreen from './WelcomeScreen';
@@ -25,6 +26,8 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 const STORAGE_KEY = STORAGE_KEYS.ONBOARDING_STATE;
 const RUNTIME_READY_WAIT_INTERVAL_MS = 500;
 const RUNTIME_READY_WAIT_TIMEOUT_MS = 12_000;
+const ONBOARDING_SAVE_TIMEOUT_MS = 20_000;
+const PERSONA_SETUP_TIMEOUT_MS = 15_000;
 const toI18nLanguage = (language?: string): 'en' | 'zh-CN' => (language === 'en' ? 'en' : 'zh-CN');
 
 interface RuntimeReadyResponse {
@@ -43,6 +46,34 @@ interface RuntimeReadyResponse {
 function waitFor(durationMs: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, durationMs);
+  });
+}
+
+
+class OnboardingTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OnboardingTimeoutError';
+  }
+}
+
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timeoutId: number | undefined;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      reject(new OnboardingTimeoutError(message));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+    }
   });
 }
 
@@ -93,12 +124,22 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [customPersonas, setCustomPersonas] = useState<CustomPersonaDraft[]>([]);
   // True while a custom persona is being generated on the persona step.
   const [personaGenerating, setPersonaGenerating] = useState(false);
+  const [installableItems, setInstallableItems] = useState<InstallableItem[]>([]);
+  const [installableLoading, setInstallableLoading] = useState(true);
+  const installablePreloadStartedRef = useRef(false);
+  const mountedRef = useRef(true);
 
   // Persona previews (loaded once on mount for the active locale).
   const [seedPreviews, setSeedPreviews] = useState<SeedPreview[]>([]);
 
   const activeLanguage = i18n.resolvedLanguage || i18n.language;
   const debugI18n = localStorage.getItem('magi_i18n_debug') === '1';
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const formLanguage = initialConfig.preferences?.language || 'zh';
@@ -198,6 +239,31 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
   }, [form]);
 
+  useEffect(() => {
+    if (current < 1 || installablePreloadStartedRef.current) {
+      return;
+    }
+
+    installablePreloadStartedRef.current = true;
+    setInstallableLoading(true);
+    void listInstallable()
+      .then((items) => {
+        if (mountedRef.current) {
+          setInstallableItems(items);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current) {
+          setInstallableItems([]);
+        }
+      })
+      .finally(() => {
+        if (mountedRef.current) {
+          setInstallableLoading(false);
+        }
+      });
+  }, [current]);
+
   const saveProgress = (
     values: SystemConfig,
     nextSeedSlug: string | null = seedSlug,
@@ -261,6 +327,42 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     saveProgress(form.getFieldsValue(true));
   };
 
+  const persistPersonaSelection = async (locale: string) => {
+    await personasApi.seed(locale);
+
+    // Remember the client slug to assigned persona id mapping for activation.
+    const customIdBySlug: Record<string, string> = {};
+    for (const draft of customPersonas) {
+      try {
+        const created = await personasApi.create({
+          config_json: JSON.stringify(draft.config),
+          locale,
+        });
+        const createdId = created?.data?.persona_id;
+        if (createdId) customIdBySlug[draft.slug] = createdId;
+      } catch {
+        // Best-effort: a failed custom-persona create shouldn't block
+        // onboarding completion.
+      }
+    }
+
+    const listResult = await personasApi.list();
+    const personas = listResult.data || [];
+    let activatedPersonaId: string | undefined;
+    if (seedSlug && customIdBySlug[seedSlug]) {
+      activatedPersonaId = customIdBySlug[seedSlug];
+    } else if (seedSlug) {
+      const match = personas.find((p) => p.slug === seedSlug);
+      if (match) activatedPersonaId = match.persona_id;
+    }
+    if (!activatedPersonaId && personas.length > 0) {
+      activatedPersonaId = personas[0].persona_id;
+    }
+    if (activatedPersonaId) {
+      await personasApi.setActive(activatedPersonaId);
+    }
+  };
+
   const handleFinish = async () => {
     if (finishInFlightRef.current) {
       return;
@@ -273,45 +375,23 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       values.preferences.onboarding_completed = true;
       // Ensure the latest LLM state and selected persona slug land in the payload.
       values.llm = llmValue;
-      await configApi.completeOnboarding(values);
+      await withTimeout(
+        configApi.completeOnboarding(values),
+        ONBOARDING_SAVE_TIMEOUT_MS,
+        t('messages.saveTimedOut'),
+      );
 
       const locale = (values.preferences?.language || 'en').startsWith('zh') ? 'zh' : 'en';
       try {
-        await personasApi.seed(locale);
-
-        // Persist any onboarding-generated custom personas and remember the
-        // client-slug → assigned persona_id mapping for activation.
-        const customIdBySlug: Record<string, string> = {};
-        for (const draft of customPersonas) {
-          try {
-            const created = await personasApi.create({
-              config_json: JSON.stringify(draft.config),
-              locale,
-            });
-            const createdId = created?.data?.persona_id;
-            if (createdId) customIdBySlug[draft.slug] = createdId;
-          } catch {
-            // Best-effort: a failed custom-persona create shouldn't block
-            // onboarding completion.
-          }
+        await withTimeout(
+          persistPersonaSelection(locale),
+          PERSONA_SETUP_TIMEOUT_MS,
+          t('messages.personaSetupTimedOut'),
+        );
+      } catch (error: any) {
+        if (error instanceof OnboardingTimeoutError) {
+          toast.warning(error.message);
         }
-
-        const listResult = await personasApi.list();
-        const personas = listResult.data || [];
-        let activatedPersonaId: string | undefined;
-        if (seedSlug && customIdBySlug[seedSlug]) {
-          activatedPersonaId = customIdBySlug[seedSlug];
-        } else if (seedSlug) {
-          const match = personas.find((p) => p.slug === seedSlug);
-          if (match) activatedPersonaId = match.persona_id;
-        }
-        if (!activatedPersonaId && personas.length > 0) {
-          activatedPersonaId = personas[0].persona_id;
-        }
-        if (activatedPersonaId) {
-          await personasApi.setActive(activatedPersonaId);
-        }
-      } catch {
         // Persona registry is best-effort during onboarding;
         // the backend lifecycle fallback handles missing registry state.
       }
@@ -415,6 +495,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           onFinish={handleFinish}
           loading={saving || finishingRuntime}
           loadingLabel={finishingRuntime ? t('actions.startingRuntime') : t('actions.saving')}
+          installableItems={installableItems}
+          installableLoading={installableLoading}
         />
       );
     }

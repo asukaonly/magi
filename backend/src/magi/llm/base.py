@@ -1,6 +1,7 @@
 """
 LLM Adapter - Abstract base class
 """
+
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, AsyncIterator, List
 
@@ -17,11 +18,7 @@ class LLMAdapter(ABC):
 
     @abstractmethod
     async def generate(
-        self,
-        prompt: str,
-        max_tokens: Optional[int] = None,
-        temperature: float = 0.7,
-        **kwargs
+        self, prompt: str, max_tokens: Optional[int] = None, temperature: float = 0.7, **kwargs
     ) -> str:
         """
         Generate text (non-streaming)
@@ -39,11 +36,7 @@ class LLMAdapter(ABC):
 
     @abstractmethod
     async def generate_stream(
-        self,
-        prompt: str,
-        max_tokens: Optional[int] = None,
-        temperature: float = 0.7,
-        **kwargs
+        self, prompt: str, max_tokens: Optional[int] = None, temperature: float = 0.7, **kwargs
     ) -> AsyncIterator[str]:
         """
         Generate text (streaming)
@@ -65,7 +58,7 @@ class LLMAdapter(ABC):
         messages: list[Dict[str, str]],
         max_tokens: Optional[int] = None,
         temperature: float = 0.7,
-        **kwargs
+        **kwargs,
     ) -> str:
         """
         Dialogue generation (non-streaming)
@@ -87,7 +80,7 @@ class LLMAdapter(ABC):
         messages: list[Dict[str, str]],
         max_tokens: Optional[int] = None,
         temperature: float = 0.7,
-        **kwargs
+        **kwargs,
     ) -> AsyncIterator[str]:
         """
         Dialogue generation (streaming)
@@ -118,6 +111,11 @@ class LLMAdapter(ABC):
     def provider_name(self) -> str:
         """Get provider name (defaults to inferring from class name)"""
         return self.__class__.__name__.replace("Adapter", "").lower()
+
+    @property
+    def provider_plan(self) -> Optional[str]:
+        """Get provider plan id, if one is active."""
+        return None
 
     async def get_embedding(
         self,

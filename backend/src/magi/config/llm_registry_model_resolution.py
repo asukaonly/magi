@@ -20,6 +20,7 @@ from .llm_registry_models import (
     LLMImageGenerationModelMetaModel,
     LLMModelMetaModel,
     LLMProviderMetaModel,
+    LLMProviderPlanModel,
     LLMProviderRegistryModel,
     LLMResolvedEmbeddingModelMetaModel,
     LLMResolvedImageGenerationModelMetaModel,
@@ -111,9 +112,7 @@ def _resolve_chat_model(
         limits,
         override.limits if override is not None else None,
     )
-    input_modalities, output_modalities = _default_chat_modalities(
-        resolved_capabilities
-    )
+    input_modalities, output_modalities = _default_chat_modalities(resolved_capabilities)
     # vendor priority: user override > registry-declared base > GENERIC
     if override is not None and override.vendor is not None:
         resolved_vendor = override.vendor
@@ -123,18 +122,12 @@ def _resolve_chat_model(
         resolved_vendor = ModelVendor.GENERIC
     return LLMResolvedModelMetaModel(
         id=model_id,
-        label=(
-            override.label
-            if override is not None and override.label
-            else label or model_id
-        ),
+        label=(override.label if override is not None and override.label else label or model_id),
         description=override.description if override is not None else None,
         icon=override.icon if override is not None else None,
         source=source,
         hidden=(
-            bool(override.hidden)
-            if override is not None and override.hidden is not None
-            else False
+            bool(override.hidden) if override is not None and override.hidden is not None else False
         ),
         preferred=(
             bool(override.preferred)
@@ -187,9 +180,7 @@ def _resolve_embedding_model(
         limits,
         override.limits if override is not None else None,
     )
-    input_modalities, output_modalities = _default_embedding_modalities(
-        resolved_capabilities
-    )
+    input_modalities, output_modalities = _default_embedding_modalities(resolved_capabilities)
     resolved_dimensions = (
         list(override.dimensions)
         if override is not None and override.dimensions is not None
@@ -197,18 +188,12 @@ def _resolve_embedding_model(
     )
     return LLMResolvedEmbeddingModelMetaModel(
         id=model_id,
-        label=(
-            override.label
-            if override is not None and override.label
-            else label or model_id
-        ),
+        label=(override.label if override is not None and override.label else label or model_id),
         description=override.description if override is not None else None,
         icon=override.icon if override is not None else None,
         source=source,
         hidden=(
-            bool(override.hidden)
-            if override is not None and override.hidden is not None
-            else False
+            bool(override.hidden) if override is not None and override.hidden is not None else False
         ),
         preferred=(
             bool(override.preferred)
@@ -274,18 +259,12 @@ def _resolve_image_generation_model(
     )
     return LLMResolvedImageGenerationModelMetaModel(
         id=model_id,
-        label=(
-            override.label
-            if override is not None and override.label
-            else label or model_id
-        ),
+        label=(override.label if override is not None and override.label else label or model_id),
         description=override.description if override is not None else None,
         icon=override.icon if override is not None else None,
         source=source,
         hidden=(
-            bool(override.hidden)
-            if override is not None and override.hidden is not None
-            else False
+            bool(override.hidden) if override is not None and override.hidden is not None else False
         ),
         preferred=(
             bool(override.preferred)
@@ -335,15 +314,77 @@ def find_provider_meta(
     return None
 
 
+def find_provider_plan(
+    provider: LLMProviderMetaModel,
+    plan_id: str | None,
+) -> Optional[LLMProviderPlanModel]:
+    lowered = str(plan_id or "").strip().lower()
+    if not lowered:
+        return None
+    for plan in provider.plans:
+        if plan.id.lower() == lowered:
+            return plan
+    return None
+
+
+def resolve_provider_plan_meta(
+    provider: LLMProviderMetaModel,
+    plan_id: str | None,
+) -> LLMProviderMetaModel:
+    """Return provider metadata after applying a selected provider plan."""
+
+    plan = find_provider_plan(provider, plan_id)
+    if plan is None:
+        return provider
+
+    effective = provider.model_copy(deep=True)
+    if plan.default_model is not None:
+        effective.default_model = plan.default_model
+    if plan.default_classify_model is not None:
+        effective.default_classify_model = plan.default_classify_model
+    if plan.default_base_url is not None:
+        effective.default_base_url = plan.default_base_url
+    if plan.chat_models is not None:
+        effective.chat_models = [model.model_copy(deep=True) for model in plan.chat_models]
+    if plan.embedding_models is not None:
+        effective.embedding_models = [
+            model.model_copy(deep=True) for model in plan.embedding_models
+        ]
+    if plan.image_generation_models is not None:
+        effective.image_generation_models = [
+            model.model_copy(deep=True) for model in plan.image_generation_models
+        ]
+    if plan.audio_generation_models is not None:
+        effective.audio_generation_models = [
+            model.model_copy(deep=True) for model in plan.audio_generation_models
+        ]
+    if plan.fields is not None:
+        effective.fields = {**effective.fields, **plan.fields}
+    effective.resolved_chat_models = []
+    effective.resolved_embedding_models = []
+    effective.resolved_image_generation_models = []
+    return effective
+
+
+def _provider_plan_value(provider_settings: Optional[LLMProviderSettings]) -> str | None:
+    return (
+        str(getattr(provider_settings, "provider_plan", "") or "").strip().lower()
+        if provider_settings is not None
+        else None
+    ) or None
+
+
 def find_chat_model_meta(
     registry: LLMProviderRegistryModel,
     provider_id: str,
     model_id: str,
+    provider_plan: str | None = None,
 ) -> Optional[LLMModelMetaModel]:
-    provider = find_provider_meta(registry, provider_id)
-    if provider is None:
+    provider_meta = find_provider_meta(registry, provider_id)
+    if provider_meta is None:
         return None
 
+    provider = resolve_provider_plan_meta(provider_meta, provider_plan)
     lowered_model = str(model_id or "").strip().lower()
     for model in provider.chat_models:
         if model.id.lower() == lowered_model:
@@ -355,11 +396,13 @@ def find_embedding_model_meta(
     registry: LLMProviderRegistryModel,
     provider_id: str,
     model_id: str,
+    provider_plan: str | None = None,
 ) -> Optional[LLMEmbeddingModelMetaModel]:
-    provider = find_provider_meta(registry, provider_id)
-    if provider is None:
+    provider_meta = find_provider_meta(registry, provider_id)
+    if provider_meta is None:
         return None
 
+    provider = resolve_provider_plan_meta(provider_meta, provider_plan)
     lowered_model = str(model_id or "").strip().lower()
     for model in provider.embedding_models:
         if model.id.lower() == lowered_model:
@@ -371,11 +414,13 @@ def find_image_generation_model_meta(
     registry: LLMProviderRegistryModel,
     provider_id: str,
     model_id: str,
+    provider_plan: str | None = None,
 ) -> Optional[LLMImageGenerationModelMetaModel]:
-    provider = find_provider_meta(registry, provider_id)
-    if provider is None:
+    provider_meta = find_provider_meta(registry, provider_id)
+    if provider_meta is None:
         return None
 
+    provider = resolve_provider_plan_meta(provider_meta, provider_plan)
     lowered_model = str(model_id or "").strip().lower()
     for model in provider.image_generation_models:
         if model.id.lower() == lowered_model:
@@ -432,7 +477,6 @@ _BUILTIN_PROVIDER_VENDOR: dict[str, ModelVendor] = {
     "local": ModelVendor.OPENAI,
     "anthropic": ModelVendor.ANTHROPIC,
     "glm": ModelVendor.GLM,
-    "glm_codeplan": ModelVendor.GLM,
     "dashscope": ModelVendor.DASHSCOPE,
     "grok": ModelVendor.GROK,
     "gemini": ModelVendor.GEMINI,
@@ -475,7 +519,12 @@ def resolve_provider_model_catalog(
         .strip()
         .lower()
     )
-    provider_meta = find_provider_meta(registry, provider_type or provider_id)
+    base_provider_meta = find_provider_meta(registry, provider_type or provider_id)
+    provider_meta = (
+        resolve_provider_plan_meta(base_provider_meta, _provider_plan_value(provider_settings))
+        if base_provider_meta is not None
+        else None
+    )
     overrides = dict(getattr(provider_settings, "model_metadata_overrides", {}) or {})
     custom_models = list(getattr(provider_settings, "custom_models", []) or [])
     manual_base_capabilities = (
@@ -489,9 +538,7 @@ def resolve_provider_model_catalog(
         else LLMLimitsSettings()
     )
     manual_provider_options = (
-        dict(registry.custom_provider.provider_options_example)
-        if provider_type == "custom"
-        else {}
+        dict(registry.custom_provider.provider_options_example) if provider_type == "custom" else {}
     )
 
     chat_models: dict[str, LLMResolvedModelMetaModel] = {}
@@ -518,7 +565,11 @@ def resolve_provider_model_catalog(
                 override=overrides.get(model.id),
                 base_vendor=_builtin_chat_model_vendor(
                     model=model,
-                    provider_id=provider_meta.id,
+                    provider_id=(
+                        base_provider_meta.id
+                        if base_provider_meta is not None
+                        else provider_meta.id
+                    ),
                 ),
             )
 
@@ -622,18 +673,12 @@ def resolve_provider_model_catalog(
             embedding_capabilities.embedding = True
             embedding_models[model_id] = _resolve_embedding_model(
                 model_id=model_id,
-                source=(
-                    base_chat_model.source if base_chat_model is not None else "manual"
-                ),
-                label=(
-                    base_chat_model.label if base_chat_model is not None else model_id
-                ),
+                source=(base_chat_model.source if base_chat_model is not None else "manual"),
+                label=(base_chat_model.label if base_chat_model is not None else model_id),
                 dimensions=[],
                 capabilities=embedding_capabilities,
                 limits=(
-                    base_chat_model.limits
-                    if base_chat_model is not None
-                    else LLMLimitsSettings()
+                    base_chat_model.limits if base_chat_model is not None else LLMLimitsSettings()
                 ),
                 cost=(base_chat_model.cost if base_chat_model is not None else None),
                 provider_options_example=(
@@ -661,9 +706,11 @@ __all__ = [
     "_resolve_embedding_model",
     "_resolve_image_generation_model",
     "find_provider_meta",
+    "find_provider_plan",
     "find_chat_model_meta",
     "find_embedding_model_meta",
     "find_image_generation_model_meta",
+    "resolve_provider_plan_meta",
     "resolve_embedding_dimension",
     "resolve_provider_model_catalog",
 ]

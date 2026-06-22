@@ -11,6 +11,7 @@ from ...config.llm_registry import (
     find_provider_meta,
     resolve_embedding_dimension,
     resolve_llm_profile,
+    resolve_provider_plan_meta,
 )
 from ...config.models import (
     LLMCapabilitiesSettings,
@@ -39,6 +40,10 @@ def _provider_type_value(provider: Any) -> str:
     )
 
 
+def _provider_plan_value(provider: Any) -> str | None:
+    return str(getattr(provider, "provider_plan", "") or "").strip().lower() or None
+
+
 def _provider_meta_for_selection(
     config: SystemConfigModel,
     registry: LLMProviderRegistryModel,
@@ -47,7 +52,10 @@ def _provider_meta_for_selection(
     provider = config.llm.providers.get(provider_id)
     if provider is None:
         return None
-    return find_provider_meta(registry, _provider_type_value(provider) or provider_id)
+    provider_meta = find_provider_meta(registry, _provider_type_value(provider) or provider_id)
+    if provider_meta is None:
+        return None
+    return resolve_provider_plan_meta(provider_meta, _provider_plan_value(provider))
 
 
 def selection_limits_from_registry_limits(
@@ -72,13 +80,17 @@ def apply_llm_registry_defaults(
 ) -> None:
     for provider_id, provider in config.llm.providers.items():
         provider_type = _provider_type_value(provider) or provider_id
-        provider_meta = find_provider_meta(registry, provider_type)
-        if provider_meta is None:
+        base_provider_meta = find_provider_meta(registry, provider_type)
+        if base_provider_meta is None:
             continue
+        provider_meta = resolve_provider_plan_meta(
+            base_provider_meta,
+            _provider_plan_value(provider),
+        )
 
         provider.provider_type = provider_type
         if not provider.display_name:
-            provider.display_name = provider_meta.display_name or provider_id.upper()
+            provider.display_name = base_provider_meta.display_name or provider_id.upper()
         if not (provider.base_url or "").strip():
             provider.base_url = provider_meta.default_base_url
 
@@ -95,6 +107,7 @@ def apply_llm_registry_defaults(
                 registry,
                 str(provider_meta.id),
                 selection.model,
+                _provider_plan_value(config.llm.providers.get(selection.provider_id)),
             )
             if embedding_model_meta is None and provider_meta.embedding_models:
                 selection.model = provider_meta.embedding_models[0].id

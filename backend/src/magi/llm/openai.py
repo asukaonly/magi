@@ -1,6 +1,7 @@
 """
 LLMAdapter - OpenAI Implementation
 """
+
 from typing import Optional, Dict, Any, AsyncIterator, List
 import httpx
 from openai import AsyncOpenAI
@@ -24,6 +25,7 @@ class OpenAIAdapter(LLMAdapter):
         model: str = "gpt-4",
         provider: str = "openai",
         base_url: Optional[str] = None,
+        provider_plan: Optional[str] = None,
         timeout: int = 60,
         embedding_dimension: Optional[int] = None,
         proxy_url: Optional[str] = None,
@@ -41,7 +43,10 @@ class OpenAIAdapter(LLMAdapter):
         self._model = model
         self._timeout = timeout
         self._provider = provider.lower()
-        self._embedding_dimension = int(embedding_dimension) if embedding_dimension is not None else None
+        self._provider_plan = provider_plan
+        self._embedding_dimension = (
+            int(embedding_dimension) if embedding_dimension is not None else None
+        )
 
         api_endpoint = base_url
         self._base_url = api_endpoint
@@ -71,7 +76,7 @@ class OpenAIAdapter(LLMAdapter):
         temperature: float = 0.7,
         system_prompt: Optional[str] = None,
         json_mode: bool = False,
-        **kwargs
+        **kwargs,
     ) -> str:
         """
         Generate text (non-streaming)
@@ -101,7 +106,7 @@ class OpenAIAdapter(LLMAdapter):
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
-            **kwargs
+            **kwargs,
         )
 
         if not response.choices:
@@ -109,11 +114,7 @@ class OpenAIAdapter(LLMAdapter):
         return response.choices[0].message.content or ""
 
     async def generate_stream(
-        self,
-        prompt: str,
-        max_tokens: Optional[int] = None,
-        temperature: float = 0.7,
-        **kwargs
+        self, prompt: str, max_tokens: Optional[int] = None, temperature: float = 0.7, **kwargs
     ) -> AsyncIterator[str]:
         """
         Generate text (streaming)
@@ -133,7 +134,7 @@ class OpenAIAdapter(LLMAdapter):
             max_tokens=max_tokens,
             temperature=temperature,
             stream=True,
-            **kwargs
+            **kwargs,
         )
 
         async for chunk in stream:
@@ -152,7 +153,7 @@ class OpenAIAdapter(LLMAdapter):
         messages: list[Dict[str, str]],
         max_tokens: Optional[int] = None,
         temperature: float = 0.7,
-        **kwargs
+        **kwargs,
     ) -> str:
         """
         Chat generation (non-streaming)
@@ -171,7 +172,7 @@ class OpenAIAdapter(LLMAdapter):
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
-            **kwargs
+            **kwargs,
         )
 
         if not response.choices:
@@ -183,7 +184,7 @@ class OpenAIAdapter(LLMAdapter):
         messages: list[Dict[str, str]],
         max_tokens: Optional[int] = None,
         temperature: float = 0.7,
-        **kwargs
+        **kwargs,
     ) -> AsyncIterator[str]:
         """
         Chat generation (streaming)
@@ -203,7 +204,7 @@ class OpenAIAdapter(LLMAdapter):
             max_tokens=max_tokens,
             temperature=temperature,
             stream=True,
-            **kwargs
+            **kwargs,
         )
 
         async for chunk in stream:
@@ -226,6 +227,11 @@ class OpenAIAdapter(LLMAdapter):
     def provider_name(self) -> str:
         """Get provider name"""
         return self._provider
+
+    @property
+    def provider_plan(self) -> Optional[str]:
+        """Get provider plan id."""
+        return self._provider_plan
 
     @property
     def base_url(self) -> Optional[str]:
@@ -272,6 +278,7 @@ class OpenAIAdapter(LLMAdapter):
             return response.data[0].embedding
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).error(f"Failed to get embedding: {e}")
             return None
 
@@ -315,6 +322,7 @@ class OpenAIAdapter(LLMAdapter):
             return result
         except Exception as e:
             import logging
+
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to get embeddings: {e}")
             # Fallback to individual retrieval
@@ -351,6 +359,7 @@ class OpenAIAdapter(LLMAdapter):
             return (response.data[0].embedding, prompt_tokens)
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).error(f"Failed to get embedding: {e}")
             return (None, 0)
 
@@ -395,6 +404,7 @@ class OpenAIAdapter(LLMAdapter):
             return (result, prompt_tokens)
         except Exception as e:
             import logging
+
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to get embeddings: {e}")
             # Fallback to individual retrieval, summing per-text usage.
@@ -441,6 +451,7 @@ class OpenAIAdapter(LLMAdapter):
             Dict with ``images`` list containing base64-encoded image data.
         """
         import logging
+
         logger = logging.getLogger(__name__)
 
         image_model = model or self._model

@@ -16,7 +16,7 @@
     "finish": "Finish",
     "saving": "Saving...",
     "startingRuntime": "Starting runtime...",
-    "enterApp": "Enter App",
+    "enterApp": "Enter Magi",
     "enableL1": "Enable L1"
   },
   "common": {
@@ -24,10 +24,12 @@
   },
   "messages": {
     "saveFailed": "Save failed",
+    "saveTimedOut": "The save request did not return. Check the backend status and try again. Your configuration may still be writing in the background.",
+    "personaSetupTimedOut": "Persona setup did not return in time, so Magi will continue for now. You can choose a persona again in Settings later.",
     "requiredFieldMissing": "Please complete required fields before continuing.",
     "chooseModeFirst": "Please select a mode before continuing.",
-    "completedTitle": "Setup Complete",
-    "completedDesc": "You can update these settings anytime later.",
+    "completedTitle": "Magi has found its voice",
+    "completedDesc": "Next, you can connect one data source you are comfortable sharing. Magi will use it to build the first layer of context, so the first conversation does not have to start from zero.",
     "runtimeStartingSlow": "Setup finished, but the runtime is still starting. You can enter now and it will finish warming up in the background."
   },
   "language": {
@@ -47,9 +49,9 @@
     "expertDesc": "Configure all settings, including memory layers and tools."
   },
   "welcome": {
-    "title": "Welcome to Magi",
-    "subtitle": "Your Intelligent Life Companion",
-    "getStarted": "Get Started"
+    "brand": "Magi",
+    "title": "Turning Time Into Context",
+    "getStarted": "Start Setup"
   },
   "scenario": {
     "title": "Choose Your Use Case",
@@ -157,16 +159,37 @@
   },
   "llmSetup": {
     "embeddingFallbackHint": "This provider has no embedding model. Configure one separately below.",
-    "showAdvanced": "Configure each scenario separately",
-    "hideAdvanced": "Hide advanced model settings"
+    "providerTitle": "Choose a model provider",
+    "providerDesc": "Connect one usable model first. You can still tune advanced model routing later in Settings.",
+    "customRelayTitle": "Custom Provider",
+    "customRelayDesc": "For OpenRouter, OneAPI, NewAPI, or a self-hosted compatible endpoint.",
+    "selectedProvider": "Selected provider",
+    "builtinSelectedHint": "Add your API key and Magi will use recommended core and fast models.",
+    "customRelaySelectedHint": "Enter your custom provider Base URL and model ID. API key can be left empty for local or private endpoints.",
+    "apiKeyLabel": "API Key",
+    "apiKeyOptionalLabel": "API Key (optional)",
+    "apiKeyPlaceholder": "Paste your API key",
+    "customNameLabel": "Provider name",
+    "baseUrlLabel": "Base URL",
+    "baseUrlOptionalLabel": "Base URL (optional)",
+    "baseUrlPlaceholder": "https://api.example.com/v1",
+    "baseUrlDefaultPlaceholder": "Leave empty to use the default endpoint",
+    "coreModelLabel": "Core model ID",
+    "coreModelPlaceholder": "e.g. gpt-4o or claude-sonnet-4-5",
+    "fastModelLabel": "Fast model ID",
+    "fastModelPlaceholder": "Leave empty to reuse the core model",
+    "apiFormatLabel": "API format",
+    "pickProviderHint": "Choose a provider first, then fill in the connection details.",
+    "showAdvanced": "Show optional settings",
+    "hideAdvanced": "Hide optional settings"
   },
   "personaPreview": {
-    "chip1": "Tell me an embarrassing story",
-    "chip2": "I'm feeling a bit low",
-    "chip3": "What do you think about AI?",
-    "chip4": "Just say hi for a moment",
-    "emptyHint": "Pick a chip below or type a message to hear this persona.",
-    "composerPlaceholder": "Say something to try this persona…",
+    "chip1": "How would you work with me if we just met?",
+    "chip2": "How would you help when my thoughts are messy?",
+    "chip3": "How would you nudge me through a hard choice?",
+    "chip4": "What are you not the right persona for?",
+    "emptyHint": "Pick an opening question below, or type your own to hear this persona.",
+    "composerPlaceholder": "Ask an opening question to try this persona...",
     "send": "Send",
     "confirm": "Choose",
     "capReached": "You've tried this persona enough — choose it or try another.",
@@ -384,6 +407,7 @@
       "baseUrl": "Base URL",
       "displayName": "Display Name",
       "apiFormat": "API Format",
+      "providerPlan": "Provider Plan",
       "enabled": "Enabled",
       "modelKind": "Model Type",
       "modelManualEntryChat": "Add Chat Model",
@@ -395,6 +419,9 @@
       "chat": "Chat",
       "embedding": "Embedding",
       "image": "Image Generation"
+    },
+    "providerPlans": {
+      "default": "Default Plan"
     },
     "modelFields": {
       "modelId": "Model ID",
@@ -485,10 +512,6 @@
       "glm": {
         "name": "Z.ai",
         "desc": "Fast general-purpose models from Z.ai"
-      },
-      "glm_codeplan": {
-        "name": "Z.ai CodePlan",
-        "desc": "Z.ai CodePlan coding models, no embedding support"
       },
       "dashscope": {
         "name": "Alibaba Bailian",

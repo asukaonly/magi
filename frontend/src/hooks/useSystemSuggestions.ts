@@ -63,7 +63,7 @@ export function useSystemSuggestions({
 
   // Re-evaluate when the installed/connected plugin set changes (a plugin
   // install/connect just completed), so a now-connected plugin stops being
-  // suggested across every surface (top bar, side card, product tour).
+  // suggested across every surface (top bar, side card, first-run prompt).
   useEffect(() => {
     const handler = () => fetchSuggestions();
     window.addEventListener(APP_EVENTS.PLUGINS_CHANGED, handler);

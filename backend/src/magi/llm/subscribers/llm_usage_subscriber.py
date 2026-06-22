@@ -1,4 +1,5 @@
 """Project SpanCompleted(node_type='llm_call') into the llm_usage table."""
+
 from __future__ import annotations
 import asyncio
 import logging
@@ -28,7 +29,8 @@ class LLMUsageSubscriber:
 
     async def start(self) -> None:
         self._sub_id = await self._bus.subscribe(
-            EventTypes.SPAN_COMPLETED, self._on_event,
+            EventTypes.SPAN_COMPLETED,
+            self._on_event,
         )
 
     async def stop(self) -> None:
@@ -59,6 +61,7 @@ class LLMUsageSubscriber:
     async def _safe_record(self, event: Event, payload: SpanCompleted) -> None:
         try:
             attrs = payload.attributes or {}
+            provider_plan = str(attrs.get("provider_plan") or "").strip() or None
             prompt_tokens = int(attrs.get("prompt_tokens", 0))
             completion_tokens = int(attrs.get("completion_tokens", 0))
             # Cost is recorded in the model's native billing currency. A None
@@ -71,6 +74,7 @@ class LLMUsageSubscriber:
             else:
                 cost_amount, cost_currency = calculate_chat_cost(
                     provider=str(attrs.get("provider") or ""),
+                    provider_plan=provider_plan,
                     model=str(attrs.get("model") or payload.name),
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
@@ -83,6 +87,7 @@ class LLMUsageSubscriber:
                 if cost_amount is None:
                     cost_amount, cost_currency = calculate_embedding_cost(
                         provider=str(attrs.get("provider") or ""),
+                        provider_plan=provider_plan,
                         model=str(attrs.get("model") or payload.name),
                         prompt_tokens=prompt_tokens,
                     )
@@ -93,6 +98,7 @@ class LLMUsageSubscriber:
                     if image_count > 0:
                         cost_amount, cost_currency = calculate_image_generation_cost(
                             provider=str(attrs.get("provider") or ""),
+                            provider_plan=provider_plan,
                             model=str(attrs.get("model") or payload.name),
                             image_count=image_count,
                         )

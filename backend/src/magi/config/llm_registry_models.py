@@ -37,9 +37,7 @@ class LLMModelMetaModel(BaseModel):
             "format, etc.). Defaults via provider-level inference if not set."
         ),
     )
-    capabilities: "LLMChatCapabilitiesModel" = Field(
-        default_factory=_default_chat_capabilities
-    )
+    capabilities: "LLMChatCapabilitiesModel" = Field(default_factory=_default_chat_capabilities)
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
     cost: Optional[LLMModelCostModel] = Field(default=None)
     provider_options_example: Dict[str, Any] = Field(default_factory=dict)
@@ -49,6 +47,27 @@ class LLMModelMetaModel(BaseModel):
         if not self.label:
             self.label = self.id
         return self
+
+
+class LLMProviderPlanModel(BaseModel):
+    """Optional commercial/runtime plan layered onto a provider."""
+
+    id: str
+    display_name: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    icon: Optional[str] = Field(default=None)
+    default_model: Optional[str] = Field(default=None)
+    default_classify_model: Optional[str] = Field(default=None)
+    default_base_url: Optional[str] = Field(default=None)
+    chat_models: Optional[list[LLMModelMetaModel]] = Field(default=None)
+    embedding_models: Optional[list["LLMEmbeddingModelMetaModel"]] = Field(default=None)
+    image_generation_models: Optional[list["LLMImageGenerationModelMetaModel"]] = Field(
+        default=None
+    )
+    audio_generation_models: Optional[list["LLMAudioGenerationModelMetaModel"]] = Field(
+        default=None
+    )
+    fields: Optional[Dict[str, LLMProviderFieldModel]] = Field(default=None)
 
 
 class LLMResolvedModelMetaModel(BaseModel):
@@ -62,9 +81,7 @@ class LLMResolvedModelMetaModel(BaseModel):
     hidden: bool = Field(default=False)
     preferred: bool = Field(default=False)
     vendor: ModelVendor = Field(default=ModelVendor.GENERIC)
-    capabilities: LLMCapabilitiesSettings = Field(
-        default_factory=LLMCapabilitiesSettings
-    )
+    capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
     cost: Optional[LLMModelCostModel] = Field(default=None)
     input_modalities: list[str] = Field(default_factory=list)
@@ -133,19 +150,16 @@ class LLMProviderMetaModel(BaseModel):
     default_base_url: Optional[str] = Field(default=None)
     chat_models: list[LLMModelMetaModel] = Field(default_factory=list)
     embedding_models: list["LLMEmbeddingModelMetaModel"] = Field(default_factory=list)
-    image_generation_models: list["LLMImageGenerationModelMetaModel"] = Field(
-        default_factory=list
-    )
-    audio_generation_models: list["LLMAudioGenerationModelMetaModel"] = Field(
-        default_factory=list
-    )
+    image_generation_models: list["LLMImageGenerationModelMetaModel"] = Field(default_factory=list)
+    audio_generation_models: list["LLMAudioGenerationModelMetaModel"] = Field(default_factory=list)
+    plans: list[LLMProviderPlanModel] = Field(default_factory=list)
     fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
     resolved_chat_models: list[LLMResolvedModelMetaModel] = Field(default_factory=list)
     resolved_embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(
         default_factory=list
     )
-    resolved_image_generation_models: list[LLMResolvedImageGenerationModelMetaModel] = (
-        Field(default_factory=list)
+    resolved_image_generation_models: list[LLMResolvedImageGenerationModelMetaModel] = Field(
+        default_factory=list
     )
 
     @model_validator(mode="after")
@@ -178,18 +192,14 @@ class LLMCustomProviderMetaModel(BaseModel):
 
 class LLMProviderRegistryModel(BaseModel):
     providers: list[LLMProviderMetaModel] = Field(default_factory=list)
-    custom_provider: LLMCustomProviderMetaModel = Field(
-        default_factory=LLMCustomProviderMetaModel
-    )
+    custom_provider: LLMCustomProviderMetaModel = Field(default_factory=LLMCustomProviderMetaModel)
 
 
 class LLMResolvedProviderCatalogModel(BaseModel):
     """Resolved model catalog for a single provider."""
 
     chat_models: list[LLMResolvedModelMetaModel] = Field(default_factory=list)
-    embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(
-        default_factory=list
-    )
+    embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(default_factory=list)
     image_generation_models: list[LLMResolvedImageGenerationModelMetaModel] = Field(
         default_factory=list
     )
@@ -207,18 +217,18 @@ class LLMProviderCatalogEntryModel(BaseModel):
     default_model: Optional[str] = Field(default=None)
     default_classify_model: Optional[str] = Field(default=None)
     default_base_url: Optional[str] = Field(default=None)
+    provider_plan: Optional[str] = Field(default=None)
+    plans: list[LLMProviderPlanModel] = Field(default_factory=list)
     api_format: Optional[str] = Field(default=None)
     fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
     resolved_chat_models: list[LLMResolvedModelMetaModel] = Field(default_factory=list)
     resolved_embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(
         default_factory=list
     )
-    resolved_image_generation_models: list[LLMResolvedImageGenerationModelMetaModel] = (
-        Field(default_factory=list)
-    )
-    image_generation_models: list[LLMImageGenerationModelMetaModel] = Field(
+    resolved_image_generation_models: list[LLMResolvedImageGenerationModelMetaModel] = Field(
         default_factory=list
     )
+    image_generation_models: list[LLMImageGenerationModelMetaModel] = Field(default_factory=list)
 
 
 class ResolvedLLMProfile(BaseModel):
@@ -226,9 +236,7 @@ class ResolvedLLMProfile(BaseModel):
 
     provider: str
     model: str
-    capabilities: LLMCapabilitiesSettings = Field(
-        default_factory=LLMCapabilitiesSettings
-    )
+    capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
     provider_options: Dict[str, Any] = Field(default_factory=dict)
     capability_override_enabled: bool = Field(default=False)

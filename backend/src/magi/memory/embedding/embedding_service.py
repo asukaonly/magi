@@ -425,8 +425,14 @@ class MemoryEmbeddingService:
                 return int(override_limit)
 
         provider_name = str(getattr(adapter, "provider_name", "unknown"))
+        provider_plan = str(getattr(adapter, "provider_plan", "") or "").strip() or None
         model_name = str(getattr(adapter, "model_name", "embedding"))
-        model_meta = find_embedding_model_meta(_load_provider_registry(), provider_name, model_name)
+        model_meta = find_embedding_model_meta(
+            _load_provider_registry(),
+            provider_name,
+            model_name,
+            provider_plan,
+        )
         if model_meta is not None and model_meta.limits.max_concurrency is not None:
             return int(model_meta.limits.max_concurrency)
 

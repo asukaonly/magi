@@ -413,165 +413,157 @@ providers:
         supports_reference: false
         max_n: 1
         native_protocol: zai_images
-    fields:
-      model:
-        visible: true
-        required: true
-      api_key:
-        visible: true
-        required: true
-      base_url:
-        visible: true
-        required: false
-
-  - id: glm_codeplan
-    display_name: Z.ai CodePlan
-    description: Z.ai CodePlan models (no embedding support)
-    icon: zai
-    default_model: glm-5.1
-    default_classify_model: glm-4.5-air
-    default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
-    chat_models:
-      - id: glm-5.1
-        label: GLM-5.1
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 204800
-          max_output_tokens: 131072
-          max_concurrency: 4
-        cost:
-          currency: USD
-          input_per_million_tokens: 1.4
-          cached_input_per_million_tokens: 0.26
-          output_per_million_tokens: 4.4
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
-      - id: glm-5
-        label: GLM-5
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 204800
-          max_output_tokens: 131072
-          max_concurrency: 4
-        cost:
-          currency: USD
-          input_per_million_tokens: 1.0
-          cached_input_per_million_tokens: 0.2
-          output_per_million_tokens: 3.2
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
-      - id: glm-5-turbo
-        label: GLM-5 Turbo
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 204800
-          max_output_tokens: 131072
-          max_concurrency: 6
-        cost:
-          currency: USD
-          input_per_million_tokens: 1.2
-          cached_input_per_million_tokens: 0.24
-          output_per_million_tokens: 4.0
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
-      - id: glm-4.7
-        label: GLM-4.7
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 204800
-          max_output_tokens: 131072
-          max_concurrency: 4
-        cost:
-          currency: USD
-          input_per_million_tokens: 0.6
-          cached_input_per_million_tokens: 0.11
-          output_per_million_tokens: 2.2
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
-      - id: glm-4.6
-        label: GLM-4.6
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 204800
-          max_output_tokens: 131072
-          max_concurrency: 4
-        cost:
-          currency: USD
-          input_per_million_tokens: 0.6
-          cached_input_per_million_tokens: 0.11
-          output_per_million_tokens: 2.2
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
-      - id: glm-4.5
-        label: GLM-4.5
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 128000
-          max_output_tokens: 98304
-          max_concurrency: 4
-        cost:
-          currency: USD
-          input_per_million_tokens: 0.6
-          cached_input_per_million_tokens: 0.11
-          output_per_million_tokens: 2.2
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
-      - id: glm-4.5-air
-        label: GLM-4.5 Air
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 128000
-          max_output_tokens: 98304
-          max_concurrency: 6
-        cost:
-          currency: USD
-          input_per_million_tokens: 0.2
-          cached_input_per_million_tokens: 0.03
-          output_per_million_tokens: 1.1
-          source: https://docs.z.ai/guides/llm/price
-        provider_options_example:
-          thinking:
-            type: disabled
+    plans:
+      - id: codeplan
+        display_name: Z.ai CodePlan
+        description: Z.ai CodePlan models (no embedding support)
+        default_model: glm-5.1
+        default_classify_model: glm-4.5-air
+        default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
+        embedding_models: []
+        image_generation_models: []
+        audio_generation_models: []
+        chat_models:
+          - id: glm-5.1
+            label: GLM-5.1
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 4
+            cost:
+              currency: USD
+              input_per_million_tokens: 1.4
+              cached_input_per_million_tokens: 0.26
+              output_per_million_tokens: 4.4
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: glm-5
+            label: GLM-5
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 4
+            cost:
+              currency: USD
+              input_per_million_tokens: 1.0
+              cached_input_per_million_tokens: 0.2
+              output_per_million_tokens: 3.2
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: glm-5-turbo
+            label: GLM-5 Turbo
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 6
+            cost:
+              currency: USD
+              input_per_million_tokens: 1.2
+              cached_input_per_million_tokens: 0.24
+              output_per_million_tokens: 4.0
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: glm-4.7
+            label: GLM-4.7
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 4
+            cost:
+              currency: USD
+              input_per_million_tokens: 0.6
+              cached_input_per_million_tokens: 0.11
+              output_per_million_tokens: 2.2
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: glm-4.6
+            label: GLM-4.6
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 4
+            cost:
+              currency: USD
+              input_per_million_tokens: 0.6
+              cached_input_per_million_tokens: 0.11
+              output_per_million_tokens: 2.2
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: glm-4.5
+            label: GLM-4.5
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 128000
+              max_output_tokens: 98304
+              max_concurrency: 4
+            cost:
+              currency: USD
+              input_per_million_tokens: 0.6
+              cached_input_per_million_tokens: 0.11
+              output_per_million_tokens: 2.2
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: glm-4.5-air
+            label: GLM-4.5 Air
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 128000
+              max_output_tokens: 98304
+              max_concurrency: 6
+            cost:
+              currency: USD
+              input_per_million_tokens: 0.2
+              cached_input_per_million_tokens: 0.03
+              output_per_million_tokens: 1.1
+              source: https://docs.z.ai/guides/llm/price
+            provider_options_example:
+              thinking:
+                type: disabled
     fields:
       model:
         visible: true
@@ -1073,6 +1065,176 @@ providers:
           currency: CNY
           per_image: 0.25
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
+    plans:
+      - id: codeplan
+        display_name: Alibaba Cloud Coding Plan
+        description: Alibaba Cloud Model Studio Coding Plan models (requires an sk-sp key)
+        default_model: qwen3.7-plus
+        default_classify_model: qwen3.6-plus
+        default_base_url: https://coding.dashscope.aliyuncs.com/v1
+        embedding_models: []
+        image_generation_models: []
+        audio_generation_models: []
+        chat_models:
+          - id: qwen3.7-plus
+            label: Qwen3.7 Plus
+            capabilities:
+              vision: true
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 1000000
+              max_output_tokens: 64000
+              max_concurrency: 10
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: qwen3.6-plus
+            label: Qwen3.6 Plus
+            capabilities:
+              vision: true
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 1000000
+              max_output_tokens: 64000
+              max_concurrency: 10
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: kimi-k2.5
+            label: Kimi K2.5
+            vendor: kimi
+            capabilities:
+              vision: true
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 262144
+              max_output_tokens: 8192
+              max_concurrency: 4
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: glm-5
+            label: GLM-5
+            vendor: glm
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 4
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: MiniMax-M2.5
+            label: MiniMax M2.5
+            vendor: minimax
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 8192
+              max_concurrency: 3
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: qwen3.5-plus
+            label: Qwen3.5 Plus
+            capabilities:
+              vision: true
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 1000000
+              max_output_tokens: 64000
+              max_concurrency: 10
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: qwen3-max-2026-01-23
+            label: Qwen3 Max 2026-01-23
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              max_concurrency: 10
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: qwen3-coder-next
+            label: Qwen3 Coder Next
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              max_concurrency: 10
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: qwen3-coder-plus
+            label: Qwen3 Coder Plus
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              max_concurrency: 10
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: glm-4.7
+            label: GLM-4.7
+            vendor: glm
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 4
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+            provider_options_example:
+              thinking:
+                type: disabled
+        fields:
+          base_url:
+            visible: true
+            required: false
+            placeholder: https://coding.dashscope.aliyuncs.com/v1
     fields:
       model:
         visible: true
@@ -1311,6 +1473,101 @@ providers:
           currency: CNY
           per_image: 0.025
           source: https://platform.minimaxi.com/docs/guides/pricing-paygo.md
+    plans:
+      - id: tokenplan
+        display_name: MiniMax Token Plan
+        description: MiniMax subscription key for coding and agent tools (formerly Coding Plan)
+        default_model: MiniMax-M3
+        default_classify_model: MiniMax-M3
+        default_base_url: https://api.minimaxi.com/v1
+        embedding_models: []
+        image_generation_models: []
+        audio_generation_models: []
+        chat_models:
+          - id: MiniMax-M3
+            label: MiniMax M3
+            capabilities:
+              vision: true
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 1048576
+              max_output_tokens: 512000
+              max_concurrency: 3
+            cost:
+              currency: CNY
+              source: https://platform.minimaxi.com/docs/token-plan/intro
+              source_note: Subscription quota; pay-as-you-go token pricing does not represent per-request monetary cost.
+          - id: MiniMax-M2.7
+            label: MiniMax M2.7
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 8192
+              max_concurrency: 3
+            cost:
+              currency: CNY
+              source: https://platform.minimaxi.com/docs/token-plan/intro
+              source_note: Subscription quota; pay-as-you-go token pricing does not represent per-request monetary cost.
+          - id: MiniMax-M2.5
+            label: MiniMax M2.5
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 8192
+              max_concurrency: 3
+            cost:
+              currency: CNY
+              source: https://platform.minimaxi.com/docs/token-plan/intro
+              source_note: Subscription quota; pay-as-you-go token pricing does not represent per-request monetary cost.
+          - id: MiniMax-M2.5-highspeed
+            label: MiniMax M2.5 Highspeed
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 8192
+              max_concurrency: 5
+            cost:
+              currency: CNY
+              source: https://platform.minimaxi.com/docs/token-plan/intro
+              source_note: Subscription quota; pay-as-you-go token pricing does not represent per-request monetary cost.
+          - id: MiniMax-M2.1
+            label: MiniMax M2.1
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 8192
+              max_concurrency: 4
+            cost:
+              currency: CNY
+              source: https://platform.minimaxi.com/docs/token-plan/intro
+              source_note: Subscription quota; pay-as-you-go token pricing does not represent per-request monetary cost.
+        fields:
+          api_key:
+            visible: true
+            required: true
+            placeholder: sk-cp-...
+          base_url:
+            visible: true
+            required: false
+            placeholder: https://api.minimaxi.com/v1
     fields:
       model:
         visible: true
@@ -1366,6 +1623,56 @@ providers:
           output_per_million_tokens: 2.0
           source: https://platform.xiaomimimo.com/docs/zh-CN/price/pay-as-you-go
           source_note: Lite tier of the V2.5 series — cheap default for classification / cheap workloads.
+    plans:
+      - id: tokenplan
+        display_name: Xiaomi MiMo Token Plan
+        description: Xiaomi MiMo Token Plan for coding tools (requires a tp-prefixed key)
+        default_model: mimo-v2.5-pro
+        default_classify_model: mimo-v2.5
+        default_base_url: https://token-plan-cn.xiaomimimo.com/v1
+        embedding_models: []
+        image_generation_models: []
+        audio_generation_models: []
+        chat_models:
+          - id: mimo-v2.5-pro
+            label: MiMo V2.5 Pro
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 1048576
+              max_output_tokens: 131072
+              max_concurrency: 4
+            cost:
+              currency: CNY
+              source: https://mimo.mi.com/docs/zh-CN/tokenplan/Token%20Plan/subscription
+              source_note: Token Plan credit quota; pay-as-you-go token pricing does not represent per-request monetary cost.
+          - id: mimo-v2.5
+            label: MiMo V2.5
+            capabilities:
+              vision: true
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 1048576
+              max_output_tokens: 131072
+              max_concurrency: 6
+            cost:
+              currency: CNY
+              source: https://mimo.mi.com/docs/zh-CN/tokenplan/Token%20Plan/subscription
+              source_note: Token Plan credit quota; pay-as-you-go token pricing does not represent per-request monetary cost.
+        fields:
+          api_key:
+            visible: true
+            required: true
+            placeholder: tp-...
+          base_url:
+            visible: true
+            required: false
+            placeholder: https://token-plan-cn.xiaomimimo.com/v1
     fields:
       model:
         visible: true

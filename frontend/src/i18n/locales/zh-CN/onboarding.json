@@ -16,7 +16,7 @@
     "finish": "完成",
     "saving": "保存中...",
     "startingRuntime": "正在启动运行时...",
-    "enterApp": "进入应用",
+    "enterApp": "进入 Magi",
     "enableL1": "一键启用 L1"
   },
   "common": {
@@ -24,11 +24,13 @@
   },
   "messages": {
     "saveFailed": "保存失败",
+    "saveTimedOut": "保存请求一直没有返回，请检查后端状态后重试。配置可能仍在后台写入。",
+    "personaSetupTimedOut": "人格初始化暂时没有返回，已先继续。稍后可以在设置里重新选择人格。",
     "requiredFieldMissing": "请先补全必填项再继续。",
     "chooseModeFirst": "请先选择模式再继续。",
     "validationFailed": "请补全必填配置项。",
-    "completedTitle": "配置已完成",
-    "completedDesc": "你可以随时在设置页面继续修改。",
+    "completedTitle": "Magi 已经有了声音",
+    "completedDesc": "下一步，你可以连接一个愿意分享的数据源。Magi 会用它整理第一份上下文，让第一次对话不必从零开始。",
     "runtimeStartingSlow": "配置已保存，但运行时还在启动中。你现在可以先进入系统，它会在后台继续完成初始化。"
   },
   "language": {
@@ -48,9 +50,9 @@
     "expertDesc": "配置完整参数（记忆层、工具管理等）。"
   },
   "welcome": {
-    "title": "欢迎来到 Magi",
-    "subtitle": "你的智能生活伙伴",
-    "getStarted": "开始"
+    "brand": "Magi",
+    "title": "让时间沉淀为上下文",
+    "getStarted": "开始配置"
   },
   "scenario": {
     "title": "选择使用场景",
@@ -158,16 +160,37 @@
   },
   "llmSetup": {
     "embeddingFallbackHint": "这个提供商没有 embedding 模型，请在下方单独配置一个。",
-    "showAdvanced": "分别配置每个场景的模型",
-    "hideAdvanced": "隐藏高级模型设置"
+    "providerTitle": "选择模型供应商",
+    "providerDesc": "先接通一个可用模型。高级模型分配之后也可以在设置里继续调整。",
+    "customRelayTitle": "自定义供应商",
+    "customRelayDesc": "适合 OpenRouter、OneAPI、NewAPI 或自托管兼容端点。",
+    "selectedProvider": "已选择的供应商",
+    "builtinSelectedHint": "填入 API Key 后，Magi 会自动使用推荐的核心模型和快速模型。",
+    "customRelaySelectedHint": "填入自定义供应商的 Base URL 和模型 ID。API Key 可留空，适合本地或内网端点。",
+    "apiKeyLabel": "API Key",
+    "apiKeyOptionalLabel": "API Key（可选）",
+    "apiKeyPlaceholder": "粘贴你的 API Key",
+    "customNameLabel": "供应商名称",
+    "baseUrlLabel": "Base URL",
+    "baseUrlOptionalLabel": "Base URL（可选）",
+    "baseUrlPlaceholder": "https://api.example.com/v1",
+    "baseUrlDefaultPlaceholder": "留空则使用默认地址",
+    "coreModelLabel": "核心模型 ID",
+    "coreModelPlaceholder": "例如 gpt-4o、claude-sonnet-4-5",
+    "fastModelLabel": "快速模型 ID",
+    "fastModelPlaceholder": "留空则沿用核心模型",
+    "apiFormatLabel": "API 格式",
+    "pickProviderHint": "先选择一个供应商，再填写连接信息。",
+    "showAdvanced": "显示可选设置",
+    "hideAdvanced": "收起可选设置"
   },
   "personaPreview": {
-    "chip1": "讲个让人尴尬的事",
-    "chip2": "我心情有点低落",
-    "chip3": "你怎么看 AI",
-    "chip4": "随便聊聊",
-    "emptyHint": "选下面的话题或自己输入一句话试试这个人格。",
-    "composerPlaceholder": "说点什么试试这个人格…",
+    "chip1": "第一次见面，你会怎么和我相处？",
+    "chip2": "如果我状态很乱，你会怎么帮我理清？",
+    "chip3": "我做决定时犹豫，你会怎么提醒我？",
+    "chip4": "你最不适合陪我做什么？",
+    "emptyHint": "选一个开场问题，或自己输入一句话试试这个人格。",
+    "composerPlaceholder": "问一个开场问题，试试这个人格…",
     "send": "发送",
     "confirm": "选这个",
     "capReached": "这个人格试得差不多了 — 选它或换一个。",
@@ -385,6 +408,7 @@
       "baseUrl": "Base URL",
       "displayName": "显示名称",
       "apiFormat": "API 格式",
+      "providerPlan": "供应商计划",
       "enabled": "启用",
       "modelKind": "模型类型",
       "modelManualEntryChat": "添加聊天模型",
@@ -396,6 +420,9 @@
       "chat": "聊天模型",
       "embedding": "向量模型",
       "image": "生图模型"
+    },
+    "providerPlans": {
+      "default": "默认计划"
     },
     "modelFields": {
       "modelId": "模型 ID",
@@ -486,10 +513,6 @@
       "glm": {
         "name": "Z.ai",
         "desc": "Z.ai 的通用模型，中文场景体验友好"
-      },
-      "glm_codeplan": {
-        "name": "Z.ai CodePlan",
-        "desc": "Z.ai CodePlan 编程模型，不支持向量"
       },
       "dashscope": {
         "name": "阿里云百炼",

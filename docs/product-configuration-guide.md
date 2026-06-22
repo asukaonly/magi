@@ -43,7 +43,7 @@ Core surfaces for this path:
 
 - chat conversation flow
 - memory recall and answer evidence
-- onboarding quick setup
+- first-run setup
 - settings for LLM, conversation, memory, and persona basics
 
 Surfaces that remain supported but are not the Alpha polish target:
@@ -53,7 +53,7 @@ Surfaces that remain supported but are not the Alpha polish target:
 - advanced memory/operator panels
 - detailed runtime inspection surfaces
 
-Expert and operator surfaces should stay available when they help development or diagnosis, but they should not be pushed into quick onboarding or the ordinary chat path. Deep personality evolution, memory worker process isolation, and all-package backend typing strictness are follow-up work unless profiling or product validation shows they are required for the Alpha path.
+Expert and operator surfaces should stay available when they help development or diagnosis, but they should not be pushed into first-run onboarding or the ordinary chat path. Deep personality evolution, memory worker process isolation, and all-package backend typing strictness are follow-up work unless profiling or product validation shows they are required for the Alpha path.
 
 ## Language And Localization
 
@@ -86,34 +86,22 @@ Current design expectations:
 - onboarding uses a dedicated layout rather than the main application shell
 - partially completed onboarding progress should survive refreshes or temporary exits
 
-The onboarding flow distinguishes two modes:
+The current first-run path is intentionally single-lane and progressive. It should
+reduce friction for first-time users while leaving the full configuration surface
+available in Settings after onboarding.
 
-- quick mode
-  Focus on essential setup only
+It focuses on:
 
-- expert mode
-  Expose the full configuration surface
+- language selection through the welcome screen
+- a first-run LLM setup surface that asks for one provider, one API key, and only the minimal endpoint/model fields needed for OpenAI-compatible relays
+- AI persona selection or lightweight persona creation
+- a completion handoff that offers optional user-approved data source cards so Magi can build its first useful context
 
-### Quick Mode
+Onboarding should not reuse the full Settings LLM editor as the default path. Expert fields such as service-specific endpoints, image generation services, per-scenario model routing, model metadata overrides, and detailed memory/tool settings should remain collapsed or move to Settings after onboarding.
 
-Quick mode is intended to reduce friction for first-time users.
+Plugin and sensor activation should stay progressive. The first-run flow may explain that data sources improve context and surface direct connection cards on the completion screen, but it should not require plugin choices before the user enters the main app. Installable source suggestions should start loading before the completion step so the completion screen can show connection cards immediately; if the installable suggestion endpoint is unavailable or still loading, the completion screen should still show a small conservative fallback set of connection cards rather than collapsing to an empty state.
 
-It should focus on:
-
-- language
-- LLM configuration
-- AI personality
-- scenario-specific defaults that clearly distinguish lightweight chat, life logging, research-oriented memory, and a balanced neutral setup
-
-### Expert Mode
-
-Expert mode exposes the full configuration path, including:
-
-- language
-- LLM configuration
-- AI personality
-- memory configuration
-- tool configuration
+After the user enters the main application for the first time, the one-time post-onboarding prompt should be a focused first-context setup dialog rather than a multi-step shell tour. It should offer optional data-source connection cards, make skipping clear, and hand off to the shared plugin install/connect panel when the user chooses a source. Completing, skipping, or starting a connection should mark the prompt complete so the initial persona bootstrap can continue.
 
 ## Settings Page
 
@@ -167,6 +155,17 @@ Current product expectations:
 - conversation preferences should allow users to decide whether the assistant may inspect prepared media attachments for grounded replies; media grounding must remain disabled unless the selected core model exposes vision capability
 - conversation rhythm may split one assistant turn into several natural chat bubbles when enabled; it takes precedence over streaming output for that turn, must remain presentation-only, preserve one canonical answer for memory and trace, and fall back to a single message when planning is unavailable or invalid
 
+### Desktop Startup Diagnostics
+
+When the desktop backend cannot finish startup, the frontend should show a diagnosis-oriented failure screen instead of only a generic retry prompt. The screen should include the concrete startup error, the backend log path, and a bounded tail of the latest backend log output.
+
+Current log sources:
+
+- packaged desktop builds: `~/.magi/logs/backend.log`
+- desktop dev hot mode: `~/.magi/logs/backend-dev-hot.log`, or `MAGI_BACKEND_LOG_FILE` when that environment variable is set
+
+The log excerpt is for local troubleshooting only. It should stay bounded and should not replace the retry action.
+
 ## Conversation Settings
 
 The conversation settings area owns conversation-scoped defaults that are not model-specific.
@@ -203,18 +202,22 @@ Current product expectations:
 - providers are explicit configured instances; a fresh config starts with no providers
 - multiple provider instances can share the same provider type when they represent different accounts, gateways, or service scopes
 - each provider instance stores provider-level default `api_key` and `base_url` values plus service-specific overrides under `services.chat`, `services.embedding`, `services.image_generation`, and future service blocks
+- provider instances may select a backend-registry `provider_plan` when the same provider offers alternate commercial/runtime plans; a plan can override the default Base URL, default models, service model availability, provider fields, and registry pricing without becoming a separate provider type
+- built-in `provider_plan` metadata currently covers Z.ai GLM CodePlan, Alibaba Cloud Model Studio Coding Plan, MiniMax Token Plan, and Xiaomi MiMo Token Plan; domestic endpoints are the default for the existing China-oriented provider entries, while users can override Base URL for international endpoints such as `https://api.z.ai/api/coding/paas/v4`, `https://coding-intl.dashscope.aliyuncs.com/v1`, `https://api.minimax.io/v1`, `https://token-plan-sgp.xiaomimimo.com/v1`, or `https://token-plan-ams.xiaomimimo.com/v1`
 - provider image generation services should remain disabled by default until the user enables them
 - service-specific API credentials and custom Base URLs are optional overrides; blank service fields inherit the provider-level defaults
-- expert-facing configuration can expose more fields than quick mode
+- Settings can expose more fields than first-run LLM setup
 - provider/model metadata should come from the backend registry rather than hardcoded frontend lists
 - each selected model can expose a capability profile such as vision, reasoning, tool calling, and embedding support
 - model metadata can include provider-published cost values; chat models use input/output token pricing, embedding models use input token pricing, and image generation models use per-image pricing when the provider bills successful generations by count
+- fixed-fee coding plans should not inherit pay-as-you-go token rates unless the provider publishes plan-specific token pricing; usage accounting may retain the plan source metadata while leaving calculated cost empty
 - usage accounting should prefer explicit provider-reported cost when present, then fall back to registry chat model pricing for USD-denominated token usage
 - users can review the active model capability profile during onboarding and later in settings
 - users add or edit provider instances from provider templates or a custom-provider template
 - custom providers may define manual chat model IDs and a selectable default model
 - advanced users can override capability flags, model limits, model cost metadata, and provider-specific JSON options for the current model
 - provider and model catalogs should be delivered by dedicated LLM catalog endpoints that already merge saved provider instances, manual chat/embedding model IDs, and metadata overrides on the backend
+- provider catalog entries should expose available provider plans and resolve selected plan metadata before returning default models, default Base URL, service model lists, and pricing-bearing model metadata to the frontend
 - custom-provider creation fields and defaults should be delivered by a dedicated template endpoint rather than piggybacking on generic config responses
 - image generation model catalogs should expose provider-owned capability metadata such as supported sizes, supported quality values, maximum image count, and native generation protocol
 - image generation runtime configuration is not inferred from chat settings; it uses `services.image_generation` for timeout and native protocol, and uses service-specific API key/Base URL overrides when present before falling back to the provider-level defaults
@@ -227,6 +230,7 @@ At a minimum, the product should support:
 
 - adding, editing, enabling, disabling, and deleting provider instances
 - provider-template selection
+- provider-plan selection for provider templates that expose alternate plans
 - provider-level API key and Base URL input
 - collapsible service sections with service-specific API key and custom endpoint override input plus explicit inheritance hints
 - service-local model catalog management in the provider editor, with connection testing available from the chat service section
@@ -267,7 +271,7 @@ Design expectations:
 - persona behavior should be planned per turn by the Personality Layer before prompt rendering; final response prompts should receive only the selected register, quiet-hour clamps, active triggers, relationship modifiers, and dynamic-state modulations for that turn
 - ordinary low-performance persona expression should be valid most of the time; personality should usually appear through attention bias, judgment, and conversational stance rather than constant catchphrases
 - state-transition behavior should be replaced by signature triggers and quiet-hour clamps; analysis, worker, and tool-result rendering should use task or analysis registers instead of inheriting casual-chat performance
-- quick mode should stay simpler than expert mode
+- first-run persona setup should stay simpler than the full editor
 
 The custom personality editor should progressively expose:
 
@@ -306,7 +310,7 @@ Product expectations:
 - ordinary users should see memory through natural-language recall, evidence, and correction workflows before seeing layer-specific internals
 - advanced memory configuration remains expert-oriented
 - L0-L4 workbench and inspector surfaces should be treated as expert/operator tooling, not as the default user memory experience
-- quick onboarding should not force detailed memory tuning
+- first-run onboarding should not force detailed memory tuning
 - settings should expose the main lifecycle toggles and key pipeline switches
 - general memory settings should expose a global hot-memory retention window and whether aged history is deleted or archived
 - the managed memory storage directory remains an internal runtime path until live path switching and migration are supported safely
@@ -334,7 +338,7 @@ Important behavioral rules:
 - `L2`, `L3`, and `L4` depend on `L1`
 - runtime telemetry should not be treated as equivalent to user-authored memory
 - user-visible chat transcript is not owned by `L1`; it is owned by the dedicated chat domain store
-- expert memory controls belong in Settings and expert onboarding, not quick onboarding
+- expert memory controls belong in Settings and operator tooling, not first-run onboarding
 
 Current storage implementation notes:
 
@@ -390,7 +394,7 @@ Tool-specific expectations:
 - web fetch is primarily for public web content and may reuse successful fetch results from a short-lived in-memory cache; localhost, private-network, link-local, multicast, reserved, and otherwise non-globally-routable targets are blocked before provider execution unless the user explicitly enables private-network fetch and allowlists trusted hostnames, host:port values, IPs, or CIDR ranges
 - file read should stay low-friction inside the active conversation workspace; reads outside that workspace are allowed only through the existing permission flow, with sensitive user paths such as SSH, cloud, CLI credential, and netrc files classified as higher risk
 - external skills are discoverable from the backend rather than hardcoded
-- expert mode exposes more of this surface than quick mode
+- Settings and operator tooling expose more of this surface than first-run onboarding
 
 The exact tool list may change over time, but the product should preserve these principles:
 
@@ -514,8 +518,8 @@ Important rule:
 
 These rules apply across onboarding and settings:
 
-- quick mode should optimize for speed and low cognitive load
-- expert mode should optimize for clarity and control
+- first-run onboarding should optimize for speed and low cognitive load
+- settings and operator surfaces should optimize for clarity and control
 - configuration should be language-aware
 - configuration changes should be persisted
 - validation should happen before save

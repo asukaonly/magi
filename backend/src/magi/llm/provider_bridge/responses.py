@@ -92,7 +92,9 @@ class ProviderBridgeResponseMixin:
         input_tokens = int(getattr(usage_data, "input_tokens", 0) or 0)
         cache_read_tokens = int(getattr(usage_data, "cache_read_input_tokens", 0) or 0)
         cache_write_tokens = int(getattr(usage_data, "cache_creation_input_tokens", 0) or 0)
-        cache_write_1h_tokens = _nested_int(usage_data, "cache_creation", "ephemeral_1h_input_tokens")
+        cache_write_1h_tokens = _nested_int(
+            usage_data, "cache_creation", "ephemeral_1h_input_tokens"
+        )
         prompt_tokens = input_tokens + cache_read_tokens + cache_write_tokens
         completion_tokens = int(getattr(usage_data, "output_tokens", 0) or 0)
         return ProviderUsage(
@@ -113,7 +115,9 @@ class ProviderBridgeResponseMixin:
             prompt_tokens=int(getattr(usage_data, "prompt_tokens", 0) or 0),
             completion_tokens=int(getattr(usage_data, "completion_tokens", 0) or 0),
             total_tokens=int(getattr(usage_data, "total_tokens", 0) or 0),
-            reasoning_tokens=_nested_int(usage_data, "completion_tokens_details", "reasoning_tokens"),
+            reasoning_tokens=_nested_int(
+                usage_data, "completion_tokens_details", "reasoning_tokens"
+            ),
             cache_read_tokens=_openai_cache_read_tokens(usage_data),
             cache_write_tokens=_openai_cache_write_tokens(usage_data),
         )
@@ -326,6 +330,7 @@ class ProviderBridgeResponseMixin:
     ) -> dict[str, Any]:
         metadata: dict[str, Any] = {
             "provider": self._provider_name() or type(self.llm).__name__,
+            "provider_plan": getattr(self.llm, "provider_plan", None),
             "model": getattr(self.llm, "model_name", "unknown"),
             "finish_reason": getattr(choice, "finish_reason", None),
             "tool_call_count": len(raw_tool_calls),
@@ -421,6 +426,7 @@ class ProviderBridgeResponseMixin:
         metadata = dict(provider_response.metadata or {})
         metadata["trace_metrics"] = {
             "provider": self._provider_name() or type(self.llm).__name__,
+            "provider_plan": getattr(self.llm, "provider_plan", None),
             "model": str(getattr(self.llm, "model_name", "unknown")),
             "input_tokens": int(usage.prompt_tokens if usage else 0),
             "output_tokens": int(usage.completion_tokens if usage else 0),
@@ -469,6 +475,7 @@ class ProviderBridgeResponseMixin:
         context = enrich_event_context_with_turn_trace(event_context)
         request_id = str(context.get("request_id") or uuid.uuid4().hex[:8])
         provider = self._provider_name() or type(self.llm).__name__
+        provider_plan = str(getattr(self.llm, "provider_plan", "") or "").strip() or None
         model = str(getattr(self.llm, "model_name", "unknown"))
         request_kind = str(context.get("request_kind") or "chat")
 
@@ -520,6 +527,7 @@ class ProviderBridgeResponseMixin:
                 attributes={
                     "request_id": request_id,
                     "provider": provider,
+                    "provider_plan": provider_plan,
                     "model": model,
                     "request_kind": request_kind,
                     "prompt_tokens": prompt_tokens,

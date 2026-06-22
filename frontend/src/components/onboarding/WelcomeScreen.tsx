@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'framer-motion';
+import { ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import magiMark from '@/assets/magi-mark.png';
 
@@ -38,36 +39,40 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
       {/* Center content */}
       <motion.div
-        className="relative z-10 flex flex-col items-center px-6 text-center"
+        className="relative z-10 flex max-w-4xl flex-col items-center px-6 text-center"
         initial={shouldReduceMotion ? false : { opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: shouldReduceMotion ? 0 : 0.5, ease: 'easeOut' }}
       >
         {/* Logo / Brand */}
-        <div className="mb-4 rounded-[1.75rem] border border-[#ead9c8]/80 bg-[#fff7ef]/80 p-3 shadow-[0_18px_40px_-28px_rgba(120,80,44,0.35)] backdrop-blur-sm dark:border-[#584438]/70 dark:bg-[#241c18]/80 dark:shadow-[0_20px_42px_-30px_rgba(0,0,0,0.6)]">
-          <img src={magiMark} alt="Magi" className="h-16 w-16" />
+        <div className="mb-10 inline-flex items-center gap-4">
+          <img
+            src={magiMark}
+            alt=""
+            className="h-[4.5rem] w-[4.5rem] shrink-0"
+            aria-hidden="true"
+          />
+          <div className="text-[2.4rem] font-semibold leading-none text-[#8b5737] dark:text-[#efb084] sm:text-[3.25rem]">
+            {t('welcome.brand')}
+          </div>
         </div>
 
         {/* Title */}
-        <h1 className="mb-2 text-4xl font-bold tracking-tight text-[#3b2b22] dark:text-[#f2e7db] sm:text-5xl">
+        <h1 className="text-[2.3rem] font-bold leading-tight tracking-normal text-[#3b2b22] dark:text-[#f2e7db] sm:text-[2.85rem]">
           {t('welcome.title')}
         </h1>
-
-        {/* Subtitle */}
-        <p className="mb-4 text-lg text-[#7b6557] dark:text-[#c8b8aa] sm:text-xl">
-          {t('welcome.subtitle')}
-        </p>
 
         {/* Get Started CTA */}
         <motion.button
           type="button"
           onClick={onContinue}
-          className="mt-12 inline-flex items-center justify-center rounded-full bg-[#a0623a] px-10 py-3 text-lg font-medium text-white shadow-[0_18px_36px_-20px_rgba(160,98,58,0.7)] transition hover:brightness-105 dark:bg-[#efb084] dark:text-[#2a1f1a]"
-          whileHover={shouldReduceMotion ? undefined : { scale: 1.02 }}
+          className="group mt-14 inline-flex h-12 items-center justify-center gap-2 rounded-[14px] border border-[#8f5532]/30 bg-[#a0623a] px-6 text-base font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.24),0_18px_36px_-24px_rgba(112,63,31,0.9)] transition hover:bg-[#965833] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_20px_40px_-24px_rgba(112,63,31,0.95)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a0623a]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fbf4ea] dark:border-[#efb084]/25 dark:bg-[#efb084] dark:text-[#2a1f1a] dark:hover:bg-[#f4bd94] dark:focus-visible:ring-[#efb084]/40 dark:focus-visible:ring-offset-[#171311]"
+          whileHover={shouldReduceMotion ? undefined : { y: -1 }}
           whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
           transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}
         >
           {t('welcome.getStarted')}
+          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
         </motion.button>
       </motion.div>
 

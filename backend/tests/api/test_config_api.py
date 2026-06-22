@@ -1,5 +1,6 @@
 """Tests for config router extensions."""
 
+import asyncio
 from datetime import datetime, timezone
 
 import pytest
@@ -29,13 +30,16 @@ from magi.config.models import (
     LLMProviderSettings,
     LLMSelectionSettings,
     LLMSettings,
+    ModelVendor,
 )
 from magi.config.agent_models import BackgroundTasksSettings as AgentBackgroundTasksSettings
 from magi.config.llm_registry import (
+    build_provider_catalog,
     build_runtime_llm_defaults,
     resolve_provider_model_catalog,
     resolve_llm_profile,
 )
+from magi.llm.pricing import calculate_chat_cost
 from magi.i18n import language_context
 from magi.system_suggestions.contracts import DismissalKind, DismissalRecord
 
@@ -700,6 +704,280 @@ def test_resolve_provider_model_catalog_applies_builtin_and_manual_overrides():
     assert manual_embedding_model.capabilities.embedding is True
 
 
+def test_resolve_provider_model_catalog_applies_provider_plan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="glm",
+        display_name="Z.ai",
+        provider_plan="codeplan",
+    )
+
+    resolved = resolve_provider_model_catalog(registry, "glm", provider)
+
+    assert [model.id for model in resolved.chat_models] == [
+        "glm-5.1",
+        "glm-5",
+        "glm-5-turbo",
+        "glm-4.7",
+        "glm-4.6",
+        "glm-4.5",
+        "glm-4.5-air",
+    ]
+    assert resolved.embedding_models == []
+    assert resolved.image_generation_models == []
+
+
+def test_build_provider_catalog_exposes_and_applies_provider_plan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="glm",
+        display_name="Z.ai",
+        provider_plan="codeplan",
+    )
+
+    catalog = build_provider_catalog(registry, {"glm": provider})
+    glm_entry = next(entry for entry in catalog if entry.id == "glm")
+
+    assert glm_entry.provider_plan == "codeplan"
+    assert [plan.id for plan in glm_entry.plans] == ["codeplan"]
+    assert glm_entry.default_base_url == "https://open.bigmodel.cn/api/coding/paas/v4"
+    assert glm_entry.default_classify_model == "glm-4.5-air"
+    assert [model.id for model in glm_entry.resolved_embedding_models] == []
+
+
+def test_resolve_provider_model_catalog_applies_dashscope_codeplan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="dashscope",
+        display_name="Alibaba Cloud Model Studio",
+        provider_plan="codeplan",
+    )
+
+    resolved = resolve_provider_model_catalog(registry, "dashscope", provider)
+
+    assert [model.id for model in resolved.chat_models] == [
+        "qwen3.7-plus",
+        "qwen3.6-plus",
+        "kimi-k2.5",
+        "glm-5",
+        "MiniMax-M2.5",
+        "qwen3.5-plus",
+        "qwen3-max-2026-01-23",
+        "qwen3-coder-next",
+        "qwen3-coder-plus",
+        "glm-4.7",
+    ]
+    assert resolved.embedding_models == []
+    assert resolved.image_generation_models == []
+
+    models_by_id = {model.id: model for model in resolved.chat_models}
+    assert models_by_id["qwen3.7-plus"].vendor == ModelVendor.DASHSCOPE
+    assert models_by_id["kimi-k2.5"].vendor == ModelVendor.KIMI
+    assert models_by_id["glm-5"].vendor == ModelVendor.GLM
+    assert models_by_id["MiniMax-M2.5"].vendor == ModelVendor.MINIMAX
+    assert models_by_id["qwen3.7-plus"].cost is not None
+    assert models_by_id["qwen3.7-plus"].cost.input_per_million_tokens is None
+
+
+def test_build_provider_catalog_exposes_and_applies_dashscope_codeplan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="dashscope",
+        display_name="Alibaba Cloud Model Studio",
+        provider_plan="codeplan",
+    )
+
+    catalog = build_provider_catalog(registry, {"dashscope": provider})
+    dashscope_entry = next(entry for entry in catalog if entry.id == "dashscope")
+
+    assert dashscope_entry.provider_plan == "codeplan"
+    assert [plan.id for plan in dashscope_entry.plans] == ["codeplan"]
+    assert dashscope_entry.default_base_url == "https://coding.dashscope.aliyuncs.com/v1"
+    assert dashscope_entry.default_model == "qwen3.7-plus"
+    assert dashscope_entry.default_classify_model == "qwen3.6-plus"
+    assert [model.id for model in dashscope_entry.resolved_embedding_models] == []
+    assert [model.id for model in dashscope_entry.resolved_image_generation_models] == []
+
+
+def test_resolve_provider_model_catalog_applies_minimax_tokenplan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="minimax",
+        display_name="MiniMax",
+        provider_plan="tokenplan",
+    )
+
+    resolved = resolve_provider_model_catalog(registry, "minimax", provider)
+
+    assert [model.id for model in resolved.chat_models] == [
+        "MiniMax-M3",
+        "MiniMax-M2.7",
+        "MiniMax-M2.5",
+        "MiniMax-M2.5-highspeed",
+        "MiniMax-M2.1",
+    ]
+    assert resolved.embedding_models == []
+    assert resolved.image_generation_models == []
+
+    m3 = resolved.chat_models[0]
+    assert m3.vendor == ModelVendor.MINIMAX
+    assert m3.cost is not None
+    assert m3.cost.input_per_million_tokens is None
+
+
+def test_build_provider_catalog_exposes_and_applies_minimax_tokenplan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="minimax",
+        display_name="MiniMax",
+        provider_plan="tokenplan",
+    )
+
+    catalog = build_provider_catalog(registry, {"minimax": provider})
+    minimax_entry = next(entry for entry in catalog if entry.id == "minimax")
+
+    assert minimax_entry.provider_plan == "tokenplan"
+    assert [plan.id for plan in minimax_entry.plans] == ["tokenplan"]
+    assert minimax_entry.default_base_url == "https://api.minimaxi.com/v1"
+    assert minimax_entry.default_model == "MiniMax-M3"
+    assert minimax_entry.default_classify_model == "MiniMax-M3"
+    assert [model.id for model in minimax_entry.resolved_embedding_models] == []
+    assert [model.id for model in minimax_entry.resolved_image_generation_models] == []
+
+
+def test_resolve_provider_model_catalog_applies_xiaomi_tokenplan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="xiaomimimo",
+        display_name="Xiaomi MiMo",
+        provider_plan="tokenplan",
+    )
+
+    resolved = resolve_provider_model_catalog(registry, "xiaomimimo", provider)
+
+    assert [model.id for model in resolved.chat_models] == [
+        "mimo-v2.5-pro",
+        "mimo-v2.5",
+    ]
+    assert resolved.embedding_models == []
+    assert resolved.image_generation_models == []
+    assert resolved.chat_models[0].cost is not None
+    assert resolved.chat_models[0].cost.input_per_million_tokens is None
+
+
+def test_build_provider_catalog_exposes_and_applies_xiaomi_tokenplan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="xiaomimimo",
+        display_name="Xiaomi MiMo",
+        provider_plan="tokenplan",
+    )
+
+    catalog = build_provider_catalog(registry, {"xiaomimimo": provider})
+    xiaomi_entry = next(entry for entry in catalog if entry.id == "xiaomimimo")
+
+    assert xiaomi_entry.provider_plan == "tokenplan"
+    assert [plan.id for plan in xiaomi_entry.plans] == ["tokenplan"]
+    assert xiaomi_entry.default_base_url == "https://token-plan-cn.xiaomimimo.com/v1"
+    assert xiaomi_entry.default_model == "mimo-v2.5-pro"
+    assert xiaomi_entry.default_classify_model == "mimo-v2.5"
+    assert [model.id for model in xiaomi_entry.resolved_embedding_models] == []
+    assert [model.id for model in xiaomi_entry.resolved_image_generation_models] == []
+
+
+def test_update_paths_apply_provider_plan_defaults():
+    config = SystemConfigModel()
+    config.llm.providers = {
+        "glm": LLMProviderConfigModel(
+            provider_type="glm",
+            display_name="Z.ai",
+            provider_plan="codeplan",
+            api_key="sk-glm",
+            base_url="",
+        )
+    }
+    config.llm.selections["context_decider"] = LLMSelectionConfigModel(
+        provider_id="glm",
+        model="",
+    )
+    config.llm.selections["core"] = LLMSelectionConfigModel(
+        provider_id="glm",
+        model="",
+    )
+
+    updates = _build_update_paths(config)
+
+    persisted_provider = updates["llm.providers"]["glm"]
+    assert persisted_provider["provider_type"] == "glm"
+    assert persisted_provider["provider_plan"] == "codeplan"
+    assert persisted_provider["base_url"] == "https://open.bigmodel.cn/api/coding/paas/v4"
+    assert updates["llm.selections"]["context_decider"]["model"] == "glm-4.5-air"
+    assert updates["llm.selections"]["core"]["model"] == "glm-5.1"
+
+
+def test_provider_plan_pricing_uses_plan_model_metadata():
+    registry = _default_llm_provider_registry()
+
+    standard_amount, _ = calculate_chat_cost(
+        provider="glm",
+        model="glm-4.5-air",
+        prompt_tokens=1_000_000,
+        completion_tokens=1_000_000,
+        registry=registry,
+    )
+    plan_amount, currency = calculate_chat_cost(
+        provider="glm",
+        provider_plan="codeplan",
+        model="glm-4.5-air",
+        prompt_tokens=1_000_000,
+        completion_tokens=1_000_000,
+        registry=registry,
+    )
+
+    assert standard_amount is None
+    assert plan_amount == pytest.approx(1.3)
+    assert currency == "USD"
+
+
+def test_dashscope_codeplan_pricing_does_not_apply_pay_as_you_go_rates():
+    registry = _default_llm_provider_registry()
+
+    amount, currency = calculate_chat_cost(
+        provider="dashscope",
+        provider_plan="codeplan",
+        model="qwen3.7-plus",
+        prompt_tokens=1_000_000,
+        completion_tokens=1_000_000,
+        registry=registry,
+    )
+
+    assert amount is None
+    assert currency is None
+
+
+@pytest.mark.parametrize(
+    ("provider", "model"),
+    [
+        ("minimax", "MiniMax-M3"),
+        ("xiaomimimo", "mimo-v2.5-pro"),
+    ],
+)
+def test_tokenplan_pricing_does_not_apply_pay_as_you_go_rates(provider, model):
+    registry = _default_llm_provider_registry()
+
+    amount, currency = calculate_chat_cost(
+        provider=provider,
+        provider_plan="tokenplan",
+        model=model,
+        prompt_tokens=1_000_000,
+        completion_tokens=1_000_000,
+        registry=registry,
+    )
+
+    assert amount is None
+    assert currency is None
+
+
 def test_resolve_provider_model_catalog_ignores_manual_image_generation_overrides():
     registry = _default_llm_provider_registry()
     provider = LLMProviderSettings(
@@ -1251,6 +1529,50 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
     assert calls == ["save", "reload", "refresh", "enqueue"]
 
 
+def test_complete_onboarding_returns_when_runtime_init_exceeds_response_budget(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    payload = SystemConfigModel()
+    started = False
+
+    async def _slow_initialize_agent_runtime() -> None:
+        nonlocal started
+        started = True
+        await asyncio.sleep(60)
+
+    async def _fake_enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
+        assert reason == "onboarding_completed"
+
+    def _require_agent_runtime():
+        raise RuntimeError("Runtime is not initialized")
+
+    monkeypatch.setattr("magi.api.routers.config._build_update_paths", lambda _: {})
+    monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
+    monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
+    monkeypatch.setattr(
+        "magi.api.routers.config._enqueue_runtime_llm_refresh_command",
+        _fake_enqueue_runtime_llm_refresh_command,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.config.ONBOARDING_RUNTIME_INIT_RESPONSE_BUDGET_SECONDS",
+        0.001,
+    )
+    monkeypatch.setattr(
+        "magi.bootstrap.backend.initialize_agent_runtime",
+        _slow_initialize_agent_runtime,
+    )
+    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", _require_agent_runtime)
+
+    response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
+
+    assert response.status_code == 200
+    assert started is True
+
+
 def test_complete_onboarding_quick_mode_uses_locale_seed_personality(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -1344,11 +1666,13 @@ def test_complete_onboarding_quick_mode_uses_scenario_seed_personality(
 
 def test_user_preferences_has_product_tour_completed_default_false():
     from magi.api.routers.config_schemas import UserPreferencesModel
+
     prefs = UserPreferencesModel()
     assert prefs.product_tour_completed is False
 
 
 def test_user_preferences_product_tour_completed_roundtrip():
     from magi.api.routers.config_schemas import UserPreferencesModel
+
     prefs = UserPreferencesModel(product_tour_completed=True)
     assert prefs.model_dump()["product_tour_completed"] is True

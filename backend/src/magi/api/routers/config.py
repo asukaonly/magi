@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Coroutine, Dict, List, Optional
 
 import yaml
 from fastapi import APIRouter, HTTPException, Request
@@ -81,6 +82,8 @@ from .config_schemas import (
 
 logger = get_logger(__name__)
 config_router = APIRouter()
+ONBOARDING_RUNTIME_INIT_RESPONSE_BUDGET_SECONDS = 8.0
+ONBOARDING_RUNTIME_REFRESH_RESPONSE_BUDGET_SECONDS = 3.0
 
 
 def _read_raw_yaml() -> Dict[str, Any]:
@@ -201,6 +204,40 @@ async def _enqueue_runtime_channels_refresh_command(*, reason: str) -> None:
             reason=reason,
         )
     )
+
+
+def _log_deferred_runtime_task_result(task: asyncio.Task[None], *, operation: str) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        logger.info("Deferred runtime operation was cancelled", operation=operation)
+    except Exception:
+        logger.exception("Deferred runtime operation failed", operation=operation)
+
+
+async def _run_with_response_budget(
+    coro: Coroutine[Any, Any, None],
+    *,
+    operation: str,
+    timeout_seconds: float,
+) -> None:
+    task = asyncio.create_task(coro)
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Runtime operation is still running after onboarding response budget",
+            operation=operation,
+            timeout_seconds=timeout_seconds,
+        )
+        task.add_done_callback(
+            lambda done: _log_deferred_runtime_task_result(done, operation=operation)
+        )
+    except asyncio.CancelledError:
+        task.cancel()
+        raise
+    except Exception:
+        logger.exception("Runtime operation failed during onboarding", operation=operation)
 
 
 def _is_masked_api_key(api_key: Optional[str]) -> bool:
@@ -441,8 +478,16 @@ async def complete_onboarding(request: Request, config: SystemConfigModel):
         except RuntimeError:
             # Not initialized, try to initialize now
             logger.info("Attempting to initialize agent runtime after onboarding")
-            await initialize_agent_runtime()
-        await _enqueue_runtime_llm_refresh_command(reason="onboarding_completed")
+            await _run_with_response_budget(
+                initialize_agent_runtime(),
+                operation="initialize_agent_runtime_after_onboarding",
+                timeout_seconds=ONBOARDING_RUNTIME_INIT_RESPONSE_BUDGET_SECONDS,
+            )
+        await _run_with_response_budget(
+            _enqueue_runtime_llm_refresh_command(reason="onboarding_completed"),
+            operation="enqueue_runtime_llm_refresh_after_onboarding",
+            timeout_seconds=ONBOARDING_RUNTIME_REFRESH_RESPONSE_BUDGET_SECONDS,
+        )
 
         # NOTE: persona registry entries are created by the frontend via
         # ``POST /api/personas/seed`` after this call returns to avoid duplicate

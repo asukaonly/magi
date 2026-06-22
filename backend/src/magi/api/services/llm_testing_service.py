@@ -25,6 +25,7 @@ from ...config.llm_registry import (
     LLMProviderRegistryModel,
     find_provider_meta,
     load_llm_provider_registry,
+    resolve_provider_plan_meta,
 )
 from ...config.models import (
     LLMCapabilitiesSettings,
@@ -312,10 +313,15 @@ async def test_llm_provider_connection(
         or provider_id
     )
     registry_meta = find_provider_meta(get_llm_provider_registry(), provider_type)
+    effective_meta = (
+        resolve_provider_plan_meta(registry_meta, runtime_provider.provider_plan)
+        if registry_meta is not None
+        else None
+    )
     adapter = build_adapter_from_provider(
         runtime_provider,
         model=model,
-        default_base_url=registry_meta.default_base_url if registry_meta else None,
+        default_base_url=effective_meta.default_base_url if effective_meta else None,
         adapter_factory=create_llm_adapter,
     )
     bridge = LLMProviderBridge(adapter)

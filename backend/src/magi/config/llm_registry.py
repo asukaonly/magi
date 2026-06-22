@@ -1,4 +1,5 @@
 """LLM provider registry models and capability resolution helpers."""
+
 from __future__ import annotations
 
 from .llm_registry_catalog import build_provider_catalog
@@ -17,7 +18,9 @@ from .llm_registry_model_resolution import (
     find_embedding_model_meta,
     find_image_generation_model_meta,
     find_provider_meta,
+    find_provider_plan,
     resolve_embedding_dimension,
+    resolve_provider_plan_meta,
     resolve_provider_model_catalog,
 )
 from .llm_registry_profile import resolve_llm_profile
@@ -41,6 +44,7 @@ from .llm_registry_models import (
     LLMProviderCatalogEntryModel,
     LLMProviderFieldModel,
     LLMProviderMetaModel,
+    LLMProviderPlanModel,
     LLMProviderRegistryModel,
     LLMResolvedEmbeddingModelMetaModel,
     LLMResolvedImageGenerationModelMetaModel,
@@ -48,7 +52,6 @@ from .llm_registry_models import (
     LLMResolvedProviderCatalogModel,
     ResolvedLLMProfile,
 )
-
 
 __all__ = [
     "LLMAudioGenerationModelMetaModel",
@@ -66,6 +69,7 @@ __all__ = [
     "LLMProviderCatalogEntryModel",
     "LLMProviderFieldModel",
     "LLMProviderMetaModel",
+    "LLMProviderPlanModel",
     "LLMProviderRegistryModel",
     "LLMProviderSettings",
     "LLMResolvedEmbeddingModelMetaModel",
@@ -88,8 +92,10 @@ __all__ = [
     "find_embedding_model_meta",
     "find_image_generation_model_meta",
     "find_provider_meta",
+    "find_provider_plan",
     "load_llm_provider_registry",
     "resolve_embedding_dimension",
     "resolve_llm_profile",
+    "resolve_provider_plan_meta",
     "resolve_provider_model_catalog",
 ]

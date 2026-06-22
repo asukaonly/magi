@@ -193,6 +193,7 @@ def build_llm_config_model(
             enabled=provider.enabled,
             provider_type=str(getattr(provider.provider_type, "value", provider.provider_type)),
             display_name=provider.display_name,
+            provider_plan=getattr(provider, "provider_plan", None),
             api_key=(
                 mask_api_key_value(provider_api_key)
                 if (mask_api_key and provider_api_key)
@@ -266,6 +267,11 @@ def build_llm_config_model(
                 registry,
                 provider_lookup_id,
                 selection.model,
+                (
+                    getattr(provider_settings, "provider_plan", None)
+                    if provider_settings is not None
+                    else None
+                ),
             )
             resolved_dimension = resolve_embedding_dimension(
                 embedding_meta,

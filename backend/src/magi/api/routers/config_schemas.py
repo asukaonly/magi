@@ -60,6 +60,7 @@ class LLMProviderConfigModel(BaseModel):
     enabled: bool = Field(default=True)
     provider_type: str = Field(default="openai")
     display_name: str = Field(default="OpenAI")
+    provider_plan: Optional[str] = Field(default=None)
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     services: LLMProviderServicesConfigModel = Field(default_factory=LLMProviderServicesConfigModel)

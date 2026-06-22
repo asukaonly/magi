@@ -35,6 +35,7 @@ def create_llm_adapter(
     api_key: str,
     model: str,
     base_url: str | None = None,
+    provider_plan: str | None = None,
     timeout: int = 60,
     embedding_dimension: int | None = None,
     proxy_url: str | None = None,
@@ -50,6 +51,7 @@ def create_llm_adapter(
             api_key=api_key,
             model=model,
             base_url=base_url,
+            provider_plan=provider_plan,
             timeout=timeout,
             proxy_url=proxy_url,
         )
@@ -60,6 +62,7 @@ def create_llm_adapter(
             model=model,
             provider=provider,
             base_url=base_url,
+            provider_plan=provider_plan,
             timeout=timeout,
             embedding_dimension=embedding_dimension,
             proxy_url=proxy_url,

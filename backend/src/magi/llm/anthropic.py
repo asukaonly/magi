@@ -1,6 +1,7 @@
 """
 LLM Adapter - Anthropic implementation
 """
+
 from typing import Optional, Dict, Any, AsyncIterator
 import httpx
 from anthropic import AsyncAnthropic
@@ -23,6 +24,7 @@ class AnthropicAdapter(LLMAdapter):
         api_key: str,
         model: str = "claude-3-opus-20240229",
         base_url: Optional[str] = None,
+        provider_plan: Optional[str] = None,
         timeout: int = 60,
         proxy_url: Optional[str] = None,
     ):
@@ -38,6 +40,7 @@ class AnthropicAdapter(LLMAdapter):
         """
         self._model = model
         self._timeout = timeout
+        self._provider_plan = provider_plan
 
         api_endpoint = base_url
         self._base_url = api_endpoint
@@ -59,11 +62,7 @@ class AnthropicAdapter(LLMAdapter):
         self._client = AsyncAnthropic(**client_kwargs)
 
     async def generate(
-        self,
-        prompt: str,
-        max_tokens: Optional[int] = None,
-        temperature: float = 0.7,
-        **kwargs
+        self, prompt: str, max_tokens: Optional[int] = None, temperature: float = 0.7, **kwargs
     ) -> str:
         """
         Generate text (non-streaming)
@@ -82,7 +81,7 @@ class AnthropicAdapter(LLMAdapter):
             max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
             temperature=temperature,
             messages=[{"role": "user", "content": prompt}],
-            **kwargs
+            **kwargs,
         )
 
         if not response.content:
@@ -90,11 +89,7 @@ class AnthropicAdapter(LLMAdapter):
         return response.content[0].text
 
     async def generate_stream(
-        self,
-        prompt: str,
-        max_tokens: Optional[int] = None,
-        temperature: float = 0.7,
-        **kwargs
+        self, prompt: str, max_tokens: Optional[int] = None, temperature: float = 0.7, **kwargs
     ) -> AsyncIterator[str]:
         """
         Generate text (streaming)
@@ -114,7 +109,7 @@ class AnthropicAdapter(LLMAdapter):
             temperature=temperature,
             messages=[{"role": "user", "content": prompt}],
             stream=True,
-            **kwargs
+            **kwargs,
         )
 
         async for event in stream:
@@ -126,7 +121,7 @@ class AnthropicAdapter(LLMAdapter):
         messages: list[Dict[str, str]],
         max_tokens: Optional[int] = None,
         temperature: float = 0.7,
-        **kwargs
+        **kwargs,
     ) -> str:
         """
         Dialogue generation (non-streaming)
@@ -145,7 +140,7 @@ class AnthropicAdapter(LLMAdapter):
             max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
             temperature=temperature,
             messages=messages,
-            **kwargs
+            **kwargs,
         )
 
         if not response.content:
@@ -157,7 +152,7 @@ class AnthropicAdapter(LLMAdapter):
         messages: list[Dict[str, str]],
         max_tokens: Optional[int] = None,
         temperature: float = 0.7,
-        **kwargs
+        **kwargs,
     ) -> AsyncIterator[str]:
         """
         Dialogue generation (streaming)
@@ -177,7 +172,7 @@ class AnthropicAdapter(LLMAdapter):
             temperature=temperature,
             messages=messages,
             stream=True,
-            **kwargs
+            **kwargs,
         )
 
         async for event in stream:
@@ -193,6 +188,11 @@ class AnthropicAdapter(LLMAdapter):
     def provider_name(self) -> str:
         """Get provider name"""
         return "anthropic"
+
+    @property
+    def provider_plan(self) -> Optional[str]:
+        """Get provider plan id."""
+        return self._provider_plan
 
     @property
     def base_url(self) -> Optional[str]:

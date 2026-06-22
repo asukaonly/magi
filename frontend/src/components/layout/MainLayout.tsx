@@ -176,11 +176,11 @@ const MainLayout: React.FC = () => {
         <PermissionModalHost sessionId={currentSessionId} intervalMs={0} />
         <AskDialog sessionId={currentSessionId} intervalMs={0} />
       </ErrorBoundary>
-      {/* One-time post-onboarding product tour. Best-effort: never blocks chat. */}
+      {/* One-time post-onboarding first context prompt. Best-effort: never blocks chat. */}
       <ErrorBoundary resetKey={String(tourCompleted)} fallback={null}>
         {tourLoaded && !tourCompleted ? <ProductTour onComplete={() => void markTour()} /> : null}
       </ErrorBoundary>
-      {/* Single mounted plugin-connect panel; opened from tour/empty-state/side-card
+      {/* Single mounted plugin-connect panel; opened from first-run prompt/empty-state/side-card
           via usePluginInstallPanelStore. Renders null until a plugin is selected. */}
       <ErrorBoundary fallback={null}>
         <PluginInstallPanel />
