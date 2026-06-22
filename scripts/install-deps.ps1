@@ -10,7 +10,7 @@ $SdkDir = Join-Path $RootDir "sdk"
 Write-Host "==> Installing frontend dependencies..."
 Push-Location $FrontendDir
 try {
-  npm install
+  npm ci
 }
 finally {
   Pop-Location

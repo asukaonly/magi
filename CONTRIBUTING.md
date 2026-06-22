@@ -31,9 +31,13 @@ If your change affects behavior or ownership described there, update the corresp
 Recommended prerequisites:
 
 - Python 3.10+
-- Node.js and npm
+- Node.js 22.22.3 and npm 11.16.0 for frontend work
 - Rust stable toolchain
 - Platform prerequisites required by Tauri if you plan to run or build the desktop app
+
+The frontend is the canonical Node.js package in this repository. Use the version
+files under `frontend/` with your preferred version manager, then install with
+`npm ci` so `package-lock.json` is not rewritten by local npm resolution.
 
 From the repository root:
 

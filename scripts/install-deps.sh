@@ -7,7 +7,7 @@ BACKEND_DIR="${ROOT_DIR}/backend"
 
 echo "==> Installing frontend dependencies..."
 cd "${FRONTEND_DIR}"
-npm install
+npm ci
 
 echo ""
 echo "==> Installing backend dependencies..."
