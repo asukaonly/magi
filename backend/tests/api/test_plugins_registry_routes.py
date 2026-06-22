@@ -118,7 +118,7 @@ async def test_registry_response_preserves_plugin_display_group(monkeypatch: pyt
         kind="plugin",
         plugin_id="brave-history",
         name="Brave History",
-        name_i18n={"zh-CN": "Brave 浏览历史"},
+        name_i18n={"zh-CN": "Brave 浏览器历史"},
         version="0.1.0",
         description="Read local Brave browsing history.",
         description_i18n={"zh-CN": "读取本地 Brave 浏览记录。"},
@@ -136,7 +136,7 @@ async def test_registry_response_preserves_plugin_display_group(monkeypatch: pyt
         display_group={
             "id": "browser_history",
             "name": "Browser History",
-            "name_i18n": {"zh-CN": "浏览历史"},
+            "name_i18n": {"zh-CN": "浏览器历史"},
             "description": "Manage browser history sources.",
             "description_i18n": {"zh-CN": "统一管理浏览器历史入口。"},
             "icon": "lucide:globe",

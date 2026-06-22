@@ -151,13 +151,13 @@ def test_post_dismiss_records_and_persists(app_with_suggestions) -> None:
         json={
             "dedupe_key": "browser_history",
             "kind": "explicit",
-            "title": "看看你的浏览历史",
+            "title": "看看你的浏览器历史",
         },
     )
     assert response.status_code == 200
     assert response.json() == {"dedupe_key": "browser_history", "dismissed": True}
     # The route forwards the localized title to the recorder as the 3rd arg.
-    assert dismissals["browser_history"] == ("explicit", "看看你的浏览历史")
+    assert dismissals["browser_history"] == ("explicit", "看看你的浏览器历史")
 
 
 def test_post_dismiss_rejects_unknown_kind(app_with_suggestions) -> None:
@@ -276,7 +276,7 @@ def app_with_installable_endpoint():
         plugin_id="chrome-history",
         descriptor=SimpleNamespace(
             category="browser_history",
-            rationale=SimpleNamespace(zh="浏览历史", en="browsing history"),
+            rationale=SimpleNamespace(zh="浏览器历史", en="browsing history"),
         ),
         installed=True,
     )
@@ -322,7 +322,7 @@ def test_list_installable_returns_only_available(
     assert item["plugin_id"] == "chrome-history"
     assert item["category"] == "browser_history"
     assert item["installed"] is True
-    assert item["rationale"] == {"zh": "浏览历史", "en": "browsing history"}
+    assert item["rationale"] == {"zh": "浏览器历史", "en": "browsing history"}
 
 
 def test_list_dismissals_returns_active(app_with_dismissals) -> None:

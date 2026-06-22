@@ -2718,8 +2718,8 @@
       },
       "sources": {
         "conversation": "对话",
-        "chrome_history": "Chrome 浏览历史",
-        "browser_history": "浏览历史",
+        "chrome_history": "Chrome 浏览器历史",
+        "browser_history": "浏览器历史",
         "user_profile_projection": "个人资料",
         "tom": "总结"
       },

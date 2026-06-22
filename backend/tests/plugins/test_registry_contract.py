@@ -49,7 +49,7 @@ def test_manifest_and_registry_entry_parse_display_group():
         "display_group": {
             "id": "browser_history",
             "name": "Browser History",
-            "name_i18n": {"zh-CN": "浏览历史"},
+            "name_i18n": {"zh-CN": "浏览器历史"},
             "description": "Manage browser history sources.",
             "description_i18n": {"zh-CN": "统一管理浏览器历史入口。"},
             "icon": "lucide:globe",
@@ -66,7 +66,7 @@ def test_manifest_and_registry_entry_parse_display_group():
         "display_group": {
             "id": "browser_history",
             "name": "Browser History",
-            "name_i18n": {"zh-CN": "浏览历史"},
+            "name_i18n": {"zh-CN": "浏览器历史"},
             "description": "Manage browser history sources.",
             "description_i18n": {"zh-CN": "统一管理浏览器历史入口。"},
             "icon": "lucide:globe",
@@ -90,7 +90,7 @@ def test_registry_entry_parses_suggestion_descriptor():
             "category": "browser_history",
             "triggers": {"keywords": {"zh": ["浏览"], "en": ["browsing"]}},
             "platform_support": ["darwin", "win32"],
-            "rationale": {"zh": "读取浏览历史", "en": "read browser history"},
+            "rationale": {"zh": "读取浏览器历史", "en": "read browser history"},
         },
     })
     assert entry.suggestion_descriptor is not None

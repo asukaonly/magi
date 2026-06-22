@@ -11,7 +11,7 @@ def _proposal(category="browser_history"):
     from types import SimpleNamespace
     return SimpleNamespace(category=category, dedupe_key=category,
                            plugin_ids=["chrome-history"], installable_plugin_ids=["edge-history"],
-                           confidence=0.9, rationale={"zh": "看浏览历史", "en": "browser history"})
+                           confidence=0.9, rationale={"zh": "看浏览器历史", "en": "browser history"})
 
 def test_materialize_inserts_localized(tmp_path):
     svc, store = _svc(tmp_path)
@@ -33,7 +33,7 @@ def test_dismiss_records_preference(tmp_path):
     import magi.notifications.store as store_mod
     s = store_mod.NotificationStore(str(tmp_path / "n.db")); s.ensure_schema()
     nid = s.insert(store_mod.NotificationRow(user_id="default_user", kind="suggestion",
-        dedupe_key="browser_history", title="看看你的浏览历史", body="b", created_at_ms=1))
+        dedupe_key="browser_history", title="看看你的浏览器历史", body="b", created_at_ms=1))
     recorded = []
     from magi.notifications.service import NotificationService
     # The recorder receives the row's localized title as the 3rd arg so the
@@ -42,7 +42,7 @@ def test_dismiss_records_preference(tmp_path):
         record_dismissal=lambda key, kind, title=None: recorded.append((key, kind, title)))
     svc.dismiss(nid, "explicit")
     assert s.get(nid).status == "dismissed"
-    assert recorded == [("browser_history", "explicit", "看看你的浏览历史")]
+    assert recorded == [("browser_history", "explicit", "看看你的浏览器历史")]
 
 
 def test_dismiss_all_records_each_key(tmp_path):

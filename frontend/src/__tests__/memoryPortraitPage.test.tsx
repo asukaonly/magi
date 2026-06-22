@@ -38,7 +38,7 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.recent.meta': '最近的线索，不会直接当成长期人格',
     'memory.portrait.source.default': '记忆线索',
     'memory.portrait.sources.conversation': '对话',
-    'memory.portrait.sources.chrome_history': 'Chrome 浏览历史',
+    'memory.portrait.sources.chrome_history': 'Chrome 浏览器历史',
     'memory.portrait.sources.user_profile_projection': '个人资料',
     'memory.portrait.sources.tom': '总结',
     'memory.portrait.coldStartFallback': '还没结论',

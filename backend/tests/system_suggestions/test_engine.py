@@ -70,7 +70,7 @@ async def test_classify_confidence_drives_proposals():
     async def classify(*a, **k):
         return {"browser_history": 0.8}
 
-    out = await _run("我想看浏览历史", classify=classify, throttle=SuggestionThrottle())
+    out = await _run("我想看浏览器历史", classify=classify, throttle=SuggestionThrottle())
     assert len(out) == 1 and out[0].confidence == 0.8
 
 

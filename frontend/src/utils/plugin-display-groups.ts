@@ -201,7 +201,7 @@ export function getMarketplaceItemMemberNames(item: MarketplacePluginDisplayItem
       group?.member_label_i18n || entry.name_i18n,
       lang,
     )
-      .replace(/\s*浏览历史$/u, '')
+      .replace(/\s*浏览(?:器)?历史$/u, '')
       .trim();
   });
 }
@@ -215,7 +215,7 @@ export function getInstalledItemMemberNames(item: InstalledPluginDisplayItem, la
       group?.member_label_i18n,
       lang,
     )
-      .replace(/\s*浏览历史$/u, '')
+      .replace(/\s*浏览(?:器)?历史$/u, '')
       .trim();
   });
 }

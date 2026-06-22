@@ -19,7 +19,7 @@ describe('PluginMarketplace', () => {
   const browserDisplayGroup = (memberLabel: string, memberOrder: number) => ({
     id: 'browser_history',
     name: 'Browser History',
-    name_i18n: { 'zh-CN': '浏览历史' },
+    name_i18n: { 'zh-CN': '浏览器历史' },
     description: 'Manage browser history sources from installed browser plugins.',
     description_i18n: { 'zh-CN': '统一管理浏览器历史入口。' },
     icon: 'lucide:globe',
@@ -72,7 +72,7 @@ describe('PluginMarketplace', () => {
         {
           plugin_id: 'chrome-history',
           name: 'Chrome History',
-          name_i18n: { 'zh-CN': 'Chrome 浏览历史' },
+          name_i18n: { 'zh-CN': 'Chrome 浏览器历史' },
           version: '0.1.0',
           description: 'Read local Chrome browsing history.',
           description_i18n: { 'zh-CN': '读取本地 Chrome 浏览记录。' },
@@ -95,7 +95,7 @@ describe('PluginMarketplace', () => {
         {
           plugin_id: 'safari-history',
           name: 'Safari History',
-          name_i18n: { 'zh-CN': 'Safari 浏览历史' },
+          name_i18n: { 'zh-CN': 'Safari 浏览器历史' },
           version: '0.1.0',
           description: 'Read local Safari browsing history.',
           description_i18n: { 'zh-CN': '读取本地 Safari 浏览记录。' },
@@ -118,7 +118,7 @@ describe('PluginMarketplace', () => {
         {
           plugin_id: 'brave-history',
           name: 'Brave History',
-          name_i18n: { 'zh-CN': 'Brave 浏览历史' },
+          name_i18n: { 'zh-CN': 'Brave 浏览器历史' },
           version: '0.1.0',
           description: 'Read local Brave browsing history.',
           description_i18n: { 'zh-CN': '读取本地 Brave 浏览记录。' },
@@ -170,7 +170,7 @@ describe('PluginMarketplace', () => {
     render(<PluginMarketplace installedPlugins={[]} onInstallComplete={onInstallComplete} />);
 
     const browserCard = await screen.findByTestId('marketplace-plugin-browser-history');
-    expect(browserCard).toHaveTextContent('浏览历史');
+    expect(browserCard).toHaveTextContent('浏览器历史');
     expect(browserCard).toHaveTextContent('v0.1.0');
     expect(browserCard).toHaveTextContent('Chrome');
     expect(browserCard).toHaveTextContent('Safari');
@@ -198,7 +198,7 @@ describe('PluginMarketplace', () => {
         {
           plugin_id: 'chrome-history',
           name: 'Chrome History',
-          name_i18n: { 'zh-CN': 'Chrome 浏览历史' },
+          name_i18n: { 'zh-CN': 'Chrome 浏览器历史' },
           version: '0.1.0',
           description: 'Read local Chrome browsing history.',
           description_i18n: { 'zh-CN': '读取本地 Chrome 浏览记录。' },
@@ -221,7 +221,7 @@ describe('PluginMarketplace', () => {
         {
           plugin_id: 'safari-history',
           name: 'Safari History',
-          name_i18n: { 'zh-CN': 'Safari 浏览历史' },
+          name_i18n: { 'zh-CN': 'Safari 浏览器历史' },
           version: '0.1.0',
           description: 'Read local Safari browsing history.',
           description_i18n: { 'zh-CN': '读取本地 Safari 浏览记录。' },
@@ -273,7 +273,7 @@ describe('PluginMarketplace', () => {
     await waitFor(() => {
       expect(within(browserCard).getByText('settings.marketplace.installProgress.groupTitle')).toBeInTheDocument();
     });
-    expect(within(browserCard).queryByText(/Chrome 浏览历史/)).not.toBeInTheDocument();
-    expect(within(browserCard).queryByText(/Safari 浏览历史/)).not.toBeInTheDocument();
+    expect(within(browserCard).queryByText(/Chrome 浏览器历史/)).not.toBeInTheDocument();
+    expect(within(browserCard).queryByText(/Safari 浏览器历史/)).not.toBeInTheDocument();
   });
 });

@@ -18,7 +18,7 @@ describe('NotificationCenter', () => {
     usePluginInstallPanelStore.getState().closePanel();
     useNotificationStore.setState({ items: [], unreadCount: 0, loading: false });
     vi.spyOn(api, 'listNotifications').mockResolvedValue({
-      items: [{ id: 1, kind: 'suggestion', dedupe_key: 'browser_history', title: '看浏览历史', body: '看浏览历史',
+      items: [{ id: 1, kind: 'suggestion', dedupe_key: 'browser_history', title: '看浏览器历史', body: '看浏览器历史',
         payload: { plugin_ids: ['chrome-history'], installable_plugin_ids: [] }, status: 'unread', created_at_ms: 1, read_at_ms: null }],
       unread_count: 1,
     });
@@ -88,12 +88,12 @@ describe('NotificationCenter', () => {
   it('labels a dismissed row with its stored localized title (not humanized key)', async () => {
     vi.spyOn(suggestionsApi, 'listDismissals').mockResolvedValue([
       { dedupe_key: 'browser_history', dismissed_at: new Date().toISOString(),
-        kind: 'explicit', title: '看看你的浏览历史' },
+        kind: 'explicit', title: '看看你的浏览器历史' },
     ]);
     render(<NotificationCenter />);
     await userEvent.click(await screen.findByRole('button', { name: /notifications.dismissedTitle/ }));
     // Shows the localized title the user saw, not the humanized "Browser History".
-    expect(await screen.findByText('看看你的浏览历史')).toBeInTheDocument();
+    expect(await screen.findByText('看看你的浏览器历史')).toBeInTheDocument();
     expect(screen.queryByText('Browser History')).not.toBeInTheDocument();
   });
 
@@ -175,7 +175,7 @@ describe('NotificationCenter — profile_conflict branch', () => {
 
   it('does NOT render conflict buttons for a suggestion notification', async () => {
     vi.spyOn(api, 'listNotifications').mockResolvedValue({
-      items: [{ id: 1, kind: 'suggestion', dedupe_key: 'browser_history', title: '看浏览历史', body: '看浏览历史',
+      items: [{ id: 1, kind: 'suggestion', dedupe_key: 'browser_history', title: '看浏览器历史', body: '看浏览器历史',
         payload: { plugin_ids: ['chrome-history'], installable_plugin_ids: [] }, status: 'unread', created_at_ms: 1, read_at_ms: null }],
       unread_count: 1,
     });

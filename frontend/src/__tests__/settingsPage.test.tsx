@@ -1522,7 +1522,7 @@ describe('settings page draft saving', () => {
           ...chromeTimelineSourceFixture,
           capability_id: 'browser_history',
           capability_display_name: 'Browser History',
-          capability_display_name_translated: '浏览历史',
+          capability_display_name_translated: '浏览器历史',
           capability_description: 'Manage browser history sources.',
           capability_description_translated: '统一管理浏览器历史进入时间线的方式。',
           entry_id: 'chrome',
@@ -1540,7 +1540,7 @@ describe('settings page draft saving', () => {
           description: 'Local Safari browsing history ingested into the user timeline.',
           capability_id: 'browser_history',
           capability_display_name: 'Browser History',
-          capability_display_name_translated: '浏览历史',
+          capability_display_name_translated: '浏览器历史',
           capability_description: 'Manage browser history sources.',
           capability_description_translated: '统一管理浏览器历史进入时间线的方式。',
           entry_id: 'safari',
@@ -1557,7 +1557,7 @@ describe('settings page draft saving', () => {
     await screen.findByTestId('timeline-overview');
 
     expect(await screen.findByTestId('timeline-nav-source-photo_library')).toHaveTextContent('照片库');
-    expect(await screen.findByTestId('timeline-nav-source-browser_history')).toHaveTextContent('浏览历史');
+    expect(await screen.findByTestId('timeline-nav-source-browser_history')).toHaveTextContent('浏览器历史');
     expect(screen.queryByTestId('timeline-nav-source-photo_library_apple_photos')).not.toBeInTheDocument();
     expect(screen.queryByTestId('timeline-nav-source-chrome_history')).not.toBeInTheDocument();
 
@@ -2015,7 +2015,7 @@ describe('settings page draft saving', () => {
           ...chromeTimelineSourceFixture,
           // Backend now serves pre-translated values via API; the host i18n
           // table no longer carries per-plugin entries (Phase 4).
-          description_translated: '本地 Google Chrome 浏览历史接入时间线',
+          description_translated: '本地 Google Chrome 浏览器历史接入时间线',
           fields: [
             ...chromeTimelineSourceFixture.fields,
             {

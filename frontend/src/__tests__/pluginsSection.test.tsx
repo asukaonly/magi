@@ -28,7 +28,7 @@ const pluginPackage = (pluginId: string, name: string): PluginPackageState => ({
       ? {
         id: 'browser_history',
         name: 'Browser History',
-        name_i18n: { 'zh-CN': '浏览历史' },
+        name_i18n: { 'zh-CN': '浏览器历史' },
         description: 'Manage browser history sources from installed browser plugins.',
         description_i18n: { 'zh-CN': '统一管理浏览器历史入口。' },
         icon: 'lucide:globe',
@@ -80,7 +80,7 @@ describe('PluginsSection', () => {
       />
     );
 
-    expect(screen.getByTestId('installed-plugin-browser-history')).toHaveTextContent('浏览历史');
+    expect(screen.getByTestId('installed-plugin-browser-history')).toHaveTextContent('浏览器历史');
     expect(screen.getByTestId('installed-plugin-browser-history')).toHaveTextContent('Chrome');
     expect(screen.getByTestId('installed-plugin-browser-history')).toHaveTextContent('Safari');
     expect(screen.getByTestId('installed-plugin-browser-history')).toHaveTextContent('Brave');

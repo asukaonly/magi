@@ -14,7 +14,7 @@ const sampleProposal: SuggestionProposal = {
   plugin_ids: ['chrome-history'],
   installable_plugin_ids: [],
   confidence: 0.9,
-  rationale: { zh: '想让 magi 看你的浏览历史？', en: 'Want magi to see your browsing?' },
+  rationale: { zh: '想让 magi 看你的浏览器历史？', en: 'Want magi to see your browsing?' },
 };
 
 describe('SystemSuggestionTopBar', () => {
@@ -37,7 +37,7 @@ describe('SystemSuggestionTopBar', () => {
         onDismiss={() => {}}
       />,
     );
-    expect(screen.getByText(/想让 magi 看你的浏览历史/)).toBeInTheDocument();
+    expect(screen.getByText(/想让 magi 看你的浏览器历史/)).toBeInTheDocument();
   });
 
   it('invokes onOpen when the bar is clicked', async () => {

@@ -146,11 +146,11 @@ def test_record_dismissal_stores_and_returns_title(monkeypatch):
     monkeypatch.setattr(dmod, "_get_loader", lambda: FakeLoader())
     monkeypatch.setattr(dmod, "_save_config", fake_save)
 
-    dmod.record_dismissal("browser_history", "explicit", title="看看你的浏览历史")
+    dmod.record_dismissal("browser_history", "explicit", title="看看你的浏览器历史")
     active = dmod.list_active_dismissals()
     assert len(active) == 1
     assert active[0].dedupe_key == "browser_history"
-    assert active[0].title == "看看你的浏览历史"
+    assert active[0].title == "看看你的浏览器历史"
 
 
 def test_record_dismissal_title_defaults_to_none(monkeypatch):
