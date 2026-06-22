@@ -58,6 +58,17 @@ describe('EmptyStateAvailableSensors', () => {
     expect(screen.getByTestId('empty-state-browse-all')).toBeInTheDocument();
   });
 
+  it('can hide the browse-all exit for embedded surfaces', () => {
+    mockUseInstallableSensors.mockReturnValue({
+      items: [item({ plugin_id: 'chrome-history', installed: false })],
+      loading: false,
+      refresh: vi.fn(),
+    });
+    render(<EmptyStateAvailableSensors showBrowseAll={false} />);
+    expect(screen.getByTestId('empty-state-connect-chrome-history')).toBeInTheDocument();
+    expect(screen.queryByTestId('empty-state-browse-all')).not.toBeInTheDocument();
+  });
+
   it('renders a card for each installable item with display metadata', () => {
     mockUseInstallableSensors.mockReturnValue({
       items: [

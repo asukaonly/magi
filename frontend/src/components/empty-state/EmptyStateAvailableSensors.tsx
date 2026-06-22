@@ -45,6 +45,33 @@ export interface EmptyStateAvailableSensorsProps {
   excludePluginIds?: string[];
   i18nNamespace?: string;
   i18nKeyPrefix?: string;
+  /**
+   * Embedded surfaces outside the main app shell can hide the marketplace
+   * deep-link and keep only direct connection entry points.
+   */
+  showBrowseAll?: boolean;
+  /**
+   * Optional conservative fallback cards for surfaces that must not collapse to
+   * empty when the installable suggestion endpoint is unavailable.
+   */
+  fallbackPluginIds?: string[];
+  /**
+   * Optional preloaded suggestions. Onboarding uses this to avoid a blank
+   * completion page while the same suggestions are already being fetched.
+   */
+  installableItems?: InstallableItem[];
+  installableLoading?: boolean;
+  /**
+   * Called after the shared plugin panel opens. First-run surfaces use this to
+   * track that the real install/connect flow started.
+   */
+  onConnectStart?: (pluginId: string, options: { install: boolean }) => void;
+  /**
+   * Called after the shared plugin panel finishes a successful connect flow.
+   * First-run surfaces use this to dismiss guidance only after a source is
+   * actually connected.
+   */
+  onConnectDone?: (pluginId: string) => void;
 }
 
 /**
@@ -68,11 +95,19 @@ export function EmptyStateAvailableSensors({
   excludePluginIds,
   i18nNamespace = 'onboarding',
   i18nKeyPrefix,
+  showBrowseAll = true,
+  fallbackPluginIds,
+  installableItems,
+  installableLoading,
+  onConnectStart,
+  onConnectDone,
 }: EmptyStateAvailableSensorsProps): JSX.Element | null {
   const { t } = useTranslation(i18nNamespace);
   const keyed = (key: string) => (i18nKeyPrefix ? `${i18nKeyPrefix}.${key}` : key);
 
-  const { items, loading } = useInstallableSensors();
+  const hookState = useInstallableSensors();
+  const items = installableItems ?? hookState.items ?? [];
+  const loading = installableLoading ?? hookState.loading;
 
   // Connect now opens the single MainLayout-mounted <PluginInstallPanel>, which
   // owns the full honest flow (install → enable → sync → build-memory) and its
@@ -97,30 +132,48 @@ export function EmptyStateAvailableSensors({
   // cap to the top MAX_EMPTY_STATE_CARDS — the remainder stays behind the
   // marketplace exit so the empty state never grows unbounded.
   const visible = useMemo<{ item: InstallableItem; meta: EmptyStatePluginMeta }[]>(() => {
-    const candidates = items.filter((item) => !excluded.has(item.plugin_id));
-    const sorted = [...candidates].sort(
-      (a, b) => priorityIndex(a.plugin_id) - priorityIndex(b.plugin_id),
-    );
-    const withMeta: { item: InstallableItem; meta: EmptyStatePluginMeta }[] = [];
-    for (const item of sorted) {
-      const meta = getEmptyStatePluginMeta(item.plugin_id);
-      if (meta) {
-        withMeta.push({ item, meta });
+    const collectWithMeta = (sourceItems: InstallableItem[]) => {
+      const sorted = [...sourceItems].sort(
+        (a, b) => priorityIndex(a.plugin_id) - priorityIndex(b.plugin_id),
+      );
+      const withMeta: { item: InstallableItem; meta: EmptyStatePluginMeta }[] = [];
+      for (const item of sorted) {
+        const meta = getEmptyStatePluginMeta(item.plugin_id);
+        if (meta) {
+          withMeta.push({ item, meta });
+        }
       }
-    }
-    return withMeta.slice(0, MAX_EMPTY_STATE_CARDS);
-  }, [items, excluded]);
+      return withMeta;
+    };
 
-  if (loading) {
-    // Suppress flash-of-cards while the installable list is in flight. The hook
-    // flips loading=false once items are populated.
+    const candidates = items.filter((item) => !excluded.has(item.plugin_id));
+    const fromInstallable = collectWithMeta(candidates);
+    if (fromInstallable.length > 0) {
+      return fromInstallable.slice(0, MAX_EMPTY_STATE_CARDS);
+    }
+
+    const fallbackItems = (fallbackPluginIds ?? [])
+      .filter((pluginId) => !excluded.has(pluginId))
+      .map((pluginId) => ({
+        plugin_id: pluginId,
+        category: 'onboarding_fallback',
+        installed: false,
+        rationale: { zh: '', en: '' },
+      }));
+    return collectWithMeta(fallbackItems).slice(0, MAX_EMPTY_STATE_CARDS);
+  }, [items, excluded, fallbackPluginIds]);
+
+  if (loading && visible.length === 0) {
+    // Suppress flash-of-cards while the installable list is in flight, unless
+    // the caller supplied conservative fallback cards for a must-not-blank
+    // surface such as onboarding completion.
     return null;
   }
 
   // "Browse all plugins" always-available exit into the full marketplace —
   // rendered even when no cards are available on this device, so the user is
   // never left without a way in.
-  const browseAll = (
+  const browseAll = showBrowseAll ? (
     <button
       type="button"
       data-testid="empty-state-browse-all"
@@ -132,12 +185,12 @@ export function EmptyStateAvailableSensors({
     >
       {t(keyed('emptyState.browseAll'))}
     </button>
-  );
+  ) : null;
 
   if (visible.length === 0) {
     // No device-available, whitelisted cards — still surface the marketplace
     // exit rather than rendering nothing.
-    return <div className="text-left">{browseAll}</div>;
+    return browseAll ? <div className="text-left">{browseAll}</div> : null;
   }
 
   return (
@@ -164,7 +217,14 @@ export function EmptyStateAvailableSensors({
             onConnect={(pluginId) => {
               // Install-first for registry-only items: the panel downloads
               // from the registry before the connect flow runs.
-              openPanel(pluginId, { install: !item.installed });
+              const options = { install: !item.installed };
+              openPanel(
+                pluginId,
+                onConnectDone
+                  ? { ...options, onDone: () => onConnectDone(pluginId) }
+                  : options,
+              );
+              onConnectStart?.(pluginId, options);
             }}
           />
         ))}

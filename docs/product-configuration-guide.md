@@ -43,7 +43,7 @@ Core surfaces for this path:
 
 - chat conversation flow
 - memory recall and answer evidence
-- onboarding quick setup
+- first-run setup
 - settings for LLM, conversation, memory, and persona basics
 
 Surfaces that remain supported but are not the Alpha polish target:
@@ -53,7 +53,7 @@ Surfaces that remain supported but are not the Alpha polish target:
 - advanced memory/operator panels
 - detailed runtime inspection surfaces
 
-Expert and operator surfaces should stay available when they help development or diagnosis, but they should not be pushed into quick onboarding or the ordinary chat path. Deep personality evolution, memory worker process isolation, and all-package backend typing strictness are follow-up work unless profiling or product validation shows they are required for the Alpha path.
+Expert and operator surfaces should stay available when they help development or diagnosis, but they should not be pushed into first-run onboarding or the ordinary chat path. Deep personality evolution, memory worker process isolation, and all-package backend typing strictness are follow-up work unless profiling or product validation shows they are required for the Alpha path.
 
 ## Language And Localization
 
@@ -86,38 +86,20 @@ Current design expectations:
 - onboarding uses a dedicated layout rather than the main application shell
 - partially completed onboarding progress should survive refreshes or temporary exits
 
-The onboarding flow distinguishes two modes:
+The current first-run path is intentionally single-lane and progressive. It should
+reduce friction for first-time users while leaving the full configuration surface
+available in Settings after onboarding.
 
-- quick mode
-  Focus on essential setup only
-
-- expert mode
-  Expose the full configuration surface
-
-### Quick Mode
-
-Quick mode is intended to reduce friction for first-time users.
-
-It should focus on:
+It focuses on:
 
 - language selection through the welcome screen
 - a first-run LLM setup surface that asks for one provider, one API key, and only the minimal endpoint/model fields needed for OpenAI-compatible relays
 - AI persona selection or lightweight persona creation
-- a completion handoff that explains the next optional step: connecting one user-approved data source so Magi can build its first useful context
+- a completion handoff that offers optional user-approved data source cards so Magi can build its first useful context
 
-Quick onboarding should not reuse the full Settings LLM editor as the default path. Expert fields such as service-specific endpoints, image generation services, per-scenario model routing, model metadata overrides, and detailed memory/tool settings should remain collapsed or move to Settings after onboarding.
+Onboarding should not reuse the full Settings LLM editor as the default path. Expert fields such as service-specific endpoints, image generation services, per-scenario model routing, model metadata overrides, and detailed memory/tool settings should remain collapsed or move to Settings after onboarding.
 
-Plugin and sensor activation should stay progressive. The first-run flow may explain that data sources improve context, but it should guide source connection after the essential LLM and persona setup rather than requiring plugin choices up front.
-
-### Expert Mode
-
-Expert mode exposes the full configuration path, including:
-
-- language
-- LLM configuration
-- AI personality
-- memory configuration
-- tool configuration
+Plugin and sensor activation should stay progressive. The first-run flow may explain that data sources improve context and surface direct connection cards on the completion screen, but it should not require plugin choices before the user enters the main app.
 
 ## Settings Page
 
@@ -219,7 +201,7 @@ Current product expectations:
 - each provider instance stores provider-level default `api_key` and `base_url` values plus service-specific overrides under `services.chat`, `services.embedding`, `services.image_generation`, and future service blocks
 - provider image generation services should remain disabled by default until the user enables them
 - service-specific API credentials and custom Base URLs are optional overrides; blank service fields inherit the provider-level defaults
-- expert-facing configuration can expose more fields than quick mode
+- Settings can expose more fields than first-run LLM setup
 - provider/model metadata should come from the backend registry rather than hardcoded frontend lists
 - each selected model can expose a capability profile such as vision, reasoning, tool calling, and embedding support
 - model metadata can include provider-published cost values; chat models use input/output token pricing, embedding models use input token pricing, and image generation models use per-image pricing when the provider bills successful generations by count
@@ -281,7 +263,7 @@ Design expectations:
 - persona behavior should be planned per turn by the Personality Layer before prompt rendering; final response prompts should receive only the selected register, quiet-hour clamps, active triggers, relationship modifiers, and dynamic-state modulations for that turn
 - ordinary low-performance persona expression should be valid most of the time; personality should usually appear through attention bias, judgment, and conversational stance rather than constant catchphrases
 - state-transition behavior should be replaced by signature triggers and quiet-hour clamps; analysis, worker, and tool-result rendering should use task or analysis registers instead of inheriting casual-chat performance
-- quick mode should stay simpler than expert mode
+- first-run persona setup should stay simpler than the full editor
 
 The custom personality editor should progressively expose:
 
@@ -320,7 +302,7 @@ Product expectations:
 - ordinary users should see memory through natural-language recall, evidence, and correction workflows before seeing layer-specific internals
 - advanced memory configuration remains expert-oriented
 - L0-L4 workbench and inspector surfaces should be treated as expert/operator tooling, not as the default user memory experience
-- quick onboarding should not force detailed memory tuning
+- first-run onboarding should not force detailed memory tuning
 - settings should expose the main lifecycle toggles and key pipeline switches
 - general memory settings should expose a global hot-memory retention window and whether aged history is deleted or archived
 - the managed memory storage directory remains an internal runtime path until live path switching and migration are supported safely
@@ -348,7 +330,7 @@ Important behavioral rules:
 - `L2`, `L3`, and `L4` depend on `L1`
 - runtime telemetry should not be treated as equivalent to user-authored memory
 - user-visible chat transcript is not owned by `L1`; it is owned by the dedicated chat domain store
-- expert memory controls belong in Settings and expert onboarding, not quick onboarding
+- expert memory controls belong in Settings and operator tooling, not first-run onboarding
 
 Current storage implementation notes:
 
@@ -404,7 +386,7 @@ Tool-specific expectations:
 - web fetch is primarily for public web content and may reuse successful fetch results from a short-lived in-memory cache; localhost, private-network, link-local, multicast, reserved, and otherwise non-globally-routable targets are blocked before provider execution unless the user explicitly enables private-network fetch and allowlists trusted hostnames, host:port values, IPs, or CIDR ranges
 - file read should stay low-friction inside the active conversation workspace; reads outside that workspace are allowed only through the existing permission flow, with sensitive user paths such as SSH, cloud, CLI credential, and netrc files classified as higher risk
 - external skills are discoverable from the backend rather than hardcoded
-- expert mode exposes more of this surface than quick mode
+- Settings and operator tooling expose more of this surface than first-run onboarding
 
 The exact tool list may change over time, but the product should preserve these principles:
 
@@ -528,8 +510,8 @@ Important rule:
 
 These rules apply across onboarding and settings:
 
-- quick mode should optimize for speed and low cognitive load
-- expert mode should optimize for clarity and control
+- first-run onboarding should optimize for speed and low cognitive load
+- settings and operator surfaces should optimize for clarity and control
 - configuration should be language-aware
 - configuration changes should be persisted
 - validation should happen before save

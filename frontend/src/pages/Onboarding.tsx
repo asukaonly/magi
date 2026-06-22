@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { PluginInstallPanel } from '@/components/plugins/PluginInstallPanel';
 import { STORAGE_KEYS } from '@/constants/app';
 import { configApi, DEFAULT_SYSTEM_CONFIG, type LanguageCode, SystemConfig } from '../api/modules/config';
 import OnboardingFlow from '../components/onboarding/OnboardingFlow';
@@ -65,7 +66,10 @@ const OnboardingPage: React.FC = () => {
   }
 
   return (
-    <OnboardingFlow initialConfig={config} />
+    <>
+      <OnboardingFlow initialConfig={config} />
+      <PluginInstallPanel />
+    </>
   );
 };
 
