@@ -44,17 +44,10 @@ describe('ProductTour', () => {
     expect(screen.getByTestId('empty-state-connect-chrome-history')).toBeInTheDocument();
   });
 
-  it('enter chat calls onComplete', async () => {
+  it('connect later calls onComplete', async () => {
     const onComplete = vi.fn();
     render(<ProductTour onComplete={onComplete} />);
-    await userEvent.click(screen.getByRole('button', { name: 'productTour.enterChat' }));
-    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
-  });
-
-  it('skip calls onComplete', async () => {
-    const onComplete = vi.fn();
-    render(<ProductTour onComplete={onComplete} />);
-    await userEvent.click(screen.getByRole('button', { name: 'productTour.skip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'productTour.connectLater' }));
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
   });
 
@@ -73,14 +66,26 @@ describe('ProductTour', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
-  it('connect opens the install panel and completes the prompt', async () => {
+  it('connect opens the install panel and completes only after install succeeds', async () => {
     const onComplete = vi.fn();
     const openPanel = vi.spyOn(usePluginInstallPanelStore.getState(), 'openPanel');
 
     render(<ProductTour onComplete={onComplete} />);
     await userEvent.click(screen.getByTestId('empty-state-connect-chrome-history'));
 
-    expect(openPanel).toHaveBeenCalledWith('chrome-history', { install: true });
+    expect(openPanel).toHaveBeenCalledWith('chrome-history', {
+      install: true,
+      onDone: expect.any(Function),
+    });
+    expect(onComplete).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    usePluginInstallPanelStore.getState().closePanel();
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+    expect(onComplete).not.toHaveBeenCalled();
+
+    const onDone = openPanel.mock.calls[0]?.[1]?.onDone;
+    onDone?.();
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
   });
 });

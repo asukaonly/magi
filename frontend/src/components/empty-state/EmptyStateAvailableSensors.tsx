@@ -63,7 +63,7 @@ export interface EmptyStateAvailableSensorsProps {
   installableLoading?: boolean;
   /**
    * Called after the shared plugin panel opens. First-run surfaces use this to
-   * dismiss their own guidance shell once the real install/connect flow starts.
+   * track that the real install/connect flow started.
    */
   onConnectStart?: (pluginId: string, options: { install: boolean }) => void;
   /**

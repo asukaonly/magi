@@ -9,6 +9,7 @@
     "connecting": "Connecting…",
     "recommend": "Suggested: {{plugin}}",
     "enterChat": "Enter chat",
+    "connectLater": "Connect later",
     "firstContextKicker": "Optional context source",
     "firstContextTitle": "Give Magi one starting point",
     "firstContextBody": "Connect a daily source and Magi will build its first piece of context. You can skip this now and add sources later.",

@@ -1,5 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
-import { ArrowRight } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
@@ -12,6 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
+import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 
 export interface ProductTourProps {
   /** Called when the first-run setup prompt is completed or skipped. */
@@ -21,16 +21,26 @@ export interface ProductTourProps {
 export function ProductTour({ onComplete }: ProductTourProps): JSX.Element {
   const { t } = useTranslation('app');
   const [open, setOpen] = useState(true);
+  const pluginPanelOpen = usePluginInstallPanelStore((s) => s.open);
   const doneRef = useRef(false);
+  const awaitingPluginRef = useRef(false);
 
   const finish = useCallback(() => {
     if (doneRef.current) {
       return;
     }
     doneRef.current = true;
+    awaitingPluginRef.current = false;
     setOpen(false);
     onComplete();
   }, [onComplete]);
+
+  useEffect(() => {
+    if (!pluginPanelOpen && awaitingPluginRef.current && !doneRef.current) {
+      awaitingPluginRef.current = false;
+      setOpen(true);
+    }
+  }, [pluginPanelOpen]);
 
   const preventDismiss = (event: Event) => {
     event.preventDefault();
@@ -61,20 +71,20 @@ export function ProductTour({ onComplete }: ProductTourProps): JSX.Element {
           <EmptyStateAvailableSensors
             showBrowseAll={false}
             fallbackPluginIds={['chrome-history', 'git-activity']}
-            onConnectStart={finish}
+            onConnectStart={() => {
+              awaitingPluginRef.current = true;
+              setOpen(false);
+            }}
+            onConnectDone={finish}
           />
           <p className="mt-4 text-xs leading-5 text-muted-foreground">
             {t('productTour.firstContextNote')}
           </p>
         </div>
 
-        <DialogFooter className="justify-between bg-background/95 px-7">
-          <Button variant="ghost" onClick={finish}>
-            {t('productTour.skip')}
-          </Button>
-          <Button onClick={finish} className="gap-2">
-            {t('productTour.enterChat')}
-            <ArrowRight className="h-4 w-4" />
+        <DialogFooter className="justify-end bg-background/95 px-7">
+          <Button onClick={finish}>
+            {t('productTour.connectLater')}
           </Button>
         </DialogFooter>
       </DialogContent>
