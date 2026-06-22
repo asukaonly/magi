@@ -739,19 +739,25 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
             onChange={(event) => patch((draft) => { draft.idiolect.sentence_style = event.target.value; })}
           />
         </label>
-        <div className="grid gap-3 md:grid-cols-3">
-          <label className="space-y-1.5">
-            <FieldLabel label={t('personality.fields.vocabAvailable')} help={t('personality.fieldHelp.vocabAvailable')} />
-            <AutoResizeTextarea value={toLines(config.idiolect.vocab_available)} onChange={(event) => patch((draft) => { draft.idiolect.vocab_available = parseLines(event.target.value); })} />
-          </label>
-          <label className="space-y-1.5">
-            <FieldLabel label={t('personality.fields.vocabAvoided')} help={t('personality.fieldHelp.vocabAvoided')} />
-            <AutoResizeTextarea value={toLines(config.idiolect.vocab_avoided)} onChange={(event) => patch((draft) => { draft.idiolect.vocab_avoided = parseLines(event.target.value); })} />
-          </label>
-          <label className="space-y-1.5">
-            <FieldLabel label={t('personality.fields.structuralQuirks')} help={t('personality.fieldHelp.structuralQuirks')} />
-            <AutoResizeTextarea value={toLines(config.idiolect.structural_quirks)} onChange={(event) => patch((draft) => { draft.idiolect.structural_quirks = parseLines(event.target.value); })} />
-          </label>
+        <div className="grid gap-3">
+          <StackedTextareaField
+            label={t('personality.fields.vocabAvailable')}
+            help={t('personality.fieldHelp.vocabAvailable')}
+            value={toLines(config.idiolect.vocab_available)}
+            onChange={(event) => patch((draft) => { draft.idiolect.vocab_available = parseLines(event.target.value); })}
+          />
+          <StackedTextareaField
+            label={t('personality.fields.vocabAvoided')}
+            help={t('personality.fieldHelp.vocabAvoided')}
+            value={toLines(config.idiolect.vocab_avoided)}
+            onChange={(event) => patch((draft) => { draft.idiolect.vocab_avoided = parseLines(event.target.value); })}
+          />
+          <StackedTextareaField
+            label={t('personality.fields.structuralQuirks')}
+            help={t('personality.fieldHelp.structuralQuirks')}
+            value={toLines(config.idiolect.structural_quirks)}
+            onChange={(event) => patch((draft) => { draft.idiolect.structural_quirks = parseLines(event.target.value); })}
+          />
         </div>
       </div>
     </Section>

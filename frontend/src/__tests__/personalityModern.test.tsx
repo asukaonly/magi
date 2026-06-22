@@ -279,6 +279,24 @@ describe('PersonalityModern', () => {
     });
   });
 
+  it('stacks voice list fields instead of squeezing them into columns', () => {
+    vi.mocked(usePersonality).mockReturnValue(buildHookState() as any);
+
+    render(<PersonalityModern embedded />);
+    if (!screen.queryByText('personality.fields.vocabAvailable')) {
+      fireEvent.click(screen.getByRole('button', { name: 'personality.sections.idiolect' }));
+    }
+
+    const availableField = screen.getByText('personality.fields.vocabAvailable').closest('label');
+    const avoidedField = screen.getByText('personality.fields.vocabAvoided').closest('label');
+    const quirksField = screen.getByText('personality.fields.structuralQuirks').closest('label');
+
+    expect(availableField).toHaveClass('block');
+    expect(availableField).toHaveClass('bg-muted/20');
+    expect(avoidedField).toHaveClass('block');
+    expect(quirksField).toHaveClass('block');
+  });
+
   it('shows layer modifier help immediately and constrains modifier keys to supported options', async () => {
     vi.mocked(usePersonality).mockReturnValue(
       buildHookState({
