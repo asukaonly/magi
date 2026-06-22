@@ -322,13 +322,23 @@ const Section: React.FC<{
 const HelpTooltip: React.FC<{ label: string; help: string }> = ({ label, help }) => {
   const tooltipId = React.useId();
   const [open, setOpen] = React.useState(false);
+  const [align, setAlign] = React.useState<'left' | 'right'>('left');
+  const anchorRef = React.useRef<HTMLSpanElement | null>(null);
+
+  const showTooltip = () => {
+    const rect = anchorRef.current?.getBoundingClientRect();
+    const availableTooltipWidth = Math.min(288, window.innerWidth - 48);
+    setAlign(rect && rect.left + availableTooltipWidth > window.innerWidth - 24 ? 'right' : 'left');
+    setOpen(true);
+  };
 
   return (
     <span
-      className="relative inline-flex"
-      onMouseEnter={() => setOpen(true)}
+      ref={anchorRef}
+      className="relative inline-flex shrink-0"
+      onMouseEnter={showTooltip}
       onMouseLeave={() => setOpen(false)}
-      onFocusCapture={() => setOpen(true)}
+      onFocusCapture={showTooltip}
       onBlurCapture={(event) => {
         const nextFocused = event.relatedTarget;
         if (nextFocused instanceof Node && event.currentTarget.contains(nextFocused)) {
@@ -349,7 +359,7 @@ const HelpTooltip: React.FC<{ label: string; help: string }> = ({ label, help })
         <span
           id={tooltipId}
           role="tooltip"
-          className="pointer-events-none absolute left-0 top-full z-20 mt-2 w-72 rounded-md border border-border/70 bg-background px-3 py-2 text-[11px] leading-5 text-foreground shadow-md"
+          className={`pointer-events-none absolute top-full z-30 mt-2 w-[min(18rem,calc(100vw-3rem))] max-w-[calc(100vw-3rem)] whitespace-normal break-words rounded-md bg-background px-3 py-2 text-left text-[11px] leading-5 text-foreground shadow-[0_12px_32px_-20px_hsl(var(--foreground)/0.42),inset_0_0_0_1px_hsl(var(--border)/0.55)] ${align === 'right' ? 'right-0' : 'left-0'}`}
         >
           {help}
         </span>
@@ -359,10 +369,28 @@ const HelpTooltip: React.FC<{ label: string; help: string }> = ({ label, help })
 };
 
 const FieldLabel: React.FC<{ label: string; help?: string }> = ({ label, help }) => (
-  <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-    <span>{label}</span>
+  <span className="inline-flex max-w-full flex-wrap items-center gap-1.5 text-xs font-medium text-muted-foreground">
+    <span className="min-w-0">{label}</span>
     {help ? <HelpTooltip label={label} help={help} /> : null}
   </span>
+);
+
+const StackedTextareaField: React.FC<{
+  label: string;
+  help?: string;
+  value: string;
+  minHeight?: number;
+  onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
+}> = ({ label, help, value, minHeight = 76, onChange }) => (
+  <label className="block space-y-2 rounded-md bg-muted/20 px-3 py-3 transition-colors duration-200 focus-within:bg-muted/30">
+    <FieldLabel label={label} help={help} />
+    <AutoResizeTextarea
+      value={value}
+      minHeight={minHeight}
+      className="w-full bg-background/80 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.22)]"
+      onChange={onChange}
+    />
+  </label>
 );
 
 const MappingRowsEditor: React.FC<{
@@ -676,31 +704,25 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
             onChange={(event) => patch((draft) => { draft.identity_core.identity_statement = event.target.value; })}
           />
         </label>
-        <div className="grid gap-3 md:grid-cols-3">
-          <label className="space-y-1.5">
-            <FieldLabel label={t('personality.fields.valuesLoved')} help={t('personality.fieldHelp.valuesLoved')} />
-            <AutoResizeTextarea
-              value={toLines(config.identity_core.values_loved)}
-              className="w-full"
-              onChange={(event) => patch((draft) => { draft.identity_core.values_loved = parseLines(event.target.value); })}
-            />
-          </label>
-          <label className="space-y-1.5">
-            <FieldLabel label={t('personality.fields.valuesRejected')} help={t('personality.fieldHelp.valuesRejected')} />
-            <AutoResizeTextarea
-              value={toLines(config.identity_core.values_rejected)}
-              className="w-full"
-              onChange={(event) => patch((draft) => { draft.identity_core.values_rejected = parseLines(event.target.value); })}
-            />
-          </label>
-          <label className="space-y-1.5">
-            <FieldLabel label={t('personality.fields.attentionBiases')} help={t('personality.fieldHelp.attentionBiases')} />
-            <AutoResizeTextarea
-              value={toLines(config.identity_core.attention_biases)}
-              className="w-full"
-              onChange={(event) => patch((draft) => { draft.identity_core.attention_biases = parseLines(event.target.value); })}
-            />
-          </label>
+        <div className="grid gap-3">
+          <StackedTextareaField
+            label={t('personality.fields.valuesLoved')}
+            help={t('personality.fieldHelp.valuesLoved')}
+            value={toLines(config.identity_core.values_loved)}
+            onChange={(event) => patch((draft) => { draft.identity_core.values_loved = parseLines(event.target.value); })}
+          />
+          <StackedTextareaField
+            label={t('personality.fields.valuesRejected')}
+            help={t('personality.fieldHelp.valuesRejected')}
+            value={toLines(config.identity_core.values_rejected)}
+            onChange={(event) => patch((draft) => { draft.identity_core.values_rejected = parseLines(event.target.value); })}
+          />
+          <StackedTextareaField
+            label={t('personality.fields.attentionBiases')}
+            help={t('personality.fieldHelp.attentionBiases')}
+            value={toLines(config.identity_core.attention_biases)}
+            onChange={(event) => patch((draft) => { draft.identity_core.attention_biases = parseLines(event.target.value); })}
+          />
         </div>
       </div>
     </Section>

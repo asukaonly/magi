@@ -237,6 +237,48 @@ describe('PersonalityModern', () => {
     expect(screen.getByDisplayValue('crack')).toBeInTheDocument();
   });
 
+  it('stacks identity core list fields and keeps help tips inside the editor', async () => {
+    vi.mocked(usePersonality).mockReturnValue(buildHookState() as any);
+
+    render(<PersonalityModern embedded />);
+    if (!screen.queryByText('personality.fields.valuesLoved')) {
+      fireEvent.click(screen.getByRole('button', { name: 'personality.sections.identityCore' }));
+    }
+
+    const lovedField = screen.getByText('personality.fields.valuesLoved').closest('label');
+    const rejectedField = screen.getByText('personality.fields.valuesRejected').closest('label');
+    const attentionField = screen.getByText('personality.fields.attentionBiases').closest('label');
+
+    expect(lovedField).toHaveClass('block');
+    expect(lovedField).toHaveClass('bg-muted/20');
+    expect(rejectedField).toHaveClass('block');
+    expect(attentionField).toHaveClass('block');
+
+    const attentionHelp = screen.getByRole('button', {
+      name: 'personality.fields.attentionBiases: personality.fieldHelp.attentionBiases',
+    });
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+    vi.spyOn(attentionHelp.parentElement as HTMLElement, 'getBoundingClientRect').mockReturnValue({
+      left: 900,
+      right: 916,
+      top: 0,
+      bottom: 16,
+      width: 16,
+      height: 16,
+      x: 900,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.mouseEnter(attentionHelp);
+    expect(screen.getByRole('tooltip')).toHaveClass('right-0');
+    expect(screen.getByRole('tooltip')).toHaveClass('break-words');
+    fireEvent.mouseLeave(attentionHelp);
+    await waitFor(() => {
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    });
+  });
+
   it('shows layer modifier help immediately and constrains modifier keys to supported options', async () => {
     vi.mocked(usePersonality).mockReturnValue(
       buildHookState({
