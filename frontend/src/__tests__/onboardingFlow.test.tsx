@@ -174,8 +174,8 @@ describe('OnboardingFlow (linear 4-step)', () => {
 
     expect(screen.getByText('welcome.brand')).toBeInTheDocument();
     expect(screen.getByText('welcome.title')).toBeInTheDocument();
-    expect(screen.getByText('welcome.subtitleLine1')).toBeInTheDocument();
-    expect(screen.getByText('welcome.subtitleLine2')).toBeInTheDocument();
+    expect(screen.queryByText('welcome.subtitleLine1')).not.toBeInTheDocument();
+    expect(screen.queryByText('welcome.subtitleLine2')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /welcome\.getStarted/ })).toBeInTheDocument();
     // Mode cards no longer exist anywhere in the flow.
     expect(screen.queryByText(/welcome\.quickMode/)).not.toBeInTheDocument();

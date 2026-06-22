@@ -45,31 +45,25 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         transition={{ duration: shouldReduceMotion ? 0 : 0.5, ease: 'easeOut' }}
       >
         {/* Logo / Brand */}
-        <div className="mb-8 inline-flex items-center gap-3">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[#ead9c8]/80 bg-[#fff7ef]/82 shadow-[0_16px_34px_-26px_rgba(120,80,44,0.42)] backdrop-blur-sm dark:border-[#584438]/70 dark:bg-[#241c18]/82 dark:shadow-[0_18px_36px_-28px_rgba(0,0,0,0.62)]">
-            <img src={magiMark} alt="" className="h-10 w-10" aria-hidden="true" />
+        <div className="mb-10 inline-flex items-center gap-4">
+          <div className="flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-[1.4rem] border border-[#ead9c8]/80 bg-[#fff7ef]/82 shadow-[0_18px_38px_-28px_rgba(120,80,44,0.42)] backdrop-blur-sm dark:border-[#584438]/70 dark:bg-[#241c18]/82 dark:shadow-[0_20px_40px_-30px_rgba(0,0,0,0.62)]">
+            <img src={magiMark} alt="" className="h-12 w-12" aria-hidden="true" />
           </div>
-          <div className="text-[1.7rem] font-semibold leading-none text-[#8b5737] dark:text-[#efb084] sm:text-3xl">
+          <div className="text-[2.4rem] font-semibold leading-none text-[#8b5737] dark:text-[#efb084] sm:text-[3.25rem]">
             {t('welcome.brand')}
           </div>
         </div>
 
         {/* Title */}
-        <h1 className="mb-3 text-4xl font-bold tracking-normal text-[#3b2b22] dark:text-[#f2e7db] sm:text-5xl">
+        <h1 className="text-[2.3rem] font-bold leading-tight tracking-normal text-[#3b2b22] dark:text-[#f2e7db] sm:text-[2.85rem]">
           {t('welcome.title')}
         </h1>
-
-        {/* Subtitle */}
-        <p className="mb-4 max-w-[32rem] text-base leading-7 text-[#7b6557] dark:text-[#c8b8aa] sm:text-lg sm:leading-8">
-          <span className="block">{t('welcome.subtitleLine1')}</span>
-          <span className="block">{t('welcome.subtitleLine2')}</span>
-        </p>
 
         {/* Get Started CTA */}
         <motion.button
           type="button"
           onClick={onContinue}
-          className="group mt-11 inline-flex h-12 items-center justify-center gap-2 rounded-[14px] border border-[#8f5532]/30 bg-[#a0623a] px-6 text-base font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.24),0_18px_36px_-24px_rgba(112,63,31,0.9)] transition hover:bg-[#965833] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_20px_40px_-24px_rgba(112,63,31,0.95)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a0623a]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fbf4ea] dark:border-[#efb084]/25 dark:bg-[#efb084] dark:text-[#2a1f1a] dark:hover:bg-[#f4bd94] dark:focus-visible:ring-[#efb084]/40 dark:focus-visible:ring-offset-[#171311]"
+          className="group mt-14 inline-flex h-12 items-center justify-center gap-2 rounded-[14px] border border-[#8f5532]/30 bg-[#a0623a] px-6 text-base font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.24),0_18px_36px_-24px_rgba(112,63,31,0.9)] transition hover:bg-[#965833] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_20px_40px_-24px_rgba(112,63,31,0.95)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a0623a]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fbf4ea] dark:border-[#efb084]/25 dark:bg-[#efb084] dark:text-[#2a1f1a] dark:hover:bg-[#f4bd94] dark:focus-visible:ring-[#efb084]/40 dark:focus-visible:ring-offset-[#171311]"
           whileHover={shouldReduceMotion ? undefined : { y: -1 }}
           whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
           transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}

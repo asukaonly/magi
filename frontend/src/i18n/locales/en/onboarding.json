@@ -49,8 +49,6 @@
   "welcome": {
     "brand": "Magi",
     "title": "Turning Time Into Context",
-    "subtitleLine1": "A local agent with long-term memory.",
-    "subtitleLine2": "Every conversation picks up with your context.",
     "getStarted": "Start Setup"
   },
   "scenario": {
