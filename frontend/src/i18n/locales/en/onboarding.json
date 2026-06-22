@@ -407,7 +407,7 @@
         "baseUrl": "Base URL",
         "displayName": "Display Name",
         "apiFormat": "API Format",
-        "providerPlan": "Provider Plan",
+        "providerPlan": "Billing mode",
         "providerEndpoint": "Endpoint Country / Region",
         "enabled": "Enabled",
       "modelKind": "Model Type",
@@ -422,7 +422,7 @@
       "image": "Image Generation"
     },
       "providerPlans": {
-        "default": "Default Plan",
+        "default": "API billing",
         "customEndpoint": "Custom Base URL"
       },
     "modelFields": {

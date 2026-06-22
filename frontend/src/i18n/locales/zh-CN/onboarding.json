@@ -408,7 +408,7 @@
         "baseUrl": "Base URL",
         "displayName": "显示名称",
         "apiFormat": "API 格式",
-        "providerPlan": "供应商计划",
+        "providerPlan": "计费方式",
         "providerEndpoint": "端点国家/区域",
         "enabled": "启用",
       "modelKind": "模型类型",
@@ -423,7 +423,7 @@
       "image": "生图模型"
     },
       "providerPlans": {
-        "default": "默认计划",
+        "default": "API 计费",
         "customEndpoint": "自定义 Base URL"
       },
     "modelFields": {
