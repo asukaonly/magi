@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any, Optional
+from urllib.parse import unquote
 
 from .. import i18n as core_i18n
 from .contracts import TimelineEvent
@@ -218,6 +219,7 @@ class TimelineService:
         if not asset_ref:
             return None
 
+        asset_ref = unquote(asset_ref)
         scheme, _, _ = asset_ref.partition("://")
 
         if scheme == "manual-entry-asset":

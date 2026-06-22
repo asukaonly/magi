@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
+from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+from magi.api.routers.timeline import timeline_router
+from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
 from magi.timeline.service import TimelineService
 
 
@@ -68,3 +74,44 @@ async def test_serve_asset_streams_existing_file(
     body_bytes, content_type = result
     assert body_bytes == b"\x00\x01\x02\x03"
     assert content_type == "image/heic"
+
+
+@pytest.mark.asyncio
+async def test_serve_asset_streams_encoded_manual_entry_asset(
+    unified_memory_for_tests, tmp_path,
+):
+    asset_store = ManualEntryAssetStore(media_root=tmp_path / "media")
+    asset_ref = asset_store.store_bytes(b"cover-bytes", content_type="image/jpeg")
+
+    service = TimelineService(
+        unified_memory_for_tests,
+        manual_entry_asset_store=asset_store,
+    )
+
+    result = await service.serve_asset(asset_ref=quote(asset_ref, safe=""))
+
+    assert result == (b"cover-bytes", "image/jpeg")
+
+
+def test_public_timeline_asset_route_streams_manual_entry_asset(
+    tmp_path, monkeypatch,
+):
+    asset_store = ManualEntryAssetStore(media_root=tmp_path / "media")
+    asset_ref = asset_store.store_bytes(b"cover-route-bytes", content_type="image/png")
+    app = FastAPI()
+    app.include_router(
+        _build_public_router(timeline_router, _PUBLIC_ROUTE_METHODS["timeline"]),
+        prefix="/api/timeline",
+    )
+
+    monkeypatch.setattr("magi.api.routers.timeline.get_unified_memory", lambda: object())
+    monkeypatch.setattr(
+        "magi.api.routers.timeline.get_manual_entry_asset_store",
+        lambda: asset_store,
+    )
+
+    response = TestClient(app).get(f"/api/timeline/asset/{quote(asset_ref, safe='')}")
+
+    assert response.status_code == 200
+    assert response.content == b"cover-route-bytes"
+    assert response.headers["content-type"] == "image/png"

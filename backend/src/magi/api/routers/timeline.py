@@ -7,10 +7,17 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from ... import i18n as core_i18n
-from ...memory.provider import get_unified_memory
+from ...memory.provider import get_manual_entry_asset_store, get_unified_memory
 from ...timeline.service import TimelineService
 
 timeline_router = APIRouter()
+
+
+def _resolve_manual_entry_asset_store():
+    try:
+        return get_manual_entry_asset_store()
+    except RuntimeError:
+        return None
 
 
 def get_timeline_service() -> TimelineService:
@@ -23,7 +30,10 @@ def get_timeline_service() -> TimelineService:
                 "timeline.errors.service_unavailable", fallback="Timeline service unavailable"
             ),
         ) from exc
-    return TimelineService(unified_memory)
+    return TimelineService(
+        unified_memory,
+        manual_entry_asset_store=_resolve_manual_entry_asset_store(),
+    )
 
 
 @timeline_router.get("/viewport")
