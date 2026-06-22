@@ -133,10 +133,10 @@ export const MEMORY_ACTION_BUTTON_CLASS =
   'h-9 rounded-sm border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-4 text-sm text-[hsl(var(--memory-title))] hover:bg-[hsl(var(--memory-panel-subtle)/0.82)]';
 
 export const MEMORY_INFO_PANEL_CLASS =
-  'rounded-xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.66)] px-4 py-3 text-sm text-[hsl(var(--memory-body))]';
+  'rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.38)] px-4 py-3 text-sm leading-6 text-[hsl(var(--memory-body))] shadow-[inset_0_0_0_1px_hsl(var(--memory-divider)/0.22)]';
 
 export const MEMORY_EMPTY_PANEL_CLASS =
-  'rounded-2xl border border-dashed border-[hsl(var(--memory-empty-border)/0.72)] bg-[hsl(var(--memory-empty-bg)/0.76)] p-4 text-sm leading-6 text-[hsl(var(--memory-body))]';
+  'rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.32)] px-4 py-3 text-sm leading-6 text-[hsl(var(--memory-muted))] shadow-[inset_0_0_0_1px_hsl(var(--memory-divider)/0.2)]';
 
 export const MEMORY_SECTION_CARD_CLASS =
   'rounded-2xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.68)] p-4';

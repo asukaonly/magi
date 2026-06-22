@@ -2411,7 +2411,7 @@ const StatLine: React.FC<{ label: string; value: string }> = ({ label, value }) 
 );
 
 const EmptyState: React.FC<{ copy: string }> = ({ copy }) => (
-  <div className="rounded-sm border border-dashed border-[hsl(var(--memory-empty-border))] bg-[hsl(var(--memory-empty-bg)/0.72)] px-4 py-6 text-sm text-[hsl(var(--memory-muted))]">
+  <div className="rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.32)] px-4 py-3 text-sm leading-6 text-[hsl(var(--memory-muted))] shadow-[inset_0_0_0_1px_hsl(var(--memory-divider)/0.2)]">
     {copy}
   </div>
 );

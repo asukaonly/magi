@@ -20,6 +20,9 @@ interface L0TabProps {
 const PANEL_CLASS =
   'rounded-xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-4 py-4';
 
+const EMPTY_PANEL_CLASS =
+  'rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.32)] px-3 py-4 text-sm leading-6 text-[hsl(var(--memory-muted))] shadow-[inset_0_0_0_1px_hsl(var(--memory-divider)/0.2)]';
+
 const getEntityLabel = (entity: Record<string, unknown>) => {
   const snapshot = entity.snapshot as Record<string, unknown> | undefined;
   const snapshotName = snapshot?.name;
@@ -93,7 +96,7 @@ export const L0Tab: React.FC<L0TabProps> = ({
           </div>
 
           {sessions.length === 0 ? (
-            <div className="mt-3 rounded-lg border border-dashed border-[hsl(var(--memory-empty-border)/0.72)] bg-[hsl(var(--memory-empty-bg)/0.76)] px-3 py-5 text-sm text-[hsl(var(--memory-body))]">
+            <div className={`mt-3 ${EMPTY_PANEL_CLASS}`}>
               {t('memory.l0.noSessions')}
             </div>
           ) : (
@@ -139,7 +142,7 @@ export const L0Tab: React.FC<L0TabProps> = ({
           <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">{t('memory.l0.workbench')}</h2>
 
           {!selectedSessionId ? (
-            <div className="mt-3 rounded-lg border border-dashed border-[hsl(var(--memory-empty-border)/0.72)] bg-[hsl(var(--memory-empty-bg)/0.76)] px-3 py-5 text-sm text-[hsl(var(--memory-body))]">
+            <div className={`mt-3 ${EMPTY_PANEL_CLASS}`}>
               {t('memory.pages.workbench.focusEmpty')}
             </div>
           ) : (
@@ -161,7 +164,7 @@ export const L0Tab: React.FC<L0TabProps> = ({
               ) : null}
 
               {!hasWorkbenchContent ? (
-                <div className="rounded-lg border border-dashed border-[hsl(var(--memory-empty-border)/0.72)] bg-[hsl(var(--memory-empty-bg)/0.76)] px-3 py-4 text-sm leading-6 text-[hsl(var(--memory-body))]">
+                <div className={EMPTY_PANEL_CLASS}>
                   {t('memory.pages.workbench.shellEmpty')}
                 </div>
               ) : null}

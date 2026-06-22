@@ -2,11 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   Activity,
   Brain,
+  BookOpen,
   CalendarClock,
   History,
+  LayoutDashboard,
   ListChecks,
   MessageCircle,
+  Search,
   Settings,
+  SlidersHorizontal,
+  UserRound,
+  type LucideIcon,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -40,13 +46,13 @@ interface SidebarProps {
 type ActivityPanel = Exclude<ChatPanelType, 'none'>;
 
 const MEMORY_DESTINATIONS = [
-  { key: 'overview', path: '/memory/overview' },
-  { key: 'portrait', path: '/memory/portrait' },
-  { key: 'stories', path: '/memory/stories' },
-  { key: 'episodes', path: '/memory/episodes' },
-  { key: 'recall', path: '/memory/recall' },
-  { key: 'governance', path: '/memory/governance' },
-] as const;
+  { key: 'overview', path: '/memory/overview', icon: LayoutDashboard },
+  { key: 'portrait', path: '/memory/portrait', icon: UserRound },
+  { key: 'stories', path: '/memory/stories', icon: History },
+  { key: 'episodes', path: '/memory/episodes', icon: BookOpen },
+  { key: 'recall', path: '/memory/recall', icon: Search },
+  { key: 'governance', path: '/memory/governance', icon: SlidersHorizontal },
+] as const satisfies readonly { key: string; path: string; icon: LucideIcon }[];
 
 const TASKS_DESTINATIONS = [
   { key: 'background', path: '/tasks/background', icon: ListChecks },
@@ -325,6 +331,13 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover)/0.68)] hover:text-[hsl(var(--sidebar-active-foreground))]'
   );
 
+  const memoryNavButtonClass = (active: boolean) => cn(
+    'group/session relative flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-[13px] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[2px] before:rounded-full before:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]',
+    active
+      ? 'text-[hsl(var(--sidebar-active-foreground))] before:bg-[hsl(var(--primary)/0.78)]'
+      : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover)/0.46)] hover:text-[hsl(var(--sidebar-active-foreground))]'
+  );
+
   const activityButtonClass = (active: boolean, open: boolean) => cn(
     'relative flex h-11 w-11 items-center justify-center rounded-lg text-[hsl(var(--sidebar-muted))] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-[-6px] before:top-2 before:w-[2px] before:rounded-full before:bg-transparent hover:bg-[hsl(var(--sidebar-hover)/0.62)] hover:text-[hsl(var(--sidebar-active-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.2)]',
     active && 'text-[hsl(var(--sidebar-active-foreground))] before:bg-[hsl(var(--primary))]',
@@ -480,6 +493,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5 pr-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         <div className="space-y-0.5">
           {MEMORY_DESTINATIONS.map((item) => {
+            const Icon = item.icon;
             const destinationActive =
               location.pathname === item.path ||
               (item.path === '/memory/stories' && location.pathname === '/events');
@@ -493,8 +507,18 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                 }}
                 aria-label={t(`memory.nav.${item.key}`)}
                 aria-current={destinationActive ? 'page' : undefined}
-                className={panelNavButtonClass(destinationActive)}
+                className={memoryNavButtonClass(destinationActive)}
               >
+                <Icon
+                  aria-hidden="true"
+                  data-testid={`sidebar-memory-icon-${item.key}`}
+                  className={cn(
+                    'h-3.5 w-3.5 shrink-0 transition-colors duration-150',
+                    destinationActive
+                      ? 'text-[hsl(var(--sidebar-active-foreground))]'
+                      : 'text-[hsl(var(--sidebar-muted))] group-hover/session:text-[hsl(var(--sidebar-active-foreground))]'
+                  )}
+                />
                 <span className="min-w-0 flex-1 truncate font-medium">
                   {t(`memory.nav.${item.key}`)}
                 </span>

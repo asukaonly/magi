@@ -600,6 +600,8 @@ describe('sidebar navigation', () => {
 
     expect(screen.getByTestId('location')).toHaveTextContent('/memory/overview');
     expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByTestId('sidebar-memory-icon-overview')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'memory.nav.episodes' }));
 
@@ -611,6 +613,8 @@ describe('sidebar navigation', () => {
     expect(screen.getByRole('button', { name: 'memory.nav.portrait' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.recall' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.governance' })).toBeInTheDocument();
+    expect(screen.getByTestId('sidebar-memory-icon-episodes')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.episodes' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('location')).toHaveTextContent('/memory/episodes');
     expect(useChatShellStore.getState().activePanel).toBe('memory');
   });
