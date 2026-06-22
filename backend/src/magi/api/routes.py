@@ -50,6 +50,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l2/experience-seeds/{seed_id}/reject": {"POST"},
         "/l2/experiences": {"GET"},
         "/l2/experiences/{experience_id}": {"GET", "PATCH"},
+        "/l2/experiences/{experience_id}/cover": {"POST"},
         "/l2/experiences/{experience_id}/hide": {"POST"},
         "/l2/experiences/{experience_id}/regenerate": {"POST"},
         "/l3/summaries": {"GET"},

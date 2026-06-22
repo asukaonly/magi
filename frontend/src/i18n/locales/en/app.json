@@ -2585,6 +2585,7 @@
         "narrative": "Narrative",
         "eventStream": "Event stream",
         "inferred": "Inferred impressions",
+        "relatedObjects": "Related details",
         "entities": "Entities",
         "people": "People",
         "places": "Places",

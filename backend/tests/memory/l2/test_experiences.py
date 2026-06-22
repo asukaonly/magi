@@ -55,6 +55,30 @@ async def test_create_list_and_get_experience(l2_store_with_schema):
 
 
 @pytest.mark.asyncio
+async def test_update_experience_cover_asset_ref(l2_store_with_schema):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    await store.create_experience(
+        experience_id="exp-japan",
+        status="active",
+        title="Japan trip",
+        time_start=1000.0,
+        time_end=2000.0,
+    )
+
+    updated = await store.update_experience(
+        experience_id="exp-japan",
+        user_cover_asset_ref="manual-entry-asset://cover.jpg",
+    )
+    experience = await store.get_experience(experience_id="exp-japan")
+
+    assert updated is True
+    assert experience is not None
+    assert experience["user_cover_asset_ref"] == "manual-entry-asset://cover.jpg"
+
+
+@pytest.mark.asyncio
 async def test_experience_memberships_recompute_counts_from_source_episodes(l2_store_with_schema):
     from magi.memory.l2.store import L2CognitionStore
 

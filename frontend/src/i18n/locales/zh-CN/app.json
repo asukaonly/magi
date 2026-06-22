@@ -2584,6 +2584,7 @@
         "narrative": "叙事",
         "eventStream": "事件流",
         "inferred": "推断印象",
+        "relatedObjects": "相关信息",
         "entities": "相关对象",
         "people": "人物",
         "places": "地点",

@@ -54,6 +54,11 @@ class L2ExperienceStoreBaseMixin:
             ),
             "user_label": str(row["user_label"]) if row["user_label"] else None,
             "user_note": str(row["user_note"]) if row["user_note"] else None,
+            "user_cover_asset_ref": (
+                str(row["user_cover_asset_ref"])
+                if _row_has(row, "user_cover_asset_ref") and row["user_cover_asset_ref"]
+                else None
+            ),
             "user_pinned": bool(row["user_pinned"]),
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),

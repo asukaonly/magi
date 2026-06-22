@@ -9,7 +9,6 @@ import {
   CircleSlash2,
   Layers,
   Loader2,
-  RefreshCw,
   Sparkles,
   Star,
   Tags,
@@ -115,7 +114,6 @@ export const MemoryEpisodesPage = () => {
   const [experiences, setExperiences] = useState<L2ExperienceWithReview[]>([]);
   const [experienceSeeds, setExperienceSeeds] = useState<L2ExperienceSeed[]>([]);
   const [loading, setLoading] = useState(true);
-  const [reconsolidating, setReconsolidating] = useState(false);
   const [seedActionId, setSeedActionId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -144,16 +142,6 @@ export const MemoryEpisodesPage = () => {
 
   const openExperience = (experienceId: string) => {
     navigate(`/memory/episodes/${experienceId}`);
-  };
-
-  const reconsolidate = async () => {
-    setReconsolidating(true);
-    try {
-      await memoryApi.reconsolidateEpisodes();
-      await refresh();
-    } finally {
-      setReconsolidating(false);
-    }
   };
 
   const promoteSeed = async (seedId: string) => {
@@ -188,11 +176,6 @@ export const MemoryEpisodesPage = () => {
         <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div>
       ) : (
         <section className="min-w-0 space-y-7">
-          <ExperienceHomeHeader
-            reconsolidating={reconsolidating}
-            onReconsolidate={reconsolidate}
-          />
-
           {experienceSeeds.length > 0 ? (
             <PendingExperienceShelf
               seeds={experienceSeeds}
@@ -234,45 +217,6 @@ export const MemoryEpisodesPage = () => {
     </MemoryPageFrame>
   );
 };
-
-function ExperienceHomeHeader({
-  reconsolidating,
-  onReconsolidate,
-}: {
-  reconsolidating: boolean;
-  onReconsolidate: () => void;
-}) {
-  const { t } = useTranslation('app');
-
-  return (
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-      <div className="max-w-2xl">
-        <h1 className="text-3xl font-semibold leading-tight tracking-normal text-[hsl(var(--memory-title))]">
-          {t('memory.episodes.title')}
-        </h1>
-        <p className="mt-2 max-w-xl text-sm leading-6 text-[hsl(var(--memory-body))]">
-          {t('memory.episodes.subtitle')}
-        </p>
-      </div>
-      <Button
-        type="button"
-        variant="outline"
-        className="h-10 w-fit shrink-0 rounded-lg border-[hsl(var(--memory-accent)/0.36)] bg-[hsl(var(--memory-panel-elevated)/0.86)] px-4 text-sm font-medium text-[hsl(var(--memory-title))] hover:bg-[hsl(var(--memory-accent-soft)/0.58)]"
-        disabled={reconsolidating}
-        onClick={onReconsolidate}
-      >
-        {reconsolidating ? (
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-        ) : (
-          <RefreshCw className="h-4 w-4" aria-hidden="true" />
-        )}
-        {reconsolidating
-          ? t('memory.episodes.actions.reconsolidating')
-          : t('memory.episodes.actions.reconsolidate')}
-      </Button>
-    </div>
-  );
-}
 
 const getSeedTags = (seed: L2ExperienceSeed, limit = 3): string[] => uniqueItems([
   ...(seed.display_tags || []).map(formatExperienceTag),
@@ -449,14 +393,19 @@ function ExperienceTimeline({
   groups: Array<{ key: string; label: string; items: L2ExperienceWithReview[] }>;
   onSelect: (experienceId: string) => void;
 }) {
+  const { t } = useTranslation('app');
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       {groups.map((group) => (
-        <section key={group.key} className="grid gap-3 md:grid-cols-[86px_minmax(0,1fr)]">
-          <div className="relative text-sm font-semibold text-[hsl(var(--memory-title))]">
-            <span className="md:sticky md:top-4">{group.label}</span>
+        <section key={group.key} className="space-y-3">
+          <div className="flex items-baseline justify-between border-b border-[hsl(var(--memory-divider)/0.56)] pb-2">
+            <h3 className="text-base font-semibold text-[hsl(var(--memory-title))]">{group.label}</h3>
+            <span className="text-xs text-[hsl(var(--memory-muted))]">
+              {t('memory.episodes.count', { count: group.items.length })}
+            </span>
           </div>
-          <div className="relative space-y-3 border-l border-[hsl(var(--memory-divider)/0.78)] pl-5">
+          <div className="space-y-3">
             {group.items.map((experience) => (
               <TimelineExperienceItem
                 key={experience.experience_id}
@@ -491,7 +440,6 @@ function TimelineExperienceItem({
       aria-label={`${t('memory.episodes.actions.open')}: ${title}`}
       className={cn(
         'relative flex w-full flex-col gap-3 rounded-lg border px-5 py-4 text-left transition-colors duration-200',
-        'before:absolute before:-left-[28px] before:top-6 before:h-3 before:w-3 before:rounded-full before:border before:border-[hsl(var(--memory-divider))] before:bg-[hsl(var(--memory-panel-elevated))]',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.24)]',
         'border-[hsl(var(--memory-border)/0.54)] bg-[hsl(var(--memory-panel-elevated)/0.72)] hover:border-[hsl(var(--memory-accent)/0.28)] hover:bg-[hsl(var(--memory-panel-elevated)/0.9)]'
       )}
@@ -607,6 +555,14 @@ export const MemoryExperienceDetailPage = () => {
     });
   };
 
+  const changeCover = async (file: File) => {
+    if (!experience) {
+      return;
+    }
+    const updated = await memoryApi.uploadExperienceCover(experience.experience_id, file);
+    applyExperienceUpdate(updated);
+  };
+
   const regenerateDescription = async () => {
     if (!experience) {
       return;
@@ -643,7 +599,7 @@ export const MemoryExperienceDetailPage = () => {
       title={title || t('memory.episodes.title')}
       description={t('memory.episodes.subtitle')}
       hideHeader
-      className="max-w-[1180px] gap-5 px-4 py-5"
+      className="max-w-[1180px] gap-3 px-4 pb-5 pt-3"
       contentClassName="pb-8"
     >
       {loading ? (
@@ -663,6 +619,7 @@ export const MemoryExperienceDetailPage = () => {
           detailLoading={false}
           onRenameTitle={renameExperience}
           onEditDescription={editDescription}
+          onChangeCover={changeCover}
           onRegenerate={regenerateDescription}
           onHide={hideExperience}
           toolbarStart={backButton}

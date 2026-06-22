@@ -19,6 +19,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.sections.sourceEpisodes': 'Source chapters',
     'memory.episodes.sections.featured': 'Worth revisiting',
     'memory.episodes.sections.entities': 'Entities',
+    'memory.episodes.sections.relatedObjects': 'Related details',
     'memory.episodes.sections.places': 'Places',
     'memory.episodes.sections.topics': 'Topics',
     'memory.episodes.sections.keywords': 'Keywords',
@@ -114,6 +115,7 @@ vi.mock('@/api/modules/memory', () => ({
     rejectExperienceSeed: vi.fn(),
     getExperience: vi.fn(),
     annotateExperience: vi.fn(),
+    uploadExperienceCover: vi.fn(),
     regenerateExperienceReview: vi.fn(),
     hideExperience: vi.fn(),
     listEpisodes: vi.fn(),
@@ -368,8 +370,16 @@ beforeEach(() => {
     seed_id: 'seed-1',
     seed: { ...pendingSeeds[0], status: 'rejected' },
   } as never);
-  vi.mocked(memoryApi.getExperience).mockResolvedValue(experienceDetail);
+  let currentExperienceDetail = experienceDetail;
+  vi.mocked(memoryApi.getExperience).mockImplementation(async () => currentExperienceDetail);
   vi.mocked(memoryApi.annotateExperience).mockResolvedValue(experienceDetail);
+  vi.mocked(memoryApi.uploadExperienceCover).mockImplementation(async () => {
+    currentExperienceDetail = {
+      ...currentExperienceDetail,
+      user_cover_asset_ref: 'manual-entry-asset://uploaded-cover.jpg',
+    };
+    return currentExperienceDetail;
+  });
   vi.mocked(memoryApi.regenerateExperienceReview).mockResolvedValue(experienceDetail);
   vi.mocked(memoryApi.hideExperience).mockResolvedValue({
     ...experienceDetail,
@@ -396,12 +406,13 @@ describe('MemoryEpisodesPage', () => {
     renderPage();
 
     expect((await screen.findAllByText('Launch week')).length).toBeGreaterThan(0);
-    expect(screen.getByText('Recently formed and updated experiences from remembered events.')).toBeInTheDocument();
+    expect(screen.queryByText('Recently formed and updated experiences from remembered events.')).not.toBeInTheDocument();
     expect(screen.getByText('Generated research loop')).toBeInTheDocument();
     expect(screen.getByText('Pinned first · Recently updated')).toBeInTheDocument();
     expect(screen.getByText('All experiences')).toBeInTheDocument();
+    expect(screen.getByText('November 2023')).toBeInTheDocument();
     expect(screen.getByText('Worth revisiting')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Build experiences now' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Build experiences now' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Search experiences')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Filter' })).not.toBeInTheDocument();
     expect(screen.getByText('To organize')).toBeInTheDocument();
@@ -427,9 +438,8 @@ describe('MemoryEpisodesPage', () => {
 
     await openLaunchExperience(user);
     expect(await screen.findByRole('button', { name: 'Back to experiences' })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Launch week cover' })).toHaveAttribute(
-      'src',
-      expect.stringContaining('manual-entry-asset%3A%2F%2Fcover.jpg')
+    expect(screen.getByTestId('experience-cover-hero').getAttribute('style')).toContain(
+      'manual-entry-asset%3A%2F%2Fcover.jpg'
     );
     expect(screen.getByRole('button', { name: 'Change cover' })).toBeInTheDocument();
     expect(await screen.findByText('Generated Japan recap')).toBeInTheDocument();
@@ -449,7 +459,7 @@ describe('MemoryEpisodesPage', () => {
     expect(within(events).getByText('Booked the Shinkansen tickets')).toBeInTheDocument();
     expect(within(events).queryByText('evt-1')).not.toBeInTheDocument();
     const sourceEpisodes = screen.getByTestId('experience-source-episodes');
-    expect(within(sourceEpisodes).getByText('Compared launch copy drafts')).toBeInTheDocument();
+    expect(within(sourceEpisodes).getAllByText('Compared launch copy drafts').length).toBeGreaterThan(0);
     expect(within(sourceEpisodes).queryByText('Source chapter 2')).not.toBeInTheDocument();
     expect(screen.queryByText('2054f7ae-f6f2-4d9e-9c29-7af8760ffbbd')).not.toBeInTheDocument();
 
@@ -459,7 +469,7 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.getAllByText('launch').length).toBeGreaterThan(0);
   });
 
-  it('uses a direct file picker for changing the cover preview', async () => {
+  it('uploads a selected cover and reuses the persisted asset after returning', async () => {
     const user = userEvent.setup();
     renderDetailPage();
 
@@ -471,8 +481,19 @@ describe('MemoryEpisodesPage', () => {
     await user.upload(screen.getByLabelText('Choose cover file'), coverFile);
 
     expect(URL.createObjectURL).toHaveBeenCalledWith(coverFile);
-    expect(screen.getByRole('img', { name: 'Launch week cover' })).toHaveAttribute('src', 'blob:local-cover');
-    expect(screen.getByText('Selected new-cover.png')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(memoryApi.uploadExperienceCover).toHaveBeenCalledWith('exp-1', coverFile);
+    });
+    expect(screen.getByTestId('experience-cover-hero').getAttribute('style')).toContain(
+      encodeURIComponent('manual-entry-asset://uploaded-cover.jpg')
+    );
+    expect(screen.queryByText('Selected new-cover.png')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Back to experiences' }));
+    await openLaunchExperience(user);
+    expect(screen.getByTestId('experience-cover-hero').getAttribute('style')).toContain(
+      encodeURIComponent('manual-entry-asset://uploaded-cover.jpg')
+    );
   });
 
   it('marks pinned experiences as worth revisiting without forcing a featured hero', async () => {
@@ -501,7 +522,7 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.queryByText(/Chrome browsed A/)).not.toBeInTheDocument();
   });
 
-  it('offers reconsolidation when there are no active experiences', async () => {
+  it('points empty states to the manage page without inline rebuild controls', async () => {
     vi.mocked(memoryApi.listExperiences).mockResolvedValueOnce({
       items: [],
       total: 0,
@@ -518,7 +539,7 @@ describe('MemoryEpisodesPage', () => {
 
     expect(await screen.findByText('No active experiences yet')).toBeInTheDocument();
     expect(screen.getByText('Magi will form experiences as conversations and activity accumulate. If you need to refresh them manually, use the Manage page.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Build experiences now' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Build experiences now' })).not.toBeInTheDocument();
   });
 
   it('promotes a pending signal into an experience and refreshes the list', async () => {

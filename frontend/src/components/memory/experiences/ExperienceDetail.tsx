@@ -3,6 +3,7 @@ import {
   BookOpen,
   CalendarRange,
   EyeOff,
+  GitMerge,
   ImageIcon,
   Layers,
   MapPin,
@@ -33,7 +34,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import EpisodeEventList from '../episodes/EpisodeEventList';
 import { formatEpisodeTimeRange } from '../episodes/EpisodeRow';
 import {
   formatExperienceTag,
@@ -190,12 +190,32 @@ const getExperienceCoverUrl = (episodes: L2EpisodeWithSummary[]): string | null 
   return null;
 };
 
+const formatSourceLabel = (value: string | null | undefined): string => (
+  String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .trim()
+);
+
+const formatEventTime = (value: number | null | undefined, locale: string): string => {
+  if (typeof value !== 'number') {
+    return '';
+  }
+  return new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value * 1000));
+};
+
 export function ExperienceDetail({
   experience,
   title,
   detailLoading,
   onRenameTitle,
   onEditDescription,
+  onChangeCover,
   onRegenerate,
   onHide,
   toolbarStart,
@@ -206,6 +226,7 @@ export function ExperienceDetail({
   detailLoading: boolean;
   onRenameTitle: (title: string) => Promise<void>;
   onEditDescription: (description: string) => Promise<void>;
+  onChangeCover?: (file: File) => Promise<void>;
   onRegenerate: () => Promise<void>;
   onHide: () => Promise<void>;
   toolbarStart?: ReactNode;
@@ -225,10 +246,13 @@ export function ExperienceDetail({
   ].slice(0, 8);
   const readableRecap = getReadableRecap(experience, description, title, tags, i18n.language);
   const coverUrl = getExperienceCoverUrl(sourceEpisodes);
+  const userCoverUrl = resolveTimelineAssetUrl(experience.user_cover_asset_ref);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const experienceId = String(experience.experience_id || '');
+  const localCoverUrlRef = useRef<string | null>(null);
   const [localCoverUrl, setLocalCoverUrl] = useState<string | null>(null);
-  const [localCoverName, setLocalCoverName] = useState('');
-  const displayCoverUrl = localCoverUrl || coverUrl;
+  const [coverSaving, setCoverSaving] = useState(false);
+  const displayCoverUrl = localCoverUrl || userCoverUrl || coverUrl;
   const eventsByEpisode = new Map<string, L2EpisodeEventPreview[]>();
   events.forEach((event) => {
     eventsByEpisode.set(event.episode_id, [...(eventsByEpisode.get(event.episode_id) ?? []), event]);
@@ -244,11 +268,28 @@ export function ExperienceDetail({
   const [descriptionDraft, setDescriptionDraft] = useState(description);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => () => {
-    if (localCoverUrl) {
-      URL.revokeObjectURL(localCoverUrl);
+  useEffect(() => {
+    if (localCoverUrlRef.current) {
+      URL.revokeObjectURL(localCoverUrlRef.current);
+      localCoverUrlRef.current = null;
     }
-  }, [localCoverUrl]);
+    setLocalCoverUrl(null);
+  }, [experienceId]);
+
+  useEffect(() => () => {
+    if (localCoverUrlRef.current) {
+      URL.revokeObjectURL(localCoverUrlRef.current);
+      localCoverUrlRef.current = null;
+    }
+  }, []);
+
+  const replaceLocalCoverUrl = (nextUrl: string | null) => {
+    if (localCoverUrlRef.current && localCoverUrlRef.current !== nextUrl) {
+      URL.revokeObjectURL(localCoverUrlRef.current);
+    }
+    localCoverUrlRef.current = nextUrl;
+    setLocalCoverUrl(nextUrl);
+  };
 
   const openRename = () => {
     setTitleDraft(title);
@@ -312,187 +353,152 @@ export function ExperienceDetail({
     fileInputRef.current?.click();
   };
 
-  const updateLocalCover = (file: File | undefined) => {
+  const updateCover = async (file: File | undefined) => {
     if (!file) {
       return;
     }
     const nextUrl = URL.createObjectURL(file);
-    setLocalCoverUrl(nextUrl);
-    setLocalCoverName(file.name);
+    replaceLocalCoverUrl(nextUrl);
+    if (!onChangeCover) {
+      return;
+    }
+    setCoverSaving(true);
+    try {
+      await onChangeCover(file);
+      replaceLocalCoverUrl(null);
+    } catch {
+      replaceLocalCoverUrl(null);
+    } finally {
+      setCoverSaving(false);
+    }
   };
 
-  const toolbarButtonClass = 'h-8 rounded-md border-transparent bg-transparent px-2.5 text-xs font-medium text-[hsl(var(--memory-muted))] shadow-none hover:bg-[hsl(var(--memory-panel-subtle)/0.82)] hover:text-[hsl(var(--memory-title))]';
-  const hideButtonClass = 'h-8 rounded-md border-transparent bg-transparent px-2.5 text-xs font-medium text-[hsl(var(--memory-muted))] shadow-none hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]';
+  const toolbarButtonClass = 'h-8 rounded-md border border-[hsl(var(--memory-border)/0.42)] bg-[hsl(var(--memory-panel-elevated)/0.7)] px-2.5 text-xs font-medium text-[hsl(var(--memory-body))] shadow-none hover:bg-[hsl(var(--memory-panel-subtle)/0.82)] hover:text-[hsl(var(--memory-title))]';
+  const hideButtonClass = 'h-8 rounded-md border border-[hsl(var(--memory-border)/0.42)] bg-[hsl(var(--memory-panel-elevated)/0.7)] px-2.5 text-xs font-medium text-[hsl(var(--memory-body))] shadow-none hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]';
+  const entityLabels = getExperienceEntityLabels(experience);
+  const placeLabels = normalizeList(experience.primary_place_ids);
+  const topicLabels = normalizeList(experience.primary_topic_keys);
+  const hasRelatedObjects = entityLabels.length > 0 || placeLabels.length > 0 || topicLabels.length > 0;
 
   return (
     <div
       className={cn(
-        'min-w-0 space-y-7',
+        'min-w-0',
         isInline && 'overflow-hidden rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.82)] p-5'
       )}
     >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        aria-label={t('memory.episodes.actions.changeCoverFile')}
+        className="sr-only"
+        onChange={(event) => {
+          void updateCover(event.currentTarget.files?.[0]);
+          event.currentTarget.value = '';
+        }}
+      />
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">{toolbarStart}</div>
+        <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+          <Button variant="outline" size="sm" className={toolbarButtonClass} onClick={chooseCover} disabled={coverSaving}>
+            <ImageIcon className="h-4 w-4" aria-hidden="true" />
+            {coverSaving ? t('common.saving') : t('memory.episodes.actions.changeCover')}
+          </Button>
+          <Button variant="outline" size="sm" className={toolbarButtonClass} onClick={openRename}>
+            <Pencil className="h-4 w-4" aria-hidden="true" />
+            {t('memory.episodes.actions.rename')}
+          </Button>
+          <Button variant="outline" size="sm" className={toolbarButtonClass} onClick={openDescription}>
+            <Pencil className="h-4 w-4" aria-hidden="true" />
+            {t('memory.episodes.actions.editDescription')}
+          </Button>
+          <Button variant="outline" size="sm" className={toolbarButtonClass} onClick={requestRegenerate}>
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            {t('memory.episodes.actions.regenerateDescription')}
+          </Button>
+          <Button variant="outline" size="sm" className={hideButtonClass} onClick={() => setHideOpen(true)}>
+            <EyeOff className="h-4 w-4" aria-hidden="true" />
+            {t('memory.episodes.actions.hide')}
+          </Button>
+        </div>
+      </div>
+
       <header
+        data-testid="experience-cover-hero"
+        style={displayCoverUrl ? { backgroundImage: `url("${displayCoverUrl}")` } : undefined}
         className={cn(
-          'overflow-hidden rounded-lg border border-[hsl(var(--memory-border)/0.5)] bg-[hsl(var(--memory-panel-elevated))]',
-          !isInline && 'shadow-[0_12px_36px_hsl(var(--memory-title)/0.045)]'
+          'relative isolate mt-3 min-h-[360px] overflow-hidden rounded-xl bg-[hsl(var(--memory-panel-elevated))] bg-cover bg-center ring-1 ring-inset ring-[hsl(var(--memory-border)/0.22)]',
+          !isInline && 'shadow-[0_14px_42px_hsl(var(--memory-title)/0.055)]'
         )}
       >
-        <div className="flex flex-col gap-3 border-b border-[hsl(var(--memory-divider)/0.44)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">{toolbarStart}</div>
-          <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
-            <Button variant="ghost" size="sm" className={toolbarButtonClass} onClick={openRename}>
-              <Pencil className="h-4 w-4" aria-hidden="true" />
-              {t('memory.episodes.actions.rename')}
-            </Button>
-            <Button variant="ghost" size="sm" className={toolbarButtonClass} onClick={openDescription}>
-              <Pencil className="h-4 w-4" aria-hidden="true" />
-              {t('memory.episodes.actions.editDescription')}
-            </Button>
-            <Button variant="ghost" size="sm" className={toolbarButtonClass} onClick={requestRegenerate}>
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              {t('memory.episodes.actions.regenerateDescription')}
-            </Button>
-            <Button variant="ghost" size="sm" className={hideButtonClass} onClick={() => setHideOpen(true)}>
-              <EyeOff className="h-4 w-4" aria-hidden="true" />
-              {t('memory.episodes.actions.hide')}
-            </Button>
-          </div>
-        </div>
+        {!displayCoverUrl ? (
+          <div className="absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--memory-panel-elevated)),hsl(var(--memory-accent-soft)/0.42))]" />
+        ) : null}
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,hsl(var(--memory-panel-elevated)/0.94)_0%,hsl(var(--memory-panel-elevated)/0.82)_42%,hsl(var(--memory-panel-elevated)/0.18)_100%)]" />
+        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-[linear-gradient(0deg,hsl(var(--memory-panel-elevated)/0.88),transparent)]" />
 
-        <div className={cn('grid', !isInline && 'lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.72fr)]')}>
-          <div className={cn('min-w-0 px-6 py-7 md:px-9 md:py-9', !isInline && 'lg:py-12')}>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
-              {experience.user_pinned ? (
-                <Badge variant="outline" className="rounded-md border-[hsl(var(--memory-accent)/0.26)] bg-[hsl(var(--memory-accent-soft)/0.7)] text-[hsl(var(--memory-title))]">
-                  <Star className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-                  {t('memory.episodes.sections.featured')}
-                </Badge>
-              ) : null}
-              {typeLabel ? (
-                <Badge variant="outline" className="rounded-md border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-tag-bg)/0.76)] text-[hsl(var(--memory-body))]">
-                  {typeLabel}
-                </Badge>
-              ) : null}
-              {range ? (
-                <span className="inline-flex items-center gap-1">
-                  <CalendarRange className="h-3.5 w-3.5" aria-hidden="true" />
-                  {range}
-                </span>
-              ) : null}
-            </div>
-            <h2 className={cn(
-              'mt-5 max-w-3xl break-words font-semibold leading-tight text-[hsl(var(--memory-title))]',
-              isInline ? 'text-2xl' : 'text-3xl md:text-[2.08rem]'
-            )}>
-              {title}
-            </h2>
-            <div className="mt-5 flex flex-wrap items-center gap-4 text-xs text-[hsl(var(--memory-muted))]">
-              <span className="inline-flex items-center gap-1">
-                <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
-                {t('memory.episodes.episodeCount', { count: experience.source_episode_count ?? 0 })}
+        <div className="relative z-10 flex min-h-[360px] max-w-3xl flex-col justify-center px-6 py-7 md:px-10 md:py-8">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
+            {experience.user_pinned ? (
+              <Badge variant="outline" className="rounded-full border-[hsl(var(--memory-accent)/0.26)] bg-[hsl(var(--memory-panel-elevated)/0.74)] text-[hsl(var(--memory-title))]">
+                <Star className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                {t('memory.episodes.sections.featured')}
+              </Badge>
+            ) : null}
+            {typeLabel ? (
+              <Badge variant="outline" className="rounded-full border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-panel-elevated)/0.68)] text-[hsl(var(--memory-body))]">
+                {typeLabel}
+              </Badge>
+            ) : null}
+            {range ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--memory-panel-elevated)/0.66)] px-2.5 py-1">
+                <CalendarRange className="h-3.5 w-3.5" aria-hidden="true" />
+                {range}
               </span>
-              <span>{t('memory.episodes.eventCount', { count: experience.source_event_count ?? 0 })}</span>
-            </div>
-            <div className="mt-7 max-w-2xl border-l-2 border-[hsl(var(--memory-accent)/0.45)] pl-5">
-              <div className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">
-                <Quote className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
-                {t('memory.episodes.sections.recap')}
-              </div>
-              <p className="mt-3 whitespace-pre-wrap break-words text-base leading-8 text-[hsl(var(--memory-body))]">
-                {readableRecap || t('memory.episodes.noRecap')}
-              </p>
-            </div>
-            {tags.length > 0 ? (
-              <div className="mt-7 flex flex-wrap gap-2">
-                {tags.map((tag) => (
-                  <span key={tag} className="rounded-md bg-[hsl(var(--memory-panel-subtle)/0.82)] px-2.5 py-1 text-xs text-[hsl(var(--memory-body))]">
-                    {tag}
-                  </span>
-                ))}
-              </div>
             ) : null}
           </div>
 
-          <div className="relative min-h-[260px] overflow-hidden border-t border-[hsl(var(--memory-divider)/0.52)] bg-[hsl(var(--memory-panel-subtle)/0.46)] lg:border-l lg:border-t-0">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              aria-label={t('memory.episodes.actions.changeCoverFile')}
-              className="sr-only"
-              onChange={(event) => {
-                updateLocalCover(event.currentTarget.files?.[0]);
-                event.currentTarget.value = '';
-              }}
-            />
-            {displayCoverUrl ? (
-              <img
-                src={displayCoverUrl}
-                alt={t('memory.episodes.coverAlt', { title })}
-                className="h-full min-h-[260px] w-full object-cover"
-              />
-            ) : (
-              <div className="flex h-full min-h-[260px] flex-col justify-end px-6 py-6 text-[hsl(var(--memory-muted))]">
-                <ImageIcon className="h-7 w-7" aria-hidden="true" />
-                <div className="mt-3 text-sm font-semibold text-[hsl(var(--memory-title))]">
-                  {t('memory.episodes.coverPending')}
-                </div>
-                <p className="mt-1 max-w-xs text-sm leading-6">
-                  {t('memory.episodes.coverHint')}
-                </p>
-              </div>
-            )}
-            {localCoverName ? (
-              <div className="absolute bottom-4 left-4 max-w-[calc(100%-2rem)] rounded-md bg-[hsl(var(--memory-panel-elevated)/0.88)] px-3 py-1.5 text-xs text-[hsl(var(--memory-body))] shadow-sm">
-                {t('memory.episodes.coverSelected', { name: localCoverName })}
-              </div>
-            ) : null}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="absolute right-4 top-4 h-8 rounded-md bg-[hsl(var(--memory-panel-elevated)/0.84)] px-2.5 text-xs font-medium text-[hsl(var(--memory-title))] shadow-sm hover:bg-[hsl(var(--memory-panel-elevated))]"
-              onClick={chooseCover}
-            >
-              <ImageIcon className="h-4 w-4" aria-hidden="true" />
-              {t('memory.episodes.actions.changeCover')}
-            </Button>
+          <h2 className={cn(
+            'mt-5 max-w-3xl break-words font-semibold leading-tight text-[hsl(var(--memory-title))]',
+            isInline ? 'text-2xl' : 'text-3xl md:text-[2.28rem]'
+          )}>
+            {title}
+          </h2>
+
+          <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-[hsl(var(--memory-muted))]">
+            <span className="inline-flex items-center gap-1">
+              <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('memory.episodes.episodeCount', { count: experience.source_episode_count ?? 0 })}
+            </span>
+            <span>{t('memory.episodes.eventCount', { count: experience.source_event_count ?? 0 })}</span>
           </div>
+
+          <div className="mt-7 max-w-2xl border-l-2 border-[hsl(var(--memory-accent)/0.38)] bg-[hsl(var(--memory-panel-elevated)/0.5)] px-5 py-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">
+              <Quote className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
+              {t('memory.episodes.sections.recap')}
+            </div>
+            <p className="mt-3 whitespace-pre-wrap break-words text-base leading-8 text-[hsl(var(--memory-body))]">
+              {readableRecap || t('memory.episodes.noRecap')}
+            </p>
+          </div>
+
         </div>
       </header>
 
-      <div
-        className={cn(
-          'grid gap-8',
-          isInline ? 'px-0 py-0' : 'lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.72fr)]'
-        )}
-      >
-        <main className="min-w-0">
-          {detailLoading ? <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div> : null}
-          <SourceEpisodeList episodes={sourceEpisodes} eventsByEpisode={eventsByEpisode} />
-        </main>
-
-        <aside className="min-w-0 space-y-6">
-          <EpisodeEventList events={events} />
-          <div className={cn('grid gap-4', isInline ? 'sm:grid-cols-3' : 'sm:grid-cols-3 lg:grid-cols-1')}>
-            <TagGroup
-              icon={<UserRound className="h-4 w-4" aria-hidden="true" />}
-              title={t('memory.episodes.sections.entities')}
-              values={getExperienceEntityLabels(experience)}
-            />
-            <TagGroup
-              icon={<MapPin className="h-4 w-4" aria-hidden="true" />}
-              title={t('memory.episodes.sections.places')}
-              values={normalizeList(experience.primary_place_ids)}
-            />
-            <TagGroup
-              icon={<Tags className="h-4 w-4" aria-hidden="true" />}
-              title={t('memory.episodes.sections.topics')}
-              values={normalizeList(experience.primary_topic_keys)}
-            />
-          </div>
-        </aside>
-      </div>
+      <main className="mt-4 min-w-0 space-y-5">
+        {hasRelatedObjects ? (
+          <RelatedObjectsPanel
+            entities={entityLabels}
+            places={placeLabels}
+            topics={topicLabels}
+          />
+        ) : null}
+        {detailLoading ? <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div> : null}
+        <SourceEpisodeList episodes={sourceEpisodes} eventsByEpisode={eventsByEpisode} />
+      </main>
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent>
@@ -596,7 +602,7 @@ function SourceEpisodeList({
 }) {
   const { t, i18n } = useTranslation('app');
   return (
-    <section>
+    <section data-testid="episode-event-stream">
       <h3 className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">
         <Layers className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
         {t('memory.episodes.sections.sourceEpisodes')}
@@ -616,11 +622,12 @@ function SourceEpisodeList({
           const rawSummary = getReadableSourceEpisodeSummary(episode, eventsByEpisode);
           const summary = rawSummary === title ? '' : rawSummary;
           const range = formatEpisodeTimeRange(episode.time_start, episode.time_end, i18n.language);
+          const episodeEvents = eventsByEpisode.get(episode.episode_id) ?? [];
           return (
-            <article key={episode.episode_id} className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-4 py-4">
+            <article key={episode.episode_id} className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.74)] px-5 py-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <h4 className="break-words text-sm font-semibold text-[hsl(var(--memory-title))]">{title}</h4>
+                  <h4 className="break-words text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">{title}</h4>
                   {summary ? (
                     <p className="mt-2 line-clamp-3 text-sm leading-6 text-[hsl(var(--memory-body))]">{summary}</p>
                   ) : null}
@@ -629,6 +636,7 @@ function SourceEpisodeList({
                   {range}
                 </div>
               </div>
+              <SourceEpisodeEventTrail events={episodeEvents} />
             </article>
           );
         })}
@@ -637,10 +645,82 @@ function SourceEpisodeList({
   );
 }
 
+function SourceEpisodeEventTrail({ events }: { events: L2EpisodeEventPreview[] }) {
+  const { t, i18n } = useTranslation('app');
+  if (events.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 border-t border-[hsl(var(--memory-divider)/0.58)] pt-4">
+      <div className="flex items-center gap-2 text-xs font-semibold text-[hsl(var(--memory-muted))]">
+        <GitMerge className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
+        {t('memory.episodes.sections.whatHappened')}
+      </div>
+      <div className="mt-3 grid gap-2">
+        {events.map((event) => {
+          const time = formatEventTime(event.timestamp ?? event.added_at, i18n.language);
+          const preview = String(event.content_preview || '').trim();
+          const source = formatSourceLabel(event.source);
+          return (
+            <article
+              key={`${event.episode_id}-${event.event_id}`}
+              className="rounded-md bg-[hsl(var(--memory-panel-subtle)/0.5)] px-3 py-2"
+            >
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                <p className="min-w-0 whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-body))]">
+                  {preview || t('memory.episodes.eventPreviewUnavailable')}
+                </p>
+                {time ? <span className="shrink-0 text-xs text-[hsl(var(--memory-muted))]">{time}</span> : null}
+              </div>
+              {source ? (
+                <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">{source}</div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RelatedObjectsPanel({
+  entities,
+  places,
+  topics,
+}: {
+  entities: string[];
+  places: string[];
+  topics: string[];
+}) {
+  const { t } = useTranslation('app');
+  return (
+    <section className="rounded-lg border border-[hsl(var(--memory-border)/0.42)] bg-[hsl(var(--memory-panel-elevated)/0.5)] px-5 py-4">
+      <div className="grid gap-4 md:grid-cols-3">
+        <TagGroup
+          icon={<UserRound className="h-4 w-4" aria-hidden="true" />}
+          title={t('memory.episodes.sections.entities')}
+          values={entities}
+        />
+        <TagGroup
+          icon={<MapPin className="h-4 w-4" aria-hidden="true" />}
+          title={t('memory.episodes.sections.places')}
+          values={places}
+        />
+        <TagGroup
+          icon={<Tags className="h-4 w-4" aria-hidden="true" />}
+          title={t('memory.episodes.sections.topics')}
+          values={topics}
+        />
+      </div>
+    </section>
+  );
+}
+
 function TagGroup({ icon, title, values }: { icon: ReactNode; title: string; values: string[] }) {
   const { t } = useTranslation('app');
   return (
-    <section className="min-w-0 border-t border-[hsl(var(--memory-divider)/0.7)] pt-4 first:border-t-0 first:pt-0">
+    <section className="min-w-0">
       <h3 className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">
         <span className="text-[hsl(var(--memory-accent))]">{icon}</span>
         {title}

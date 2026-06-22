@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import HTTPException, Query, status
+from fastapi import HTTPException, Query, UploadFile, status
 
-from ..dependencies import _resolve_unified_memory
+from ..dependencies import _resolve_manual_entry_asset_store, _resolve_unified_memory
+from ..asset_uploads import store_uploaded_image_asset
 from ..helpers import memory_t
 from ..router import memory_router
 from ..schemas import ExperienceAnnotationRequest, ExperienceSeedCreateRequest
@@ -463,6 +464,40 @@ async def get_l2_experience(experience_id: str):
         unified_memory,
         experience=experience,
         members=members,
+    )
+
+
+@memory_router.post("/l2/experiences/{experience_id}/cover")
+async def upload_l2_experience_cover(experience_id: str, file: UploadFile):
+    """Upload and persist a user-selected cover image for an experience."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
+        )
+    asset_store = _resolve_manual_entry_asset_store()
+    if asset_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.asset_store_uninitialized", "Asset storage not initialized"),
+        )
+
+    await _get_experience_or_404(unified_memory, experience_id)
+    upload = await store_uploaded_image_asset(file, asset_store)
+    ok = await unified_memory.l2.update_experience(
+        experience_id=experience_id,
+        user_cover_asset_ref=upload["asset_ref"],
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.experience_not_found", "Experience not found"),
+        )
+    experience = await _get_experience_or_404(unified_memory, experience_id)
+    return await _build_experience_review_response(
+        unified_memory,
+        experience=experience,
     )
 
 

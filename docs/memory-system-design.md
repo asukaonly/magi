@@ -382,9 +382,10 @@ page and timeline. An experience is promoted only when one or more substrate
 episodes/events form a narratable memory with a clear theme, evidence boundary,
 user involvement, and some change, outcome, decision, discovery, or unresolved
 thread worth revisiting. L2 owns the experience identity, membership, lifecycle,
-curation state, and evidence backlinks. L3 owns the natural-language review and
-Magi interpretation attached to that experience. Timeline and review surfaces
-consume experiences; they do not define or persist them.
+curation state, user-selected cover asset reference, and evidence backlinks. L3
+owns the natural-language review and Magi interpretation attached to that
+experience. Timeline and review surfaces consume experiences; they do not define
+or persist them.
 
 Experience membership must remain evidence anchored. The durable model should
 allow membership rows to reference source episodes first and direct L1 events
@@ -629,10 +630,10 @@ Users can interact with L2 artifacts directly:
   keep raw L1 event identifiers in evidence/debug paths rather than primary
   reading views.
 - **Experience review curation**: active experiences can be renamed, annotated,
-  hidden, regenerated, merged, split, and eventually curated at either source
-  episode or direct event granularity. Experience edits update the L2 experience
-  object and its membership; the L3 review is regenerated or superseded from the
-  updated evidence boundary.
+  assigned a local media cover, hidden, regenerated, merged, split, and
+  eventually curated at either source episode or direct event granularity.
+  Experience edits update the L2 experience object and its membership; the L3
+  review is regenerated or superseded from the updated evidence boundary.
 - **Forget entity**: `forget_entity(entity_id)` — cascade soft-delete across KG edges, assertions, facets, and episodes
 - **Forget time range**: `forget_time_range(start, end)` — invalidates episodes and archives assertions/edges in the range
 - **Forget episode**: `forget_episode(episode_id)` — invalidates the episode, optionally returns member event IDs

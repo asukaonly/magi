@@ -38,6 +38,7 @@ _ALLOWED_UPDATE_FIELDS = {
     "merged_into_experience_id",
     "user_label",
     "user_note",
+    "user_cover_asset_ref",
     "user_pinned",
     "last_recomputed_at",
 }
@@ -318,6 +319,7 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
         merged_into_experience_id: str | None = None,
         user_label: str | None = None,
         user_note: str | None = None,
+        user_cover_asset_ref: str | None = None,
         user_pinned: bool = False,
     ) -> str:
         """Create a new experience row."""
@@ -332,9 +334,9 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
                     narrative_score, primary_entity_ids, primary_place_ids,
                     primary_topic_keys, source_episode_count, source_event_count,
                     source_seed_id, parent_experience_id, merged_into_experience_id,
-                    user_label, user_note, user_pinned,
+                    user_label, user_note, user_cover_asset_ref, user_pinned,
                     created_at, updated_at, last_recomputed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     experience_id,
@@ -357,6 +359,7 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
                     merged_into_experience_id,
                     user_label,
                     user_note,
+                    user_cover_asset_ref,
                     1 if user_pinned else 0,
                     now,
                     now,

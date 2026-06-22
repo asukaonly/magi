@@ -1895,6 +1895,26 @@ export interface paths {
         readonly patch: operations["annotate_l2_experience_api_memory_l2_experiences__experience_id__patch"];
         readonly trace?: never;
     };
+    readonly "/api/memory/l2/experiences/{experience_id}/cover": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Upload L2 Experience Cover
+         * @description Upload and persist a user-selected cover image for an experience.
+         */
+        readonly post: operations["upload_l2_experience_cover_api_memory_l2_experiences__experience_id__cover_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/memory/l2/experiences/{experience_id}/hide": {
         readonly parameters: {
             readonly query?: never;
@@ -4065,6 +4085,11 @@ export interface components {
              * @default local_user
              */
             readonly user_id: string;
+        };
+        /** Body_upload_l2_experience_cover_api_memory_l2_experiences__experience_id__cover_post */
+        readonly Body_upload_l2_experience_cover_api_memory_l2_experiences__experience_id__cover_post: {
+            /** File */
+            readonly file: string;
         };
         /** Body_upload_manual_entry_asset_api_memory_manual_entries_assets_post */
         readonly Body_upload_manual_entry_asset_api_memory_manual_entries_assets_post: {
@@ -7005,7 +7030,7 @@ export interface components {
             readonly query: string;
             /**
              * Query Mode
-             * @description Optional retrieval mode. Omit for auto routing; supported values include event_stream, exact_fact, current_state, episode_recall, summary, strategy, plus legacy detail|experience|graph.
+             * @description Optional retrieval mode. Omit for auto routing; supported values include event_stream, exact_fact, current_state, episode_recall, experience_recall, summary, strategy, plus legacy detail|experience|graph.
              */
             readonly query_mode?: string | null;
             /** Session Id */
@@ -11487,6 +11512,41 @@ export interface operations {
         readonly requestBody: {
             readonly content: {
                 readonly "application/json": components["schemas"]["ExperienceAnnotationRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly upload_l2_experience_cover_api_memory_l2_experiences__experience_id__cover_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly experience_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "multipart/form-data": components["schemas"]["Body_upload_l2_experience_cover_api_memory_l2_experiences__experience_id__cover_post"];
             };
         };
         readonly responses: {

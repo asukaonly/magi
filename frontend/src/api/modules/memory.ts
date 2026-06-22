@@ -313,6 +313,7 @@ export interface L2Experience {
   merged_into_experience_id?: string | null;
   user_label?: string | null;
   user_note?: string | null;
+  user_cover_asset_ref?: string | null;
   user_pinned?: boolean;
   created_at?: number | null;
   updated_at?: number | null;
@@ -790,6 +791,15 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}`)),
   annotateExperience: async (experienceId: string, payload: ExperienceAnnotationPayload): Promise<L2ExperienceReviewDetail> =>
     unwrapMemoryResponse(await api.patch<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}`, payload)),
+  uploadExperienceCover: async (experienceId: string, file: File): Promise<L2ExperienceReviewDetail> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return unwrapMemoryResponse(await api.post<L2ExperienceReviewDetail>(
+      `/memory/l2/experiences/${experienceId}/cover`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ));
+  },
   regenerateExperienceReview: async (experienceId: string): Promise<L2ExperienceReviewDetail> =>
     unwrapMemoryResponse(await api.post<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}/regenerate`)),
   hideExperience: async (experienceId: string): Promise<L2ExperienceReviewDetail> =>

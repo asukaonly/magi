@@ -911,6 +911,80 @@ def test_episode_read_and_annotation_routes_are_publicly_allowlisted():
     assert "PATCH" in route_methods["/l2/episodes/{episode_id}"]
 
 
+def test_experience_cover_route_is_publicly_allowlisted():
+    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
+    route_methods: dict[str, set[str]] = {}
+    for route in public.routes:
+        if getattr(route, "path", None):
+            route_methods.setdefault(route.path, set()).update(route.methods or set())
+
+    assert "POST" in route_methods["/l2/experiences/{experience_id}/cover"]
+
+
+def test_upload_experience_cover_stores_asset_and_updates_experience(tmp_path):
+    from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
+
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    asset_store = ManualEntryAssetStore(media_root=tmp_path)
+    stored_ref: str | None = None
+    l2 = MagicMock()
+
+    async def _update_experience(**kwargs):
+        nonlocal stored_ref
+        stored_ref = kwargs["user_cover_asset_ref"]
+        return True
+
+    async def _get_experience(*, experience_id: str):
+        return {
+            "experience_id": experience_id,
+            "status": "active",
+            "title": "Japan trip",
+            "time_start": 1.0,
+            "time_end": 2.0,
+            "user_cover_asset_ref": stored_ref,
+            "primary_entity_ids": [],
+            "primary_place_ids": [],
+            "primary_topic_keys": [],
+        }
+
+    l2.update_experience = AsyncMock(side_effect=_update_experience)
+    l2.get_experience = AsyncMock(side_effect=_get_experience)
+    l2.list_experience_members = AsyncMock(return_value=[])
+    l3 = MagicMock()
+    l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+
+    with (
+        patch(
+            "magi.api.routers.memory.l2.experiences_routes._resolve_unified_memory",
+            return_value=unified,
+        ),
+        patch(
+            "magi.api.routers.memory.l2.experiences_routes._resolve_manual_entry_asset_store",
+            return_value=asset_store,
+            create=True,
+        ),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/api/memory/l2/experiences/exp-cover/cover",
+            files={"file": ("cover.png", b"\x89PNG\r\n\x1a\ncover", "image/png")},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    asset_ref = body["user_cover_asset_ref"]
+    assert asset_ref.startswith("manual-entry-asset://")
+    assert asset_store.resolve(asset_ref) == (b"\x89PNG\r\n\x1a\ncover", "image/png")
+    l2.update_experience.assert_awaited_once_with(
+        experience_id="exp-cover",
+        user_cover_asset_ref=asset_ref,
+    )
+
+
 def test_annotate_episode_pin_does_not_change_status(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
