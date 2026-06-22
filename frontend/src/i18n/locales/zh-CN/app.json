@@ -480,6 +480,9 @@
       "git_activity": "Git 活动",
       "calendar": "日历",
       "netease_music": "网易云音乐",
+      "claude_code_agent_history": "Claude Code",
+      "codex_agent_history": "Codex",
+      "steam_play_history": "Steam",
       "apple_health": "健康",
       "ai_assistant": "AI",
       "memory": "记忆",
@@ -631,7 +634,7 @@
           "value": "让我看到你保存下来的时刻"
         },
         "codingAgentHistory": {
-          "title": "代码代理历史",
+          "title": "Agent 历史",
           "value": "让我看到你在 Claude Code / Codex 会话里做过什么"
         }
       }

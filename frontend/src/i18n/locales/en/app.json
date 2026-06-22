@@ -496,6 +496,9 @@
       "git_activity": "Git activity",
       "calendar": "Calendar",
       "netease_music": "NetEase Music",
+      "claude_code_agent_history": "Claude Code",
+      "codex_agent_history": "Codex",
+      "steam_play_history": "Steam",
       "apple_health": "Health",
       "ai_assistant": "AI",
       "memory": "Memory",
@@ -631,8 +634,8 @@
           "value": "Let Magi see the moments you've saved"
         },
         "codingAgentHistory": {
-          "title": "Coding agent history",
-          "value": "Let Magi see what you built in Claude Code / Codex sessions"
+          "title": "Agent history",
+          "value": "Let Magi see what you did in Claude Code / Codex sessions"
         }
       }
     },

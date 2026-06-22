@@ -216,10 +216,10 @@
     "calendar": "Calendar",
     "git-activity": "Git activity",
     "photo-library": "Photo library",
-    "netease-music": "NetEase Music",
+    "netease-music": "Listening history",
     "terminal-history": "Terminal history",
     "screen-time": "Screen Time",
-    "steam-play-history": "Steam play history",
+    "steam-play-history": "Game records",
     "screenshot_timeline": "Screenshot timeline",
     "system-media": "System media"
   },
@@ -251,8 +251,8 @@
         "value": "Lets magi see your photos and recent moments"
       },
       "codingAgentHistory": {
-        "title": "Coding agent history",
-        "value": "Lets magi see what you're building from your Claude Code / Codex sessions"
+        "title": "Agent history",
+        "value": "Lets magi see what you're doing in Claude Code / Codex sessions"
       }
     }
   },

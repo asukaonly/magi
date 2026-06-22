@@ -217,10 +217,10 @@
     "calendar": "日历",
     "git-activity": "Git 活动",
     "photo-library": "照片库",
-    "netease-music": "网易云音乐",
+    "netease-music": "听歌历史",
     "terminal-history": "终端历史",
     "screen-time": "屏幕使用时间",
-    "steam-play-history": "Steam 游戏记录",
+    "steam-play-history": "游戏记录",
     "screenshot_timeline": "截图时间线",
     "system-media": "系统媒体"
   },
@@ -252,8 +252,8 @@
         "value": "让 magi 看到你的照片"
       },
       "codingAgentHistory": {
-        "title": "编程助手历史",
-        "value": "让 magi 从你的 Claude Code / Codex 会话看到你在搭什么"
+        "title": "Agent 历史",
+        "value": "让 magi 从 Claude Code / Codex 会话看到你在做什么"
       }
     }
   },

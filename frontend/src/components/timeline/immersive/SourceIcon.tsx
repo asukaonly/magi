@@ -3,6 +3,7 @@ import {
   Activity,
   Calendar,
   Feather,
+  Gamepad2,
   GitBranch,
   Heart,
   Image as ImageIcon,
@@ -59,6 +60,9 @@ export const SourceIcon: React.FC<SourceIconProps> = ({ sourceType, className })
     case "music":
     case "system_media":
       return <Music className={cls} aria-hidden="true" />;
+    case "steam_play_history":
+    case "game_records":
+      return <Gamepad2 className={cls} aria-hidden="true" />;
     case "git_activity":
     case "git":
       return <GitBranch className={cls} aria-hidden="true" />;
@@ -72,6 +76,8 @@ export const SourceIcon: React.FC<SourceIconProps> = ({ sourceType, className })
     case "health":
       return <Heart className={cls} aria-hidden="true" />;
     case "claude":
+    case "claude_code_agent_history":
+    case "codex_agent_history":
     case "ai_assistant":
       return <Sparkles className={cls} aria-hidden="true" />;
     default:
@@ -119,6 +125,7 @@ export function labelForSource(
     netease_music: { i18nKey: "timeline.sources.netease_music", fallback: "音乐" },
     music: { i18nKey: "timeline.sources.system_media", fallback: "音乐" },
     system_media: { i18nKey: "timeline.sources.system_media", fallback: "音乐" },
+    steam_play_history: { i18nKey: "timeline.sources.steam_play_history", fallback: "Steam" },
     git_activity: { i18nKey: "timeline.sources.git_activity", fallback: "Git" },
     git: { i18nKey: "timeline.sources.git_activity", fallback: "Git" },
     terminal_history: { i18nKey: "timeline.sources.terminal_history", fallback: "终端" },
@@ -128,6 +135,14 @@ export function labelForSource(
     apple_health: { i18nKey: "timeline.sources.apple_health", fallback: "健康" },
     health: { i18nKey: "timeline.sources.apple_health", fallback: "健康" },
     claude: { fallback: "Claude" },
+    claude_code_agent_history: {
+      i18nKey: "timeline.sources.claude_code_agent_history",
+      fallback: "Claude Code",
+    },
+    codex_agent_history: {
+      i18nKey: "timeline.sources.codex_agent_history",
+      fallback: "Codex",
+    },
     ai_assistant: { i18nKey: "timeline.sources.ai_assistant", fallback: "AI" },
     memory: { i18nKey: "timeline.sources.memory", fallback: "记忆" },
   };
