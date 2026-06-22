@@ -1571,10 +1571,49 @@ describe('settings page draft saving', () => {
     await user.click(screen.getByTestId('timeline-nav-source-browser_history'));
     const browserWorkspace = await screen.findByTestId('timeline-capability-detail-browser_history');
     expect(within(browserWorkspace).getByTestId('timeline-entry-selector-browser_history')).toBeInTheDocument();
+    expect(within(browserWorkspace).getByTestId('timeline-entry-selector-scroll-browser_history')).toHaveClass(
+      'overflow-x-auto'
+    );
+    expect(within(browserWorkspace).getByTestId('timeline-entry-selector-scroll-browser_history')).toHaveClass(
+      'flex'
+    );
     expect(within(browserWorkspace).getByTestId('timeline-entry-option-chrome_history')).toHaveTextContent('Chrome');
     expect(within(browserWorkspace).getByTestId('timeline-entry-option-safari_history')).toHaveTextContent('Safari');
     await user.click(within(browserWorkspace).getByTestId('timeline-entry-option-safari_history'));
     expect(within(browserWorkspace).getByTestId('timeline-entry-detail-safari_history')).toBeInTheDocument();
+  });
+
+  it('keeps single-entry sensor detail headers compact', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: [
+        {
+          ...timelineSourceFixture,
+          source_name: 'git_activity',
+          plugin_id: 'git-activity',
+          contribution_id: 'timeline.git_activity',
+          display_name: 'Git Activity',
+          display_name_translated: 'Git 活动',
+          description: 'Git repository activity ingestion for the timeline.',
+          description_translated: 'Git 仓库活动接入时间线。',
+          current_settings: {
+            'sensors.git_activity.enabled': false,
+            'sensors.git_activity.sync_interval_minutes': 30,
+          },
+          enabled: false,
+        },
+      ],
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-git_activity'));
+
+    const panel = await screen.findByTestId('timeline-capability-detail-git_activity');
+    expect(within(panel).getAllByRole('heading', { name: 'Git 活动' })).toHaveLength(1);
+    expect(within(panel).queryByTestId('timeline-entry-selector-git_activity')).not.toBeInTheDocument();
+    expect(within(panel).getByTestId('timeline-source-header-actions')).toBeInTheDocument();
   });
 
   it('renders photo-library source tabs and scopes fields to the selected source', async () => {

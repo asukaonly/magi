@@ -129,7 +129,7 @@ const EntryOption: React.FC<{
     role="tab"
     aria-selected={selected}
     className={cn(
-      'min-h-[104px] rounded-lg px-4 py-3 text-left transition-[background-color,box-shadow,color] duration-200',
+      'min-h-[104px] w-[280px] flex-none snap-start rounded-lg px-4 py-3 text-left transition-[background-color,box-shadow,color] duration-200 md:w-[300px] xl:w-[320px]',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
       selected
         ? 'bg-[hsl(var(--settings-shell-elevated)/0.9)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.7),0_12px_26px_hsl(var(--foreground)/0.045)]'
@@ -470,6 +470,64 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const unavailableReason = selectedSource.available === false
     ? (selectedSource.unavailable_reason_translated || selectedSource.unavailable_reason)
     : null;
+  const sourceHeaderActions = (
+    <div
+      className="flex flex-wrap items-center justify-end gap-3"
+      data-testid="timeline-source-header-actions"
+    >
+      {activationFlow && activationConfigured ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => handleResetActivation(selectedSource)}
+        >
+          {t('settings.timeline.actions.resetActivation')}
+        </Button>
+      ) : null}
+      {operationallyEnabled ? (
+        <>
+          <Button type="button" variant="outline" size="sm" onClick={() => void onRefreshSources()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            {t('settings.timeline.actions.refresh')}
+          </Button>
+          {selectedSource.supports_state_flush ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void performStateFlush(selectedSource)}
+              disabled={flushingSource === selectedSource.source_name}
+            >
+              <RefreshCw
+                className={cn('mr-2 h-4 w-4', flushingSource === selectedSource.source_name && 'animate-spin')}
+              />
+              {t('settings.timeline.actions.flushStateNow')}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void performSync(selectedSource)}
+            disabled={!selectedSource.supports_pull_sync || syncingSource === selectedSource.source_name}
+          >
+            <RefreshCw
+              className={cn('mr-2 h-4 w-4', syncingSource === selectedSource.source_name && 'animate-spin')}
+            />
+            {t('settings.timeline.actions.syncNow')}
+          </Button>
+        </>
+      ) : null}
+      <label className="inline-flex items-center gap-3 text-sm text-foreground">
+        <span>{t('settings.timeline.fields.enabled')}</span>
+        <Switch
+          checked={sourceEnabled}
+          onCheckedChange={(checked) => handleSourceEnabledChange(selectedSource, checked)}
+          aria-label={t('settings.timeline.fields.enabled')}
+        />
+      </label>
+    </div>
+  );
 
   return (
     <div className="w-full space-y-6" data-testid={`timeline-capability-detail-${capabilityId}`}>
@@ -494,6 +552,9 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                   </Badge>
                 )}
               </div>
+              {!hasMultipleEntries ? (
+                <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{entryDescription}</p>
+              ) : null}
               <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
                 <span>
                   {t('settings.timeline.workspace.entries')}
@@ -513,15 +574,25 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                 </span>
               </div>
             </div>
+            {!hasMultipleEntries ? sourceHeaderActions : null}
           </div>
         </header>
 
         {hasMultipleEntries ? (
           <section
-            className="space-y-3"
+            className="relative"
             data-testid={`timeline-entry-selector-${capabilityId}`}
           >
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3" role="tablist" aria-label={capabilityDisplayName}>
+            <div
+              className="pointer-events-none absolute bottom-3 right-0 top-0 z-10 w-10 bg-gradient-to-l from-[hsl(var(--background))] to-transparent"
+              aria-hidden="true"
+            />
+            <div
+              className="flex snap-x gap-3 overflow-x-auto px-1 pb-3 pr-10 [scrollbar-width:thin]"
+              data-testid={`timeline-entry-selector-scroll-${capabilityId}`}
+              role="tablist"
+              aria-label={capabilityDisplayName}
+            >
               {entrySources.map((source) => (
                 <EntryOption
                   key={source.source_name}
@@ -552,165 +623,112 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
               }
               className="space-y-6"
             >
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-xl font-semibold tracking-tight text-foreground">{entryDisplayName}</h3>
-                  <Badge variant={sourceEnabled ? 'default' : 'secondary'} className="rounded-md">
-                    {sourceEnabled ? t('settings.timeline.statuses.enabled') : t('settings.timeline.statuses.disabled')}
-                  </Badge>
-                  {selectedSource.last_error || selectedSource.available === false ? (
-                    <Badge variant="destructive" className="rounded-md">
-                      {t('settings.timeline.statuses.attention')}
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary" className="rounded-md">
-                      {t('settings.timeline.statuses.healthy')}
-                    </Badge>
-                  )}
-                </div>
-                <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{entryDescription}</p>
-              </div>
-              <div
-                className="flex flex-wrap items-center justify-end gap-3"
-                data-testid="timeline-source-header-actions"
-              >
-                {activationFlow && activationConfigured ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleResetActivation(selectedSource)}
-                  >
-                    {t('settings.timeline.actions.resetActivation')}
-                  </Button>
-                ) : null}
-                {operationallyEnabled ? (
-                  <>
-                    <Button type="button" variant="outline" size="sm" onClick={() => void onRefreshSources()}>
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                      {t('settings.timeline.actions.refresh')}
-                    </Button>
-                    {selectedSource.supports_state_flush ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void performStateFlush(selectedSource)}
-                        disabled={flushingSource === selectedSource.source_name}
-                      >
-                        <RefreshCw
-                          className={cn('mr-2 h-4 w-4', flushingSource === selectedSource.source_name && 'animate-spin')}
-                        />
-                        {t('settings.timeline.actions.flushStateNow')}
-                      </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => void performSync(selectedSource)}
-                      disabled={!selectedSource.supports_pull_sync || syncingSource === selectedSource.source_name}
-                    >
-                      <RefreshCw
-                        className={cn('mr-2 h-4 w-4', syncingSource === selectedSource.source_name && 'animate-spin')}
-                      />
-                      {t('settings.timeline.actions.syncNow')}
-                    </Button>
-                  </>
-                ) : null}
-                <label className="inline-flex items-center gap-3 text-sm text-foreground">
-                  <span>{t('settings.timeline.fields.enabled')}</span>
-                  <Switch
-                    checked={sourceEnabled}
-                    onCheckedChange={(checked) => handleSourceEnabledChange(selectedSource, checked)}
-                    aria-label={t('settings.timeline.fields.enabled')}
-                  />
-                </label>
-              </div>
-            </div>
-
-            <SectionBlock title={t('settings.timeline.workspace.sourceStatusTitle')}>
-              <div className="grid gap-5 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 md:grid-cols-2 xl:grid-cols-4">
-                <StatusMetric
-                  label={t('settings.timeline.fields.status')}
-                  value={loadingStatus ? t('settings.timeline.statuses.loading') : getSyncActivityValue(selectedSource, activationRequired)}
-                />
-                <StatusMetric
-                  label={t('settings.timeline.workspace.lastRun')}
-                  value={formatTimestamp(selectedSource.last_run_at) || '—'}
-                />
-                <StatusMetric
-                  label={t('settings.timeline.workspace.nextRun')}
-                  value={nextRunValue}
-                />
-                <StatusMetric
-                  label={t('settings.timeline.workspace.lastBatch')}
-                  value={String(selectedSource.last_raw_result_count || selectedSource.last_result_count || 0)}
-                />
-              </div>
-              {showPullSupportHint || unavailableReason ? (
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-                  {!selectedSource.supports_pull_sync ? (
-                    <span>
-                      {t('settings.timeline.workspace.pullSupportInline', {
-                        status: t('settings.timeline.workspace.notAvailable'),
-                      })}
-                    </span>
-                  ) : null}
-                  {unavailableReason ? <span className="text-destructive">{unavailableReason}</span> : null}
-                  {selectedSource.last_error ? <span className="text-destructive">{selectedSource.last_error}</span> : null}
+              {hasMultipleEntries ? (
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-xl font-semibold tracking-tight text-foreground">{entryDisplayName}</h3>
+                      <Badge variant={sourceEnabled ? 'default' : 'secondary'} className="rounded-md">
+                        {sourceEnabled ? t('settings.timeline.statuses.enabled') : t('settings.timeline.statuses.disabled')}
+                      </Badge>
+                      {selectedSource.last_error || selectedSource.available === false ? (
+                        <Badge variant="destructive" className="rounded-md">
+                          {t('settings.timeline.statuses.attention')}
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="rounded-md">
+                          {t('settings.timeline.statuses.healthy')}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{entryDescription}</p>
+                  </div>
+                  {sourceHeaderActions}
                 </div>
               ) : null}
-            </SectionBlock>
 
-            <SectionBlock>
-              <div className="space-y-5">
-                {settingsLayout ? (
-                  <PluginSettingsTabs
-                    layout={settingsLayout}
-                    values={detailValues}
-                    onChange={(key, nextValue) => onPluginFieldChange(selectedSource.plugin_id, key, nextValue)}
+              <SectionBlock title={t('settings.timeline.workspace.sourceStatusTitle')}>
+                <div className="grid gap-5 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 md:grid-cols-2 xl:grid-cols-4">
+                  <StatusMetric
+                    label={t('settings.timeline.fields.status')}
+                    value={loadingStatus ? t('settings.timeline.statuses.loading') : getSyncActivityValue(selectedSource, activationRequired)}
                   />
+                  <StatusMetric
+                    label={t('settings.timeline.workspace.lastRun')}
+                    value={formatTimestamp(selectedSource.last_run_at) || '—'}
+                  />
+                  <StatusMetric
+                    label={t('settings.timeline.workspace.nextRun')}
+                    value={nextRunValue}
+                  />
+                  <StatusMetric
+                    label={t('settings.timeline.workspace.lastBatch')}
+                    value={String(selectedSource.last_raw_result_count || selectedSource.last_result_count || 0)}
+                  />
+                </div>
+                {showPullSupportHint || unavailableReason ? (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+                    {!selectedSource.supports_pull_sync ? (
+                      <span>
+                        {t('settings.timeline.workspace.pullSupportInline', {
+                          status: t('settings.timeline.workspace.notAvailable'),
+                        })}
+                      </span>
+                    ) : null}
+                    {unavailableReason ? <span className="text-destructive">{unavailableReason}</span> : null}
+                    {selectedSource.last_error ? <span className="text-destructive">{selectedSource.last_error}</span> : null}
+                  </div>
                 ) : null}
-                {!activeSettingsTabUnavailable ? (
-                  <>
-                    <PluginSettingsCustomBlocks
-                      pluginId={selectedSource.plugin_id}
-                      blocks={selectedSource.settings_ui_blocks ?? []}
-                      values={detailValues}
-                      onChange={(key, nextValue) => onPluginFieldChange(selectedSource.plugin_id, key, nextValue)}
-                    />
-                    <PluginSettingsFields
-                      fields={visibleDetailFields}
-                      values={detailValues}
-                      onChange={(key, nextValue) => onPluginFieldChange(selectedSource.plugin_id, key, nextValue)}
-                      pluginId={selectedSource.plugin_id}
-                    />
-                    <PluginSettingsActions
-                      pluginId={selectedSource.plugin_id}
-                      actions={selectedSource.settings_actions ?? []}
-                      values={detailValues}
-                      onSettingsUpdates={onPluginFieldsChange}
-                      onActionSettled={onRefreshSources}
-                    />
-                  </>
-                ) : null}
-              </div>
-            </SectionBlock>
-          </div>
-        </section>
-      </div>
+              </SectionBlock>
 
-      {activationDialog ? (
-        <PluginActivationDialog
-          open
-          onClose={() => setActivationDialog(null)}
-          flow={activationDialog.flow}
-          initialValues={activationDialog.values}
-          onConfirm={(values) => confirmActivationFlow(values)}
-          pluginId={activationDialog.source.plugin_id}
-        />
-      ) : null}
+              <SectionBlock>
+                <div className="space-y-5">
+                  {settingsLayout ? (
+                    <PluginSettingsTabs
+                      layout={settingsLayout}
+                      values={detailValues}
+                      onChange={(key, nextValue) => onPluginFieldChange(selectedSource.plugin_id, key, nextValue)}
+                    />
+                  ) : null}
+                  {!activeSettingsTabUnavailable ? (
+                    <>
+                      <PluginSettingsCustomBlocks
+                        pluginId={selectedSource.plugin_id}
+                        blocks={selectedSource.settings_ui_blocks ?? []}
+                        values={detailValues}
+                        onChange={(key, nextValue) => onPluginFieldChange(selectedSource.plugin_id, key, nextValue)}
+                      />
+                      <PluginSettingsFields
+                        fields={visibleDetailFields}
+                        values={detailValues}
+                        onChange={(key, nextValue) => onPluginFieldChange(selectedSource.plugin_id, key, nextValue)}
+                        pluginId={selectedSource.plugin_id}
+                      />
+                      <PluginSettingsActions
+                        pluginId={selectedSource.plugin_id}
+                        actions={selectedSource.settings_actions ?? []}
+                        values={detailValues}
+                        onSettingsUpdates={onPluginFieldsChange}
+                        onActionSettled={onRefreshSources}
+                      />
+                    </>
+                  ) : null}
+                </div>
+              </SectionBlock>
+            </div>
+          </section>
+        </div>
+
+        {activationDialog ? (
+          <PluginActivationDialog
+            open
+            onClose={() => setActivationDialog(null)}
+            flow={activationDialog.flow}
+            initialValues={activationDialog.values}
+            onConfirm={(values) => confirmActivationFlow(values)}
+            pluginId={activationDialog.source.plugin_id}
+          />
+        ) : null}
       </div>
     </div>
   );
