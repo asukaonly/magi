@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+import uuid
 from typing import Any, Awaitable, Callable
 
 from ..core.logger import get_logger
@@ -147,16 +148,20 @@ class SensorSyncExecutor:
                 scheduler_job_id=scheduler_job_id,
                 finished_at=finished_at,
             )
-            # Best-effort: fill L3 "Stories" for any CLOSED past periods this
-            # source's data lands in. Historical imports land in already-closed
-            # day/week windows the recurring scheduler never revisits. Strictly
-            # AFTER the success commit and fully guarded so an L3 failure can
-            # never fail the sync. Gap-checked + min_events-gated → a near-no-op
-            # for incremental syncs (no closed-past gaps).
-            await self._backfill_l3_after_sync(str(job["source_type"]))
-            # Best-effort: kick the L2 derive task so newly-synced interests/
-            # conflicts refresh promptly instead of waiting for the 6 h interval.
-            await self._trigger_l2_derive_after_sync()
+            continuation_queued = False
+            if self._result_requests_continuation(result):
+                continuation_queued = await self._schedule_sync_continuation(job)
+            if not continuation_queued:
+                # Best-effort: fill L3 "Stories" for any CLOSED past periods this
+                # source's data lands in. Historical imports land in already-closed
+                # day/week windows the recurring scheduler never revisits. Strictly
+                # AFTER the success commit and fully guarded so an L3 failure can
+                # never fail the sync. Gap-checked + min_events-gated → a near-no-op
+                # for incremental syncs (no closed-past gaps).
+                await self._backfill_l3_after_sync(str(job["source_type"]))
+                # Best-effort: kick the L2 derive task so newly-synced interests/
+                # conflicts refresh promptly instead of waiting for the 6 h interval.
+                await self._trigger_l2_derive_after_sync()
         except Exception as exc:
             finished_at = time.time()
             await self._repository.complete_sensor_sync_job_failure(
@@ -176,6 +181,58 @@ class SensorSyncExecutor:
                 scheduler_job_id=scheduler_job_id,
                 finished_at=finished_at,
             )
+
+    @staticmethod
+    def _result_requests_continuation(result: ScheduledExecutionResult) -> bool:
+        stats = result.stats or {}
+        for key in ("has_more", "continue_sync", "backfill_has_more"):
+            value = stats.get(key)
+            if isinstance(value, str):
+                if value.strip().lower() in {"1", "true", "yes", "y", "on"}:
+                    return True
+                continue
+            if bool(value):
+                return True
+        return False
+
+    async def _schedule_sync_continuation(self, job: dict[str, object]) -> bool:
+        if self._scheduler_service is None:
+            return False
+        plugin_id = str(job.get("plugin_id") or "").strip()
+        source_type = str(job.get("source_type") or "").strip()
+        if not plugin_id or not source_type:
+            return False
+        try:
+            await self._run_on_owner_loop(
+                self._scheduler_service.schedule_once(  # type: ignore[union-attr]
+                    schedule_id=(
+                        f"sensor-sync-continuation:{plugin_id}:{source_type}:"
+                        f"{uuid.uuid4().hex}"
+                    ),
+                    target_type=ScheduledTargetType.SENSOR_SYNC,
+                    target_key=str(job["target_key"]),
+                    run_at=time.time() + 0.2,
+                    target_payload={
+                        "plugin_id": plugin_id,
+                        "source_type": source_type,
+                        "manual": bool(job.get("manual")),
+                    },
+                    metadata={
+                        "continuation": True,
+                        "plugin_id": plugin_id,
+                        "source_type": source_type,
+                        "parent_job_id": str(job.get("job_id") or ""),
+                    },
+                )
+            )
+            return True
+        except Exception:
+            logger.exception(
+                "sensor sync continuation scheduling failed (non-fatal)",
+                plugin_id=plugin_id,
+                source_type=source_type,
+            )
+            return False
 
     async def _backfill_l3_after_sync(self, source_name: str) -> None:
         """Best-effort L3 historical backfill over a synced source's L1 window.

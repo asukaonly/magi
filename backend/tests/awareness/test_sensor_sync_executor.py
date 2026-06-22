@@ -281,6 +281,103 @@ async def test_sensor_sync_success_triggers_l2_derive(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_sensor_sync_has_more_queues_continuation_and_defers_derivations(tmp_path, monkeypatch):
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+
+    continuation_calls: list[dict[str, object]] = []
+    derive_calls: list[str] = []
+    summarize_calls: list[dict[str, object]] = []
+
+    async def _fake_schedule_once(**kwargs):
+        continuation_calls.append(kwargs)
+        return ScheduleDefinition(
+            schedule_id=str(kwargs["schedule_id"]),
+            target_type=kwargs["target_type"],
+            target_key=str(kwargs["target_key"]),
+            trigger=TriggerDefinition(
+                trigger_type=TriggerType.ONCE,
+                config={"run_at": kwargs["run_at"]},
+            ),
+            target_payload=dict(kwargs["target_payload"]),
+            metadata=dict(kwargs.get("metadata") or {}),
+        )
+
+    async def _fake_execute_schedule_async(schedule_id: str, *, manual: bool = True, **kwargs):
+        derive_calls.append(schedule_id)
+        return ScheduledExecutionResult(success=True, message="queued", stats={})
+
+    class _FakeSchedulerService:
+        schedule_once = staticmethod(_fake_schedule_once)
+        execute_schedule_async = staticmethod(_fake_execute_schedule_async)
+
+    class _FakeL1:
+        async def summarize_event_sources(self, **kwargs):
+            summarize_calls.append(kwargs)
+            return [
+                {
+                    "source": "test-source",
+                    "event_count": 5,
+                    "avg_importance": 0.5,
+                    "min_timestamp": 1000.0,
+                    "max_timestamp": 2000.0,
+                }
+            ]
+
+    class _FakeUnifiedMemory:
+        l1 = _FakeL1()
+
+        async def backfill_l3_gaps(self, **kwargs):
+            raise AssertionError("L3 backfill should wait until the final catch-up batch")
+
+    monkeypatch.setattr(
+        "magi.memory.provider.get_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        assert job_record["job_id"] == job_id
+        return ScheduledExecutionResult(
+            success=True,
+            message="sensor_sync_completed",
+            next_cursor="cursor-2",
+            stats={"items": 200, "has_more": True},
+        )
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        scheduler_service=_FakeSchedulerService(),
+        poll_interval_seconds=0.01,
+        running_timeout_seconds=30.0,
+    )
+    await executor.start()
+    await _wait_for_job_status(repository, job_id, "success")
+    deadline = time.time() + 2.0
+    while time.time() < deadline and not continuation_calls:
+        await asyncio.sleep(0.02)
+    await executor.stop()
+
+    assert len(continuation_calls) == 1
+    continuation = continuation_calls[0]
+    assert str(continuation["schedule_id"]).startswith("sensor-sync-continuation:test-plugin:test-source:")
+    assert continuation["target_type"] == ScheduledTargetType.SENSOR_SYNC
+    assert continuation["target_key"] == schedule.target_key
+    assert continuation["target_payload"] == {
+        "plugin_id": "test-plugin",
+        "source_type": "test-source",
+        "manual": False,
+    }
+    assert continuation["metadata"]["continuation"] is True
+    assert continuation["metadata"]["parent_job_id"] == job_id
+    assert summarize_calls == []
+    assert derive_calls == []
+
+
+@pytest.mark.asyncio
 async def test_sensor_sync_success_no_scheduler_service(tmp_path, monkeypatch):
     """Sync succeeds and does not crash when scheduler_service is None."""
     db_path = tmp_path / "scheduler.db"

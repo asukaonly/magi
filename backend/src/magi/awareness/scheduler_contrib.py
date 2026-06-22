@@ -238,6 +238,9 @@ class SensorSchedulerContrib:
                 plugin_settings=package_settings,
             )
             result = await sensor.collect_items(pull_context)
+            stats = dict(result.stats or {})
+            cursor_kind = str(stats.get("cursor_kind") or "modified_at").strip().lower()
+            checkpoint_modified_cursor = cursor_kind in {"modified_at", "mtime", "timestamp"}
             allowed_edge_whitelist = [
                 str(edge_type)
                 for edge_type in source_settings.get(
@@ -281,7 +284,7 @@ class SensorSchedulerContrib:
                 )
 
                 # Mid-batch cursor checkpoint
-                if (idx + 1) % checkpoint_interval == 0:
+                if checkpoint_modified_cursor and (idx + 1) % checkpoint_interval == 0:
                     # Mid-batch cursor save (skip on last item — final cursor is set below)
                     if idx + 1 < total_items:
                         item_mtime = float(item.get("modified_at") or 0.0)
@@ -303,4 +306,3 @@ class SensorSchedulerContrib:
             )
         finally:
             set_plugin_current_language(previous_language or None)
-

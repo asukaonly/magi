@@ -6,10 +6,18 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from magi.awareness.sensor_base import SensorBase
-from magi.awareness.sensor_output import ContentBlock, SensorMemoryPolicy
+from magi.awareness.sensor_output import (
+    ActivityFacet,
+    ContentBlock,
+    SensorActivity,
+    SensorMemoryPolicy,
+    SensorNarration,
+)
+from magi.awareness.scheduler_contrib import SensorSchedulerContrib
 from magi.awareness.sensor_sync import PullSyncSensor, SensorSyncResult
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.plugins.sensors import SensorRegistry, SensorSpec
+from magi.scheduler.contracts import ScheduledTargetState, ScheduledTargetType, build_sensor_target_key
 from magi.utils.runtime import RuntimePaths
 
 
@@ -64,6 +72,7 @@ class _FakeSchedulerService:
         self.interval_calls: list[dict[str, object]] = []
         self.unschedule_calls: list[dict[str, object]] = []
         self.once_calls: list[dict[str, object]] = []
+        self.cursor_updates: list[dict[str, object]] = []
 
     def register_handler(self, target_type, handler) -> None:  # type: ignore[no-untyped-def]
         self.registrations.append((target_type, handler))
@@ -81,6 +90,16 @@ class _FakeSchedulerService:
     async def schedule_once(self, **kwargs):  # type: ignore[no-untyped-def]
         self.once_calls.append(kwargs)
         return type("Schedule", (), {"schedule_id": kwargs["schedule_id"]})()
+
+    async def update_target_cursor(self, target_type, target_key, *, cursor, watermark_ts=None):  # type: ignore[no-untyped-def]
+        self.cursor_updates.append(
+            {
+                "target_type": target_type,
+                "target_key": target_key,
+                "cursor": cursor,
+                "watermark_ts": watermark_ts,
+            }
+        )
 
 
 class _PullHistorySensor(SensorBase, PullSyncSensor):
@@ -108,10 +127,48 @@ class _PullHistorySensor(SensorBase, PullSyncSensor):
     async def build_output(self, item):
         return self._build_output(
             source_item_id=str(item["item_id"]),
-            title=str(item["title"]),
-            summary=str(item["title"]),
+            activity=SensorActivity(
+                source=ActivityFacet(
+                    code="test_source",
+                    i18n_key="activity.source.test",
+                    fallback="test source",
+                ),
+                action=ActivityFacet(
+                    code="pull",
+                    i18n_key="activity.action.pull",
+                    fallback="pull",
+                ),
+                object=ActivityFacet(
+                    code=str(item["item_id"]),
+                    i18n_key="activity.object.item",
+                    fallback=str(item["title"]),
+                ),
+            ),
+            narration=SensorNarration(
+                title=str(item["title"]),
+                body=str(item["title"]),
+            ),
             occurred_at=float(item["timestamp"]),
             content_blocks=[ContentBlock(kind="text", value=str(item["title"]))],
+        )
+
+
+class _OpaqueCursorSensor(_PullHistorySensor):
+    async def collect_items(self, context):
+        return SensorSyncResult(
+            items=[
+                {
+                    "item_id": f"item-{idx}",
+                    "title": f"Pulled item {idx}",
+                    "timestamp": 1710000000.0 + idx,
+                    "modified_at": 1710000000.0 + idx,
+                    "relation_candidates": [],
+                }
+                for idx in range(55)
+            ],
+            next_cursor='{"version":1,"mode":"backfill","page":2}',
+            watermark_ts=1710000055.0,
+            stats={"count": 55, "cursor_kind": "opaque"},
         )
 
 
@@ -140,6 +197,41 @@ def _build_sensor_registry() -> SensorRegistry:
         ),
     )
     return sensor_registry
+
+
+def _build_sensor_registry_with_sensor(sensor: SensorBase) -> SensorRegistry:
+    sensor_registry = SensorRegistry()
+    sensor_registry.register(
+        "pull-plugin",
+        "timeline.pull_history",
+        sensor,
+        SensorSpec(
+            sensor_id="timeline.pull_history",
+            display_name="Pull History",
+            description="Pull-capable sensor",
+            domain="timeline",
+            surface="timeline",
+            sync_mode="interval",
+            metadata={
+                "source_type": "pull_history",
+                "default_settings": {
+                    "enabled": True,
+                    "sync_mode": "interval",
+                    "sync_interval_minutes": 5,
+                    "edge_whitelist": ["LIKES"],
+                },
+            },
+        ),
+    )
+    return sensor_registry
+
+
+class _FakeIngestionGateway:
+    def __init__(self) -> None:
+        self.items: list[object] = []
+
+    async def ingest(self, sensor, output, metadata, *, allowed_edge_whitelist=None):  # type: ignore[no-untyped-def]
+        self.items.append(output)
 
 
 @pytest.mark.asyncio
@@ -194,3 +286,34 @@ async def test_sensor_schedule_registration_module_supports_manual_sync(tmp_path
     assert context.scheduler.scheduler_service.once_calls[0]["run_at"] <= time.time() + 1.0
 
     await module.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_opaque_cursor_skips_mid_batch_checkpoint(tmp_path) -> None:
+    scheduler_service = _FakeSchedulerService()
+    ingestion_gateway = _FakeIngestionGateway()
+    contrib = SensorSchedulerContrib(
+        scheduler_service=scheduler_service,
+        sensor_registry=_build_sensor_registry_with_sensor(_OpaqueCursorSensor()),
+        plugin_manager=_FakePluginManager(),
+        runtime_paths=RuntimePaths(tmp_path / "runtime"),
+        get_config=lambda: None,
+        ingestion_gateway=ingestion_gateway,
+    )
+
+    result = await contrib._run_sensor_sync(
+        schedule_id="sensor-sync:pull-plugin:pull_history",
+        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        source_type="pull_history",
+        manual=False,
+        target_state=ScheduledTargetState(
+            target_type=ScheduledTargetType.SENSOR_SYNC,
+            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+            last_cursor=None,
+            last_success_at=None,
+        ),
+    )
+
+    assert result.next_cursor == '{"version":1,"mode":"backfill","page":2}'
+    assert len(ingestion_gateway.items) == 55
+    assert scheduler_service.cursor_updates == []
