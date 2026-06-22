@@ -278,6 +278,17 @@ describe('LLMSetupStep', () => {
     expect(openAiCard).not.toHaveTextContent('llm.providers.openai.desc');
   });
 
+  it('uses compact single-line provider cards after descriptions are removed', async () => {
+    render(<Harness />);
+
+    const openAiCard = await screen.findByTestId('llm-setup-provider-openai');
+
+    expect(openAiCard).toHaveClass('min-h-[64px]');
+    expect(openAiCard).toHaveClass('items-center');
+    expect(openAiCard).not.toHaveClass('min-h-[96px]');
+    expect(openAiCard).not.toHaveClass('items-start');
+  });
+
   it('reports valid once a builtin provider has an API key', async () => {
     const user = userEvent.setup();
     const onValid = vi.fn();
