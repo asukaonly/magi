@@ -504,24 +504,19 @@
     "loadFailedDesc": "Unable to fetch model provider config. Please check if the backend service is running.",
     "providers": {
       "openai": {
-        "name": "OpenAI",
-        "desc": "Best ecosystem with strong general capability"
+        "name": "OpenAI"
       },
       "anthropic": {
-        "name": "Anthropic",
-        "desc": "Stable for long context and reasoning-heavy tasks"
+        "name": "Anthropic"
       },
       "glm": {
-        "name": "Z.ai",
-        "desc": "Fast general-purpose models from Z.ai"
+        "name": "Z.ai"
       },
       "dashscope": {
-        "name": "Alibaba Bailian",
-        "desc": "Qwen models via Alibaba Cloud DashScope platform"
+        "name": "Alibaba Bailian"
       },
       "custom": {
-        "name": "Custom Provider",
-        "desc": "Connect OpenAI/Anthropic compatible or custom format services"
+        "name": "Custom Provider"
       }
     },
     "customProviderAction": "Add Custom Provider",

@@ -63,6 +63,7 @@ def test_llm_provider_catalog_returns_builtin_and_saved_custom_providers() -> No
 
     assert openai_provider["source"] == "builtin"
     assert openai_provider["provider_type"] == "openai"
+    assert openai_provider.get("description") in (None, "")
     assert any(provider["id"] == "grok" for provider in providers)
     assert custom_provider["source"] == "custom"
     assert custom_provider["provider_type"] == "custom"

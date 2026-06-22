@@ -1,7 +1,6 @@
 providers:
   - id: openai
     display_name: OpenAI
-    description: General purpose, strongest ecosystem
     icon: openai
     default_model: gpt-5.5
     default_classify_model: gpt-5.2
@@ -156,7 +155,6 @@ providers:
 
   - id: anthropic
     display_name: Anthropic
-    description: Stable for long context and reasoning-heavy tasks
     icon: anthropic
     default_model: claude-sonnet-4-6
     default_classify_model: claude-haiku-4-5
@@ -251,7 +249,6 @@ providers:
 
   - id: glm
     display_name: Z.ai
-    description: Fast general-purpose models from Z.ai
     icon: zai
     default_model: glm-5.1
     default_classify_model: glm-4.6
@@ -416,7 +413,6 @@ providers:
     plans:
       - id: codeplan
         display_name: Z.ai CodePlan
-        description: Z.ai CodePlan models (no embedding support)
         default_model: glm-5.1
         default_classify_model: glm-4.5-air
         default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
@@ -587,7 +583,6 @@ providers:
 
   - id: gemini
     display_name: Google Gemini
-    description: Multimodal models from Google
     icon: gemini
     default_model: gemini-3.5-flash
     default_classify_model: gemini-2.5-flash-lite
@@ -725,7 +720,6 @@ providers:
 
   - id: grok
     display_name: xAI Grok
-    description: OpenAI-compatible Grok chat models from xAI
     icon: grok
     default_model: grok-4.3
     default_classify_model: grok-4.3
@@ -808,7 +802,6 @@ providers:
 
   - id: deepseek
     display_name: DeepSeek
-    description: Reasoning and coding models
     icon: deepseek
     default_model: deepseek-v4-flash
     default_classify_model: deepseek-v4-flash
@@ -862,7 +855,6 @@ providers:
 
   - id: dashscope
     display_name: 阿里云百炼
-    description: Qwen models via Alibaba Cloud DashScope
     icon: bailian
     default_model: qwen3.7-plus
     default_classify_model: qwen3.6-flash
@@ -1078,7 +1070,6 @@ providers:
     plans:
       - id: codeplan
         display_name: Alibaba Cloud Coding Plan
-        description: Alibaba Cloud Model Studio Coding Plan models (requires an sk-sp key)
         default_model: qwen3.7-plus
         default_classify_model: qwen3.6-plus
         default_base_url: https://coding.dashscope.aliyuncs.com/v1
@@ -1268,7 +1259,6 @@ providers:
 
   - id: kimi
     display_name: Kimi
-    description: Long-context multimodal models from Moonshot AI
     icon: kimi
     default_model: kimi-k2.6
     default_classify_model: kimi-k2.6
@@ -1377,7 +1367,6 @@ providers:
 
   - id: minimax
     display_name: MiniMax
-    description: Multimodal models from MiniMax
     icon: minimax
     default_model: MiniMax-M2.7
     default_classify_model: MiniMax-M2.7
@@ -1496,7 +1485,6 @@ providers:
     plans:
       - id: tokenplan
         display_name: MiniMax Token Plan
-        description: MiniMax subscription key for coding and agent tools (formerly Coding Plan)
         default_model: MiniMax-M3
         default_classify_model: MiniMax-M3
         default_base_url: https://api.minimaxi.com/v1
@@ -1611,7 +1599,6 @@ providers:
 
   - id: xiaomimimo
     display_name: 小米 MiMo
-    description: Xiaomi MiMo multimodal models (OpenAI-compatible)
     icon: xiaomimimo
     default_model: mimo-v2.5-pro
     default_classify_model: mimo-v2.5
@@ -1656,7 +1643,6 @@ providers:
     plans:
       - id: tokenplan
         display_name: Xiaomi MiMo Token Plan
-        description: Xiaomi MiMo Token Plan for coding tools (requires a tp-prefixed key)
         default_model: mimo-v2.5-pro
         default_classify_model: mimo-v2.5
         default_base_url: https://token-plan-cn.xiaomimimo.com/v1
@@ -1733,7 +1719,6 @@ providers:
 custom_provider:
   enabled: true
   display_name: Custom Provider
-  description: Connect OpenAI-compatible or Anthropic-compatible endpoints
   icon: custom
   capabilities:
     vision: false

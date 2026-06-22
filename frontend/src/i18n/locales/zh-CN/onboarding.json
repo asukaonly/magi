@@ -505,24 +505,19 @@
     "loadFailedDesc": "无法获取模型提供商配置，请检查后端服务是否正常运行",
     "providers": {
       "openai": {
-        "name": "OpenAI",
-        "desc": "通用能力强，生态最完善"
+        "name": "OpenAI"
       },
       "anthropic": {
-        "name": "Anthropic",
-        "desc": "长文本与复杂推理表现稳定"
+        "name": "Anthropic"
       },
       "glm": {
-        "name": "Z.ai",
-        "desc": "Z.ai 的通用模型，中文场景体验友好"
+        "name": "Z.ai"
       },
       "dashscope": {
-        "name": "阿里云百炼",
-        "desc": "通义千问系列模型，通过阿里云百炼平台接入"
+        "name": "阿里云百炼"
       },
       "custom": {
-        "name": "自定义 Provider",
-        "desc": "接入兼容 OpenAI/Anthropic 或自定义格式的服务"
+        "name": "自定义 Provider"
       }
     },
     "customProviderAction": "添加自定义 Provider",

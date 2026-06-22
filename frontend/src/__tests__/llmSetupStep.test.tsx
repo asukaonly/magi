@@ -269,6 +269,15 @@ describe('LLMSetupStep', () => {
     expect(screen.queryByTestId('llm-setup-core-model')).not.toBeInTheDocument();
   });
 
+  it('renders provider cards with only icon and name copy', async () => {
+    render(<Harness />);
+
+    const openAiCard = await screen.findByTestId('llm-setup-provider-openai');
+
+    expect(openAiCard).toHaveTextContent('llm.providers.openai.name');
+    expect(openAiCard).not.toHaveTextContent('llm.providers.openai.desc');
+  });
+
   it('reports valid once a builtin provider has an API key', async () => {
     const user = userEvent.setup();
     const onValid = vi.fn();

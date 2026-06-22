@@ -36,7 +36,6 @@ type QuickProviderCard = {
   id: string;
   providerType: LLMProvider | 'custom';
   title: string;
-  description: string;
   iconName?: string;
   meta?: LLMProviderMeta;
 };
@@ -402,7 +401,6 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
         id: provider.id,
         providerType: getProviderType(provider),
         title: t(`llm.providers.${provider.id}.name`, { defaultValue: provider.display_name || provider.id }),
-        description: t(`llm.providers.${provider.id}.desc`, { defaultValue: provider.description || '' }),
         iconName: provider.icon,
         meta: provider,
       }));
@@ -413,7 +411,6 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
         id: 'custom',
         providerType: 'custom',
         title: t('llmSetup.customRelayTitle'),
-        description: t('llmSetup.customRelayDesc'),
         iconName: 'custom',
       },
     ];
@@ -613,9 +610,6 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
               />
               <span className="min-w-0 space-y-1">
                 <span className="block text-sm font-semibold text-foreground">{card.title}</span>
-                <span className="line-clamp-2 block text-xs leading-5 text-muted-foreground">
-                  {card.description}
-                </span>
               </span>
             </button>
           );

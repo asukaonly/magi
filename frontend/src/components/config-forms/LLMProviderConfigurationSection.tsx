@@ -979,7 +979,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
             const providerMeta = provider.provider_type === 'custom'
               ? undefined
               : registry.providers.find((item) => item.id === provider.provider_type);
-            const providerPlan = providerMeta?.plans?.find((plan) => plan.id === provider.provider_plan);
             const references = scenarioReferences[providerId] || [];
             const providerIssues = providerIssuesById.get(providerId) || [];
             const serviceLabels = SERVICE_NAMES
@@ -1009,12 +1008,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   <span className="min-w-0 space-y-1">
                     <span className="block truncate text-[15px] font-semibold leading-6 text-foreground">
                       {provider.display_name || providerMeta?.display_name || providerId}
-                    </span>
-                    <span className="block text-sm leading-6 text-muted-foreground">
-                      {provider.provider_type === 'custom'
-                        ? t('llm.providerConfiguration.providerKinds.custom')
-                        : providerMeta?.display_name || provider.provider_type}
-                      {providerPlan ? ` / ${providerPlan.display_name || providerPlan.id}` : ''}
                     </span>
                     <span className="flex flex-wrap gap-1.5 pt-1">
                       {serviceLabels.map((label) => (

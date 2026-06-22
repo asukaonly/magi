@@ -952,6 +952,20 @@ describe('config forms', () => {
     expect(screen.getByRole('button', { name: 'llm.providerConfiguration.addProvider' })).toBeInTheDocument();
   });
 
+  it('does not show provider type subtitles in the settings provider list', async () => {
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    const providerList = await screen.findByTestId('llm-provider-list-pane');
+    const openAiRow = within(providerList).getByTestId('llm-provider-row-openai');
+
+    expect(openAiRow).toHaveTextContent('OpenAI');
+    expect(openAiRow.textContent?.match(/OpenAI/g) ?? []).toHaveLength(1);
+  });
+
   it('normalizes custom providers when custom provider metadata is absent', () => {
     const registry = buildRegistryFromCatalog({ providers: [] }, {} as any);
     const customValue = structuredClone(llmValue) as LLMConfig;
