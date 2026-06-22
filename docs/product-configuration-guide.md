@@ -200,12 +200,14 @@ Current product expectations:
 - multiple provider instances can share the same provider type when they represent different accounts, gateways, or service scopes
 - each provider instance stores provider-level default `api_key` and `base_url` values plus service-specific overrides under `services.chat`, `services.embedding`, `services.image_generation`, and future service blocks
 - provider instances may select a backend-registry `provider_plan` when the same provider offers alternate commercial/runtime plans; a plan can override the default Base URL, default models, service model availability, provider fields, and registry pricing without becoming a separate provider type
+- built-in `provider_plan` metadata currently covers Z.ai GLM CodePlan and Alibaba Cloud Model Studio Coding Plan; domestic endpoints are the default for the existing China-oriented provider entries, while users can override Base URL for international endpoints such as `https://api.z.ai/api/coding/paas/v4` or `https://coding-intl.dashscope.aliyuncs.com/v1`
 - provider image generation services should remain disabled by default until the user enables them
 - service-specific API credentials and custom Base URLs are optional overrides; blank service fields inherit the provider-level defaults
 - Settings can expose more fields than first-run LLM setup
 - provider/model metadata should come from the backend registry rather than hardcoded frontend lists
 - each selected model can expose a capability profile such as vision, reasoning, tool calling, and embedding support
 - model metadata can include provider-published cost values; chat models use input/output token pricing, embedding models use input token pricing, and image generation models use per-image pricing when the provider bills successful generations by count
+- fixed-fee coding plans should not inherit pay-as-you-go token rates unless the provider publishes plan-specific token pricing; usage accounting may retain the plan source metadata while leaving calculated cost empty
 - usage accounting should prefer explicit provider-reported cost when present, then fall back to registry chat model pricing for USD-denominated token usage
 - users can review the active model capability profile during onboarding and later in settings
 - users add or edit provider instances from provider templates or a custom-provider template

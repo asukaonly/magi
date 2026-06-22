@@ -29,6 +29,7 @@ from magi.config.models import (
     LLMProviderSettings,
     LLMSelectionSettings,
     LLMSettings,
+    ModelVendor,
 )
 from magi.config.agent_models import BackgroundTasksSettings as AgentBackgroundTasksSettings
 from magi.config.llm_registry import (
@@ -743,6 +744,60 @@ def test_build_provider_catalog_exposes_and_applies_provider_plan():
     assert [model.id for model in glm_entry.resolved_embedding_models] == []
 
 
+def test_resolve_provider_model_catalog_applies_dashscope_codeplan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="dashscope",
+        display_name="Alibaba Cloud Model Studio",
+        provider_plan="codeplan",
+    )
+
+    resolved = resolve_provider_model_catalog(registry, "dashscope", provider)
+
+    assert [model.id for model in resolved.chat_models] == [
+        "qwen3.7-plus",
+        "qwen3.6-plus",
+        "kimi-k2.5",
+        "glm-5",
+        "MiniMax-M2.5",
+        "qwen3.5-plus",
+        "qwen3-max-2026-01-23",
+        "qwen3-coder-next",
+        "qwen3-coder-plus",
+        "glm-4.7",
+    ]
+    assert resolved.embedding_models == []
+    assert resolved.image_generation_models == []
+
+    models_by_id = {model.id: model for model in resolved.chat_models}
+    assert models_by_id["qwen3.7-plus"].vendor == ModelVendor.DASHSCOPE
+    assert models_by_id["kimi-k2.5"].vendor == ModelVendor.KIMI
+    assert models_by_id["glm-5"].vendor == ModelVendor.GLM
+    assert models_by_id["MiniMax-M2.5"].vendor == ModelVendor.MINIMAX
+    assert models_by_id["qwen3.7-plus"].cost is not None
+    assert models_by_id["qwen3.7-plus"].cost.input_per_million_tokens is None
+
+
+def test_build_provider_catalog_exposes_and_applies_dashscope_codeplan():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="dashscope",
+        display_name="Alibaba Cloud Model Studio",
+        provider_plan="codeplan",
+    )
+
+    catalog = build_provider_catalog(registry, {"dashscope": provider})
+    dashscope_entry = next(entry for entry in catalog if entry.id == "dashscope")
+
+    assert dashscope_entry.provider_plan == "codeplan"
+    assert [plan.id for plan in dashscope_entry.plans] == ["codeplan"]
+    assert dashscope_entry.default_base_url == "https://coding.dashscope.aliyuncs.com/v1"
+    assert dashscope_entry.default_model == "qwen3.7-plus"
+    assert dashscope_entry.default_classify_model == "qwen3.6-plus"
+    assert [model.id for model in dashscope_entry.resolved_embedding_models] == []
+    assert [model.id for model in dashscope_entry.resolved_image_generation_models] == []
+
+
 def test_update_paths_apply_provider_plan_defaults():
     config = SystemConfigModel()
     config.llm.providers = {
@@ -795,6 +850,22 @@ def test_provider_plan_pricing_uses_plan_model_metadata():
     assert standard_amount is None
     assert plan_amount == pytest.approx(1.3)
     assert currency == "USD"
+
+
+def test_dashscope_codeplan_pricing_does_not_apply_pay_as_you_go_rates():
+    registry = _default_llm_provider_registry()
+
+    amount, currency = calculate_chat_cost(
+        provider="dashscope",
+        provider_plan="codeplan",
+        model="qwen3.7-plus",
+        prompt_tokens=1_000_000,
+        completion_tokens=1_000_000,
+        registry=registry,
+    )
+
+    assert amount is None
+    assert currency is None
 
 
 def test_resolve_provider_model_catalog_ignores_manual_image_generation_overrides():

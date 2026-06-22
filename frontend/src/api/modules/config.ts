@@ -180,6 +180,8 @@ export type ModelVendor =
   | 'glm'
   | 'dashscope'
   | 'grok'
+  | 'kimi'
+  | 'minimax'
   | 'generic';
 
 export interface LLMModelMetadataOverride {

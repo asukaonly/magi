@@ -1065,6 +1065,176 @@ providers:
           currency: CNY
           per_image: 0.25
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
+    plans:
+      - id: codeplan
+        display_name: Alibaba Cloud Coding Plan
+        description: Alibaba Cloud Model Studio Coding Plan models (requires an sk-sp key)
+        default_model: qwen3.7-plus
+        default_classify_model: qwen3.6-plus
+        default_base_url: https://coding.dashscope.aliyuncs.com/v1
+        embedding_models: []
+        image_generation_models: []
+        audio_generation_models: []
+        chat_models:
+          - id: qwen3.7-plus
+            label: Qwen3.7 Plus
+            capabilities:
+              vision: true
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 1000000
+              max_output_tokens: 64000
+              max_concurrency: 10
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: qwen3.6-plus
+            label: Qwen3.6 Plus
+            capabilities:
+              vision: true
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 1000000
+              max_output_tokens: 64000
+              max_concurrency: 10
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: kimi-k2.5
+            label: Kimi K2.5
+            vendor: kimi
+            capabilities:
+              vision: true
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 262144
+              max_output_tokens: 8192
+              max_concurrency: 4
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: glm-5
+            label: GLM-5
+            vendor: glm
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 4
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+            provider_options_example:
+              thinking:
+                type: disabled
+          - id: MiniMax-M2.5
+            label: MiniMax M2.5
+            vendor: minimax
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 8192
+              max_concurrency: 3
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: qwen3.5-plus
+            label: Qwen3.5 Plus
+            capabilities:
+              vision: true
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 1000000
+              max_output_tokens: 64000
+              max_concurrency: 10
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: qwen3-max-2026-01-23
+            label: Qwen3 Max 2026-01-23
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              max_concurrency: 10
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: qwen3-coder-next
+            label: Qwen3 Coder Next
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              max_concurrency: 10
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: qwen3-coder-plus
+            label: Qwen3 Coder Plus
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              max_concurrency: 10
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+          - id: glm-4.7
+            label: GLM-4.7
+            vendor: glm
+            capabilities:
+              vision: false
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 204800
+              max_output_tokens: 131072
+              max_concurrency: 4
+            cost:
+              currency: CNY
+              source: https://help.aliyun.com/zh/model-studio/coding-plan
+              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
+            provider_options_example:
+              thinking:
+                type: disabled
+        fields:
+          base_url:
+            visible: true
+            required: false
+            placeholder: https://coding.dashscope.aliyuncs.com/v1
     fields:
       model:
         visible: true
