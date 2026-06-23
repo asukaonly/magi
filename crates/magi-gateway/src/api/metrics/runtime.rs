@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use sysinfo::System;
 
+use crate::api::memory::read_l2_projection_backlog;
 use crate::db;
 
 const HEARTBEAT_ROLE: &str = "ipc_worker";
@@ -294,28 +295,11 @@ fn empty_memory_section() -> Value {
 
 fn build_memory_section() -> Value {
     // L2 pending from memory.db
-    let (l2_extract, l2_reconcile, l2_snapshot) = match db::open_readonly(&db::memory_db_path()) {
-        Some(conn) => {
-            let rows = db::query_to_json_array(
-                &conn,
-                "SELECT status, COUNT(*) AS cnt FROM l2_projection_jobs GROUP BY status",
-                &[],
-            );
-            let mut pending: i64 = 0;
-            let mut claimed: i64 = 0;
-            for row in &rows {
-                let s = row.get("status").and_then(|v| v.as_str()).unwrap_or("");
-                let n = row.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
-                match s {
-                    "pending" => pending = n,
-                    "claimed" => claimed = n,
-                    _ => {}
-                }
-            }
-            (pending + claimed, 0i64, 0i64)
-        }
-        None => (0, 0, 0),
-    };
+    let l2_projection_backlog = db::open_readonly(&db::memory_db_path())
+        .map(|conn| read_l2_projection_backlog(&conn))
+        .unwrap_or_default();
+    let (l2_extract, l2_reconcile, l2_snapshot) =
+        (l2_projection_backlog.pending_work(), 0i64, 0i64);
     let l2_total = l2_extract + l2_reconcile + l2_snapshot;
 
     // Embedding pending per layer
@@ -331,7 +315,7 @@ fn build_memory_section() -> Value {
     json!({
         "total_pending": l2_total + embed_total,
         "l2": {
-            "is_running": false,
+            "is_running": l2_projection_backlog.running > 0,
             "extract_pending": l2_extract,
             "reconcile_pending": l2_reconcile,
             "snapshot_pending": l2_snapshot,
@@ -429,4 +413,86 @@ fn build_scheduler_section() -> Value {
         "upcoming_target_count": upcoming_count,
         "recent_targets": recent_targets,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_memory_section;
+    use crate::db;
+    use rusqlite::Connection;
+    use std::path::PathBuf;
+    use std::sync::MutexGuard;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct IsolatedMagiBase {
+        previous_base_dir: Option<PathBuf>,
+        root: PathBuf,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl Drop for IsolatedMagiBase {
+        fn drop(&mut self) {
+            db::set_magi_base_dir_override_for_tests(self.previous_base_dir.take());
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn isolated_magi_base(label: &str) -> IsolatedMagiBase {
+        let lock = db::magi_base_dir_override_test_lock();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "magi-gateway-runtime-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        let magi_base = root.join(".magi");
+        std::fs::create_dir_all(magi_base.join("data").join("memory")).expect("create memory dir");
+        let previous_base_dir = db::set_magi_base_dir_override_for_tests(Some(magi_base));
+        IsolatedMagiBase {
+            previous_base_dir,
+            root,
+            _lock: lock,
+        }
+    }
+
+    fn seed_memory_databases(statuses: &[&str]) {
+        let memory_conn = Connection::open(db::memory_db_path()).expect("open memory db");
+        memory_conn
+            .execute_batch(
+                "CREATE TABLE l2_projection_jobs(status TEXT NOT NULL);
+                 CREATE TABLE summaries(embedding_status TEXT);
+                 CREATE TABLE procedural_skills(embedding_status TEXT);",
+            )
+            .expect("create memory tables");
+        for status in statuses {
+            memory_conn
+                .execute(
+                    "INSERT INTO l2_projection_jobs(status) VALUES (?1)",
+                    [status],
+                )
+                .expect("insert projection job");
+        }
+
+        let l1_conn = Connection::open(db::l1_events_db_path()).expect("open l1 db");
+        l1_conn
+            .execute_batch("CREATE TABLE fact_events(embedding_status TEXT);")
+            .expect("create l1 tables");
+    }
+
+    #[test]
+    fn memory_section_counts_queued_and_running_l2_projection_jobs() {
+        let _base = isolated_magi_base("queued-running-l2");
+        seed_memory_databases(&[
+            "pending", "queued", "queued", "running", "running", "running",
+        ]);
+
+        let section = build_memory_section();
+
+        assert_eq!(section["l2"]["extract_pending"], 6);
+        assert_eq!(section["l2"]["total_pending"], 6);
+        assert_eq!(section["total_pending"], 6);
+        assert_eq!(section["l2"]["is_running"], true);
+    }
 }

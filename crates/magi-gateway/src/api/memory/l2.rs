@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::db;
 
 use super::query::{clamp_limit, clamp_offset, PaginationQuery, DEFAULT_LIMIT};
+use super::{l2_projection_backlog_json, read_l2_projection_backlog};
 
 // ---------------------------------------------------------------------------
 // L2 cognition statistics
@@ -44,30 +45,10 @@ fn build_l2_statistics() -> Value {
     );
     let tom_count = db::count_rows(&conn, "SELECT COUNT(*) FROM tom_trait_assertions", &[]);
 
-    // Projection backlog by status
-    let backlog_rows = db::query_to_json_array(
-        &conn,
-        "SELECT status, COUNT(*) AS cnt FROM l2_projection_jobs GROUP BY status",
-        &[],
-    );
-    let mut pending: i64 = 0;
-    let mut claimed: i64 = 0;
-    let mut completed: i64 = 0;
-    let mut failed: i64 = 0;
-    for row in &backlog_rows {
-        let s = row.get("status").and_then(|v| v.as_str()).unwrap_or("");
-        let n = row.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
-        match s {
-            "pending" => pending = n,
-            "claimed" => claimed = n,
-            "completed" => completed = n,
-            "failed" => failed = n,
-            _ => {}
-        }
-    }
+    let backlog = read_l2_projection_backlog(&conn);
 
     json!({
-        "is_running": false,
+        "is_running": backlog.running > 0,
         "relation_count": rel_count,
         "assertion_count": tom_count,
         "extract_enqueued": 0,
@@ -84,12 +65,7 @@ fn build_l2_statistics() -> Value {
         "assertions_written": 0,
         "extract_by_evidence_class": {},
         "skip_by_reason": {},
-        "projection_backlog": {
-            "pending": pending,
-            "claimed": claimed,
-            "completed": completed,
-            "failed": failed,
-        },
+        "projection_backlog": l2_projection_backlog_json(backlog),
     })
 }
 // ---------------------------------------------------------------------------
@@ -520,6 +496,82 @@ mod assertion_write_tests {
         assert_eq!(old["superseded_by"], replacement["assertion_id"]);
 
         let _ = std::fs::remove_file(path);
+    }
+}
+
+#[cfg(test)]
+mod l2_statistics_tests {
+    use super::build_l2_statistics;
+    use crate::db;
+    use rusqlite::Connection;
+    use std::path::PathBuf;
+    use std::sync::MutexGuard;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct IsolatedMagiBase {
+        previous_base_dir: Option<PathBuf>,
+        root: PathBuf,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl Drop for IsolatedMagiBase {
+        fn drop(&mut self) {
+            db::set_magi_base_dir_override_for_tests(self.previous_base_dir.take());
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn isolated_magi_base(label: &str) -> IsolatedMagiBase {
+        let lock = db::magi_base_dir_override_test_lock();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "magi-gateway-l2-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        let magi_base = root.join(".magi");
+        std::fs::create_dir_all(magi_base.join("data").join("memory")).expect("create memory dir");
+        let previous_base_dir = db::set_magi_base_dir_override_for_tests(Some(magi_base));
+        IsolatedMagiBase {
+            previous_base_dir,
+            root,
+            _lock: lock,
+        }
+    }
+
+    fn seed_memory_db(statuses: &[&str]) {
+        let conn = Connection::open(db::memory_db_path()).expect("open memory db");
+        conn.execute_batch(
+            "CREATE TABLE l2_projection_jobs(status TEXT NOT NULL);
+             CREATE TABLE knowledge_graph(status TEXT, updated_at REAL);
+             CREATE TABLE tom_trait_assertions(assertion_id TEXT);",
+        )
+        .expect("create memory tables");
+        for status in statuses {
+            conn.execute(
+                "INSERT INTO l2_projection_jobs(status) VALUES (?1)",
+                [status],
+            )
+            .expect("insert projection job");
+        }
+    }
+
+    #[test]
+    fn reports_queued_and_running_projection_backlog() {
+        let _base = isolated_magi_base("queued-running-backlog");
+        seed_memory_db(&[
+            "pending", "queued", "queued", "running", "running", "running",
+        ]);
+
+        let stats = build_l2_statistics();
+
+        assert_eq!(stats["is_running"], true);
+        assert_eq!(stats["projection_backlog"]["pending"], 1);
+        assert_eq!(stats["projection_backlog"]["queued"], 2);
+        assert_eq!(stats["projection_backlog"]["running"], 3);
+        assert_eq!(stats["projection_backlog"]["claimed"], 5);
     }
 }
 
