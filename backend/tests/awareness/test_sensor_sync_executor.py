@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import threading
 import time
 
 import pytest
@@ -17,21 +18,25 @@ from magi.scheduler import (
 from magi.scheduler.repository import ScheduleRepository
 
 
-def _build_sensor_schedule() -> ScheduleDefinition:
+def _build_sensor_schedule(
+    *,
+    plugin_id: str = "test-plugin",
+    source_type: str = "test-source",
+) -> ScheduleDefinition:
     return ScheduleDefinition(
-        schedule_id="sensor-sync:test-plugin:test-source",
+        schedule_id=f"sensor-sync:{plugin_id}:{source_type}",
         target_type=ScheduledTargetType.SENSOR_SYNC,
-        target_key="test-plugin:test-source",
+        target_key=f"{plugin_id}:{source_type}",
         trigger=TriggerDefinition(
             trigger_type=TriggerType.INTERVAL,
             config={"seconds": 300.0},
         ),
         target_payload={
-            "plugin_id": "test-plugin",
-            "source_type": "test-source",
+            "plugin_id": plugin_id,
+            "source_type": source_type,
             "manual": False,
         },
-        metadata={"plugin_id": "test-plugin", "source_type": "test-source"},
+        metadata={"plugin_id": plugin_id, "source_type": source_type},
     )
 
 
@@ -223,6 +228,70 @@ async def test_sensor_sync_success_triggers_l3_backfill(tmp_path, monkeypatch):
     assert len(backfill_calls) == 1
     assert backfill_calls[0]["range_start"] == 1000.0
     assert backfill_calls[0]["range_end"] == 2000.0
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_l3_backfill_does_not_block_next_sensor_job(tmp_path, monkeypatch):
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    first_schedule = _build_sensor_schedule(source_type="slow-backfill-source")
+    second_schedule = _build_sensor_schedule(source_type="next-source")
+    first_job_id = await _enqueue_job(repository, first_schedule)
+    second_job_id = await _enqueue_job(repository, second_schedule)
+    backfill_started = threading.Event()
+    release_backfill = threading.Event()
+
+    class _FakeL1:
+        async def summarize_event_sources(self, **kwargs):
+            return [
+                {
+                    "source": "slow-backfill-source",
+                    "event_count": 5,
+                    "avg_importance": 0.5,
+                    "min_timestamp": 1000.0,
+                    "max_timestamp": 2000.0,
+                }
+            ]
+
+    class _FakeUnifiedMemory:
+        l1 = _FakeL1()
+
+        async def backfill_l3_gaps(self, **kwargs):
+            backfill_started.set()
+            await asyncio.to_thread(release_backfill.wait)
+            return {"generated": [], "skipped_existing": 0, "skipped_sparse": 0}
+
+    monkeypatch.setattr(
+        "magi.memory.provider.get_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        return ScheduledExecutionResult(success=True, message=f"completed:{job_record['source_type']}")
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        poll_interval_seconds=0.01,
+        running_timeout_seconds=30.0,
+    )
+    try:
+        await executor.start()
+        await _wait_for_job_status(repository, first_job_id, "success")
+        assert await asyncio.to_thread(backfill_started.wait, 1.0)
+
+        second_job = await _wait_for_job_status(
+            repository,
+            second_job_id,
+            "success",
+            timeout_seconds=0.3,
+        )
+    finally:
+        release_backfill.set()
+        await executor.stop()
+
+    assert second_job["result_message"] == "completed:next-source"
 
 
 @pytest.mark.asyncio

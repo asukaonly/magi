@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import threading
 import time
 import uuid
@@ -44,6 +45,9 @@ class SensorSyncExecutor:
         self._owner_loop: asyncio.AbstractEventLoop | None = None
         self._stop_event: asyncio.Event | None = None
         self._execution_lock: asyncio.Lock | None = None
+        self._post_sync_lock = threading.Lock()
+        self._post_sync_sources: set[str] = set()
+        self._post_sync_future: concurrent.futures.Future[None] | None = None
         self._ready = threading.Event()
 
     async def start(self) -> None:
@@ -70,6 +74,9 @@ class SensorSyncExecutor:
         if loop is not None and stop_event is not None:
             loop.call_soon_threadsafe(stop_event.set)
         await asyncio.to_thread(thread.join, 5.0)
+        post_sync_future = self._clear_post_sync_queue()
+        if post_sync_future is not None and not post_sync_future.done():
+            post_sync_future.cancel()
         self._thread = None
         self._owner_loop = None
 
@@ -152,16 +159,7 @@ class SensorSyncExecutor:
             if self._result_requests_continuation(result):
                 continuation_queued = await self._schedule_sync_continuation(job)
             if not continuation_queued:
-                # Best-effort: fill L3 "Stories" for any CLOSED past periods this
-                # source's data lands in. Historical imports land in already-closed
-                # day/week windows the recurring scheduler never revisits. Strictly
-                # AFTER the success commit and fully guarded so an L3 failure can
-                # never fail the sync. Gap-checked + min_events-gated → a near-no-op
-                # for incremental syncs (no closed-past gaps).
-                await self._backfill_l3_after_sync(str(job["source_type"]))
-                # Best-effort: kick the L2 derive task so newly-synced interests/
-                # conflicts refresh promptly instead of waiting for the 6 h interval.
-                await self._trigger_l2_derive_after_sync()
+                self._queue_post_sync_maintenance(str(job["source_type"]))
         except Exception as exc:
             finished_at = time.time()
             await self._repository.complete_sensor_sync_job_failure(
@@ -234,6 +232,86 @@ class SensorSyncExecutor:
             )
             return False
 
+    def _queue_post_sync_maintenance(self, source_name: str) -> None:
+        source_name = source_name.strip()
+        if not source_name:
+            return
+        owner_loop = self._owner_loop
+        if owner_loop is None or owner_loop.is_closed():
+            logger.warning(
+                "post-sync maintenance skipped: owner loop unavailable",
+                source=source_name,
+            )
+            return
+
+        future: concurrent.futures.Future[None] | None = None
+        with self._post_sync_lock:
+            self._post_sync_sources.add(source_name)
+            existing = self._post_sync_future
+            if existing is not None and not existing.done():
+                return
+            coro = self._drain_post_sync_maintenance()
+            try:
+                future = asyncio.run_coroutine_threadsafe(coro, owner_loop)
+            except RuntimeError:
+                coro.close()
+                self._post_sync_future = None
+                logger.exception(
+                    "post-sync maintenance scheduling failed",
+                    source=source_name,
+                )
+                return
+            self._post_sync_future = future
+        future.add_done_callback(self._handle_post_sync_maintenance_done)
+
+    async def _drain_post_sync_maintenance(self) -> None:
+        while True:
+            with self._post_sync_lock:
+                if not self._post_sync_sources:
+                    self._post_sync_future = None
+                    return
+                source_name = sorted(self._post_sync_sources)[0]
+                self._post_sync_sources.remove(source_name)
+
+            try:
+                # Best-effort: fill L3 "Stories" for any CLOSED past periods this
+                # source's data lands in. Historical imports land in already-closed
+                # day/week windows the recurring scheduler never revisits. This runs
+                # outside the serial sensor executor so slow LLM calls cannot stop
+                # later sensor sync jobs from being claimed.
+                await self._backfill_l3_after_sync(source_name)
+                # Best-effort: kick the L2 derive task so newly-synced interests/
+                # conflicts refresh promptly instead of waiting for the 6 h interval.
+                await self._trigger_l2_derive_after_sync_current_loop()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "post-sync maintenance failed (non-fatal)",
+                    source=source_name,
+                )
+
+    def _clear_post_sync_queue(self) -> concurrent.futures.Future[None] | None:
+        with self._post_sync_lock:
+            self._post_sync_sources.clear()
+            future = self._post_sync_future
+            self._post_sync_future = None
+            return future
+
+    def _handle_post_sync_maintenance_done(
+        self,
+        future: concurrent.futures.Future[None],
+    ) -> None:
+        try:
+            future.result()
+        except concurrent.futures.CancelledError:
+            logger.debug("post-sync maintenance cancelled")
+        except Exception as exc:
+            logger.exception(
+                "post-sync maintenance runner failed",
+                error=str(exc),
+            )
+
     async def _backfill_l3_after_sync(self, source_name: str) -> None:
         """Best-effort L3 historical backfill over a synced source's L1 window.
 
@@ -282,18 +360,28 @@ class SensorSyncExecutor:
         Runs on the owner loop (where the scheduler service lives) via
         _run_on_owner_loop.
         """
+        if self._running_on_owner_loop():
+            await self._trigger_l2_derive_after_sync_current_loop()
+            return
+        await self._run_on_owner_loop(self._trigger_l2_derive_after_sync_current_loop())
+
+    async def _trigger_l2_derive_after_sync_current_loop(self) -> None:
         if self._scheduler_service is None:
             return
         try:
             from ..memory.l2.derive_schedule import SCHEDULE_ID_L2_DERIVE
 
-            await self._run_on_owner_loop(
-                self._scheduler_service.execute_schedule_async(  # type: ignore[union-attr]
-                    SCHEDULE_ID_L2_DERIVE, manual=True
-                )
+            await self._scheduler_service.execute_schedule_async(  # type: ignore[union-attr]
+                SCHEDULE_ID_L2_DERIVE, manual=True
             )
         except Exception:
             logger.exception("post-sync L2 derive trigger failed (non-fatal)")
+
+    def _running_on_owner_loop(self) -> bool:
+        try:
+            return asyncio.get_running_loop() is self._owner_loop
+        except RuntimeError:
+            return False
 
     async def flush_sensor_state(self, source_name: str) -> dict[str, Any]:
         if self._flush_state is None:

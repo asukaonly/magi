@@ -949,6 +949,8 @@ The `sensor_sync_jobs` table enforces at most one outstanding job per `(target_t
 
 Manual sync requests reuse the same queueing model through `SensorSchedulerContributor.queue_manual_sync()`. Sensor runtime-state flushes also run on the executor thread to avoid cross-thread access to shared sensor instances.
 
+Post-sync memory maintenance is deliberately outside the serial sensor-sync queue. After a sync job commits success, L3 historical backfill and the L2 derive kick are queued as best-effort owner-loop maintenance so long LLM-backed summary work cannot stop later sensor-sync jobs from being claimed. A continuation sync (`has_more` / `continue_sync`) still defers these maintenance kicks until the final batch.
+
 On startup, the executor requeues stale `running` jobs. Stale detection uses `started_at` with a configurable timeout. `memory_l2_maintenance` keeps the existing direct scheduler execution path and is unaffected.
 
 ## Memory Event Flow
