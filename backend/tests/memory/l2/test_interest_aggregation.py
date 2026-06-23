@@ -28,7 +28,11 @@ import aiosqlite
 import pytest
 
 from magi.core.sqlite import sqlite_connection_async
+from magi.identity.defaults import CANONICAL_LOCAL_USER
 from magi.memory.l2.assertions.interest_aggregation import aggregate_interests
+
+
+DEFAULT_USER_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +46,8 @@ async def _seed_interested_in_edge(
     object_type: str = "topic",
     event_ids: list[str],
     confidence: float = 0.8,
-    entity_id: str = "user:self",
+    entity_id: str = DEFAULT_USER_ENTITY_ID,
+    spread_days: bool = True,
 ) -> None:
     """Seed an INTERESTED_IN edge with the given evidence event IDs.
 
@@ -51,6 +56,7 @@ async def _seed_interested_in_edge(
     (one increment per new event id).
     """
     now = time.time()
+    interval = 86_400 if spread_days else 0.001
     for i, eid in enumerate(event_ids):
         await store.upsert_knowledge_edge(
             subject_id=entity_id,
@@ -60,7 +66,7 @@ async def _seed_interested_in_edge(
             object_type=object_type,
             evidence_event_ids=[eid],
             confidence=confidence,
-            observed_at=now + i * 0.001,
+            observed_at=now + i * interval,
             source_type="chrome_history",
         )
 
@@ -83,7 +89,7 @@ async def _seed_canonical_name(store, *, entity_id: str, canonical_name: str, en
         await db.commit()
 
 
-async def _get_assertions(store, entity_id: str = "user:self") -> list[dict]:
+async def _get_assertions(store, entity_id: str = DEFAULT_USER_ENTITY_ID) -> list[dict]:
     """Fetch raw assertion rows (active + shadow) from the database."""
     async with aiosqlite.connect(store.db_path) as db:
         db.row_factory = aiosqlite.Row
@@ -194,7 +200,7 @@ async def test_aggregate_interests_surfaces_in_snapshot_as_inferred(l2_store_wit
     )
 
     # Refresh snapshot and assert the interest is present as inferred preference
-    snapshot = await store.refresh_entity_snapshot(entity_id="user:self", entity_type="user")
+    snapshot = await store.refresh_entity_snapshot(entity_id=DEFAULT_USER_ENTITY_ID, entity_type="user")
     assert snapshot is not None, "refresh_entity_snapshot returned None"
 
     preferences = snapshot.get("preferences") or {}
@@ -272,6 +278,51 @@ async def test_aggregate_interests_returns_zero_when_all_below_threshold(l2_stor
 
     assertions = await _get_assertions(store)
     assert len(assertions) == 0
+
+
+@pytest.mark.asyncio
+async def test_aggregate_interests_skips_single_day_repetition(l2_store_with_schema):
+    """Repeated same-day browsing should remain graph evidence, not a profile assertion."""
+    store = l2_store_with_schema
+
+    await _seed_interested_in_edge(
+        store,
+        object_id="topic:one-off-news",
+        event_ids=["news-e1", "news-e2", "news-e3", "news-e4"],
+        spread_days=False,
+    )
+    await _seed_canonical_name(store, entity_id="topic:one-off-news", canonical_name="One-off news")
+
+    stats = await aggregate_interests(store, min_observations=3)
+
+    assert stats["edges_seen"] == 1
+    assert stats["topics_aggregated"] == 0
+    assert await _get_assertions(store) == []
+
+
+@pytest.mark.asyncio
+async def test_aggregate_interests_skips_non_profile_object_types(l2_store_with_schema):
+    """Generic software entities should not become portrait interests by default."""
+    store = l2_store_with_schema
+
+    await _seed_interested_in_edge(
+        store,
+        object_id="software:random-tool",
+        object_type="software",
+        event_ids=["tool-e1", "tool-e2", "tool-e3"],
+    )
+    await _seed_canonical_name(
+        store,
+        entity_id="software:random-tool",
+        canonical_name="Random Tool",
+        entity_type="software",
+    )
+
+    stats = await aggregate_interests(store, min_observations=3)
+
+    assert stats["edges_seen"] == 1
+    assert stats["topics_aggregated"] == 0
+    assert await _get_assertions(store) == []
 
 
 # ---------------------------------------------------------------------------

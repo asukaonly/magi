@@ -211,6 +211,7 @@ def test_self_portrait_returns_backend_grouped_page_model():
         "identity",
         "preferences",
         "routine",
+        "places",
         "communication",
     ]
     assert [item["text"] for item in world_groups["identity"]] == ["称呼你「Asuka」"]
@@ -229,3 +230,50 @@ def test_self_portrait_returns_backend_grouped_page_model():
         "检查 L2 结果",
     ]
     assert view["world"]["total_count"] == len(body["observations"])
+
+
+def test_self_view_includes_safe_graph_relationship_signals():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    l2 = MagicMock()
+    l2.list_tom_snapshots = AsyncMock(return_value=[])
+    l2.list_tom_assertions = AsyncMock(return_value=[])
+    l2.get_relationships = AsyncMock(return_value=[
+        {
+            "triple_id": "triple-place",
+            "predicate": "VISITED",
+            "object_id": "place:东京",
+            "object_type": "place",
+            "source_type": "photo_library_apple_photos",
+            "observation_count": 3,
+        },
+        {
+            "triple_id": "triple-camera",
+            "predicate": "OWNS",
+            "object_id": "hardware:Sony A7C",
+            "object_type": "hardware",
+            "source_type": "photo_library_apple_photos",
+            "observation_count": 4,
+        },
+        {
+            "triple_id": "triple-single",
+            "predicate": "VISITED",
+            "object_id": "place:一次性地点",
+            "object_type": "place",
+            "source_type": "photo_library_apple_photos",
+            "observation_count": 1,
+        },
+    ])
+
+    with override_dependencies_for_test(profile_repo=profile_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    world_groups = {group["id"]: group["items"] for group in body["self_view"]["world"]["groups"]}
+
+    assert [item["text"] for item in world_groups["places"]] == ["东京"]
+    assert world_groups["places"][0]["source_key"] == "photo_library_apple_photos"
+    assert [item["text"] for item in world_groups["routine"]] == ["Sony A7C"]
+    assert "一次性地点" not in " ".join(item["text"] for group in world_groups.values() for item in group)

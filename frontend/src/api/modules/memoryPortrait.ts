@@ -14,7 +14,12 @@ export interface PortraitObservation {
   basis_refs: string[];
 }
 
-export type PortraitSelfViewWorldGroupId = 'identity' | 'preferences' | 'routine' | 'communication';
+export type PortraitSelfViewWorldGroupId =
+  | 'identity'
+  | 'preferences'
+  | 'routine'
+  | 'places'
+  | 'communication';
 
 export interface PortraitSelfViewItem {
   id: string;

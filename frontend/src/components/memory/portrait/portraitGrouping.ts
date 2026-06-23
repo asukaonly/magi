@@ -30,7 +30,13 @@ export interface PortraitViewModel {
 
 const ASSERTION_REF_PATTERN = /^[0-9a-f-]{20,}$/i;
 
-const WORLD_GROUP_IDS: PortraitWorldGroupId[] = ['identity', 'preferences', 'routine', 'communication'];
+const WORLD_GROUP_IDS: PortraitWorldGroupId[] = [
+  'identity',
+  'preferences',
+  'routine',
+  'places',
+  'communication',
+];
 
 const STATE_FAMILIES = new Set([
   'state_profile',

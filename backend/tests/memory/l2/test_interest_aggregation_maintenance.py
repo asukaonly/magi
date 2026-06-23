@@ -15,7 +15,6 @@ The interest aggregation step now lives in ``handle_l2_derive``, NOT in
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -24,7 +23,11 @@ import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
 from magi.config.memory_models import MemoryL2Settings
+from magi.identity.defaults import CANONICAL_LOCAL_USER
 from magi.memory.l2.store import L2CognitionStore
+
+
+DEFAULT_USER_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +40,7 @@ async def _seed_interested_in_edge(
     object_id: str,
     event_ids: list[str],
     confidence: float = 0.8,
-    entity_id: str = "user:self",
+    entity_id: str = DEFAULT_USER_ENTITY_ID,
 ) -> None:
     """Seed one INTERESTED_IN edge row per unique event_id."""
     now = time.time()
@@ -50,7 +53,7 @@ async def _seed_interested_in_edge(
             object_type="topic",
             evidence_event_ids=[eid],
             confidence=confidence,
-            observed_at=now + i * 0.001,
+            observed_at=now + i * 86_400,
             source_type="chrome_history",
         )
 
@@ -196,7 +199,7 @@ async def test_derive_handler_aggregates_interests_when_enabled(tmp_path):
     assert result.stats.get("interest_topics_aggregated", 0) >= 1
 
     # Verify the snapshot was written by the handler itself.
-    snapshot = await store.get_tom_snapshot(entity_id="user:self", entity_type="user")
+    snapshot = await store.get_tom_snapshot(entity_id=DEFAULT_USER_ENTITY_ID, entity_type="user")
     assert snapshot is not None, "tom_snapshots row not found — handler did not refresh"
     preferences = snapshot.get("preferences") or {}
     assert "interest.python" in preferences, (
@@ -240,7 +243,7 @@ async def test_derive_handler_skips_aggregation_when_disabled(tmp_path):
     assert result.stats.get("interest_topics_aggregated", 0) == 0
 
     # Snapshot must NOT contain any preference_profile assertion from aggregation
-    snapshot = await store.refresh_entity_snapshot(entity_id="user:self", entity_type="user")
+    snapshot = await store.refresh_entity_snapshot(entity_id=DEFAULT_USER_ENTITY_ID, entity_type="user")
     preferences = (snapshot or {}).get("preferences") or {}
     interest_keys = [k for k in preferences if k.startswith("interest.")]
     assert interest_keys == [], (

@@ -513,7 +513,7 @@ Tags, categories, and weak co-occurrence are not fact evidence. They may help se
 - Ingestion gateway handles: schema validation, canonical/local ref normalization, writing hints into `MemoryEvent.metadata_json`, generating rule-backed graph candidates per admission policy
 - `L2Pipeline` handles: using source-owned hints as structural anchors, merging with LLM residual candidates, conflict handling, dedup, persistence, and snapshot refresh
 
-**Graph-derived assertions** convert accumulated graph evidence into inferred profile assertions only through host-owned rules. Built-in interest aggregation and plugin-contributed `derived_assertion_specs` both compile into validated `GraphDerivedAssertionRule` instances. These rules consume admitted graph edges, write inferred assertions through the normal assertion lifecycle, and preserve source-tier conflict protection so user-authored assertions are never overwritten by behavioral inference. Rules may constrain allowed graph object types so broad passive objects such as individual web pages, generic software names, or implementation artifacts do not become user-profile traits unless the source explicitly marks them as suitable profile evidence.
+**Graph-derived assertions** convert accumulated graph evidence into inferred profile assertions only through host-owned rules. Built-in interest aggregation and plugin-contributed `derived_assertion_specs` both compile into validated `GraphDerivedAssertionRule` instances. These rules consume admitted graph edges, write inferred assertions through the normal assertion lifecycle, and preserve source-tier conflict protection so user-authored assertions are never overwritten by behavioral inference. Rules may constrain allowed graph object types so broad passive objects such as individual web pages, generic software names, or implementation artifacts do not become user-profile traits unless the source explicitly marks them as suitable profile evidence. The host fallback interest rule is intentionally conservative: repeated same-day activity and generic software objects remain graph evidence unless a source-specific rule upgrades them with stronger semantics.
 
 Plugins may strengthen assertion quality by declaring structured hints, graph relation candidates, extraction profiles, source-specific Phase 1 instructions, source-specific Phase 2 integration instructions, and graph-derived assertion specs. They do not own the final assertion ontology or bypass source-tier conflict governance. Direct Phase 2 assertion candidates are accepted only for profiles that explicitly opt into `assertion_mode="phase2_candidate"` and pass the host family, trait, source policy, and validation gates.
 
@@ -657,8 +657,8 @@ Raw L1 events, L2 graph inspection, and L4 skill memory remain available from
 Manage as operator/developer surfaces, not as the default mental model for
 ordinary memory review.
 The About You page presents the user-facing self portrait as an ordered
-world model: first a grouped view of identity, preferences, routines, and
-interaction style; then reviewable items that need user judgment; then recent
+world model: first a grouped view of identity, preferences, routines, places,
+and interaction style; then reviewable items that need user judgment; then recent
 state observations. It should translate L2 assertion metadata into readable
 groups and review actions instead of exposing raw assertion/family/status names
 as primary UI copy.
@@ -667,6 +667,9 @@ with `world`, `review`, and `recent` sections. The legacy flat `observations`
 list may remain as compatibility material, but page classification belongs in
 the backend read model. The frontend may translate section and source labels,
 but it should not infer grouping from keywords, source names, or raw text.
+The read model may include safe L2 graph relationships such as visited places
+or owned/used tools as user-visible clues; those clues do not become durable
+profile assertions unless they pass assertion policy separately.
 
 ### L3 — Reflection and Summaries
 

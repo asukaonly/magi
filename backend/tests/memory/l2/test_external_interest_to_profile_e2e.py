@@ -130,11 +130,25 @@ async def test_external_interest_surfaces_via_derived_preference_in_snapshot():
             relationships = await _wait_for_relationships(store, entity_id="user:u1")
             assert len(relationships) == 1, f"expected one graph edge, got {relationships!r}"
             assert relationships[0]["predicate"] == "INTERESTED_IN"
+            first_edge = relationships[0]
+
+            for index in range(2):
+                await store.l2.upsert_knowledge_edge(
+                    subject_id="user:u1",
+                    subject_type="user",
+                    predicate="INTERESTED_IN",
+                    object_id=first_edge["object_id"],
+                    object_type=first_edge["object_type"],
+                    evidence_event_ids=[f"evt-ext-interest-extra-{index + 1}"],
+                    confidence=0.7,
+                    observed_at=time.time() + (index + 1) * 86_400,
+                    source_type="chrome_history",
+                )
 
             agg_stats = await aggregate_interests(
                 store.l2,
                 entity_id="user:u1",
-                min_observations=1,
+                min_observations=3,
             )
             assert agg_stats["topics_aggregated"] == 1
 

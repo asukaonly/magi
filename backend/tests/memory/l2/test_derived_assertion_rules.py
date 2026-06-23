@@ -10,10 +10,14 @@ import aiosqlite
 import pytest
 
 from magi.core.sqlite import sqlite_connection_async
+from magi.identity.defaults import CANONICAL_LOCAL_USER
 from magi.memory.l2.assertions.derived_rules import (
     GraphDerivedAssertionRule,
     evaluate_graph_derived_assertion_rule,
 )
+
+
+DEFAULT_USER_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
 
 
 async def _seed_edge(
@@ -24,7 +28,7 @@ async def _seed_edge(
     predicate: str = "INTERESTED_IN",
     object_type: str = "topic",
     source_type: str = "chrome_history",
-    entity_id: str = "user:self",
+    entity_id: str = DEFAULT_USER_ENTITY_ID,
     confidence: float = 0.8,
 ) -> None:
     now = time.time()
@@ -65,7 +69,7 @@ async def _seed_canonical_name(
         await db.commit()
 
 
-async def _assertions_for(store: Any, *, entity_id: str = "user:self") -> list[dict[str, Any]]:
+async def _assertions_for(store: Any, *, entity_id: str = DEFAULT_USER_ENTITY_ID) -> list[dict[str, Any]]:
     async with aiosqlite.connect(store.db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -178,7 +182,7 @@ async def test_rule_inferred_conflict_becomes_shadow(l2_store_with_schema):
     store = l2_store_with_schema
     await store.upsert_assertion_candidate(
         {
-            "entity_id": "user:self",
+            "entity_id": DEFAULT_USER_ENTITY_ID,
             "entity_type": "user",
             "trait_family": "preference_profile",
             "trait_name": "interest.python",

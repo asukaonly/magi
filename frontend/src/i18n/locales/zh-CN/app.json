@@ -2696,6 +2696,7 @@
           "identity": "身份信息",
           "preferences": "偏好与关注",
           "routine": "习惯与工具",
+          "places": "足迹与场景",
           "communication": "互动方式"
         }
       },
@@ -2723,6 +2724,7 @@
         "conversation": "对话",
         "chrome_history": "Chrome 浏览器历史",
         "browser_history": "浏览器历史",
+        "photo_library_apple_photos": "照片库",
         "user_profile_projection": "个人资料",
         "tom": "总结"
       },

@@ -122,7 +122,7 @@ async def test_plugin_rule_does_not_overwrite_authoritative_assertion(l2_store_w
     store = l2_store_with_schema
     await store.upsert_assertion_candidate(
         {
-            "entity_id": "user:self",
+            "entity_id": "user:local_user",
             "entity_type": "user",
             "trait_family": "preference_profile",
             "trait_name": "music.song-a",

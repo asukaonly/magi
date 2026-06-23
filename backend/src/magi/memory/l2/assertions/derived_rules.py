@@ -9,12 +9,25 @@ from collections.abc import Iterable, Mapping
 from typing import Any, Protocol, cast
 
 from ....core.logger import get_logger
+from ....identity.defaults import CANONICAL_LOCAL_USER
 from ..entities.catalog.lookup import get_canonical_names
 from ..ontology import ASSERTION_FAMILY_ALLOWLIST, ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
 
 logger = get_logger(__name__)
 
 _VALUE_STRATEGIES = frozenset({"canonical_name", "object_id", "object_slug"})
+_DEFAULT_USER_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
+_PROFILE_INTEREST_OBJECT_TYPES = (
+    "topic",
+    "media",
+    "person",
+    "group",
+    "organization",
+    "product",
+    "technology",
+    "activity",
+)
+_PROFILE_INTEREST_MIN_DISTINCT_DAYS = 2
 
 
 class _DerivedAssertionProfile(Protocol):
@@ -94,15 +107,17 @@ class GraphDerivedAssertionRule:
 
 
 def builtin_interest_rule(*, min_observations: int = 3) -> GraphDerivedAssertionRule:
-    """Return the host rule equivalent to the legacy interest aggregation."""
+    """Return the host fallback rule for stable profile-worthy interests."""
     return GraphDerivedAssertionRule(
         rule_id="builtin.interested_in",
         source_predicates=("INTERESTED_IN",),
         trait_family="preference_profile",
         trait_name_template="interest.{object_slug}",
         min_observations=min_observations,
+        min_distinct_days=_PROFILE_INTEREST_MIN_DISTINCT_DAYS,
         source_domains=("external_activity",),
         value_strategy="canonical_name",
+        object_types=_PROFILE_INTEREST_OBJECT_TYPES,
     )
 
 
@@ -128,7 +143,7 @@ async def evaluate_graph_derived_assertion_rule(
     store: Any,
     rule: GraphDerivedAssertionRule,
     *,
-    entity_id: str = "user:self",
+    entity_id: str = _DEFAULT_USER_ENTITY_ID,
     entity_type: str = "user",
     limit: int = 500,
 ) -> dict[str, int]:

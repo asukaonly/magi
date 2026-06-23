@@ -89,7 +89,7 @@ async def _seed_interested_in_edge(
             object_type="topic",
             evidence_event_ids=[eid],
             confidence=0.8,
-            observed_at=now + i * 0.001,
+            observed_at=now + i * 86_400,
             source_type="chrome_history",
         )
 

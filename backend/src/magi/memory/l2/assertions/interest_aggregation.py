@@ -6,8 +6,9 @@ sensors such as chrome_history) never reached the snapshot, whereas
 ``LIKES``/``DISLIKES`` do via ``_add_relation_preferences``.
 
 Design:
-- Reads ``INTERESTED_IN`` edges for ``entity_id`` with ``observation_count >=
-  min_observations`` (default 3).
+- Reads profile-worthy ``INTERESTED_IN`` edges for ``entity_id`` with
+  ``observation_count >= min_observations`` (default 3), a stable multi-day
+  signal, and a semantic object type suitable for portrait interests.
 - Looks up canonical names for all qualifying topic objects in one batch.
 - Builds one assertion candidate per topic and persists each via
   ``store.upsert_assertion_candidate``, the same public entry that the L2
@@ -30,26 +31,27 @@ from __future__ import annotations
 from typing import Any
 
 from ....core.logger import get_logger
+from ....identity.defaults import CANONICAL_LOCAL_USER
 from .derived_rules import builtin_interest_rule, evaluate_graph_derived_assertion_rule
 
 logger = get_logger(__name__)
+_DEFAULT_USER_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
 
 
 async def aggregate_interests(
     store: Any,
     *,
-    entity_id: str = "user:self",
+    entity_id: str = _DEFAULT_USER_ENTITY_ID,
     entity_type: str = "user",
     min_observations: int = 3,
 ) -> dict[str, int]:
-    """Aggregate INTERESTED_IN edges (observation_count >= min_observations)
-    into inferred ``preference_profile`` assertions.
+    """Aggregate stable INTERESTED_IN edges into inferred profile assertions.
 
     Idempotent — safe to call on a schedule or as a maintenance step.
 
     Args:
         store: An ``L2CognitionStore`` instance.
-        entity_id: Subject of the INTERESTED_IN edges (default: ``"user:self"``).
+        entity_id: Subject of the INTERESTED_IN edges.
         entity_type: Entity type for the written assertion (default: ``"user"``).
         min_observations: Minimum edge observation count to qualify. Edges with
             fewer than this many observations are skipped.

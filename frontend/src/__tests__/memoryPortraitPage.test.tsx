@@ -20,10 +20,11 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.world.empty': '还没有形成清晰的关联。',
     'memory.portrait.world.rootLabel': '你',
     'memory.portrait.world.rootTitle': 'Magi 眼中的你',
-    'memory.portrait.world.rootMeta': '从记忆里连接出来的身份、偏好、习惯和互动方式',
+    'memory.portrait.world.rootMeta': '从记忆里连接出来的身份、偏好、习惯、足迹和互动方式',
     'memory.portrait.world.groups.identity': '身份信息',
     'memory.portrait.world.groups.preferences': '偏好与关注',
     'memory.portrait.world.groups.routine': '习惯与工具',
+    'memory.portrait.world.groups.places': '足迹与场景',
     'memory.portrait.world.groups.communication': '互动方式',
     'memory.portrait.review.title': '需要你看一眼',
     'memory.portrait.review.count': '{{count}} 条',
@@ -39,6 +40,7 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.source.default': '记忆线索',
     'memory.portrait.sources.conversation': '对话',
     'memory.portrait.sources.chrome_history': 'Chrome 浏览器历史',
+    'memory.portrait.sources.photo_library_apple_photos': '照片库',
     'memory.portrait.sources.user_profile_projection': '个人资料',
     'memory.portrait.sources.tom': '总结',
     'memory.portrait.coldStartFallback': '还没结论',
@@ -86,11 +88,12 @@ describe('MemoryPortraitPage', () => {
     expect(root).toBeInTheDocument();
     expect(within(root).getByText('你')).toBeInTheDocument();
     expect(within(root).getByText('Magi 眼中的你')).toBeInTheDocument();
-    expect(within(root).getByText('从记忆里连接出来的身份、偏好、习惯和互动方式')).toBeInTheDocument();
+    expect(within(root).getByText('从记忆里连接出来的身份、偏好、习惯、足迹和互动方式')).toBeInTheDocument();
     expect(screen.getByText('你的世界')).toBeInTheDocument();
     expect(screen.getByText('身份信息')).toBeInTheDocument();
     expect(screen.getByText('偏好与关注')).toBeInTheDocument();
     expect(screen.getByText('习惯与工具')).toBeInTheDocument();
+    expect(screen.getByText('足迹与场景')).toBeInTheDocument();
     expect(screen.getByText('互动方式')).toBeInTheDocument();
     expect(screen.queryByText('正在推进的项目')).not.toBeInTheDocument();
     expect(screen.queryByText('常用工具')).not.toBeInTheDocument();
@@ -126,10 +129,11 @@ describe('MemoryPortraitPage', () => {
     expect(root).toBeInTheDocument();
     expect(within(root).getByText('你')).toBeInTheDocument();
     expect(within(root).getByText('Magi 眼中的你')).toBeInTheDocument();
-    expect(within(root).getByText('从记忆里连接出来的身份、偏好、习惯和互动方式')).toBeInTheDocument();
+    expect(within(root).getByText('从记忆里连接出来的身份、偏好、习惯、足迹和互动方式')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-identity')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-preferences')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-routine')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-branch-places')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-communication')).toBeInTheDocument();
     screen.getAllByTestId(/^portrait-world-branch-/).forEach((branch) => {
       expect(branch.className).not.toContain('border-l');
@@ -170,6 +174,7 @@ describe('MemoryPortraitPage', () => {
             { id: 'identity', items: [{ id: 'identity-1', text: 'Asuka', source: 'user_profile_projection', source_key: 'user_profile_projection', assertion_id: null, basis_count: 1, basis_refs: [] }] },
             { id: 'preferences', items: [] },
             { id: 'routine', items: [] },
+            { id: 'places', items: [] },
             { id: 'communication', items: [] },
           ],
         },
@@ -213,6 +218,7 @@ describe('MemoryPortraitPage', () => {
               }],
             },
             { id: 'routine', items: [] },
+            { id: 'places', items: [] },
             { id: 'communication', items: [] },
           ],
         },
