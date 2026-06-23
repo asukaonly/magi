@@ -27,6 +27,9 @@ const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const BACKEND_LOG_TAIL_BYTES: u64 = 64 * 1024;
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Default)]
 struct BackendState {
     runtime: Mutex<BackendRuntime>,
@@ -203,6 +206,16 @@ fn write_gateway_port_file(port: u16) {
     }
 }
 
+#[cfg(windows)]
+fn suppress_child_console_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn suppress_child_console_window(_command: &mut Command) {}
+
 #[cfg(unix)]
 fn send_termination_signal(pid: u32) -> bool {
     unsafe { kill(pid as i32, SIGTERM) == 0 }
@@ -214,7 +227,9 @@ fn send_termination_signal(pid: u32) -> bool {
     // to flush before we force-kill. `/T` includes the whole process tree —
     // the python sidecar spawns plugin python subprocesses that also hold
     // file locks under sidecar-dist\_internal.
-    Command::new("taskkill")
+    let mut command = Command::new("taskkill");
+    suppress_child_console_window(&mut command);
+    command
         .args(["/T", "/PID", &pid.to_string()])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -242,7 +257,9 @@ fn is_pid_running(pid: u32) -> bool {
 fn is_pid_running(pid: u32) -> bool {
     // `tasklist /FI "PID eq <pid>"` prints a header line plus "INFO: No tasks..."
     // when the pid is gone, and a real row when it's alive.
-    let output = match Command::new("tasklist")
+    let mut command = Command::new("tasklist");
+    suppress_child_console_window(&mut command);
+    let output = match command
         .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
         .stderr(Stdio::null())
         .output()
@@ -259,6 +276,7 @@ fn is_pid_running(_pid: u32) -> bool {
     false
 }
 
+#[cfg(target_os = "macos")]
 fn wait_for_pid_exit(pid: u32, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
@@ -275,12 +293,16 @@ fn wait_for_process_stop(
     pid: Option<u32>,
     timeout: Duration,
 ) -> bool {
+    if process.wait_for_exit(timeout) {
+        return true;
+    }
+
     #[cfg(any(unix, windows))]
     if let Some(pid) = pid {
-        return wait_for_pid_exit(pid, timeout);
+        return !is_pid_running(pid);
     }
     let _ = pid;
-    process.wait_for_exit(timeout)
+    false
 }
 
 #[cfg(unix)]
@@ -292,7 +314,9 @@ fn send_kill_signal(pid: u32) -> bool {
 fn send_kill_signal(pid: u32) -> bool {
     // `/F /T` force-kills the whole tree — needed so any plugin python
     // grandchildren the sidecar spawned also die.
-    Command::new("taskkill")
+    let mut command = Command::new("taskkill");
+    suppress_child_console_window(&mut command);
+    command
         .args(["/F", "/T", "/PID", &pid.to_string()])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -622,6 +646,7 @@ fn spawn_sidecar_role(
     let (stdout, stderr) = open_sidecar_log_stdio()?;
 
     let mut command = Command::new(&sidecar_path);
+    suppress_child_console_window(&mut command);
     command
         .arg("--role")
         .arg(role)
@@ -788,6 +813,7 @@ fn spawn_dev_backend_role(
     let python_path = build_dev_pythonpath(&project_root)?;
 
     let mut command = Command::new(&python_command);
+    suppress_child_console_window(&mut command);
     command
         .arg("run_server.py")
         .arg("--role")
@@ -1258,9 +1284,8 @@ fn apply_start_minimized(
 }
 
 #[tauri::command]
-fn confirm_exit_app(app: AppHandle, backend_state: State<'_, BackendState>) -> Result<(), String> {
-    stop_backend_inner(&backend_state)?;
-    app.exit(0);
+fn confirm_exit_app(app: AppHandle) -> Result<(), String> {
+    exit_after_backend_stop(app);
     Ok(())
 }
 
@@ -1293,7 +1318,9 @@ fn open_url(url: String) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        Command::new("cmd")
+        let mut command = Command::new("cmd");
+        suppress_child_console_window(&mut command);
+        command
             .args(["/C", "start", "", url])
             .spawn()
             .map_err(|e| format!("start failed: {e}"))?;
@@ -1391,6 +1418,25 @@ fn stop_backend_for_app_exit(app: &AppHandle) {
     }
 }
 
+fn hide_main_window_for_exit(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        if let Err(err) = window.hide() {
+            log::warn!("Failed to hide main window during app exit: {err}");
+        }
+    }
+}
+
+fn exit_after_backend_stop(app: AppHandle) {
+    hide_main_window_for_exit(&app);
+    thread::spawn(move || {
+        let state: State<'_, BackendState> = app.state();
+        if let Err(err) = stop_backend_inner(&state) {
+            log::warn!("Failed to stop backend during confirmed app exit: {err}");
+        }
+        app.exit(0);
+    });
+}
+
 #[cfg(not(target_os = "macos"))]
 fn disable_native_window_decorations(app: &AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
@@ -1477,7 +1523,7 @@ fn main() {
                     }
                     Ok(desktop_presence::CloseAction::QuitImmediately) => {
                         api.prevent_close();
-                        window.app_handle().exit(0);
+                        exit_after_backend_stop(window.app_handle().clone());
                     }
                     Ok(desktop_presence::CloseAction::RequestQuitConfirmation) => {
                         api.prevent_close();
@@ -1513,6 +1559,7 @@ fn main() {
 
     app.run(|app_handle, event| match event {
         tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+            hide_main_window_for_exit(app_handle);
             stop_backend_for_app_exit(app_handle);
         }
         _ => {}
@@ -1525,7 +1572,10 @@ mod tests {
     use super::plugin_python_candidates_from_resource_dir;
     use super::{
         first_existing_dir, ordered_builtin_avatar_dirs, plugin_python_path_from_resource_dir,
+        suppress_child_console_window, wait_for_process_stop, BackendProcess,
     };
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
 
     #[test]
     fn first_existing_dir_returns_first_existing_candidate() {
@@ -1618,6 +1668,37 @@ mod tests {
         assert_eq!(tail, "charlie");
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn wait_for_process_stop_observes_child_exit() {
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "exit", "0"]);
+            command
+        };
+        #[cfg(not(windows))]
+        let mut command = {
+            let mut command = Command::new("sh");
+            command.args(["-c", "exit 0"]);
+            command
+        };
+
+        suppress_child_console_window(&mut command);
+        let child = command
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = Some(child.id());
+        let mut process = BackendProcess::Dev(Some(child));
+
+        assert!(wait_for_process_stop(
+            &mut process,
+            pid,
+            Duration::from_secs(2)
+        ));
     }
 
     #[cfg(target_os = "macos")]
