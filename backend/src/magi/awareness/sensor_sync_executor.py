@@ -18,6 +18,8 @@ logger = get_logger(__name__)
 SensorSyncJobRunner = Callable[[dict[str, object]], Awaitable[ScheduledExecutionResult]]
 SensorStateFlushRunner = Callable[[str], Awaitable[dict[str, Any]]]
 
+_POST_SYNC_L3_BACKFILL_MAX_PERIODS = 4
+
 
 class SensorSyncExecutor:
     """Run queued sensor sync jobs on a dedicated thread-local event loop."""
@@ -339,6 +341,7 @@ class SensorSyncExecutor:
             backfilled = await unified_memory.backfill_l3_gaps(
                 range_start=range_start,
                 range_end=range_end,
+                max_periods=_POST_SYNC_L3_BACKFILL_MAX_PERIODS,
             )
             logger.info(
                 "L3 backfill after sensor sync",

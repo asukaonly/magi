@@ -228,6 +228,7 @@ async def test_sensor_sync_success_triggers_l3_backfill(tmp_path, monkeypatch):
     assert len(backfill_calls) == 1
     assert backfill_calls[0]["range_start"] == 1000.0
     assert backfill_calls[0]["range_end"] == 2000.0
+    assert backfill_calls[0]["max_periods"] == 4
 
 
 @pytest.mark.asyncio
