@@ -232,6 +232,56 @@ def test_self_portrait_returns_backend_grouped_page_model():
     assert view["world"]["total_count"] == len(body["observations"])
 
 
+def test_self_view_dedupes_world_items_and_prioritizes_stronger_profile_signals():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    l2 = MagicMock()
+    l2.list_tom_snapshots = AsyncMock(return_value=[])
+    l2.list_tom_assertions = AsyncMock(return_value=[
+        {
+            "assertion_id": "assert-low",
+            "trait_family": "routine_profile",
+            "trait_name": "tool.docker",
+            "trait_value": "Docker",
+            "validation_state": "corroborated",
+            "source_domain": "external_activity",
+            "evidence_count": 2,
+        },
+        {
+            "assertion_id": "assert-high",
+            "trait_family": "routine_profile",
+            "trait_name": "tool.codex",
+            "trait_value": "Codex",
+            "validation_state": "stable",
+            "source_domain": "user_authored",
+            "evidence_count": 1,
+        },
+        {
+            "assertion_id": "assert-dup",
+            "trait_family": "routine_profile",
+            "trait_name": "tool.docker.duplicate",
+            "trait_value": "Docker",
+            "validation_state": "stable",
+            "source_domain": "external_activity",
+            "evidence_count": 6,
+        },
+    ])
+
+    with override_dependencies_for_test(profile_repo=profile_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+
+    assert resp.status_code == 200
+    routine_items = {
+        group["id"]: group["items"]
+        for group in resp.json()["self_view"]["world"]["groups"]
+    }["routine"]
+
+    assert [item["text"] for item in routine_items] == ["Codex", "Docker"]
+    assert routine_items[0]["source_key"] == "user_authored"
+    assert routine_items[1]["assertion_id"] == "assert-dup"
+
+
 def test_self_view_includes_safe_graph_relationship_signals():
     profile_repo = MagicMock()
     profile_repo.get = AsyncMock(return_value=None)

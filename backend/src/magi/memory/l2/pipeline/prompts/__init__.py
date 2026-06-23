@@ -434,6 +434,16 @@ def render_phase2_integrate_prompt(
                 content = item.get("content", "")
                 parts.append(f"- [#{event_id}] {name}: {content}")
             parts.append("")
+        history_support = evidence_packet.get("history_support") or []
+        if history_support:
+            parts.append("### History Support Counts")
+            for item in history_support[:12]:
+                label = item.get("label") or item.get("id") or "matched item"
+                ref_type = item.get("type") or "unknown"
+                count = int(item.get("history_event_count", 0) or 0)
+                latest = _format_ts(float(item.get("latest_timestamp", 0.0) or 0.0))
+                parts.append(f"- {label} [{ref_type}] seen in {count} previous events, latest={latest}")
+            parts.append("")
         related_edges = evidence_packet.get("related_edges") or []
         if related_edges:
             parts.append("### Related Graph Evidence")

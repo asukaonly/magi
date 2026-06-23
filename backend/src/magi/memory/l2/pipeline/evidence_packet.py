@@ -7,6 +7,7 @@ from typing import Any
 from ..models import L2EventWindow
 
 MAX_HISTORY_CONTEXTS = 3
+MAX_HISTORY_SUPPORT = 12
 MAX_RELATED_EDGES = 12
 MAX_EXISTING_ASSERTIONS = 8
 
@@ -26,6 +27,7 @@ def build_phase2_evidence_packet(
         "llm_used": False,
         "candidate_refs": candidate_refs[:12],
         "history_contexts": _compact_history_contexts(event_window),
+        "history_support": _history_support(candidate_refs, event_window),
         "related_edges": _compact_edges(existing_graph_edges or []),
         "existing_assertions": _compact_assertions(existing_assertions or []),
         "promotion_guardrails": [
@@ -96,6 +98,85 @@ def _compact_history_contexts(event_window: L2EventWindow) -> list[dict[str, Any
             }
         )
     return contexts
+
+
+def _history_support(
+    candidate_refs: list[dict[str, str]],
+    event_window: L2EventWindow,
+) -> list[dict[str, Any]]:
+    contexts = list(event_window.history_contexts or [])
+    if not candidate_refs or not contexts:
+        return []
+
+    support_items: list[dict[str, Any]] = []
+    seen_refs: set[tuple[str, str]] = set()
+    for ref in candidate_refs:
+        ref_id = _text(ref.get("id"))
+        label = _text(ref.get("label"))
+        ref_type = _text(ref.get("type"))
+        if not ref_id and not label:
+            continue
+        ref_key = ((label or ref_id).casefold(), ref_type.casefold())
+        if ref_key in seen_refs:
+            continue
+        seen_refs.add(ref_key)
+
+        matched_event_ids: set[str] = set()
+        latest_timestamp = 0.0
+        for ctx in contexts:
+            if not _history_context_matches_ref(ctx, ref_id=ref_id, label=label):
+                continue
+            event_id = _text(getattr(ctx, "event_id", ""))
+            if event_id and event_id in matched_event_ids:
+                continue
+            if event_id:
+                matched_event_ids.add(event_id)
+            timestamp = float(getattr(ctx, "timestamp", 0.0) or 0.0)
+            latest_timestamp = max(latest_timestamp, timestamp)
+
+        if matched_event_ids:
+            support_items.append(
+                {
+                    "id": ref_id or label,
+                    "label": label or ref_id,
+                    "type": ref_type,
+                    "history_event_count": len(matched_event_ids),
+                    "latest_timestamp": latest_timestamp,
+                }
+            )
+
+    return sorted(
+        support_items,
+        key=lambda item: (
+            int(item.get("history_event_count", 0) or 0),
+            float(item.get("latest_timestamp", 0.0) or 0.0),
+            str(item.get("label") or "").casefold(),
+        ),
+        reverse=True,
+    )[:MAX_HISTORY_SUPPORT]
+
+
+def _history_context_matches_ref(ctx: Any, *, ref_id: str, label: str) -> bool:
+    candidates = [ref_id, label]
+    matched_entity_id = _text(getattr(ctx, "matched_entity_id", ""))
+    canonical_name = _text(getattr(ctx, "canonical_name", ""))
+    matched_text = _text(getattr(ctx, "matched_text", ""))
+    content = _text(getattr(ctx, "content", ""))
+    direct_values = {
+        matched_entity_id.casefold(),
+        canonical_name.casefold(),
+        matched_text.casefold(),
+    }
+    content_fold = content.casefold()
+    for value in candidates:
+        folded = value.casefold()
+        if not folded:
+            continue
+        if folded in direct_values:
+            return True
+        if folded in content_fold:
+            return True
+    return False
 
 
 def _compact_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:

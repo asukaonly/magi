@@ -56,6 +56,23 @@ _RECENT_FAMILIES = {
 }
 _REVIEW_STATES = {"tentative", "contradicted"}
 _INTERNAL_SOURCE_KEYS = {"external_activity"}
+_SOURCE_STRENGTH = {
+    "user_authored": 5,
+    "settings_profile": 5,
+    "conversation": 4,
+    "chat": 4,
+    "tom": 3,
+    "knowledge_graph": 2,
+    "external_activity": 1,
+}
+_VALIDATION_STRENGTH = {
+    "stable": 5,
+    "confirmed": 5,
+    "corroborated": 4,
+    "validated": 4,
+    "tentative": 1,
+    "contradicted": 0,
+}
 
 
 _profile_repo_override: Any = None
@@ -389,6 +406,9 @@ def _build_self_view(observations: list[PortraitObservation]) -> dict[str, Any]:
         if group_id:
             groups_by_id[group_id]["items"].append(item)
 
+    for group in groups:
+        group["items"] = _dedupe_and_sort_world_items(group["items"])
+
     return {
         "world": {
             "total_count": len(observations),
@@ -439,6 +459,60 @@ def _world_group_id(observation: PortraitObservation) -> str | None:
         return explicit_group
     family = _ref_value(observation, "family")
     return _FAMILY_WORLD_GROUPS.get(family or "")
+
+
+def _dedupe_and_sort_world_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    best_by_text: dict[str, dict[str, Any]] = {}
+    for item in items:
+        key = _world_item_key(item)
+        if not key:
+            continue
+        previous = best_by_text.get(key)
+        if previous is None or _world_item_strength(item) > _world_item_strength(previous):
+            best_by_text[key] = item
+    return sorted(
+        best_by_text.values(),
+        key=lambda item: (
+            -_item_source_strength(item),
+            -_item_validation_strength(item),
+            -int(item.get("basis_count", 0) or 0),
+            str(item.get("text") or "").casefold(),
+        ),
+    )
+
+
+def _world_item_key(item: dict[str, Any]) -> str:
+    return re.sub(r"\s+", " ", str(item.get("text") or "").strip()).casefold()
+
+
+def _world_item_strength(item: dict[str, Any]) -> tuple[int, int, int, str]:
+    return (
+        _item_source_strength(item),
+        _item_validation_strength(item),
+        int(item.get("basis_count", 0) or 0),
+        str(item.get("assertion_id") or ""),
+    )
+
+
+def _item_source_strength(item: dict[str, Any]) -> int:
+    source_key = item.get("source_key")
+    if isinstance(source_key, str) and source_key:
+        return _SOURCE_STRENGTH.get(source_key, 0)
+    for ref in item.get("basis_refs") or []:
+        if not isinstance(ref, str) or not ref.startswith("source:"):
+            continue
+        source = _normalize_source_key(ref.removeprefix("source:"))
+        return _SOURCE_STRENGTH.get(source, 0)
+    return 0
+
+
+def _item_validation_strength(item: dict[str, Any]) -> int:
+    for ref in item.get("basis_refs") or []:
+        if not isinstance(ref, str) or not ref.startswith("status:"):
+            continue
+        state = ref.removeprefix("status:").strip().casefold()
+        return _VALIDATION_STRENGTH.get(state, 0)
+    return 0
 
 
 def _extract_assertion_id(observation: PortraitObservation) -> str | None:

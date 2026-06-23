@@ -272,6 +272,72 @@ def test_phase2_prompt_includes_deterministic_evidence_packet():
     assert "interest.deepseek" in prompt
 
 
+def test_phase2_evidence_packet_counts_history_support_for_candidates():
+    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary, L2HistoryContext
+    from magi.memory.l2.phase1_models import L2Phase1Entity, L2Phase1FactClaim, L2Phase1Result
+    from magi.memory.l2.pipeline.evidence_packet import build_phase2_evidence_packet
+
+    phase1 = L2Phase1Result(
+        entities=[
+            L2Phase1Entity(
+                surface="Docker",
+                normalized_name="Docker",
+                entity_type="software",
+                resolved_id="software:docker",
+            )
+        ],
+        fact_claims=[
+            L2Phase1FactClaim(
+                subject_ref="user:local_user",
+                predicate="USES",
+                object_ref="Docker",
+                object_type="software",
+            )
+        ],
+    )
+    window = L2EventWindow(
+        event_ids=["evt-now"],
+        events=[],
+        texts=[],
+        history_contexts=[
+            L2HistoryContext(
+                event_id="evt-old-1",
+                timestamp=1_710_000_000.0,
+                content="Used Docker to inspect the local stack.",
+                matched_entity_id="software:docker",
+                matched_text="Docker",
+                canonical_name="Docker",
+            ),
+            L2HistoryContext(
+                event_id="evt-old-2",
+                timestamp=1_710_100_000.0,
+                content="Debugged containers with docker compose.",
+                matched_entity_id="software:docker",
+                matched_text="docker",
+                canonical_name="Docker",
+            ),
+        ],
+        summary=L2EventWindowSummary(event_count=1, history_context_count=2),
+    )
+
+    packet = build_phase2_evidence_packet(
+        phase1_result=phase1,
+        existing_graph_edges=[],
+        existing_assertions=[],
+        event_window=window,
+    )
+
+    assert packet["history_support"] == [
+        {
+            "id": "software:docker",
+            "label": "Docker",
+            "type": "software",
+            "history_event_count": 2,
+            "latest_timestamp": 1_710_100_000.0,
+        }
+    ]
+
+
 def test_phase1_prompt_includes_batch_window_events():
     from magi.memory.l2.models import L2BatchEvent, L2EventWindow, L2EventWindowSummary
     from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
