@@ -183,4 +183,23 @@ describe('shell overlays', () => {
     expect(updateArg.preferences.skip_quit_confirmation).toBe(true);
     expect(confirmExitAppMock).toHaveBeenCalledTimes(1);
   });
+
+  it('cancels the pending quit request when the prompt close button is used', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShellOverlays />
+      </MemoryRouter>
+    );
+
+    await act(async () => {
+      desktopHandlers?.onRequestQuit();
+    });
+
+    await user.click(await screen.findByRole('button', { name: 'desktop.quitConfirm.closeLabel' }));
+
+    expect(cancelExitRequestMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('desktop.quitConfirm.title')).not.toBeInTheDocument();
+  });
 });
