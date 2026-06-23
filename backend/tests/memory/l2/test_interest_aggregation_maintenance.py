@@ -294,22 +294,13 @@ async def test_maintenance_handler_does_not_aggregate_interests(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_maintenance_handler_generates_summaries_for_promoted_episodes(tmp_path):
-    """Newly-promoted episodes trigger eager L3 episodic summary generation."""
+async def test_maintenance_handler_skips_episode_consolidation_and_experience_promotion(tmp_path):
+    """Entity maintenance is cleanup-only; episode/experience consolidation has its own target."""
     from magi.memory.l2.entities.maintenance import L2EntityMaintenanceStats
     from magi.memory.l2.experiences.models import ExperiencePromotionStats
     from magi.memory.l2.maintenance_schedule import handle_l2_entity_maintenance
 
     l2_store = MagicMock()
-    l2_store.get_experience = AsyncMock(return_value={
-        "experience_id": "exp-a",
-        "title": "Launch week",
-        "time_start": 1,
-        "time_end": 2,
-    })
-    l2_store.list_experience_members = AsyncMock(return_value=[
-        {"member_type": "episode", "member_id": "ep-a", "role": "core", "confidence": 0.8}
-    ])
     l1_store = MagicMock()
     l3_store = MagicMock()
     l3_store.generate_missing_episodic_summaries = AsyncMock(
@@ -338,13 +329,24 @@ async def test_maintenance_handler_generates_summaries_for_promoted_episodes(tmp
 
     maintenance_stats = L2EntityMaintenanceStats(episodes_promoted=2)
     maintenance_stats.promoted_episode_ids = ["ep-a", "ep-b"]
+    fake_maintenance: Any = None
 
     class _FakeMaintenance:
         def __init__(self, **kwargs: Any) -> None:
+            nonlocal fake_maintenance
             self._cognition_store = kwargs["cognition_store"]
+            self.run_kwargs: dict[str, Any] = {}
+            fake_maintenance = self
 
-        async def run(self, **_: Any) -> L2EntityMaintenanceStats:
+        async def run(self, **kwargs: Any) -> L2EntityMaintenanceStats:
+            self.run_kwargs = dict(kwargs)
             return maintenance_stats
+
+    promote_mock = AsyncMock(return_value=ExperiencePromotionStats(
+        candidates=1,
+        promoted=1,
+        promoted_experience_ids=["exp-a"],
+    ))
 
     with (
         patch("magi.memory.l2.maintenance_schedule.get_unified_memory", return_value=unified_mock),
@@ -352,25 +354,16 @@ async def test_maintenance_handler_generates_summaries_for_promoted_episodes(tmp
         patch("magi.memory.l2.maintenance_schedule.L2EntityMaintenance", _FakeMaintenance),
         patch(
             "magi.memory.l2.experiences.promotion.promote_experiences_from_episodes",
-            new=AsyncMock(return_value=ExperiencePromotionStats(
-                candidates=1,
-                promoted=1,
-                promoted_experience_ids=["exp-a"],
-            )),
+            new=promote_mock,
         ),
     ):
         result = await handle_l2_entity_maintenance(_make_dummy_context())
 
     assert result.success is True
-    l3_store.generate_missing_episodic_summaries.assert_awaited_once()
-    call_kwargs = l3_store.generate_missing_episodic_summaries.await_args.kwargs
-    assert call_kwargs["l1_store"] is l1_store
-    assert call_kwargs["l2_store"] is l2_store
-    assert call_kwargs["episode_ids"] == ["ep-a", "ep-b"]
-    assert result.stats["episodic_summaries_generated"] == 2
-    assert result.stats["episodic_summary_errors"] == ["ep-b: timeout"]
-    l3_store.generate_experience_summary.assert_awaited_once()
-    assert result.stats["experience_candidates"] == 1
-    assert result.stats["experiences_promoted"] == 1
-    assert result.stats["experience_summaries_generated"] == 1
-    assert result.stats["experience_summary_errors"] == []
+    assert fake_maintenance is not None
+    assert fake_maintenance.run_kwargs["consolidate_episodes"] is False
+    promote_mock.assert_not_awaited()
+    l3_store.generate_missing_episodic_summaries.assert_not_awaited()
+    l3_store.generate_experience_summary.assert_not_awaited()
+    assert "episodic_summaries_generated" not in result.stats
+    assert "experience_candidates" not in result.stats

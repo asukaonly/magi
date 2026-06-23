@@ -43,6 +43,8 @@ def test_runtime_config_l2_has_derive_schedule_fields():
     l2_cfg = AppConfig().agent.memory.l2
 
     assert isinstance(l2_cfg, MemoryL2Settings)
+    assert l2_cfg.consolidation_enabled is True
+    assert l2_cfg.consolidation_interval_seconds == 86_400.0
     assert l2_cfg.derive_schedule_enabled is True
     assert l2_cfg.derive_schedule_interval_seconds == 21_600.0
     assert l2_cfg.interest_aggregation_enabled is True

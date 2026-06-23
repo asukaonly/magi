@@ -15,6 +15,7 @@ class ScheduledTargetType(str, Enum):
 
     SENSOR_SYNC = "sensor_sync"
     MEMORY_L2_MAINTENANCE = "memory_l2_maintenance"
+    MEMORY_L2_CONSOLIDATE = "memory_l2_consolidate"
     MEMORY_L3_SUMMARY = "memory_l3_summary"
     MEMORY_L4_MAINTENANCE = "memory_l4_maintenance"
     USER_AGENT_TASK = "user_agent_task"

@@ -407,7 +407,7 @@ Experience promotion is a second-stage process over active episodes:
 - Generate the L3 experience review after promotion so the prose is attached to
   a stable L2 object with traceable evidence.
 - Trigger promotion from both the manual `l2/episodes/reconsolidate` catch-up
-  endpoint and the periodic L2 maintenance job, so the review page can refresh
+  endpoint and the periodic L2 consolidation job, so the review page can refresh
   from the same evidence pipeline instead of relying on frontend-only filters.
 
 **Semantic Memory** stores durable entities, relations, and preferences:
@@ -437,8 +437,9 @@ Batch policy:
 - The pipeline switches between `catch_up` (throughput-focused) and `steady_state` (latency-focused) modes based on backlog
 - Durable claim is subject to runtime backpressure
 - Plugin sync cursors only track "synced to L1", not L2 progress
-- The `runtime_worker` registers `memory_l2_maintenance` as a periodic task for offline entity catalog / knowledge graph maintenance, including ghost references, mergeable types, orphan entities, assertion reconciliation, edge embedding refresh, predicate consolidation, and episode consolidation
-- Manual `/l2/episodes/reconsolidate` uses the same scheduler target lock as `memory_l2_maintenance`; if maintenance is already running, the endpoint returns HTTP 409 instead of competing with scheduled episode consolidation.
+- The `runtime_worker` registers `memory_l2_maintenance` as a periodic task for offline entity catalog / knowledge graph maintenance, including ghost references, mergeable types, orphan entities, assertion reconciliation, edge embedding refresh, predicate consolidation, and promotion-counter pruning.
+- The `runtime_worker` registers `memory_l2_consolidate` as a separate periodic task for episode promotion/merge/invalidations, experience promotion, and missing episodic/experience summary generation.
+- Manual `/l2/episodes/reconsolidate` uses the same scheduler target lock as `memory_l2_consolidate`; if consolidation is already running, the endpoint returns HTTP 409 instead of competing with scheduled episode consolidation.
 
 Extraction flow:
 

@@ -76,6 +76,9 @@ agent:
       # Background catalog/graph cleanup (runtime worker only). Skipped when L2 is disabled.
       maintenance_enabled: true
       maintenance_interval_seconds: 86400
+      # Background episode/experience consolidation (runtime worker only). Skipped when L2 is disabled.
+      consolidation_enabled: true
+      consolidation_interval_seconds: 86400
       maintenance_min_mentions: 2
 
     l3:

@@ -119,7 +119,7 @@ class L2EntityMaintenance(
         consolidate_open_predicates: bool = True,
         archive_stale_edges: bool = True,
         purge_terminal_edges: bool = True,
-        consolidate_episodes: bool = True,
+        consolidate_episodes: bool = False,
     ) -> L2EntityMaintenanceStats:
         if self._run_lock.locked():
             logger.info("L2 maintenance already running, skipping")

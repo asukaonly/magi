@@ -106,6 +106,15 @@ class MemoryL2Settings(BaseModel):
         ge=300.0,
         description="Interval between L2 maintenance runs (seconds). Minimum 300 to avoid excessive load.",
     )
+    consolidation_enabled: bool = Field(
+        default=True,
+        description="Register periodic L2 episode/experience consolidation with the runtime scheduler.",
+    )
+    consolidation_interval_seconds: float = Field(
+        default=86_400.0,
+        ge=300.0,
+        description="Interval between L2 episode/experience consolidation runs (seconds). Minimum 300 to avoid excessive load.",
+    )
     edge_embedding_drain_interval_seconds: float = Field(
         default=5.0,
         ge=1.0,

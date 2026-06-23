@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers.memory.router import memory_router
-from magi.memory.l2.entities.maintenance import TARGET_KEY_L2_MAINTENANCE
+from magi.memory.l2.consolidation_schedule import TARGET_KEY_L2_CONSOLIDATE
 from magi.memory.l2.store import L2CognitionStore
 from magi.scheduler.contracts import ScheduledTargetType
 from magi.scheduler.repository import ScheduleRepository
@@ -36,22 +36,22 @@ def app_with_mock_memory():
 
 
 @contextmanager
-def _patched_l2_maintenance_lock():
+def _patched_l2_consolidation_lock():
     repository = MagicMock()
     acquire = AsyncMock(return_value=repository)
     record_success = AsyncMock()
     record_failure = AsyncMock()
     with (
         patch(
-            "magi.api.routers.memory.l2.episodes_routes._acquire_l2_maintenance_lock",
+            "magi.api.routers.memory.l2.episodes_routes._acquire_l2_consolidation_lock",
             new=acquire,
         ),
         patch(
-            "magi.api.routers.memory.l2.episodes_routes._record_l2_maintenance_lock_success",
+            "magi.api.routers.memory.l2.episodes_routes._record_l2_consolidation_lock_success",
             new=record_success,
         ),
         patch(
-            "magi.api.routers.memory.l2.episodes_routes._record_l2_maintenance_lock_failure",
+            "magi.api.routers.memory.l2.episodes_routes._record_l2_consolidation_lock_failure",
             new=record_failure,
         ),
     ):
@@ -1076,7 +1076,7 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
     # consolidate_episodes is invoked from within the route; patch where it's imported.
     with (
         build_patcher(unified),
-        _patched_l2_maintenance_lock(),
+        _patched_l2_consolidation_lock(),
         patch(
             "magi.memory.l2.episode_formation.consolidate_episodes",
             new=AsyncMock(return_value=MagicMock(
@@ -1165,7 +1165,7 @@ def test_reconsolidate_refreshes_placeholder_experience_reviews(app_with_mock_me
 
     with (
         build_patcher(unified),
-        _patched_l2_maintenance_lock(),
+        _patched_l2_consolidation_lock(),
         patch(
             "magi.memory.l2.episode_formation.consolidate_episodes",
             new=AsyncMock(return_value=MagicMock(
@@ -1206,7 +1206,7 @@ def test_reconsolidate_captures_summary_errors(app_with_mock_memory):
 
     with (
         build_patcher(unified),
-        _patched_l2_maintenance_lock(),
+        _patched_l2_consolidation_lock(),
         patch(
             "magi.memory.l2.episode_formation.consolidate_episodes",
             new=AsyncMock(return_value=MagicMock(
@@ -1240,7 +1240,7 @@ def test_reconsolidate_no_generation_when_l3_missing(app_with_mock_memory):
 
     with (
         build_patcher(unified),
-        _patched_l2_maintenance_lock(),
+        _patched_l2_consolidation_lock(),
         patch(
             "magi.memory.l2.episode_formation.consolidate_episodes",
             new=AsyncMock(return_value=MagicMock(
@@ -1267,11 +1267,11 @@ def test_reconsolidate_no_generation_when_l3_missing(app_with_mock_memory):
     assert body["experience_summaries_generated"] == 0
 
 
-def test_reconsolidate_returns_409_when_l2_maintenance_running(
+def test_reconsolidate_returns_409_when_l2_consolidation_running(
     app_with_mock_memory,
     runtime_paths_with_schema,
 ):
-    """Manual reconsolidate shares the L2 maintenance target lock."""
+    """Manual reconsolidate shares the L2 consolidation target lock."""
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     l2.list_episodes = AsyncMock(return_value=[])
@@ -1284,8 +1284,8 @@ def test_reconsolidate_returns_409_when_l2_maintenance_running(
         repository = ScheduleRepository(runtime_paths_with_schema.scheduler_db_path)
         await repository.initialize()
         acquired = await repository.acquire_target_lock(
-            ScheduledTargetType.MEMORY_L2_MAINTENANCE,
-            TARGET_KEY_L2_MAINTENANCE,
+            ScheduledTargetType.MEMORY_L2_CONSOLIDATE,
+            TARGET_KEY_L2_CONSOLIDATE,
         )
         assert acquired is True
 

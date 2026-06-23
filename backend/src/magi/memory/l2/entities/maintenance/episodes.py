@@ -1,4 +1,4 @@
-"""Episode consolidation helpers for L2 entity maintenance."""
+"""Optional episode consolidation helpers for L2 entity maintenance."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class _EpisodeMaintenanceHostProtocol(Protocol):
 
 
 class L2EntityEpisodeMaintenanceMixin:
-    """Run offline episode consolidation from the entity maintenance schedule."""
+    """Run episode consolidation only when an explicit caller opts in."""
 
     async def _consolidate_episodes(
         self,

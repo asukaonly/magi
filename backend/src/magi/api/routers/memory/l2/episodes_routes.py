@@ -11,9 +11,9 @@ from typing import Any, Dict, Optional
 from fastapi import HTTPException, Query, status
 
 from magi.memory.l2.entities.catalog.lookup import get_canonical_names
-from magi.memory.l2.entities.maintenance import (
-    SCHEDULE_ID_L2_MAINTENANCE,
-    TARGET_KEY_L2_MAINTENANCE,
+from magi.memory.l2.consolidation_schedule import (
+    SCHEDULE_ID_L2_CONSOLIDATE,
+    TARGET_KEY_L2_CONSOLIDATE,
 )
 from magi.scheduler.contracts import ScheduledExecutionResult, ScheduledTargetType
 from magi.scheduler.repository import ScheduleRepository
@@ -37,7 +37,7 @@ from .episode_review_helpers import (
 )
 
 
-def _l2_maintenance_lock_repository() -> ScheduleRepository:
+def _l2_consolidation_lock_repository() -> ScheduleRepository:
     runtime_paths = get_runtime_paths()
     scheduler_db_path = getattr(
         runtime_paths,
@@ -47,51 +47,51 @@ def _l2_maintenance_lock_repository() -> ScheduleRepository:
     return ScheduleRepository(scheduler_db_path)
 
 
-async def _acquire_l2_maintenance_lock() -> ScheduleRepository:
-    repository = _l2_maintenance_lock_repository()
+async def _acquire_l2_consolidation_lock() -> ScheduleRepository:
+    repository = _l2_consolidation_lock_repository()
     await repository.initialize()
     acquired = await repository.acquire_target_lock(
-        ScheduledTargetType.MEMORY_L2_MAINTENANCE,
-        TARGET_KEY_L2_MAINTENANCE,
+        ScheduledTargetType.MEMORY_L2_CONSOLIDATE,
+        TARGET_KEY_L2_CONSOLIDATE,
     )
     if not acquired:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=memory_t(
-                "memory.errors.l2_maintenance_busy",
-                "L2 maintenance is already running",
+                "memory.errors.l2_consolidation_busy",
+                "L2 consolidation is already running",
             ),
         )
     return repository
 
 
-async def _record_l2_maintenance_lock_success(
+async def _record_l2_consolidation_lock_success(
     repository: ScheduleRepository,
     *,
     stats: dict[str, Any],
 ) -> None:
     await repository.record_target_success(
-        ScheduledTargetType.MEMORY_L2_MAINTENANCE,
-        TARGET_KEY_L2_MAINTENANCE,
+        ScheduledTargetType.MEMORY_L2_CONSOLIDATE,
+        TARGET_KEY_L2_CONSOLIDATE,
         result=ScheduledExecutionResult(
             success=True,
             message="manual_reconsolidate_ok",
             stats=stats,
         ),
-        scheduler_job_id=SCHEDULE_ID_L2_MAINTENANCE,
+        scheduler_job_id=SCHEDULE_ID_L2_CONSOLIDATE,
     )
 
 
-async def _record_l2_maintenance_lock_failure(
+async def _record_l2_consolidation_lock_failure(
     repository: ScheduleRepository,
     *,
     error: str,
 ) -> None:
     await repository.record_target_failure(
-        ScheduledTargetType.MEMORY_L2_MAINTENANCE,
-        TARGET_KEY_L2_MAINTENANCE,
+        ScheduledTargetType.MEMORY_L2_CONSOLIDATE,
+        TARGET_KEY_L2_CONSOLIDATE,
         error=error,
-        scheduler_job_id=SCHEDULE_ID_L2_MAINTENANCE,
+        scheduler_job_id=SCHEDULE_ID_L2_CONSOLIDATE,
     )
 
 
@@ -994,7 +994,7 @@ async def reconsolidate_episodes_endpoint():
     pre-existing active episodes that never got a title are backfilled here.
     Active experiences are also scanned so placeholder review titles from older
     runs are repaired by the same button.
-    Eager generation on new promotes is handled by the maintenance scheduler.
+    Eager generation on new promotes is handled by the L2 consolidation scheduler.
     """
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
@@ -1003,7 +1003,7 @@ async def reconsolidate_episodes_endpoint():
             detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
         )
 
-    lock_repository = await _acquire_l2_maintenance_lock()
+    lock_repository = await _acquire_l2_consolidation_lock()
     try:
         from magi.memory.l2.episode_formation import consolidate_episodes
         from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
@@ -1059,14 +1059,14 @@ async def reconsolidate_episodes_endpoint():
             "experience_summary_errors": experience_summary_errors,
         }
     except asyncio.CancelledError:
-        await _record_l2_maintenance_lock_failure(
+        await _record_l2_consolidation_lock_failure(
             lock_repository,
             error="manual_reconsolidate_cancelled",
         )
         raise
     except Exception as exc:
-        await _record_l2_maintenance_lock_failure(lock_repository, error=str(exc))
+        await _record_l2_consolidation_lock_failure(lock_repository, error=str(exc))
         raise
 
-    await _record_l2_maintenance_lock_success(lock_repository, stats=response)
+    await _record_l2_consolidation_lock_success(lock_repository, stats=response)
     return response

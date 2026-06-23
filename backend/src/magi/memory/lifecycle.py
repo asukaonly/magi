@@ -208,6 +208,37 @@ class L2MaintenanceScheduleRegistrationModule(LifecycleModule):
         self._contrib = None
 
 
+class L2ConsolidationScheduleRegistrationModule(LifecycleModule):
+    """Register L2 episode/experience consolidation with the unified scheduler."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_l2_consolidation_scheduler",
+            dependencies=(
+                "runtime_scheduler",
+                "runtime_configuration",
+                "runtime_memory",
+                "runtime_exports",
+            ),
+        )
+        self._context = context
+        self._contrib: Any = None
+
+    async def init(self) -> None:
+        from .l2.consolidation_schedule import L2ConsolidationScheduleContrib
+
+        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        self._contrib = L2ConsolidationScheduleContrib()
+        await self._contrib.register_schedules(scheduler_service)
+
+    async def shutdown(self) -> None:
+        if self._contrib is None or self._context.scheduler.scheduler_service is None:
+            self._contrib = None
+            return
+        await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
+        self._contrib = None
+
+
 class L2DeriveScheduleRegistrationModule(LifecycleModule):
     """Register L2 derived-data schedule (interest aggregation + conflict notifications) with the unified scheduler (runtime worker)."""
 
@@ -299,4 +330,3 @@ class L4MaintenanceScheduleRegistrationModule(LifecycleModule):
             return
         await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
         self._contrib = None
-

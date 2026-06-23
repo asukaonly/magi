@@ -30,7 +30,7 @@ _PROMOTION_COUNTER_RETENTION_SECONDS = 30 * 86400  # 30 days
 async def handle_l2_entity_maintenance(
     context: ScheduledExecutionContext,
 ) -> ScheduledExecutionResult:
-    """Run L2 catalog/graph maintenance; no-ops when L2 is off or memory is unavailable."""
+    """Run L2 catalog/graph cleanup; no-ops when L2 is off or memory is unavailable."""
     _ = context
     memory_cfg = get_config().agent.memory
     if not memory_cfg.l2.enabled:
@@ -62,7 +62,10 @@ async def handle_l2_entity_maintenance(
         cognition_store=getattr(getattr(unified, "l2_pipeline", None), "_cognition_store", None),
     )
     try:
-        stats = await maint.run(min_mentions_to_keep=int(l2_cfg.maintenance_min_mentions))
+        stats = await maint.run(
+            min_mentions_to_keep=int(l2_cfg.maintenance_min_mentions),
+            consolidate_episodes=False,
+        )
     except Exception as exc:
         logger.error("L2 entity maintenance run failed", error=str(exc))
         return ScheduledExecutionResult(
@@ -70,60 +73,6 @@ async def handle_l2_entity_maintenance(
             message="maintenance_failed",
             stats={"error": str(exc)},
         )
-
-    episodic_summaries_generated = 0
-    episodic_summary_errors: list[str] = []
-    experience_candidates = 0
-    experiences_promoted = 0
-    experience_duplicates = 0
-    experience_rejected = 0
-    experience_summaries_generated = 0
-    experience_summary_errors: list[str] = []
-    promoted_episode_ids = list(getattr(stats, "promoted_episode_ids", []) or [])
-    cognition_store = maint._cognition_store or getattr(unified, "l2", None)
-    if promoted_episode_ids:
-        l1_store = getattr(unified, "l1", None)
-        l3_store = getattr(unified, "l3", None)
-        if l1_store is not None and l3_store is not None and cognition_store is not None:
-            try:
-                summary_result = await l3_store.generate_missing_episodic_summaries(
-                    l1_store=l1_store,
-                    l2_store=cognition_store,
-                    episode_ids=promoted_episode_ids,
-                )
-                episodic_summaries_generated = int(summary_result.get("generated") or 0)
-                episodic_summary_errors = list(summary_result.get("errors") or [])
-            except Exception as exc:
-                logger.warning("L2 episodic summary generation failed", error=str(exc))
-                episodic_summary_errors.append(str(exc))
-
-    if cognition_store is not None:
-        try:
-            from .experiences.promotion import promote_experiences_from_episodes
-            from .experiences.summary_generation import generate_missing_experience_summaries
-
-            experience_stats = await promote_experiences_from_episodes(cognition_store)
-            experience_candidates = int(experience_stats.candidates)
-            experiences_promoted = int(experience_stats.promoted)
-            experience_duplicates = int(experience_stats.skipped_duplicates)
-            experience_rejected = int(experience_stats.rejected)
-
-            l1_store = getattr(unified, "l1", None)
-            l3_store = getattr(unified, "l3", None)
-            if l1_store is not None and l3_store is not None:
-                experience_summary_result = await generate_missing_experience_summaries(
-                    l1_store=l1_store,
-                    l2_store=cognition_store,
-                    l3_store=l3_store,
-                    experience_ids=experience_stats.promoted_experience_ids,
-                )
-                experience_summaries_generated = int(
-                    experience_summary_result.get("generated") or 0
-                )
-                experience_summary_errors = list(experience_summary_result.get("errors") or [])
-        except Exception as exc:
-            logger.warning("L2 experience promotion failed", error=str(exc))
-            experience_summary_errors.append(str(exc))
 
     # P2 frequency gate: prune stale non-promoted promotion-counter keys (one-off noise that
     # never crossed threshold); promoted keys are kept. Bounds the counter table over time.
@@ -142,14 +91,6 @@ async def handle_l2_entity_maintenance(
         message="maintenance_ok",
         stats={
             **asdict(stats),
-            "episodic_summaries_generated": episodic_summaries_generated,
-            "episodic_summary_errors": episodic_summary_errors,
-            "experience_candidates": experience_candidates,
-            "experiences_promoted": experiences_promoted,
-            "experience_duplicates": experience_duplicates,
-            "experience_rejected": experience_rejected,
-            "experience_summaries_generated": experience_summaries_generated,
-            "experience_summary_errors": experience_summary_errors,
             "promotion_counter_pruned": pruned,
         },
     )

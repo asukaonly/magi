@@ -923,15 +923,23 @@ Current rule:
 
 ## Scheduler Targets
 
-The scheduler runtime currently supports two active target families:
+The scheduler runtime currently supports these active target families:
 
 - `sensor_sync`
 - `memory_l2_maintenance`
+- `memory_l2_consolidate`
+- `memory_l2_derive`
+- `memory_l3_summary`
+- `memory_l4_maintenance`
 
 The scheduler engine lives in `scheduler/service.py`. Layer-owned schedule registration is performed by:
 
 - `SensorScheduleRegistrationModule`
 - `L2MaintenanceScheduleRegistrationModule`
+- `L2ConsolidationScheduleRegistrationModule`
+- `L2DeriveScheduleRegistrationModule`
+- `L3SummaryScheduleRegistrationModule`
+- `L4MaintenanceScheduleRegistrationModule`
 
 This keeps scheduling policy with the owning layers instead of centralizing it in one runtime module.
 
@@ -951,7 +959,7 @@ Manual sync requests reuse the same queueing model through `SensorSchedulerContr
 
 Post-sync memory maintenance is deliberately outside the serial sensor-sync queue. After a sync job commits success, L3 historical backfill and the L2 derive kick are queued as best-effort owner-loop maintenance so long LLM-backed summary work cannot stop later sensor-sync jobs from being claimed. This post-sync backfill is intentionally small-batch; full historical summary catch-up must run through explicit memory maintenance rather than the sensor recovery path. A continuation sync (`has_more` / `continue_sync`) still defers these maintenance kicks until the final batch.
 
-On startup, the executor requeues stale `running` jobs. Stale detection uses `started_at` with a configurable timeout. `memory_l2_maintenance` keeps the existing direct scheduler execution path and is unaffected.
+On startup, the executor requeues stale `running` jobs. Stale detection uses `started_at` with a configurable timeout. Memory targets such as `memory_l2_maintenance` and `memory_l2_consolidate` keep the existing direct scheduler execution path and are unaffected.
 
 ## Memory Event Flow
 
