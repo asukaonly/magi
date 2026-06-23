@@ -5,8 +5,8 @@ Verifies:
 1. ``MEMORY_L2_DERIVE`` is a valid ``ScheduledTargetType`` value.
 2. ``L2DeriveScheduleContrib.register_schedules`` registers the handler and
    creates a schedule with the configured interval.
-3. ``handle_l2_derive``: interest aggregation surfaces in snapshot when enabled.
-4. ``handle_l2_derive``: a seeded shadow produces a conflict notification when enabled.
+3. ``handle_l2_derive``: interest aggregation surfaces in the canonical user's snapshot when enabled.
+4. ``handle_l2_derive``: a seeded canonical-user shadow produces a conflict notification when enabled.
 5. ``handle_l2_derive``: ``interest_aggregation_enabled=False`` gates the step.
 6. ``handle_l2_derive``: ``shadow_conflict_notification_enabled=False`` gates the step.
 7. ``handle_l2_derive``: ``l2.enabled=False`` produces l2_disabled_skip.
@@ -20,7 +20,7 @@ from __future__ import annotations
 import time
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -77,7 +77,7 @@ async def _seed_interested_in_edge(
     *,
     object_id: str,
     event_ids: list[str],
-    entity_id: str = "user:self",
+    entity_id: str = "user:local_user",
 ) -> None:
     now = time.time()
     for i, eid in enumerate(event_ids):
@@ -123,7 +123,7 @@ def _candidate(
     trait_value: str,
     source_domain: str,
     evidence_event: str,
-    entity_id: str = "user:self",
+    entity_id: str = "user:local_user",
     trait_name: str = "music_preference",
     target_id: str = "topic:jazz",
 ) -> dict[str, Any]:
@@ -155,7 +155,7 @@ def _candidate(
     }
 
 
-async def _setup_shadow(store: L2CognitionStore, *, entity_id: str = "user:self") -> tuple[str, str]:
+async def _setup_shadow(store: L2CognitionStore, *, entity_id: str = "user:local_user") -> tuple[str, str]:
     auth_id = await store.upsert_assertion_candidate(
         _candidate(trait_value="classical", source_domain="user_authored",
                    evidence_event="evt-auth-derive-1", entity_id=entity_id)
@@ -247,8 +247,8 @@ async def test_l2_derive_contrib_registers_handler_and_schedule():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_derive_handler_interest_surfaces_in_snapshot(tmp_path):
-    """Seeded INTERESTED_IN edges appear as inferred preference_profile in the snapshot."""
+async def test_derive_handler_interest_surfaces_in_canonical_user_snapshot(tmp_path):
+    """Seeded canonical-user INTERESTED_IN edges appear as inferred preference_profile in the snapshot."""
     db_path = str(tmp_path / "l2.db")
     await apply_memory_shared_schema(db_path)
     store = L2CognitionStore(db_path=db_path)
@@ -272,11 +272,12 @@ async def test_derive_handler_interest_surfaces_in_snapshot(tmp_path):
     assert result.message == "derive_ok"
     assert result.stats.get("interest_topics_aggregated", 0) >= 1
 
-    snapshot = await store.get_tom_snapshot(entity_id="user:self", entity_type="user")
+    snapshot = await store.get_tom_snapshot(entity_id="user:local_user", entity_type="user")
     assert snapshot is not None
     preferences = snapshot.get("preferences") or {}
     assert "interest.rust" in preferences
     assert preferences["interest.rust"]["source_tier"] == "inferred"
+    assert await store.get_tom_snapshot(entity_id="user:self", entity_type="user") is None
 
 
 # ---------------------------------------------------------------------------
@@ -291,8 +292,7 @@ async def test_derive_handler_emits_shadow_conflict_notification(tmp_path):
     store = L2CognitionStore(db_path=db_path)
     await store.initialize()
 
-    # The handler calls materialize_shadow_conflict_notifications with entity_id="user:self"
-    await _setup_shadow(store, entity_id="user:self")
+    await _setup_shadow(store, entity_id="user:local_user")
 
     ns, svc = _notification_store(tmp_path)
 
@@ -312,6 +312,8 @@ async def test_derive_handler_emits_shadow_conflict_notification(tmp_path):
 
     assert result.success is True
     assert result.stats.get("shadow_notifications_emitted", 0) >= 1
+    assert len(ns.list_for_user("local_user")) == 1
+    assert ns.list_for_user("default_user") == []
 
 
 # ---------------------------------------------------------------------------
@@ -346,7 +348,7 @@ async def test_derive_handler_skips_interest_when_disabled(tmp_path):
     assert result.success is True
     assert result.stats.get("interest_topics_aggregated", 0) == 0
     # No snapshot row should exist
-    snapshot = await store.get_tom_snapshot(entity_id="user:self", entity_type="user")
+    snapshot = await store.get_tom_snapshot(entity_id="user:local_user", entity_type="user")
     preferences = (snapshot or {}).get("preferences") or {}
     assert not any(k.startswith("interest.") for k in preferences)
 

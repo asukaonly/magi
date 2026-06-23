@@ -167,6 +167,7 @@ async def test_derive_schedule_runs_plugin_derived_rules(tmp_path):
         predicate="LISTENED",
         source_type="netease_music",
         event_ids=["song-b-1", "song-b-2"],
+        entity_id="user:local_user",
     )
     await _seed_canonical_name(store, entity_id="media:song-b", canonical_name="Song B", entity_type="media")
 

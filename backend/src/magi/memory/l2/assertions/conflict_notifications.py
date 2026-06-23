@@ -100,9 +100,8 @@ async def materialize_shadow_conflict_notifications(
         store: An ``L2CognitionStore`` instance (must expose
             ``list_assertions_by_status`` and ``db_path``).
         notification_service: A ``NotificationService`` instance.
-        user_id: The self-user ID used as ``user_id`` for notification rows
-            (pass ``"default_user"`` in production, matching the rest of the
-            notification pipeline).
+        user_id: The canonical self-user ID used as ``user_id`` for
+            notification rows.
         entity_id: L2 entity whose shadows we scan (default: ``"user:self"``).
         entity_type: Entity type string (default: ``"user"``).
         locale: Locale for the notification body (``"zh"`` or ``"en"``).

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from ...config import get_config
 from ...core.logger import get_logger
+from ...identity.defaults import CANONICAL_LOCAL_USER
 from ...scheduler.contracts import (
     ScheduledExecutionContext,
     ScheduledExecutionResult,
@@ -30,6 +31,10 @@ logger = get_logger(__name__)
 
 SCHEDULE_ID_L2_DERIVE = "memory-l2-derive:global"
 TARGET_KEY_L2_DERIVE = "memory_l2_derive"
+
+
+def _canonical_user_entity_id() -> str:
+    return f"user:{CANONICAL_LOCAL_USER}"
 
 
 async def handle_l2_derive(
@@ -65,12 +70,14 @@ async def handle_l2_derive(
         await cognition_store.initialize()
 
     # Interest aggregation: surface INTERESTED_IN edges as inferred preference_profile assertions.
+    user_id = str(CANONICAL_LOCAL_USER)
+    user_entity_id = _canonical_user_entity_id()
     interest_topics_aggregated = 0
     if l2_cfg.interest_aggregation_enabled:
         try:
             agg_stats = await aggregate_interests(
                 cognition_store,
-                entity_id="user:self",
+                entity_id=user_entity_id,
                 min_observations=int(l2_cfg.interest_observation_threshold),
             )
             interest_topics_aggregated = agg_stats.get("topics_aggregated", 0)
@@ -79,7 +86,7 @@ async def handle_l2_derive(
 
         if interest_topics_aggregated > 0:
             try:
-                await cognition_store.refresh_entity_snapshot(entity_id="user:self", entity_type="user")
+                await cognition_store.refresh_entity_snapshot(entity_id=user_entity_id, entity_type="user")
             except Exception:
                 logger.warning("interest aggregation: snapshot refresh failed", exc_info=True)
 
@@ -93,7 +100,7 @@ async def handle_l2_derive(
                 rule_stats = await evaluate_graph_derived_assertion_rule(
                     cognition_store,
                     rule,
-                    entity_id="user:self",
+                    entity_id=user_entity_id,
                     entity_type="user",
                 )
                 plugin_derived_assertions_written += rule_stats.get("assertions_written", 0)
@@ -102,7 +109,7 @@ async def handle_l2_derive(
 
         if plugin_derived_assertions_written > 0:
             try:
-                await cognition_store.refresh_entity_snapshot(entity_id="user:self", entity_type="user")
+                await cognition_store.refresh_entity_snapshot(entity_id=user_entity_id, entity_type="user")
             except Exception:
                 logger.warning("plugin derived assertions: snapshot refresh failed", exc_info=True)
 
@@ -116,8 +123,8 @@ async def handle_l2_derive(
             shadow_stats = await materialize_shadow_conflict_notifications(
                 cognition_store,
                 _notif_service,
-                user_id="default_user",
-                entity_id="user:self",
+                user_id=user_id,
+                entity_id=user_entity_id,
                 entity_type="user",
             )
             shadow_notifications_emitted = shadow_stats.get("notifications_emitted", 0)
