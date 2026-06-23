@@ -7,9 +7,9 @@ interface PortraitWorldMapProps {
   totalCount: number;
 }
 
-const sourceText = (item: PortraitDisplayItem, t: TFunction<'app'>) => {
+const sourceText = (item: PortraitDisplayItem, t: TFunction<'app'>): string | null => {
   if (!item.source) {
-    return t('memory.portrait.source.default');
+    return null;
   }
   return item.sourceKey
     ? t(`memory.portrait.sources.${item.sourceKey}`, { defaultValue: item.source })
@@ -78,16 +78,21 @@ export const PortraitWorldMap = ({ groups, totalCount }: PortraitWorldMapProps) 
                           {t('memory.portrait.world.empty')}
                         </p>
                       ) : (
-                        group.items.slice(0, 4).map((item) => (
-                          <div key={item.id} className="space-y-1">
-                            <p className="text-sm leading-6 text-[hsl(var(--memory-title))]">
-                              {item.text}
-                            </p>
-                            <p className="text-xs text-[hsl(var(--memory-muted))]">
-                              {sourceText(item, t)}
-                            </p>
-                          </div>
-                        ))
+                        group.items.slice(0, 4).map((item) => {
+                          const source = sourceText(item, t);
+                          return (
+                            <div key={item.id} className="space-y-1">
+                              <p className="text-sm leading-6 text-[hsl(var(--memory-title))]">
+                                {item.text}
+                              </p>
+                              {source ? (
+                                <p className="text-xs text-[hsl(var(--memory-muted))]">
+                                  {source}
+                                </p>
+                              ) : null}
+                            </div>
+                          );
+                        })
                       )}
                     </div>
                   </div>

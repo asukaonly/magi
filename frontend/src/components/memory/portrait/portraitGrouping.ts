@@ -50,6 +50,18 @@ const FAMILY_GROUPS = new Map<string, PortraitWorldGroupId>([
 ]);
 
 const REVIEW_STATUSES = new Set(['tentative', 'contradicted']);
+const INTERNAL_SOURCE_KEYS = new Set(['external_activity']);
+
+const normalizeUserFacingSource = (
+  source: string,
+  sourceKey: string | null | undefined
+): { label: string; key: string | null } => {
+  const key = sourceKey || (source ? normalizeSourceKey(source) : null);
+  if (key && INTERNAL_SOURCE_KEYS.has(key)) {
+    return { label: '', key: null };
+  }
+  return { label: source, key: key ?? null };
+};
 
 export const extractAssertionId = (obs: PortraitObservation): string | null => {
   const ref = obs.basis_refs.find((r) => r.startsWith('assertion:') || ASSERTION_REF_PATTERN.test(r));
@@ -89,7 +101,7 @@ const normalizeSourceKey = (value: string): string =>
 const sourceLabel = (obs: PortraitObservation): { label: string; key: string | null } => {
   const source = refValue(obs, 'source');
   if (source) {
-    return { label: source.replace(/[-_]/g, ' '), key: normalizeSourceKey(source) };
+    return normalizeUserFacingSource(source.replace(/[-_]/g, ' '), normalizeSourceKey(source));
   }
   if (obs.basis_summary && !/l2 assertion/i.test(obs.basis_summary)) {
     if (/l2 tom snapshot/i.test(obs.basis_summary)) {
@@ -112,20 +124,23 @@ const displayItem = (obs: PortraitObservation, index: number): PortraitDisplayIt
   };
 };
 
-const displayItemFromSelfView = (item: PortraitSelfViewItem): PortraitDisplayItem => ({
-  id: item.id,
-  text: item.text,
-  source: item.source,
-  sourceKey: item.source_key,
-  assertionId: item.assertion_id,
-  observation: {
-    kind: 'assertion',
+const displayItemFromSelfView = (item: PortraitSelfViewItem): PortraitDisplayItem => {
+  const source = normalizeUserFacingSource(item.source, item.source_key);
+  return {
+    id: item.id,
     text: item.text,
-    basis_count: item.basis_count,
-    basis_summary: item.source,
-    basis_refs: item.basis_refs,
-  },
-});
+    source: source.label,
+    sourceKey: source.key,
+    assertionId: item.assertion_id,
+    observation: {
+      kind: 'assertion',
+      text: item.text,
+      basis_count: item.basis_count,
+      basis_summary: source.label,
+      basis_refs: item.basis_refs,
+    },
+  };
+};
 
 const isReviewItem = (obs: PortraitObservation): boolean => {
   const status = refValue(obs, 'status');

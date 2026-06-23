@@ -6,9 +6,9 @@ interface PortraitRecentStateProps {
   items: PortraitDisplayItem[];
 }
 
-const sourceText = (item: PortraitDisplayItem, t: TFunction<'app'>) => {
+const sourceText = (item: PortraitDisplayItem, t: TFunction<'app'>): string | null => {
   if (!item.source) {
-    return t('memory.portrait.source.default');
+    return null;
   }
   return item.sourceKey
     ? t(`memory.portrait.sources.${item.sourceKey}`, { defaultValue: item.source })
@@ -35,12 +35,15 @@ export const PortraitRecentState = ({ items }: PortraitRecentStateProps) => {
       </div>
 
       <div className="mt-3 divide-y divide-[hsl(var(--memory-divider)/0.68)]">
-        {items.slice(0, 6).map((item) => (
-          <article key={item.id} className="space-y-1 py-3">
-            <p className="text-sm leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
-            <p className="text-xs text-[hsl(var(--memory-muted))]">{sourceText(item, t)}</p>
-          </article>
-        ))}
+        {items.slice(0, 6).map((item) => {
+          const source = sourceText(item, t);
+          return (
+            <article key={item.id} className="space-y-1 py-3">
+              <p className="text-sm leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
+              {source ? <p className="text-xs text-[hsl(var(--memory-muted))]">{source}</p> : null}
+            </article>
+          );
+        })}
       </div>
     </section>
   );

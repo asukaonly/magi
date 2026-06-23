@@ -111,6 +111,39 @@ def test_assertion_observations_include_grouping_metadata_refs():
     assert "source:conversation" in refs
 
 
+def test_self_view_hides_internal_external_activity_source():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    l2 = MagicMock()
+    l2.list_tom_snapshots = AsyncMock(return_value=[])
+    l2.list_tom_assertions = AsyncMock(return_value=[{
+        "assertion_id": "assert-external",
+        "trait_family": "preference_profile",
+        "trait_name": "interest.codex",
+        "trait_value": "Codex",
+        "validation_state": "corroborated",
+        "source_domain": "external_activity",
+        "evidence_count": 4,
+    }])
+
+    with override_dependencies_for_test(profile_repo=profile_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    refs = body["observations"][0]["basis_refs"]
+    assert "source:external_activity" in refs
+
+    preferences = {
+        group["id"]: group["items"]
+        for group in body["self_view"]["world"]["groups"]
+    }["preferences"]
+    assert preferences[0]["text"] == "Codex"
+    assert preferences[0]["source"] == ""
+    assert preferences[0]["source_key"] is None
+
+
 def test_self_portrait_returns_backend_grouped_page_model():
     profile_repo = MagicMock()
     profile_repo.get = AsyncMock(return_value=MagicMock(

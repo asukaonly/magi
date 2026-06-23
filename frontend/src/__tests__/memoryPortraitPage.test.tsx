@@ -191,6 +191,45 @@ describe('MemoryPortraitPage', () => {
     expect(screen.getByText('基于 {{count}} 条理解')).toBeInTheDocument();
   });
 
+  it('does not render source text for portrait items without a user-facing source', async () => {
+    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
+      session_id: '', persona_id: '', topic: 'self', generated_at: 0,
+      observations: [],
+      self_view: {
+        world: {
+          total_count: 1,
+          groups: [
+            { id: 'identity', items: [] },
+            {
+              id: 'preferences',
+              items: [{
+                id: 'preference-1',
+                text: 'Codex',
+                source: '',
+                source_key: null,
+                assertion_id: 'assert-external',
+                basis_count: 4,
+                basis_refs: ['assertion:assert-external', 'source:external_activity'],
+              }],
+            },
+            { id: 'routine', items: [] },
+            { id: 'communication', items: [] },
+          ],
+        },
+        review: { items: [] },
+        recent: { items: [] },
+      },
+      is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
+    });
+
+    renderPage();
+
+    const preferences = await screen.findByTestId('portrait-world-branch-preferences');
+    expect(within(preferences).getByText('Codex')).toBeInTheDocument();
+    expect(within(preferences).queryByText('记忆线索')).not.toBeInTheDocument();
+    expect(within(preferences).queryByText('external_activity')).not.toBeInTheDocument();
+  });
+
   it('routes review queue actions to assertion feedback and correction APIs', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       session_id: '', persona_id: '', topic: 'self', generated_at: 0,

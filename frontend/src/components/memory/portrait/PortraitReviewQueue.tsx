@@ -12,12 +12,15 @@ interface PortraitReviewQueueProps {
   onCorrect: (assertionId: string, value: string) => Promise<void>;
 }
 
-const sourceText = (item: PortraitDisplayItem, t: TFunction<'app'>) => {
+const sourceText = (item: PortraitDisplayItem, t: TFunction<'app'>): string | null => {
+  if (!item.source) {
+    return null;
+  }
   const source = item.sourceKey
     ? t(`memory.portrait.sources.${item.sourceKey}`, { defaultValue: item.source })
     : item.source;
   return t('memory.portrait.review.source', {
-    source: source || t('memory.portrait.source.default'),
+    source,
   });
 };
 
@@ -68,11 +71,12 @@ export const PortraitReviewQueue = ({
       <div className="mt-3 divide-y divide-[hsl(var(--memory-divider)/0.68)]">
         {items.map((item) => {
           const isEditing = editingId === item.id;
+          const source = sourceText(item, t);
           return (
             <article key={item.id} className="flex flex-col gap-3 py-3 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0 flex-1 space-y-1">
                 <p className="text-sm font-medium leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
-                <p className="text-xs text-[hsl(var(--memory-muted))]">{sourceText(item, t)}</p>
+                {source ? <p className="text-xs text-[hsl(var(--memory-muted))]">{source}</p> : null}
               </div>
 
               {isEditing ? (

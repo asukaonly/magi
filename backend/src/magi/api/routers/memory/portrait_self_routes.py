@@ -35,6 +35,7 @@ _RECENT_FAMILIES = {
     "group_atmosphere",
 }
 _REVIEW_STATES = {"tentative", "contradicted"}
+_INTERNAL_SOURCE_KEYS = {"external_activity"}
 
 
 _profile_repo_override: Any = None
@@ -325,7 +326,10 @@ def _simplify_observation_text(text: str) -> str:
 def _source_info(observation: PortraitObservation) -> tuple[str, str | None]:
     source = _ref_value(observation, "source")
     if source:
-        return source.replace("-", " "), _normalize_source_key(source)
+        source_key = _normalize_source_key(source)
+        if source_key in _INTERNAL_SOURCE_KEYS:
+            return "", None
+        return source.replace("-", " "), source_key
 
     basis_summary = observation.basis_summary.strip()
     if basis_summary and basis_summary.lower() != "l2 assertion":
