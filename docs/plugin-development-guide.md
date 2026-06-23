@@ -563,6 +563,8 @@ Each event source is mapped to an `ExtractionProfile` that controls L2 cognition
 
 Phase 1 instructions guide entity/fact extraction. Phase 2 instructions guide how the host should integrate those facts into graph edges, contradiction hints, and assertion candidates. Plugins can also declare derived assertion specs when they know source-specific evidence patterns better than the host, but the host still validates assertion families, traits, lifecycle, and source-tier conflict rules.
 
+Phase 2 also receives a host-built deterministic evidence packet when related context is available. The packet can include current candidate anchors, bounded L1 history matches, related graph evidence, and existing assertion state. This recall step is intentionally non-LLM; plugins influence it through source metadata, batch ownership, graph facts, and derived assertion specs rather than by running their own model pass.
+
 Canonical assertion families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `routine_profile`, and `state_profile`. Use `preference_profile` for durable interests, affinities, tastes, and preferences. Use `routine_profile` for repeated behavior rhythms and habits. Do not use assertion family names as graph predicates or graph object refs.
 
 Plugins contribute source profiles with `get_extraction_profiles()`:
@@ -601,6 +603,25 @@ extraction_instructions=(
     "- MERGE related content: multiple pages about the same topic → one entity\n"
     "- SKIP noise: error messages, email addresses, UI element names\n"
 )
+```
+
+Example (graph-derived profile assertion rule):
+
+```python
+derived_assertion_specs=[
+    {
+        "rule_id": "chrome_history.content_interest",
+        "source_predicates": ["INTERESTED_IN"],
+        "source_types": ["chrome_history"],
+        "object_types": ["topic", "media", "person", "group", "organization", "product", "technology"],
+        "trait_family": "preference_profile",
+        "trait_name_template": "interest.{object_slug}",
+        "min_observations": 3,
+        "min_distinct_days": 2,
+        "source_domains": ["external_activity"],
+        "value_strategy": "canonical_name",
+    }
+]
 ```
 
 The host validates plugin-declared entity types, predicates, assertion families, and structured-hint allowlists against the backend L2 ontology before using a profile. Host-owned chat profiles remain in `backend/configs/l2_extraction_profiles.yaml`; source-specific profiles belong with the plugin that owns the source semantics. New source types fall back to the unrestricted `chat.user_message` default profile.

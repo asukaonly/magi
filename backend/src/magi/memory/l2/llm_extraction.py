@@ -7,9 +7,9 @@ from typing import Any
 
 from ...core.logger import get_logger
 from .models import L2EventWindow, L2Phase1Result, L2Phase2Result
+from .pipeline.evidence_packet import build_phase2_evidence_packet
 from .pipeline.prompts import (
     PHASE1_EXTRACT_SYSTEM_PROMPT,
-    PHASE2_INTEGRATE_SYSTEM_PROMPT,
     build_phase2_integrate_system_prompt,
     render_phase1_extract_prompt,
     render_phase2_integrate_prompt,
@@ -118,6 +118,12 @@ class L2LLMExtractionMixin:
         except Exception:
             user_language = ""
 
+        evidence_packet = build_phase2_evidence_packet(
+            phase1_result=phase1_result,
+            existing_graph_edges=existing_graph_edges,
+            existing_assertions=existing_assertions,
+            event_window=event_window,
+        )
         prompt = render_phase2_integrate_prompt(
             phase1_result=phase1_result.to_dict(),
             existing_graph_edges=existing_graph_edges,
@@ -125,6 +131,7 @@ class L2LLMExtractionMixin:
             event_window=event_window,
             focal_subject=focal_subject,
             source_integration_instructions=phase2_instructions,
+            evidence_packet=evidence_packet,
         )
         payload = await self._generate_json(
             system_prompt=build_phase2_integrate_system_prompt(user_language or None),
@@ -137,6 +144,7 @@ class L2LLMExtractionMixin:
                 "fact_claim_count": len(phase1_result.fact_claims),
                 "existing_edge_count": len(existing_graph_edges) if existing_graph_edges else 0,
                 "existing_assertion_count": len(existing_assertions) if existing_assertions else 0,
+                "history_context_count": len(event_window.history_contexts),
             },
         )
         result = L2Phase2Result.from_dict(payload)

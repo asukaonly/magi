@@ -25,7 +25,11 @@ from .test_derive_schedule import (
 from .test_derived_assertion_rules import _seed_edge
 
 
-def _music_profile_spec(*, invalid: bool = False) -> ExtractionProfileSpec:
+def _music_profile_spec(
+    *,
+    invalid: bool = False,
+    object_types: list[str] | None = None,
+) -> ExtractionProfileSpec:
     return ExtractionProfileSpec(
         profile_id="source.netease_music",
         source_types=["netease_music"],
@@ -42,6 +46,7 @@ def _music_profile_spec(*, invalid: bool = False) -> ExtractionProfileSpec:
                 "trait_family": "mood" if invalid else "preference_profile",
                 "trait_name_template": "mood.{object_slug}" if invalid else "music.{object_slug}",
                 "min_observations": 2,
+                **({"object_types": object_types} if object_types is not None else {}),
                 "source_domains": ["external_activity"],
                 "value_strategy": "canonical_name",
             }
@@ -76,6 +81,14 @@ def test_valid_plugin_spec_builds_derived_rule():
 
 def test_invalid_plugin_spec_is_ignored():
     profiles = build_extraction_profile_registry([_music_profile_spec(invalid=True)])
+
+    assert build_graph_derived_rules_from_profiles(profiles) == ()
+
+
+def test_plugin_spec_with_unknown_object_type_is_ignored():
+    profiles = build_extraction_profile_registry([
+        _music_profile_spec(object_types=["media", "unknown-kind"])
+    ])
 
     assert build_graph_derived_rules_from_profiles(profiles) == ()
 

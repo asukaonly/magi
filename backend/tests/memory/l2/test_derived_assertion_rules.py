@@ -88,6 +88,19 @@ def _interest_rule(*, min_observations: int = 3) -> GraphDerivedAssertionRule:
     )
 
 
+def _topic_only_interest_rule(*, min_observations: int = 3) -> GraphDerivedAssertionRule:
+    return GraphDerivedAssertionRule(
+        rule_id="browser.topic_interest",
+        source_predicates=("INTERESTED_IN",),
+        trait_family="preference_profile",
+        trait_name_template="interest.{object_slug}",
+        min_observations=min_observations,
+        source_domains=("external_activity",),
+        value_strategy="canonical_name",
+        object_types=("topic", "media"),
+    )
+
+
 @pytest.mark.asyncio
 async def test_rule_filters_by_observation_threshold(l2_store_with_schema):
     store = l2_store_with_schema
@@ -104,6 +117,44 @@ async def test_rule_filters_by_observation_threshold(l2_store_with_schema):
     assert [item["trait_name"] for item in assertions] == ["interest.python"]
     assert assertions[0]["trait_value"] == "Python"
     assert assertions[0]["source_domain"] == "external_activity"
+
+
+@pytest.mark.asyncio
+async def test_rule_filters_by_object_type(l2_store_with_schema):
+    store = l2_store_with_schema
+    await _seed_edge(
+        store,
+        object_id="software:github",
+        object_type="software",
+        predicate="INTERESTED_IN",
+        event_ids=["gh-1", "gh-2", "gh-3"],
+    )
+    await _seed_canonical_name(
+        store,
+        entity_id="software:github",
+        canonical_name="GitHub",
+        entity_type="software",
+    )
+    await _seed_edge(
+        store,
+        object_id="topic:memory-systems",
+        object_type="topic",
+        predicate="INTERESTED_IN",
+        event_ids=["mem-1", "mem-2", "mem-3"],
+    )
+    await _seed_canonical_name(
+        store,
+        entity_id="topic:memory-systems",
+        canonical_name="Memory systems",
+        entity_type="topic",
+    )
+
+    stats = await evaluate_graph_derived_assertion_rule(store, _topic_only_interest_rule())
+
+    assert stats["edges_seen"] == 2
+    assert stats["assertions_written"] == 1
+    assertions = await _assertions_for(store)
+    assert [item["trait_name"] for item in assertions] == ["interest.memory-systems"]
 
 
 @pytest.mark.asyncio

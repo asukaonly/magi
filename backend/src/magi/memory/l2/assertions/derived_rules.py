@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 
 from ....core.logger import get_logger
 from ..entities.catalog.lookup import get_canonical_names
-from ..ontology import ASSERTION_FAMILY_ALLOWLIST, PREDICATE_REGISTRY
+from ..ontology import ASSERTION_FAMILY_ALLOWLIST, ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
 
 logger = get_logger(__name__)
 
@@ -28,6 +28,10 @@ class _DerivedAssertionProfile(Protocol):
     def effective_structured_allowed_predicates(self) -> frozenset[str]:
         ...
 
+    @property
+    def effective_structured_allowed_entity_types(self) -> frozenset[str]:
+        ...
+
 
 @dataclass(slots=True, frozen=True)
 class GraphDerivedAssertionRule:
@@ -42,6 +46,7 @@ class GraphDerivedAssertionRule:
     source_types: tuple[str, ...] = field(default_factory=tuple)
     source_domains: tuple[str, ...] = field(default_factory=lambda: ("external_activity",))
     value_strategy: str = "canonical_name"
+    object_types: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "rule_id", str(self.rule_id).strip())
@@ -77,6 +82,15 @@ class GraphDerivedAssertionRule:
             ),
         )
         object.__setattr__(self, "value_strategy", str(self.value_strategy).strip() or "canonical_name")
+        object.__setattr__(
+            self,
+            "object_types",
+            tuple(
+                str(object_type).strip().casefold()
+                for object_type in self.object_types
+                if str(object_type).strip()
+            ),
+        )
 
 
 def builtin_interest_rule(*, min_observations: int = 3) -> GraphDerivedAssertionRule:
@@ -189,6 +203,10 @@ def _edge_meets_rule(*, edge: dict[str, Any], rule: GraphDerivedAssertionRule) -
     if rule.source_types:
         source_type = str(edge.get("source_type") or "").strip().casefold()
         if source_type not in rule.source_types:
+            return False
+    if rule.object_types:
+        object_type = str(edge.get("object_type") or "").strip().casefold()
+        if object_type not in rule.object_types:
             return False
     if rule.min_distinct_days <= 1:
         return True
@@ -358,6 +376,26 @@ def _rule_from_profile_spec(
         )
         return None
 
+    object_types = _normalize_object_types(spec.get("object_types"))
+    if object_types:
+        unknown_object_types = set(object_types) - ENTITY_TYPE_REGISTRY
+        if unknown_object_types:
+            logger.warning(
+                "skipping derived assertion spec with unknown object types",
+                profile_id=profile.profile_id,
+                spec_index=index,
+                object_types=sorted(unknown_object_types),
+            )
+            return None
+        if not set(object_types).issubset(profile.effective_structured_allowed_entity_types):
+            logger.warning(
+                "skipping derived assertion spec outside profile object type allowlist",
+                profile_id=profile.profile_id,
+                spec_index=index,
+                object_types=sorted(object_types),
+            )
+            return None
+
     return GraphDerivedAssertionRule(
         rule_id=str(spec.get("rule_id") or f"{profile.profile_id}.derived.{index}").strip(),
         source_predicates=source_predicates,
@@ -368,6 +406,7 @@ def _rule_from_profile_spec(
         min_distinct_days=max(0, int(spec.get("min_distinct_days") or 0)),
         source_domains=_normalize_source_domains(spec.get("source_domains")),
         value_strategy=value_strategy,
+        object_types=object_types,
     )
 
 
@@ -400,6 +439,16 @@ def _normalize_source_domains(value: Any) -> tuple[str, ...]:
         values = ["external_activity"]
     normalized = tuple(str(item).strip().casefold() for item in values if str(item).strip())
     return normalized or ("external_activity",)
+
+
+def _normalize_object_types(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        values = list(value)
+    else:
+        return tuple()
+    return tuple(str(item).strip().casefold() for item in values if str(item).strip())
 
 
 def _trait_template_allowed_by_profile(

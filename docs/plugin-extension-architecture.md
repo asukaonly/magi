@@ -230,6 +230,11 @@ L2 Pipeline                       -> cognition (graph, entities, assertions)
 - `provenance`: source-specific metadata (sensor_id, domain, visit_id, etc.)
 - `domain_payload`: extra structured data for downstream consumers
 
+`domain_payload` may include source-level cognition hints such as `promotion_key`.
+For high-volume passive sources, `promotion_key` should identify the stable
+aggregation unit (for example, a browser domain) so L2 batching and derived
+assertion rules can evaluate repeated evidence instead of one-off events.
+
 Important ownership split:
 
 - plugins own `activity` and `narration`

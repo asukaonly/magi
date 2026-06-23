@@ -340,6 +340,7 @@ def render_phase2_integrate_prompt(
     event_window: L2EventWindow,
     focal_subject: dict[str, Any],
     source_integration_instructions: str | None = None,
+    evidence_packet: dict[str, Any] | None = None,
 ) -> str:
     """Render a Markdown-formatted Phase 2 integration prompt."""
     parts: list[str] = []
@@ -409,6 +410,63 @@ def render_phase2_integrate_prompt(
             resolved = ref.get("resolved_ref") or "unresolved"
             parts.append(f'- "{surface}" → {resolved}')
         parts.append("")
+
+    if evidence_packet:
+        parts.append("## Deterministic Evidence Packet")
+        parts.append("No LLM was used to gather this packet; it is retrieval and statistics only.")
+        refs = evidence_packet.get("candidate_refs") or []
+        if refs:
+            parts.append("### Current Candidate Anchors")
+            for ref in refs[:12]:
+                kind = ref.get("kind", "?")
+                label = ref.get("label") or ref.get("id") or "?"
+                ref_type = ref.get("type") or "unknown"
+                predicate = ref.get("predicate")
+                suffix = f", predicate={predicate}" if predicate else ""
+                parts.append(f"- {kind}: {label} [{ref_type}{suffix}]")
+            parts.append("")
+        history_items = evidence_packet.get("history_contexts") or []
+        if history_items:
+            parts.append("### History Matches")
+            for item in history_items[:3]:
+                event_id = item.get("event_id", "?")
+                name = item.get("canonical_name") or item.get("matched_text") or "matched item"
+                content = item.get("content", "")
+                parts.append(f"- [#{event_id}] {name}: {content}")
+            parts.append("")
+        related_edges = evidence_packet.get("related_edges") or []
+        if related_edges:
+            parts.append("### Related Graph Evidence")
+            for edge in related_edges[:12]:
+                triple_id = edge.get("triple_id", "?")
+                predicate = edge.get("predicate", "?")
+                object_id = edge.get("object_id", "?")
+                object_type = edge.get("object_type", "?")
+                source_type = edge.get("source_type") or "unknown_source"
+                obs_count = int(edge.get("observation_count", 0) or 0)
+                event_count = int(edge.get("evidence_event_count", 0) or 0)
+                parts.append(
+                    f"- [{triple_id}] {predicate} {object_id} [{object_type}] "
+                    f"from {source_type}, observed={obs_count}x, events={event_count}"
+                )
+            parts.append("")
+        packet_assertions = evidence_packet.get("existing_assertions") or []
+        if packet_assertions:
+            parts.append("### Existing Assertion State")
+            for assertion in packet_assertions[:8]:
+                trait = assertion.get("trait_name", "?")
+                value = assertion.get("trait_value", "?")
+                family = assertion.get("trait_family", "?")
+                state = assertion.get("validation_state", "?")
+                source = assertion.get("source_domain", "?")
+                parts.append(f"- {family}/{trait} = {value} (state={state}, source={source})")
+            parts.append("")
+        guardrails = evidence_packet.get("promotion_guardrails") or []
+        if guardrails:
+            parts.append("### Promotion Guardrails")
+            for guardrail in guardrails:
+                parts.append(f"- {guardrail}")
+            parts.append("")
 
     # Existing graph edges for the focal subject
     if existing_graph_edges:

@@ -2,11 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
-
-import pytest
 
 
 class _FakeUsagePublisher:
@@ -169,6 +165,111 @@ def test_phase1_prompt_includes_context_and_resolved_ref_schema():
     assert "杭州，阵雨，11度" in prompt
     assert "resolved_refs" in PHASE1_EXTRACT_SYSTEM_PROMPT
     assert "reference_type" in PHASE1_EXTRACT_SYSTEM_PROMPT
+
+
+def test_phase2_prompt_includes_deterministic_evidence_packet():
+    from magi.memory.l2.models import (
+        L2BatchEvent,
+        L2EventWindow,
+        L2EventWindowSummary,
+        L2HistoryContext,
+    )
+    from magi.memory.l2.pipeline.evidence_packet import build_phase2_evidence_packet
+    from magi.memory.l2.pipeline.prompts import render_phase2_integrate_prompt
+
+    event_window = L2EventWindow(
+        event_ids=["evt-current"],
+        events=[
+            L2BatchEvent(
+                event_id="evt-current",
+                content="Visited DeepSeek docs",
+                timestamp=1_710_000_600.0,
+                source="chrome_history",
+                author_type="user",
+            )
+        ],
+        history_contexts=[
+            L2HistoryContext(
+                event_id="evt-history",
+                content="Visited DeepSeek API pricing",
+                timestamp=1_710_000_000.0,
+                matched_entity_id="product:deepseek",
+                canonical_name="DeepSeek",
+                match_source="alias_exact",
+            )
+        ],
+        summary=L2EventWindowSummary(event_count=1, user_id="local_user"),
+    )
+    phase1_payload = {
+        "entities": [
+            {
+                "surface": "DeepSeek",
+                "entity_type": "product",
+                "specificity": "concrete",
+                "resolved_id": "product:deepseek",
+                "is_new": False,
+            }
+        ],
+        "fact_claims": [
+            {
+                "subject_ref": "user:local_user",
+                "predicate": "VIEWED",
+                "object_ref": "DeepSeek",
+                "object_type": "product",
+                "confidence": 0.7,
+                "evidence_text": "Visited DeepSeek docs",
+            }
+        ],
+        "resolved_refs": [],
+    }
+    existing_edges = [
+        {
+            "triple_id": "edge-1",
+            "subject_id": "user:local_user",
+            "predicate": "VIEWED",
+            "object_id": "product:deepseek",
+            "object_type": "product",
+            "source_type": "chrome_history",
+            "observation_count": 4,
+            "evidence_event_ids": ["a", "b", "c", "d"],
+            "first_observed_at": 1_709_900_000.0,
+            "last_observed_at": 1_710_000_500.0,
+            "confidence": 0.74,
+        }
+    ]
+    existing_assertions = [
+        {
+            "assertion_id": "assert-1",
+            "trait_family": "preference_profile",
+            "trait_name": "interest.deepseek",
+            "trait_value": "DeepSeek",
+            "validation_state": "tentative",
+            "confidence_score": 0.44,
+            "source_domain": "external_activity",
+        }
+    ]
+    evidence_packet = build_phase2_evidence_packet(
+        phase1_result=phase1_payload,
+        existing_graph_edges=existing_edges,
+        existing_assertions=existing_assertions,
+        event_window=event_window,
+    )
+
+    prompt = render_phase2_integrate_prompt(
+        phase1_result=phase1_payload,
+        existing_graph_edges=existing_edges,
+        existing_assertions=existing_assertions,
+        event_window=event_window,
+        focal_subject={"entity_ref": "user:local_user", "entity_type": "user"},
+        evidence_packet=evidence_packet,
+    )
+
+    assert "Deterministic Evidence Packet" in prompt
+    assert "No LLM was used to gather this packet" in prompt
+    assert "evt-history" in prompt
+    assert "observed=4x" in prompt
+    assert "single passive behavior" in prompt.lower()
+    assert "interest.deepseek" in prompt
 
 
 def test_phase1_prompt_includes_batch_window_events():

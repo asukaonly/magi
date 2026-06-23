@@ -440,6 +440,13 @@ Batch policy:
 - The `runtime_worker` registers `memory_l2_maintenance` as a periodic task for offline entity catalog / knowledge graph maintenance, including ghost references, mergeable types, orphan entities, assertion reconciliation, edge embedding refresh, predicate consolidation, and episode consolidation
 - Manual `/l2/episodes/reconsolidate` uses the same scheduler target lock as `memory_l2_maintenance`; if maintenance is already running, the endpoint returns HTTP 409 instead of competing with scheduled episode consolidation.
 
+Extraction flow:
+
+- Phase 1 extracts current-batch entities, facts, and candidate observations from admitted events, using source-owned hints and extraction-profile instructions as anchors.
+- Before Phase 2, the pipeline may build a deterministic evidence packet from current Phase 1 output, bounded L1 history contexts, existing L2 graph edges, and existing assertion state. This retrieval step must not call an LLM; it is a cost-controlled recall step that gives Phase 2 corroboration, conflict, and prior-state context.
+- Phase 2 integrates the current batch plus that deterministic packet into graph writes, contradiction hints, and eligible assertion candidates under the active extraction profile.
+- Passive, single-source observations remain evidence. They should not become stable user-profile assertions unless source policy and graph-derived rules provide enough accumulated support.
+
 A rare set of runtime-only events without `L1` durable anchors can use the in-process dispatch path, but they are not considered regular inputs to `L2` durable projection.
 
 #### Evidence Classification and Write Policy
@@ -506,7 +513,7 @@ Tags, categories, and weak co-occurrence are not fact evidence. They may help se
 - Ingestion gateway handles: schema validation, canonical/local ref normalization, writing hints into `MemoryEvent.metadata_json`, generating rule-backed graph candidates per admission policy
 - `L2Pipeline` handles: using source-owned hints as structural anchors, merging with LLM residual candidates, conflict handling, dedup, persistence, and snapshot refresh
 
-**Graph-derived assertions** convert accumulated graph evidence into inferred profile assertions only through host-owned rules. Built-in interest aggregation and plugin-contributed `derived_assertion_specs` both compile into validated `GraphDerivedAssertionRule` instances. These rules consume admitted graph edges, write inferred assertions through the normal assertion lifecycle, and preserve source-tier conflict protection so user-authored assertions are never overwritten by behavioral inference.
+**Graph-derived assertions** convert accumulated graph evidence into inferred profile assertions only through host-owned rules. Built-in interest aggregation and plugin-contributed `derived_assertion_specs` both compile into validated `GraphDerivedAssertionRule` instances. These rules consume admitted graph edges, write inferred assertions through the normal assertion lifecycle, and preserve source-tier conflict protection so user-authored assertions are never overwritten by behavioral inference. Rules may constrain allowed graph object types so broad passive objects such as individual web pages, generic software names, or implementation artifacts do not become user-profile traits unless the source explicitly marks them as suitable profile evidence.
 
 Plugins may strengthen assertion quality by declaring structured hints, graph relation candidates, extraction profiles, source-specific Phase 1 instructions, source-specific Phase 2 integration instructions, and graph-derived assertion specs. They do not own the final assertion ontology or bypass source-tier conflict governance. Direct Phase 2 assertion candidates are accepted only for profiles that explicitly opt into `assertion_mode="phase2_candidate"` and pass the host family, trait, source policy, and validation gates.
 
