@@ -2601,7 +2601,7 @@
         "all": "全部",
         "memory": "影响记忆",
         "experiences": "整理经历",
-        "observations": "复核观察"
+        "observations": "总结复核"
       },
       "groups": {
         "memory": {
@@ -2613,8 +2613,8 @@
           "description": "确认后会保存成一段经历"
         },
         "observations": {
-          "title": "复核观察",
-          "description": "这些是 Magi 的阶段观察，不会直接改底层记忆"
+          "title": "总结复核",
+          "description": "确认这些阶段总结是否说准了"
         }
       },
       "sections": {
@@ -2628,10 +2628,10 @@
       "meta": {
         "assertion": "关于你的判断",
         "conflict": "偏好冲突",
-        "summary": "观察",
+        "summary": "总结",
         "experienceSeed": "经历线索"
       },
-      "fallbackMemoryUpdateTitle": "待确认观察",
+      "fallbackMemoryUpdateTitle": "待确认总结",
       "fallbackConflictTitle": "偏好冲突",
       "conflictMeta": "和已确认记忆不一致",
       "evidenceCount": "{{count}} 条证据",
@@ -2640,8 +2640,8 @@
         "confirm": "确认",
         "confirmJudgment": "是的",
         "reject": "不对",
-        "confirmObservation": "观察成立",
-        "rejectObservation": "不成立",
+        "confirmObservation": "说得对",
+        "rejectObservation": "不太对",
         "acceptConflict": "采用新记忆",
         "keepExisting": "保留旧记忆",
         "promoteExperience": "保存为经历",

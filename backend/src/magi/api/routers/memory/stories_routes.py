@@ -37,6 +37,7 @@ TEMPORAL_CATEGORIES = ["day", "week", "month", "quarter", "year"]
 # rows, so the visible window's top entries may live deeper in either feed.
 _INTERLEAVE_HEADROOM = 50
 _INTEREST_TREND_GROUP = "interest_profile"
+_INTEREST_PROFILE_CATEGORIES = {"state_change", "trend_shift"}
 
 # Detects schema identifiers that should never reach the user.
 # Patterns like "state.sleep_quality", "engagement.gaming_focus" — lowercase
@@ -98,13 +99,17 @@ def _interest_values_from_metadata(metadata: dict[str, Any]) -> list[str]:
     return values
 
 
-def _is_interest_trend_item(item: dict[str, Any]) -> bool:
-    if item.get("summary_category") != "trend_shift":
+def _is_interest_profile_item(item: dict[str, Any]) -> bool:
+    if item.get("summary_category") not in _INTEREST_PROFILE_CATEGORIES:
         return False
     metadata = item.get("insight_metadata")
     if not isinstance(metadata, dict):
         return False
     return _INTEREST_TREND_GROUP in _trend_groups_from_metadata(metadata)
+
+
+def _is_interest_trend_item(item: dict[str, Any]) -> bool:
+    return item.get("summary_category") == "trend_shift" and _is_interest_profile_item(item)
 
 
 def _render_interest_trend_content(metadata: dict[str, Any]) -> str | None:
@@ -211,9 +216,15 @@ def _row_to_story_item(row: dict[str, Any]) -> dict[str, Any]:
         salience_until = None
     content = row.get("content") or ""
     title = str(row.get("title") or "").strip()
-    if str(row.get("summary_category") or "") == "trend_shift":
-        trend_item = {"summary_category": "trend_shift", "insight_metadata": metadata}
-        if _is_interest_trend_item(trend_item):
+    summary_category = str(row.get("summary_category") or "")
+    if summary_category in _INTEREST_PROFILE_CATEGORIES:
+        interest_item = {"summary_category": summary_category, "insight_metadata": metadata}
+        should_project = (
+            summary_category == "trend_shift"
+            or _is_raw_interest_template(str(content))
+            or _is_raw_interest_template(title)
+        )
+        if should_project and _is_interest_profile_item(interest_item):
             rendered = _render_interest_trend_content(metadata)
             if rendered is not None:
                 content = rendered

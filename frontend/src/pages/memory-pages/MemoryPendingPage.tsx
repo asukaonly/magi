@@ -176,7 +176,8 @@ export const MemoryPendingPage = () => {
       title=""
       description=""
       hideHeader
-      contentClassName="space-y-4"
+      className="max-w-[900px]"
+      contentClassName="space-y-3"
     >
       {loading ? (
         <section className={`${MEMORY_EMPTY_PANEL_CLASS} flex items-center gap-2`}>
@@ -188,9 +189,9 @@ export const MemoryPendingPage = () => {
           <p className="mt-1 text-sm">{t('memory.pending.emptyBody')}</p>
         </section>
       ) : (
-        <div className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="inline-flex w-fit max-w-full flex-wrap rounded-xl border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.72)] p-1">
+        <div className="space-y-3">
+          <div className="flex">
+            <div className="inline-flex w-fit max-w-full flex-wrap gap-0.5 rounded-lg border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.72)] p-0.5">
               {filterOptions.map((option) => {
                 const selected = activeFilter === option.key;
                 return (
@@ -199,7 +200,7 @@ export const MemoryPendingPage = () => {
                     type="button"
                     aria-pressed={selected}
                     className={cn(
-                      'inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors',
+                      'inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors',
                       selected
                         ? 'bg-[hsl(var(--memory-title))] text-[hsl(var(--memory-panel-elevated))] shadow-sm'
                         : 'text-[hsl(var(--memory-body))] hover:bg-[hsl(var(--memory-panel-subtle)/0.72)]'
@@ -217,9 +218,6 @@ export const MemoryPendingPage = () => {
                 );
               })}
             </div>
-            <span className="text-sm text-[hsl(var(--memory-muted))]">
-              {t('memory.pending.totalCount', { count: totalCount })}
-            </span>
           </div>
 
           {showMemory ? (
@@ -342,7 +340,6 @@ export const MemoryPendingPage = () => {
                   <PendingCard
                     key={story.summary_id}
                     testId={`pending-story-${story.summary_id}`}
-                    label={t('memory.pending.meta.summary')}
                     title={title}
                     body={body}
                     meta={t('memory.pending.evidenceCount', { count: story.evidence_event_count })}
@@ -419,7 +416,7 @@ function PendingCard({
   actions,
 }: {
   testId: string;
-  label: string;
+  label?: string;
   title: string;
   body: string;
   meta: string;
@@ -428,19 +425,20 @@ function PendingCard({
   return (
     <article
       data-testid={testId}
-      className="grid gap-3 px-4 py-4 md:grid-cols-[8.5rem_minmax(0,1fr)_auto] md:items-center"
+      className="grid gap-3 px-4 py-3.5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
     >
       <div className="min-w-0">
-        <span className="inline-flex max-w-full rounded-full border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.52)] px-2.5 py-1 text-xs text-[hsl(var(--memory-body))]">
-          <span className="truncate">{label}</span>
-        </span>
-      </div>
-      <div className="min-w-0">
+        {(label || meta) ? (
+          <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[hsl(var(--memory-muted))]">
+            {label ? <span className="font-medium text-[hsl(var(--memory-body))]">{label}</span> : null}
+            {label && meta ? <span aria-hidden="true">·</span> : null}
+            {meta ? <span>{meta}</span> : null}
+          </div>
+        ) : null}
         <h3 className="break-words text-sm font-semibold leading-6 text-[hsl(var(--memory-title))]">{title}</h3>
         {body ? <p className="mt-1 line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{body}</p> : null}
-        {meta ? <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">{meta}</div> : null}
       </div>
-      {actions}
+      <div className="md:justify-self-end">{actions}</div>
     </article>
   );
 }

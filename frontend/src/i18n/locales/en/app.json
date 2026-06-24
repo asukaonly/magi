@@ -2602,7 +2602,7 @@
         "all": "All",
         "memory": "Affects memory",
         "experiences": "Experiences",
-        "observations": "Observations"
+        "observations": "Summary check"
       },
       "groups": {
         "memory": {
@@ -2614,8 +2614,8 @@
           "description": "Confirm to save as an experience"
         },
         "observations": {
-          "title": "Review observations",
-          "description": "These are Magi's stage observations and will not directly change underlying memory"
+          "title": "Summary check",
+          "description": "Check whether these stage summaries feel right"
         }
       },
       "sections": {
@@ -2629,10 +2629,10 @@
       "meta": {
         "assertion": "About-you judgment",
         "conflict": "Preference conflict",
-        "summary": "Observation",
+        "summary": "Summary",
         "experienceSeed": "Experience signal"
       },
-      "fallbackMemoryUpdateTitle": "Observation",
+      "fallbackMemoryUpdateTitle": "Summary to review",
       "fallbackConflictTitle": "Preference conflict",
       "conflictMeta": "Differs from confirmed memory",
       "evidenceCount": "{{count}} pieces of evidence",
@@ -2641,8 +2641,8 @@
         "confirm": "Confirm",
         "confirmJudgment": "Yes",
         "reject": "Not right",
-        "confirmObservation": "Observation fits",
-        "rejectObservation": "Doesn't fit",
+        "confirmObservation": "Looks right",
+        "rejectObservation": "Not quite",
         "acceptConflict": "Use new memory",
         "keepExisting": "Keep existing",
         "promoteExperience": "Save experience",

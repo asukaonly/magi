@@ -18,13 +18,13 @@ vi.mock('react-i18next', () => ({
         'memory.pending.filters.all': '全部',
         'memory.pending.filters.memory': '影响记忆',
         'memory.pending.filters.experiences': '整理经历',
-        'memory.pending.filters.observations': '复核观察',
+        'memory.pending.filters.observations': '总结复核',
         'memory.pending.groups.memory.title': '影响记忆',
         'memory.pending.groups.memory.description': '这些会直接影响 Magi 之后怎么理解你',
         'memory.pending.groups.experiences.title': '整理经历',
         'memory.pending.groups.experiences.description': '确认后会保存成一段经历',
-        'memory.pending.groups.observations.title': '复核观察',
-        'memory.pending.groups.observations.description': '这些是 Magi 的阶段观察，不会直接改底层记忆',
+        'memory.pending.groups.observations.title': '总结复核',
+        'memory.pending.groups.observations.description': '确认这些阶段总结是否说准了',
         'memory.pending.sections.profile': '关于你的判断',
         'memory.pending.sections.summaries': '待确认记忆',
         'memory.pending.sections.experiences': '待整理经历',
@@ -34,15 +34,15 @@ vi.mock('react-i18next', () => ({
         'memory.pending.actions.confirm': '确认',
         'memory.pending.actions.confirmJudgment': '是的',
         'memory.pending.actions.reject': '不对',
-        'memory.pending.actions.confirmObservation': '观察成立',
-        'memory.pending.actions.rejectObservation': '不成立',
+        'memory.pending.actions.confirmObservation': '说得对',
+        'memory.pending.actions.rejectObservation': '不太对',
         'memory.pending.actions.acceptConflict': '采用新记忆',
         'memory.pending.actions.keepExisting': '保留旧记忆',
         'memory.pending.actions.promoteExperience': '保存为经历',
         'memory.pending.actions.rejectExperience': '忽略',
         'memory.pending.meta.assertion': '关于你的判断',
         'memory.pending.meta.conflict': '偏好冲突',
-        'memory.pending.meta.summary': '观察',
+        'memory.pending.meta.summary': '总结',
         'memory.pending.meta.experienceSeed': '经历线索',
         'memory.pending.conflictMeta': '和已确认记忆不一致',
         'memory.pending.evidenceCount': '{{count}} 条证据',
@@ -252,9 +252,9 @@ describe('MemoryPendingPage', () => {
     expect(screen.getByText('这些会直接影响 Magi 之后怎么理解你')).toBeInTheDocument();
     expect(screen.getByText('本地优先的记忆系统')).toBeInTheDocument();
     expect(screen.getByText('关注方向')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '复核观察' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '总结复核' })).toBeInTheDocument();
     expect(screen.getByText('最近更关注记忆产品')).toBeInTheDocument();
-    expect(screen.getByText('观察')).toBeInTheDocument();
+    expect(screen.queryByText('观察')).not.toBeInTheDocument();
     expect(screen.queryByText('趋势观察')).not.toBeInTheDocument();
     expect(screen.queryByText('最近持续关注：Codex、DeepSeek。')).not.toBeInTheDocument();
     expect(screen.queryByText('普通总结')).not.toBeInTheDocument();
@@ -275,7 +275,7 @@ describe('MemoryPendingPage', () => {
     expect(screen.getByTestId('pending-story-story-1')).toBeInTheDocument();
     expect(screen.getByTestId('pending-experience-seed-1')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /复核观察/ }));
+    await user.click(screen.getByRole('button', { name: /总结复核/ }));
 
     expect(screen.queryByTestId('pending-assertion-assert-1')).not.toBeInTheDocument();
     expect(screen.queryByTestId('pending-experience-seed-1')).not.toBeInTheDocument();
@@ -299,7 +299,7 @@ describe('MemoryPendingPage', () => {
     });
 
     const storyCard = screen.getByTestId('pending-story-story-1');
-    await user.click(within(storyCard).getByRole('button', { name: '不成立' }));
+    await user.click(within(storyCard).getByRole('button', { name: '不太对' }));
     expect(memoryStoriesApi.review).toHaveBeenCalledWith('story-1', { review_state: 'rejected' });
     await waitFor(() => {
       expect(screen.queryByTestId('pending-story-story-1')).not.toBeInTheDocument();
