@@ -24,6 +24,14 @@ type PendingAction = 'confirmed' | 'rejected';
 type ConflictAction = 'confirm' | 'reject';
 type PendingFilter = 'all' | 'memory' | 'experiences' | 'observations';
 
+const MEMORY_REVIEW_BUTTON_CLASS = cn(
+  MEMORY_ACTION_BUTTON_CLASS,
+  'bg-[hsl(var(--memory-panel-elevated))] text-[hsl(var(--memory-title))]',
+  'shadow-[inset_0_0_0_1px_hsl(var(--memory-border)/0.62)]',
+  'hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))]',
+  'hover:shadow-[inset_0_0_0_1px_hsl(var(--memory-border)/0.78)]'
+);
+
 const assertionTitle = (assertion: L2Assertion): string => (
   String(assertion.trait_name || assertion.assertion_id || '').trim()
 );
@@ -460,8 +468,9 @@ function ReviewActions({
     <div className="flex flex-wrap items-center gap-2">
       <Button
         type="button"
+        variant="outline"
         size="sm"
-        className={MEMORY_ACTION_BUTTON_CLASS}
+        className={MEMORY_REVIEW_BUTTON_CLASS}
         disabled={busy}
         onClick={onConfirm}
       >
@@ -472,7 +481,7 @@ function ReviewActions({
         type="button"
         variant="outline"
         size="sm"
-        className={MEMORY_ACTION_BUTTON_CLASS}
+        className={MEMORY_REVIEW_BUTTON_CLASS}
         disabled={busy}
         onClick={onReject}
       >
