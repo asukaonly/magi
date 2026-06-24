@@ -17,6 +17,8 @@ from .models import L3Candidate, TrendShiftPacket
 _MIN_TREND_EVIDENCE = 3
 _MIN_TREND_HOURS = 24.0
 _VOLATILE_STABILITY_KINDS = {"volatile_pattern", "volatile_state", "temporary_state"}
+_INTEREST_TREND_GROUP = "interest_profile"
+_TREND_POLICY = "trend_shift_gate_v4"
 
 
 class TrendShiftService:
@@ -47,11 +49,7 @@ class TrendShiftService:
         if not normalized_outcomes or not source_event_ids:
             return None
 
-        content = render_insight_content(
-            insight_kind="trend_shift",
-            outcomes=normalized_outcomes,
-            user_lang_zh=wants_zh(),
-        )
+        content = self._render_trend_content(normalized_outcomes, user_lang_zh=wants_zh())
         if content is None:
             return None
         return L3Candidate(
@@ -64,7 +62,8 @@ class TrendShiftService:
             review_state="pending_confirmation",
             insight_metadata={
                 "kind": "trend_shift",
-                "policy": "trend_shift_gate_v3",
+                "policy": _TREND_POLICY,
+                "trend_groups": sorted({self._trend_group(outcome) for outcome in normalized_outcomes}),
                 "entity_id": packet.entity_id,
                 "entity_type": packet.entity_type,
                 "trigger_reason": packet.trigger_reason,
@@ -80,12 +79,60 @@ class TrendShiftService:
         key_material = {
             "kind": "trend_shift",
             "entity_id": packet.entity_id,
-            "trait_groups": sorted({trait_group(str(outcome.trait_name)) for outcome in outcomes}),
+            "trend_groups": sorted({self._trend_group(outcome) for outcome in outcomes}),
         }
         digest = hashlib.sha256(
             json.dumps(key_material, ensure_ascii=False, sort_keys=True).encode("utf-8")
         ).hexdigest()[:16]
         return f"trend_shift:{packet.entity_id}:{digest}"
+
+    def _render_trend_content(
+        self,
+        outcomes: list[ReconciledTraitOutcome],
+        *,
+        user_lang_zh: bool,
+    ) -> str | None:
+        if outcomes and all(self._is_interest_outcome(outcome) for outcome in outcomes):
+            return self._render_interest_trend_content(outcomes, zh=user_lang_zh)
+        return render_insight_content(
+            insight_kind="trend_shift",
+            outcomes=outcomes,
+            user_lang_zh=user_lang_zh,
+        )
+
+    def _render_interest_trend_content(
+        self,
+        outcomes: list[ReconciledTraitOutcome],
+        *,
+        zh: bool,
+    ) -> str | None:
+        values: list[str] = []
+        for outcome in sorted(
+            outcomes,
+            key=lambda item: (-len(item.evidence_event_ids), str(item.winning_value).casefold()),
+        ):
+            value = str(decode_value(str(outcome.winning_value)) or "").strip()
+            if not value or value.casefold() in {item.casefold() for item in values}:
+                continue
+            values.append(value)
+            if len(values) >= 6:
+                break
+        if not values:
+            return None
+        joined = "、".join(values) if zh else ", ".join(values)
+        if zh:
+            return f"最近持续关注：{joined}。"
+        return f"Sustained interest: {joined}."
+
+    def _trend_group(self, outcome: ReconciledTraitOutcome) -> str:
+        if self._is_interest_outcome(outcome):
+            return _INTEREST_TREND_GROUP
+        return trait_group(str(outcome.trait_name))
+
+    def _is_interest_outcome(self, outcome: ReconciledTraitOutcome) -> bool:
+        trait_name = str(outcome.trait_name or "").strip().lower()
+        trait_family = str(outcome.trait_family or "").strip().lower()
+        return trait_family == "preference_profile" and trait_name.startswith("interest.")
 
     def _outcome_metadata(self, outcome: ReconciledTraitOutcome) -> dict[str, object]:
         return {
@@ -110,4 +157,3 @@ class TrendShiftService:
         if len(evidence_event_ids) < _MIN_TREND_EVIDENCE:
             return False
         return stability_kind not in _VOLATILE_STABILITY_KINDS
-

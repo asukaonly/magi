@@ -2411,7 +2411,8 @@
     "subtitle": "L0-L4 Layered Memory System",
     "nav": {
       "overview": "Overview",
-      "stories": "Review",
+      "pending": "Pending",
+      "stories": "Summaries",
       "episodes": "Experiences",
       "knowledge": "Knowledge",
       "portrait": "About you",
@@ -2468,15 +2469,15 @@
       },
       "pendingKinds": {
         "assertion": "Structured assertion",
-        "story": "Magi review"
+        "story": "Memory update"
       },
       "actions": {
         "confirm": "Confirm",
         "reject": "Not right",
         "confirmAssertion": "Confirm assertion",
         "rejectAssertion": "Reject assertion",
-        "confirmStory": "Confirm review",
-        "rejectStory": "Reject review"
+        "confirmStory": "Confirm memory update",
+        "rejectStory": "Reject memory update"
       },
       "empty": {
         "loading": "Preparing your memory overview.",
@@ -2487,14 +2488,35 @@
       }
     },
     "stories": {
-      "title": "Reflections",
-      "subtitle": "A few thoughts Magi has about you. Confirm what's right, or tell it to drop what isn't.",
-      "emptyTitle": "No reflections yet",
-      "emptyBody": "Keep using Magi for a while — observations about you will appear here.",
+      "title": "Summaries",
+      "subtitle": "Stage summaries and trend observations Magi has shaped from memory.",
+      "emptyTitle": "No summaries yet",
+      "emptyBody": "Keep using Magi for a while — stage observations will appear here.",
+      "loading": "Preparing summaries.",
       "evidenceChip": "{{count}} pieces of evidence",
+      "heroLabel": "Recent highlight",
+      "sortHint": "Sorted by importance and time",
+      "filters": {
+        "all": "All",
+        "recent": "Recent",
+        "periodic": "Periods",
+        "observations": "Observations",
+        "tasks": "Tasks & goals",
+        "unarchivedOnly": "Unarchived only"
+      },
+      "stats": {
+        "highlights": "Highlights",
+        "periodic": "Period summaries",
+        "observations": "Long-term observations"
+      },
+      "meta": {
+        "insight": "Observation",
+        "periodic": "Period record"
+      },
       "sections": {
-        "reflections": "Magi's reflections",
-        "reflectionsEmpty": "Magi hasn't drawn new reflections from your memory yet.",
+        "reflections": "Magi summaries",
+        "reflectionsEmpty": "Magi hasn't shaped new summaries from your memory yet.",
+        "feed": "Summary feed",
         "periodic": "Periodic digests",
         "periodicEmpty": "No periodic summaries yet."
       },
@@ -2511,11 +2533,11 @@
         "viewEvidence": "View evidence"
       },
       "categories": {
-        "state_change": "State change",
-        "trend_shift": "Trend shift",
+        "state_change": "Memory update",
+        "trend_shift": "Long-term observation",
         "conflict_resolution": "Conflict resolution",
-        "task_reflection": "Task reflection",
-        "goal_refinement": "Goal refinement",
+        "task_reflection": "Task review",
+        "goal_refinement": "Goal change",
         "preference_emergence": "Preference emerged",
         "risk_escalation": "Risk escalation",
         "milestone_review": "Milestone review",
@@ -2526,9 +2548,35 @@
         "year": "Yearly summary"
       },
       "detailRail": {
+        "close": "Close details",
         "evidenceTitle": "Evidence",
         "evidenceLoading": "Loading…",
         "evidenceEmpty": "No related events found."
+      }
+    },
+    "pending": {
+      "title": "Pending",
+      "subtitle": "Memory signals that need your judgment live here.",
+      "sections": {
+        "profile": "About-you judgments",
+        "summaries": "Memory updates",
+        "experiences": "Experiences to organize"
+      },
+      "emptyTitle": "Nothing needs review right now",
+      "emptyBody": "New judgments or experience signals will appear here.",
+      "meta": {
+        "assertion": "About-you judgment",
+        "summary": "Memory update",
+        "experienceSeed": "Experience signal"
+      },
+      "fallbackMemoryUpdateTitle": "Memory update",
+      "evidenceCount": "{{count}} pieces of evidence",
+      "fragmentCount": "{{count}} fragments",
+      "actions": {
+        "confirm": "Confirm",
+        "reject": "Not right",
+        "promoteExperience": "Make experience",
+        "rejectExperience": "Not one"
       }
     },
     "episodes": {

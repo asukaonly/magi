@@ -54,7 +54,7 @@ async def test_build_trend_shift_candidate_from_reconcile_outcomes() -> None:
     assert candidate.summary_category == "trend_shift"
     assert candidate.insight_key is not None
     assert candidate.review_state == "pending_confirmation"
-    assert candidate.insight_metadata["policy"] == "trend_shift_gate_v3"
+    assert candidate.insight_metadata["policy"] == "trend_shift_gate_v4"
     assert candidate.source_event_ids == ["evt-1", "evt-2", "evt-3"]
     # Trait family label should appear, not raw trait_name
     assert "stress_level" not in candidate.content
@@ -186,3 +186,98 @@ async def test_trend_shift_insight_key_groups_related_music_traits() -> None:
     assert genres_only is not None
     assert genres_and_artists is not None
     assert genres_only.insight_key == genres_and_artists.insight_key
+
+
+async def test_trend_shift_interest_outcomes_use_stable_theme_key() -> None:
+    service = TrendShiftService()
+
+    codex_and_deepseek = await service.build_candidate(
+        TrendShiftPacket(
+            entity_id="user:self",
+            entity_type="user",
+            outcomes=[
+                _outcome(
+                    trait_name="interest.codex-coding-tools-by-openai",
+                    winning_value="Codex",
+                    evidence_event_ids=["evt-1", "evt-2", "evt-3"],
+                    natural_summary="Recurring interested_in signal for Codex",
+                    trait_family="preference_profile",
+                ),
+                _outcome(
+                    trait_name="interest.deepseek",
+                    winning_value="DeepSeek",
+                    evidence_event_ids=["evt-4", "evt-5", "evt-6"],
+                    natural_summary="Recurring interested_in signal for DeepSeek",
+                    trait_family="preference_profile",
+                ),
+            ],
+        )
+    )
+    expanded_interest_set = await service.build_candidate(
+        TrendShiftPacket(
+            entity_id="user:self",
+            entity_type="user",
+            outcomes=[
+                _outcome(
+                    trait_name="interest.codex-coding-tools-by-openai",
+                    winning_value="Codex",
+                    evidence_event_ids=["evt-1", "evt-2", "evt-3"],
+                    natural_summary="Recurring interested_in signal for Codex",
+                    trait_family="preference_profile",
+                ),
+                _outcome(
+                    trait_name="interest.deepseek",
+                    winning_value="DeepSeek",
+                    evidence_event_ids=["evt-4", "evt-5", "evt-6"],
+                    natural_summary="Recurring interested_in signal for DeepSeek",
+                    trait_family="preference_profile",
+                ),
+                _outcome(
+                    trait_name="interest.glm-5-2",
+                    winning_value="GLM-5.2",
+                    evidence_event_ids=["evt-7", "evt-8", "evt-9"],
+                    natural_summary="Recurring interested_in signal for GLM-5.2",
+                    trait_family="preference_profile",
+                ),
+            ],
+        )
+    )
+
+    assert codex_and_deepseek is not None
+    assert expanded_interest_set is not None
+    assert codex_and_deepseek.insight_key == expanded_interest_set.insight_key
+
+
+async def test_trend_shift_interest_content_does_not_expose_rule_template(monkeypatch) -> None:
+    monkeypatch.setattr("magi.memory.l3.trend_shift_service.wants_zh", lambda: True)
+    service = TrendShiftService()
+
+    candidate = await service.build_candidate(
+        TrendShiftPacket(
+            entity_id="user:self",
+            entity_type="user",
+            outcomes=[
+                _outcome(
+                    trait_name="interest.codex-coding-tools-by-openai",
+                    winning_value="Codex",
+                    evidence_event_ids=["evt-1", "evt-2", "evt-3"],
+                    natural_summary="Recurring interested_in signal for Codex",
+                    trait_family="preference_profile",
+                ),
+                _outcome(
+                    trait_name="interest.deepseek",
+                    winning_value="DeepSeek",
+                    evidence_event_ids=["evt-4", "evt-5", "evt-6"],
+                    natural_summary="Recurring interested_in signal for DeepSeek",
+                    trait_family="preference_profile",
+                ),
+            ],
+        )
+    )
+
+    assert candidate is not None
+    assert "Recurring" not in candidate.content
+    assert "interested_in" not in candidate.content
+    assert "Codex" in candidate.content
+    assert "DeepSeek" in candidate.content
+    assert "持续关注" in candidate.content

@@ -13,6 +13,7 @@ import MemoryPageFrame, {
   MEMORY_EMPTY_PANEL_CLASS,
   MEMORY_SECTION_CARD_CLASS,
 } from './MemoryPageFrame';
+import { isMemoryUpdateStory, isSummaryInsightStory } from './storyFilters';
 
 type PendingOverviewItem =
   | {
@@ -187,7 +188,7 @@ const buildPendingItems = (
     payload: assertion,
   }));
   const storyItems: PendingOverviewItem[] = stories
-    .filter((story) => story.review_state === 'pending_confirmation')
+    .filter((story) => story.review_state === 'pending_confirmation' && isMemoryUpdateStory(story))
     .map((story) => ({
       kind: 'story',
       id: `story:${story.summary_id}`,
@@ -210,7 +211,11 @@ const buildRecentStories = (stories: StoryItem[], t: OverviewTranslateFn): Story
   const seen = new Set<string>();
   const items: StoryItem[] = [];
   stories
-    .filter((story) => story.review_state !== 'archived' && story.review_state !== 'pending_confirmation')
+    .filter((story) => (
+      story.review_state !== 'archived'
+      && story.review_state !== 'pending_confirmation'
+      && (story.summary_type !== 'insight' || isSummaryInsightStory(story))
+    ))
     .forEach((story) => {
       const contentKey = sanitizeMemoryText(story.content, t).replace(/\s+/g, ' ').trim().toLowerCase();
       const fallbackKey = `${story.summary_type}:${story.summary_category}:${story.period_start || ''}:${story.period_end || ''}`;

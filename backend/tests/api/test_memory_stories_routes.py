@@ -291,6 +291,107 @@ def test_legible_filter_hides_insights_with_raw_trait_name(app_factory):
     assert "leak" not in ids
 
 
+def test_story_feed_keeps_latest_interest_trend_per_entity(app_factory):
+    insights = [
+        {
+            "summary_id": "old-interest",
+            "summary_type": "insight",
+            "summary_category": "trend_shift",
+            "content": "Recurring interested_in signal for Codex；Recurring interested_in signal for DeepSeek。",
+            "period_end": 100.0,
+            "updated_at": 100.0,
+            "review_state": "pending_confirmation",
+            "source_event_count": 20,
+            "insight_metadata": {
+                "kind": "trend_shift",
+                "entity_id": "user:self",
+                "outcomes": [
+                    {"trait_name": "interest.codex-coding-tools-by-openai", "winning_value": "Codex"},
+                    {"trait_name": "interest.deepseek", "winning_value": "DeepSeek"},
+                ],
+            },
+        },
+        {
+            "summary_id": "new-interest",
+            "summary_type": "insight",
+            "summary_category": "trend_shift",
+            "content": "最近持续关注：Codex、DeepSeek、GLM。",
+            "period_end": 200.0,
+            "updated_at": 200.0,
+            "review_state": "pending_confirmation",
+            "source_event_count": 32,
+            "insight_metadata": {
+                "kind": "trend_shift",
+                "entity_id": "user:self",
+                "outcomes": [
+                    {"trait_name": "interest.codex-coding-tools-by-openai", "winning_value": "Codex"},
+                    {"trait_name": "interest.deepseek", "winning_value": "DeepSeek"},
+                    {"trait_name": "interest.glm-5-2", "winning_value": "GLM-5.2"},
+                ],
+            },
+        },
+        {
+            "summary_id": "stress-trend",
+            "summary_type": "insight",
+            "summary_category": "trend_shift",
+            "content": "你的压力水平持续偏高。",
+            "period_end": 150.0,
+            "updated_at": 150.0,
+            "review_state": "pending_confirmation",
+            "source_event_count": 5,
+            "insight_metadata": {
+                "kind": "trend_shift",
+                "entity_id": "user:self",
+                "outcomes": [
+                    {"trait_name": "stress_level", "winning_value": "high"},
+                ],
+            },
+        },
+    ]
+    unified = _stub_memory(insights=insights, temporal=[])
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get("/api/memory/stories", params={"limit": 20})
+    body = resp.json()
+    ids = [item["summary_id"] for item in body["items"]]
+    assert "new-interest" in ids
+    assert "stress-trend" in ids
+    assert "old-interest" not in ids
+
+
+def test_story_feed_projects_legacy_interest_trend_as_readable_summary(app_factory):
+    insights = [
+        {
+            "summary_id": "legacy-interest",
+            "summary_type": "insight",
+            "summary_category": "trend_shift",
+            "content": "Recurring interested_in signal for Codex；Recurring interested_in signal for DeepSeek。",
+            "period_end": 100.0,
+            "updated_at": 100.0,
+            "review_state": "pending_confirmation",
+            "source_event_count": 20,
+            "insight_metadata": {
+                "kind": "trend_shift",
+                "entity_id": "user:self",
+                "outcomes": [
+                    {"trait_name": "interest.codex-coding-tools-by-openai", "winning_value": "Codex"},
+                    {"trait_name": "interest.deepseek", "winning_value": "DeepSeek"},
+                ],
+            },
+        },
+    ]
+    unified = _stub_memory(insights=insights, temporal=[])
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get("/api/memory/stories", params={"limit": 20})
+    body = resp.json()
+    assert body["items"][0]["summary_id"] == "legacy-interest"
+    assert "Recurring" not in body["items"][0]["content"]
+    assert "interested_in" not in body["items"][0]["content"]
+    assert "Codex" in body["items"][0]["content"]
+    assert "DeepSeek" in body["items"][0]["content"]
+
+
 def test_legible_filter_allows_file_paths_and_urls(app_factory):
     """Common file extensions and TLDs are not flagged as trait_name leaks."""
     insights = [

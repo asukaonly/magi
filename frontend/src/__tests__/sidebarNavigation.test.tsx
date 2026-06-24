@@ -617,6 +617,7 @@ describe('sidebar navigation', () => {
 
     expect(screen.getByTestId('sidebar-memory-panel')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.pending' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.stories' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.episodes' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'memory.nav.knowledge' })).not.toBeInTheDocument();
@@ -651,6 +652,7 @@ describe('sidebar navigation', () => {
     expect(configApi.get).not.toHaveBeenCalled();
     expect(screen.getByTestId('sidebar-memory-panel')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.pending' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.stories' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.episodes' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'memory.nav.knowledge' })).not.toBeInTheDocument();

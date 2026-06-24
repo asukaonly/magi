@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from ....memory.l3.insight_utils import decode_value
 from ....memory.l3.storage.review_operations import ALLOWED_REVIEW_STATES
 from .dependencies import _resolve_unified_memory
 
@@ -35,6 +36,7 @@ TEMPORAL_CATEGORIES = ["day", "week", "month", "quarter", "year"]
 # pending-first reordering can pull older insights ahead of newer temporal
 # rows, so the visible window's top entries may live deeper in either feed.
 _INTERLEAVE_HEADROOM = 50
+_INTEREST_TREND_GROUP = "interest_profile"
 
 # Detects schema identifiers that should never reach the user.
 # Patterns like "state.sleep_quality", "engagement.gaming_focus" — lowercase
@@ -49,6 +51,105 @@ _SAFE_EXTENSIONS = {
     "py", "ts", "tsx", "js", "jsx", "md", "html", "css", "json", "yaml", "yml",
     "sh", "txt", "log", "csv",
 }
+
+
+def _metadata_outcomes(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    outcomes = metadata.get("outcomes")
+    if not isinstance(outcomes, list):
+        return []
+    return [outcome for outcome in outcomes if isinstance(outcome, dict)]
+
+
+def _is_interest_trait_name(value: Any) -> bool:
+    return str(value or "").strip().lower().startswith("interest.")
+
+
+def _trend_groups_from_metadata(metadata: dict[str, Any]) -> list[str]:
+    trend_groups = metadata.get("trend_groups")
+    if isinstance(trend_groups, list):
+        groups = [str(group).strip() for group in trend_groups if str(group).strip()]
+        if groups:
+            return groups
+
+    outcomes = _metadata_outcomes(metadata)
+    if outcomes and all(_is_interest_trait_name(outcome.get("trait_name")) for outcome in outcomes):
+        return [_INTEREST_TREND_GROUP]
+    return []
+
+
+def _interest_values_from_metadata(metadata: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for outcome in _metadata_outcomes(metadata):
+        raw_value = outcome.get("winning_value")
+        if raw_value is None:
+            raw_value = outcome.get("value")
+        decoded_value = decode_value(raw_value) if isinstance(raw_value, str) else raw_value
+        if isinstance(decoded_value, (dict, list)):
+            value = json.dumps(decoded_value, ensure_ascii=False, sort_keys=True)
+        else:
+            value = str(decoded_value or "").strip()
+        if not value:
+            continue
+        if value.casefold() in {item.casefold() for item in values}:
+            continue
+        values.append(value)
+        if len(values) >= 6:
+            break
+    return values
+
+
+def _is_interest_trend_item(item: dict[str, Any]) -> bool:
+    if item.get("summary_category") != "trend_shift":
+        return False
+    metadata = item.get("insight_metadata")
+    if not isinstance(metadata, dict):
+        return False
+    return _INTEREST_TREND_GROUP in _trend_groups_from_metadata(metadata)
+
+
+def _render_interest_trend_content(metadata: dict[str, Any]) -> str | None:
+    values = _interest_values_from_metadata(metadata)
+    if not values:
+        return None
+    return f"最近持续关注：{'、'.join(values)}。"
+
+
+def _trend_dedupe_key(item: dict[str, Any]) -> tuple[str, str] | None:
+    if item.get("summary_category") != "trend_shift":
+        return None
+    metadata = item.get("insight_metadata")
+    if not isinstance(metadata, dict):
+        return None
+    groups = _trend_groups_from_metadata(metadata)
+    if not groups:
+        return None
+    entity_id = str(metadata.get("entity_id") or item.get("insight_key") or "").strip()
+    if not entity_id:
+        return None
+    return (entity_id, "|".join(sorted(groups)))
+
+
+def _latest_sort_key(item: dict[str, Any]) -> tuple[float, float]:
+    period_end = item.get("period_end")
+    updated_at = item.get("updated_at")
+    return (
+        float(period_end) if isinstance(period_end, (int, float)) else 0.0,
+        float(updated_at) if isinstance(updated_at, (int, float)) else 0.0,
+    )
+
+
+def _dedupe_trend_shift_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    keyed: dict[tuple[str, str], dict[str, Any]] = {}
+    unkeyed: list[dict[str, Any]] = []
+    for item in items:
+        key = _trend_dedupe_key(item)
+        if key is None:
+            unkeyed.append(item)
+            continue
+        existing = keyed.get(key)
+        if existing is None or _latest_sort_key(item) > _latest_sort_key(existing):
+            keyed[key] = item
+    return [*unkeyed, *keyed.values()]
 
 
 def _is_legible_insight_content(content: str) -> bool:
@@ -103,12 +204,19 @@ def _row_to_story_item(row: dict[str, Any]) -> dict[str, Any]:
         salience_until = float(salience_until_raw)
     else:
         salience_until = None
+    content = row.get("content") or ""
+    if str(row.get("summary_category") or "") == "trend_shift":
+        trend_item = {"summary_category": "trend_shift", "insight_metadata": metadata}
+        if _is_interest_trend_item(trend_item):
+            rendered = _render_interest_trend_content(metadata)
+            if rendered is not None:
+                content = rendered
     return {
         "summary_id": row.get("summary_id") or row.get("id"),
         "summary_type": row.get("summary_type"),
         "summary_category": row.get("summary_category"),
         "title": row.get("title") or _derive_title(row),
-        "content": row.get("content") or "",
+        "content": content,
         "period_start": row.get("period_start"),
         "period_end": row.get("period_end"),
         "updated_at": row.get("updated_at"),
@@ -193,6 +301,7 @@ def build_router() -> APIRouter:
             if item["summary_type"] != "insight"
             or _is_legible_insight_content(item["content"])
         ]
+        combined = _dedupe_trend_shift_items(combined)
 
         # Hide state_change insights whose salience window has passed.
         # Other insight categories (trend_shift, milestone_review, ...) and

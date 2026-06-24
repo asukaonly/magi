@@ -12,92 +12,123 @@ interface StoryCardProps {
 
 const stateToneClass = (state: StoryReviewState): string => {
   switch (state) {
-    case 'pending_confirmation':
-      return 'border-[hsl(var(--memory-accent)/0.4)] bg-[hsl(var(--memory-accent-soft)/0.5)]';
     case 'rejected':
     case 'archived':
-      return 'opacity-60 border-[hsl(var(--memory-border)/0.35)] bg-[hsl(var(--memory-panel-elevated)/0.5)]';
-    case 'confirmed':
-      return 'border-[hsl(var(--memory-border)/0.55)] bg-[hsl(var(--memory-panel-elevated)/0.78)]';
+      return 'opacity-60';
     default:
-      return 'border-[hsl(var(--memory-border)/0.55)] bg-[hsl(var(--memory-panel-elevated)/0.7)]';
+      return '';
   }
 };
 
-const formatPeriod = (start: number | null, end: number | null, locale: string): string => {
-  const ts = end ?? start;
-  if (!ts) return '';
-  return new Date(ts * 1000).toLocaleDateString(locale);
+const categoryToneClass = (category: string): string => {
+  switch (category) {
+    case 'trend_shift':
+    case 'preference_emergence':
+      return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+    case 'day':
+    case 'week':
+    case 'month':
+    case 'quarter':
+    case 'year':
+      return 'bg-sky-50 text-sky-700 border-sky-100';
+    case 'task_reflection':
+    case 'goal_refinement':
+    case 'milestone_review':
+      return 'bg-amber-50 text-amber-700 border-amber-100';
+    case 'conflict_resolution':
+    case 'risk_escalation':
+      return 'bg-rose-50 text-rose-700 border-rose-100';
+    default:
+      return 'bg-[hsl(var(--memory-panel-subtle)/0.76)] text-[hsl(var(--memory-body))] border-[hsl(var(--memory-border)/0.35)]';
+  }
 };
 
-const formatProvenance = (ts: number | null | undefined, locale: string): string => {
-  if (!ts) return '—';
-  return new Date(ts * 1000).toLocaleString(locale, {
+const storyTimestamp = (story: StoryItem): number | null => (
+  story.period_end || story.updated_at || story.period_start || null
+);
+
+const formatStoryDate = (story: StoryItem, locale: string): string => {
+  const timestamp = storyTimestamp(story);
+  if (!timestamp) return '';
+  return new Intl.DateTimeFormat(locale, {
     month: 'numeric',
     day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  }).format(new Date(timestamp * 1000));
 };
 
 export const StoryCard = ({ story, onArchive, onOpenDetail }: StoryCardProps) => {
   const { t, i18n } = useTranslation('app');
   const categoryLabel = t(`memory.stories.categories.${story.summary_category}`, { defaultValue: story.summary_category });
-  const stateLabel = t(`memory.stories.states.${story.review_state}`, { defaultValue: '' });
-  const period = formatPeriod(story.period_start, story.period_end, i18n.language);
+  const primaryText = story.title || story.content;
+  const secondaryText = story.title ? story.content : '';
+  const dateLabel = formatStoryDate(story, i18n.language);
+  const evidenceLabel = story.evidence_event_count > 0
+    ? t('memory.stories.evidenceChip', { count: story.evidence_event_count })
+    : null;
+  const sourceLabel = story.summary_type === 'insight'
+    ? t('memory.stories.meta.insight')
+    : t('memory.stories.meta.periodic');
 
   return (
     <article
       data-testid={`story-card-${story.summary_id}`}
-      className={cn('rounded-2xl border px-5 py-4 transition-colors', stateToneClass(story.review_state))}
+      className={cn(
+        'group grid gap-4 border-b border-[hsl(var(--memory-divider)/0.58)] px-5 py-5 transition-colors last:border-b-0 hover:bg-[hsl(var(--memory-panel-subtle)/0.28)] md:grid-cols-[150px_minmax(0,1fr)_76px]',
+        stateToneClass(story.review_state)
+      )}
     >
-      <header className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="rounded-sm bg-[hsl(var(--memory-panel-subtle)/0.7)] px-2 py-0.5 text-xs text-[hsl(var(--memory-muted))]">
-              {categoryLabel}
+      <div className="flex flex-row items-center gap-3 md:flex-col md:items-start md:gap-2">
+        <span className={cn('inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', categoryToneClass(story.summary_category))}>
+          {categoryLabel}
+        </span>
+        {dateLabel ? <span className="text-xs font-medium text-[hsl(var(--memory-muted))]">{dateLabel}</span> : null}
+      </div>
+
+      <div className="min-w-0">
+        <button
+          type="button"
+          onClick={onOpenDetail}
+          className="block text-left text-base font-semibold leading-7 text-[hsl(var(--memory-title))] transition-colors hover:text-[hsl(var(--memory-accent))]"
+        >
+          {primaryText}
+        </button>
+        {secondaryText ? (
+          <p className="mt-1.5 text-sm leading-6 text-[hsl(var(--memory-body))]">
+            {secondaryText}
+          </p>
+        ) : null}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {evidenceLabel ? (
+            <span className="rounded-full border border-[hsl(var(--memory-border)/0.42)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-2.5 py-1 text-xs text-[hsl(var(--memory-muted))]">
+              {evidenceLabel}
             </span>
-            {stateLabel ? (
-              <span className="text-xs font-medium text-[hsl(var(--memory-accent))]">{stateLabel}</span>
-            ) : null}
-            {period ? <span className="text-xs text-[hsl(var(--memory-muted))]">{period}</span> : null}
-          </div>
-          {story.title ? (
-            <button
-              type="button"
-              onClick={onOpenDetail}
-              className="text-left text-base font-semibold leading-6 text-[hsl(var(--memory-title))] hover:underline"
-            >
-              {story.title}
-            </button>
           ) : null}
+          <span className="rounded-full border border-[hsl(var(--memory-border)/0.42)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-2.5 py-1 text-xs text-[hsl(var(--memory-muted))]">
+            {sourceLabel}
+          </span>
         </div>
-        <Button variant="ghost" size="sm" onClick={onOpenDetail} aria-label={t('memory.stories.actions.viewEvidence')}>
+      </div>
+
+      <div className="flex items-center justify-end gap-1 self-center">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onArchive}
+          aria-label={t('memory.stories.actions.archive')}
+          className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+        >
+          <Archive className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onOpenDetail}
+          aria-label={t('memory.stories.actions.viewEvidence')}
+          className="h-8 w-8 text-[hsl(var(--memory-body))]"
+        >
           <ChevronRight className="h-4 w-4" />
         </Button>
-      </header>
-
-      <p className="mt-2 text-sm leading-6 text-[hsl(var(--memory-body))]">
-        {story.content}
-      </p>
-
-      <footer className="mt-3 space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          {story.summary_type === 'insight' ? (
-            <span className="text-xs text-[hsl(var(--memory-muted))]">
-              {t('memory.stories.evidenceChip', { count: story.evidence_event_count })}
-            </span>
-          ) : <span />}
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" onClick={onArchive} aria-label={t('memory.stories.actions.archive')}>
-              <Archive className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-        <div className="text-[10px] text-[hsl(var(--memory-muted)/0.8)]">
-          {t('memory.stories.provenance', { timestamp: formatProvenance(story.updated_at, i18n.language) })}
-        </div>
-      </footer>
+      </div>
     </article>
   );
 };

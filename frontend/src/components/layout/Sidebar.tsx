@@ -5,6 +5,7 @@ import {
   BookOpen,
   CalendarClock,
   History,
+  Inbox,
   LayoutDashboard,
   ListChecks,
   MessageCircle,
@@ -48,6 +49,7 @@ type ActivityPanel = Exclude<ChatPanelType, 'none'>;
 const MEMORY_DESTINATIONS = [
   { key: 'overview', path: '/memory/overview', icon: LayoutDashboard },
   { key: 'portrait', path: '/memory/portrait', icon: UserRound },
+  { key: 'pending', path: '/memory/pending', icon: Inbox },
   { key: 'stories', path: '/memory/stories', icon: History },
   { key: 'episodes', path: '/memory/episodes', icon: BookOpen },
   { key: 'recall', path: '/memory/recall', icon: Search },

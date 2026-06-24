@@ -47,6 +47,7 @@ vi.mock('../pages/Onboarding', () => ({
 
 vi.mock('../pages/memory-pages', () => ({
   MemoryOverviewPage: () => <div data-testid="memory-overview-page">memory-overview-page</div>,
+  MemoryPendingPage: () => <div data-testid="memory-pending-page">memory-pending-page</div>,
   MemoryEventsPage: () => <div data-testid="memory-events-page">memory-events-page</div>,
   MemoryKnowledgePage: () => <div data-testid="memory-knowledge-page">memory-knowledge-page</div>,
   MemorySkillsPage: () => <div data-testid="memory-skills-page">memory-skills-page</div>,
@@ -77,6 +78,17 @@ describe('app shell routing', () => {
     });
 
     expect(await screen.findByTestId('memory-overview-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-page')).not.toBeInTheDocument();
+
+    unmount();
+    window.history.replaceState({}, '', '/memory/pending');
+    vi.resetModules();
+    const pendingRouter = await import('@/router');
+    await act(async () => {
+      ({ unmount } = render(<pendingRouter.default />));
+    });
+
+    expect(await screen.findByTestId('memory-pending-page')).toBeInTheDocument();
     expect(screen.queryByTestId('chat-page')).not.toBeInTheDocument();
 
     unmount();

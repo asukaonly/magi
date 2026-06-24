@@ -17,6 +17,9 @@ const TimelinePage = React.lazy(() =>
 const MemoryOverviewPage = React.lazy(() =>
   import('../pages/memory-pages').then((m) => ({ default: m.MemoryOverviewPage }))
 );
+const MemoryPendingPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryPendingPage }))
+);
 const MemoryStoryPage = React.lazy(() =>
   import('../pages/memory-pages').then((m) => ({ default: m.MemoryStoryPage }))
 );
@@ -182,6 +185,14 @@ const router = createBrowserRouter([
             element: (
               <React.Suspense fallback={<LoadingFallback />}>
                 <MemoryOverviewPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'pending',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryPendingPage />
               </React.Suspense>
             ),
           },

@@ -2410,7 +2410,8 @@
     "subtitle": "L0-L4 分层记忆系统",
     "nav": {
       "overview": "总览",
-      "stories": "回顾",
+      "pending": "待处理",
+      "stories": "总结",
       "episodes": "经历",
       "knowledge": "知识图谱",
       "portrait": "关于你",
@@ -2467,15 +2468,15 @@
       },
       "pendingKinds": {
         "assertion": "结构化断言",
-        "story": "Magi 的回顾"
+        "story": "记忆更新"
       },
       "actions": {
         "confirm": "确认",
         "reject": "不对",
         "confirmAssertion": "确认断言",
         "rejectAssertion": "拒绝断言",
-        "confirmStory": "确认回顾",
-        "rejectStory": "拒绝回顾"
+        "confirmStory": "确认记忆更新",
+        "rejectStory": "拒绝记忆更新"
       },
       "empty": {
         "loading": "正在整理你的记忆概况。",
@@ -2486,14 +2487,35 @@
       }
     },
     "stories": {
-      "title": "反思",
-      "subtitle": "Magi 对你的几条想法。你可以确认它说得对不对，或让它别再这么想。",
-      "emptyTitle": "还没有 Magi 关于你的反思",
-      "emptyBody": "继续使用一段时间，这里会出现它对你的观察。",
+      "title": "总结",
+      "subtitle": "Magi 整理出的阶段总结和趋势观察。",
+      "emptyTitle": "还没有 Magi 的总结",
+      "emptyBody": "继续使用一段时间，这里会出现它整理出的阶段观察。",
+      "loading": "正在整理总结。",
       "evidenceChip": "{{count}} 条证据",
+      "heroLabel": "近期重点",
+      "sortHint": "按重要程度和时间排序",
+      "filters": {
+        "all": "全部",
+        "recent": "近期",
+        "periodic": "时段",
+        "observations": "观察",
+        "tasks": "任务与目标",
+        "unarchivedOnly": "只看未归档"
+      },
+      "stats": {
+        "highlights": "近期重点",
+        "periodic": "时段总结",
+        "observations": "长期观察"
+      },
+      "meta": {
+        "insight": "观察",
+        "periodic": "时段记录"
+      },
       "sections": {
-        "reflections": "Magi 的反思",
-        "reflectionsEmpty": "Magi 还没有从你的记忆里得出新的反思。",
+        "reflections": "Magi 的总结",
+        "reflectionsEmpty": "Magi 还没有从你的记忆里整理出新的总结。",
+        "feed": "总结流",
         "periodic": "时段记录",
         "periodicEmpty": "还没有时段总结。"
       },
@@ -2510,11 +2532,11 @@
         "viewEvidence": "查看证据"
       },
       "categories": {
-        "state_change": "状态变化",
-        "trend_shift": "趋势变化",
+        "state_change": "记忆更新",
+        "trend_shift": "长期观察",
         "conflict_resolution": "冲突调和",
-        "task_reflection": "任务反思",
-        "goal_refinement": "目标更新",
+        "task_reflection": "任务复盘",
+        "goal_refinement": "目标变化",
         "preference_emergence": "偏好浮现",
         "risk_escalation": "风险升级",
         "milestone_review": "里程碑回顾",
@@ -2525,9 +2547,35 @@
         "year": "本年度总结"
       },
       "detailRail": {
+        "close": "关闭详情",
         "evidenceTitle": "证据",
         "evidenceLoading": "加载中…",
         "evidenceEmpty": "没有找到关联的事件。"
+      }
+    },
+    "pending": {
+      "title": "待处理",
+      "subtitle": "需要你判断的记忆线索都在这里。",
+      "sections": {
+        "profile": "关于你的判断",
+        "summaries": "待确认记忆",
+        "experiences": "待整理经历"
+      },
+      "emptyTitle": "现在没有需要处理的内容",
+      "emptyBody": "Magi 有新的判断或经历线索时会放到这里。",
+      "meta": {
+        "assertion": "关于你的判断",
+        "summary": "记忆更新",
+        "experienceSeed": "经历线索"
+      },
+      "fallbackMemoryUpdateTitle": "待确认记忆",
+      "evidenceCount": "{{count}} 条证据",
+      "fragmentCount": "{{count}} 个片段",
+      "actions": {
+        "confirm": "确认",
+        "reject": "不对",
+        "promoteExperience": "整理成经历",
+        "rejectExperience": "不是一段"
       }
     },
     "episodes": {

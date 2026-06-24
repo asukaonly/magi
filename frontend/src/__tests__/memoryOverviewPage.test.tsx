@@ -169,6 +169,20 @@ const storyPayload = {
       evidence_event_count: 4,
     },
     {
+      summary_id: 'story-trend',
+      summary_type: 'insight',
+      summary_category: 'trend_shift',
+      title: 'Trend observed',
+      content: 'Sustained interest: Codex and DeepSeek.',
+      period_start: 1710000000,
+      period_end: 1710003600,
+      updated_at: 1710003550,
+      review_state: 'pending_confirmation',
+      insight_key: 'trend:tools',
+      insight_metadata: {},
+      evidence_event_count: 6,
+    },
+    {
       summary_id: 'story-2',
       summary_type: 'temporal',
       summary_category: 'day',
@@ -321,6 +335,8 @@ describe('MemoryOverviewPage', () => {
     expect(screen.getByText('favorite_language')).toBeInTheDocument();
     expect(screen.getByText('Python')).toBeInTheDocument();
     expect(screen.getByText('Sleep changed')).toBeInTheDocument();
+    expect(screen.queryByText('Trend observed')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sustained interest: Codex and DeepSeek.')).not.toBeInTheDocument();
     expect(screen.getByText('Latest summaries')).toBeInTheDocument();
     expect(screen.getByText('Daily summary')).toBeInTheDocument();
     expect(screen.getAllByText('A normal Chat day.')).toHaveLength(1);

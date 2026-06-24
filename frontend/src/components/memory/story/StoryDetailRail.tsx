@@ -7,6 +7,13 @@ import {
   type StoryItem,
 } from '@/api/modules/memoryStories';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface StoryDetailRailProps {
   story: StoryItem | null;
@@ -58,24 +65,28 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
   const period = story.period_end ? new Date(story.period_end * 1000).toLocaleString(i18n.language) : '';
 
   return (
-    <aside
+    <Dialog open={Boolean(story)} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
       data-testid="story-detail-rail"
-      className="fixed inset-y-0 right-0 z-30 flex w-full max-w-lg flex-col border-l border-[hsl(var(--memory-border)/0.6)] bg-[hsl(var(--memory-panel-elevated)/0.96)] shadow-2xl"
+        hideClose
+        className="max-h-[min(760px,calc(100vh-64px))] max-w-3xl overflow-hidden border-[hsl(var(--memory-border)/0.66)] bg-[hsl(var(--memory-panel-elevated)/0.98)] p-0"
     >
-      <header className="flex items-start justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.6)] px-6 py-4">
-        <div>
-          <div className="text-xs text-[hsl(var(--memory-muted))]">
+        <DialogHeader className="flex-row items-start justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.6)] px-6 py-4">
+          <div className="min-w-0">
+            <DialogDescription className="text-xs text-[hsl(var(--memory-muted))]">
             {t(`memory.stories.categories.${story.summary_category}`, { defaultValue: story.summary_category })}
             {period ? ` · ${period}` : ''}
+            </DialogDescription>
+            <DialogTitle className="mt-1 text-left text-lg font-semibold leading-7 text-[hsl(var(--memory-title))]">
+              {story.title || story.content.slice(0, 80)}
+            </DialogTitle>
           </div>
-          <h2 className="mt-1 text-lg font-semibold text-[hsl(var(--memory-title))]">{story.title || story.content.slice(0, 80)}</h2>
-        </div>
-        <Button variant="ghost" size="sm" onClick={onClose} aria-label="close">
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('memory.stories.detailRail.close')}>
           <X className="h-4 w-4" />
         </Button>
-      </header>
+        </DialogHeader>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4 text-sm leading-6 text-[hsl(var(--memory-body))]">
+        <div className="max-h-[calc(min(760px,100vh-64px)-96px)] space-y-4 overflow-y-auto px-6 py-4 text-sm leading-6 text-[hsl(var(--memory-body))]">
         <p>{story.content}</p>
 
         <div>
@@ -111,7 +122,8 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
           )}
         </div>
       </div>
-    </aside>
+      </DialogContent>
+    </Dialog>
   );
 };
 
