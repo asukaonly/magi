@@ -18,10 +18,12 @@ def _build_config(
     maintenance_enabled: bool = True,
     interval_seconds: float = 43_200.0,
     retention_days: int = 90,
+    l1_retention_days: int = 7,
     history_behavior: MemoryHistoryBehavior = MemoryHistoryBehavior.DELETE,
 ) -> Any:
     l1_cfg = MemoryL1Settings(
         enabled=l1_enabled,
+        retention_days=l1_retention_days,
         maintenance_enabled=maintenance_enabled,
         maintenance_interval_seconds=interval_seconds,
     )
@@ -82,7 +84,7 @@ async def test_l1_maintenance_contrib_registers_handler_and_schedule() -> None:
 
 
 @pytest.mark.asyncio
-async def test_handle_l1_maintenance_runs_l1_cleanup_with_global_retention() -> None:
+async def test_handle_l1_maintenance_runs_l1_cleanup_with_l1_retention() -> None:
     from magi.memory.l1.maintenance_schedule import handle_l1_maintenance
 
     unified = MagicMock()
@@ -97,7 +99,10 @@ async def test_handle_l1_maintenance_runs_l1_cleanup_with_global_retention() -> 
     )
 
     with (
-        patch("magi.memory.l1.maintenance_schedule.get_config", return_value=_build_config(retention_days=17)),
+        patch(
+            "magi.memory.l1.maintenance_schedule.get_config",
+            return_value=_build_config(retention_days=90, l1_retention_days=17),
+        ),
         patch("magi.memory.l1.maintenance_schedule.get_unified_memory", return_value=unified),
     ):
         result = await handle_l1_maintenance(MagicMock())

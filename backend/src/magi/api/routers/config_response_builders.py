@@ -89,6 +89,7 @@ def build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfi
         ),
         l1=MemoryL1ConfigModel(
             enabled=memory_cfg.l1.enabled,
+            retention_days=memory_cfg.l1.retention_days,
             vectors_enabled=memory_cfg.l1.vectors_enabled,
         ),
         l2=MemoryL2ConfigModel(
@@ -101,6 +102,7 @@ def build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfi
         ),
         l3=MemoryL3ConfigModel(
             enabled=memory_cfg.l3.enabled,
+            retention_days=memory_cfg.l3.retention_days,
             vectors_enabled=memory_cfg.l3.vectors_enabled,
             llm_summary_enabled=memory_cfg.l3.llm_summary_enabled,
             temporal_llm_timeout_seconds=memory_cfg.l3.temporal_llm_timeout_seconds,

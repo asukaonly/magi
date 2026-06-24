@@ -876,9 +876,8 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
             memory_db_path=str(self.base / "memory.db"),
             persist_dir=str(self.base / "memories"),
             enable_l0=False,
-            enable_l2=False,
             enable_l4=False,
-            tuning=MemoryStoreTuning(enable_l1_vectors=False, enable_l3_vectors=False),
+            tuning=MemoryStoreTuning(enable_l1_vectors=False, enable_l2_vectors=False, enable_l3_vectors=False),
         )
         await self.store.initialize()
 
@@ -951,6 +950,56 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
         }
         self.assertNotIn(linked_compressible_event_id, remaining_event_ids)
         self.assertIn(uncovered_compressible_event_id, remaining_event_ids)
+
+    async def test_l1_cleanup_keeps_l2_referenced_events(self) -> None:
+        old_timestamp = time.time() - (40 * 86400)
+        linked_event_id = await self.store.add_event(
+            Event(
+                type=EventTypes.TASK_COMPLETED,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "success": True,
+                    "task_id": "task-protected-episode",
+                    "content": "A source event that still backs an active episode.",
+                },
+                source="worker",
+                level=EventLevel.INFO,
+                correlation_id="evt-l2-protected-1",
+                timestamp=old_timestamp,
+            )
+        )
+        await self.store.l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="state_change",
+                content="A summary covers this old event.",
+                source_event_ids=[linked_event_id],
+            ),
+            summary_overrides={
+                "period_start": old_timestamp,
+                "period_end": old_timestamp,
+                "created_at": old_timestamp,
+                "updated_at": old_timestamp,
+            },
+        )
+        await self.store.l2.create_episode(
+            episode_id="ep-protect-l1-event",
+            status="active",
+            time_start=old_timestamp,
+            time_end=old_timestamp + 60,
+            label="Protected episode",
+            source_event_count=1,
+        )
+        await self.store.l2.add_episode_events(
+            episode_id="ep-protect-l1-event",
+            event_ids=[linked_event_id],
+        )
+
+        removed = await self.store.cleanup_l1_data(older_than_days=30)
+
+        self.assertEqual(removed["deleted_events"], 0)
+        self.assertIsNone((await self.store.l1.get_event(linked_event_id))["deleted_at"])
 
     async def test_cleanup_old_data_can_archive_linked_events(self) -> None:
         old_timestamp = time.time() - (45 * 86400)
@@ -1061,6 +1110,56 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(removed["deleted_summaries"], 1)
         self.assertEqual(await self.store.l3.count_summaries(), 0)
         self.assertIsNone((await self.store.l1.get_event(durable_event_id))["deleted_at"])
+
+    async def test_l3_cleanup_keeps_reviewable_and_experience_summaries(self) -> None:
+        old_timestamp = time.time() - (50 * 86400)
+        event_id = await self.store.add_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "content": "Keep important review summaries."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-summary-protected-1",
+                timestamp=old_timestamp,
+            )
+        )
+
+        experience_summary = await self.store.l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="episodic",
+                content="An old experience recap should remain visible.",
+                source_event_ids=[event_id],
+                insight_metadata={"source_experience_id": "exp-protected"},
+            ),
+            summary_overrides={
+                "period_start": old_timestamp,
+                "period_end": old_timestamp,
+                "created_at": old_timestamp,
+                "updated_at": old_timestamp,
+            },
+        )
+        confirmed_summary = await self.store.l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="state_change",
+                content="A confirmed insight should not expire as ordinary hot-path cache.",
+                source_event_ids=[event_id],
+                review_state="confirmed",
+            ),
+            summary_overrides={
+                "period_start": old_timestamp + 1,
+                "period_end": old_timestamp + 1,
+                "created_at": old_timestamp + 1,
+                "updated_at": old_timestamp + 1,
+            },
+        )
+
+        removed = await self.store.cleanup_l3_data(older_than_days=30)
+
+        self.assertEqual(removed["deleted_summaries"], 0)
+        self.assertIsNotNone(await self.store.l3.get_summary_by_id(experience_summary["summary_id"]))
+        self.assertIsNotNone(await self.store.l3.get_summary_by_id(confirmed_summary["summary_id"]))
 
     async def test_run_maintenance_leaves_l1_and_l3_cleanup_to_layer_schedules(self) -> None:
         old_timestamp = time.time() - (50 * 86400)

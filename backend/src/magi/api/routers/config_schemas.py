@@ -119,6 +119,7 @@ class MemoryL0ConfigModel(BaseModel):
 
 class MemoryL1ConfigModel(BaseModel):
     enabled: bool = Field(default=True)
+    retention_days: int = Field(default=7, ge=1)
     vectors_enabled: bool = Field(default=True)
 
 
@@ -133,6 +134,7 @@ class MemoryL2ConfigModel(BaseModel):
 
 class MemoryL3ConfigModel(BaseModel):
     enabled: bool = Field(default=True)
+    retention_days: int = Field(default=180, ge=1)
     vectors_enabled: bool = Field(default=True)
     llm_summary_enabled: bool = Field(default=True)
     temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)

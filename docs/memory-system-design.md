@@ -1125,6 +1125,15 @@ Retention policies are defined per event type and purpose, not as a global rule.
 - External activity is typically `compressible`
 - Runtime telemetry is strictly limited or excluded by default
 - Summaries and procedural memory must retain evidence backlink capability
+- L1 retention uses `agent.memory.l1.retention_days`; L3 summary retention uses
+  `agent.memory.l3.retention_days`. The legacy top-level
+  `agent.memory.retention_days` is not the owner of scheduled L1/L3 cleanup.
+- L1 cleanup may only delete compressible events that are already covered by L3
+  summaries and are not still referenced by active L2 episodes, experiences,
+  experience seeds, graph edges, assertions, or entity facets.
+- L3 cleanup may age out ordinary hot-path summaries, but it must preserve
+  reviewable/user-confirmed insights and episodic summaries attached to stable
+  L2 episode or experience objects.
 
 ### What Compression Means
 

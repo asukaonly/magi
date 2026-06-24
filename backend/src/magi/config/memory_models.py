@@ -162,6 +162,11 @@ class MemoryL3Settings(BaseModel):
     """L3 reflection-memory settings."""
 
     enabled: bool = Field(default=True)
+    retention_days: int = Field(
+        default=180,
+        ge=1,
+        description="Retention window for L3 reflection summaries before retention maintenance may remove unreferenced hot-path summaries.",
+    )
     vectors_enabled: bool = Field(default=True)
     llm_summary_enabled: bool = Field(default=True)
     temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)

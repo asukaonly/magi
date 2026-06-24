@@ -1610,7 +1610,7 @@ export interface paths {
          *     pre-existing active episodes that never got a title are backfilled here.
          *     Active experiences are also scanned so placeholder review titles from older
          *     runs are repaired by the same button.
-         *     Eager generation on new promotes is handled by the maintenance scheduler.
+         *     Eager generation on new promotes is handled by the L2 consolidation scheduler.
          */
         readonly post: operations["reconsolidate_episodes_endpoint_api_memory_l2_episodes_reconsolidate_post"];
         readonly delete?: never;
@@ -5943,6 +5943,11 @@ export interface components {
              */
             readonly enabled: boolean;
             /**
+             * Retention Days
+             * @default 7
+             */
+            readonly retention_days: number;
+            /**
              * Vectors Enabled
              * @default true
              */
@@ -5993,6 +5998,11 @@ export interface components {
              * @default true
              */
             readonly llm_summary_enabled: boolean;
+            /**
+             * Retention Days
+             * @default 180
+             */
+            readonly retention_days: number;
             /**
              * Summary Interval Minutes
              * @default 60
@@ -7244,7 +7254,7 @@ export interface components {
          * @description Supported scheduler target families.
          * @enum {string}
          */
-        readonly ScheduledTargetType: "sensor_sync" | "memory_l2_maintenance" | "memory_l3_summary" | "memory_l4_maintenance" | "user_agent_task" | "timeline_diary_narrative" | "timeline_standout_rescore" | "timeline_mood_aggregate" | "timeline_representative_asset" | "location_ipgeo_poll" | "location_wifi_poll" | "outreach_outbox_drain" | "memory_l2_derive";
+        readonly ScheduledTargetType: "sensor_sync" | "memory_l1_maintenance" | "memory_l2_maintenance" | "memory_l2_consolidate" | "memory_l3_summary" | "memory_l3_maintenance" | "memory_l4_maintenance" | "user_agent_task" | "timeline_diary_narrative" | "timeline_standout_rescore" | "timeline_mood_aggregate" | "timeline_representative_asset" | "location_ipgeo_poll" | "location_wifi_poll" | "outreach_outbox_drain" | "memory_l2_derive";
         /** SeedPreviewResponse */
         readonly SeedPreviewResponse: {
             /** Data */

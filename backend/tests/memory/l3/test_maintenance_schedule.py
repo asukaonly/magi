@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from magi.config.memory_models import MemoryHistoryBehavior, MemoryL3Settings
+from magi.config.memory_models import MemoryHistoryBehavior
 from magi.scheduler.contracts import ScheduledTargetType
 
 
@@ -18,10 +18,12 @@ def _build_config(
     maintenance_enabled: bool = True,
     interval_seconds: float = 86_400.0,
     retention_days: int = 90,
+    l3_retention_days: int = 180,
     history_behavior: MemoryHistoryBehavior = MemoryHistoryBehavior.ARCHIVE,
 ) -> Any:
-    l3_cfg = MemoryL3Settings(
+    l3_cfg = SimpleNamespace(
         enabled=l3_enabled,
+        retention_days=l3_retention_days,
         maintenance_enabled=maintenance_enabled,
         maintenance_interval_seconds=interval_seconds,
     )
@@ -82,7 +84,7 @@ async def test_l3_maintenance_contrib_registers_handler_and_schedule() -> None:
 
 
 @pytest.mark.asyncio
-async def test_handle_l3_maintenance_runs_l3_cleanup_with_global_retention() -> None:
+async def test_handle_l3_maintenance_runs_l3_cleanup_with_l3_retention() -> None:
     from magi.memory.l3.maintenance_schedule import handle_l3_maintenance
 
     unified = MagicMock()
@@ -95,7 +97,10 @@ async def test_handle_l3_maintenance_runs_l3_cleanup_with_global_retention() -> 
     )
 
     with (
-        patch("magi.memory.l3.maintenance_schedule.get_config", return_value=_build_config(retention_days=21)),
+        patch(
+            "magi.memory.l3.maintenance_schedule.get_config",
+            return_value=_build_config(retention_days=21, l3_retention_days=180),
+        ),
         patch("magi.memory.l3.maintenance_schedule.get_unified_memory", return_value=unified),
     ):
         result = await handle_l3_maintenance(MagicMock())
@@ -107,7 +112,7 @@ async def test_handle_l3_maintenance_runs_l3_cleanup_with_global_retention() -> 
         "deleted_summaries": 5,
     }
     unified.cleanup_l3_data.assert_awaited_once_with(
-        older_than_days=21,
+        older_than_days=180,
         history_behavior="archive",
     )
 

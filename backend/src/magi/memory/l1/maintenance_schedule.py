@@ -42,7 +42,7 @@ async def handle_l1_maintenance(
 
     try:
         stats = await unified.cleanup_l1_data(
-            older_than_days=int(memory_cfg.retention_days),
+            older_than_days=int(l1_cfg.retention_days),
             history_behavior=getattr(
                 memory_cfg.history_behavior,
                 "value",

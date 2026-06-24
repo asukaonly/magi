@@ -8,7 +8,28 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
-from ..core.sqlite import sqlite_transaction_async
+from ..core.sqlite import sqlite_connection_async, sqlite_transaction_async
+
+
+_L2_EPISODE_TERMINAL_STATUSES = ("merged", "invalidated", "archived")
+_L2_EXPERIENCE_TERMINAL_STATUSES = ("merged", "invalidated")
+_L2_SEED_ACTIVE_STATUSES = ("candidate", "accepted")
+_L2_GRAPH_ACTIVE_STATUSES = ("active",)
+_L2_ASSERTION_TERMINAL_STATUSES = (
+    "superseded",
+    "archived",
+    "expired",
+    "user_rejected",
+    "shadow",
+)
+_L2_FACET_ACTIVE_STATUSES = ("active",)
+_L3_REVIEW_PROTECTED_STATES = ("pending_confirmation", "confirmed")
+_L3_EPISODIC_REFERENCE_KEYS = (
+    "source_experience_id",
+    "source_episode_id",
+    "experience_id",
+    "episode_id",
+)
 
 
 def _empty_maintenance_counts() -> Dict[str, int]:
@@ -25,6 +46,43 @@ def _empty_maintenance_counts() -> Dict[str, int]:
 def _merge_counts(base: Dict[str, int], delta: Dict[str, int]) -> None:
     for key, value in delta.items():
         base[key] = int(base.get(key, 0)) + int(value)
+
+
+def _normalize_event_ids(event_ids: list[str]) -> list[str]:
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for raw_event_id in event_ids:
+        event_id = str(raw_event_id or "").strip()
+        if not event_id or event_id in seen:
+            continue
+        seen.add(event_id)
+        normalized.append(event_id)
+    return normalized
+
+
+def _chunked(values: list[str], *, size: int = 500) -> list[list[str]]:
+    return [values[index : index + size] for index in range(0, len(values), size)]
+
+
+def _placeholders(count: int) -> str:
+    return ", ".join("?" for _ in range(count))
+
+
+def _json_array_expr(column_name: str) -> str:
+    return f"CASE WHEN json_valid({column_name}) THEN {column_name} ELSE '[]' END"
+
+
+def _summary_metadata(summary: Dict[str, Any]) -> dict[str, Any]:
+    raw_metadata = summary.get("insight_metadata") or {}
+    if isinstance(raw_metadata, dict):
+        return raw_metadata
+    if isinstance(raw_metadata, str):
+        try:
+            decoded = json.loads(raw_metadata)
+        except json.JSONDecodeError:
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return {}
 
 
 class UnifiedMemoryMaintenanceMixin:
@@ -185,6 +243,182 @@ class UnifiedMemoryMaintenanceMixin:
             await self.l0.checkpoint_all()
         return removed
 
+    async def _l2_referenced_l1_event_ids(self, event_ids: list[str]) -> set[str]:
+        """Return event ids that remain live evidence for L2 user-facing records."""
+        normalized_event_ids = _normalize_event_ids(event_ids)
+        if not normalized_event_ids or self.l2 is None:
+            return set()
+
+        db_path = str(getattr(self.l2, "db_path", "") or "")
+        if not db_path:
+            return set()
+
+        initialize = getattr(self.l2, "initialize", None)
+        if callable(initialize):
+            await initialize()
+
+        protected: set[str] = set()
+        async with sqlite_connection_async(db_path) as db:
+            async with db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ) as cursor:
+                table_rows = await cursor.fetchall()
+            tables = {str(row[0]) for row in table_rows}
+
+            async def collect(sql: str, args: tuple[Any, ...]) -> None:
+                async with db.execute(sql, args) as cursor:
+                    rows = await cursor.fetchall()
+                protected.update(str(row[0]) for row in rows if row[0])
+
+            for chunk in _chunked(normalized_event_ids):
+                event_placeholders = _placeholders(len(chunk))
+
+                if {"episode_events", "episodes"}.issubset(tables):
+                    status_placeholders = _placeholders(len(_L2_EPISODE_TERMINAL_STATUSES))
+                    await collect(
+                        f"""
+                        SELECT DISTINCT ee.event_id
+                        FROM episode_events AS ee
+                        JOIN episodes AS e ON e.episode_id = ee.episode_id
+                        WHERE ee.event_id IN ({event_placeholders})
+                          AND ee.membership_role != 'excluded'
+                          AND e.status NOT IN ({status_placeholders})
+                        """,
+                        (*chunk, *_L2_EPISODE_TERMINAL_STATUSES),
+                    )
+
+                if {"experience_members", "experiences"}.issubset(tables):
+                    status_placeholders = _placeholders(len(_L2_EXPERIENCE_TERMINAL_STATUSES))
+                    await collect(
+                        f"""
+                        SELECT DISTINCT em.member_id
+                        FROM experience_members AS em
+                        JOIN experiences AS x ON x.experience_id = em.experience_id
+                        WHERE em.member_type = 'event'
+                          AND em.member_id IN ({event_placeholders})
+                          AND em.role != 'excluded'
+                          AND x.status NOT IN ({status_placeholders})
+                        """,
+                        (*chunk, *_L2_EXPERIENCE_TERMINAL_STATUSES),
+                    )
+                    if "episode_events" in tables:
+                        await collect(
+                            f"""
+                            SELECT DISTINCT ee.event_id
+                            FROM experience_members AS em
+                            JOIN experiences AS x ON x.experience_id = em.experience_id
+                            JOIN episode_events AS ee ON ee.episode_id = em.member_id
+                            WHERE em.member_type = 'episode'
+                              AND ee.event_id IN ({event_placeholders})
+                              AND em.role != 'excluded'
+                              AND ee.membership_role != 'excluded'
+                              AND x.status NOT IN ({status_placeholders})
+                            """,
+                            (*chunk, *_L2_EXPERIENCE_TERMINAL_STATUSES),
+                        )
+
+                if {"experience_key_events", "experiences"}.issubset(tables):
+                    status_placeholders = _placeholders(len(_L2_EXPERIENCE_TERMINAL_STATUSES))
+                    await collect(
+                        f"""
+                        SELECT DISTINCT eke.event_id
+                        FROM experience_key_events AS eke
+                        JOIN experiences AS x ON x.experience_id = eke.experience_id
+                        WHERE eke.event_id IN ({event_placeholders})
+                          AND x.status NOT IN ({status_placeholders})
+                        """,
+                        (*chunk, *_L2_EXPERIENCE_TERMINAL_STATUSES),
+                    )
+
+                if {"experience_seed_evidence", "experience_seeds"}.issubset(tables):
+                    status_placeholders = _placeholders(len(_L2_SEED_ACTIVE_STATUSES))
+                    await collect(
+                        f"""
+                        SELECT DISTINCT ese.ref_id
+                        FROM experience_seed_evidence AS ese
+                        JOIN experience_seeds AS s ON s.seed_id = ese.seed_id
+                        WHERE ese.ref_type = 'event'
+                          AND ese.ref_id IN ({event_placeholders})
+                          AND s.status IN ({status_placeholders})
+                        """,
+                        (*chunk, *_L2_SEED_ACTIVE_STATUSES),
+                    )
+                    if "episode_events" in tables:
+                        await collect(
+                            f"""
+                            SELECT DISTINCT ee.event_id
+                            FROM experience_seed_evidence AS ese
+                            JOIN experience_seeds AS s ON s.seed_id = ese.seed_id
+                            JOIN episode_events AS ee ON ee.episode_id = ese.ref_id
+                            WHERE ese.ref_type = 'episode'
+                              AND ee.event_id IN ({event_placeholders})
+                              AND ee.membership_role != 'excluded'
+                              AND s.status IN ({status_placeholders})
+                            """,
+                            (*chunk, *_L2_SEED_ACTIVE_STATUSES),
+                        )
+
+                if "knowledge_graph" in tables:
+                    status_placeholders = _placeholders(len(_L2_GRAPH_ACTIVE_STATUSES))
+                    await collect(
+                        f"""
+                        SELECT DISTINCT evidence.value
+                        FROM knowledge_graph AS kg,
+                             json_each({_json_array_expr("kg.evidence_event_ids")}) AS evidence
+                        WHERE evidence.value IN ({event_placeholders})
+                          AND kg.status IN ({status_placeholders})
+                        """,
+                        (*chunk, *_L2_GRAPH_ACTIVE_STATUSES),
+                    )
+
+                if "tom_trait_assertions" in tables:
+                    status_placeholders = _placeholders(len(_L2_ASSERTION_TERMINAL_STATUSES))
+                    await collect(
+                        f"""
+                        SELECT DISTINCT evidence.value
+                        FROM tom_trait_assertions AS a,
+                             json_each({_json_array_expr("a.evidence_events")}) AS evidence
+                        WHERE evidence.value IN ({event_placeholders})
+                          AND a.status NOT IN ({status_placeholders})
+                        """,
+                        (*chunk, *_L2_ASSERTION_TERMINAL_STATUSES),
+                    )
+
+                if "entity_facets" in tables:
+                    status_placeholders = _placeholders(len(_L2_FACET_ACTIVE_STATUSES))
+                    await collect(
+                        f"""
+                        SELECT DISTINCT evidence.value
+                        FROM entity_facets AS f,
+                             json_each({_json_array_expr("f.evidence_event_ids")}) AS evidence
+                        WHERE evidence.value IN ({event_placeholders})
+                          AND f.status IN ({status_placeholders})
+                        """,
+                        (*chunk, *_L2_FACET_ACTIVE_STATUSES),
+                    )
+
+        return protected
+
+    async def _filter_l1_retention_candidates(self, event_ids: list[str]) -> list[str]:
+        normalized_event_ids = _normalize_event_ids(event_ids)
+        if not normalized_event_ids:
+            return []
+        protected_event_ids = await self._l2_referenced_l1_event_ids(normalized_event_ids)
+        if not protected_event_ids:
+            return normalized_event_ids
+        return [event_id for event_id in normalized_event_ids if event_id not in protected_event_ids]
+
+    def _is_l3_summary_retention_protected(self, summary: Dict[str, Any]) -> bool:
+        review_state = str(summary.get("review_state") or "").strip()
+        if review_state in _L3_REVIEW_PROTECTED_STATES:
+            return True
+
+        metadata = _summary_metadata(summary)
+        if any(metadata.get(key) for key in _L3_EPISODIC_REFERENCE_KEYS):
+            return True
+
+        return bool(metadata.get("user_pinned") or metadata.get("pinned"))
+
     async def cleanup_l1_data(
         self,
         older_than_days: int = 30,
@@ -206,7 +440,8 @@ class UnifiedMemoryMaintenanceMixin:
                 limit=10_000,
             )
             linked_event_ids = await self.l3.filter_linked_event_ids(candidate_event_ids)
-            for event_id in linked_event_ids:
+            deletable_event_ids = await self._filter_l1_retention_candidates(linked_event_ids)
+            for event_id in deletable_event_ids:
                 if should_archive:
                     event = await self.l1.get_event(event_id)
                     if event is None:
@@ -244,6 +479,8 @@ class UnifiedMemoryMaintenanceMixin:
                 limit=10_000,
             )
             for summary in expired_summaries:
+                if self._is_l3_summary_retention_protected(summary):
+                    continue
                 summary_id = str(summary.get("summary_id") or "")
                 if not summary_id:
                     continue

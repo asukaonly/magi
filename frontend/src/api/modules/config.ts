@@ -443,6 +443,7 @@ export interface MemoryL0Config {
 
 export interface MemoryL1Config {
   enabled: boolean;
+  retention_days: number;
   vectors_enabled: boolean;
 }
 
@@ -457,6 +458,7 @@ export interface MemoryL2Config {
 
 export interface MemoryL3Config {
   enabled: boolean;
+  retention_days: number;
   vectors_enabled: boolean;
   llm_summary_enabled: boolean;
   temporal_llm_timeout_seconds: number;
@@ -743,6 +745,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     },
     l1: {
       enabled: true,
+      retention_days: 7,
       vectors_enabled: true,
     },
     l2: {
@@ -755,6 +758,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     },
     l3: {
       enabled: true,
+      retention_days: 180,
       vectors_enabled: true,
       llm_summary_enabled: true,
       temporal_llm_timeout_seconds: 3.0,
