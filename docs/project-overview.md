@@ -115,6 +115,7 @@ Discovery, enablement, and settings metadata are owned by the plugin runtime; ex
 
 - sensor sync
 - agent task dispatch
+- layer-owned memory maintenance, consolidation, and summary generation
 
 It is intentionally distinct from housekeeping loops such as `MaintenanceDaemon`.
 

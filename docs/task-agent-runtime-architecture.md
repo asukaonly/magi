@@ -94,11 +94,18 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 ### Phase 4: exports and maintenance registration
 
 24. `runtime_exports`
-25. `runtime_l2_maintenance_scheduler`
-26. `runtime_l3_summary_scheduler`
-27. `runtime_l3_digest_scheduler`
-28. `runtime_other_dependencies`
-29. `runtime_channels`
+25. `runtime_control_plane`
+26. `runtime_l1_maintenance_scheduler`
+27. `runtime_l2_maintenance_scheduler`
+28. `runtime_l2_consolidation_scheduler`
+29. `runtime_l2_derive_scheduler`
+30. `runtime_l3_summary_scheduler`
+31. `runtime_l3_maintenance_scheduler`
+32. `runtime_l4_maintenance_scheduler`
+33. `runtime_timeline_schedulers`
+34. `runtime_other_dependencies`
+35. `runtime_channels`
+36. `runtime_outreach`
 
 Important rule: bootstrap order is dependency order, not ownership order. For example, the scheduler engine is infrastructure even though it is started after timeline services that will register schedules into it.
 
@@ -926,19 +933,23 @@ Current rule:
 The scheduler runtime currently supports these active target families:
 
 - `sensor_sync`
+- `memory_l1_maintenance`
 - `memory_l2_maintenance`
 - `memory_l2_consolidate`
 - `memory_l2_derive`
 - `memory_l3_summary`
+- `memory_l3_maintenance`
 - `memory_l4_maintenance`
 
 The scheduler engine lives in `scheduler/service.py`. Layer-owned schedule registration is performed by:
 
 - `SensorScheduleRegistrationModule`
+- `L1MaintenanceScheduleRegistrationModule`
 - `L2MaintenanceScheduleRegistrationModule`
 - `L2ConsolidationScheduleRegistrationModule`
 - `L2DeriveScheduleRegistrationModule`
 - `L3SummaryScheduleRegistrationModule`
+- `L3MaintenanceScheduleRegistrationModule`
 - `L4MaintenanceScheduleRegistrationModule`
 
 This keeps scheduling policy with the owning layers instead of centralizing it in one runtime module.

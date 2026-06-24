@@ -1062,6 +1062,47 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.store.l3.count_summaries(), 0)
         self.assertIsNone((await self.store.l1.get_event(durable_event_id))["deleted_at"])
 
+    async def test_run_maintenance_leaves_l1_and_l3_cleanup_to_layer_schedules(self) -> None:
+        old_timestamp = time.time() - (50 * 86400)
+        linked_compressible_event_id = await self.store.add_event(
+            Event(
+                type=EventTypes.TASK_COMPLETED,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "task_id": "task-layer-split",
+                    "success": True,
+                    "content": "A compressible event covered by an old summary.",
+                },
+                source="worker",
+                level=EventLevel.INFO,
+                correlation_id="evt-layer-maintenance-split",
+                timestamp=old_timestamp,
+            )
+        )
+
+        await self.store.l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="state_change",
+                content="An old summary that should be handled by L3 maintenance.",
+                source_event_ids=[linked_compressible_event_id],
+            ),
+            summary_overrides={
+                "period_start": old_timestamp,
+                "period_end": old_timestamp,
+                "created_at": old_timestamp,
+                "updated_at": old_timestamp,
+            },
+        )
+
+        removed = await self.store.run_maintenance(retention_days=30)
+
+        self.assertEqual(removed["deleted_events"], 0)
+        self.assertEqual(removed["deleted_summaries"], 0)
+        self.assertIsNone((await self.store.l1.get_event(linked_compressible_event_id))["deleted_at"])
+        self.assertEqual(await self.store.l3.count_summaries(), 1)
+
 
 class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:

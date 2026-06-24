@@ -32,11 +32,7 @@ class OtherDependenciesModule(LifecycleModule):
 
         async def _run_maintenance() -> dict[str, int]:
             current_config = get_config()
-            memory_settings = current_config.agent.memory
-            results = await unified_memory.run_maintenance(
-                retention_days=memory_settings.retention_days,
-                history_behavior=getattr(memory_settings.history_behavior, "value", str(memory_settings.history_behavior)),
-            )
+            results = await unified_memory.cleanup_runtime_data()
             runtime_gc = RuntimeOperationalGC(
                 lifecycle=current_config.lifecycle,
                 runtime_paths=get_runtime_paths(),

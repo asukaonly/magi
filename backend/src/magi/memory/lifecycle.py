@@ -177,6 +177,37 @@ class MemoryIngestionSubscriberModule(LifecycleModule):
         self._context.memory.ingestion_subscriber = None
 
 
+class L1MaintenanceScheduleRegistrationModule(LifecycleModule):
+    """Register L1 retention maintenance with the unified scheduler."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_l1_maintenance_scheduler",
+            dependencies=(
+                "runtime_scheduler",
+                "runtime_configuration",
+                "runtime_memory",
+                "runtime_exports",
+            ),
+        )
+        self._context = context
+        self._contrib: Any = None
+
+    async def init(self) -> None:
+        from .l1.maintenance_schedule import L1MaintenanceScheduleContrib
+
+        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        self._contrib = L1MaintenanceScheduleContrib()
+        await self._contrib.register_schedules(scheduler_service)
+
+    async def shutdown(self) -> None:
+        if self._contrib is None or self._context.scheduler.scheduler_service is None:
+            self._contrib = None
+            return
+        await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
+        self._contrib = None
+
+
 class L2MaintenanceScheduleRegistrationModule(LifecycleModule):
     """Register L2 entity maintenance with the unified scheduler (runtime worker)."""
 
@@ -291,6 +322,37 @@ class L3SummaryScheduleRegistrationModule(LifecycleModule):
 
         scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
         self._contrib = L3SummaryScheduleContrib()
+        await self._contrib.register_schedules(scheduler_service)
+
+    async def shutdown(self) -> None:
+        if self._contrib is None or self._context.scheduler.scheduler_service is None:
+            self._contrib = None
+            return
+        await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
+        self._contrib = None
+
+
+class L3MaintenanceScheduleRegistrationModule(LifecycleModule):
+    """Register L3 summary-retention maintenance with the unified scheduler."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_l3_maintenance_scheduler",
+            dependencies=(
+                "runtime_scheduler",
+                "runtime_configuration",
+                "runtime_memory",
+                "runtime_exports",
+            ),
+        )
+        self._context = context
+        self._contrib: Any = None
+
+    async def init(self) -> None:
+        from .l3.maintenance_schedule import L3MaintenanceScheduleContrib
+
+        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        self._contrib = L3MaintenanceScheduleContrib()
         await self._contrib.register_schedules(scheduler_service)
 
     async def shutdown(self) -> None:

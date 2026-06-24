@@ -11,6 +11,22 @@ from typing import Any, Dict
 from ..core.sqlite import sqlite_transaction_async
 
 
+def _empty_maintenance_counts() -> Dict[str, int]:
+    return {
+        "expired_sessions": 0,
+        "deleted_events": 0,
+        "archived_events": 0,
+        "archived_summaries": 0,
+        "deleted_summaries": 0,
+        "pruned_pinned_payloads": 0,
+    }
+
+
+def _merge_counts(base: Dict[str, int], delta: Dict[str, int]) -> None:
+    for key, value in delta.items():
+        base[key] = int(base.get(key, 0)) + int(value)
+
+
 class UnifiedMemoryMaintenanceMixin:
     """Expose lightweight search and retention maintenance operations."""
 
@@ -143,20 +159,47 @@ class UnifiedMemoryMaintenanceMixin:
         history_behavior: str = "delete",
     ) -> Dict[str, int]:
         """Run lightweight cleanup jobs."""
+        removed = _empty_maintenance_counts()
+        _merge_counts(removed, await self.cleanup_runtime_data())
+        _merge_counts(
+            removed,
+            await self.cleanup_l1_data(
+                older_than_days=older_than_days,
+                history_behavior=history_behavior,
+            ),
+        )
+        _merge_counts(
+            removed,
+            await self.cleanup_l3_data(
+                older_than_days=older_than_days,
+                history_behavior=history_behavior,
+            ),
+        )
+        return removed
+
+    async def cleanup_runtime_data(self) -> Dict[str, int]:
+        """Run global runtime maintenance that is not owned by a memory layer."""
+        removed = _empty_maintenance_counts()
+        if self.l0 is not None:
+            removed["expired_sessions"] = len(await self.l0.expire_idle_sessions())
+            await self.l0.checkpoint_all()
+        return removed
+
+    async def cleanup_l1_data(
+        self,
+        older_than_days: int = 30,
+        *,
+        history_behavior: str = "delete",
+    ) -> Dict[str, int]:
+        """Run L1 retention maintenance."""
         removed: Dict[str, int] = {
-            "expired_sessions": 0,
             "deleted_events": 0,
             "archived_events": 0,
-            "archived_summaries": 0,
-            "deleted_summaries": 0,
             "pruned_pinned_payloads": 0,
         }
         cutoff = time.time() - (max(int(older_than_days), 0) * 86400)
         should_archive = str(history_behavior).lower() == "archive"
         archived_at = time.time()
-        if self.l0 is not None:
-            removed["expired_sessions"] = len(await self.l0.expire_idle_sessions())
-            await self.l0.checkpoint_all()
         if self.l1 is not None and self.l3 is not None:
             candidate_event_ids = await self.l1.list_compressible_event_ids(
                 older_than=cutoff,
@@ -179,6 +222,22 @@ class UnifiedMemoryMaintenanceMixin:
             removed["pruned_pinned_payloads"] = await self.l1.prune_pinned_payloads(
                 retention_seconds=max(int(older_than_days), 0) * 86400,
             )
+        return removed
+
+    async def cleanup_l3_data(
+        self,
+        older_than_days: int = 30,
+        *,
+        history_behavior: str = "delete",
+    ) -> Dict[str, int]:
+        """Run L3 summary-retention maintenance."""
+        removed: Dict[str, int] = {
+            "archived_summaries": 0,
+            "deleted_summaries": 0,
+        }
+        cutoff = time.time() - (max(int(older_than_days), 0) * 86400)
+        should_archive = str(history_behavior).lower() == "archive"
+        archived_at = time.time()
         if self.l3 is not None:
             expired_summaries = await self.l3.list_summaries_older_than(
                 older_than=cutoff,
@@ -208,11 +267,9 @@ class UnifiedMemoryMaintenanceMixin:
         *,
         history_behavior: str = "delete",
     ) -> Dict[str, int]:
-        """Run periodic maintenance."""
-        return await self.cleanup_old_data(
-            older_than_days=retention_days,
-            history_behavior=history_behavior,
-        )
+        """Run non-layer periodic maintenance."""
+        _ = retention_days, history_behavior
+        return await self.cleanup_runtime_data()
 
 
 __all__ = ["UnifiedMemoryMaintenanceMixin"]

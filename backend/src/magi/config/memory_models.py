@@ -85,6 +85,15 @@ class MemoryL1Settings(BaseModel):
     retention_days: int = Field(default=7, ge=1)
     t1_importance_enabled: bool = Field(default=True)
     vectors_enabled: bool = Field(default=True)
+    maintenance_enabled: bool = Field(
+        default=True,
+        description="Register periodic L1 retention maintenance with the runtime scheduler.",
+    )
+    maintenance_interval_seconds: float = Field(
+        default=86_400.0,
+        ge=300.0,
+        description="Interval between L1 retention maintenance runs (seconds). Minimum 300 to avoid excessive load.",
+    )
 
 
 class MemoryL2Settings(BaseModel):
@@ -160,6 +169,15 @@ class MemoryL3Settings(BaseModel):
     summary_interval_minutes: int = Field(default=60, ge=1)
     digest_enabled: bool = Field(default=True)
     digest_interval_hours: int = Field(default=24, ge=1)
+    maintenance_enabled: bool = Field(
+        default=True,
+        description="Register periodic L3 summary-retention maintenance with the runtime scheduler.",
+    )
+    maintenance_interval_seconds: float = Field(
+        default=86_400.0,
+        ge=300.0,
+        description="Interval between L3 summary-retention maintenance runs (seconds). Minimum 300 to avoid excessive load.",
+    )
 
 
 class MemoryL4Settings(BaseModel):
