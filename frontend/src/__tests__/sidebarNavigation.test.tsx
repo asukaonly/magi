@@ -5,6 +5,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { configApi, messagesApi } from '@/api';
 import Sidebar from '@/components/layout/Sidebar';
 import { useChatShellStore, useConversationStore } from '@/stores';
+import { useNotificationStore } from '@/stores/notifications';
 
 vi.mock('@/api', () => ({
   configApi: {
@@ -101,6 +102,11 @@ describe('sidebar navigation', () => {
       },
     });
     useConversationStore.getState().reset();
+    useNotificationStore.setState({
+      items: [],
+      unreadCount: 0,
+      loading: false,
+    });
     vi.mocked(configApi.get).mockResolvedValue({
       data: {
         preferences: {
@@ -659,6 +665,42 @@ describe('sidebar navigation', () => {
     expect(screen.getByRole('button', { name: 'memory.nav.portrait' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.recall' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.governance' })).toBeInTheDocument();
+  });
+
+  it('shows a pending memory badge when profile conflicts need review', async () => {
+    const user = userEvent.setup();
+    useNotificationStore.setState({
+      items: [
+        {
+          id: 42,
+          kind: 'suggestion',
+          dedupe_key: 'profile_conflict:interest.anime:topic:anime',
+          title: '偏好冲突：interest.anime',
+          body: '你最近常关注「安静圣地巡礼」，但你说过「城市热门路线」—— 要更新偏好吗？',
+          payload: {
+            conflict_type: 'profile_conflict',
+            shadow_id: 'assert-shadow-1',
+          },
+          status: 'read',
+          created_at_ms: 1710000000000,
+          read_at_ms: 1710000001000,
+        },
+      ],
+      unreadCount: 0,
+      loading: false,
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'shell.memory' }));
+
+    const pendingButton = screen.getByRole('button', { name: 'memory.nav.pending' });
+    expect(within(pendingButton).getByText('1')).toBeInTheDocument();
   });
 
   it('renders unread badges for inactive chat sessions', async () => {

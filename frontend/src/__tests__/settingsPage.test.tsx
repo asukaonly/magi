@@ -1378,6 +1378,29 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('saves graph spreading recall from the general memory section', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
+
+    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.graph_spreading_enabled.label' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          memory: expect.objectContaining({
+            graph_spreading: expect.objectContaining({
+              enabled: true,
+            }),
+          }),
+        })
+      )
+    );
+  });
+
   it('hides query expansion count when query expansion is disabled', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
@@ -1390,6 +1413,30 @@ describe('settings page draft saving', () => {
     await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.query_expansion_enabled.label' }));
 
     expect(screen.queryByLabelText('settings.memory.fields.query_expansion_max_expansions.label')).not.toBeInTheDocument();
+  });
+
+  it('saves profile conflict confirmation reminders from knowledge memory settings', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memoryKnowledge' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryKnowledge' });
+
+    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.shadow_conflict_notification_enabled.label' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          memory: expect.objectContaining({
+            l2: expect.objectContaining({
+              shadow_conflict_notification_enabled: false,
+            }),
+          }),
+        })
+      )
+    );
   });
 
   it('shows grouped model configuration navigation with provider and model sub-sections', async () => {

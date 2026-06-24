@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { MemoryPendingPage } from '@/pages/memory-pages/MemoryPendingPage';
 import { memoryApi } from '@/api/modules/memory';
 import { memoryStoriesApi } from '@/api/modules/memoryStories';
+import { listNotifications, resolveConflict } from '@/api/modules/notifications';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -16,13 +17,17 @@ vi.mock('react-i18next', () => ({
         'memory.pending.sections.profile': '关于你的判断',
         'memory.pending.sections.summaries': '待确认记忆',
         'memory.pending.sections.experiences': '待整理经历',
+        'memory.pending.sections.conflicts': '偏好冲突',
         'memory.pending.emptyTitle': '现在没有需要处理的内容',
         'memory.pending.emptyBody': 'Magi 有新的判断或经历线索时会放到这里。',
         'memory.pending.actions.confirm': '确认',
         'memory.pending.actions.reject': '不对',
+        'memory.pending.actions.acceptConflict': '采用新记忆',
+        'memory.pending.actions.keepExisting': '保留旧记忆',
         'memory.pending.actions.promoteExperience': '整理成经历',
         'memory.pending.actions.rejectExperience': '不是一段',
         'memory.pending.meta.assertion': '关于你的判断',
+        'memory.pending.meta.conflict': '偏好冲突',
         'memory.pending.meta.summary': '记忆更新',
         'memory.pending.meta.experienceSeed': '经历线索',
         'memory.pending.evidenceCount': '{{count}} 条证据',
@@ -59,6 +64,11 @@ vi.mock('@/api/modules/memoryStories', () => ({
     list: vi.fn(),
     review: vi.fn(),
   },
+}));
+
+vi.mock('@/api/modules/notifications', () => ({
+  listNotifications: vi.fn(),
+  resolveConflict: vi.fn(),
 }));
 
 const dashboardPayload = {
@@ -162,6 +172,31 @@ const seedPayload = {
   offset: 0,
 };
 
+const notificationPayload = {
+  items: [
+    {
+      id: 42,
+      kind: 'suggestion',
+      dedupe_key: 'profile_conflict:interest.anime:topic:anime',
+      title: '偏好冲突：interest.anime',
+      body: '你最近常关注「安静圣地巡礼」，但你说过「城市热门路线」—— 要更新偏好吗？',
+      payload: {
+        conflict_type: 'profile_conflict',
+        shadow_id: 'assert-shadow-1',
+        authoritative_id: 'assert-old-1',
+        authoritative_value: '城市热门路线',
+        inferred_value: '安静圣地巡礼',
+        trait_name: 'interest.anime',
+        entity_id: 'user:self',
+      },
+      status: 'unread',
+      created_at_ms: 1710000000000,
+      read_at_ms: null,
+    },
+  ],
+  unread_count: 1,
+};
+
 const renderPage = () =>
   render(
     <MemoryRouter>
@@ -175,7 +210,9 @@ describe('MemoryPendingPage', () => {
     vi.mocked(memoryApi.getDashboard).mockResolvedValue(dashboardPayload as never);
     vi.mocked(memoryStoriesApi.list).mockResolvedValue(storyPayload as never);
     vi.mocked(memoryApi.listExperienceSeeds).mockResolvedValue(seedPayload as never);
+    vi.mocked(listNotifications).mockResolvedValue(notificationPayload as never);
     vi.mocked(memoryApi.submitAssertionFeedback).mockResolvedValue(dashboardPayload.pending_assertions.items[0] as never);
+    vi.mocked(resolveConflict).mockResolvedValue(undefined);
     vi.mocked(memoryStoriesApi.review).mockResolvedValue({
       ok: true,
       summary_id: 'story-1',
@@ -206,9 +243,13 @@ describe('MemoryPendingPage', () => {
     expect(screen.queryByText('普通总结')).not.toBeInTheDocument();
     expect(screen.getByText('待整理经历')).toBeInTheDocument();
     expect(screen.getByText('可能是一段记忆页面改版')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '偏好冲突' })).toBeInTheDocument();
+    expect(screen.getByText('偏好冲突：interest.anime')).toBeInTheDocument();
+    expect(screen.getByText('你最近常关注「安静圣地巡礼」，但你说过「城市热门路线」—— 要更新偏好吗？')).toBeInTheDocument();
     expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 25 });
     expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 50, offset: 0 });
     expect(memoryApi.listExperienceSeeds).toHaveBeenCalledWith({ status: 'candidate', limit: 50, offset: 0 });
+    expect(listNotifications).toHaveBeenCalled();
   });
 
   it('routes each pending action to its owning API and removes completed cards', async () => {
@@ -235,6 +276,26 @@ describe('MemoryPendingPage', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('pending-experience-seed-1')).not.toBeInTheDocument();
     });
+
+    const conflictCard = screen.getByTestId('pending-conflict-42');
+    await user.click(within(conflictCard).getByRole('button', { name: '采用新记忆' }));
+    expect(resolveConflict).toHaveBeenCalledWith(42, 'confirm');
+    await waitFor(() => {
+      expect(screen.queryByTestId('pending-conflict-42')).not.toBeInTheDocument();
+    });
+  });
+
+  it('keeps the existing memory when a profile conflict is rejected', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const conflictCard = await screen.findByTestId('pending-conflict-42');
+    await user.click(within(conflictCard).getByRole('button', { name: '保留旧记忆' }));
+
+    expect(resolveConflict).toHaveBeenCalledWith(42, 'reject');
+    await waitFor(() => {
+      expect(screen.queryByTestId('pending-conflict-42')).not.toBeInTheDocument();
+    });
   });
 
   it('shows a calm empty state when there is nothing to review', async () => {
@@ -250,6 +311,10 @@ describe('MemoryPendingPage', () => {
       total: 0,
       limit: 50,
       offset: 0,
+    } as never);
+    vi.mocked(listNotifications).mockResolvedValue({
+      items: [],
+      unread_count: 0,
     } as never);
 
     renderPage();

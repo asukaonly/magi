@@ -271,6 +271,10 @@ export function MemoryGeneralSettingsSection({
     ...DEFAULT_SYSTEM_CONFIG.memory.query_expansion,
     ...draftConfig.memory.query_expansion,
   };
+  const graphSpreadingConfig = {
+    ...DEFAULT_SYSTEM_CONFIG.memory.graph_spreading,
+    ...draftConfig.memory.graph_spreading,
+  };
 
   const handleClearConfirm = useCallback(async () => {
     setClearing(true);
@@ -409,6 +413,16 @@ export function MemoryGeneralSettingsSection({
               </p>
             </div>
           ) : null}
+
+          <MemorySwitchRow
+            label={t('settings.memory.fields.graph_spreading_enabled.label')}
+            description={t('settings.memory.fields.graph_spreading_enabled.description')}
+            checked={graphSpreadingConfig.enabled}
+            onCheckedChange={(checked) => patchDraftConfig((draft) => {
+              draft.memory.graph_spreading ??= { ...DEFAULT_SYSTEM_CONFIG.memory.graph_spreading };
+              draft.memory.graph_spreading.enabled = checked;
+            })}
+          />
 
           <MemorySwitchRow
             label={t('settings.memory.fields.cross_encoder_enabled.label')}
@@ -583,6 +597,15 @@ export function MemoryKnowledgeSettingsSection({
           disabled={!draftConfig.memory.l2.enabled || !hasEmbeddingModel}
           onCheckedChange={(checked) => patchDraftConfig((draft) => {
             draft.memory.l2.vectors_enabled = checked;
+          })}
+        />
+        <MemorySwitchRow
+          label={t('settings.memory.fields.shadow_conflict_notification_enabled.label')}
+          description={t('settings.memory.fields.shadow_conflict_notification_enabled.description')}
+          checked={draftConfig.memory.l2.shadow_conflict_notification_enabled ?? true}
+          disabled={!draftConfig.memory.l2.enabled}
+          onCheckedChange={(checked) => patchDraftConfig((draft) => {
+            draft.memory.l2.shadow_conflict_notification_enabled = checked;
           })}
         />
       </MemoryGroup>

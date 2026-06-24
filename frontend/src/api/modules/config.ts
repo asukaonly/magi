@@ -454,6 +454,7 @@ export interface MemoryL2Config {
   auto_extract_relations: boolean;
   conflict_arbitration_enabled: boolean;
   conflict_arbitration_min_confidence: number;
+  shadow_conflict_notification_enabled: boolean;
 }
 
 export interface MemoryL3Config {
@@ -489,6 +490,10 @@ export interface QueryExpansionConfig {
   max_expansions: number;
 }
 
+export interface GraphSpreadingConfig {
+  enabled: boolean;
+}
+
 export type EmbeddingMode = 'off' | 'remote' | 'local';
 export type LocalEmbeddingModelSource = 'managed' | 'external';
 
@@ -513,6 +518,7 @@ export interface MemoryConfig {
   embedding: EmbeddingConfig;
   reranker: MemoryRerankerConfig;
   query_expansion: QueryExpansionConfig;
+  graph_spreading: GraphSpreadingConfig;
   l0: MemoryL0Config;
   l1: MemoryL1Config;
   l2: MemoryL2Config;
@@ -742,6 +748,9 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       enabled: true,
       max_expansions: 2,
     },
+    graph_spreading: {
+      enabled: false,
+    },
     retention_days: 90,
     history_behavior: 'delete',
     archive_path: '~/.magi/data/memory/archive',
@@ -761,6 +770,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       auto_extract_relations: true,
       conflict_arbitration_enabled: true,
       conflict_arbitration_min_confidence: 0.85,
+      shadow_conflict_notification_enabled: true,
     },
     l3: {
       enabled: true,

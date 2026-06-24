@@ -101,6 +101,7 @@ def build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfi
             auto_extract_relations=memory_cfg.l2.auto_extract_relations,
             conflict_arbitration_enabled=memory_cfg.l2.conflict_arbitration_enabled,
             conflict_arbitration_min_confidence=memory_cfg.l2.conflict_arbitration_min_confidence,
+            shadow_conflict_notification_enabled=memory_cfg.l2.shadow_conflict_notification_enabled,
         ),
         l3=MemoryL3ConfigModel(
             enabled=memory_cfg.l3.enabled,

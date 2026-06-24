@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/dialog';
 import { useChatShellStore, useConversationStore, type ChatPanelType } from '@/stores';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
+import { useNotificationStore } from '@/stores/notifications';
 import { useSchedulesStore } from '@/stores/schedules';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
 import { PersonaHeader } from './PersonaHeader';
@@ -62,6 +63,13 @@ const TASKS_DESTINATIONS = [
   { key: 'activity', path: '/tasks/schedules/activity', icon: History },
 ] as const;
 
+const isOpenProfileConflictNotification = (
+  item: ReturnType<typeof useNotificationStore.getState>['items'][number],
+): boolean => (
+  item.payload?.conflict_type === 'profile_conflict' &&
+  (item.status === 'unread' || item.status === 'read')
+);
+
 const formatSessionTime = (timestamp: number, locale: string): string => {
   return formatChatClockTime(timestamp, locale);
 };
@@ -90,6 +98,9 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const clearSettingsNavigationIntent = useChatShellStore((state) => state.clearSettingsNavigationIntent);
   const timelinePanel = useChatShellStore((state) => state.timelinePanel);
+  const pendingMemoryConflictCount = useNotificationStore((state) => (
+    state.items.filter(isOpenProfileConflictNotification).length
+  ));
 
   const [loading, setLoading] = useState(false);
   const isConversationRoute = location.pathname === '/' || location.pathname === '/chat';
@@ -499,6 +510,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
             const destinationActive =
               location.pathname === item.path ||
               (item.path === '/memory/stories' && location.pathname === '/events');
+            const pendingCount = item.key === 'pending' ? pendingMemoryConflictCount : 0;
             return (
               <button
                 key={item.key}
@@ -524,6 +536,11 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                 <span className="min-w-0 flex-1 truncate font-medium">
                   {t(`memory.nav.${item.key}`)}
                 </span>
+                {pendingCount > 0 ? (
+                  <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[hsl(var(--sidebar-badge))] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(var(--sidebar-badge-foreground))]">
+                    {Math.min(pendingCount, 99)}
+                  </span>
+                ) : null}
               </button>
             );
           })}

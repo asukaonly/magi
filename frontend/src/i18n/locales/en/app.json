@@ -2599,6 +2599,7 @@
       "subtitle": "Memory signals that need your judgment live here.",
       "sections": {
         "profile": "About-you judgments",
+        "conflicts": "Preference conflicts",
         "summaries": "Memory updates",
         "experiences": "Experiences to organize"
       },
@@ -2606,15 +2607,19 @@
       "emptyBody": "New judgments or experience signals will appear here.",
       "meta": {
         "assertion": "About-you judgment",
+        "conflict": "Preference conflict",
         "summary": "Memory update",
         "experienceSeed": "Experience signal"
       },
       "fallbackMemoryUpdateTitle": "Memory update",
+      "fallbackConflictTitle": "Preference conflict",
       "evidenceCount": "{{count}} pieces of evidence",
       "fragmentCount": "{{count}} fragments",
       "actions": {
         "confirm": "Confirm",
         "reject": "Not right",
+        "acceptConflict": "Use new memory",
+        "keepExisting": "Keep existing",
         "promoteExperience": "Make experience",
         "rejectExperience": "Not one"
       }

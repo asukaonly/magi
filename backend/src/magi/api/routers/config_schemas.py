@@ -130,6 +130,7 @@ class MemoryL2ConfigModel(BaseModel):
     auto_extract_relations: bool = Field(default=True)
     conflict_arbitration_enabled: bool = Field(default=True)
     conflict_arbitration_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
+    shadow_conflict_notification_enabled: bool = Field(default=True)
 
 
 class MemoryL3ConfigModel(BaseModel):

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BookOpen, Check, FileText, Loader2, UserRound, X } from 'lucide-react';
+import { BookOpen, Check, FileText, GitCompareArrows, Loader2, UserRound, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   memoryApi,
@@ -8,6 +8,11 @@ import {
   type L2ExperienceSeed,
 } from '@/api/modules/memory';
 import { memoryStoriesApi, type StoryItem } from '@/api/modules/memoryStories';
+import {
+  listNotifications,
+  resolveConflict,
+  type NotificationItem,
+} from '@/api/modules/notifications';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_EMPTY_PANEL_CLASS,
@@ -15,6 +20,7 @@ import MemoryPageFrame, {
 import { isMemoryUpdateStory } from './storyFilters';
 
 type PendingAction = 'confirmed' | 'rejected';
+type ConflictAction = 'confirm' | 'reject';
 
 const assertionTitle = (assertion: L2Assertion): string => (
   String(assertion.trait_name || assertion.assertion_id || '').trim()
@@ -36,27 +42,43 @@ const seedBody = (seed: L2ExperienceSeed): string => (
   String(seed.display_description || seed.description || '').trim()
 );
 
+const conflictTitle = (notification: NotificationItem, fallback: string): string => (
+  String(notification.title || notification.payload.trait_name || '').trim() || fallback
+);
+
+const conflictBody = (notification: NotificationItem): string => (
+  String(notification.body || notification.payload.inferred_value || '').trim()
+);
+
+const isOpenProfileConflict = (notification: NotificationItem): boolean => (
+  notification.payload?.conflict_type === 'profile_conflict' &&
+  (notification.status === 'unread' || notification.status === 'read')
+);
+
 export const MemoryPendingPage = () => {
   const { t } = useTranslation('app');
   const [assertions, setAssertions] = useState<L2Assertion[]>([]);
   const [stories, setStories] = useState<StoryItem[]>([]);
   const [seeds, setSeeds] = useState<L2ExperienceSeed[]>([]);
+  const [conflicts, setConflicts] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashboardPayload, storyPayload, seedPayload] = await Promise.all([
+      const [dashboardPayload, storyPayload, seedPayload, notificationPayload] = await Promise.all([
         memoryApi.getDashboard({ pending_limit: 25 }),
         memoryStoriesApi.list({ limit: 50, offset: 0 }),
         memoryApi.listExperienceSeeds({ status: 'candidate', limit: 50, offset: 0 }),
+        listNotifications(),
       ]);
       setAssertions(dashboardPayload.pending_assertions?.items || []);
       setStories((storyPayload.items || []).filter((story) => (
         story.review_state === 'pending_confirmation' && isMemoryUpdateStory(story)
       )));
       setSeeds(seedPayload.items || []);
+      setConflicts((notificationPayload.items || []).filter(isOpenProfileConflict));
     } finally {
       setLoading(false);
     }
@@ -66,7 +88,7 @@ export const MemoryPendingPage = () => {
     void load();
   }, [load]);
 
-  const totalCount = assertions.length + stories.length + seeds.length;
+  const totalCount = assertions.length + stories.length + seeds.length + conflicts.length;
 
   const handleAssertion = async (assertion: L2Assertion, action: PendingAction) => {
     const id = `assertion:${assertion.assertion_id}`;
@@ -105,12 +127,29 @@ export const MemoryPendingPage = () => {
     }
   };
 
+  const handleConflict = async (notification: NotificationItem, action: ConflictAction) => {
+    const id = `conflict:${notification.id}`;
+    setActionId(id);
+    try {
+      await resolveConflict(notification.id, action);
+      setConflicts((items) => items.filter((item) => item.id !== notification.id));
+    } finally {
+      setActionId(null);
+    }
+  };
+
   const sections = useMemo(() => [
     {
       key: 'profile',
       title: t('memory.pending.sections.profile'),
       items: assertions,
       icon: <UserRound className="h-4 w-4" aria-hidden="true" />,
+    },
+    {
+      key: 'conflicts',
+      title: t('memory.pending.sections.conflicts'),
+      items: conflicts,
+      icon: <GitCompareArrows className="h-4 w-4" aria-hidden="true" />,
     },
     {
       key: 'summaries',
@@ -124,7 +163,7 @@ export const MemoryPendingPage = () => {
       items: seeds,
       icon: <BookOpen className="h-4 w-4" aria-hidden="true" />,
     },
-  ], [assertions, seeds, stories, t]);
+  ], [assertions, conflicts, seeds, stories, t]);
 
   return (
     <MemoryPageFrame title={t('memory.pending.title')} description={t('memory.pending.subtitle')}>
@@ -162,7 +201,30 @@ export const MemoryPendingPage = () => {
             })}
           </PendingSection>
 
-          <PendingSection title={sections[1].title} icon={sections[1].icon} count={stories.length}>
+          <PendingSection title={sections[1].title} icon={sections[1].icon} count={conflicts.length}>
+            {conflicts.map((conflict) => {
+              const busy = actionId === `conflict:${conflict.id}`;
+              return (
+                <PendingCard
+                  key={conflict.id}
+                  testId={`pending-conflict-${conflict.id}`}
+                  label={t('memory.pending.meta.conflict')}
+                  title={conflictTitle(conflict, t('memory.pending.fallbackConflictTitle'))}
+                  body={conflictBody(conflict)}
+                  meta={conflict.payload.trait_name || ''}
+                  actions={(
+                    <ConflictActions
+                      busy={busy}
+                      onConfirm={() => void handleConflict(conflict, 'confirm')}
+                      onReject={() => void handleConflict(conflict, 'reject')}
+                    />
+                  )}
+                />
+              );
+            })}
+          </PendingSection>
+
+          <PendingSection title={sections[2].title} icon={sections[2].icon} count={stories.length}>
             {stories.map((story) => {
               const busy = actionId === `story:${story.summary_id}`;
               return (
@@ -185,7 +247,7 @@ export const MemoryPendingPage = () => {
             })}
           </PendingSection>
 
-          <PendingSection title={sections[2].title} icon={sections[2].icon} count={seeds.length}>
+          <PendingSection title={sections[3].title} icon={sections[3].icon} count={seeds.length}>
             {seeds.map((seed) => {
               const busy = actionId === `seed:${seed.seed_id}`;
               return (
@@ -322,6 +384,43 @@ function ReviewActions({
       >
         <X className="h-3.5 w-3.5" />
         {t('memory.pending.actions.reject')}
+      </Button>
+    </div>
+  );
+}
+
+function ConflictActions({
+  busy,
+  onConfirm,
+  onReject,
+}: {
+  busy: boolean;
+  onConfirm: () => void;
+  onReject: () => void;
+}) {
+  const { t } = useTranslation('app');
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        type="button"
+        size="sm"
+        className={MEMORY_ACTION_BUTTON_CLASS}
+        disabled={busy}
+        onClick={onConfirm}
+      >
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+        {t('memory.pending.actions.acceptConflict')}
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className={MEMORY_ACTION_BUTTON_CLASS}
+        disabled={busy}
+        onClick={onReject}
+      >
+        <X className="h-3.5 w-3.5" />
+        {t('memory.pending.actions.keepExisting')}
       </Button>
     </div>
   );

@@ -5986,6 +5986,11 @@ export interface components {
              */
             readonly enabled: boolean;
             /**
+             * Shadow Conflict Notification Enabled
+             * @default true
+             */
+            readonly shadow_conflict_notification_enabled: boolean;
+            /**
              * Vectors Enabled
              * @default true
              */

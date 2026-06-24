@@ -2598,6 +2598,7 @@
       "subtitle": "需要你判断的记忆线索都在这里。",
       "sections": {
         "profile": "关于你的判断",
+        "conflicts": "偏好冲突",
         "summaries": "待确认记忆",
         "experiences": "待整理经历"
       },
@@ -2605,15 +2606,19 @@
       "emptyBody": "Magi 有新的判断或经历线索时会放到这里。",
       "meta": {
         "assertion": "关于你的判断",
+        "conflict": "偏好冲突",
         "summary": "记忆更新",
         "experienceSeed": "经历线索"
       },
       "fallbackMemoryUpdateTitle": "待确认记忆",
+      "fallbackConflictTitle": "偏好冲突",
       "evidenceCount": "{{count}} 条证据",
       "fragmentCount": "{{count}} 个片段",
       "actions": {
         "confirm": "确认",
         "reject": "不对",
+        "acceptConflict": "采用新记忆",
+        "keepExisting": "保留旧记忆",
         "promoteExperience": "整理成经历",
         "rejectExperience": "不是一段"
       }
