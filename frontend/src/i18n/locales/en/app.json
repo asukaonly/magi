@@ -2597,6 +2597,27 @@
     "pending": {
       "title": "Pending",
       "subtitle": "Memory signals that need your judgment live here.",
+      "totalCount": "{{count}} item(s)",
+      "filters": {
+        "all": "All",
+        "memory": "Affects memory",
+        "experiences": "Experiences",
+        "observations": "Observations"
+      },
+      "groups": {
+        "memory": {
+          "title": "Affects memory",
+          "description": "These directly shape how Magi understands you later"
+        },
+        "experiences": {
+          "title": "Experiences",
+          "description": "Confirm to save as an experience"
+        },
+        "observations": {
+          "title": "Review observations",
+          "description": "These are Magi's stage observations and will not directly change underlying memory"
+        }
+      },
       "sections": {
         "profile": "About-you judgments",
         "conflicts": "Preference conflicts",
@@ -2608,20 +2629,24 @@
       "meta": {
         "assertion": "About-you judgment",
         "conflict": "Preference conflict",
-        "summary": "Memory update",
+        "summary": "Observation",
         "experienceSeed": "Experience signal"
       },
-      "fallbackMemoryUpdateTitle": "Memory update",
+      "fallbackMemoryUpdateTitle": "Observation",
       "fallbackConflictTitle": "Preference conflict",
+      "conflictMeta": "Differs from confirmed memory",
       "evidenceCount": "{{count}} pieces of evidence",
       "fragmentCount": "{{count}} fragments",
       "actions": {
         "confirm": "Confirm",
+        "confirmJudgment": "Yes",
         "reject": "Not right",
+        "confirmObservation": "Observation fits",
+        "rejectObservation": "Doesn't fit",
         "acceptConflict": "Use new memory",
         "keepExisting": "Keep existing",
-        "promoteExperience": "Make experience",
-        "rejectExperience": "Not one"
+        "promoteExperience": "Save experience",
+        "rejectExperience": "Ignore"
       }
     },
     "episodes": {

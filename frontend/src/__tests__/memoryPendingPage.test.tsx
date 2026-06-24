@@ -12,8 +12,19 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
       const labels: Record<string, string> = {
-        'memory.pending.title': '待处理',
+        'memory.pending.title': '待确认',
         'memory.pending.subtitle': '需要你判断的记忆线索都在这里。',
+        'memory.pending.totalCount': '{{count}} 条',
+        'memory.pending.filters.all': '全部',
+        'memory.pending.filters.memory': '影响记忆',
+        'memory.pending.filters.experiences': '整理经历',
+        'memory.pending.filters.observations': '复核观察',
+        'memory.pending.groups.memory.title': '影响记忆',
+        'memory.pending.groups.memory.description': '这些会直接影响 Magi 之后怎么理解你',
+        'memory.pending.groups.experiences.title': '整理经历',
+        'memory.pending.groups.experiences.description': '确认后会保存成一段经历',
+        'memory.pending.groups.observations.title': '复核观察',
+        'memory.pending.groups.observations.description': '这些是 Magi 的阶段观察，不会直接改底层记忆',
         'memory.pending.sections.profile': '关于你的判断',
         'memory.pending.sections.summaries': '待确认记忆',
         'memory.pending.sections.experiences': '待整理经历',
@@ -21,15 +32,19 @@ vi.mock('react-i18next', () => ({
         'memory.pending.emptyTitle': '现在没有需要处理的内容',
         'memory.pending.emptyBody': 'Magi 有新的判断或经历线索时会放到这里。',
         'memory.pending.actions.confirm': '确认',
+        'memory.pending.actions.confirmJudgment': '是的',
         'memory.pending.actions.reject': '不对',
+        'memory.pending.actions.confirmObservation': '观察成立',
+        'memory.pending.actions.rejectObservation': '不成立',
         'memory.pending.actions.acceptConflict': '采用新记忆',
         'memory.pending.actions.keepExisting': '保留旧记忆',
-        'memory.pending.actions.promoteExperience': '整理成经历',
-        'memory.pending.actions.rejectExperience': '不是一段',
+        'memory.pending.actions.promoteExperience': '保存为经历',
+        'memory.pending.actions.rejectExperience': '忽略',
         'memory.pending.meta.assertion': '关于你的判断',
         'memory.pending.meta.conflict': '偏好冲突',
-        'memory.pending.meta.summary': '记忆更新',
+        'memory.pending.meta.summary': '观察',
         'memory.pending.meta.experienceSeed': '经历线索',
+        'memory.pending.conflictMeta': '和已确认记忆不一致',
         'memory.pending.evidenceCount': '{{count}} 条证据',
         'memory.pending.fragmentCount': '{{count}} 个片段',
       };
@@ -229,22 +244,22 @@ describe('MemoryPendingPage', () => {
     } as never);
   });
 
-  it('collects profile judgments, memory updates, and experience seeds into one queue', async () => {
+  it('collects pending items into grouped confirmation lanes without the old page header', async () => {
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: '关于你的判断' })).toBeInTheDocument();
-    expect(screen.getByText('关注方向')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '影响记忆' })).toBeInTheDocument();
+    expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
+    expect(screen.getByText('这些会直接影响 Magi 之后怎么理解你')).toBeInTheDocument();
     expect(screen.getByText('本地优先的记忆系统')).toBeInTheDocument();
-    expect(screen.getByText('待确认记忆')).toBeInTheDocument();
+    expect(screen.getByText('关注方向')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '复核观察' })).toBeInTheDocument();
     expect(screen.getByText('最近更关注记忆产品')).toBeInTheDocument();
-    expect(screen.getByText('记忆更新')).toBeInTheDocument();
+    expect(screen.getByText('观察')).toBeInTheDocument();
     expect(screen.queryByText('趋势观察')).not.toBeInTheDocument();
     expect(screen.queryByText('最近持续关注：Codex、DeepSeek。')).not.toBeInTheDocument();
     expect(screen.queryByText('普通总结')).not.toBeInTheDocument();
-    expect(screen.getByText('待整理经历')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '整理经历' })).toBeInTheDocument();
     expect(screen.getByText('可能是一段记忆页面改版')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '偏好冲突' })).toBeInTheDocument();
-    expect(screen.getByText('偏好冲突：interest.anime')).toBeInTheDocument();
     expect(screen.getByText('你最近常关注「安静圣地巡礼」，但你说过「城市热门路线」—— 要更新偏好吗？')).toBeInTheDocument();
     expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 25 });
     expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 50, offset: 0 });
@@ -252,26 +267,46 @@ describe('MemoryPendingPage', () => {
     expect(listNotifications).toHaveBeenCalled();
   });
 
+  it('filters the confirmation lanes by decision type', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByTestId('pending-assertion-assert-1')).toBeInTheDocument();
+    expect(screen.getByTestId('pending-story-story-1')).toBeInTheDocument();
+    expect(screen.getByTestId('pending-experience-seed-1')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /复核观察/ }));
+
+    expect(screen.queryByTestId('pending-assertion-assert-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('pending-experience-seed-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('pending-story-story-1')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /整理经历/ }));
+
+    expect(screen.queryByTestId('pending-story-story-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('pending-experience-seed-1')).toBeInTheDocument();
+  });
+
   it('routes each pending action to its owning API and removes completed cards', async () => {
     const user = userEvent.setup();
     renderPage();
 
     const assertionCard = await screen.findByTestId('pending-assertion-assert-1');
-    await user.click(within(assertionCard).getByRole('button', { name: '确认' }));
+    await user.click(within(assertionCard).getByRole('button', { name: '是的' }));
     expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledWith('assert-1', 'confirmed');
     await waitFor(() => {
       expect(screen.queryByTestId('pending-assertion-assert-1')).not.toBeInTheDocument();
     });
 
     const storyCard = screen.getByTestId('pending-story-story-1');
-    await user.click(within(storyCard).getByRole('button', { name: '不对' }));
+    await user.click(within(storyCard).getByRole('button', { name: '不成立' }));
     expect(memoryStoriesApi.review).toHaveBeenCalledWith('story-1', { review_state: 'rejected' });
     await waitFor(() => {
       expect(screen.queryByTestId('pending-story-story-1')).not.toBeInTheDocument();
     });
 
     const seedCard = screen.getByTestId('pending-experience-seed-1');
-    await user.click(within(seedCard).getByRole('button', { name: '整理成经历' }));
+    await user.click(within(seedCard).getByRole('button', { name: '保存为经历' }));
     expect(memoryApi.promoteExperienceSeed).toHaveBeenCalledWith('seed-1');
     await waitFor(() => {
       expect(screen.queryByTestId('pending-experience-seed-1')).not.toBeInTheDocument();

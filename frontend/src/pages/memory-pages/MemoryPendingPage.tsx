@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BookOpen, Check, FileText, GitCompareArrows, Loader2, UserRound, X } from 'lucide-react';
+import { BookOpen, Check, FileText, Loader2, UserRound, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
   memoryApi,
   type L2Assertion,
@@ -21,6 +22,7 @@ import { isMemoryUpdateStory } from './storyFilters';
 
 type PendingAction = 'confirmed' | 'rejected';
 type ConflictAction = 'confirm' | 'reject';
+type PendingFilter = 'all' | 'memory' | 'experiences' | 'observations';
 
 const assertionTitle = (assertion: L2Assertion): string => (
   String(assertion.trait_name || assertion.assertion_id || '').trim()
@@ -63,6 +65,7 @@ export const MemoryPendingPage = () => {
   const [conflicts, setConflicts] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<PendingFilter>('all');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,6 +92,9 @@ export const MemoryPendingPage = () => {
   }, [load]);
 
   const totalCount = assertions.length + stories.length + seeds.length + conflicts.length;
+  const memoryCount = assertions.length + conflicts.length;
+  const experienceCount = seeds.length;
+  const observationCount = stories.length;
 
   const handleAssertion = async (assertion: L2Assertion, action: PendingAction) => {
     const id = `assertion:${assertion.assertion_id}`;
@@ -138,35 +144,40 @@ export const MemoryPendingPage = () => {
     }
   };
 
-  const sections = useMemo(() => [
+  const filterOptions = useMemo(() => [
     {
-      key: 'profile',
-      title: t('memory.pending.sections.profile'),
-      items: assertions,
-      icon: <UserRound className="h-4 w-4" aria-hidden="true" />,
+      key: 'all' as const,
+      label: t('memory.pending.filters.all'),
+      count: totalCount,
     },
     {
-      key: 'conflicts',
-      title: t('memory.pending.sections.conflicts'),
-      items: conflicts,
-      icon: <GitCompareArrows className="h-4 w-4" aria-hidden="true" />,
+      key: 'memory' as const,
+      label: t('memory.pending.filters.memory'),
+      count: memoryCount,
     },
     {
-      key: 'summaries',
-      title: t('memory.pending.sections.summaries'),
-      items: stories,
-      icon: <FileText className="h-4 w-4" aria-hidden="true" />,
+      key: 'experiences' as const,
+      label: t('memory.pending.filters.experiences'),
+      count: experienceCount,
     },
     {
-      key: 'experiences',
-      title: t('memory.pending.sections.experiences'),
-      items: seeds,
-      icon: <BookOpen className="h-4 w-4" aria-hidden="true" />,
+      key: 'observations' as const,
+      label: t('memory.pending.filters.observations'),
+      count: observationCount,
     },
-  ], [assertions, conflicts, seeds, stories, t]);
+  ], [experienceCount, memoryCount, observationCount, t, totalCount]);
+
+  const showMemory = activeFilter === 'all' || activeFilter === 'memory';
+  const showExperiences = activeFilter === 'all' || activeFilter === 'experiences';
+  const showObservations = activeFilter === 'all' || activeFilter === 'observations';
 
   return (
-    <MemoryPageFrame title={t('memory.pending.title')} description={t('memory.pending.subtitle')}>
+    <MemoryPageFrame
+      title=""
+      description=""
+      hideHeader
+      contentClassName="space-y-4"
+    >
       {loading ? (
         <section className={`${MEMORY_EMPTY_PANEL_CLASS} flex items-center gap-2`}>
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -178,115 +189,177 @@ export const MemoryPendingPage = () => {
         </section>
       ) : (
         <div className="space-y-4">
-          <PendingSection title={sections[0].title} icon={sections[0].icon} count={assertions.length}>
-            {assertions.map((assertion) => {
-              const busy = actionId === `assertion:${assertion.assertion_id}`;
-              return (
-                <PendingCard
-                  key={assertion.assertion_id}
-                  testId={`pending-assertion-${assertion.assertion_id}`}
-                  label={t('memory.pending.meta.assertion')}
-                  title={assertionTitle(assertion)}
-                  body={assertionBody(assertion)}
-                  meta={t('memory.pending.evidenceCount', { count: assertion.evidence_events?.length ?? 0 })}
-                  actions={(
-                    <ReviewActions
-                      busy={busy}
-                      onConfirm={() => void handleAssertion(assertion, 'confirmed')}
-                      onReject={() => void handleAssertion(assertion, 'rejected')}
-                    />
-                  )}
-                />
-              );
-            })}
-          </PendingSection>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="inline-flex w-fit max-w-full flex-wrap rounded-xl border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.72)] p-1">
+              {filterOptions.map((option) => {
+                const selected = activeFilter === option.key;
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    aria-pressed={selected}
+                    className={cn(
+                      'inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors',
+                      selected
+                        ? 'bg-[hsl(var(--memory-title))] text-[hsl(var(--memory-panel-elevated))] shadow-sm'
+                        : 'text-[hsl(var(--memory-body))] hover:bg-[hsl(var(--memory-panel-subtle)/0.72)]'
+                    )}
+                    onClick={() => setActiveFilter(option.key)}
+                  >
+                    <span>{option.label}</span>
+                    <span className={cn(
+                      'text-xs',
+                      selected ? 'text-[hsl(var(--memory-panel-elevated)/0.82)]' : 'text-[hsl(var(--memory-muted))]'
+                    )}>
+                      {option.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <span className="text-sm text-[hsl(var(--memory-muted))]">
+              {t('memory.pending.totalCount', { count: totalCount })}
+            </span>
+          </div>
 
-          <PendingSection title={sections[1].title} icon={sections[1].icon} count={conflicts.length}>
-            {conflicts.map((conflict) => {
-              const busy = actionId === `conflict:${conflict.id}`;
-              return (
-                <PendingCard
-                  key={conflict.id}
-                  testId={`pending-conflict-${conflict.id}`}
-                  label={t('memory.pending.meta.conflict')}
-                  title={conflictTitle(conflict, t('memory.pending.fallbackConflictTitle'))}
-                  body={conflictBody(conflict)}
-                  meta={conflict.payload.trait_name || ''}
-                  actions={(
-                    <ConflictActions
-                      busy={busy}
-                      onConfirm={() => void handleConflict(conflict, 'confirm')}
-                      onReject={() => void handleConflict(conflict, 'reject')}
-                    />
-                  )}
-                />
-              );
-            })}
-          </PendingSection>
+          {showMemory ? (
+            <PendingSection
+              title={t('memory.pending.groups.memory.title')}
+              description={t('memory.pending.groups.memory.description')}
+              icon={<UserRound className="h-4 w-4" aria-hidden="true" />}
+              count={memoryCount}
+              tone="amber"
+            >
+              {assertions.map((assertion) => {
+                const busy = actionId === `assertion:${assertion.assertion_id}`;
+                const title = assertionBody(assertion) || assertionTitle(assertion);
+                const traitName = assertionTitle(assertion);
+                return (
+                  <PendingCard
+                    key={assertion.assertion_id}
+                    testId={`pending-assertion-${assertion.assertion_id}`}
+                    label={t('memory.pending.meta.assertion')}
+                    title={title}
+                    body={traitName && traitName !== title ? traitName : ''}
+                    meta={t('memory.pending.evidenceCount', { count: assertion.evidence_events?.length ?? 0 })}
+                    actions={(
+                      <ReviewActions
+                        busy={busy}
+                        confirmLabel={t('memory.pending.actions.confirmJudgment')}
+                        rejectLabel={t('memory.pending.actions.reject')}
+                        onConfirm={() => void handleAssertion(assertion, 'confirmed')}
+                        onReject={() => void handleAssertion(assertion, 'rejected')}
+                      />
+                    )}
+                  />
+                );
+              })}
+              {conflicts.map((conflict) => {
+                const busy = actionId === `conflict:${conflict.id}`;
+                return (
+                  <PendingCard
+                    key={conflict.id}
+                    testId={`pending-conflict-${conflict.id}`}
+                    label={t('memory.pending.meta.conflict')}
+                    title={conflictBody(conflict) || conflictTitle(conflict, t('memory.pending.fallbackConflictTitle'))}
+                    body={conflict.payload.trait_name || ''}
+                    meta={t('memory.pending.conflictMeta')}
+                    actions={(
+                      <ConflictActions
+                        busy={busy}
+                        onConfirm={() => void handleConflict(conflict, 'confirm')}
+                        onReject={() => void handleConflict(conflict, 'reject')}
+                      />
+                    )}
+                  />
+                );
+              })}
+            </PendingSection>
+          ) : null}
 
-          <PendingSection title={sections[2].title} icon={sections[2].icon} count={stories.length}>
-            {stories.map((story) => {
-              const busy = actionId === `story:${story.summary_id}`;
-              return (
-                <PendingCard
-                  key={story.summary_id}
-                  testId={`pending-story-${story.summary_id}`}
-                  label={t('memory.pending.meta.summary')}
-                  title={storyTitle(story, t('memory.pending.fallbackMemoryUpdateTitle'))}
-                  body={story.content}
-                  meta={t('memory.pending.evidenceCount', { count: story.evidence_event_count })}
-                  actions={(
-                    <ReviewActions
-                      busy={busy}
-                      onConfirm={() => void handleStory(story, 'confirmed')}
-                      onReject={() => void handleStory(story, 'rejected')}
-                    />
-                  )}
-                />
-              );
-            })}
-          </PendingSection>
+          {showExperiences ? (
+            <PendingSection
+              title={t('memory.pending.groups.experiences.title')}
+              description={t('memory.pending.groups.experiences.description')}
+              icon={<BookOpen className="h-4 w-4" aria-hidden="true" />}
+              count={experienceCount}
+              tone="green"
+            >
+              {seeds.map((seed) => {
+                const busy = actionId === `seed:${seed.seed_id}`;
+                return (
+                  <PendingCard
+                    key={seed.seed_id}
+                    testId={`pending-experience-${seed.seed_id}`}
+                    label={t('memory.pending.meta.experienceSeed')}
+                    title={seedTitle(seed, t('memory.episodes.pending.fallbackTitle'))}
+                    body={seedBody(seed)}
+                    meta={t('memory.pending.fragmentCount', { count: seed.evidence_count ?? 0 })}
+                    actions={(
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className={MEMORY_ACTION_BUTTON_CLASS}
+                          disabled={busy}
+                          onClick={() => void handleSeed(seed, 'promote')}
+                        >
+                          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                          {t('memory.pending.actions.promoteExperience')}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={MEMORY_ACTION_BUTTON_CLASS}
+                          disabled={busy}
+                          onClick={() => void handleSeed(seed, 'reject')}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                          {t('memory.pending.actions.rejectExperience')}
+                        </Button>
+                      </div>
+                    )}
+                  />
+                );
+              })}
+            </PendingSection>
+          ) : null}
 
-          <PendingSection title={sections[3].title} icon={sections[3].icon} count={seeds.length}>
-            {seeds.map((seed) => {
-              const busy = actionId === `seed:${seed.seed_id}`;
-              return (
-                <PendingCard
-                  key={seed.seed_id}
-                  testId={`pending-experience-${seed.seed_id}`}
-                  label={t('memory.pending.meta.experienceSeed')}
-                  title={seedTitle(seed, t('memory.episodes.pending.fallbackTitle'))}
-                  body={seedBody(seed)}
-                  meta={t('memory.pending.fragmentCount', { count: seed.evidence_count ?? 0 })}
-                  actions={(
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        className={MEMORY_ACTION_BUTTON_CLASS}
-                        disabled={busy}
-                        onClick={() => void handleSeed(seed, 'promote')}
-                      >
-                        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                        {t('memory.pending.actions.promoteExperience')}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className={MEMORY_ACTION_BUTTON_CLASS}
-                        disabled={busy}
-                        onClick={() => void handleSeed(seed, 'reject')}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                        {t('memory.pending.actions.rejectExperience')}
-                      </Button>
-                    </div>
-                  )}
-                />
-              );
-            })}
-          </PendingSection>
+          {showObservations ? (
+            <PendingSection
+              title={t('memory.pending.groups.observations.title')}
+              description={t('memory.pending.groups.observations.description')}
+              icon={<FileText className="h-4 w-4" aria-hidden="true" />}
+              count={observationCount}
+              tone="blue"
+            >
+              {stories.map((story) => {
+                const busy = actionId === `story:${story.summary_id}`;
+                const title = String(story.content || '').trim() || storyTitle(story, t('memory.pending.fallbackMemoryUpdateTitle'));
+                const body = String(story.content || '').trim() ? storyTitle(story, '') : '';
+                return (
+                  <PendingCard
+                    key={story.summary_id}
+                    testId={`pending-story-${story.summary_id}`}
+                    label={t('memory.pending.meta.summary')}
+                    title={title}
+                    body={body}
+                    meta={t('memory.pending.evidenceCount', { count: story.evidence_event_count })}
+                    actions={(
+                      <ReviewActions
+                        busy={busy}
+                        confirmLabel={t('memory.pending.actions.confirmObservation')}
+                        rejectLabel={t('memory.pending.actions.rejectObservation')}
+                        onConfirm={() => void handleStory(story, 'confirmed')}
+                        onReject={() => void handleStory(story, 'rejected')}
+                      />
+                    )}
+                  />
+                );
+              })}
+            </PendingSection>
+          ) : null}
         </div>
       )}
     </MemoryPageFrame>
@@ -295,28 +368,44 @@ export const MemoryPendingPage = () => {
 
 function PendingSection({
   title,
+  description,
   icon,
   count,
+  tone,
   children,
 }: {
   title: string;
+  description: string;
   icon: ReactNode;
   count: number;
+  tone: 'amber' | 'green' | 'blue';
   children: ReactNode;
 }) {
   if (count === 0) {
     return null;
   }
   return (
-    <section className="space-y-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">
-          <span className="text-[hsl(var(--memory-accent))]">{icon}</span>
-          {title}
-        </h2>
-        <span className="text-xs text-[hsl(var(--memory-muted))]">{count}</span>
+    <section className="overflow-hidden rounded-xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.7)]">
+      <div className="flex items-center justify-between gap-4 border-b border-[hsl(var(--memory-divider)/0.56)] px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className={cn(
+              'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+              tone === 'amber' && 'bg-amber-100/70 text-amber-700',
+              tone === 'green' && 'bg-emerald-100/70 text-emerald-700',
+              tone === 'blue' && 'bg-sky-100/75 text-sky-700'
+            )}
+          >
+            {icon}
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">{title}</h2>
+            <p className="mt-0.5 truncate text-xs text-[hsl(var(--memory-muted))]">{description}</p>
+          </div>
+        </div>
+        <span className="shrink-0 text-xs text-[hsl(var(--memory-muted))]">{count}</span>
       </div>
-      <div className="mt-3 space-y-2">{children}</div>
+      <div className="divide-y divide-[hsl(var(--memory-divider)/0.54)]">{children}</div>
     </section>
   );
 }
@@ -339,11 +428,15 @@ function PendingCard({
   return (
     <article
       data-testid={testId}
-      className="grid gap-3 rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+      className="grid gap-3 px-4 py-4 md:grid-cols-[8.5rem_minmax(0,1fr)_auto] md:items-center"
     >
       <div className="min-w-0">
-        <div className="text-xs text-[hsl(var(--memory-muted))]">{label}</div>
-        <h3 className="mt-1 break-words text-sm font-semibold text-[hsl(var(--memory-title))]">{title}</h3>
+        <span className="inline-flex max-w-full rounded-full border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.52)] px-2.5 py-1 text-xs text-[hsl(var(--memory-body))]">
+          <span className="truncate">{label}</span>
+        </span>
+      </div>
+      <div className="min-w-0">
+        <h3 className="break-words text-sm font-semibold leading-6 text-[hsl(var(--memory-title))]">{title}</h3>
         {body ? <p className="mt-1 line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{body}</p> : null}
         {meta ? <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">{meta}</div> : null}
       </div>
@@ -354,14 +447,17 @@ function PendingCard({
 
 function ReviewActions({
   busy,
+  confirmLabel,
+  rejectLabel,
   onConfirm,
   onReject,
 }: {
   busy: boolean;
+  confirmLabel: string;
+  rejectLabel: string;
   onConfirm: () => void;
   onReject: () => void;
 }) {
-  const { t } = useTranslation('app');
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Button
@@ -372,7 +468,7 @@ function ReviewActions({
         onClick={onConfirm}
       >
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-        {t('memory.pending.actions.confirm')}
+        {confirmLabel}
       </Button>
       <Button
         type="button"
@@ -383,7 +479,7 @@ function ReviewActions({
         onClick={onReject}
       >
         <X className="h-3.5 w-3.5" />
-        {t('memory.pending.actions.reject')}
+        {rejectLabel}
       </Button>
     </div>
   );
