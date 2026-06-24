@@ -1351,6 +1351,7 @@
     },
     "defaultChatWorkspacePlaceholder": "No default directory selected",
     "defaultChatWorkspacePickFailed": "Failed to choose a default chat directory: {{message}}",
+    "archivePathPickFailed": "Failed to choose an archive directory: {{message}}",
     "streamingChatLabel": "Streaming output",
     "streamingChatDesc": "When enabled, messages appear word by word. When disabled, the full reply is shown at once.",
     "conversationRhythmLabel": "Natural reply rhythm",
@@ -1827,6 +1828,11 @@
         "history_behavior": {
           "label": "Historical memory behavior",
           "description": "Delete removes expired active history immediately. Archive writes it to a separate archive database before removing it from the active memory store."
+        },
+        "archive_path": {
+          "label": "Archive location",
+          "description": "Expired history is written into date-based archive databases here, then removed from active memory.",
+          "placeholder": "Choose archive directory"
         },
         "enable_l1_vectorization": {
           "label": "Enable semantic search",

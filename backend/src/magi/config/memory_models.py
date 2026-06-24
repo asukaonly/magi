@@ -266,6 +266,7 @@ class MemorySettings(BaseModel):
     db_path: str = Field(default="~/.magi/data/memory")
     retention_days: int = Field(default=90, ge=1)
     history_behavior: MemoryHistoryBehavior = Field(default=MemoryHistoryBehavior.DELETE)
+    archive_path: str = Field(default="~/.magi/data/memory/archive")
     async_embeddings: bool = Field(default=True)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: MemoryRerankerSettings = Field(default_factory=MemoryRerankerSettings)

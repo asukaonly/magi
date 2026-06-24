@@ -87,6 +87,7 @@ class UnifiedMemoryStore(
         embedding_service: MemoryEmbeddingService | None = None,
         scenario_llm_pool: "ScenarioLLMPool | None" = None,
         memory_config_getter: Callable[[], Any] | None = None,
+        archive_dir_path: Optional[str] = None,
         temporal_summary_features_builder: Callable[..., dict[str, Any]] | None = None,
         extraction_profile_provider: Callable[[], Any] | None = None,
         tuning: "MemoryStoreTuning | None" = None,
@@ -125,7 +126,11 @@ class UnifiedMemoryStore(
             else (memory_dir / "memory.db")
         )
         self.memory_db_path: str = shared_memory_db
-        archive_dir = memory_dir / "archive"
+        archive_dir = (
+            Path(archive_dir_path).expanduser()
+            if archive_dir_path
+            else memory_dir / "archive"
+        )
         archive_dir.mkdir(parents=True, exist_ok=True)
 
         self.l0: Optional[L0WorkingMemoryStore] = None

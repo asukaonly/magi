@@ -138,6 +138,7 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.l4.enabled is True
     assert config.memory.retention_days == 90
     assert config.memory.history_behavior == "delete"
+    assert config.memory.archive_path == "~/.magi/data/memory/archive"
     assert config.memory.l0.checkpoint_interval_seconds == 30
     assert config.memory.l2.batch_flush_interval_seconds == 60
     assert config.memory.l2.conflict_arbitration_enabled is True
@@ -341,6 +342,7 @@ def test_build_update_paths_contains_new_sections():
     current = _build_system_config(mask_api_key=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
     config.memory.db_path = "/tmp/magi-data/custom-memories"
+    config.memory.archive_path = "/tmp/magi-data/custom-archive"
     config.memory.reranker.top_k = 12
     config.memory.reranker.cross_encoder.enabled = True
     config.memory.reranker.cross_encoder.managed_model_id = "bge-reranker-v2-m3"
@@ -367,6 +369,7 @@ def test_build_update_paths_contains_new_sections():
     updates = _build_update_paths(config)
 
     assert updates["agent.memory.db_path"] == "/tmp/magi-data/custom-memories"
+    assert updates["agent.memory.archive_path"] == "/tmp/magi-data/custom-archive"
     assert updates["agent.memory.reranker.top_k"] == 12
     assert updates["agent.memory.reranker.cross_encoder.enabled"] is True
     assert updates["agent.memory.reranker.cross_encoder.managed_model_id"] == "bge-reranker-v2-m3"

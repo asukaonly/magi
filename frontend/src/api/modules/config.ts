@@ -509,6 +509,7 @@ export interface MemoryConfig {
   db_path?: string;
   retention_days: number;
   history_behavior: 'delete' | 'archive';
+  archive_path?: string | null;
   embedding: EmbeddingConfig;
   reranker: MemoryRerankerConfig;
   query_expansion: QueryExpansionConfig;
@@ -743,6 +744,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     },
     retention_days: 90,
     history_behavior: 'delete',
+    archive_path: '~/.magi/data/memory/archive',
     l0: {
       enabled: true,
       checkpoint_interval_seconds: 30,

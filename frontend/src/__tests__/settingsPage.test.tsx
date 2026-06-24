@@ -1229,6 +1229,42 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('shows archive path only when historical memory is archived', async () => {
+    const user = userEvent.setup();
+    const defaultArchivePath = '~/.magi/data/memory/archive';
+    pickDirectoryMock.mockResolvedValue('/tmp/magi-archive');
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
+
+    expect(screen.queryByLabelText('settings.memory.fields.archive_path.label')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.memory.fields.history_behavior.label' }));
+    await user.click(screen.getByRole('button', { name: 'settings.memory.options.history_behavior.archive' }));
+
+    const archivePathInput = await screen.findByLabelText('settings.memory.fields.archive_path.label');
+    expect(archivePathInput).toHaveValue(defaultArchivePath);
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.chooseDirectory' }));
+
+    await waitFor(() => expect(pickDirectoryMock).toHaveBeenCalledWith(defaultArchivePath));
+    expect(archivePathInput).toHaveValue('/tmp/magi-archive');
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          memory: expect.objectContaining({
+            history_behavior: 'archive',
+            archive_path: '/tmp/magi-archive',
+          }),
+        })
+      )
+    );
+  });
+
   it('disables the cross-encoder toggle when no cross-encoder model is configured', async () => {
     const user = userEvent.setup();
     // Default config has managed_model_id: null → toggle must be disabled

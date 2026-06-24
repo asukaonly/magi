@@ -54,6 +54,7 @@ def build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfi
         history_behavior=getattr(
             memory_cfg.history_behavior, "value", str(memory_cfg.history_behavior)
         ),
+        archive_path=memory_cfg.archive_path,
         embedding=EmbeddingConfigModel(
             mode=getattr(memory_cfg.embedding.mode, "value", str(memory_cfg.embedding.mode)),
             local=EmbeddingLocalConfigModel(

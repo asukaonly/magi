@@ -188,6 +188,7 @@ class MemoryConfigModel(BaseModel):
     db_path: Optional[str] = Field(default="~/.magi/data/memory")
     retention_days: int = Field(default=90, ge=1)
     history_behavior: str = Field(default="delete")
+    archive_path: Optional[str] = Field(default="~/.magi/data/memory/archive")
     embedding: EmbeddingConfigModel = Field(default_factory=EmbeddingConfigModel)
     reranker: MemoryRerankerConfigModel = Field(default_factory=MemoryRerankerConfigModel)
     query_expansion: QueryExpansionConfigModel = Field(default_factory=QueryExpansionConfigModel)

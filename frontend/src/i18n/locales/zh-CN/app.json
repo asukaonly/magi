@@ -1350,6 +1350,7 @@
     },
     "defaultChatWorkspacePlaceholder": "未选择默认目录",
     "defaultChatWorkspacePickFailed": "选择默认对话目录失败：{{message}}",
+    "archivePathPickFailed": "选择归档目录失败：{{message}}",
     "streamingChatLabel": "流式输出",
     "streamingChatDesc": "开启后消息将逐字显示，关闭则等待完整回复后一次性呈现。",
     "conversationRhythmLabel": "自然节奏回复",
@@ -1826,6 +1827,11 @@
         "history_behavior": {
           "label": "历史记忆行为",
           "description": "删除会直接清理过期的活跃历史；归档会先写入单独归档库，再从活跃记忆库移除。"
+        },
+        "archive_path": {
+          "label": "归档位置",
+          "description": "过期历史会按日期写入这里的归档库，再从活跃记忆中移除。",
+          "placeholder": "选择归档目录"
         },
         "enable_l1_vectorization": {
           "label": "启用语义搜索",

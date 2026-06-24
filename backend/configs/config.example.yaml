@@ -19,6 +19,7 @@ agent:
     db_path: "~/.magi/data/memory"
     retention_days: 90
     history_behavior: "delete" # "delete" or "archive"
+    archive_path: "~/.magi/data/memory/archive"
     embedding:
       mode: "remote" # "remote" or "local"
       local:

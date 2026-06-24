@@ -76,6 +76,7 @@ class MemoryStoreModule(LifecycleModule):
             embedding_service=embedding_service,
             scenario_llm_pool=scenario_llm_pool,
             memory_config_getter=lambda: get_config().agent.memory,
+            archive_dir_path=memory_config.archive_path,
             enable_l0=memory_config.l0.enabled,
             enable_l1=memory_config.l1.enabled,
             enable_l2=memory_config.l2.enabled,

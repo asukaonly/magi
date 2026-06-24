@@ -5897,6 +5897,11 @@ export interface components {
         /** MemoryConfigModel */
         readonly MemoryConfigModel: {
             /**
+             * Archive Path
+             * @default ~/.magi/data/memory/archive
+             */
+            readonly archive_path: string | null;
+            /**
              * Db Path
              * @default ~/.magi/data/memory
              */

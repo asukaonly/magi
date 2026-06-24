@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, RotateCcw, Trash2, XCircle } from 'lucide-react';
+import { FolderOpen, RefreshCw, RotateCcw, Trash2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 import type { VectorLayerId } from '@/api/modules/config';
@@ -11,7 +11,9 @@ import memoryApi from '@/api/modules/memory';
 import { ClearMemoryDialog } from '@/components/memory/ClearMemoryDialog';
 import { LabeledSelectField, NumberField } from '@/components/settings/form-fields';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { pickDirectory } from '@/runtime/desktop';
 import type { MemoryToggleFieldId } from '@/types/settings';
 
 interface MemorySettingsSectionProps {
@@ -249,6 +251,10 @@ export function MemoryGeneralSettingsSection({
   const { t } = useTranslation('app');
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [pickingArchivePath, setPickingArchivePath] = useState(false);
+  const defaultArchivePath = DEFAULT_SYSTEM_CONFIG.memory.archive_path ?? '~/.magi/data/memory/archive';
+  const effectiveArchivePath = draftConfig.memory.archive_path ?? defaultArchivePath;
+  const canRestoreArchivePath = effectiveArchivePath !== defaultArchivePath;
   const historyBehaviorOptions = [
     { value: 'delete', label: t('settings.memory.options.history_behavior.delete') },
     { value: 'archive', label: t('settings.memory.options.history_behavior.archive') },
@@ -279,24 +285,98 @@ export function MemoryGeneralSettingsSection({
     }
   }, [t]);
 
+  const handlePickArchivePath = useCallback(async () => {
+    setPickingArchivePath(true);
+    try {
+      const selectedPath = await pickDirectory(effectiveArchivePath);
+      if (!selectedPath) {
+        return;
+      }
+      patchDraftConfig((draft) => {
+        draft.memory.archive_path = selectedPath;
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'unknown';
+      toast.error(t('settings.archivePathPickFailed', { message }));
+    } finally {
+      setPickingArchivePath(false);
+    }
+  }, [effectiveArchivePath, patchDraftConfig, t]);
+
   return (
     <MemorySectionShell className="space-y-0">
       <MemoryGroup>
-        <div className="max-w-lg py-2">
-          <div>
+        <div className="py-2">
+          <div className="grid gap-4 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(10rem,12rem)] sm:items-center">
+            <div className="space-y-1">
+              <div className="text-sm font-medium text-foreground">
+                {t('settings.memory.fields.history_behavior.label')}
+              </div>
+              <p className="max-w-3xl text-xs leading-6 text-muted-foreground">
+                {t('settings.memory.fields.history_behavior.description')}
+              </p>
+            </div>
             <LabeledSelectField
-              label={t('settings.memory.fields.history_behavior.label')}
+              label=""
               ariaLabel={t('settings.memory.fields.history_behavior.label')}
               value={draftConfig.memory.history_behavior}
               options={historyBehaviorOptions}
+              className="w-full"
+              triggerClassName="h-10 rounded-full text-sm"
               onChange={(value) => patchDraftConfig((draft) => {
                 draft.memory.history_behavior = value as 'delete' | 'archive';
+                if (value === 'archive' && !draft.memory.archive_path) {
+                  draft.memory.archive_path = defaultArchivePath;
+                }
               })}
             />
-            <p className="mt-2 text-xs leading-6 text-muted-foreground">
-              {t('settings.memory.fields.history_behavior.description')}
-            </p>
           </div>
+          {draftConfig.memory.history_behavior === 'archive' ? (
+            <div className="border-l border-[hsl(var(--settings-subnav-border)/0.48)] py-3 pl-4">
+              <div className="space-y-2.5">
+                <label htmlFor="memory-archive-path" className="block text-sm font-semibold leading-6 text-foreground">
+                  {t('settings.memory.fields.archive_path.label')}
+                </label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <Input
+                    id="memory-archive-path"
+                    aria-label={t('settings.memory.fields.archive_path.label')}
+                    readOnly
+                    value={effectiveArchivePath}
+                    placeholder={t('settings.memory.fields.archive_path.placeholder')}
+                    className="min-w-0 flex-1"
+                  />
+                  <div className="flex flex-wrap gap-2 sm:flex-none">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        void handlePickArchivePath();
+                      }}
+                      disabled={pickingArchivePath}
+                    >
+                      <FolderOpen className="mr-2 h-4 w-4" />
+                      {t('settings.actions.chooseDirectory')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => patchDraftConfig((draft) => {
+                        draft.memory.archive_path = defaultArchivePath;
+                      })}
+                      disabled={!canRestoreArchivePath}
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      {t('settings.actions.restoreDefaultDirectory')}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <p className="mt-2 max-w-3xl text-xs leading-6 text-muted-foreground">
+                {t('settings.memory.fields.archive_path.description')}
+              </p>
+            </div>
+          ) : null}
         </div>
       </MemoryGroup>
 

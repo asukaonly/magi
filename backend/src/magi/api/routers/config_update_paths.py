@@ -277,6 +277,7 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.embedding.local.idle_timeout_seconds": config.memory.embedding.local.idle_timeout_seconds,
         "agent.memory.retention_days": config.memory.retention_days,
         "agent.memory.history_behavior": config.memory.history_behavior,
+        "agent.memory.archive_path": config.memory.archive_path,
         "agent.memory.reranker.top_k": config.memory.reranker.top_k,
         "agent.memory.reranker.cross_encoder.enabled": config.memory.reranker.cross_encoder.enabled,
         "agent.memory.reranker.cross_encoder.managed_model_id": config.memory.reranker.cross_encoder.managed_model_id,

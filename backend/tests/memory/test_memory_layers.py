@@ -1072,6 +1072,71 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary_payload["summary"]["summary_id"], str(summary_row["summary_id"]))
         self.assertEqual(summary_payload["summary"]["summary_category"], "state_change")
 
+    async def test_cleanup_old_data_uses_configured_archive_directory(self) -> None:
+        custom_archive_dir = self.base / "custom-archive"
+        local_store = UnifiedMemoryStore(
+            l1_db_path=str(self.base / "custom_archive_l1_events.db"),
+            memory_db_path=str(self.base / "custom_archive_memory.db"),
+            persist_dir=str(self.base / "custom_archive_memories"),
+            archive_dir_path=str(custom_archive_dir),
+            enable_l0=False,
+            enable_l4=False,
+            tuning=MemoryStoreTuning(
+                enable_l1_vectors=False,
+                enable_l2_vectors=False,
+                enable_l3_vectors=False,
+            ),
+        )
+        await local_store.initialize()
+        try:
+            old_timestamp = time.time() - (45 * 86400)
+            linked_event_id = await local_store.add_event(
+                Event(
+                    type=EventTypes.TASK_COMPLETED,
+                    data={
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "task_id": "task-custom-archive",
+                        "success": True,
+                        "content": "Archived through a configured archive directory.",
+                    },
+                    source="worker",
+                    level=EventLevel.INFO,
+                    correlation_id="evt-custom-archive",
+                    timestamp=old_timestamp,
+                )
+            )
+            await local_store.l3.upsert_candidate(
+                candidate=L3Candidate(
+                    summary_type="insight",
+                    summary_category="state_change",
+                    content="A compressed reflection covers a custom archive event.",
+                    source_event_ids=[linked_event_id],
+                ),
+                summary_overrides={
+                    "period_start": old_timestamp,
+                    "period_end": old_timestamp,
+                    "created_at": old_timestamp,
+                    "updated_at": old_timestamp,
+                },
+            )
+
+            removed = await local_store.cleanup_old_data(
+                older_than_days=30,
+                history_behavior="archive",
+            )
+
+            self.assertEqual(removed["archived_events"], 1)
+            self.assertEqual(removed["archived_summaries"], 1)
+            archive_db_path = custom_archive_dir / time.strftime("%Y-%m-%d", time.gmtime())
+            archive_db_path = archive_db_path.with_suffix(".db")
+            self.assertTrue(archive_db_path.exists())
+            self.assertFalse(
+                (self.base / "custom_archive_memories" / "archive" / archive_db_path.name).exists()
+            )
+        finally:
+            await local_store.shutdown()
+
     async def test_cleanup_old_data_deletes_expired_l3_summaries_without_touching_durable_events(self) -> None:
         old_timestamp = time.time() - (50 * 86400)
         durable_event_id = await self.store.add_event(

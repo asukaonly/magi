@@ -312,7 +312,7 @@ Product expectations:
 - L0-L4 workbench and inspector surfaces should be treated as expert/operator tooling, not as the default user memory experience
 - first-run onboarding should not force detailed memory tuning
 - settings should expose the main lifecycle toggles and key pipeline switches
-- general memory settings should expose a global hot-memory retention window and whether aged history is deleted or archived
+- general memory settings should expose a global hot-memory retention window, whether aged history is deleted or archived, and the archive directory when archiving is selected
 - the managed memory storage directory remains an internal runtime path until live path switching and migration are supported safely
 - general memory settings should also expose retrieval reranker controls, including whether LLM reranking is enabled, whether it runs locally or remotely, and where managed local reranker models are stored
 - vector writes should always stay on the async sqlite path rather than being user-configurable
@@ -325,7 +325,7 @@ The current settings surface should support at least:
 - enable or disable `L0` through `L4`
 - configure L0 checkpoint interval
 - configure a global memory retention window
-- choose whether aged history is deleted or archived into date-partitioned archive databases
+- choose whether aged history is deleted or archived into date-partitioned archive databases, with a configurable archive directory
 - enable or disable memory retrieval reranking
 - choose reranker execution mode (`local` or `remote`)
 - configure reranker candidate count and timeout budget
@@ -349,7 +349,7 @@ Current storage implementation notes:
 - `~/.magi/config/lifecycle.yaml` owns local data lifecycle policy for runtime telemetry, LLM usage rollups, command queue history, scheduler history, sensor fingerprints, chat asset GC, and ephemeral job TTLs; it is copied from `backend/configs/lifecycle.example.yaml` on first run.
 - L1 is stored in `data/memory/l1_events.db`.
 - `data/memory/l1_events.db` is now a lossy canonical projection target for `user_text` and `assistant_final` only; it is not the transcript source of truth.
-- when history behavior is `archive`, aged-out hot-path events are copied into `data/memory/archive/YYYY-MM-DD.db` before being removed from the active L1 projection.
+- when history behavior is `archive`, aged-out hot-path events are copied into the configured archive directory as `YYYY-MM-DD.db` before being removed from the active L1 projection; the default archive directory is `data/memory/archive/`.
 - the global hot-memory retention window currently applies to active L1 history projections and L3 history summaries; it does not prune L2 knowledge or L4 skills.
 - L0/L2/L3/L4 are consolidated into `data/memory/memory.db` (multi-table layout).
 - Layer vectors are stored per layer (`L1/L2 entity/L2 relation/L3/L4` vector tables) instead of a shared `embeddings.db`.

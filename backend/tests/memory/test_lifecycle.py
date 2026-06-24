@@ -77,6 +77,7 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
             memory=SimpleNamespace(
                 retention_days=90,
                 history_behavior="delete",
+                archive_path=str(tmp_path / "custom-archive"),
                 embedding=SimpleNamespace(backend=EmbeddingBackend.OPENAI),
                 async_embeddings=True,
                 l0=SimpleNamespace(
@@ -124,6 +125,7 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
     await module.init()
 
     assert captured["l2_batch_flush_interval_seconds"] == 90
+    assert captured["archive_dir_path"] == str(tmp_path / "custom-archive")
     # Advanced tuning knobs are bundled into MemoryStoreTuning.
     assert captured["tuning"].enable_l2_conflict_arbitration is True
     assert captured["tuning"].l2_conflict_arbitration_min_confidence == 0.85
@@ -168,4 +170,3 @@ async def test_memory_ingestion_subscriber_module_init_and_shutdown() -> None:
     await module.shutdown()
     assert context.memory.ingestion_subscriber is None
     assert len(bus.unsubscribed) == 9
-
