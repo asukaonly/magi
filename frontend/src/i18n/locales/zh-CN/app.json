@@ -773,6 +773,9 @@
       "summary_one": "展示 {{count}} 条记忆引用",
       "summary_other": "展示 {{count}} 条记忆引用",
       "summary": "展示 {{count}} 条记忆引用",
+      "exhaustiveSummary_one": "已完整统计 {{count}} 条相关记录",
+      "exhaustiveSummary_other": "已完整统计 {{count}} 条相关记录",
+      "exhaustiveSummary": "已完整统计 {{count}} 条相关记录",
       "close": "收起记忆详情",
       "confidence": "置信度 {{value}}",
       "kinds": {
@@ -1767,6 +1770,10 @@
           "label": "扩写条数",
           "description": "每次记忆查询最多额外生成几条检索表达。条数越多，召回更广，但耗时和模型调用成本也会增加。"
         },
+        "graph_spreading_enabled": {
+          "label": "启用关联召回",
+          "description": "在普通检索之外，沿知识关系补充相关记忆，适合需要更多上下文的问题。"
+        },
         "cross_encoder_no_model_hint": "请先在「大模型配置 → 模型选择 → 精排模型」中配置 Cross-Encoder 模型，再启用此功能。",
         "reranker_model": {
           "label": "精排模型",
@@ -1842,6 +1849,10 @@
           "label": "启用语义搜索",
           "description": "将提炼出的知识条目转为向量，支持按语义相似度搜索。",
           "description_disabled": "需要先在模型配置中选择向量模型。"
+        },
+        "shadow_conflict_notification_enabled": {
+          "label": "发现记忆冲突时提醒我确认",
+          "description": "当新推断和你明确说过的偏好不一致时，放入待处理，让你决定采用新记忆还是保留旧记忆。"
         },
         "l2_batch_flush_interval_seconds": {
           "label": "知识提炼批处理间隔（秒）",

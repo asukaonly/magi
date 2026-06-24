@@ -165,6 +165,9 @@ class FunctionCallingResponseMixin:
                 recalled_memories = self._compact_recalled_memories(historical_recall)
                 if recalled_memories:
                     direct_payload["recalled_memories"] = recalled_memories
+                recalled_memory_summary = self._compact_recalled_memory_summary(historical_recall)
+                if recalled_memory_summary:
+                    direct_payload["recalled_memory_summary"] = recalled_memory_summary
             payload = self._merge_assistant_message_payload(payload, direct_payload)
 
             nested_payload = result.data.get("assistant_payload")
@@ -218,6 +221,40 @@ class FunctionCallingResponseMixin:
             if len(compact) >= limit:
                 break
         return compact
+
+    def _compact_recalled_memory_summary(
+        self,
+        historical_recall: dict[str, Any],
+    ) -> dict[str, Any]:
+        coverage = historical_recall.get("coverage")
+        if not isinstance(coverage, dict):
+            return {}
+        if not bool(coverage.get("can_claim_total")):
+            return {}
+
+        summary: dict[str, Any] = {
+            "coverage_kind": str(coverage.get("kind") or "unknown"),
+            "can_claim_total": True,
+        }
+        total_count = coverage.get("total_count")
+        if isinstance(total_count, (int, float)):
+            summary["total_count"] = int(total_count)
+
+        structured_results = historical_recall.get("structured_results")
+        if isinstance(structured_results, list) and structured_results:
+            first = structured_results[0]
+            if isinstance(first, dict):
+                domain = str(first.get("domain") or "").strip()
+                if domain:
+                    summary["domain"] = domain
+                structured_summary = first.get("summary")
+                if "total_count" not in summary and isinstance(structured_summary, dict):
+                    for key in ("event_count", "session_count"):
+                        count = structured_summary.get(key)
+                        if isinstance(count, (int, float)):
+                            summary["total_count"] = int(count)
+                            break
+        return summary
 
     def _merge_assistant_message_payload(
         self,

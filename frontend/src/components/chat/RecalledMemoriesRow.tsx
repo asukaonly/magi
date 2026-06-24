@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Brain, X } from 'lucide-react';
-import type { RecalledMemory } from '@/domain/chat/state';
+import type { RecalledMemory, RecalledMemorySummary } from '@/domain/chat/state';
 import { cn } from '@/lib/utils';
 
 const MAX_INLINE_CHIPS = 3;
@@ -43,15 +43,27 @@ const KIND_LABEL_KEY: Record<string, string> = {
 
 type RecalledMemoriesRowProps = {
   memories: RecalledMemory[];
+  summary?: RecalledMemorySummary;
 };
 
-export const RecalledMemoriesRow = ({ memories }: RecalledMemoriesRowProps) => {
+export const RecalledMemoriesRow = ({ memories, summary }: RecalledMemoriesRowProps) => {
   const { t, i18n } = useTranslation('app');
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const detailRef = useRef<HTMLDivElement | null>(null);
 
   const visibleChips = useMemo(() => memories.slice(0, MAX_INLINE_CHIPS), [memories]);
   const overflowCount = Math.max(0, memories.length - visibleChips.length);
+  const hasExhaustiveStructuredCoverage = summary?.canClaimTotal === true
+    && summary.coverageKind === 'exhaustive';
+  const summaryText = hasExhaustiveStructuredCoverage
+    ? t('chat.recalledMemories.exhaustiveSummary', {
+        defaultValue: '已完整统计 {{count}} 条相关记录',
+        count: summary?.totalCount ?? memories.length,
+      })
+    : t('chat.recalledMemories.summary', {
+        defaultValue: '展示 {{count}} 条记忆引用',
+        count: memories.length,
+      });
 
   useEffect(() => {
     if (expandedIndex !== null && detailRef.current) {
@@ -59,7 +71,7 @@ export const RecalledMemoriesRow = ({ memories }: RecalledMemoriesRowProps) => {
     }
   }, [expandedIndex]);
 
-  if (memories.length === 0) {
+  if (memories.length === 0 && !hasExhaustiveStructuredCoverage) {
     return null;
   }
 
@@ -84,12 +96,7 @@ export const RecalledMemoriesRow = ({ memories }: RecalledMemoriesRowProps) => {
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-muted-foreground">
         <span className="inline-flex shrink-0 items-center gap-1.5 text-foreground/75">
           <Brain className="h-3 w-3" aria-hidden="true" />
-          <span>
-            {t('chat.recalledMemories.summary', {
-              defaultValue: '展示 {{count}} 条记忆引用',
-              count: memories.length,
-            })}
-          </span>
+          <span>{summaryText}</span>
         </span>
         {visibleChips.map((memory, index) => {
           const kindLabel = t(

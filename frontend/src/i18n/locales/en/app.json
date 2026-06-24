@@ -773,6 +773,9 @@
       "summary_one": "Showing {{count}} memory reference",
       "summary_other": "Showing {{count}} memory references",
       "summary": "Showing {{count}} memory references",
+      "exhaustiveSummary_one": "Fully counted {{count}} related record",
+      "exhaustiveSummary_other": "Fully counted {{count}} related records",
+      "exhaustiveSummary": "Fully counted {{count}} related records",
       "close": "Close memory detail",
       "confidence": "confidence {{value}}",
       "kinds": {
@@ -1768,6 +1771,10 @@
           "label": "Expansion count",
           "description": "Maximum extra retrieval phrasings to generate for each memory query. More expansions broaden recall but can add latency and model cost."
         },
+        "graph_spreading_enabled": {
+          "label": "Enable associative recall",
+          "description": "Supplement normal search by following knowledge relationships when a question needs broader context."
+        },
         "cross_encoder_no_model_hint": "Configure a Cross-Encoder model first in LLM Configuration → Model Selection → Reranker.",
         "reranker_model": {
           "label": "Reranker Model",
@@ -1843,6 +1850,10 @@
           "label": "Enable semantic search",
           "description": "Convert extracted knowledge entries into vectors for semantic similarity search.",
           "description_disabled": "Requires an embedding model to be configured first."
+        },
+        "shadow_conflict_notification_enabled": {
+          "label": "Ask me to confirm memory conflicts",
+          "description": "When a new inference disagrees with a preference you explicitly confirmed, send it to Pending so you can choose the right memory."
         },
         "l2_batch_flush_interval_seconds": {
           "label": "Knowledge extraction batch interval (seconds)",

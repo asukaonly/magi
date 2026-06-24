@@ -112,8 +112,7 @@ class TestCompactRecalledMemories:
     def test_compact_payload_respects_limit(self):
         mixin = _Mixin()
         findings = [
-            _make_finding(kind="event", statement=f"Event {i}", topic=f"E{i}")
-            for i in range(20)
+            _make_finding(kind="event", statement=f"Event {i}", topic=f"E{i}") for i in range(20)
         ]
         recalled = mixin._compact_recalled_memories({"findings": findings}, limit=4)
         assert len(recalled) == 4
@@ -149,6 +148,46 @@ class TestPayloadExtractionFromToolResults:
         assert "recalled_memories" in payload
         assert payload["recalled_memories"][0]["topic"] == "hachi-mi"
 
+    def test_structured_coverage_summary_attached_when_available(self):
+        mixin = _Mixin()
+        results = [
+            _ToolCallResultStub(
+                success=True,
+                data={
+                    "historical_recall": {
+                        "findings": [
+                            _make_finding(
+                                kind="event",
+                                statement="Visited example.com",
+                                topic="example.com",
+                                layer="L1",
+                            )
+                        ],
+                        "coverage": {
+                            "kind": "exhaustive",
+                            "can_claim_total": True,
+                            "total_count": 12,
+                        },
+                        "structured_results": [
+                            {
+                                "domain": "browser",
+                                "summary": {"event_count": 12, "metric_total": 18},
+                            }
+                        ],
+                    }
+                },
+            )
+        ]
+
+        payload = mixin._extract_assistant_message_payload_from_tool_results(results)
+
+        assert payload["recalled_memory_summary"] == {
+            "coverage_kind": "exhaustive",
+            "can_claim_total": True,
+            "total_count": 12,
+            "domain": "browser",
+        }
+
     def test_no_recalled_memories_when_findings_empty(self):
         mixin = _Mixin()
         results = [
@@ -168,9 +207,7 @@ class TestPayloadExtractionFromToolResults:
                 data={
                     "historical_recall": {
                         "findings": [
-                            _make_finding(
-                                kind="event", statement="should be ignored", topic="x"
-                            )
+                            _make_finding(kind="event", statement="should be ignored", topic="x")
                         ]
                     }
                 },

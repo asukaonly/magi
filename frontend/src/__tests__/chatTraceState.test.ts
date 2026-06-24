@@ -1187,6 +1187,58 @@ describe('chat trace state helpers', () => {
     expect(normalized[0].personaId).toBe('persona-asuka');
   });
 
+  it('normalizes recalled memory summary from history payloads', () => {
+    const normalized = normalizeHistoryMessages([
+      {
+        message_id: 'msg-memory-summary',
+        message_kind: 'assistant_final',
+        role: 'assistant',
+        content: 'You visited it 12 times.',
+        timestamp: 1000,
+        turn_id: 'turn_memory_summary',
+        kind: 'assistant',
+        payload: {
+          recalled_memory_summary: {
+            coverage_kind: 'exhaustive',
+            can_claim_total: true,
+            total_count: 12,
+            domain: 'browser',
+          },
+        },
+      },
+    ]);
+
+    expect(normalized[0].recalledMemorySummary).toEqual({
+      coverageKind: 'exhaustive',
+      canClaimTotal: true,
+      totalCount: 12,
+      domain: 'browser',
+    });
+  });
+
+  it('normalizes recalled memory summary from live assistant payloads', () => {
+    const next = applyAgentResponse([], {
+      content: 'You visited it 12 times.',
+      timestamp: 1000,
+      messageKind: 'assistant_final',
+      payload: {
+        recalled_memory_summary: {
+          coverage_kind: 'exhaustive',
+          can_claim_total: true,
+          total_count: 12,
+          domain: 'browser',
+        },
+      },
+    });
+
+    expect(next[0].recalledMemorySummary).toEqual({
+      coverageKind: 'exhaustive',
+      canClaimTotal: true,
+      totalCount: 12,
+      domain: 'browser',
+    });
+  });
+
   it('normalizes reply previews from history payloads', () => {
     const normalized = normalizeHistoryMessages([
       {

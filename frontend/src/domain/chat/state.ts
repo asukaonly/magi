@@ -43,6 +43,7 @@ export interface ChatTimelineMessage {
   reasoning?: ReasoningTrace[];
   toolCalls?: ToolCallTrace[];
   recalledMemories?: RecalledMemory[];
+  recalledMemorySummary?: RecalledMemorySummary;
   payload?: Record<string, unknown> | null;
 }
 
@@ -59,6 +60,13 @@ export interface RecalledMemory {
   confidence?: number | null;
   occurredAt?: number | null;
   evidenceText?: string | null;
+}
+
+export interface RecalledMemorySummary {
+  coverageKind: string;
+  canClaimTotal: boolean;
+  totalCount?: number | null;
+  domain?: string | null;
 }
 
 export interface RuntimeStatusTrace {
@@ -472,6 +480,29 @@ const normalizeRecalledMemories = (raw: unknown): RecalledMemory[] | undefined =
   return items.length > 0 ? items : undefined;
 };
 
+const normalizeRecalledMemorySummary = (raw: unknown): RecalledMemorySummary | undefined => {
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+  const record = raw as Record<string, unknown>;
+  const canClaimTotal = record.can_claim_total === true;
+  const coverageKind = String(record.coverage_kind || '').trim();
+  if (!canClaimTotal && !coverageKind) {
+    return undefined;
+  }
+  const totalCountRaw = record.total_count;
+  const totalCount = typeof totalCountRaw === 'number' && Number.isFinite(totalCountRaw)
+    ? totalCountRaw
+    : null;
+  const domain = typeof record.domain === 'string' ? record.domain.trim() || null : null;
+  return {
+    coverageKind: coverageKind || 'unknown',
+    canClaimTotal,
+    totalCount,
+    domain,
+  };
+};
+
 export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTimelineMessage[] => {
   const normalizedMessages: ChatTimelineMessage[] = [];
 
@@ -500,6 +531,11 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
       recalledMemories: normalizeRecalledMemories(
         message.payload && typeof message.payload === 'object'
           ? (message.payload as Record<string, unknown>).recalled_memories
+          : null,
+      ),
+      recalledMemorySummary: normalizeRecalledMemorySummary(
+        message.payload && typeof message.payload === 'object'
+          ? (message.payload as Record<string, unknown>).recalled_memory_summary
           : null,
       ),
       payload:
@@ -823,6 +859,11 @@ export const applyAgentResponse = (
         ? (payload.payload as Record<string, unknown>).recalled_memories
         : null,
     ) ?? existing?.recalledMemories,
+    recalledMemorySummary: normalizeRecalledMemorySummary(
+      payload.payload && typeof payload.payload === 'object'
+        ? (payload.payload as Record<string, unknown>).recalled_memory_summary
+        : null,
+    ) ?? existing?.recalledMemorySummary,
     payload: payload.payload ?? null,
   });
 
