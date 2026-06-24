@@ -24,6 +24,7 @@ from .lifecycle import (
 )
 from .retrieval.fts import L1EventFtsMixin
 from .retrieval.queries import L1EventQueryMixin
+from .source_facets import L1SourceFacetMixin
 from .storage.rows import L1EventRowMixin
 from .writes import L1EventWriteMixin, L1_STORE_DIAGNOSTIC_EVENT_TYPES
 
@@ -35,6 +36,7 @@ class L1EventStore(
     L1EventLifecycleMixin,
     L1EventEmbeddingMixin,
     L1EventQueryMixin,
+    L1SourceFacetMixin,
     L1EventWriteMixin,
 ):
     """Stores immutable normalized memory events in SQLite."""

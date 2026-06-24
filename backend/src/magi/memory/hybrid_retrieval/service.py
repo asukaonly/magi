@@ -13,6 +13,7 @@ from .indexical_resolver import resolve as resolve_indexical
 from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider
 from .mode_inference import infer_query_mode
 from .mode_registry import MODE_REGISTRY, VALID_MODES
+from .recall_shape import RecallShape, classify_recall_shape
 from .router import normalize_query_mode
 from .models import (
     IntentDeciderInput,
@@ -88,6 +89,8 @@ _TRACE_KEYS_LOGGED: tuple[str, ...] = (
     "indexical_cue_orphaned",
     "mode_rrf_applied",
     "l1_retrieval_scopes",
+    "recall_shape",
+    "structured_recall",
     "dropped_unresolved_entity_count",
 )
 
@@ -294,6 +297,9 @@ class HybridRetrievalService(
         if indexical_trace:
             payload.trace.update(indexical_trace)
 
+        recall_shape = classify_recall_shape(request.query)
+        payload.trace["recall_shape"] = recall_shape.to_dict()
+
         # 2. L0 unconditional
         if request.session_id and self._memory.l0 is not None:
             payload.l0_workbench = await self._load_l0(request.session_id)
@@ -374,8 +380,46 @@ class HybridRetrievalService(
         # raw payload flows through unchanged, with the reason logged
         # in trace.grounding_filter.
         result = await self._grounding_filter.apply(result, request)
+        result = await self._apply_structured_recall(
+            request=request,
+            recall_shape=recall_shape,
+            payload=result,
+        )
         _log_retrieval_trace(result)
         return result
+
+    async def _apply_structured_recall(
+        self,
+        *,
+        request: RetrievalQuery,
+        recall_shape: RecallShape,
+        payload: RetrievalPayload,
+    ) -> RetrievalPayload:
+        if recall_shape.domain_hint != "photo" or recall_shape.desired_coverage != "exhaustive":
+            return payload
+        l1_store = getattr(self._memory, "l1", None)
+        if l1_store is None:
+            payload.trace["structured_recall"] = "skipped:l1_missing"
+            return payload
+        try:
+            from ..structured_recall.photo import expand_photo_structured_recall
+
+            result = await expand_photo_structured_recall(
+                l1_store=l1_store,
+                request=request,
+                recall_shape=recall_shape,
+                payload=payload,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("structured photo recall failed: %s", exc, exc_info=True)
+            payload.trace["structured_recall"] = "failed"
+            return payload
+        if result is None:
+            payload.trace["structured_recall"] = "miss"
+            return payload
+        payload.structured_results.append(result)
+        payload.trace["structured_recall"] = "photo"
+        return payload
 
     def _refresh_handlers(self) -> None:
         """Rebuild layer handlers only when the underlying stores change.

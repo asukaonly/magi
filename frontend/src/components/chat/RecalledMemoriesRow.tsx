@@ -86,7 +86,7 @@ export const RecalledMemoriesRow = ({ memories }: RecalledMemoriesRowProps) => {
           <Brain className="h-3 w-3" aria-hidden="true" />
           <span>
             {t('chat.recalledMemories.summary', {
-              defaultValue: '调用了 {{count}} 条记忆',
+              defaultValue: '展示 {{count}} 条记忆引用',
               count: memories.length,
             })}
           </span>

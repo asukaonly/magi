@@ -30,6 +30,7 @@ def compact_historical_recall(
     summary = str(historical_recall.get("summary") or "")
     insufficient = bool(historical_recall.get("insufficient_evidence", False))
     provenance = historical_recall.get("provenance") or {}
+    coverage = historical_recall.get("coverage") or {}
     source_layers = provenance.get("source_layers") or []
     primary_count = provenance.get("primary_count") or 0
 
@@ -42,7 +43,9 @@ def compact_historical_recall(
     if source_layers:
         header_parts.append(f"sources={','.join(str(l) for l in source_layers)}")
     if primary_count:
-        header_parts.append(f"total={primary_count}")
+        header_parts.append(f"items={primary_count}")
+    if coverage:
+        header_parts.append(f"coverage={coverage.get('kind') or 'unknown'}")
     sections.append(f"[Memory Recall] {' | '.join(header_parts)}")
 
     # ---- Summary ----
@@ -56,6 +59,12 @@ def compact_historical_recall(
         if rendered:
             sections.append(rendered)
 
+    structured_results = historical_recall.get("structured_results") or []
+    if structured_results:
+        rendered = _render_structured_results(structured_results, max_items=max_items)
+        if rendered:
+            sections.append(rendered)
+
     # ---- Asset manifest ----
     asset_refs = historical_recall.get("asset_refs") or []
     if asset_refs:
@@ -66,10 +75,15 @@ def compact_historical_recall(
     # ---- Usage guidance ----
     if status == "not_found" or insufficient:
         sections.append("No confirmed memory found. Do not guess.")
+    elif bool(coverage.get("can_claim_total")):
+        sections.append(
+            "Structured coverage is exhaustive for the stated scope. "
+            "total-count claims are allowed only inside that scope."
+        )
     else:
         sections.append(
-            "Source-of-truth for this turn. "
-            "Do not guess beyond these findings."
+            "These findings are representative, not exhaustive. "
+            "Do not make total-count claims from them."
         )
 
     return "\n\n".join(sections)
@@ -174,6 +188,42 @@ def _render_asset_manifest(asset_refs: list[dict[str, Any]]) -> str:
             parts.append(f"×{count}")
         lines.append(f"- {', '.join(parts)}")
     return "\n".join(lines)
+
+
+def _render_structured_results(
+    structured_results: list[dict[str, Any]],
+    *,
+    max_items: int,
+) -> str:
+    parts: list[str] = []
+    for result in structured_results:
+        domain = str(result.get("domain") or "memory")
+        summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+        lines = [f"## Structured {domain.title()} Result"]
+        if domain == "photo":
+            if summary:
+                lines.append(f"- Sessions: {int(summary.get('session_count') or 0)}")
+                lines.append(f"- Total photos: {int(summary.get('photo_count') or 0)}")
+                by_year = summary.get("by_year")
+                if isinstance(by_year, dict) and by_year:
+                    years = ", ".join(f"{year}:{count}" for year, count in by_year.items())
+                    lines.append(f"- By year: {years}")
+        items = result.get("items") if isinstance(result.get("items"), list) else []
+        for item in items[:max_items]:
+            if not isinstance(item, dict):
+                continue
+            timestamp = format_timestamp(item.get("timestamp"))
+            content = truncate_statement(str(item.get("content") or ""), max_chars=160)[0]
+            photo_count = item.get("photo_count")
+            meta = []
+            if timestamp:
+                meta.append(timestamp)
+            if photo_count is not None:
+                meta.append(f"{int(photo_count)} photos")
+            suffix = f" ({', '.join(meta)})" if meta else ""
+            lines.append(f"- {content}{suffix}")
+        parts.append("\n".join(lines))
+    return "\n\n".join(parts)
 
 
 __all__ = ["compact_historical_recall"]

@@ -770,9 +770,9 @@
       }
     },
     "recalledMemories": {
-      "summary_one": "调用了 {{count}} 条记忆",
-      "summary_other": "调用了 {{count}} 条记忆",
-      "summary": "调用了 {{count}} 条记忆",
+      "summary_one": "展示 {{count}} 条记忆引用",
+      "summary_other": "展示 {{count}} 条记忆引用",
+      "summary": "展示 {{count}} 条记忆引用",
       "close": "收起记忆详情",
       "confidence": "置信度 {{value}}",
       "kinds": {

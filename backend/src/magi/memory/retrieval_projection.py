@@ -58,16 +58,26 @@ def project_historical_recall(
         query_mode=normalized_request.query_mode,
         plugin_asset_refs=plugin_recall_artifacts.get("asset_refs", []),
     )
+    structured_results = list(normalized_payload.structured_results or [])
     source_layers = _unique_in_order(item["source_layer"] for item in findings)
 
-    status = _derive_status(findings)
-    summary = _build_summary(
-        findings=findings,
-        query=normalized_request.query,
-        query_mode=normalized_request.query_mode,
-        status=status,
+    status = "found" if structured_results else _derive_status(findings)
+    summary = (
+        _build_structured_summary(structured_results[0])
+        if structured_results
+        else _build_summary(
+            findings=findings,
+            query=normalized_request.query,
+            query_mode=normalized_request.query_mode,
+            status=status,
+        )
     )
     insufficient_evidence = status == "not_found"
+    coverage = _build_coverage(
+        structured_results=structured_results,
+        finding_count=len(findings),
+        status=status,
+    )
 
     return HistoricalRecallPayload(
         status=status,
@@ -80,11 +90,14 @@ def project_historical_recall(
         answering_hints={
             "must_not_guess_when_empty": True,
             "prefer_direct_findings": True,
+            "can_claim_total": bool(coverage.get("can_claim_total")),
         },
         provenance={
             "primary_count": int(normalized_payload.trace.get("primary_count") or len(findings)),
             "source_layers": source_layers,
         },
+        coverage=coverage,
+        structured_results=structured_results,
     )
 
 
@@ -109,6 +122,7 @@ def _coerce_payload(payload: RetrievalPayload | dict[str, Any]) -> RetrievalPayl
         l2_experiences=list(payload.get("l2_experiences") or []),
         l2_state_facts=list(payload.get("l2_state_facts") or []),
         l2_state_history=list(payload.get("l2_state_history") or []),
+        structured_results=list(payload.get("structured_results") or []),
         trace=dict(payload.get("trace") or {}),
     )
 
@@ -147,3 +161,37 @@ def _unique_in_order(values: Iterable[str]) -> list[str]:
         seen.add(normalized)
         ordered.append(normalized)
     return ordered
+
+
+def _build_coverage(
+    *,
+    structured_results: list[dict[str, Any]],
+    finding_count: int,
+    status: str,
+) -> dict[str, Any]:
+    if structured_results:
+        coverage = dict(structured_results[0].get("coverage") or {})
+        coverage.setdefault("kind", "exhaustive")
+        coverage.setdefault("can_claim_total", True)
+        return coverage
+    return {
+        "kind": "sample" if status == "found" else "unknown",
+        "can_claim_total": False,
+        "returned_count": finding_count,
+        "source": "generic_recall",
+    }
+
+
+def _build_structured_summary(result: dict[str, Any]) -> str:
+    summary = result.get("summary")
+    if not isinstance(summary, dict):
+        return "Structured memory result found."
+    domain = str(result.get("domain") or "memory")
+    if domain == "photo":
+        session_count = int(summary.get("session_count") or 0)
+        photo_count = int(summary.get("photo_count") or 0)
+        return (
+            "Structured photo recall found "
+            f"{session_count} sessions and {photo_count} photos."
+        )
+    return "Structured memory result found."

@@ -770,9 +770,9 @@
       }
     },
     "recalledMemories": {
-      "summary_one": "Used {{count}} memory",
-      "summary_other": "Used {{count}} memories",
-      "summary": "Used {{count}} memories",
+      "summary_one": "Showing {{count}} memory reference",
+      "summary_other": "Showing {{count}} memory references",
+      "summary": "Showing {{count}} memory references",
       "close": "Close memory detail",
       "confidence": "confidence {{value}}",
       "kinds": {

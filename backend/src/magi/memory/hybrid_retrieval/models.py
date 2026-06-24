@@ -60,6 +60,7 @@ class RetrievalPayload:
     l2_experiences: List[Dict[str, Any]] = field(default_factory=list)
     l2_state_facts: List[Dict[str, Any]] = field(default_factory=list)
     l2_state_history: List[Dict[str, Any]] = field(default_factory=list)
+    structured_results: List[Dict[str, Any]] = field(default_factory=list)
     trace: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -76,6 +77,8 @@ class HistoricalRecallPayload:
     insufficient_evidence: bool = False
     answering_hints: Dict[str, Any] = field(default_factory=dict)
     provenance: Dict[str, Any] = field(default_factory=dict)
+    coverage: Dict[str, Any] = field(default_factory=dict)
+    structured_results: List[Dict[str, Any]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

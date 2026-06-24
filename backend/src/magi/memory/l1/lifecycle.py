@@ -26,6 +26,7 @@ _L1_MIGRATION_MODULES = (
     "magi.db.migrations.l1.versions.0001_initial",
     "magi.db.migrations.l1.versions.0002_l1_event_payload",
     "magi.db.migrations.l1.versions.0003_l1_session_sequence",
+    "magi.db.migrations.l1.versions.0004_l1_source_facets",
 )
 SCHEMA_SQL = "\n".join(
     importlib.import_module(_module).SCHEMA_SQL for _module in _L1_MIGRATION_MODULES

@@ -1,0 +1,512 @@
+"""L1 source facet extraction and query helpers."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+import re
+import time
+import unicodedata
+from typing import Any, Iterable, Protocol, cast
+
+import aiosqlite
+
+from ...core.sqlite import sqlite_connection_async
+from ..event_contracts import MemoryEvent
+from .embeddings.common import FACT_EVENTS_TABLE
+
+
+L1_SOURCE_FACETS_TABLE = "l1_source_facets"
+PHOTO_LIBRARY_SOURCE = "photo_library_apple_photos"
+PHOTO_LOCATION_FACETS = ("photo.location_name", "photo.location_alias")
+
+_GENERIC_PHOTO_TERMS = {
+    "photo_library",
+    "photos",
+    "photo",
+    "session",
+    "geo",
+    "location",
+}
+
+
+@dataclass(frozen=True)
+class SourceFacet:
+    event_id: str
+    source: str
+    facet_name: str
+    text_value: str | None = None
+    normalized_text_value: str | None = None
+    numeric_value: float | None = None
+    timestamp_value: float | None = None
+    json_value: str | None = None
+    created_at: float = 0.0
+
+    def to_row(self) -> tuple[Any, ...]:
+        return (
+            self.event_id,
+            self.source,
+            self.facet_name,
+            self.text_value,
+            self.normalized_text_value,
+            self.numeric_value,
+            self.timestamp_value,
+            self.json_value,
+            self.created_at or time.time(),
+        )
+
+
+class _L1SourceFacetHostProtocol(Protocol):
+    db_path: str
+
+    async def initialize(self) -> None: ...
+
+    def _row_to_dict(self, row: aiosqlite.Row, **kwargs: Any) -> dict[str, Any]: ...
+
+    def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent: ...
+
+    def _resolve_active_embedding_profile_id(self) -> tuple[str | None, dict[str, Any]]: ...
+
+    @staticmethod
+    def _select_event_columns() -> str: ...
+
+
+def normalize_facet_text(value: str | None) -> str:
+    """Normalize source text for exact-ish facet lookup."""
+    if value is None:
+        return ""
+    text = unicodedata.normalize("NFKC", str(value)).casefold()
+    text = re.sub(r"[^\w\s\u4e00-\u9fff]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def extract_source_facets(event: MemoryEvent | dict[str, Any]) -> list[SourceFacet]:
+    """Extract rebuildable source facets from an L1 event."""
+    event_dict = event.to_dict() if isinstance(event, MemoryEvent) else dict(event)
+    event_id = str(event_dict.get("event_id") or "").strip()
+    if not event_id:
+        return []
+    metadata = _metadata_from_event_dict(event_dict)
+    source = str(event_dict.get("source") or metadata.get("source") or "").strip()
+    if source != PHOTO_LIBRARY_SOURCE:
+        return []
+
+    content = str(event_dict.get("content") or "")
+    created_at = time.time()
+    facets: list[SourceFacet] = []
+
+    photo_count = _extract_photo_count(content=content, metadata=metadata)
+    if photo_count is not None:
+        facets.append(
+            SourceFacet(
+                event_id=event_id,
+                source=source,
+                facet_name="photo.count",
+                numeric_value=float(photo_count),
+                created_at=created_at,
+            )
+        )
+
+    device = _extract_device(content=content, metadata=metadata)
+    if device:
+        facets.append(
+            _text_facet(
+                event_id=event_id,
+                source=source,
+                facet_name="photo.device",
+                value=device,
+                created_at=created_at,
+            )
+        )
+
+    for photo in _iter_representative_photos(metadata):
+        for key in ("location_name", "apple_photos_place_name"):
+            value = _clean_text(photo.get(key))
+            if value:
+                facets.append(
+                    _text_facet(
+                        event_id=event_id,
+                        source=source,
+                        facet_name="photo.location_name",
+                        value=value,
+                        created_at=created_at,
+                    )
+                )
+        for key in ("apple_photos_place_address", "place_address", "address"):
+            value = _clean_text(photo.get(key))
+            if value:
+                facets.append(
+                    _text_facet(
+                        event_id=event_id,
+                        source=source,
+                        facet_name="photo.location_alias",
+                        value=value,
+                        created_at=created_at,
+                    )
+                )
+        asset_id = _clean_text(photo.get("asset_local_id") or photo.get("local_identifier"))
+        if asset_id:
+            facets.append(
+                _text_facet(
+                    event_id=event_id,
+                    source=source,
+                    facet_name="photo.asset_id",
+                    value=asset_id,
+                    created_at=created_at,
+                )
+            )
+        for key, facet_name in (
+            ("latitude", "photo.latitude"),
+            ("longitude", "photo.longitude"),
+        ):
+            numeric = _coerce_float(photo.get(key))
+            if numeric is not None:
+                facets.append(
+                    SourceFacet(
+                        event_id=event_id,
+                        source=source,
+                        facet_name=facet_name,
+                        numeric_value=numeric,
+                        created_at=created_at,
+                    )
+                )
+
+    for term in _iter_retrieval_terms(metadata):
+        normalized = normalize_facet_text(term)
+        if not normalized or normalized in _GENERIC_PHOTO_TERMS:
+            continue
+        facets.append(
+            _text_facet(
+                event_id=event_id,
+                source=source,
+                facet_name="photo.retrieval_term",
+                value=term,
+                created_at=created_at,
+            )
+        )
+
+    return _dedupe_facets(facets)
+
+
+def _metadata_from_event_dict(event: dict[str, Any]) -> dict[str, Any]:
+    metadata = event.get("metadata_json")
+    if metadata is None:
+        metadata = event.get("metadata")
+    if isinstance(metadata, str):
+        try:
+            parsed = json.loads(metadata)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _text_facet(
+    *,
+    event_id: str,
+    source: str,
+    facet_name: str,
+    value: str,
+    created_at: float,
+) -> SourceFacet:
+    normalized = normalize_facet_text(value)
+    return SourceFacet(
+        event_id=event_id,
+        source=source,
+        facet_name=facet_name,
+        text_value=value,
+        normalized_text_value=normalized or None,
+        created_at=created_at,
+    )
+
+
+def _extract_photo_count(*, content: str, metadata: dict[str, Any]) -> int | None:
+    for key in ("photo_count", "asset_count", "count", "session_photo_count"):
+        numeric = _coerce_float(metadata.get(key))
+        if numeric is not None and numeric >= 0:
+            return int(numeric)
+    for pattern in (
+        r"(?:拍摄了|拍了)\s*(\d+)\s*张",
+        r"(\d+)\s*(?:张照片|photos?)",
+    ):
+        match = re.search(pattern, content, flags=re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _extract_device(*, content: str, metadata: dict[str, Any]) -> str | None:
+    for key in ("device", "camera_model", "model"):
+        value = _clean_text(metadata.get(key))
+        if value:
+            return value
+    match = re.search(r"用\s+(.+?)\s+在", content)
+    return _clean_text(match.group(1)) if match else None
+
+
+def _iter_representative_photos(metadata: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    photos = metadata.get("representative_photos")
+    if isinstance(photos, dict):
+        photos = [photos]
+    if isinstance(photos, list):
+        for photo in photos:
+            if isinstance(photo, dict):
+                yield photo
+
+
+def _iter_retrieval_terms(metadata: dict[str, Any]) -> Iterable[str]:
+    projection = metadata.get("projection")
+    if not isinstance(projection, dict):
+        return []
+    terms = projection.get("retrieval_terms")
+    if not isinstance(terms, list):
+        return []
+    return [str(term).strip() for term in terms if str(term).strip()]
+
+
+def _clean_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _coerce_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _dedupe_facets(facets: list[SourceFacet]) -> list[SourceFacet]:
+    seen: set[tuple[Any, ...]] = set()
+    unique: list[SourceFacet] = []
+    for facet in facets:
+        key = (
+            facet.event_id,
+            facet.source,
+            facet.facet_name,
+            facet.normalized_text_value,
+            facet.numeric_value,
+            facet.timestamp_value,
+            facet.json_value,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(facet)
+    return unique
+
+
+class L1SourceFacetMixin:
+    """Maintain and query L1 source facets."""
+
+    async def _replace_source_facets_for_event(
+        self,
+        db: aiosqlite.Connection,
+        event: MemoryEvent,
+    ) -> None:
+        facets = extract_source_facets(event)
+        await db.execute(
+            f"DELETE FROM {L1_SOURCE_FACETS_TABLE} WHERE event_id = ?",
+            (event.event_id,),
+        )
+        if not facets:
+            return
+        await db.executemany(
+            f"""
+            INSERT INTO {L1_SOURCE_FACETS_TABLE}(
+                event_id, source, facet_name, text_value, normalized_text_value,
+                numeric_value, timestamp_value, json_value, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [facet.to_row() for facet in facets],
+        )
+
+    async def list_source_facets(
+        self,
+        *,
+        event_id: str | None = None,
+        source: str | None = None,
+        facet_names: list[str] | None = None,
+        normalized_text_values: list[str] | None = None,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        host = cast(_L1SourceFacetHostProtocol, self)
+        await host.initialize()
+        where_parts: list[str] = []
+        args: list[Any] = []
+        if event_id:
+            where_parts.append("event_id = ?")
+            args.append(event_id)
+        if source:
+            where_parts.append("source = ?")
+            args.append(source)
+        if facet_names:
+            where_parts.append(f"facet_name IN ({', '.join('?' for _ in facet_names)})")
+            args.extend(facet_names)
+        if normalized_text_values:
+            where_parts.append(
+                f"normalized_text_value IN ({', '.join('?' for _ in normalized_text_values)})"
+            )
+            args.extend(normalized_text_values)
+        where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"""
+                SELECT event_id, source, facet_name, text_value, normalized_text_value,
+                       numeric_value, timestamp_value, json_value, created_at
+                FROM {L1_SOURCE_FACETS_TABLE}
+                {where_sql}
+                ORDER BY event_id ASC, facet_name ASC, text_value ASC
+                LIMIT ?
+                """,
+                (*args, max(1, int(limit))),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    async def count_source_facets(
+        self,
+        *,
+        source: str | None = None,
+        facet_names: list[str] | None = None,
+    ) -> int:
+        host = cast(_L1SourceFacetHostProtocol, self)
+        await host.initialize()
+        where_parts: list[str] = []
+        args: list[Any] = []
+        if source:
+            where_parts.append("source = ?")
+            args.append(source)
+        if facet_names:
+            where_parts.append(f"facet_name IN ({', '.join('?' for _ in facet_names)})")
+            args.extend(facet_names)
+        where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+            async with db.execute(
+                f"SELECT COUNT(*) FROM {L1_SOURCE_FACETS_TABLE} {where_sql}",
+                tuple(args),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    async def find_events_by_source_facets(
+        self,
+        *,
+        source: str,
+        facet_names: list[str],
+        normalized_text_values: list[str],
+        user_id: str | None = None,
+        time_start: float | None = None,
+        time_end: float | None = None,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        host = cast(_L1SourceFacetHostProtocol, self)
+        await host.initialize()
+        normalized_values = [value for value in normalized_text_values if value]
+        if not normalized_values or not facet_names:
+            return []
+
+        args: list[Any] = [source]
+        sql = f"""
+            SELECT DISTINCT {host._select_event_columns()}
+            FROM {FACT_EVENTS_TABLE}
+            LEFT JOIN l1_event_embedding_state USING(event_id)
+            INNER JOIN {L1_SOURCE_FACETS_TABLE} sf USING(event_id)
+            WHERE fact_events.deleted_at IS NULL
+              AND sf.source = ?
+        """
+        sql += f" AND sf.facet_name IN ({', '.join('?' for _ in facet_names)})"
+        args.extend(facet_names)
+        sql += f" AND sf.normalized_text_value IN ({', '.join('?' for _ in normalized_values)})"
+        args.extend(normalized_values)
+        if user_id:
+            sql += " AND fact_events.user_id = ?"
+            args.append(user_id)
+        if time_start is not None:
+            sql += " AND fact_events.timestamp >= ?"
+            args.append(float(time_start))
+        if time_end is not None:
+            sql += " AND fact_events.timestamp <= ?"
+            args.append(float(time_end))
+        sql += " ORDER BY fact_events.timestamp ASC, fact_events.id ASC LIMIT ?"
+        args.append(max(1, int(limit)))
+
+        try:
+            active_embedding_profile_id, _ = host._resolve_active_embedding_profile_id()
+        except Exception:
+            active_embedding_profile_id = None
+        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [
+            host._row_to_dict(row, active_embedding_profile_id=active_embedding_profile_id)
+            for row in rows
+        ]
+
+    async def rebuild_source_facets(
+        self,
+        *,
+        source_filter: str | None = None,
+        batch_size: int = 500,
+        limit: int | None = None,
+    ) -> dict[str, int]:
+        host = cast(_L1SourceFacetHostProtocol, self)
+        await host.initialize()
+        processed = 0
+        indexed = 0
+        last_seen_id = 0
+        effective_batch_size = max(1, int(batch_size))
+
+        while True:
+            args: list[Any] = [last_seen_id]
+            where = "deleted_at IS NULL AND id > ?"
+            if source_filter:
+                where += " AND source = ?"
+                args.append(source_filter)
+            remaining = None if limit is None else max(0, int(limit) - processed)
+            if remaining == 0:
+                break
+            page_size = min(effective_batch_size, remaining) if remaining is not None else effective_batch_size
+            async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    f"""
+                    SELECT {host._select_event_columns()}
+                    FROM {FACT_EVENTS_TABLE}
+                    LEFT JOIN l1_event_embedding_state USING(event_id)
+                    WHERE {where}
+                    ORDER BY id ASC
+                    LIMIT ?
+                    """,
+                    (*args, page_size),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                if not rows:
+                    break
+                for row in rows:
+                    last_seen_id = max(last_seen_id, int(row["id"]))
+                    event = host._row_to_memory_event(row)
+                    await self._replace_source_facets_for_event(db, event)
+                    indexed += 1
+                    processed += 1
+                await db.commit()
+
+        return {"processed": processed, "indexed": indexed}
+
+
+__all__ = [
+    "L1_SOURCE_FACETS_TABLE",
+    "PHOTO_LIBRARY_SOURCE",
+    "PHOTO_LOCATION_FACETS",
+    "L1SourceFacetMixin",
+    "SourceFacet",
+    "extract_source_facets",
+    "normalize_facet_text",
+]

@@ -92,6 +92,12 @@ class L1EventWriteHostProtocol(Protocol):
 
     async def _list_chunk_ids_for_event(self, event_id: str) -> list[str]: ...
 
+    async def _replace_source_facets_for_event(
+        self,
+        db: aiosqlite.Connection,
+        event: MemoryEvent,
+    ) -> None: ...
+
 
 @dataclass(slots=True)
 class L1EvidenceBackfillResult:
@@ -232,6 +238,7 @@ class L1EventWriteMixin:
                     "(event_id, content, created_at) VALUES (?, ?, ?)",
                     (event.event_id, event.pinned_payload, float(event.created_at)),
                 )
+            await host._replace_source_facets_for_event(db, event)
             tokenized = tokenize_for_fts(host.get_search_text(event))
             await db.execute(
                 "DELETE FROM l1_events_fts WHERE event_id = ?",
