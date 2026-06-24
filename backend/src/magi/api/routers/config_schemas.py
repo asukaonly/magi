@@ -145,6 +145,8 @@ class MemoryL3ConfigModel(BaseModel):
 class MemoryL4ConfigModel(BaseModel):
     enabled: bool = Field(default=True)
     vectors_enabled: bool = Field(default=True)
+    inactive_skill_retention_days: int = Field(default=30, ge=1)
+    inactive_skill_min_attempts: int = Field(default=5, ge=1)
 
 
 class CrossEncoderConfigModel(BaseModel):

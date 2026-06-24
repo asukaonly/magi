@@ -88,6 +88,7 @@ export function SettingsMemorySection({
       return (
         <MemorySkillsSettingsSection
           draftConfig={draftConfig}
+          patchDraftConfig={patchDraftConfig}
           updateMemoryToggle={updateMemoryToggle}
         />
       );

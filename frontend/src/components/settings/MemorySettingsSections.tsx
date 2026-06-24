@@ -282,20 +282,7 @@ export function MemoryGeneralSettingsSection({
   return (
     <MemorySectionShell className="space-y-0">
       <MemoryGroup>
-        <div className="grid gap-6 py-2 lg:grid-cols-2">
-          <div>
-            <NumberField
-              label={t('settings.memory.fields.retention_days.label')}
-              value={draftConfig.memory.retention_days}
-              min={1}
-              onChange={(value) => patchDraftConfig((draft) => {
-                draft.memory.retention_days = value;
-              })}
-            />
-            <p className="mt-2 text-xs leading-6 text-muted-foreground">
-              {t('settings.memory.fields.retention_days.description')}
-            </p>
-          </div>
+        <div className="max-w-lg py-2">
           <div>
             <LabeledSelectField
               label={t('settings.memory.fields.history_behavior.label')}
@@ -442,6 +429,19 @@ export function MemoryEventsSettingsSection({
             draft.memory.l1.vectors_enabled = checked;
           })}
         />
+        <div className="py-3">
+          <NumberField
+            label={t('settings.memory.fields.l1_retention_days.label')}
+            value={draftConfig.memory.l1.retention_days}
+            min={1}
+            onChange={(value) => patchDraftConfig((draft) => {
+              draft.memory.l1.retention_days = value;
+            })}
+          />
+          <p className="mt-2 text-xs leading-6 text-muted-foreground">
+            {t('settings.memory.fields.l1_retention_days.description')}
+          </p>
+        </div>
       </MemoryGroup>
     </MemorySectionShell>
   );
@@ -581,6 +581,19 @@ export function MemoryReflectionSettingsSection({
             draft.memory.l3.vectors_enabled = checked;
           })}
         />
+        <div className="py-3">
+          <NumberField
+            label={t('settings.memory.fields.l3_retention_days.label')}
+            value={draftConfig.memory.l3.retention_days}
+            min={1}
+            onChange={(value) => patchDraftConfig((draft) => {
+              draft.memory.l3.retention_days = value;
+            })}
+          />
+          <p className="mt-2 text-xs leading-6 text-muted-foreground">
+            {t('settings.memory.fields.l3_retention_days.description')}
+          </p>
+        </div>
       </MemoryGroup>
     </MemorySectionShell>
   );
@@ -588,8 +601,9 @@ export function MemoryReflectionSettingsSection({
 
 export function MemorySkillsSettingsSection({
   draftConfig,
+  patchDraftConfig,
   updateMemoryToggle,
-}: Pick<MemorySettingsSectionProps, 'draftConfig' | 'updateMemoryToggle'>) {
+}: Pick<MemorySettingsSectionProps, 'draftConfig' | 'patchDraftConfig' | 'updateMemoryToggle'>) {
   const { t } = useTranslation('app');
 
   return (
@@ -611,6 +625,34 @@ export function MemorySkillsSettingsSection({
           disabled={!draftConfig.memory.l1.enabled}
           onCheckedChange={(checked) => updateMemoryToggle('l4', checked)}
         />
+        <div className="grid gap-6 py-3 lg:grid-cols-2">
+          <div>
+            <NumberField
+              label={t('settings.memory.fields.l4_inactive_skill_retention_days.label')}
+              value={draftConfig.memory.l4.inactive_skill_retention_days}
+              min={1}
+              onChange={(value) => patchDraftConfig((draft) => {
+                draft.memory.l4.inactive_skill_retention_days = value;
+              })}
+            />
+            <p className="mt-2 text-xs leading-6 text-muted-foreground">
+              {t('settings.memory.fields.l4_inactive_skill_retention_days.description')}
+            </p>
+          </div>
+          <div>
+            <NumberField
+              label={t('settings.memory.fields.l4_inactive_skill_min_attempts.label')}
+              value={draftConfig.memory.l4.inactive_skill_min_attempts}
+              min={1}
+              onChange={(value) => patchDraftConfig((draft) => {
+                draft.memory.l4.inactive_skill_min_attempts = value;
+              })}
+            />
+            <p className="mt-2 text-xs leading-6 text-muted-foreground">
+              {t('settings.memory.fields.l4_inactive_skill_min_attempts.description')}
+            </p>
+          </div>
+        </div>
       </MemoryGroup>
     </MemorySectionShell>
   );

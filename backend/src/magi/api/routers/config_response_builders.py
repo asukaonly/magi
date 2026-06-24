@@ -112,6 +112,8 @@ def build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfi
         l4=MemoryL4ConfigModel(
             enabled=memory_cfg.l4.enabled,
             vectors_enabled=memory_cfg.l4.vectors_enabled,
+            inactive_skill_retention_days=memory_cfg.l4.inactive_skill_retention_days,
+            inactive_skill_min_attempts=memory_cfg.l4.inactive_skill_min_attempts,
         ),
     )
 

@@ -1801,8 +1801,24 @@
           "label": "Auto-save interval (seconds)"
         },
         "retention_days": {
-          "label": "Global memory retention (days)",
-          "description": "L1 history projections and L3 history summaries older than this will be deleted or archived using the policy below. Default is 90 days."
+          "label": "Legacy global memory retention (days)",
+          "description": "Kept for legacy configuration compatibility; cleanup tasks now use each layer's own retention setting below."
+        },
+        "l1_retention_days": {
+          "label": "Event retention (days)",
+          "description": "Raw events older than this may be deleted or archived once higher-level memory has already used them and no active memory still needs them."
+        },
+        "l3_retention_days": {
+          "label": "Review summary retention (days)",
+          "description": "Ordinary review summaries older than this are eligible for cleanup; user-confirmed, pending, or experience-related summaries are kept."
+        },
+        "l4_inactive_skill_retention_days": {
+          "label": "Low-activity skill retention (days)",
+          "description": "Skills that have not been used recently and stay below the activity threshold below are cleaned up after this many days."
+        },
+        "l4_inactive_skill_min_attempts": {
+          "label": "Minimum uses to keep a skill",
+          "description": "Skills that reach this many uses are kept even if they have not been used recently."
         },
         "history_behavior": {
           "label": "Historical memory behavior",

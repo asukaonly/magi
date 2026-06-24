@@ -1151,7 +1151,7 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryGeneral' })).not.toBeInTheDocument();
   });
 
-  it('saves general memory retention settings alongside knowledge settings', async () => {
+  it('saves layer-specific memory retention settings alongside knowledge settings', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
@@ -1160,9 +1160,7 @@ describe('settings page draft saving', () => {
 
     expect(screen.queryByLabelText('settings.memory.fields.db_path.label')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'settings.actions.chooseDirectory' })).not.toBeInTheDocument();
-
-    const retentionInput = screen.getByLabelText('settings.memory.fields.retention_days.label');
-    fireEvent.change(retentionInput, { target: { value: '120' } });
+    expect(screen.queryByLabelText('settings.memory.fields.retention_days.label')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.memory.fields.history_behavior.label' }));
     await user.click(screen.getByRole('button', { name: 'settings.memory.options.history_behavior.archive' }));
@@ -1174,6 +1172,11 @@ describe('settings page draft saving', () => {
       screen.queryByRole('button', { name: 'settings.memory.fields.embedding_backend.label' })
     ).not.toBeInTheDocument();
 
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.memoryEvents' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryEvents' });
+    const l1RetentionInput = await screen.findByLabelText('settings.memory.fields.l1_retention_days.label');
+    fireEvent.change(l1RetentionInput, { target: { value: '21' } });
+
     await user.click(screen.getByRole('button', { name: 'settings.tabs.memoryKnowledge' }));
     await screen.findByRole('heading', { name: 'settings.tabs.memoryKnowledge' });
     const l2BatchIntervalInput = await screen.findByLabelText('settings.memory.fields.l2_batch_flush_interval_seconds.label');
@@ -1184,18 +1187,39 @@ describe('settings page draft saving', () => {
     );
     fireEvent.change(arbitrationThresholdInput, { target: { value: '0.9' } });
 
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.memoryReflection' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryReflection' });
+    const l3RetentionInput = await screen.findByLabelText('settings.memory.fields.l3_retention_days.label');
+    fireEvent.change(l3RetentionInput, { target: { value: '240' } });
+
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.memorySkills' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memorySkills' });
+    const l4RetentionInput = await screen.findByLabelText('settings.memory.fields.l4_inactive_skill_retention_days.label');
+    fireEvent.change(l4RetentionInput, { target: { value: '45' } });
+    const l4MinAttemptsInput = await screen.findByLabelText('settings.memory.fields.l4_inactive_skill_min_attempts.label');
+    fireEvent.change(l4MinAttemptsInput, { target: { value: '9' } });
+
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
     await waitFor(() =>
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
           memory: expect.objectContaining({
-            retention_days: 120,
             history_behavior: 'archive',
+            l1: expect.objectContaining({
+              retention_days: 21,
+            }),
             l2: expect.objectContaining({
               batch_flush_interval_seconds: 90,
               conflict_arbitration_enabled: false,
               conflict_arbitration_min_confidence: 0.9,
+            }),
+            l3: expect.objectContaining({
+              retention_days: 240,
+            }),
+            l4: expect.objectContaining({
+              inactive_skill_retention_days: 45,
+              inactive_skill_min_attempts: 9,
             }),
           }),
         })

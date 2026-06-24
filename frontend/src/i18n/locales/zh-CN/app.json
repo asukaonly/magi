@@ -1800,8 +1800,24 @@
           "label": "自动存档间隔（秒）"
         },
         "retention_days": {
-          "label": "全局记忆保留天数",
-          "description": "超过该天数的 L1 历史投影与 L3 历史摘要会按下方策略删除或归档，默认 90 天。"
+          "label": "旧全局记忆保留天数",
+          "description": "兼容旧配置使用；当前清理任务使用下面各层自己的保留天数。"
+        },
+        "l1_retention_days": {
+          "label": "事件保留天数",
+          "description": "原始事件超过该天数后，如果已经被上层记忆使用且不再需要保留，会按通用策略删除或归档。"
+        },
+        "l3_retention_days": {
+          "label": "回顾总结保留天数",
+          "description": "普通回顾总结超过该天数后会进入清理；用户确认过、待确认或与经历相关的总结会被保留。"
+        },
+        "l4_inactive_skill_retention_days": {
+          "label": "低活跃技能保留天数",
+          "description": "技能长期没有使用，且使用次数低于下面的阈值时，会在超过该天数后被清理。"
+        },
+        "l4_inactive_skill_min_attempts": {
+          "label": "保留技能的最低使用次数",
+          "description": "达到这个使用次数的技能会被保留，即使最近一段时间没有使用。"
         },
         "history_behavior": {
           "label": "历史记忆行为",

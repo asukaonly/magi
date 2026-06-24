@@ -6032,6 +6032,16 @@ export interface components {
              */
             readonly enabled: boolean;
             /**
+             * Inactive Skill Min Attempts
+             * @default 5
+             */
+            readonly inactive_skill_min_attempts: number;
+            /**
+             * Inactive Skill Retention Days
+             * @default 30
+             */
+            readonly inactive_skill_retention_days: number;
+            /**
              * Vectors Enabled
              * @default true
              */

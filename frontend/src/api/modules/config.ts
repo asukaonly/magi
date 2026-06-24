@@ -469,6 +469,8 @@ export interface MemoryL3Config {
 export interface MemoryL4Config {
   enabled: boolean;
   vectors_enabled: boolean;
+  inactive_skill_retention_days: number;
+  inactive_skill_min_attempts: number;
 }
 
 export interface CrossEncoderConfig {
@@ -768,6 +770,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     l4: {
       enabled: true,
       vectors_enabled: true,
+      inactive_skill_retention_days: 30,
+      inactive_skill_min_attempts: 5,
     },
   },
   preferences: {
