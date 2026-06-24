@@ -392,6 +392,39 @@ def test_story_feed_projects_legacy_interest_trend_as_readable_summary(app_facto
     assert "DeepSeek" in body["items"][0]["content"]
 
 
+def test_story_feed_drops_raw_legacy_interest_title(app_factory):
+    insights = [
+        {
+            "summary_id": "legacy-interest",
+            "summary_type": "insight",
+            "summary_category": "trend_shift",
+            "title": "Recurring interested_in signal for Codex; Recurring interested_in signal for DeepSeek.",
+            "content": "Recurring interested_in signal for Codex; Recurring interested_in signal for DeepSeek.",
+            "period_end": 100.0,
+            "updated_at": 100.0,
+            "review_state": "pending_confirmation",
+            "source_event_count": 20,
+            "insight_metadata": {
+                "kind": "trend_shift",
+                "entity_id": "user:self",
+                "outcomes": [
+                    {"trait_name": "interest.codex-coding-tools-by-openai", "winning_value": "Codex"},
+                    {"trait_name": "interest.deepseek", "winning_value": "DeepSeek"},
+                ],
+            },
+        },
+    ]
+    unified = _stub_memory(insights=insights, temporal=[])
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get("/api/memory/stories", params={"limit": 20})
+    body = resp.json()
+    assert body["items"][0]["title"] == ""
+    assert "Recurring" not in body["items"][0]["content"]
+    assert "interested_in" not in body["items"][0]["content"]
+    assert body["items"][0]["content"] == "最近持续关注：Codex、DeepSeek。"
+
+
 def test_legible_filter_allows_file_paths_and_urls(app_factory):
     """Common file extensions and TLDs are not flagged as trait_name leaks."""
     insights = [

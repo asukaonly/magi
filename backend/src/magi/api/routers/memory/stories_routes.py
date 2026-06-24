@@ -114,6 +114,11 @@ def _render_interest_trend_content(metadata: dict[str, Any]) -> str | None:
     return f"最近持续关注：{'、'.join(values)}。"
 
 
+def _is_raw_interest_template(value: str) -> bool:
+    lowered = value.strip().lower()
+    return "interested_in signal" in lowered or "recurring interested_in" in lowered
+
+
 def _trend_dedupe_key(item: dict[str, Any]) -> tuple[str, str] | None:
     if item.get("summary_category") != "trend_shift":
         return None
@@ -205,17 +210,20 @@ def _row_to_story_item(row: dict[str, Any]) -> dict[str, Any]:
     else:
         salience_until = None
     content = row.get("content") or ""
+    title = str(row.get("title") or "").strip()
     if str(row.get("summary_category") or "") == "trend_shift":
         trend_item = {"summary_category": "trend_shift", "insight_metadata": metadata}
         if _is_interest_trend_item(trend_item):
             rendered = _render_interest_trend_content(metadata)
             if rendered is not None:
                 content = rendered
+                if _is_raw_interest_template(title):
+                    title = ""
     return {
         "summary_id": row.get("summary_id") or row.get("id"),
         "summary_type": row.get("summary_type"),
         "summary_category": row.get("summary_category"),
-        "title": row.get("title") or _derive_title(row),
+        "title": title or _derive_title(row),
         "content": content,
         "period_start": row.get("period_start"),
         "period_end": row.get("period_end"),
