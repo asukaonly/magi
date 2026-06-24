@@ -76,6 +76,7 @@ def build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfi
         ),
         query_expansion=QueryExpansionConfigModel(
             enabled=memory_cfg.query_expansion.enabled,
+            max_expansions=memory_cfg.query_expansion.max_expansions,
         ),
         graph_spreading=GraphSpreadingConfigModel(
             enabled=memory_cfg.graph_spreading.enabled,

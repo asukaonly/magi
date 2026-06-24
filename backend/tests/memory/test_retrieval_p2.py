@@ -371,6 +371,7 @@ class TestP2ConfigFields:
 
         qe = app_config.agent.memory.query_expansion
         qe.enabled = False
+        qe.max_expansions = 3
 
         gs = app_config.agent.memory.graph_spreading
         gs.enabled = True
@@ -378,4 +379,5 @@ class TestP2ConfigFields:
         from magi.memory.hybrid_retrieval.service import build_retrieval_config_from_app_config
 
         config = build_retrieval_config_from_app_config(app_config)
+        assert config.query_expansion_max_expansions == 3
         assert config.graph_spreading_enabled is True

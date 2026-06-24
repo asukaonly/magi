@@ -330,6 +330,7 @@ The current settings surface should support at least:
 - choose reranker execution mode (`local` or `remote`)
 - configure reranker candidate count and timeout budget
 - configure local reranker model reference (`managed` cache ID or external file path)
+- enable or disable query expansion and configure the maximum number of expansion queries
 - enable or disable L3 LLM reflection
 
 Important behavioral rules:
@@ -354,6 +355,7 @@ Current storage implementation notes:
 - Layer vectors are stored per layer (`L1/L2 entity/L2 relation/L3/L4` vector tables) instead of a shared `embeddings.db`.
 - The vector backend is fixed to sqlite and vector writes stay async; Settings no longer exposes backend or scheduling switches.
 - Vector table identity is strict for incompatible embeddings. Remote vectors are keyed by model, dimension, and text-builder version; local vectors are keyed by model file hash, dimension, and text-builder version. Provider provenance changes are surfaced as warnings but do not invalidate the hard identity by themselves.
+- L2 batch flush timing and conflict arbitration thresholds remain internal pipeline strategy defaults rather than ordinary user-facing settings.
 - Managed local reranker assets belong under `~/.magi/cache/models/rerank/<managed_model_id>/`; externally referenced local reranker files stay in place and are referenced by path only.
 - Current `local` reranker execution first tries a configured provider instance such as `llm.providers.local.services.chat` that points to a local OpenAI-compatible service.
 - If that local provider path is unavailable and a managed/external local reranker model file is configured, retrieval may fall back to direct `llama-cli` execution against that local model file.

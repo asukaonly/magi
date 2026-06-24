@@ -245,6 +245,7 @@ class QueryExpansionSettings(BaseModel):
     """LLM-based query expansion settings for retrieval."""
 
     enabled: bool = Field(default=True)
+    max_expansions: int = Field(default=2, ge=1, le=5)
 
 
 class GraphSpreadingSettings(BaseModel):

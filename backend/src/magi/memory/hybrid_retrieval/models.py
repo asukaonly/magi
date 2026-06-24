@@ -278,6 +278,7 @@ class RetrievalConfig:
     # Query expansion (LLM-based alternative query generation)
     query_expansion_enabled: bool = True
     query_expansion_timeout_seconds: float = 3.0
+    query_expansion_max_expansions: int = 2
 
     # Graph spreading activation (L2 knowledge graph BFS)
     graph_spreading_enabled: bool = False

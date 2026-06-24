@@ -1588,7 +1588,7 @@
           "retrievalDescription": "Decide which events deserve extra attention and whether they can participate in semantic search."
         },
         "knowledge": {
-          "description": "Configure knowledge extraction, batch flushing, and conflict arbitration so facts settle into stable cognition.",
+          "description": "Configure whether knowledge memory extracts facts automatically and whether extracted knowledge participates in semantic search.",
           "extractionTitle": "Knowledge extraction",
           "extractionDescription": "Control whether the knowledge layer is enabled and whether the model participates in entity, relation, and assertion extraction.",
           "flushTitle": "Batch flushing",
@@ -1762,6 +1762,10 @@
         "query_expansion_enabled": {
           "label": "Enable Query Expansion",
           "description": "Use an LLM to generate additional retrieval phrasings for memory queries, improving recall at the cost of one extra model call."
+        },
+        "query_expansion_max_expansions": {
+          "label": "Expansion count",
+          "description": "Maximum extra retrieval phrasings to generate for each memory query. More expansions broaden recall but can add latency and model cost."
         },
         "cross_encoder_no_model_hint": "Configure a Cross-Encoder model first in LLM Configuration → Model Selection → Reranker.",
         "reranker_model": {

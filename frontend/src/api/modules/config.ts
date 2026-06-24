@@ -486,6 +486,7 @@ export interface MemoryRerankerConfig {
 
 export interface QueryExpansionConfig {
   enabled: boolean;
+  max_expansions: number;
 }
 
 export type EmbeddingMode = 'off' | 'remote' | 'local';
@@ -738,6 +739,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     },
     query_expansion: {
       enabled: true,
+      max_expansions: 2,
     },
     retention_days: 90,
     history_behavior: 'delete',

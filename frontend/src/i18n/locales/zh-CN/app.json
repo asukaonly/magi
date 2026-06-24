@@ -1587,7 +1587,7 @@
           "retrievalDescription": "决定哪些事件值得被突出关注，以及它们是否能参与语义搜索。"
         },
         "knowledge": {
-          "description": "配置知识记忆的抽取、批次冲刷和冲突仲裁策略，决定事实如何沉淀成稳定认知。",
+          "description": "配置知识记忆是否自动提炼，以及提炼出的知识是否参与语义搜索。",
           "extractionTitle": "知识抽取",
           "extractionDescription": "控制知识层是否启用，以及模型是否参与实体、关系与断言抽取。",
           "flushTitle": "批次冲刷",
@@ -1761,6 +1761,10 @@
         "query_expansion_enabled": {
           "label": "启用查询扩写",
           "description": "使用 LLM 为记忆查询生成额外检索表达，提升召回率，但会增加一次额外模型调用。"
+        },
+        "query_expansion_max_expansions": {
+          "label": "扩写条数",
+          "description": "每次记忆查询最多额外生成几条检索表达。条数越多，召回更广，但耗时和模型调用成本也会增加。"
         },
         "cross_encoder_no_model_hint": "请先在「大模型配置 → 模型选择 → 精排模型」中配置 Cross-Encoder 模型，再启用此功能。",
         "reranker_model": {

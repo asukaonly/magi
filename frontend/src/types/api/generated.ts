@@ -7024,6 +7024,11 @@ export interface components {
              * @default true
              */
             readonly enabled: boolean;
+            /**
+             * Max Expansions
+             * @default 2
+             */
+            readonly max_expansions: number;
         };
         /** QuietHourModel */
         readonly QuietHourModel: {

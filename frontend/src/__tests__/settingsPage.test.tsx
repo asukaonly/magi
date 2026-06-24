@@ -1151,7 +1151,7 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryGeneral' })).not.toBeInTheDocument();
   });
 
-  it('saves layer-specific memory retention settings alongside knowledge settings', async () => {
+  it('saves layer-specific memory retention settings and keeps knowledge internals hidden', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
@@ -1179,13 +1179,15 @@ describe('settings page draft saving', () => {
 
     await user.click(screen.getByRole('button', { name: 'settings.tabs.memoryKnowledge' }));
     await screen.findByRole('heading', { name: 'settings.tabs.memoryKnowledge' });
-    const l2BatchIntervalInput = await screen.findByLabelText('settings.memory.fields.l2_batch_flush_interval_seconds.label');
-    fireEvent.change(l2BatchIntervalInput, { target: { value: '90' } });
-    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.enable_l2_conflict_arbitration.label' }));
-    const arbitrationThresholdInput = await screen.findByLabelText(
-      'settings.memory.fields.l2_conflict_arbitration_min_confidence.label'
-    );
-    fireEvent.change(arbitrationThresholdInput, { target: { value: '0.9' } });
+    expect(
+      screen.queryByLabelText('settings.memory.fields.l2_batch_flush_interval_seconds.label')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('switch', { name: 'settings.memory.fields.enable_l2_conflict_arbitration.label' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('settings.memory.fields.l2_conflict_arbitration_min_confidence.label')
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.tabs.memoryReflection' }));
     await screen.findByRole('heading', { name: 'settings.tabs.memoryReflection' });
@@ -1210,9 +1212,9 @@ describe('settings page draft saving', () => {
               retention_days: 21,
             }),
             l2: expect.objectContaining({
-              batch_flush_interval_seconds: 90,
-              conflict_arbitration_enabled: false,
-              conflict_arbitration_min_confidence: 0.9,
+              batch_flush_interval_seconds: 60,
+              conflict_arbitration_enabled: true,
+              conflict_arbitration_min_confidence: 0.85,
             }),
             l3: expect.objectContaining({
               retention_days: 240,
@@ -1321,7 +1323,8 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
     await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
 
-    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.query_expansion_enabled.label' }));
+    const maxExpansionsInput = await screen.findByLabelText('settings.memory.fields.query_expansion_max_expansions.label');
+    fireEvent.change(maxExpansionsInput, { target: { value: '3' } });
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
@@ -1330,12 +1333,27 @@ describe('settings page draft saving', () => {
         expect.objectContaining({
           memory: expect.objectContaining({
             query_expansion: expect.objectContaining({
-              enabled: false,
+              enabled: true,
+              max_expansions: 3,
             }),
           }),
         })
       )
     );
+  });
+
+  it('hides query expansion count when query expansion is disabled', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
+
+    expect(screen.getByLabelText('settings.memory.fields.query_expansion_max_expansions.label')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.query_expansion_enabled.label' }));
+
+    expect(screen.queryByLabelText('settings.memory.fields.query_expansion_max_expansions.label')).not.toBeInTheDocument();
   });
 
   it('shows grouped model configuration navigation with provider and model sub-sections', async () => {

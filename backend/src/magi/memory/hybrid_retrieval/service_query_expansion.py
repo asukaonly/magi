@@ -34,6 +34,7 @@ class HybridRetrievalQueryExpansionMixin:
         expander = QueryExpander(
             host._llm_provider_bridge,
             timeout_seconds=host._config.query_expansion_timeout_seconds,
+            max_expansions=host._config.query_expansion_max_expansions,
         )
         expanded_queries = await expander.expand(original_query)
         if not expanded_queries:

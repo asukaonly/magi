@@ -173,6 +173,7 @@ class EmbeddingConfigModel(BaseModel):
 
 class QueryExpansionConfigModel(BaseModel):
     enabled: bool = Field(default=True)
+    max_expansions: int = Field(default=2, ge=1, le=5)
 
 
 class GraphSpreadingConfigModel(BaseModel):

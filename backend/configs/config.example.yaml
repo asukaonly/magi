@@ -37,6 +37,7 @@ agent:
 
     query_expansion:
       enabled: true
+      max_expansions: 2
       timeout_seconds: 3.0
 
     graph_spreading:

@@ -311,6 +311,24 @@ export function MemoryGeneralSettingsSection({
               draft.memory.query_expansion.enabled = checked;
             })}
           />
+          {queryExpansionConfig.enabled ? (
+            <div className="max-w-xs py-3">
+              <NumberField
+                label={t('settings.memory.fields.query_expansion_max_expansions.label')}
+                value={queryExpansionConfig.max_expansions}
+                min={1}
+                max={5}
+                step={1}
+                onChange={(value) => patchDraftConfig((draft) => {
+                  draft.memory.query_expansion ??= { ...DEFAULT_SYSTEM_CONFIG.memory.query_expansion };
+                  draft.memory.query_expansion.max_expansions = value;
+                })}
+              />
+              <p className="mt-2 text-xs leading-6 text-muted-foreground">
+                {t('settings.memory.fields.query_expansion_max_expansions.description')}
+              </p>
+            </div>
+          ) : null}
 
           <MemorySwitchRow
             label={t('settings.memory.fields.cross_encoder_enabled.label')}
@@ -487,46 +505,6 @@ export function MemoryKnowledgeSettingsSection({
             draft.memory.l2.vectors_enabled = checked;
           })}
         />
-        <div className="py-3">
-          <NumberField
-            label={t('settings.memory.fields.l2_batch_flush_interval_seconds.label')}
-            value={draftConfig.memory.l2.batch_flush_interval_seconds}
-            min={30}
-            onChange={(value) => patchDraftConfig((draft) => {
-              draft.memory.l2.batch_flush_interval_seconds = value;
-            })}
-          />
-          <p className="mt-2 text-xs leading-6 text-muted-foreground">
-            {t('settings.memory.fields.l2_batch_flush_interval_seconds.description')}
-          </p>
-        </div>
-      </MemoryGroup>
-
-      <MemoryGroup>
-        <MemorySwitchRow
-          label={t('settings.memory.fields.enable_l2_conflict_arbitration.label')}
-          description={t('settings.memory.fields.enable_l2_conflict_arbitration.description')}
-          checked={draftConfig.memory.l2.conflict_arbitration_enabled ?? true}
-          disabled={!draftConfig.memory.l2.enabled}
-          onCheckedChange={(checked) => patchDraftConfig((draft) => {
-            draft.memory.l2.conflict_arbitration_enabled = checked;
-          })}
-        />
-        <div className="py-3">
-          <NumberField
-            label={t('settings.memory.fields.l2_conflict_arbitration_min_confidence.label')}
-            value={draftConfig.memory.l2.conflict_arbitration_min_confidence}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(value) => patchDraftConfig((draft) => {
-              draft.memory.l2.conflict_arbitration_min_confidence = value;
-            })}
-          />
-          <p className="mt-2 text-xs leading-6 text-muted-foreground">
-            {t('settings.memory.fields.l2_conflict_arbitration_min_confidence.description')}
-          </p>
-        </div>
       </MemoryGroup>
     </MemorySectionShell>
   );

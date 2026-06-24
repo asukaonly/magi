@@ -53,6 +53,14 @@ async def test_expand_caps_at_two():
 
 
 @pytest.mark.asyncio
+async def test_expand_respects_configured_max_expansions():
+    bridge = _MockBridge('["a", "b", "c", "d"]')
+    expander = QueryExpander(bridge, max_expansions=3)
+    result = await expander.expand("test")
+    assert result == ["a", "b", "c"]
+
+
+@pytest.mark.asyncio
 async def test_expand_handles_no_bridge():
     expander = QueryExpander(None)
     result = await expander.expand("test")

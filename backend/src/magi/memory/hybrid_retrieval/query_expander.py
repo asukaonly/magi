@@ -27,7 +27,7 @@ A single record may cover multiple unrelated topics, so the relevant
 detail is often mentioned incidentally inside a record about something
 else.
 
-Given the user's query, generate 2 alternative search queries that target
+Given the user's query, generate {max_expansions} alternative search queries that target
 DIFFERENT sub-concepts or concrete entities the user likely mentioned,
 so each query can independently retrieve a different relevant record.
 
@@ -61,7 +61,7 @@ single most important pattern below):
   日本語 query: "今日のミーティングで何を話した"
   → ["会議 議事録 決定", "同僚 議論 今日"]
 
-Return a JSON array of exactly 2 strings. Output ONLY the JSON array.
+Return a JSON array of exactly {max_expansions} strings. Output ONLY the JSON array.
 Rules:
 - Each query is concise (3-8 tokens; Chinese 2-6 字 is fine)
 - Do NOT repeat or paraphrase the original query verbatim
@@ -78,9 +78,11 @@ class QueryExpander:
         llm_bridge: Any,
         *,
         timeout_seconds: float = 3.0,
+        max_expansions: int = 2,
     ) -> None:
         self._bridge = llm_bridge
         self._timeout = timeout_seconds
+        self._max_expansions = max(1, min(5, int(max_expansions)))
 
     async def expand(self, query: str) -> list[str]:
         """Generate expanded queries. Returns empty list on failure.
@@ -93,7 +95,9 @@ class QueryExpander:
         t0 = time.monotonic()
         try:
             raw = await self._bridge.chat(
-                system_prompt=_EXPANSION_SYSTEM_PROMPT,
+                system_prompt=_EXPANSION_SYSTEM_PROMPT.format(
+                    max_expansions=self._max_expansions,
+                ),
                 messages=[{"role": "user", "content": query}],
                 max_tokens=256,
                 temperature=0.7,
@@ -110,7 +114,7 @@ class QueryExpander:
                 "Query expansion completed elapsed_ms=%.1f query_len=%d",
                 elapsed_ms, len(query),
             )
-            expansions = self._parse(raw)
+            expansions = self._parse(raw, max_expansions=self._max_expansions)
             # Belt-and-braces: even with the prompt's same-language rule
             # the LLM occasionally translates anyway. The user's memories
             # are indexed in the language they were recorded in, so
@@ -129,7 +133,7 @@ class QueryExpander:
             return []
 
     @staticmethod
-    def _parse(raw: str) -> list[str]:
+    def _parse(raw: str, *, max_expansions: int = 2) -> list[str]:
         """Parse the LLM response into a list of query strings."""
         text = raw.strip()
         # Try to extract JSON array from the response.
@@ -163,7 +167,7 @@ class QueryExpander:
         for item in parsed:
             if isinstance(item, str) and item.strip():
                 result.append(item.strip())
-        return result[:2]  # Cap at 2 expansions
+        return result[:max(1, min(5, int(max_expansions)))]
 
 
 # --------- script-class detection for cross-language drop ---------

@@ -281,6 +281,7 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.reranker.cross_encoder.enabled": config.memory.reranker.cross_encoder.enabled,
         "agent.memory.reranker.cross_encoder.managed_model_id": config.memory.reranker.cross_encoder.managed_model_id,
         "agent.memory.query_expansion.enabled": config.memory.query_expansion.enabled,
+        "agent.memory.query_expansion.max_expansions": config.memory.query_expansion.max_expansions,
         "agent.memory.graph_spreading.enabled": config.memory.graph_spreading.enabled,
         "agent.memory.entity_semantic_edges.enabled": config.memory.entity_semantic_edges.enabled,
         "agent.memory.l0.enabled": config.memory.l0.enabled,
