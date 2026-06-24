@@ -32,3 +32,19 @@ def test_photo_existence_query_does_not_claim_totals() -> None:
     assert shape.domain_hint == "photo"
     assert shape.operation == "existence"
     assert shape.desired_coverage == "sample"
+
+
+def test_browser_count_query_requires_exhaustive_coverage() -> None:
+    shape = classify_recall_shape("example.com 浏览过几次")
+
+    assert shape.domain_hint == "browser"
+    assert shape.operation == "count"
+    assert shape.desired_coverage == "exhaustive"
+
+
+def test_music_count_query_requires_exhaustive_coverage() -> None:
+    shape = classify_recall_shape("Artist A 听过几次")
+
+    assert shape.domain_hint == "music"
+    assert shape.operation == "count"
+    assert shape.desired_coverage == "exhaustive"

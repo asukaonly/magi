@@ -41,7 +41,7 @@ def compact_historical_recall(
     if mode:
         header_parts.append(f"mode={mode}")
     if source_layers:
-        header_parts.append(f"sources={','.join(str(l) for l in source_layers)}")
+        header_parts.append(f"sources={','.join(str(layer) for layer in source_layers)}")
     if primary_count:
         header_parts.append(f"items={primary_count}")
     if coverage:
@@ -208,6 +208,21 @@ def _render_structured_results(
                 if isinstance(by_year, dict) and by_year:
                     years = ", ".join(f"{year}:{count}" for year, count in by_year.items())
                     lines.append(f"- By year: {years}")
+        elif summary:
+            event_count = summary.get("event_count")
+            metric_label = str(summary.get("metric_label") or "items")
+            metric_total = summary.get("metric_total")
+            if event_count is not None:
+                lines.append(f"- Events: {int(event_count)}")
+            if metric_total is not None:
+                lines.append(f"- Total {metric_label}: {_format_structured_number(metric_total)}")
+            duration_total = summary.get("duration_total_sec")
+            if duration_total:
+                lines.append(f"- Total duration: {_format_structured_number(duration_total)} sec")
+            by_year = summary.get("by_year")
+            if isinstance(by_year, dict) and by_year:
+                years = ", ".join(f"{year}:{count}" for year, count in by_year.items())
+                lines.append(f"- By year: {years}")
         items = result.get("items") if isinstance(result.get("items"), list) else []
         for item in items[:max_items]:
             if not isinstance(item, dict):
@@ -215,15 +230,27 @@ def _render_structured_results(
             timestamp = format_timestamp(item.get("timestamp"))
             content = truncate_statement(str(item.get("content") or ""), max_chars=160)[0]
             photo_count = item.get("photo_count")
+            metric_value = item.get("metric_value")
             meta = []
             if timestamp:
                 meta.append(timestamp)
             if photo_count is not None:
                 meta.append(f"{int(photo_count)} photos")
+            if domain != "photo" and metric_value is not None:
+                metric_label = str(summary.get("metric_label") or "items")
+                meta.append(f"{_format_structured_number(metric_value)} {metric_label}")
             suffix = f" ({', '.join(meta)})" if meta else ""
             lines.append(f"- {content}{suffix}")
         parts.append("\n".join(lines))
     return "\n\n".join(parts)
+
+
+def _format_structured_number(value: Any) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return str(int(numeric)) if numeric.is_integer() else f"{numeric:.2f}".rstrip("0").rstrip(".")
 
 
 __all__ = ["compact_historical_recall"]

@@ -235,9 +235,26 @@ For high-volume passive sources, `promotion_key` should identify the stable
 aggregation unit (for example, a browser domain) so L2 batching and derived
 assertion rules can evaluate repeated evidence instead of one-off events.
 
+`domain_payload.source_facets` is the preferred contract for source-owned
+structured recall keys. It is a list of small field objects:
+
+- `name`: stable facet name such as `photo.location_name`, `browser.domain`,
+  `music.artist`, or `music.play_count`
+- `text`: optional exact text value for lookup
+- `numeric`: optional numeric value for counting or summing
+- `timestamp`: optional source timestamp
+- `json`: optional compact structured payload when text/numeric/timestamp are
+  insufficient
+
+Plugins should emit facets only for stable source facts that can be rebuilt from
+the source item or plugin cache. The host owns the `L1` facet index and the
+query-side expansion logic; plugins should not import memory internals or decide
+whether a total-count claim is safe.
+
 Important ownership split:
 
 - plugins own `activity` and `narration`
+- plugins may own stable source facets for exact recall expansion
 - the host runtime owns final human-facing display text and retrieval-oriented embedding projections
 - `L1` does not treat plugin-authored display strings as the source of truth for external activity
 

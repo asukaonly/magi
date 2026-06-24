@@ -90,5 +90,79 @@ async def test_l1_source_facets_are_indexed_for_photo_events(tmp_path) -> None:
     names = {(facet["facet_name"], facet["normalized_text_value"]) for facet in facets}
 
     assert ("photo.location_name", "tiankongzhicheng hangzhou zhejiang china") in names
-    assert ("photo.location_alias", "sky tengji wuchang subway station entrance exit b hangzhou") in names
-    assert any(facet["facet_name"] == "photo.count" and facet["numeric_value"] == 3 for facet in facets)
+    assert (
+        "photo.location_alias",
+        "sky tengji wuchang subway station entrance exit b hangzhou",
+    ) in names
+    assert any(
+        facet["facet_name"] == "photo.count" and facet["numeric_value"] == 3 for facet in facets
+    )
+
+
+def test_extract_source_facets_accepts_plugin_source_facets_contract() -> None:
+    from magi.memory.l1.source_facets import extract_source_facets
+
+    event = _photo_event(
+        "evt-facet-contract",
+        "Visited Example docs.",
+        timestamp=1_710_000_000.0,
+    )
+    event.source = "browser_history"
+    event.metadata_json = {
+        "source_facets": [
+            {"name": "browser.domain", "text": "example.com"},
+            {"name": "browser.visit_count", "numeric": 3},
+        ]
+    }
+
+    facets = extract_source_facets(event)
+
+    assert ("browser.domain", "example com") in {
+        (facet.facet_name, facet.normalized_text_value) for facet in facets
+    }
+    assert any(
+        facet.facet_name == "browser.visit_count" and facet.numeric_value == 3 for facet in facets
+    )
+
+
+@pytest.mark.asyncio
+async def test_l1_source_facets_are_backfilled_for_browser_and_music_events(tmp_path) -> None:
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+
+    browser_event = _photo_event(
+        "evt-browser-1", "Visited Example docs.", timestamp=1_710_000_000.0
+    )
+    browser_event.source = "chrome_history"
+    browser_event.event_type = "BrowserHistoryVisit"
+    browser_event.metadata_json = {
+        "domain": "example.com",
+        "canonical_url": "https://example.com/docs",
+        "title": "Example docs",
+        "merged_visit_count": 3,
+    }
+    music_event = _photo_event(
+        "evt-music-1", "Listened to Song A by Artist A.", timestamp=1_711_000_000.0
+    )
+    music_event.source = "netease_music"
+    music_event.event_type = "NeteaseMusicPlay"
+    music_event.metadata_json = {
+        "track_name": "Song A",
+        "artist_name": "Artist A",
+        "album_name": "Album A",
+        "play_duration_sec": 180,
+    }
+
+    await store.store(browser_event)
+    await store.store(music_event)
+
+    facets = await store.list_source_facets(limit=50)
+    facet_keys = {
+        (facet["event_id"], facet["facet_name"], facet["normalized_text_value"]) for facet in facets
+    }
+
+    assert ("evt-browser-1", "browser.domain", "example com") in facet_keys
+    assert ("evt-browser-1", "browser.title", "example docs") in facet_keys
+    assert ("evt-music-1", "music.track", "song a") in facet_keys
+    assert ("evt-music-1", "music.artist", "artist a") in facet_keys

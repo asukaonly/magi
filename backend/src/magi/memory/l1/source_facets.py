@@ -8,6 +8,7 @@ import re
 import time
 import unicodedata
 from typing import Any, Iterable, Protocol, cast
+from urllib.parse import urlparse
 
 import aiosqlite
 
@@ -15,10 +16,17 @@ from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
 from .embeddings.common import FACT_EVENTS_TABLE
 
-
 L1_SOURCE_FACETS_TABLE = "l1_source_facets"
 PHOTO_LIBRARY_SOURCE = "photo_library_apple_photos"
 PHOTO_LOCATION_FACETS = ("photo.location_name", "photo.location_alias")
+BROWSER_SOURCES = (
+    "browser_history",
+    "chrome_history",
+    "safari_history",
+    "edge_history",
+    "firefox_history",
+)
+MUSIC_SOURCES = ("netease_music", "system_media")
 
 _GENERIC_PHOTO_TERMS = {
     "photo_library",
@@ -89,11 +97,111 @@ def extract_source_facets(event: MemoryEvent | dict[str, Any]) -> list[SourceFac
         return []
     metadata = _metadata_from_event_dict(event_dict)
     source = str(event_dict.get("source") or metadata.get("source") or "").strip()
-    if source != PHOTO_LIBRARY_SOURCE:
-        return []
-
     content = str(event_dict.get("content") or "")
     created_at = time.time()
+    facets = _extract_contract_source_facets(
+        event_id=event_id,
+        source=source,
+        metadata=metadata,
+        created_at=created_at,
+    )
+
+    if source == PHOTO_LIBRARY_SOURCE:
+        facets.extend(
+            _extract_photo_source_facets(
+                event_id=event_id,
+                source=source,
+                content=content,
+                metadata=metadata,
+                created_at=created_at,
+            )
+        )
+    elif source in BROWSER_SOURCES:
+        facets.extend(
+            _extract_browser_source_facets(
+                event_id=event_id,
+                source=source,
+                content=content,
+                metadata=metadata,
+                created_at=created_at,
+            )
+        )
+    elif source in MUSIC_SOURCES:
+        facets.extend(
+            _extract_music_source_facets(
+                event_id=event_id,
+                source=source,
+                content=content,
+                metadata=metadata,
+                created_at=created_at,
+            )
+        )
+
+    return _dedupe_facets(facets)
+
+
+def _extract_contract_source_facets(
+    *,
+    event_id: str,
+    source: str,
+    metadata: dict[str, Any],
+    created_at: float,
+) -> list[SourceFacet]:
+    raw_facets = metadata.get("source_facets")
+    if isinstance(raw_facets, dict):
+        raw_facets = [raw_facets]
+    if not isinstance(raw_facets, list):
+        return []
+
+    facets: list[SourceFacet] = []
+    for raw in raw_facets:
+        if not isinstance(raw, dict):
+            continue
+        facet_name = _clean_text(raw.get("name") or raw.get("facet_name"))
+        if not facet_name:
+            continue
+        text_value = _clean_text(raw.get("text") if "text" in raw else raw.get("text_value"))
+        numeric_value = _coerce_float(
+            raw.get("numeric") if "numeric" in raw else raw.get("numeric_value")
+        )
+        timestamp_value = _coerce_float(
+            raw.get("timestamp") if "timestamp" in raw else raw.get("timestamp_value")
+        )
+        json_value = raw.get("json") if "json" in raw else raw.get("json_value")
+        if json_value is not None and not isinstance(json_value, str):
+            json_value = json.dumps(json_value, ensure_ascii=False, sort_keys=True)
+        json_text = _clean_text(json_value)
+        if (
+            text_value is None
+            and numeric_value is None
+            and timestamp_value is None
+            and json_text is None
+        ):
+            continue
+        facets.append(
+            SourceFacet(
+                event_id=event_id,
+                source=source,
+                facet_name=facet_name,
+                text_value=text_value,
+                normalized_text_value=normalize_facet_text(text_value) or None,
+                numeric_value=numeric_value,
+                timestamp_value=timestamp_value,
+                json_value=json_text,
+                created_at=created_at,
+            )
+        )
+    return facets
+
+
+def _extract_photo_source_facets(
+    *,
+    event_id: str,
+    source: str,
+    content: str,
+    metadata: dict[str, Any],
+    created_at: float,
+) -> list[SourceFacet]:
     facets: list[SourceFacet] = []
 
     photo_count = _extract_photo_count(content=content, metadata=metadata)
@@ -186,7 +294,149 @@ def extract_source_facets(event: MemoryEvent | dict[str, Any]) -> list[SourceFac
             )
         )
 
-    return _dedupe_facets(facets)
+    return facets
+
+
+def _extract_browser_source_facets(
+    *,
+    event_id: str,
+    source: str,
+    content: str,
+    metadata: dict[str, Any],
+    created_at: float,
+) -> list[SourceFacet]:
+    provenance = _provenance_from_metadata(metadata)
+    url = _first_text(metadata, provenance, keys=("canonical_url", "url"))
+    domain = _first_text(metadata, provenance, keys=("domain", "promotion_key"))
+    if not domain and url:
+        domain = _domain_from_url(url)
+    title = _first_text(metadata, provenance, keys=("title",))
+    if not title:
+        title = _browser_title_from_content(content)
+    visit_count = _first_float(metadata, provenance, keys=("merged_visit_count", "visit_count"))
+
+    facets: list[SourceFacet] = []
+    if domain:
+        facets.append(
+            _text_facet(
+                event_id=event_id,
+                source=source,
+                facet_name="browser.domain",
+                value=domain,
+                created_at=created_at,
+            )
+        )
+    if title:
+        facets.append(
+            _text_facet(
+                event_id=event_id,
+                source=source,
+                facet_name="browser.title",
+                value=title,
+                created_at=created_at,
+            )
+        )
+    if url:
+        facets.append(
+            _text_facet(
+                event_id=event_id,
+                source=source,
+                facet_name="browser.url",
+                value=url,
+                created_at=created_at,
+            )
+        )
+    facets.append(
+        SourceFacet(
+            event_id=event_id,
+            source=source,
+            facet_name="browser.visit_count",
+            numeric_value=max(float(visit_count or 1.0), 1.0),
+            created_at=created_at,
+        )
+    )
+    return facets
+
+
+def _extract_music_source_facets(
+    *,
+    event_id: str,
+    source: str,
+    content: str,
+    metadata: dict[str, Any],
+    created_at: float,
+) -> list[SourceFacet]:
+    provenance = _provenance_from_metadata(metadata)
+    field_pairs = (
+        (("track_name", "title"), "music.track"),
+        (("artist_name", "artist"), "music.artist"),
+        (("album_name", "album"), "music.album"),
+        (("track_id",), "music.track_id"),
+        (("artist_id",), "music.artist_id"),
+        (("album_id",), "music.album_id"),
+        (("app_name", "app_id"), "music.app"),
+    )
+    facets: list[SourceFacet] = []
+    for keys, facet_name in field_pairs:
+        value = _first_text(metadata, provenance, keys=keys)
+        if not value:
+            continue
+        facets.append(
+            _text_facet(
+                event_id=event_id,
+                source=source,
+                facet_name=facet_name,
+                value=value,
+                created_at=created_at,
+            )
+        )
+
+    for alias in _iter_track_aliases(metadata, provenance):
+        facets.append(
+            _text_facet(
+                event_id=event_id,
+                source=source,
+                facet_name="music.track_alias",
+                value=alias,
+                created_at=created_at,
+            )
+        )
+
+    duration = _first_float(metadata, provenance, keys=("play_duration_sec", "duration_seconds"))
+    facets.append(
+        SourceFacet(
+            event_id=event_id,
+            source=source,
+            facet_name="music.play_count",
+            numeric_value=1.0,
+            created_at=created_at,
+        )
+    )
+    if duration is not None:
+        facets.append(
+            SourceFacet(
+                event_id=event_id,
+                source=source,
+                facet_name="music.play_duration_sec",
+                numeric_value=max(duration, 0.0),
+                created_at=created_at,
+            )
+        )
+
+    if not any(facet.facet_name == "music.track" for facet in facets):
+        parsed_track = _music_track_from_content(content)
+        if parsed_track:
+            facets.append(
+                _text_facet(
+                    event_id=event_id,
+                    source=source,
+                    facet_name="music.track",
+                    value=parsed_track,
+                    created_at=created_at,
+                )
+            )
+
+    return facets
 
 
 def _metadata_from_event_dict(event: dict[str, Any]) -> dict[str, Any]:
@@ -265,6 +515,77 @@ def _iter_retrieval_terms(metadata: dict[str, Any]) -> Iterable[str]:
     return [str(term).strip() for term in terms if str(term).strip()]
 
 
+def _provenance_from_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    timeline = metadata.get("timeline")
+    if not isinstance(timeline, dict):
+        return {}
+    provenance = timeline.get("provenance")
+    return provenance if isinstance(provenance, dict) else {}
+
+
+def _first_text(
+    metadata: dict[str, Any],
+    provenance: dict[str, Any],
+    *,
+    keys: tuple[str, ...],
+) -> str | None:
+    for container in (metadata, provenance):
+        for key in keys:
+            value = _clean_text(container.get(key))
+            if value:
+                return value
+    return None
+
+
+def _first_float(
+    metadata: dict[str, Any],
+    provenance: dict[str, Any],
+    *,
+    keys: tuple[str, ...],
+) -> float | None:
+    for container in (metadata, provenance):
+        for key in keys:
+            value = _coerce_float(container.get(key))
+            if value is not None:
+                return value
+    return None
+
+
+def _domain_from_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    host = (parsed.hostname or parsed.netloc or "").strip().lower()
+    if host.startswith("www."):
+        return host[4:]
+    return host or None
+
+
+def _browser_title_from_content(content: str) -> str | None:
+    match = re.search(
+        r"(?:visited|viewed|浏览|访问)\s+(.+?)(?:[。.\n]|$)", content, flags=re.IGNORECASE
+    )
+    return _clean_text(match.group(1)) if match else None
+
+
+def _music_track_from_content(content: str) -> str | None:
+    quoted = re.search(r"[《']([^》']+)[》']", content)
+    if quoted:
+        return _clean_text(quoted.group(1))
+    match = re.search(r"listened to\s+(.+?)(?:\s+by\s+|[。.\n]|$)", content, flags=re.IGNORECASE)
+    return _clean_text(match.group(1)) if match else None
+
+
+def _iter_track_aliases(metadata: dict[str, Any], provenance: dict[str, Any]) -> Iterable[str]:
+    for container in (metadata, provenance):
+        aliases = container.get("track_alias")
+        if isinstance(aliases, str):
+            aliases = [aliases]
+        if isinstance(aliases, list):
+            for alias in aliases:
+                value = _clean_text(alias)
+                if value:
+                    yield value
+
+
 def _clean_text(value: Any) -> str | None:
     if value is None:
         return None
@@ -331,6 +652,7 @@ class L1SourceFacetMixin:
         *,
         event_id: str | None = None,
         source: str | None = None,
+        sources: list[str] | None = None,
         facet_names: list[str] | None = None,
         normalized_text_values: list[str] | None = None,
         limit: int = 1000,
@@ -345,6 +667,9 @@ class L1SourceFacetMixin:
         if source:
             where_parts.append("source = ?")
             args.append(source)
+        if sources:
+            where_parts.append(f"source IN ({', '.join('?' for _ in sources)})")
+            args.extend(sources)
         if facet_names:
             where_parts.append(f"facet_name IN ({', '.join('?' for _ in facet_names)})")
             args.extend(facet_names)
@@ -374,6 +699,7 @@ class L1SourceFacetMixin:
         self,
         *,
         source: str | None = None,
+        sources: list[str] | None = None,
         facet_names: list[str] | None = None,
     ) -> int:
         host = cast(_L1SourceFacetHostProtocol, self)
@@ -383,6 +709,9 @@ class L1SourceFacetMixin:
         if source:
             where_parts.append("source = ?")
             args.append(source)
+        if sources:
+            where_parts.append(f"source IN ({', '.join('?' for _ in sources)})")
+            args.extend(sources)
         if facet_names:
             where_parts.append(f"facet_name IN ({', '.join('?' for _ in facet_names)})")
             args.extend(facet_names)
@@ -398,7 +727,8 @@ class L1SourceFacetMixin:
     async def find_events_by_source_facets(
         self,
         *,
-        source: str,
+        source: str | None = None,
+        sources: list[str] | None = None,
         facet_names: list[str],
         normalized_text_values: list[str],
         user_id: str | None = None,
@@ -412,15 +742,23 @@ class L1SourceFacetMixin:
         if not normalized_values or not facet_names:
             return []
 
-        args: list[Any] = [source]
+        source_values = list(sources or [])
+        if source:
+            source_values.append(source)
+        source_values = list(dict.fromkeys(value for value in source_values if value))
+        if not source_values:
+            return []
+
+        args: list[Any] = []
         sql = f"""
             SELECT DISTINCT {host._select_event_columns()}
             FROM {FACT_EVENTS_TABLE}
             LEFT JOIN l1_event_embedding_state USING(event_id)
             INNER JOIN {L1_SOURCE_FACETS_TABLE} sf USING(event_id)
             WHERE fact_events.deleted_at IS NULL
-              AND sf.source = ?
         """
+        sql += f" AND sf.source IN ({', '.join('?' for _ in source_values)})"
+        args.extend(source_values)
         sql += f" AND sf.facet_name IN ({', '.join('?' for _ in facet_names)})"
         args.extend(facet_names)
         sql += f" AND sf.normalized_text_value IN ({', '.join('?' for _ in normalized_values)})"
@@ -473,7 +811,11 @@ class L1SourceFacetMixin:
             remaining = None if limit is None else max(0, int(limit) - processed)
             if remaining == 0:
                 break
-            page_size = min(effective_batch_size, remaining) if remaining is not None else effective_batch_size
+            page_size = (
+                min(effective_batch_size, remaining)
+                if remaining is not None
+                else effective_batch_size
+            )
             async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
                 db.row_factory = aiosqlite.Row
                 async with db.execute(
@@ -502,7 +844,9 @@ class L1SourceFacetMixin:
 
 
 __all__ = [
+    "BROWSER_SOURCES",
     "L1_SOURCE_FACETS_TABLE",
+    "MUSIC_SOURCES",
     "PHOTO_LIBRARY_SOURCE",
     "PHOTO_LOCATION_FACETS",
     "L1SourceFacetMixin",

@@ -6,8 +6,7 @@ from dataclasses import asdict, dataclass
 import re
 from typing import Literal
 
-
-RecallDomain = Literal["photo", "unknown"]
+RecallDomain = Literal["photo", "browser", "music", "unknown"]
 RecallOperation = Literal["search", "existence", "count", "enumerate", "aggregate"]
 RecallCoverage = Literal["sample", "exhaustive", "unknown"]
 
@@ -36,6 +35,38 @@ _PHOTO_CUES = (
     "photos",
     "picture",
     "pictures",
+)
+_BROWSER_CUES = (
+    "浏览",
+    "网页",
+    "网站",
+    "访问",
+    "打开过",
+    "看过",
+    "chrome",
+    "safari",
+    "edge",
+    "firefox",
+    "browser",
+    "history",
+    "site",
+    "website",
+    "url",
+)
+_MUSIC_CUES = (
+    "听歌",
+    "音乐",
+    "网易云",
+    "歌曲",
+    "歌手",
+    "专辑",
+    "听过",
+    "播放",
+    "music",
+    "song",
+    "artist",
+    "album",
+    "listened",
 )
 _COUNT_CUES = (
     "几次",
@@ -91,7 +122,13 @@ def classify_recall_shape(query: str) -> RecallShape:
     text = _normalize_query(query)
     matched: list[str] = []
 
-    domain_hint: RecallDomain = "photo" if _has_any(text, _PHOTO_CUES, matched, "domain:photo") else "unknown"
+    domain_hint: RecallDomain = "unknown"
+    if _has_any(text, _PHOTO_CUES, matched, "domain:photo"):
+        domain_hint = "photo"
+    elif _has_any(text, _BROWSER_CUES, matched, "domain:browser"):
+        domain_hint = "browser"
+    elif _has_any(text, _MUSIC_CUES, matched, "domain:music"):
+        domain_hint = "music"
 
     operation: RecallOperation = "search"
     desired_coverage: RecallCoverage = "sample"

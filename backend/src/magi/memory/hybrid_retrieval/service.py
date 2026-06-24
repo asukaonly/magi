@@ -7,7 +7,7 @@ from dataclasses import replace as dc_replace
 from typing import Any, Callable, Dict, List, Optional
 
 from ...config import AppConfig
-from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
+from .handlers import L1Handler, L2Handler, L3Handler, L4Handler
 from .evidence.session_bundles import EvidenceBundleMixin
 from .indexical_resolver import resolve as resolve_indexical
 from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider
@@ -72,7 +72,10 @@ def _warn_if_evidence_class_stale(db_path: Optional[str]) -> None:
         "knowledge_graph.evidence_class is unset for %d/%d rows (%.1f%%) — "
         "run scripts/backfill_kg_evidence_class.py against %s to restore "
         "Phase 1 evidence-aware routing.",
-        null_count, total, ratio * 100.0, db_path,
+        null_count,
+        total,
+        ratio * 100.0,
+        db_path,
     )
 
 
@@ -165,11 +168,7 @@ class HybridRetrievalService(
             if unified_memory.l1
             else None
         )
-        self._l2 = (
-            self._build_l2_handler(unified_memory)
-            if unified_memory.l2
-            else None
-        )
+        self._l2 = self._build_l2_handler(unified_memory) if unified_memory.l2 else None
         self._l3 = L3Handler(unified_memory.l3, self._config) if unified_memory.l3 else None
         self._l4 = L4Handler(unified_memory.l4, self._config) if unified_memory.l4 else None
 
@@ -195,11 +194,10 @@ class HybridRetrievalService(
         # filter LLM agrees is relevant. Disabled if no bridge is
         # configured — degrades to "pass raw payload through".
         from .grounding_filter import GroundingFilter
+
         self._grounding_filter = GroundingFilter(
             llm_bridge=llm_provider_bridge,
-            timeout_seconds=getattr(
-                self._config, "grounding_filter_timeout_seconds", 3.0
-            ),
+            timeout_seconds=getattr(self._config, "grounding_filter_timeout_seconds", 3.0),
             enabled=getattr(self._config, "grounding_filter_enabled", True),
         )
 
@@ -280,7 +278,9 @@ class HybridRetrievalService(
         if not mode_explicit:
             resolved_mode = "exact_fact"
         raw_query_mode = str(request.query_mode or "").strip().lower()
-        intent_query_mode_hint = "graph" if raw_query_mode == "graph" else (resolved_mode if mode_explicit else None)
+        intent_query_mode_hint = (
+            "graph" if raw_query_mode == "graph" else (resolved_mode if mode_explicit else None)
+        )
 
         mode_plan = MODE_REGISTRY[resolved_mode]
 
@@ -328,8 +328,7 @@ class HybridRetrievalService(
         payload.trace["intent_source"] = decision.source
         payload.trace["intent_reasoning"] = decision.reasoning
         payload.trace["planned_layers"] = [
-            {"layer": plan.layer, "fallback": plan.is_fallback}
-            for plan in decision.plans
+            {"layer": plan.layer, "fallback": plan.is_fallback} for plan in decision.plans
         ]
 
         # 4. Build mode-adapted L1 handler with RRF weights from mode plan.
@@ -343,12 +342,7 @@ class HybridRetrievalService(
         #    default RRF weights.
         effective_l1 = self._l1
         authoritative_mode = caller_supplied_query_mode or indexical.is_indexical
-        if (
-            authoritative_mode
-            and mode_explicit
-            and mode_plan.rrf_profile
-            and self._l1 is not None
-        ):
+        if authoritative_mode and mode_explicit and mode_plan.rrf_profile and self._l1 is not None:
             adapted_config = dc_replace(
                 self._config,
                 **{k: v for k, v in mode_plan.rrf_profile.items() if hasattr(self._config, k)},
@@ -371,7 +365,10 @@ class HybridRetrievalService(
         payload.trace["mode_explicit"] = mode_explicit
 
         result = await self._execute_query(
-            request, decision, intent_input, payload,
+            request,
+            decision,
+            intent_input,
+            payload,
             effective_l1=effective_l1,
             mode_plan=mode_plan,
         )
@@ -395,30 +392,43 @@ class HybridRetrievalService(
         recall_shape: RecallShape,
         payload: RetrievalPayload,
     ) -> RetrievalPayload:
-        if recall_shape.domain_hint != "photo" or recall_shape.desired_coverage != "exhaustive":
+        if (
+            recall_shape.domain_hint not in {"photo", "browser", "music"}
+            or recall_shape.desired_coverage != "exhaustive"
+        ):
             return payload
         l1_store = getattr(self._memory, "l1", None)
         if l1_store is None:
             payload.trace["structured_recall"] = "skipped:l1_missing"
             return payload
         try:
-            from ..structured_recall.photo import expand_photo_structured_recall
+            if recall_shape.domain_hint == "photo":
+                from ..structured_recall.photo import expand_photo_structured_recall
 
-            result = await expand_photo_structured_recall(
-                l1_store=l1_store,
-                request=request,
-                recall_shape=recall_shape,
-                payload=payload,
-            )
+                result = await expand_photo_structured_recall(
+                    l1_store=l1_store,
+                    request=request,
+                    recall_shape=recall_shape,
+                    payload=payload,
+                )
+            else:
+                from ..structured_recall.generic import expand_generic_structured_recall
+
+                result = await expand_generic_structured_recall(
+                    l1_store=l1_store,
+                    request=request,
+                    recall_shape=recall_shape,
+                    payload=payload,
+                )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("structured photo recall failed: %s", exc, exc_info=True)
+            logger.warning("structured recall failed: %s", exc, exc_info=True)
             payload.trace["structured_recall"] = "failed"
             return payload
         if result is None:
             payload.trace["structured_recall"] = "miss"
             return payload
         payload.structured_results.append(result)
-        payload.trace["structured_recall"] = "photo"
+        payload.trace["structured_recall"] = recall_shape.domain_hint
         return payload
 
     def _refresh_handlers(self) -> None:
@@ -476,7 +486,9 @@ class HybridRetrievalService(
     @staticmethod
     def _infer_mode_from_plans(plans: List[Any], fallback: str) -> str:
         primary_layers = [plan.layer for plan in plans if not plan.is_fallback]
-        fallback_layers = [plan.layer for plan in plans if plan.is_fallback and plan.layer not in primary_layers]
+        fallback_layers = [
+            plan.layer for plan in plans if plan.is_fallback and plan.layer not in primary_layers
+        ]
         for mode, plan in MODE_REGISTRY.items():
             if plan.primary_layers == primary_layers and plan.fallback_layers == fallback_layers:
                 return mode

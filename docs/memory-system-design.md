@@ -184,6 +184,9 @@ Key properties:
 - Explicit domain / retention / cognition policies
 - Supports vector retrieval and keyword retrieval
 - Preserves source-side identity and business idempotency
+- Maintains rebuildable source-facet indexes for exact structured recall over
+  source-owned fields such as photo locations/counts, browser domains/visit
+  counts, and music tracks/artists/play counts
 - Vector index uses `event` as the parent object and `chunk` as the retrieval unit: long texts are split into overlapping chunks for vector indexing, then collapsed back to the parent event during retrieval
 - `L1` / `L3` / `L4` hybrid retrieval passes through a unified reranker stage after RRF; heuristic reranking is always active
 - An optional local cross-encoder reranker can add semantic relevance scoring on top of the heuristic stage
@@ -217,6 +220,15 @@ Evidence interpretation is shared memory governance, not an `L2`-only helper:
 Fact-like retrieval must constrain the searchable evidence pool before ranking and topK selection. It must not depend on broad L1 recall followed by answer-projection filtering as the primary defense. Assistant memory answers, user recall questions, runtime artifacts, and ungrounded assistant text can remain retrievable in conversation, episode, audit, or debug contexts, but they are not authoritative evidence for new user facts.
 
 Raw `fact_events` content is not rewritten to fix retrieval behavior. Classifier, policy, embedding profile, and index changes mark derived evidence/index records stale and trigger rebuilds; they do not mutate the original L1 fact.
+
+Source-facet indexes are `L1` retrieval infrastructure, not `L2` cognition.
+They preserve source-owned exact fields needed for coverage-sensitive queries
+where top-K text/vector recall is insufficient, for example "how many photos at
+this place", "how many visits to this domain", or "how many plays by this
+artist". Plugins may provide these fields through `domain_payload.source_facets`;
+`L1` may also rebuild facets from older persisted metadata when the source facts
+are still present. A structured recall result may claim total coverage only
+inside the explicit source/facet/time/user scope used to query that index.
 
 Prompt continuity note:
 

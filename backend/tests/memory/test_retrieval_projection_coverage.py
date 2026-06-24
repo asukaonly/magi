@@ -56,3 +56,45 @@ def test_projection_preserves_structured_exhaustive_coverage() -> None:
     formatted = compact_historical_recall(asdict(projected), max_items=6, max_text_chars=500)
     assert "coverage=exhaustive" in formatted
     assert "total-count claims are allowed" in formatted
+
+
+def test_compaction_renders_generic_structured_totals() -> None:
+    projected = project_historical_recall(
+        payload=RetrievalPayload(
+            structured_results=[
+                {
+                    "domain": "browser",
+                    "operation": "count",
+                    "title": "Browser recall stats",
+                    "coverage": {
+                        "kind": "exhaustive",
+                        "can_claim_total": True,
+                        "total_count": 2,
+                        "returned_count": 2,
+                        "omitted_count": 0,
+                    },
+                    "summary": {
+                        "event_count": 2,
+                        "metric_label": "visits",
+                        "metric_total": 5,
+                        "by_year": {"2024": 2},
+                    },
+                    "items": [
+                        {
+                            "event_id": "evt-browser-1",
+                            "timestamp": 1_710_000_000.0,
+                            "content": "Visited Example docs.",
+                            "metric_value": 3,
+                        }
+                    ],
+                }
+            ]
+        ),
+        request={"query": "example.com 浏览过几次", "query_mode": "cross_session"},
+    )
+
+    formatted = compact_historical_recall(asdict(projected), max_items=6, max_text_chars=500)
+
+    assert "Structured Browser Result" in formatted
+    assert "Events: 2" in formatted
+    assert "Total visits: 5" in formatted
