@@ -2497,11 +2497,14 @@
       "sortHint": "按重要程度和时间排序",
       "filters": {
         "all": "全部",
-        "recent": "近期",
-        "periodic": "时段",
-        "observations": "观察",
-        "tasks": "任务与目标",
-        "unarchivedOnly": "只看未归档"
+        "periodic": "时段总结",
+        "observations": "长期观察",
+        "tasks": "任务复盘"
+      },
+      "pagination": {
+        "loadMore": "加载更早总结",
+        "loading": "正在加载…",
+        "end": "已经看到当前加载的全部总结"
       },
       "stats": {
         "highlights": "近期重点",

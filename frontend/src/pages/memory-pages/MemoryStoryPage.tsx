@@ -8,17 +8,16 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { isSummaryInsightStory } from './storyFilters';
 import { cn } from '@/lib/utils';
 
-type StoryFilter = 'all' | 'recent' | 'periodic' | 'observations' | 'tasks';
+type StoryFilter = 'all' | 'periodic' | 'observations' | 'tasks';
 
 const FILTERS: Array<{ id: StoryFilter; labelKey: string }> = [
   { id: 'all', labelKey: 'memory.stories.filters.all' },
-  { id: 'recent', labelKey: 'memory.stories.filters.recent' },
   { id: 'periodic', labelKey: 'memory.stories.filters.periodic' },
   { id: 'observations', labelKey: 'memory.stories.filters.observations' },
   { id: 'tasks', labelKey: 'memory.stories.filters.tasks' },
 ];
 
-const TWO_WEEKS_SECONDS = 14 * 24 * 60 * 60;
+const PAGE_SIZE = 30;
 
 const TEMPORAL_CATEGORIES = new Set(['day', 'week', 'month', 'quarter', 'year']);
 const OBSERVATION_CATEGORIES = new Set([
@@ -46,10 +45,8 @@ const formatStoryDate = (story: StoryItem, locale: string): string => {
   }).format(new Date(timestamp * 1000));
 };
 
-const matchesFilter = (story: StoryItem, filter: StoryFilter, latestTimestamp: number): boolean => {
+const matchesFilter = (story: StoryItem, filter: StoryFilter): boolean => {
   switch (filter) {
-    case 'recent':
-      return storyTimestamp(story) >= latestTimestamp - TWO_WEEKS_SECONDS;
     case 'periodic':
       return isTemporalStory(story);
     case 'observations':
@@ -71,15 +68,17 @@ export const MemoryStoryPage = () => {
   const { t, i18n } = useTranslation('app');
   const [items, setItems] = useState<StoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [detailStory, setDetailStory] = useState<StoryItem | null>(null);
   const [activeFilter, setActiveFilter] = useState<StoryFilter>('all');
-  const [onlyUnarchived, setOnlyUnarchived] = useState(true);
 
   const fetchFeed = useCallback(async () => {
     setLoading(true);
     try {
-      const payload = await memoryStoriesApi.list({ limit: 30, offset: 0 });
+      const payload = await memoryStoriesApi.list({ limit: PAGE_SIZE, offset: 0 });
       setItems(payload.items);
+      setHasMore(payload.items.length === PAGE_SIZE);
     } finally {
       setLoading(false);
     }
@@ -99,29 +98,31 @@ export const MemoryStoryPage = () => {
     ));
   }, []);
 
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const payload = await memoryStoriesApi.list({ limit: PAGE_SIZE, offset: items.length });
+      setItems((prev) => [...prev, ...payload.items]);
+      setHasMore(payload.items.length === PAGE_SIZE);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, items.length, loadingMore]);
+
   const summaryItems = useMemo(
     () => items.filter((story) => isSummaryInsightStory(story) || isTemporalStory(story)),
     [items]
   );
 
-  const latestTimestamp = useMemo(
-    () => summaryItems.reduce((latest, story) => Math.max(latest, storyTimestamp(story)), 0),
+  const visibleBaseItems = useMemo(
+    () => summaryItems.filter((story) => story.review_state !== 'archived'),
     [summaryItems]
   );
 
-  const visibleBaseItems = useMemo(
-    () => summaryItems.filter((story) => !onlyUnarchived || story.review_state !== 'archived'),
-    [onlyUnarchived, summaryItems]
-  );
-
   const filteredItems = useMemo(
-    () => visibleBaseItems.filter((story) => matchesFilter(story, activeFilter, latestTimestamp)),
-    [activeFilter, latestTimestamp, visibleBaseItems]
-  );
-
-  const temporalItems = useMemo(
-    () => visibleBaseItems.filter(isTemporalStory),
-    [visibleBaseItems]
+    () => visibleBaseItems.filter((story) => matchesFilter(story, activeFilter)),
+    [activeFilter, visibleBaseItems]
   );
 
   const featuredStory = useMemo(
@@ -146,7 +147,7 @@ export const MemoryStoryPage = () => {
     [featuredStory?.summary_id, filteredItems]
   );
 
-  const timelineStories = temporalItems.slice(0, 4);
+  const timelineStories = filteredItems.filter(isTemporalStory).slice(0, 4);
 
   const statItems = visibleBaseItems;
   const insightCount = statItems.filter((story) => story.summary_type === 'insight').length;
@@ -188,19 +189,6 @@ export const MemoryStoryPage = () => {
                     </button>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  aria-pressed={onlyUnarchived}
-                  onClick={() => setOnlyUnarchived((value) => !value)}
-                  className={cn(
-                    'rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors',
-                    onlyUnarchived
-                      ? 'border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.78)] text-[hsl(var(--memory-title))]'
-                      : 'border-[hsl(var(--memory-border)/0.42)] text-[hsl(var(--memory-muted))] hover:bg-[hsl(var(--memory-panel-subtle)/0.5)]'
-                  )}
-                >
-                  {t('memory.stories.filters.unarchivedOnly')}
-                </button>
               </div>
 
               <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center">
@@ -333,6 +321,23 @@ export const MemoryStoryPage = () => {
                     ))}
                   </section>
                 ) : null}
+
+                <div className="flex justify-center pt-1">
+                  {hasMore ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleLoadMore()}
+                      disabled={loadingMore}
+                      className="rounded-xl border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.72)] px-5 py-2.5 text-sm font-medium text-[hsl(var(--memory-title))] transition-colors hover:bg-[hsl(var(--memory-panel-elevated)/0.92)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {loadingMore ? t('memory.stories.pagination.loading') : t('memory.stories.pagination.loadMore')}
+                    </button>
+                  ) : summaryItems.length > 0 ? (
+                    <span className="text-xs text-[hsl(var(--memory-muted))]">
+                      {t('memory.stories.pagination.end')}
+                    </span>
+                  ) : null}
+                </div>
               </>
             )}
           </>

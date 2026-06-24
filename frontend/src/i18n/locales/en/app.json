@@ -2498,11 +2498,14 @@
       "sortHint": "Sorted by importance and time",
       "filters": {
         "all": "All",
-        "recent": "Recent",
-        "periodic": "Periods",
-        "observations": "Observations",
-        "tasks": "Tasks & goals",
-        "unarchivedOnly": "Unarchived only"
+        "periodic": "Period summaries",
+        "observations": "Long-term observations",
+        "tasks": "Task reviews"
+      },
+      "pagination": {
+        "loadMore": "Load earlier summaries",
+        "loading": "Loading…",
+        "end": "All currently loaded summaries are visible"
       },
       "stats": {
         "highlights": "Highlights",

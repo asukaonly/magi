@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
 import { MemoryStoryPage } from '@/pages/memory-pages/MemoryStoryPage';
 import { memoryStoriesApi } from '@/api/modules/memoryStories';
+import type { StoryItem } from '@/api/modules/memoryStories';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -20,11 +22,12 @@ vi.mock('react-i18next', () => ({
         'memory.stories.heroLabel': '近期重点',
         'memory.stories.sortHint': '按重要程度和时间排序',
         'memory.stories.filters.all': '全部',
-        'memory.stories.filters.recent': '近期',
-        'memory.stories.filters.periodic': '时段',
-        'memory.stories.filters.observations': '观察',
-        'memory.stories.filters.tasks': '任务与目标',
-        'memory.stories.filters.unarchivedOnly': '只看未归档',
+        'memory.stories.filters.periodic': '时段总结',
+        'memory.stories.filters.observations': '长期观察',
+        'memory.stories.filters.tasks': '任务复盘',
+        'memory.stories.pagination.loadMore': '加载更早总结',
+        'memory.stories.pagination.loading': '正在加载…',
+        'memory.stories.pagination.end': '已经看到当前加载的全部总结',
         'memory.stories.stats.highlights': '近期重点',
         'memory.stories.stats.periodic': '时段总结',
         'memory.stories.stats.observations': '长期观察',
@@ -37,6 +40,7 @@ vi.mock('react-i18next', () => ({
         'memory.stories.sections.periodicEmpty': '还没有时段总结',
         'memory.stories.provenance': 'Magi 自动生成 · {{timestamp}}',
         'memory.stories.categories.trend_shift': '长期观察',
+        'memory.stories.categories.task_reflection': '任务复盘',
         'memory.stories.categories.day': '本日总结',
         'memory.stories.categories.week': '本周总结',
       };
@@ -67,6 +71,25 @@ const renderPage = () =>
       <MemoryStoryPage />
     </MemoryRouter>
   );
+
+const makeStory = (
+  summaryId: string,
+  overrides: Partial<StoryItem>
+): StoryItem => ({
+  summary_id: summaryId,
+  summary_type: 'insight',
+  summary_category: 'trend_shift',
+  title: '',
+  content: summaryId,
+  period_start: 0,
+  period_end: 1700100000,
+  updated_at: 1700100000,
+  review_state: 'pending_confirmation',
+  insight_key: null,
+  insight_metadata: {},
+  evidence_event_count: 2,
+  ...overrides,
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -110,6 +133,81 @@ describe('MemoryStoryPage', () => {
     const periodic = screen.getByTestId('memory-stories-section-periodic');
     expect(page.textContent).toContain('trend body');
     expect(periodic.textContent).toContain('day digest');
+  });
+
+  it('keeps the filter bar simple and filters visible summaries', async () => {
+    vi.mocked(memoryStoriesApi.list).mockResolvedValue({
+      items: [
+        makeStory('trend-1', {
+          summary_category: 'trend_shift',
+          content: '长期观察内容',
+          period_end: 1700300000,
+          updated_at: 1700300000,
+        }) as never,
+        makeStory('day-1', {
+          summary_type: 'temporal',
+          summary_category: 'day',
+          content: '时段总结内容',
+          period_end: 1700200000,
+          updated_at: 1700200000,
+        }) as never,
+        makeStory('task-1', {
+          summary_category: 'task_reflection',
+          content: '任务复盘内容',
+          period_end: 1700100000,
+          updated_at: 1700100000,
+        }) as never,
+      ],
+      total: 3, limit: 30, offset: 0,
+    });
+
+    renderPage();
+    const user = userEvent.setup();
+
+    expect(await screen.findByRole('button', { name: '全部' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '时段总结' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '长期观察' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '任务复盘' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '近期' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '只看未归档' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '时段总结' }));
+    expect(screen.getByTestId('memory-stories-feed').textContent).toContain('时段总结内容');
+    expect(screen.getByTestId('memory-stories-feed').textContent).not.toContain('长期观察内容');
+
+    await user.click(screen.getByRole('button', { name: '任务复盘' }));
+    expect(screen.getByTestId('memory-stories-feed').textContent).toContain('任务复盘内容');
+    expect(screen.getByTestId('memory-stories-feed').textContent).not.toContain('时段总结内容');
+  });
+
+  it('loads earlier summaries from the next offset', async () => {
+    const firstPage = Array.from({ length: 30 }, (_, index) => (
+      makeStory(`story-${index}`, {
+        content: `第 ${index + 1} 条总结`,
+        period_end: 1700300000 - index,
+        updated_at: 1700300000 - index,
+      })
+    ));
+    const earlierStory = makeStory('story-30', {
+      content: '更早的总结',
+      period_end: 1700000000,
+      updated_at: 1700000000,
+    });
+
+    vi.mocked(memoryStoriesApi.list)
+      .mockResolvedValueOnce({ items: firstPage as never, total: 31, limit: 30, offset: 0 })
+      .mockResolvedValueOnce({ items: [earlierStory] as never, total: 31, limit: 30, offset: 30 });
+
+    renderPage();
+    const user = userEvent.setup();
+
+    const loadMore = await screen.findByRole('button', { name: '加载更早总结' });
+    await user.click(loadMore);
+
+    expect(memoryStoriesApi.list).toHaveBeenNthCalledWith(1, { limit: 30, offset: 0 });
+    expect(memoryStoriesApi.list).toHaveBeenNthCalledWith(2, { limit: 30, offset: 30 });
+    expect(await screen.findByText('更早的总结')).toBeInTheDocument();
+    expect(screen.getByText('已经看到当前加载的全部总结')).toBeInTheDocument();
   });
 
   it('keeps state-change memory updates out of the summaries page', async () => {
