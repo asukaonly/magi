@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from typing import Any, Protocol
 
@@ -16,6 +15,10 @@ from .portrait_signal_policy import (
     PORTRAIT_SOURCE_STRENGTH as SOURCE_STRENGTH,
     PORTRAIT_VALIDATION_STRENGTH as VALIDATION_STRENGTH,
     assertion_portrait_role,
+)
+from .portrait_values import (
+    display_value as _display_value,
+    snapshot_recent_values,
 )
 
 PORTRAIT_ASSERTION_FAMILIES = (*PROFILE_ASSERTION_FAMILIES, "routine_profile")
@@ -186,30 +189,16 @@ class UserPortraitProjectionBuilder:
     ) -> dict[str, Any]:
         items: list[dict[str, Any]] = []
         if snapshot is not None:
-            core_traits = snapshot.get("core_traits")
-            if isinstance(core_traits, dict):
-                for value in core_traits.values():
-                    text = _display_value(value)
-                    if text:
-                        items.append({
-                            "id": f"snapshot-{snapshot.get('snapshot_id') or 'latest'}-{text}",
-                            "text": text,
-                            "source": "",
-                            "source_key": None,
-                            "assertion_id": None,
-                            "basis_refs": [f"snapshot:{snapshot.get('snapshot_id') or 'latest'}"],
-                        })
-            else:
-                text = _display_value(core_traits)
-                if text:
-                    items.append({
-                        "id": f"snapshot-{snapshot.get('snapshot_id') or 'latest'}",
-                        "text": text,
-                        "source": "",
-                        "source_key": None,
-                        "assertion_id": None,
-                        "basis_refs": [f"snapshot:{snapshot.get('snapshot_id') or 'latest'}"],
-                    })
+            snapshot_id = snapshot.get("snapshot_id") or "latest"
+            for text in snapshot_recent_values(snapshot):
+                items.append({
+                    "id": f"snapshot-{snapshot_id}-{text}",
+                    "text": text,
+                    "source": "",
+                    "source_key": None,
+                    "assertion_id": None,
+                    "basis_refs": [f"snapshot:{snapshot_id}"],
+                })
 
         for assertion in assertions:
             family = _text(assertion.get("trait_family"))
@@ -373,29 +362,6 @@ def _item_score(item: dict[str, Any]) -> tuple[int, int, int]:
 
 def _item_texts(items: list[dict[str, Any]]) -> list[str]:
     return [_text(item.get("text")) for item in items if _text(item.get("text"))]
-
-
-def _display_value(value: Any) -> str:
-    parsed = _parse_value(value)
-    if isinstance(parsed, dict):
-        if "value" in parsed:
-            return _display_value(parsed.get("value"))
-        return ""
-    if isinstance(parsed, list):
-        return "、".join(text for text in (_display_value(item) for item in parsed) if text)
-    return _text(parsed)
-
-
-def _parse_value(value: Any) -> Any:
-    if not isinstance(value, str):
-        return value
-    text = value.strip()
-    if not text or text[0] not in "[{\"":
-        return value
-    try:
-        return json.loads(text)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return value
 
 
 def _evidence_count(assertion: dict[str, Any]) -> int:

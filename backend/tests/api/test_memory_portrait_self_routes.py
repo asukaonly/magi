@@ -688,3 +688,47 @@ def test_materialized_and_fallback_portrait_include_graph_clues_identically():
     }
 
 
+class _ConsistencySnapshotL2:
+    """L2 fake exposing only a multi-trait ToM snapshot for both paths."""
+
+    def __init__(self, snapshot: dict):
+        self._snapshot = snapshot
+
+    async def list_tom_assertions(self, **kwargs):
+        return []
+
+    async def list_tom_snapshots(self, **kwargs):
+        return [dict(self._snapshot)]
+
+
+def test_materialized_and_fallback_render_multi_trait_snapshot_identically():
+    """A snapshot with multiple core_traits must produce the same per-trait
+    recent items on both paths (previously the fallback concatenated them)."""
+    snapshot = {
+        "snapshot_id": "snap-multi",
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "core_traits": {"focus": "验证画像", "mood": "专注"},
+        "evidence_count": 3,
+        "last_updated_at": 200.0,
+    }
+    l2 = _ConsistencySnapshotL2(snapshot)
+
+    materialized = asyncio.run(UserPortraitProjectionBuilder(l2).build("u1"))
+
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    portrait_repo = MagicMock()
+    portrait_repo.get = AsyncMock(return_value=None)
+    with override_dependencies_for_test(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+    assert resp.status_code == 200
+    fallback = resp.json()["self_view"]
+
+    materialized_recent = sorted(item["text"] for item in materialized.recent["items"])
+    fallback_recent = sorted(item["text"] for item in fallback["recent"]["items"])
+    assert materialized_recent == fallback_recent == ["专注", "验证画像"]
+
+
+

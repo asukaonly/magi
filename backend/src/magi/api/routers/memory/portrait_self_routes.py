@@ -23,6 +23,7 @@ from ....user_profile.portrait_signal_policy import (
     PORTRAIT_VALIDATION_STRENGTH,
     assertion_portrait_role,
 )
+from ....user_profile.portrait_values import snapshot_recent_values
 from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ....user_profile.projection_repository import UserProfileProjectionRepository
 
@@ -231,23 +232,21 @@ def _observations_from_projection(projection: Any) -> list[PortraitObservation]:
 
 
 def _observations_from_snapshot(snapshot: dict[str, Any] | None) -> list[PortraitObservation]:
-    if not snapshot:
+    values = snapshot_recent_values(snapshot)
+    if not values:
         return []
-    core_traits = snapshot.get("core_traits")
-    # core_traits may be a dict (JSON-decoded) or a plain string
-    if isinstance(core_traits, dict):
-        text = "; ".join(f"{k}: {v}" for k, v in core_traits.items()).strip()
-    else:
-        text = str(core_traits or "").strip()
-    if not text:
-        return []
-    return [PortraitObservation(
-        kind="reflection",
-        text=text,
-        basis_count=int(snapshot.get("evidence_count") or 1),
-        basis_summary="L2 ToM snapshot",
-        basis_refs=[str(snapshot.get("snapshot_id") or "tom-latest")],
-    )]
+    snapshot_id = str((snapshot or {}).get("snapshot_id") or "tom-latest")
+    basis_count = int((snapshot or {}).get("evidence_count") or 1)
+    return [
+        PortraitObservation(
+            kind="reflection",
+            text=text,
+            basis_count=basis_count,
+            basis_summary="L2 ToM snapshot",
+            basis_refs=[snapshot_id],
+        )
+        for text in values
+    ]
 
 
 def _observations_from_assertion_items(items: list[dict[str, Any]]) -> list[PortraitObservation]:
