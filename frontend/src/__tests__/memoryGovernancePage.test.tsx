@@ -221,6 +221,13 @@ beforeEach(() => {
 });
 
 describe('MemoryGovernancePage', () => {
+  it('starts from the maintenance workspace without the large page header', async () => {
+    renderPage();
+
+    expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: '对象明细' })).toBeInTheDocument();
+  });
+
   it('renders object maintenance categories without exposing layer codes', async () => {
     renderPage();
     expect(await screen.findByRole('tab', { name: '对象明细' })).toHaveAttribute('aria-selected', 'true');

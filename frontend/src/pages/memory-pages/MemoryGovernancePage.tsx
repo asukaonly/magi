@@ -31,7 +31,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useMemory } from '@/hooks/useMemory';
 import { cn } from '@/lib/utils';
 import MemoryPageFrame, {
-  MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_EMPTY_PANEL_CLASS,
   MEMORY_INFO_PANEL_CLASS,
 } from './MemoryPageFrame';
@@ -485,17 +484,7 @@ export const MemoryGovernancePage = () => {
     <MemoryPageFrame
       title={label('title', '整理')}
       description={label('objectSubtitle', '按记忆对象查看、整理、遗忘和诊断。')}
-      actions={(
-        <Button
-          variant="outline"
-          className={MEMORY_ACTION_BUTTON_CLASS}
-          onClick={() => void memory.refreshAll()}
-          disabled={memory.loading}
-        >
-          {memory.loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-          {label('actions.refresh', '刷新')}
-        </Button>
-      )}
+      hideHeader
       className="max-w-[1180px]"
       contentClassName="min-h-0 flex-1 overflow-hidden pb-0"
       scrollable={false}
