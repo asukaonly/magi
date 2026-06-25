@@ -92,6 +92,34 @@ def test_cache_boundary_sits_after_persona_identity_before_dynamic() -> None:
     assert i_boundary < prompt.index("# System Information")
 
 
+def test_profile_memory_prefers_prompt_summary_over_raw_preferences() -> None:
+    context = _assembly_context(["alpha_tool"])
+    context.profile_memory = ProfileMemoryContext(
+        user_id="u1",
+        user_preferences={
+            "interest.rag": {
+                "value": "RAG",
+                "affinity": 1.0,
+                "family": "preference_profile",
+                "source_tier": "inferred",
+            }
+        },
+        prompt_summary=[
+            "用户长期关注 Magi 记忆系统和 RAG。",
+            "用户偏好先讲结论，再补关键依据。",
+        ],
+    )
+
+    prompt = PromptContextRenderer().render_system_prompt(context)
+
+    assert "# User Understanding" in prompt
+    assert "用户长期关注 Magi 记忆系统和 RAG。" in prompt
+    assert "用户偏好先讲结论，再补关键依据。" in prompt
+    assert "interest.rag" not in prompt
+    assert "affinity" not in prompt
+    assert "source_tier" not in prompt
+
+
 def test_persona_identity_in_head_per_turn_steer_in_tail() -> None:
     # The persona DEFINITION (Identity Core + Baseline Voice) is stable across
     # turns and stays in the cached head. The per-turn STEER (register,

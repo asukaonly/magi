@@ -47,6 +47,25 @@ class UserProfileProjection(BaseModel):
     updated_at: float = 0.0
 
 
+class UserPortraitProjection(BaseModel):
+    """Product-facing self portrait derived from L2 evidence."""
+
+    user_id: str = DEFAULT_USER_ID
+    entity_id: str = f"user:{DEFAULT_USER_ID}"
+    entity_type: str = PROFILE_ENTITY_TYPE
+    version: int = 1
+    world: dict[str, Any] = Field(default_factory=dict)
+    review: dict[str, Any] = Field(default_factory=dict)
+    recent: dict[str, Any] = Field(default_factory=dict)
+    prompt_summary: list[str] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(default_factory=list)
+    source_counts: dict[str, int] = Field(default_factory=dict)
+    generated_by: str = "rule"
+    generated_at: float = 0.0
+    created_at: float = 0.0
+    updated_at: float = 0.0
+
+
 class ProfileUpdatePatch(BaseModel):
     """User-authored profile settings patch."""
 

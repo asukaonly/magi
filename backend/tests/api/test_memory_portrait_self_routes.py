@@ -11,6 +11,7 @@ from magi.api.routers.memory.portrait_self_routes import (
     build_router,
     override_dependencies_for_test,
 )
+from magi.user_profile.models import UserPortraitProjection
 
 
 def _app():
@@ -36,6 +37,34 @@ def test_cold_start_when_no_projection_and_no_snapshot():
     assert body["cold_start_reason"] == "no_observations"
     assert body["observations"] == []
     assert body["session_id"] == ""
+
+
+def test_returns_existing_portrait_projection_page_model():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    portrait_repo = MagicMock()
+    portrait_repo.get = AsyncMock(return_value=UserPortraitProjection(
+        user_id="u1",
+        entity_id="user:u1",
+        world={"total_count": 1, "groups": [{"id": "preferences", "items": [{"text": "Magi 记忆系统"}]}]},
+        review={"items": []},
+        recent={"items": [{"text": "正在验证画像"}]},
+        prompt_summary=["用户关注 Magi 记忆系统。"],
+    ))
+    l2 = MagicMock()
+    l2.list_tom_snapshots = AsyncMock(return_value=[{"snapshot_id": "should-not-read"}])
+    l2.list_tom_assertions = AsyncMock(return_value=[])
+
+    with override_dependencies_for_test(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["self_view"]["world"]["groups"][0]["items"][0]["text"] == "Magi 记忆系统"
+    assert body["self_view"]["recent"]["items"][0]["text"] == "正在验证画像"
+    assert body["prompt_summary"] == ["用户关注 Magi 记忆系统。"]
+    l2.list_tom_snapshots.assert_not_called()
 
 
 def test_returns_observations_from_projection_and_snapshot():

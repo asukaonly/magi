@@ -14,6 +14,7 @@ from fastapi import APIRouter, Query
 from ....memory.l2.entities.catalog.lookup import get_canonical_names
 from ....memory.portrait.contracts import PortraitObservation, PortraitPayload
 from ....memory.provider import get_unified_memory
+from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ....user_profile.projection_repository import UserProfileProjectionRepository
 
 
@@ -76,18 +77,21 @@ _VALIDATION_STRENGTH = {
 
 
 _profile_repo_override: Any = None
+_portrait_repo_override: Any = None
 _l2_override: Any = None
 
 
 @contextmanager
-def override_dependencies_for_test(*, profile_repo: Any = None, l2: Any = None):
-    global _profile_repo_override, _l2_override
+def override_dependencies_for_test(*, profile_repo: Any = None, portrait_repo: Any = None, l2: Any = None):
+    global _profile_repo_override, _portrait_repo_override, _l2_override
     _profile_repo_override = profile_repo
+    _portrait_repo_override = portrait_repo
     _l2_override = l2
     try:
         yield
     finally:
         _profile_repo_override = None
+        _portrait_repo_override = None
         _l2_override = None
 
 
@@ -102,6 +106,19 @@ def _resolve_profile_repo() -> Any:
     if not db_path:
         return None
     return UserProfileProjectionRepository(db_path)
+
+
+def _resolve_portrait_repo() -> Any:
+    if _portrait_repo_override is not None:
+        return _portrait_repo_override
+    try:
+        unified = get_unified_memory()
+    except Exception:
+        return None
+    db_path = str(getattr(getattr(unified, "l2", None), "db_path", "") or "")
+    if not db_path:
+        return None
+    return UserPortraitProjectionRepository(db_path)
 
 
 def _resolve_l2() -> Any:
@@ -121,8 +138,35 @@ def build_router() -> APIRouter:
     async def get_self_portrait(
         user_id: str = Query(..., min_length=1),
     ) -> dict[str, Any]:
-        profile_repo = _resolve_profile_repo()
+        portrait_repo = _resolve_portrait_repo()
         l2 = _resolve_l2()
+        if portrait_repo is not None:
+            try:
+                portrait_projection = await portrait_repo.get(user_id)
+            except Exception as exc:
+                logger.debug("self portrait: portrait projection lookup failed: %s", exc)
+                portrait_projection = None
+            if portrait_projection is not None:
+                payload = PortraitPayload(
+                    session_id="",
+                    persona_id="",
+                    topic="self",
+                    generated_at=int(time.time()),
+                    observations=[],
+                    is_cold_start=False,
+                    cold_start_line=None,
+                    cold_start_reason=None,
+                )
+                data = payload.to_dict()
+                data["self_view"] = {
+                    "world": portrait_projection.world or _empty_world(),
+                    "review": portrait_projection.review or {"items": []},
+                    "recent": portrait_projection.recent or {"items": []},
+                }
+                data["prompt_summary"] = list(portrait_projection.prompt_summary)
+                return data
+
+        profile_repo = _resolve_profile_repo()
         observations: list[PortraitObservation] = []
 
         projection = None
@@ -388,7 +432,8 @@ def _object_slug(object_id: str) -> str:
 
 
 def _build_self_view(observations: list[PortraitObservation]) -> dict[str, Any]:
-    groups = [{"id": group_id, "items": []} for group_id in _WORLD_GROUP_IDS]
+    world = _empty_world()
+    groups = world["groups"]
     groups_by_id = {group["id"]: group for group in groups}
     review_items: list[dict[str, Any]] = []
     recent_items: list[dict[str, Any]] = []
@@ -410,16 +455,20 @@ def _build_self_view(observations: list[PortraitObservation]) -> dict[str, Any]:
         group["items"] = _dedupe_and_sort_world_items(group["items"])
 
     return {
-        "world": {
-            "total_count": len(observations),
-            "groups": groups,
-        },
+        "world": {**world, "total_count": len(observations), "groups": groups},
         "review": {
             "items": review_items,
         },
         "recent": {
             "items": recent_items,
         },
+    }
+
+
+def _empty_world() -> dict[str, Any]:
+    return {
+        "total_count": 0,
+        "groups": [{"id": group_id, "items": []} for group_id in _WORLD_GROUP_IDS],
     }
 
 

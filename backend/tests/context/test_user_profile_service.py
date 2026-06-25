@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from tempfile import TemporaryDirectory
 
 from magi.context.user_profile_service import UserProfileService
 
@@ -41,6 +42,19 @@ class _FakeL2Store:
 
     async def list_tom_assertions(self, entity_id=None, entity_type=None, **kwargs):
         self.assertion_call_count += 1
+        if entity_id == "user:portrait":
+            return [
+                {
+                    "assertion_id": "a-magi",
+                    "trait_family": "preference_profile",
+                    "trait_name": "interest.magi",
+                    "trait_value": "Magi 记忆系统",
+                    "source_domain": "conversation",
+                    "validation_state": "stable",
+                    "confidence_score": 0.9,
+                    "evidence_events": ["event-1", "event-2"],
+                }
+            ]
         if entity_id == "user:pending":
             return [
                 {
@@ -122,6 +136,19 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
         prefs = await svc.get_preference_summary("alice")
         self.assertEqual(prefs, {"language": "zh-CN", "theme": "dark"})
+
+    async def test_get_portrait_prompt_summary_builds_clean_projection_when_missing(self):
+        with TemporaryDirectory() as tmpdir:
+            um = _FakeUnifiedMemory()
+            um.l2.db_path = f"{tmpdir}/memory.db"
+            svc = UserProfileService(unified_memory=um)
+
+            summary = await svc.get_portrait_prompt_summary("portrait")
+
+        rendered = "\n".join(summary)
+        self.assertIn("Magi 记忆系统", rendered)
+        self.assertNotIn("interest.", rendered)
+        self.assertNotIn("affinity", rendered)
 
     async def test_get_preference_summary_normalizes_addressing_values(self):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())

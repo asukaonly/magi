@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict
 
 from ..core.logger import get_logger
+from ..user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
+from ..user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ..user_profile.projection_repository import UserProfileProjectionRepository
 
 logger = get_logger(__name__)
@@ -33,6 +35,7 @@ _PROFILE_ASSERTION_STATES = ["stable", "corroborated", "tentative"]
 class _CacheEntry:
     display_name: str = "unknown"
     preferences: Dict[str, Any] = field(default_factory=dict)
+    prompt_summary: list[str] = field(default_factory=list)
     fetched_at: float = 0.0
 
 
@@ -69,6 +72,11 @@ class UserProfileService:
         entry = await self._get_cached(user_id)
         return dict(entry.preferences)
 
+    async def get_portrait_prompt_summary(self, user_id: str) -> list[str]:
+        """Return clean user-understanding lines for prompt injection."""
+        entry = await self._get_cached(user_id)
+        return list(entry.prompt_summary)
+
     def invalidate(self, user_id: str | None = None) -> None:
         """Drop cached data for *user_id*, or all entries if ``None``."""
         if user_id is None:
@@ -91,6 +99,7 @@ class UserProfileService:
             return entry
 
         entry = _CacheEntry(fetched_at=now)
+        prompt_summary = await self._fetch_portrait_prompt_summary(user_id)
         projection_entry = await self._fetch_projection_entry(user_id)
         if projection_entry is not None:
             entry = projection_entry
@@ -98,14 +107,34 @@ class UserProfileService:
         else:
             entry.preferences = await self._fetch_preferences(user_id)
             entry.display_name = await self._fetch_display_name(user_id, preferences=entry.preferences)
+        entry.prompt_summary = prompt_summary
         self._cache[user_id] = entry
         return entry
 
+    async def _fetch_portrait_prompt_summary(self, user_id: str) -> list[str]:
+        db_path = self._memory_db_path()
+        if not db_path:
+            return []
+        repo = UserPortraitProjectionRepository(db_path)
+        try:
+            projection = await repo.get(user_id)
+        except Exception:
+            logger.debug("Failed to get portrait projection for %s", user_id)
+            return []
+        if projection is None:
+            l2 = getattr(self._unified_memory, "l2", None) if self._unified_memory is not None else None
+            if l2 is None:
+                return []
+            try:
+                projection = await UserPortraitProjectionBuilder(l2).build(user_id)
+                projection = await repo.upsert(projection)
+            except Exception:
+                logger.debug("Failed to build portrait projection for %s", user_id)
+                return []
+        return [line for line in projection.prompt_summary if str(line).strip()]
+
     async def _fetch_projection_entry(self, user_id: str) -> _CacheEntry | None:
-        if self._unified_memory is None:
-            return None
-        l2 = getattr(self._unified_memory, "l2", None)
-        db_path = str(getattr(l2, "db_path", "") or "") if l2 is not None else ""
+        db_path = self._memory_db_path()
         if not db_path:
             return None
         try:
@@ -134,6 +163,12 @@ class UserProfileService:
             display_name=projection.display_name or "unknown",
             preferences={key: value for key, value in preferences.items() if value not in (None, "")},
         )
+
+    def _memory_db_path(self) -> str:
+        if self._unified_memory is None:
+            return ""
+        l2 = getattr(self._unified_memory, "l2", None)
+        return str(getattr(l2, "db_path", "") or "") if l2 is not None else ""
 
     async def _fetch_display_name(self, user_id: str, *, preferences: Dict[str, Any] | None = None) -> str:
         preferred_name = self._derive_display_name(preferences or {})
@@ -224,7 +259,7 @@ class UserProfileService:
         return preferences
 
     def _ttl_for_entry(self, entry: _CacheEntry) -> float:
-        if entry.display_name != "unknown" or entry.preferences:
+        if entry.display_name != "unknown" or entry.preferences or entry.prompt_summary:
             return self._cache_ttl
         return min(self._cache_ttl, self._empty_cache_ttl)
 

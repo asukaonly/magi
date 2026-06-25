@@ -315,6 +315,14 @@ and then refresh the projection. Product code and prompt assembly should read th
 projection first and fall back to raw L2 assertions only when the projection does
 not yet exist.
 
+`user_portrait_projection` is the product-facing self-portrait read model for
+the local user. It is not an authority over L2 facts. It packages L2 assertions,
+the current ToM snapshot, and review state into a stable `world/review/recent`
+page model plus a short `prompt_summary` for main-chat context injection. Prompt
+assembly must use that human-readable summary when available and must not dump
+raw preference dictionaries, internal assertion keys, source tiers, or affinity
+metadata into the main model prompt.
+
 Bootstrap is only responsible for injecting the first assistant opening for a
 persona. After that opening is persisted, all profile extraction returns to the
 normal chat -> L1 -> L2 pipeline; bootstrap must not own a separate user-profile
@@ -683,6 +691,9 @@ with `world`, `review`, and `recent` sections. The legacy flat `observations`
 list may remain as compatibility material, but page classification belongs in
 the backend read model. The frontend may translate section and source labels,
 but it should not infer grouping from keywords, source names, or raw text.
+When a materialized `user_portrait_projection` exists, the endpoint may return
+that page model directly; otherwise it can assemble the same shape from the
+current projection/snapshot/assertion fallback path.
 The read model may include safe L2 graph relationships such as visited places
 or owned/used tools as user-visible clues; those clues do not become durable
 profile assertions unless they pass assertion policy separately.

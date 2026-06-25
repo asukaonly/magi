@@ -156,6 +156,9 @@ class PromptSelfMemoryMixin:
             if fetched_name and fetched_name != "unknown":
                 user_name = fetched_name
             preferences = await self.user_profile_service.get_preference_summary(user_id)
+            prompt_summary = await self.user_profile_service.get_portrait_prompt_summary(user_id)
+        else:
+            prompt_summary = []
 
         relation: Dict[str, Any] = {}
         if self_memory is not None and user_id and features.state_memory_enabled:
@@ -191,6 +194,7 @@ class PromptSelfMemoryMixin:
             user_id=user_id,
             user_name=user_name,
             user_preferences=preferences,
+            prompt_summary=prompt_summary,
             recent_emotion=recent_emotion,
         )
 

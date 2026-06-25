@@ -43,6 +43,7 @@ class ProfileMemoryContext:
     user_id: str = ""
     user_name: str = ""
     user_preferences: Dict[str, Any] = field(default_factory=dict)
+    prompt_summary: List[str] = field(default_factory=list)
     recent_emotion: Dict[str, Any] = field(default_factory=dict)
 
 

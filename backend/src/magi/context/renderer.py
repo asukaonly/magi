@@ -305,6 +305,15 @@ class PromptContextRenderer:
         """Render profile memory as markdown, omitting unknown/empty fields."""
         body: List[str] = []
 
+        prompt_summary = self._string_list(profile.prompt_summary)
+        if prompt_summary:
+            body.extend(f"* {line}" for line in prompt_summary[:4])
+            emotion = self._render_recent_emotion_lines(profile.recent_emotion)
+            if emotion:
+                body.append("")
+                body.extend(emotion)
+            return ["# User Understanding", *body, ""]
+
         user_name = (profile.user_name or "").strip()
         if user_name and user_name.lower() != "unknown":
             body.append(f"* User Name: {user_name}")
@@ -331,20 +340,27 @@ class PromptContextRenderer:
             for key, value in visible_prefs.items():
                 body.append(f"  - {key}: {value}")
 
-        emotion = profile.recent_emotion or {}
+        emotion = self._render_recent_emotion_lines(profile.recent_emotion)
         if emotion:
-            body.append("* Recent Emotion:")
-            sentiment = emotion.get("sentiment_score", 0.0)
-            label = emotion.get("emotion_label", "neutral")
-            trust = emotion.get("trust_level", 0.5)
-            trust_label = emotion.get("trust_label", "medium")
-            body.append(f"  - Sentiment: {label} (score: {sentiment:.2f})")
-            body.append(f"  - Trust: {trust_label} (level: {trust:.2f})")
+            body.extend(emotion)
 
         if not body:
             return []
 
         return ["# Profile Memory", *body, ""]
+
+    def _render_recent_emotion_lines(self, emotion: Dict[str, Any] | None) -> List[str]:
+        if not emotion:
+            return []
+        sentiment = emotion.get("sentiment_score", 0.0)
+        label = emotion.get("emotion_label", "neutral")
+        trust = emotion.get("trust_level", 0.5)
+        trust_label = emotion.get("trust_label", "medium")
+        return [
+            "* Recent Emotion:",
+            f"  - Sentiment: {label} (score: {sentiment:.2f})",
+            f"  - Trust: {trust_label} (level: {trust:.2f})",
+        ]
 
     @staticmethod
     def _first_profile_text(value: Any) -> str:
