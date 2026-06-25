@@ -45,6 +45,7 @@ async def retrieve_assertions(
     temporal_clause = build_assertion_temporal_clause(tc)
     tc_sql, tc_params = temporal_clause
     clause_arg = (tc_sql, tc_params) if tc_sql else None
+    include_superseded = tc is not None and tc.mode not in ("none", "current")
 
     trait_families = _infer_assertion_trait_families(plan)
     validation_states = _infer_assertion_states(tc)
@@ -58,6 +59,7 @@ async def retrieve_assertions(
             trait_families=trait_families,
             validation_states=validation_states,
             include_expired=False,
+            include_superseded=include_superseded,
             target_entity_id=target_entity_id,
             limit_per_entity=limit,
             temporal_clause=clause_arg,
@@ -70,6 +72,7 @@ async def retrieve_assertions(
             trait_families=trait_families,
             validation_states=validation_states,
             include_expired=False,
+            include_superseded=include_superseded,
             target_entity_id=target_entity_id,
             limit=limit,
             temporal_clause=clause_arg,

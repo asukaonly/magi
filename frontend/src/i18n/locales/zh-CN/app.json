@@ -2631,6 +2631,14 @@
         "summary": "总结",
         "experienceSeed": "经历线索"
       },
+      "assertions": {
+        "tentativeTitle": "我认为你可能关注「{{value}}」",
+        "unknownValue": "这条记忆判断",
+        "tentativeBody": "这个判断对吗？",
+        "conflictTitle": "我发现「{{value}}」这个判断和新的证据有冲突",
+        "conflictBody": "需要你确认它是否还应该影响 Magi 对你的理解。",
+        "traitBody": "判断类型：{{trait}}"
+      },
       "fallbackMemoryUpdateTitle": "待确认总结",
       "fallbackConflictTitle": "偏好冲突",
       "conflictMeta": "和已确认记忆不一致",

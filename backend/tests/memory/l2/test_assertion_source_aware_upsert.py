@@ -223,6 +223,24 @@ async def test_authoritative_overrides_earlier_inferred(l2_store_with_schema):
     assert len(superseded) == 1
     assert superseded[0]["trait_value"] == "jazz"
 
+    # Superseded rows are historical context, not current user-review items.
+    visible = await store.list_tom_assertions(
+        entity_id=_ENTITY_ID,
+        trait_families=["preference_profile"],
+        include_expired=False,
+        include_inactive=False,
+    )
+    assert all(row["status"] != "superseded" for row in visible)
+    assert [row["trait_value"] for row in visible] == ["rock"]
+
+    pending_count = await store.count_tom_assertions(
+        entity_id=_ENTITY_ID,
+        validation_states=["tentative", "contradicted"],
+        include_expired=False,
+        include_inactive=False,
+    )
+    assert pending_count == 0
+
 
 @pytest.mark.asyncio
 async def test_repeated_inferred_conflict_never_crashes_or_promotes(l2_store_with_schema):

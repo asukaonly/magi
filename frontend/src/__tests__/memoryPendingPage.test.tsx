@@ -44,6 +44,12 @@ vi.mock('react-i18next', () => ({
         'memory.pending.meta.conflict': '偏好冲突',
         'memory.pending.meta.summary': '总结',
         'memory.pending.meta.experienceSeed': '经历线索',
+        'memory.pending.assertions.tentativeTitle': '我认为你可能关注「{{value}}」',
+        'memory.pending.assertions.unknownValue': '这条记忆判断',
+        'memory.pending.assertions.tentativeBody': '这个判断对吗？',
+        'memory.pending.assertions.conflictTitle': '我发现「{{value}}」这个判断和新的证据有冲突',
+        'memory.pending.assertions.conflictBody': '需要你确认它是否还应该影响 Magi 对你的理解。',
+        'memory.pending.assertions.traitBody': '判断类型：{{trait}}',
         'memory.pending.conflictMeta': '和已确认记忆不一致',
         'memory.pending.evidenceCount': '{{count}} 条证据',
         'memory.pending.fragmentCount': '{{count}} 个片段',
@@ -250,8 +256,8 @@ describe('MemoryPendingPage', () => {
     expect(await screen.findByRole('heading', { name: '影响记忆' })).toBeInTheDocument();
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
     expect(screen.getByText('这些会直接影响 Magi 之后怎么理解你')).toBeInTheDocument();
-    expect(screen.getByText('本地优先的记忆系统')).toBeInTheDocument();
-    expect(screen.getByText('关注方向')).toBeInTheDocument();
+    expect(screen.getByText('我认为你可能关注「本地优先的记忆系统」')).toBeInTheDocument();
+    expect(screen.getByText('判断类型：关注方向')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '总结复核' })).toBeInTheDocument();
     expect(screen.getByText('最近更关注记忆产品')).toBeInTheDocument();
     expect(screen.queryByText('观察')).not.toBeInTheDocument();
@@ -265,6 +271,67 @@ describe('MemoryPendingPage', () => {
     expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 50, offset: 0 });
     expect(memoryApi.listExperienceSeeds).toHaveBeenCalledWith({ status: 'candidate', limit: 50, offset: 0 });
     expect(listNotifications).toHaveBeenCalled();
+  });
+
+  it('explains conflicted L2 assertions without exposing internal trait identifiers', async () => {
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({
+      pending_assertions: {
+        items: [
+          {
+            assertion_id: 'assert-conflict',
+            entity_id: 'user:self',
+            entity_type: 'user',
+            trait_family: 'preference_profile',
+            trait_name: 'interest.frank_wang-7efea7',
+            trait_value: '阿里巴巴集团',
+            confidence_score: 0.35,
+            evidence_events: ['evt-1', 'evt-2', 'evt-3', 'evt-4', 'evt-5'],
+            validation_state: 'contradicted',
+            volatility_index: 0.4,
+            source_domain: 'external_activity',
+            inference_depth: 'topology_only',
+            first_inferred_at: 1710000000,
+            last_validated_at: 1710000000,
+            user_feedback: null,
+            user_feedback_at: null,
+            status: 'contradicted',
+          },
+          {
+            assertion_id: 'assert-conflict-no-value',
+            entity_id: 'user:self',
+            entity_type: 'user',
+            trait_family: 'preference_profile',
+            trait_name: 'interest.frank_wang-7efea7',
+            trait_value: '',
+            confidence_score: 0.35,
+            evidence_events: ['evt-1'],
+            validation_state: 'contradicted',
+            volatility_index: 0.4,
+            source_domain: 'external_activity',
+            inference_depth: 'topology_only',
+            first_inferred_at: 1710000000,
+            last_validated_at: 1710000000,
+            user_feedback: null,
+            user_feedback_at: null,
+            status: 'contradicted',
+          },
+        ],
+        total: 2,
+        limit: 25,
+        offset: 0,
+      },
+    } as never);
+
+    renderPage();
+
+    const card = await screen.findByTestId('pending-assertion-assert-conflict');
+    expect(within(card).getByText('我发现「阿里巴巴集团」这个判断和新的证据有冲突')).toBeInTheDocument();
+    expect(within(card).getByText('需要你确认它是否还应该影响 Magi 对你的理解。')).toBeInTheDocument();
+    expect(card.textContent).not.toContain('interest.frank_wang-7efea7');
+
+    const fallbackCard = await screen.findByTestId('pending-assertion-assert-conflict-no-value');
+    expect(within(fallbackCard).getByText('我发现「这条记忆判断」这个判断和新的证据有冲突')).toBeInTheDocument();
+    expect(fallbackCard.textContent).not.toContain('interest.frank_wang-7efea7');
   });
 
   it('filters the confirmation lanes by decision type', async () => {

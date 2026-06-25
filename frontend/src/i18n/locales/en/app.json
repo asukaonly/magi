@@ -2632,6 +2632,14 @@
         "summary": "Summary",
         "experienceSeed": "Experience signal"
       },
+      "assertions": {
+        "tentativeTitle": "I think you may care about \"{{value}}\"",
+        "unknownValue": "this memory judgment",
+        "tentativeBody": "Is this judgment right?",
+        "conflictTitle": "I found that \"{{value}}\" conflicts with newer evidence",
+        "conflictBody": "Confirm whether it should still shape how Magi understands you.",
+        "traitBody": "Judgment type: {{trait}}"
+      },
       "fallbackMemoryUpdateTitle": "Summary to review",
       "fallbackConflictTitle": "Preference conflict",
       "conflictMeta": "Differs from confirmed memory",

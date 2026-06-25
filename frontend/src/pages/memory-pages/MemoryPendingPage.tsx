@@ -23,6 +23,7 @@ import { isMemoryUpdateStory } from './storyFilters';
 type PendingAction = 'confirmed' | 'rejected';
 type ConflictAction = 'confirm' | 'reject';
 type PendingFilter = 'all' | 'memory' | 'experiences' | 'observations';
+type TranslationFn = (key: string, options?: Record<string, unknown>) => string;
 
 const MEMORY_REVIEW_BUTTON_CLASS = cn(
   MEMORY_ACTION_BUTTON_CLASS,
@@ -39,6 +40,58 @@ const assertionTitle = (assertion: L2Assertion): string => (
 const assertionBody = (assertion: L2Assertion): string => (
   String(assertion.trait_value || '').trim()
 );
+
+const isInternalTraitName = (value: string): boolean => {
+  const text = value.trim();
+  if (!text) {
+    return false;
+  }
+  return (
+    text.startsWith('interest.') ||
+    /^[a-z0-9_-]+(\.[a-z0-9_-]+)+$/i.test(text)
+  );
+};
+
+const readableTraitName = (assertion: L2Assertion, displayedValue: string): string => {
+  const traitName = assertionTitle(assertion);
+  if (!traitName || traitName === displayedValue || traitName === assertion.assertion_id) {
+    return '';
+  }
+  return isInternalTraitName(traitName) ? '' : traitName;
+};
+
+const assertionDisplayValue = (assertion: L2Assertion, t: TranslationFn): string => {
+  const value = assertionBody(assertion);
+  if (value) {
+    return value;
+  }
+  const title = assertionTitle(assertion);
+  if (title && title !== assertion.assertion_id && !isInternalTraitName(title)) {
+    return title;
+  }
+  return t('memory.pending.assertions.unknownValue');
+};
+
+const assertionCardCopy = (
+  assertion: L2Assertion,
+  t: TranslationFn,
+): { title: string; body: string } => {
+  const value = assertionDisplayValue(assertion, t);
+  const state = String(assertion.validation_state || assertion.status || '').trim().toLowerCase();
+  if (state === 'contradicted') {
+    return {
+      title: t('memory.pending.assertions.conflictTitle', { value }),
+      body: t('memory.pending.assertions.conflictBody'),
+    };
+  }
+  const traitName = readableTraitName(assertion, value);
+  return {
+    title: t('memory.pending.assertions.tentativeTitle', { value }),
+    body: traitName
+      ? t('memory.pending.assertions.traitBody', { trait: traitName })
+      : t('memory.pending.assertions.tentativeBody'),
+  };
+};
 
 const storyTitle = (story: StoryItem, fallback: string): string => (
   String(story.title || '').trim() || fallback
@@ -238,15 +291,14 @@ export const MemoryPendingPage = () => {
             >
               {assertions.map((assertion) => {
                 const busy = actionId === `assertion:${assertion.assertion_id}`;
-                const title = assertionBody(assertion) || assertionTitle(assertion);
-                const traitName = assertionTitle(assertion);
+                const copy = assertionCardCopy(assertion, t);
                 return (
                   <PendingCard
                     key={assertion.assertion_id}
                     testId={`pending-assertion-${assertion.assertion_id}`}
                     label={t('memory.pending.meta.assertion')}
-                    title={title}
-                    body={traitName && traitName !== title ? traitName : ''}
+                    title={copy.title}
+                    body={copy.body}
                     meta={t('memory.pending.evidenceCount', { count: assertion.evidence_events?.length ?? 0 })}
                     actions={(
                       <ReviewActions
@@ -268,7 +320,7 @@ export const MemoryPendingPage = () => {
                     testId={`pending-conflict-${conflict.id}`}
                     label={t('memory.pending.meta.conflict')}
                     title={conflictBody(conflict) || conflictTitle(conflict, t('memory.pending.fallbackConflictTitle'))}
-                    body={conflict.payload.trait_name || ''}
+                    body=""
                     meta={t('memory.pending.conflictMeta')}
                     actions={(
                       <ConflictActions

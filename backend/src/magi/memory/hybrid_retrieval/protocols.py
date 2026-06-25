@@ -111,6 +111,7 @@ class L2StoreProtocol(Protocol):
         trait_families: List[str] | None = ...,
         validation_states: List[str] | None = ...,
         include_expired: bool = ...,
+        include_superseded: bool = ...,
         target_entity_id: str | None = ...,
         limit_per_entity: int = ...,
     ) -> Dict[str, List[Dict[str, Any]]]: ...
@@ -120,6 +121,7 @@ class L2StoreProtocol(Protocol):
         trait_families: List[str] | None = ...,
         validation_states: List[str] | None = ...,
         include_expired: bool = ...,
+        include_superseded: bool = ...,
         target_entity_id: str | None = ...,
         limit: int = ...,
     ) -> List[Dict[str, Any]]: ...

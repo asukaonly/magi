@@ -12,10 +12,14 @@ from ..assertions.state_machine import RETRIEVAL_EXCLUDED_STATUSES
 from .common import L2RetrievalQueryHostProtocol
 
 
-def _excluded_status_clause() -> tuple[str, list[str]]:
-    """SQL fragment + params excluding forget/reject governance statuses."""
-    placeholders = ", ".join("?" for _ in RETRIEVAL_EXCLUDED_STATUSES)
-    return f" AND status NOT IN ({placeholders})", list(RETRIEVAL_EXCLUDED_STATUSES)
+CURRENT_EXCLUDED_STATUSES = ("superseded", *RETRIEVAL_EXCLUDED_STATUSES)
+
+
+def _excluded_status_clause(*, include_superseded: bool = False) -> tuple[str, list[str]]:
+    """SQL fragment + params excluding non-current assertion statuses."""
+    statuses = RETRIEVAL_EXCLUDED_STATUSES if include_superseded else CURRENT_EXCLUDED_STATUSES
+    placeholders = ", ".join("?" for _ in statuses)
+    return f" AND status NOT IN ({placeholders})", list(statuses)
 
 
 class L2StoreAssertionQueryMixin:
@@ -30,6 +34,7 @@ class L2StoreAssertionQueryMixin:
         validation_states: Optional[List[str]] = None,
         include_expired: bool = True,
         include_inactive: bool = False,
+        include_superseded: bool = False,
         target_entity_id: Optional[str] = None,
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
     ) -> int:
@@ -60,7 +65,7 @@ class L2StoreAssertionQueryMixin:
             query += " AND (expires_at IS NULL OR expires_at > ?)"
             args.append(now)
         if not include_inactive:
-            status_sql, status_args = _excluded_status_clause()
+            status_sql, status_args = _excluded_status_clause(include_superseded=include_superseded)
             query += status_sql
             args.extend(status_args)
         if temporal_clause:
@@ -82,6 +87,7 @@ class L2StoreAssertionQueryMixin:
         validation_states: Optional[List[str]] = None,
         include_expired: bool = True,
         include_inactive: bool = False,
+        include_superseded: bool = False,
         target_entity_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
@@ -89,8 +95,8 @@ class L2StoreAssertionQueryMixin:
     ) -> List[Dict[str, Any]]:
         """List ToM assertions ordered by recency.
 
-        By default forgotten/rejected records (``status`` in the governance set)
-        are excluded; pass ``include_inactive=True`` for admin/debug reads.
+        By default non-current rows are excluded; pass ``include_superseded=True``
+        for historical reads or ``include_inactive=True`` for admin/debug reads.
         """
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
@@ -118,7 +124,7 @@ class L2StoreAssertionQueryMixin:
             query += " AND (expires_at IS NULL OR expires_at > ?)"
             args.append(now)
         if not include_inactive:
-            status_sql, status_args = _excluded_status_clause()
+            status_sql, status_args = _excluded_status_clause(include_superseded=include_superseded)
             query += status_sql
             args.extend(status_args)
         if temporal_clause:
@@ -268,14 +274,15 @@ class L2StoreAssertionQueryMixin:
         validation_states: Optional[List[str]] = None,
         include_expired: bool = False,
         include_inactive: bool = False,
+        include_superseded: bool = False,
         target_entity_id: Optional[str] = None,
         limit_per_entity: int = 100,
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Batch-fetch assertions for multiple entities in one query.
 
-        Forgotten/rejected records are excluded by default; pass
-        ``include_inactive=True`` for admin/debug reads.
+        Non-current rows are excluded by default; pass ``include_superseded=True``
+        for historical reads or ``include_inactive=True`` for admin/debug reads.
         """
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
@@ -306,7 +313,7 @@ class L2StoreAssertionQueryMixin:
             query += " AND (expires_at IS NULL OR expires_at > ?)"
             args.append(now)
         if not include_inactive:
-            status_sql, status_args = _excluded_status_clause()
+            status_sql, status_args = _excluded_status_clause(include_superseded=include_superseded)
             query += status_sql
             args.extend(status_args)
         if temporal_clause:
