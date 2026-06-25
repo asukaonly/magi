@@ -205,6 +205,57 @@ class MemoryL2ConfidenceSettings(BaseModel):
     )
 
 
+class MemoryL2EpisodeSettings(BaseModel):
+    """Episode formation, promotion, merge, and standout-gate thresholds.
+
+    These previously lived as hardcoded module constants. Defaults preserve the
+    prior runtime behavior; the runtime reads them through config-aware accessors
+    that fall back to the same defaults when no config is bound.
+    """
+
+    min_events_to_promote: int = Field(
+        default=3,
+        ge=1,
+        description="Minimum supporting events before a candidate episode is promoted to active.",
+    )
+    min_age_to_promote_seconds: float = Field(
+        default=30 * 60,
+        ge=0,
+        description="Minimum candidate age before promotion (seconds).",
+    )
+    merge_gap_factor: float = Field(
+        default=1.5,
+        gt=0.0,
+        description="Merge adjacent episodes when their gap is below this multiple of the type gap threshold.",
+    )
+    min_entity_overlap_for_merge: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Minimum primary-entity overlap ratio required to merge adjacent episodes.",
+    )
+    standout_min_events: int = Field(
+        default=8,
+        ge=1,
+        description="Standout gate: minimum supporting events for a product-grade chapter.",
+    )
+    standout_min_duration_seconds: float = Field(
+        default=45 * 60,
+        ge=0,
+        description="Standout gate: minimum duration unless the episode is event-dense (seconds).",
+    )
+    standout_dense_event_count: int = Field(
+        default=20,
+        ge=1,
+        description="Standout gate: event count that qualifies a short episode as dense.",
+    )
+    standout_min_distinct_entities: int = Field(
+        default=2,
+        ge=1,
+        description="Standout gate: minimum distinct primary entities.",
+    )
+
+
 class MemoryL2Settings(BaseModel):
     """L2 structured cognition settings."""
 
@@ -268,6 +319,7 @@ class MemoryL2Settings(BaseModel):
     lifecycle: MemoryL2LifecycleSettings = Field(default_factory=MemoryL2LifecycleSettings)
     limits: MemoryL2LimitsSettings = Field(default_factory=MemoryL2LimitsSettings)
     confidence: MemoryL2ConfidenceSettings = Field(default_factory=MemoryL2ConfidenceSettings)
+    episode: MemoryL2EpisodeSettings = Field(default_factory=MemoryL2EpisodeSettings)
 
 
 class MemoryL3Settings(BaseModel):
@@ -415,6 +467,7 @@ __all__ = [
     "MemoryL0Settings",
     "MemoryL1Settings",
     "MemoryL2ConfidenceSettings",
+    "MemoryL2EpisodeSettings",
     "MemoryL2LifecycleSettings",
     "MemoryL2LimitsSettings",
     "MemoryL2Settings",

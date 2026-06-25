@@ -12,11 +12,13 @@ from __future__ import annotations
 
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from ...core.logger import get_logger
 from .models import EpisodeCandidateJob, EpisodeConsolidationStats
 from .store import L2CognitionStore
+from .storage.utils import _l2_setting
 
 logger = get_logger(__name__)
 
@@ -73,26 +75,66 @@ STANDOUT_DENSE_EVENT_COUNT = 20
 STANDOUT_MIN_DISTINCT_ENTITIES = 2
 
 
-def _passes_standout_gate(episode: dict[str, Any]) -> bool:
+def _episode_int(attr: str, default: int) -> int:
+    return int(_l2_setting("episode", attr, default))
+
+
+def _episode_float(attr: str, default: float) -> float:
+    return float(_l2_setting("episode", attr, default))
+
+
+@dataclass(frozen=True)
+class StandoutGate:
+    """Thresholds for the product-grade (经历 page) standout gate.
+
+    Defaults are the module constants so the gate stays deterministic when
+    called without an explicit gate (e.g. in unit tests); ``from_config`` builds
+    a config-driven gate, falling back to these defaults when no config is bound.
+    """
+
+    min_events: int = STANDOUT_MIN_EVENTS
+    min_duration_seconds: float = STANDOUT_MIN_DURATION_SECONDS
+    dense_event_count: int = STANDOUT_DENSE_EVENT_COUNT
+    min_distinct_entities: int = STANDOUT_MIN_DISTINCT_ENTITIES
+
+    @classmethod
+    def from_config(cls) -> "StandoutGate":
+        return cls(
+            min_events=_episode_int("standout_min_events", STANDOUT_MIN_EVENTS),
+            min_duration_seconds=_episode_float(
+                "standout_min_duration_seconds", STANDOUT_MIN_DURATION_SECONDS
+            ),
+            dense_event_count=_episode_int(
+                "standout_dense_event_count", STANDOUT_DENSE_EVENT_COUNT
+            ),
+            min_distinct_entities=_episode_int(
+                "standout_min_distinct_entities", STANDOUT_MIN_DISTINCT_ENTITIES
+            ),
+        )
+
+
+def _passes_standout_gate(episode: dict[str, Any], gate: StandoutGate | None = None) -> bool:
     """Decide whether a promoted episode is product-grade for the 经历 page.
 
-    Pure rule: enough events, enough time span, enough entity diversity.
+    Pure rule: enough events, enough time span, enough entity diversity. The
+    *gate* defaults to the module constants so direct callers stay deterministic.
     """
+    gate = gate or StandoutGate()
     event_count = int(episode.get("source_event_count") or 0)
-    if event_count < STANDOUT_MIN_EVENTS:
+    if event_count < gate.min_events:
         return False
 
     time_start = float(episode.get("time_start") or 0)
     time_end = float(episode.get("time_end") or 0)
     duration = time_end - time_start
-    if duration < STANDOUT_MIN_DURATION_SECONDS and event_count < STANDOUT_DENSE_EVENT_COUNT:
+    if duration < gate.min_duration_seconds and event_count < gate.dense_event_count:
         return False
 
     entities = episode.get("primary_entity_ids") or []
     if not isinstance(entities, list):
         entities = []
     distinct_entities = len({str(e).strip() for e in entities if str(e).strip()})
-    if distinct_entities < STANDOUT_MIN_DISTINCT_ENTITIES:
+    if distinct_entities < gate.min_distinct_entities:
         return False
 
     return True
@@ -255,12 +297,20 @@ async def consolidate_episodes(
     stats = EpisodeConsolidationStats()
     now = time.time()
 
+    standout_gate = StandoutGate.from_config()
+    min_events_to_promote = _episode_int("min_events_to_promote", MIN_EVENTS_TO_PROMOTE)
+    min_age_to_promote = _episode_float("min_age_to_promote_seconds", MIN_AGE_TO_PROMOTE)
+    merge_gap_factor = _episode_float("merge_gap_factor", MERGE_GAP_FACTOR)
+    min_entity_overlap_for_merge = _episode_float(
+        "min_entity_overlap_for_merge", MIN_ENTITY_OVERLAP_FOR_MERGE
+    )
+
     # ── 1. Promote mature candidates ─────────────────────────────
     candidates = await store.list_episodes(status="candidate", limit=500)
     for ep in candidates:
         age = now - ep["created_at"]
-        if ep["source_event_count"] >= MIN_EVENTS_TO_PROMOTE and age >= MIN_AGE_TO_PROMOTE:
-            standout = _passes_standout_gate(ep)
+        if ep["source_event_count"] >= min_events_to_promote and age >= min_age_to_promote:
+            standout = _passes_standout_gate(ep, standout_gate)
             update_fields: dict[str, Any] = {"status": "active"}
             if standout:
                 update_fields["magi_standout"] = True
@@ -296,14 +346,14 @@ async def consolidate_episodes(
 
             gap = nxt["time_start"] - curr["time_end"]
             max_gap = EPISODE_MAX_GAP.get(curr["episode_type"], EPISODE_MAX_GAP["default"])
-            if gap > max_gap * MERGE_GAP_FACTOR:
+            if gap > max_gap * merge_gap_factor:
                 continue
 
             overlap = _entity_overlap_ratio(
                 curr.get("primary_entity_ids") or [],
                 nxt.get("primary_entity_ids") or [],
             )
-            if overlap < MIN_ENTITY_OVERLAP_FOR_MERGE:
+            if overlap < min_entity_overlap_for_merge:
                 continue
 
             # Merge nxt into curr

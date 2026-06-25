@@ -7,6 +7,7 @@ from magi.config.models import AppConfig
 from magi.config import models as runtime_models
 from magi.config.memory_models import (
     MemoryL2ConfidenceSettings,
+    MemoryL2EpisodeSettings,
     MemoryL2LifecycleSettings,
     MemoryL2LimitsSettings,
     MemoryL2Settings,
@@ -14,6 +15,17 @@ from magi.config.memory_models import (
 from magi.memory.l2.entities.maintenance import (
     L2EntityMaintenance,
     L2MaintenanceLifecycle,
+)
+from magi.memory.l2.episode_formation import (
+    MERGE_GAP_FACTOR,
+    MIN_ENTITY_OVERLAP_FOR_MERGE,
+    MIN_EVENTS_TO_PROMOTE,
+    STANDOUT_DENSE_EVENT_COUNT,
+    STANDOUT_MIN_DISTINCT_ENTITIES,
+    STANDOUT_MIN_DURATION_SECONDS,
+    STANDOUT_MIN_EVENTS,
+    StandoutGate,
+    _passes_standout_gate,
 )
 from magi.memory.l2.storage.utils import (
     CONFIDENCE_ACCUMULATION_CAP,
@@ -49,6 +61,7 @@ def test_l2_edge_embedding_drain_interval_default():
         "MemoryL0Settings",
         "MemoryL1Settings",
         "MemoryL2ConfidenceSettings",
+        "MemoryL2EpisodeSettings",
         "MemoryL2LifecycleSettings",
         "MemoryL2LimitsSettings",
         "MemoryL2Settings",
@@ -214,6 +227,72 @@ def test_accumulate_confidence_honors_configured_cap(monkeypatch):
 
     # Noisy-OR of 0.9 and 0.9 is 0.99, but the configured cap clamps it to 0.5.
     assert accumulate_confidence(0.9, 0.9) == 0.5
+
+
+def test_runtime_config_l2_episode_defaults():
+    episode = AppConfig().agent.memory.l2.episode
+
+    assert isinstance(episode, MemoryL2EpisodeSettings)
+    assert episode.min_events_to_promote == 3
+    assert episode.min_age_to_promote_seconds == 30 * 60
+    assert episode.merge_gap_factor == 1.5
+    assert episode.min_entity_overlap_for_merge == 0.3
+    assert episode.standout_min_events == 8
+    assert episode.standout_min_duration_seconds == 45 * 60
+    assert episode.standout_dense_event_count == 20
+    assert episode.standout_min_distinct_entities == 2
+
+
+def test_l2_episode_config_defaults_match_module_constants():
+    episode = MemoryL2EpisodeSettings()
+
+    assert episode.min_events_to_promote == MIN_EVENTS_TO_PROMOTE
+    assert episode.merge_gap_factor == MERGE_GAP_FACTOR
+    assert episode.min_entity_overlap_for_merge == MIN_ENTITY_OVERLAP_FOR_MERGE
+    assert episode.standout_min_events == STANDOUT_MIN_EVENTS
+    assert episode.standout_min_duration_seconds == STANDOUT_MIN_DURATION_SECONDS
+    assert episode.standout_dense_event_count == STANDOUT_DENSE_EVENT_COUNT
+    assert episode.standout_min_distinct_entities == STANDOUT_MIN_DISTINCT_ENTITIES
+
+
+def test_standout_gate_default_matches_module_constants():
+    gate = StandoutGate()
+
+    assert gate.min_events == STANDOUT_MIN_EVENTS
+    assert gate.min_duration_seconds == STANDOUT_MIN_DURATION_SECONDS
+    assert gate.dense_event_count == STANDOUT_DENSE_EVENT_COUNT
+    assert gate.min_distinct_entities == STANDOUT_MIN_DISTINCT_ENTITIES
+
+
+def test_standout_gate_from_config_falls_back_without_config(monkeypatch):
+    import magi.config
+
+    def _boom() -> object:
+        raise RuntimeError("no config bound")
+
+    monkeypatch.setattr(magi.config, "get_config", _boom)
+
+    assert StandoutGate.from_config() == StandoutGate()
+
+
+def test_standout_gate_from_config_reads_override(monkeypatch):
+    import magi.config
+
+    cfg = AppConfig()
+    cfg.agent.memory.l2.episode.standout_min_events = 2
+    monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
+
+    gate = StandoutGate.from_config()
+    assert gate.min_events == 2
+    # A 2-event, rich-enough episode now passes the lowered gate.
+    episode = {
+        "source_event_count": 2,
+        "time_start": 0.0,
+        "time_end": 60 * 60.0,
+        "primary_entity_ids": ["a", "b"],
+    }
+    assert _passes_standout_gate(episode, gate) is True
+
 
 
 

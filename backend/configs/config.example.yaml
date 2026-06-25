@@ -104,6 +104,16 @@ agent:
       confidence:
         accumulation_cap: 0.99 # noisy-OR ceiling for accumulated edge/facet evidence
         single_event_cap: 0.3 # confidence ceiling for single-event extraction batches
+      # Episode formation, promotion, merge, and standout-gate thresholds.
+      episode:
+        min_events_to_promote: 3
+        min_age_to_promote_seconds: 1800 # 30 min
+        merge_gap_factor: 1.5
+        min_entity_overlap_for_merge: 0.3
+        standout_min_events: 8
+        standout_min_duration_seconds: 2700 # 45 min
+        standout_dense_event_count: 20
+        standout_min_distinct_entities: 2
 
     l3:
       enabled: true
