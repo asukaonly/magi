@@ -144,10 +144,18 @@ const DEFAULT_L2_STATS: L2Statistics = {
 const DEFAULT_SEARCH_RESULTS: MemorySearchResultPayload = {
   l0_workbench: [],
   l1_events: [],
+  l1_evidence_bundles: [],
+  l1_timeline_summary: [],
   l2_entity_cards: [],
   l2_relationships: [],
+  l2_assertions: [],
+  l2_episodes: [],
+  l2_experiences: [],
+  l2_state_facts: [],
+  l2_state_history: [],
   l3_reflections: [],
   l4_procedures: [],
+  structured_results: [],
   trace: {},
 };
 

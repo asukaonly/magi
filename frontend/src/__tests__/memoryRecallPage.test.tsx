@@ -30,6 +30,9 @@ vi.mock('react-i18next', () => {
 });
 
 vi.mock('@/hooks/useMemory');
+vi.mock('@/components/empty-state/EmptyStateAvailableSensors', () => ({
+  EmptyStateAvailableSensors: () => <div data-testid="available-sensors" />,
+}));
 
 const renderPage = () => render(
   <MemoryRouter>
@@ -54,6 +57,36 @@ describe('MemoryRecallPage', () => {
   it('does not show storage stats in the header', () => {
     renderPage();
     expect(screen.queryByText(/记忆条数|占用大小/)).not.toBeInTheDocument();
+  });
+
+  it('renders returned memory search results', () => {
+    vi.mocked(useMemory).mockReturnValue({
+      loading: false,
+      stats: { l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
+      searchQuery: '东京',
+      setSearchQuery: vi.fn(),
+      searchResults: {
+        l1_events: [
+          {
+            event_id: 'evt-1',
+            content: '在东京站附近看到了很安静的夜景',
+            source_type: 'manual',
+          },
+        ],
+        l2_relationships: [],
+        l2_entity_cards: [],
+        l3_reflections: [],
+        l4_procedures: [],
+        trace: {},
+      },
+      searching: false,
+      handleSearch: vi.fn(),
+      refreshAll: vi.fn(),
+    } as unknown as ReturnType<typeof useMemory>);
+
+    renderPage();
+
+    expect(screen.getByText('在东京站附近看到了很安静的夜景')).toBeInTheDocument();
   });
 
   it('hides diagnostics panel until disclosure is toggled', async () => {

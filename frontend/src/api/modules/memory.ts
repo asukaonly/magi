@@ -713,10 +713,12 @@ export interface MemorySearchResultPayload {
   l2_relationships: Array<Record<string, unknown>>;
   l2_assertions?: Array<Record<string, unknown>>;
   l2_episodes?: Array<Record<string, unknown>>;
+  l2_experiences?: Array<Record<string, unknown>>;
   l2_state_facts?: Array<Record<string, unknown>>;
   l2_state_history?: Array<Record<string, unknown>>;
   l3_reflections: Array<Record<string, unknown>>;
   l4_procedures: Array<Record<string, unknown>>;
+  structured_results?: Array<Record<string, unknown>>;
   trace: Record<string, unknown>;
 }
 
