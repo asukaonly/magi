@@ -162,6 +162,55 @@ async def test_rule_filters_by_object_type(l2_store_with_schema):
 
 
 @pytest.mark.asyncio
+async def test_rule_skips_low_quality_profile_values(l2_store_with_schema):
+    store = l2_store_with_schema
+    low_quality_objects = [
+        ("topic:https://example.com/articles/123?utm_source=feed", "https://example.com/articles/123?utm_source=feed"),
+        ("topic:/Users/asuka/code/magi/backend/run_server.py", "/Users/asuka/code/magi/backend/run_server.py"),
+        ("topic:30.123456,120.654321", "30.123456,120.654321"),
+        ("topic:69ebe866b62c4f6db421b9f3de4d3fd3", "69ebe866b62c4f6db421b9f3de4d3fd3"),
+    ]
+    for index, (object_id, canonical_name) in enumerate(low_quality_objects):
+        await _seed_edge(
+            store,
+            object_id=object_id,
+            event_ids=[f"noise-{index}-1", f"noise-{index}-2", f"noise-{index}-3"],
+        )
+        await _seed_canonical_name(store, entity_id=object_id, canonical_name=canonical_name)
+
+    await _seed_edge(
+        store,
+        object_id="topic:memory-systems",
+        event_ids=["mem-1", "mem-2", "mem-3"],
+    )
+    await _seed_canonical_name(store, entity_id="topic:memory-systems", canonical_name="Memory systems")
+
+    stats = await evaluate_graph_derived_assertion_rule(store, _interest_rule())
+
+    assert stats["edges_seen"] == 5
+    assert stats["assertions_written"] == 1
+    assertions = await _assertions_for(store)
+    assert [item["trait_name"] for item in assertions] == ["interest.memory-systems"]
+
+
+@pytest.mark.asyncio
+async def test_rule_keeps_version_like_profile_values(l2_store_with_schema):
+    store = l2_store_with_schema
+    await _seed_edge(
+        store,
+        object_id="topic:gpt-5.5",
+        event_ids=["gpt-1", "gpt-2", "gpt-3"],
+    )
+    await _seed_canonical_name(store, entity_id="topic:gpt-5.5", canonical_name="GPT-5.5")
+
+    stats = await evaluate_graph_derived_assertion_rule(store, _interest_rule())
+
+    assert stats["assertions_written"] == 1
+    assertions = await _assertions_for(store)
+    assert [item["trait_value"] for item in assertions] == ["GPT-5.5"]
+
+
+@pytest.mark.asyncio
 async def test_rule_is_idempotent(l2_store_with_schema):
     store = l2_store_with_schema
     await _seed_edge(store, object_id="topic:rust", event_ids=["rs-1", "rs-2", "rs-3"])
