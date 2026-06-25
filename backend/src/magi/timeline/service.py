@@ -374,10 +374,24 @@ class TimelineService:
                 }
             if mode == "asset":
                 asset_ref = str(preference.get("asset_ref") or "").strip() or None
+                source = str(preference.get("source") or "current_period")
+                if asset_ref:
+                    candidate_refs = {str(item.get("asset_ref") or "") for item in candidates}
+                    if asset_ref not in candidate_refs:
+                        candidates = [
+                            {
+                                "asset_ref": asset_ref,
+                                "source": source,
+                                "label": "",
+                                "cluster_id": None,
+                                "episode_id": None,
+                            },
+                            *candidates,
+                        ]
                 return {
                     "mode": "asset",
                     "asset_ref": asset_ref,
-                    "source": str(preference.get("source") or "current_period"),
+                    "source": source,
                     "candidates": candidates,
                 }
 

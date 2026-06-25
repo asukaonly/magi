@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, EyeOff, Image, RotateCcw } from "lucide-react";
+import { Check, EyeOff, Image, RotateCcw, Upload } from "lucide-react";
 
 import type {
   TimelineCoverCandidate,
@@ -30,6 +30,7 @@ interface CoverPickerSheetProps {
   cover?: TimelineCoverState;
   onOpenChange: (open: boolean) => void;
   onChangeCover: (payload: TimelineCoverChangeRequest) => void | Promise<void>;
+  onUploadCover?: (file: File) => Promise<string>;
   saving?: boolean;
 }
 
@@ -43,12 +44,15 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
   cover,
   onOpenChange,
   onChangeCover,
+  onUploadCover,
   saving = false,
 }) => {
   const { t } = useTranslation("app");
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const candidates = cover?.candidates ?? [];
   const fallbackLabel = t("timeline.cover.candidate", { defaultValue: "图片" });
   const [selectedRef, setSelectedRef] = useState<string | null>(cover?.asset_ref ?? null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -69,9 +73,27 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
     });
   };
 
+  const handleUploadFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file || !onUploadCover) return;
+    setUploading(true);
+    try {
+      const assetRef = await onUploadCover(file);
+      setSelectedRef(assetRef);
+      await onChangeCover({
+        mode: "asset",
+        asset_ref: assetRef,
+        source: "custom_upload",
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-[420px] max-w-[92vw] flex-col overflow-hidden p-0">
+      <SheetContent side="right" className="flex w-[560px] max-w-[94vw] flex-col overflow-hidden p-0">
         <SheetHeader className="border-b border-border/70 px-6 pb-4 pt-6">
           <SheetTitle>{t("timeline.cover.title", { defaultValue: "更换封面" })}</SheetTitle>
           <SheetDescription className="sr-only">
@@ -80,9 +102,32 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          <div className="mb-4 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <Image className="h-3.5 w-3.5" />
-            <span>{t("timeline.cover.currentPeriod", { defaultValue: "当前周期" })}</span>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <Image className="h-3.5 w-3.5" />
+              <span>{t("timeline.cover.currentPeriod", { defaultValue: "当前周期" })}</span>
+            </div>
+            <input
+              ref={uploadInputRef}
+              data-testid="timeline-cover-upload-input"
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              aria-label={t("timeline.cover.uploadInput", { defaultValue: "上传自定义图片" })}
+              onChange={handleUploadFile}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => uploadInputRef.current?.click()}
+              disabled={!onUploadCover || saving || uploading}
+            >
+              <Upload className="h-4 w-4" />
+              {uploading
+                ? t("timeline.cover.uploading", { defaultValue: "上传中" })
+                : t("timeline.cover.upload", { defaultValue: "上传图片" })}
+            </Button>
           </div>
 
           {candidates.length > 0 ? (
@@ -123,7 +168,7 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
               })}
             </div>
           ) : (
-            <div className="flex min-h-[180px] items-center justify-center rounded-md border border-dashed border-border/70 text-sm text-muted-foreground">
+            <div className="flex min-h-[260px] items-center justify-center rounded-md border border-dashed border-border/70 text-sm text-muted-foreground">
               {t("timeline.cover.empty", { defaultValue: "这个周期暂时没有可用图片" })}
             </div>
           )}
@@ -136,7 +181,7 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
               variant="outline"
               size="sm"
               onClick={() => onChangeCover({ mode: "auto" })}
-              disabled={saving}
+              disabled={saving || uploading}
             >
               <RotateCcw className="h-4 w-4" />
               {t("timeline.cover.restoreAuto", { defaultValue: "恢复自动" })}
@@ -146,7 +191,7 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
               variant="outline"
               size="sm"
               onClick={() => onChangeCover({ mode: "hidden" })}
-              disabled={saving}
+              disabled={saving || uploading}
             >
               <EyeOff className="h-4 w-4" />
               {t("timeline.cover.hide", { defaultValue: "隐藏封面" })}
@@ -156,7 +201,7 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
             type="button"
             size="sm"
             onClick={handleUseSelected}
-            disabled={!selectedCandidate || saving}
+            disabled={!selectedCandidate || saving || uploading}
           >
             <Check className="h-4 w-4" />
             {t("timeline.cover.useSelected", { defaultValue: "设为封面" })}

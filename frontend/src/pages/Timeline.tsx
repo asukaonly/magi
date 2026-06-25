@@ -295,6 +295,21 @@ export const TimelinePage: React.FC = () => {
     }
   }, [scale, timelineLocale, t, viewportEnd, viewportStart]);
 
+  const handleUploadCover = useCallback(async (file: File): Promise<string> => {
+    try {
+      const uploaded = await manualEntriesApi.uploadAsset(file);
+      return uploaded.asset_ref;
+    } catch (error: any) {
+      toast.error(
+        t("timeline.errors.coverUploadFailed", {
+          message: error?.message || "unknown",
+          defaultValue: "封面图片上传失败：{{message}}",
+        })
+      );
+      throw error;
+    }
+  }, [t]);
+
   const handleSelectDate = useCallback((isoDate: string) => {
     const [y, m, d] = isoDate.split("-").map(Number);
     const dt = new Date(y, m - 1, d);
@@ -493,6 +508,7 @@ export const TimelinePage: React.FC = () => {
               onEditManualEntry={handleEditEntry}
               onDeleteManualEntry={handleDeleteEntry}
               onChangeCover={handleChangeCover}
+              onUploadCover={handleUploadCover}
               coverSaving={coverSaving}
             />
           )

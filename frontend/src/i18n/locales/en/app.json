@@ -465,6 +465,9 @@
       "currentPeriod": "Current period",
       "candidate": "Image",
       "empty": "No usable images in this period yet",
+      "upload": "Upload image",
+      "uploading": "Uploading",
+      "uploadInput": "Upload custom image",
       "restoreAuto": "Restore auto",
       "hide": "Hide cover",
       "useSelected": "Set as cover",
@@ -617,7 +620,8 @@
       "loadFailed": "Failed to load timeline: {{message}}",
       "detailFailed": "Failed to load timeline context: {{message}}",
       "feedbackFailed": "Failed to save timeline feedback: {{message}}",
-      "coverFailed": "Failed to update cover: {{message}}"
+      "coverFailed": "Failed to update cover: {{message}}",
+      "coverUploadFailed": "Failed to upload cover image: {{message}}"
     },
     "emptyState": {
       "heading": "Let me see your activity",

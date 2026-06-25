@@ -32,6 +32,7 @@ interface PeriodCardProps {
   onEditManualEntry?: (entry: ManualEntry) => void;
   onDeleteManualEntry?: (entryId: string) => void;
   onChangeCover?: (payload: TimelineCoverChangeRequest) => void | Promise<void>;
+  onUploadCover?: (file: File) => Promise<string>;
   coverSaving?: boolean;
 }
 
@@ -80,6 +81,7 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
   onEditManualEntry,
   onDeleteManualEntry,
   onChangeCover,
+  onUploadCover,
   coverSaving = false,
 }) => {
   const { t } = useTranslation("app");
@@ -140,6 +142,7 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
           cover={viewport.cover}
           onOpenChange={setCoverSheetOpen}
           onChangeCover={onChangeCover}
+          onUploadCover={onUploadCover}
           saving={coverSaving}
         />
       ) : null}

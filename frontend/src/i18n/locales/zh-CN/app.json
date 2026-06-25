@@ -449,6 +449,9 @@
       "currentPeriod": "当前周期",
       "candidate": "图片",
       "empty": "这个周期暂时没有可用图片",
+      "upload": "上传图片",
+      "uploading": "上传中",
+      "uploadInput": "上传自定义图片",
       "restoreAuto": "恢复自动",
       "hide": "隐藏封面",
       "useSelected": "设为封面",
@@ -601,7 +604,8 @@
       "loadFailed": "时间线加载失败：{{message}}",
       "detailFailed": "时间线上下文加载失败：{{message}}",
       "feedbackFailed": "时间线反馈保存失败：{{message}}",
-      "coverFailed": "封面更新失败：{{message}}"
+      "coverFailed": "封面更新失败：{{message}}",
+      "coverUploadFailed": "封面图片上传失败：{{message}}"
     },
     "immersive": {
       "themesLabel": "你那时关心的",

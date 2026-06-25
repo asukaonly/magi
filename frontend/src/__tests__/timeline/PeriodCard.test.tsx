@@ -245,4 +245,44 @@ describe("PeriodCard", () => {
     await user.click(within(sheet).getByRole("button", { name: "恢复自动" }));
     expect(onChangeCover).toHaveBeenCalledWith({ mode: "auto" });
   });
+
+  it("uploads a custom local image and uses a wider picker", async () => {
+    const user = userEvent.setup();
+    const onChangeCover = vi.fn().mockResolvedValue(undefined);
+    const onUploadCover = vi.fn().mockResolvedValue("manual-entry-asset://custom-cover.jpg");
+
+    render(
+      <PeriodCard
+        scale="day"
+        viewport={makeViewport({
+          cover: {
+            mode: "auto",
+            asset_ref: null,
+            source: "auto",
+            candidates: [],
+          },
+        } as Partial<TimelineViewportResponse>)}
+        dateLabel="2026 · 5 · 17 · 周日"
+        onTogglePinned={vi.fn()}
+        onHide={vi.fn()}
+        pendingAction={{}}
+        onChangeCover={onChangeCover}
+        onUploadCover={onUploadCover}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "更换封面" }));
+    const sheet = screen.getByRole("dialog", { name: "更换封面" });
+    expect(sheet).toHaveClass("w-[560px]");
+
+    const file = new File(["cover"], "cover.jpg", { type: "image/jpeg" });
+    await user.upload(within(sheet).getByTestId("timeline-cover-upload-input"), file);
+
+    expect(onUploadCover).toHaveBeenCalledWith(file);
+    expect(onChangeCover).toHaveBeenCalledWith({
+      mode: "asset",
+      asset_ref: "manual-entry-asset://custom-cover.jpg",
+      source: "custom_upload",
+    });
+  });
 });

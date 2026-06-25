@@ -443,6 +443,35 @@ async def test_timeline_service_persists_selected_and_hidden_cover(tmp_path) -> 
     assert restored["asset_ref"] == "photo-library://asset-a"
 
 
+async def test_timeline_service_keeps_custom_uploaded_cover_available(tmp_path) -> None:
+    service = TimelineService(
+        SimpleNamespace(
+            l1=_FakeL1Store(),
+            l2=_FakeL2Store(),
+            l3=_FakeL3Store(),
+            l4=_FakeL4Store(),
+            memory_db_path=str(tmp_path / "memory.db"),
+        )
+    )
+
+    cover = await service.set_cover_preference(
+        scale="day",
+        start=0.0,
+        end=300.0,
+        mode="asset",
+        asset_ref="manual-entry-asset://custom-cover.jpg",
+        source="custom_upload",
+    )
+
+    assert cover["asset_ref"] == "manual-entry-asset://custom-cover.jpg"
+    assert cover["candidates"][0]["asset_ref"] == "manual-entry-asset://custom-cover.jpg"
+    assert cover["candidates"][0]["source"] == "custom_upload"
+
+    viewport = await service.get_viewport(scale="day", start=0.0, end=300.0, focus="self")
+    assert viewport["cover"]["asset_ref"] == "manual-entry-asset://custom-cover.jpg"
+    assert viewport["cover"]["candidates"][0]["asset_ref"] == "manual-entry-asset://custom-cover.jpg"
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Theme card construction
 # ─────────────────────────────────────────────────────────────────────
