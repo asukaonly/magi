@@ -335,6 +335,16 @@ metadata into the main model prompt. Clearing L2 cognition artifacts must also
 clear profile and portrait projections so local re-imports do not keep stale
 user-understanding caches.
 
+Portrait projection is a qualification layer above raw assertions. Explicit
+user-authored, settings-backed, and user-confirmed profile assertions may enter
+the portrait once they are active, but passive source assertions must also pass
+source strength, evidence-count, validation-state, and trait-family alignment
+checks. For example, an external `interest.*` assertion can become a preference
+only after enough evidence accumulates, while a `tool.*` assertion belongs in
+routines and must not appear as a preference. Assertions that fail this gate can
+remain L2 facts or review material, but they must not enter `world` or
+`prompt_summary`.
+
 Bootstrap is only responsible for injecting the first assistant opening for a
 persona. After that opening is persisted, all profile extraction returns to the
 normal chat -> L1 -> L2 pipeline; bootstrap must not own a separate user-profile
@@ -553,7 +563,7 @@ Tags, categories, and weak co-occurrence are not fact evidence. They may help se
 - Ingestion gateway handles: schema validation, canonical/local ref normalization, writing hints into `MemoryEvent.metadata_json`, generating rule-backed graph candidates per admission policy
 - `L2Pipeline` handles: using source-owned hints as structural anchors, merging with LLM residual candidates, conflict handling, dedup, persistence, and snapshot refresh
 
-**Graph-derived assertions** convert accumulated graph evidence into inferred profile assertions only through host-owned rules. Built-in interest aggregation and plugin-contributed `derived_assertion_specs` both compile into validated `GraphDerivedAssertionRule` instances. These rules consume admitted graph edges, write inferred assertions through the normal assertion lifecycle, and preserve source-tier conflict protection so user-authored assertions are never overwritten by behavioral inference. Rules may constrain allowed graph object types so broad passive objects such as individual web pages, generic software names, or implementation artifacts do not become user-profile traits unless the source explicitly marks them as suitable profile evidence. The host fallback interest rule is intentionally conservative: repeated same-day activity and generic software objects remain graph evidence unless a source-specific rule upgrades them with stronger semantics. Source-specific rules are appropriate for repeated behavioral domains such as repository work, GitHub project activity, terminal tool usage, foreground app usage, music listening, game play, and browser content interests; single observations from those sources remain graph evidence.
+**Graph-derived assertions** convert accumulated graph evidence into inferred profile assertions only through host-owned rules. Built-in interest aggregation and plugin-contributed `derived_assertion_specs` both compile into validated `GraphDerivedAssertionRule` instances. These rules consume admitted graph edges, write inferred assertions through the normal assertion lifecycle, and preserve source-tier conflict protection so user-authored assertions are never overwritten by behavioral inference. Rules may constrain allowed graph object types so broad passive objects such as individual web pages, generic software names, or implementation artifacts do not become user-profile traits unless the source explicitly marks them as suitable profile evidence. Host-owned quality gates also reject low-level object labels such as raw URLs, domains, file paths, coordinates, and hash-like identifiers before they can become profile assertions; those details may remain graph evidence but should not appear as portrait traits. The host fallback interest rule is intentionally conservative: repeated same-day activity and generic software objects remain graph evidence unless a source-specific rule upgrades them with stronger semantics. Source-specific rules are appropriate for repeated behavioral domains such as repository work, GitHub project activity, terminal tool usage, foreground app usage, music listening, game play, and browser content interests; single observations from those sources remain graph evidence.
 
 Plugins may strengthen assertion quality by declaring structured hints, graph relation candidates, extraction profiles, source-specific Phase 1 instructions, source-specific Phase 2 integration instructions, and graph-derived assertion specs. They do not own the final assertion ontology or bypass source-tier conflict governance. Direct Phase 2 assertion candidates are accepted only for profiles that explicitly opt into `assertion_mode="phase2_candidate"` and pass the host family, trait, source policy, and validation gates.
 
@@ -709,7 +719,9 @@ the backend read model. The frontend may translate section and source labels,
 but it should not infer grouping from keywords, source names, or raw text.
 When a materialized `user_portrait_projection` exists, the endpoint may return
 that page model directly; otherwise it can assemble the same shape from the
-current projection/snapshot/assertion fallback path.
+current projection/snapshot/assertion fallback path. The fallback path must use
+the same portrait qualification policy as the materialized projection so weak
+passive assertions do not leak into the page before the cache is refreshed.
 The read model may include safe L2 graph relationships such as visited places
 or owned/used tools as user-visible clues; those clues do not become durable
 profile assertions unless they pass assertion policy separately.

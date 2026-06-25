@@ -88,6 +88,75 @@ class _FakeL2:
         ]
 
 
+class _PassiveProfileSignalL2:
+    async def list_tom_assertions(self, **kwargs):
+        return [
+            {
+                "assertion_id": "a-weak-passive",
+                "trait_family": "preference_profile",
+                "trait_name": "interest.deepseek",
+                "trait_value": "DeepSeek",
+                "source_domain": "external_activity",
+                "validation_state": "stable",
+                "confidence_score": 0.82,
+                "evidence_events": ["event-1"],
+            },
+            {
+                "assertion_id": "a-mismatched-passive",
+                "trait_family": "preference_profile",
+                "trait_name": "tool.chrome",
+                "trait_value": "Chrome",
+                "source_domain": "external_activity",
+                "validation_state": "stable",
+                "confidence_score": 0.9,
+                "evidence_events": ["event-2", "event-3", "event-4", "event-5"],
+            },
+            {
+                "assertion_id": "a-strong-passive",
+                "trait_family": "preference_profile",
+                "trait_name": "interest.rag",
+                "trait_value": "RAG",
+                "source_domain": "external_activity",
+                "validation_state": "stable",
+                "confidence_score": 0.9,
+                "evidence_events": ["event-6", "event-7", "event-8"],
+            },
+            {
+                "assertion_id": "a-user-authored",
+                "trait_family": "preference_profile",
+                "trait_name": "interest.magi_memory",
+                "trait_value": "Magi 记忆系统",
+                "source_domain": "user_authored",
+                "validation_state": "stable",
+                "confidence_score": 0.95,
+                "evidence_events": ["event-9"],
+            },
+        ]
+
+    async def list_tom_snapshots(self, **kwargs):
+        return []
+
+
+class _ConfirmedPassiveSignalL2:
+    async def list_tom_assertions(self, **kwargs):
+        return [
+            {
+                "assertion_id": "a-confirmed-passive",
+                "trait_family": "preference_profile",
+                "trait_name": "interest.deepseek",
+                "trait_value": "DeepSeek",
+                "source_domain": "external_activity",
+                "validation_state": "stable",
+                "user_feedback": "confirmed",
+                "confidence_score": 0.9,
+                "evidence_events": ["event-1"],
+            },
+        ]
+
+    async def list_tom_snapshots(self, **kwargs):
+        return []
+
+
 async def test_portrait_projection_repository_roundtrips_prompt_and_page_model(tmp_path):
     repo = UserPortraitProjectionRepository(str(tmp_path / "memory.db"))
     projection = UserPortraitProjection(
@@ -113,6 +182,19 @@ async def test_portrait_projection_repository_roundtrips_prompt_and_page_model(t
     assert loaded.source_counts == {"conversation": 1}
 
 
+async def test_portrait_projection_repository_ignores_stale_projection_versions(tmp_path):
+    repo = UserPortraitProjectionRepository(str(tmp_path / "memory.db"))
+    await repo.upsert(UserPortraitProjection(
+        user_id="local_user",
+        entity_id="user:local_user",
+        version=1,
+        world={"groups": [{"id": "preferences", "items": [{"text": "Old weak signal"}]}]},
+        prompt_summary=["旧画像缓存。"],
+    ))
+
+    assert await repo.get("local_user") is None
+
+
 async def test_portrait_projection_builder_filters_internal_fields_and_separates_review():
     projection = await UserPortraitProjectionBuilder(_FakeL2()).build("local_user")
 
@@ -133,6 +215,28 @@ async def test_portrait_projection_builder_filters_internal_fields_and_separates
         "验证 L2 断言和画像质量",
     ]
     assert "assertion:a-interest-rag" in projection.evidence_refs
+
+
+async def test_portrait_projection_requires_world_ready_profile_assertions():
+    projection = await UserPortraitProjectionBuilder(_PassiveProfileSignalL2()).build("local_user")
+
+    world_groups = {group["id"]: group["items"] for group in projection.world["groups"]}
+    preference_texts = [item["text"] for item in world_groups["preferences"]]
+    prompt_text = "\n".join(projection.prompt_summary)
+
+    assert preference_texts == ["Magi 记忆系统", "RAG"]
+    assert "DeepSeek" not in preference_texts
+    assert "Chrome" not in preference_texts
+    assert "DeepSeek" not in prompt_text
+    assert "Chrome" not in prompt_text
+
+
+async def test_portrait_projection_treats_confirmed_feedback_as_user_qualified():
+    projection = await UserPortraitProjectionBuilder(_ConfirmedPassiveSignalL2()).build("local_user")
+
+    world_groups = {group["id"]: group["items"] for group in projection.world["groups"]}
+    assert [item["text"] for item in world_groups["preferences"]] == ["DeepSeek"]
+    assert "DeepSeek" in "\n".join(projection.prompt_summary)
 
 
 async def test_l2_clear_removes_profile_and_portrait_projection_caches(tmp_path):

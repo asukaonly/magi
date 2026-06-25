@@ -28,6 +28,24 @@ _PROFILE_INTEREST_OBJECT_TYPES = (
     "activity",
 )
 _PROFILE_INTEREST_MIN_DISTINCT_DAYS = 2
+_LONG_HEX_VALUE_RE = re.compile(r"^[0-9a-f]{12,}$", re.IGNORECASE)
+_COORDINATE_VALUE_RE = re.compile(r"^[-+]?\d{1,3}(?:\.\d+)?\s*,\s*[-+]?\d{1,3}(?:\.\d+)?$")
+_URL_VALUE_RE = re.compile(r"^(?:[a-z][a-z0-9+.-]*://|www\.)", re.IGNORECASE)
+_DOMAIN_VALUE_RE = re.compile(
+    r"^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?::\d+)?/?$",
+    re.IGNORECASE,
+)
+_EMAIL_VALUE_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_PATH_VALUE_RE = re.compile(
+    r"(?:^~?/|^\./|^\.\./|[\\/].+\.[a-z0-9]{1,8}(?:$|[?#]))",
+    re.IGNORECASE,
+)
+_FILEISH_VALUE_RE = re.compile(
+    r"^(?:img_\d+|dsc_\d+|screenshot[-_]\d+|[\w.-]+[-_][\w.-]+)"
+    r"\.(?:log|tmp|cache|json|ya?ml|toml|py|pyi|ts|tsx|js|jsx|css|html?|md|txt|csv|db|sqlite|"
+    r"jpg|jpeg|png|gif|webp|heic|mov|mp4|zip|gz|dmg)$",
+    re.IGNORECASE,
+)
 
 
 class _DerivedAssertionProfile(Protocol):
@@ -271,6 +289,15 @@ def _candidate_from_edge(
         object_slug=raw_slug,
         canonical_names=canonical_names,
     )
+    if _is_low_quality_profile_value(raw_slug=raw_slug, trait_value=trait_value):
+        logger.debug(
+            "graph-derived assertion rule skipped low-quality profile value",
+            rule_id=rule.rule_id,
+            object_id=object_id,
+            trait_value=trait_value,
+        )
+        return None
+
     obs_count = int(edge.get("observation_count", 1) or 1)
     confidence_score = min(
         0.9,
@@ -315,6 +342,37 @@ def _trait_value_for_edge(
     if rule.value_strategy == "object_slug":
         return object_slug
     return canonical_names.get(object_id, object_slug)
+
+
+def _is_low_quality_profile_value(*, raw_slug: str, trait_value: str) -> bool:
+    labels = [
+        str(label).strip()
+        for label in (trait_value, raw_slug)
+        if str(label).strip()
+    ]
+    if not labels:
+        return True
+    return all(_looks_like_profile_noise(label) for label in labels)
+
+
+def _looks_like_profile_noise(label: str) -> bool:
+    value = label.strip().strip("\"'`()[]{}")
+    if len(value) <= 1:
+        return True
+    compact = value.replace(" ", "")
+    if _LONG_HEX_VALUE_RE.fullmatch(compact):
+        return True
+    if _COORDINATE_VALUE_RE.fullmatch(compact):
+        return True
+    if _URL_VALUE_RE.match(value):
+        return True
+    if _EMAIL_VALUE_RE.fullmatch(value):
+        return True
+    if _DOMAIN_VALUE_RE.fullmatch(value):
+        return True
+    if _PATH_VALUE_RE.search(value):
+        return True
+    return bool(_FILEISH_VALUE_RE.fullmatch(value))
 
 
 def _object_slug(object_id: str) -> str:

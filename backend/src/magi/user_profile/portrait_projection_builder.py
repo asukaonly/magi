@@ -7,6 +7,10 @@ import time
 from typing import Any, Protocol
 
 from .models import DEFAULT_USER_ID, PROFILE_ASSERTION_FAMILIES, UserPortraitProjection
+from .portrait_signal_policy import (
+    PORTRAIT_RECENT_FAMILIES,
+    assertion_portrait_role,
+)
 
 PORTRAIT_ASSERTION_FAMILIES = (*PROFILE_ASSERTION_FAMILIES, "routine_profile")
 WORLD_GROUP_IDS = ("identity", "preferences", "routine", "places", "communication")
@@ -16,9 +20,6 @@ WORLD_GROUP_BY_FAMILY = {
     "routine_profile": "routine",
     "communication_profile": "communication",
 }
-RECENT_FAMILIES = {"state_profile", "mood", "stress", "engagement"}
-REVIEW_STATES = {"tentative", "contradicted"}
-WORLD_STATES = {"stable", "confirmed", "corroborated", "validated"}
 SOURCE_STRENGTH = {
     "user_authored": 50,
     "settings_profile": 50,
@@ -136,10 +137,9 @@ class UserPortraitProjectionBuilder:
         by_id = {group["id"]: group for group in groups}
 
         for assertion in assertions:
-            family = _text(assertion.get("trait_family"))
-            state = _text(assertion.get("validation_state") or assertion.get("status"))
-            if state not in WORLD_STATES:
+            if assertion_portrait_role(assertion) != "world":
                 continue
+            family = _text(assertion.get("trait_family"))
             group_id = WORLD_GROUP_BY_FAMILY.get(family)
             if not group_id:
                 continue
@@ -157,8 +157,7 @@ class UserPortraitProjectionBuilder:
     def _build_review(self, assertions: list[dict[str, Any]]) -> dict[str, Any]:
         items = []
         for assertion in assertions:
-            state = _text(assertion.get("validation_state") or assertion.get("status"))
-            if state not in REVIEW_STATES:
+            if assertion_portrait_role(assertion) != "review":
                 continue
             item = _item_from_assertion(assertion)
             if item:
@@ -200,8 +199,9 @@ class UserPortraitProjectionBuilder:
 
         for assertion in assertions:
             family = _text(assertion.get("trait_family"))
-            state = _text(assertion.get("validation_state") or assertion.get("status"))
-            if family not in RECENT_FAMILIES or state in REVIEW_STATES:
+            if family not in PORTRAIT_RECENT_FAMILIES:
+                continue
+            if assertion_portrait_role(assertion) != "recent":
                 continue
             item = _item_from_assertion(assertion)
             if item:
