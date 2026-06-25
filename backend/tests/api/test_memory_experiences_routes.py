@@ -368,6 +368,126 @@ def test_experience_detail_returns_source_episodes(public_app_with_mock_memory):
     assert body["source_episodes"][0]["membership_role"] == "core"
 
 
+def test_experience_detail_omits_excluded_source_episodes(public_app_with_mock_memory):
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_experience = AsyncMock(return_value={
+        "experience_id": "exp1",
+        "status": "active",
+        "title": "Japan trip",
+        "time_start": 1,
+        "time_end": 4,
+        "primary_entity_ids": [],
+        "user_label": None,
+        "user_note": None,
+    })
+    l2.list_experience_members = AsyncMock(return_value=[
+        {
+            "experience_id": "exp1",
+            "member_type": "episode",
+            "member_id": "ep-core",
+            "role": "core",
+            "confidence": 0.8,
+            "added_at": 5,
+        },
+        {
+            "experience_id": "exp1",
+            "member_type": "episode",
+            "member_id": "ep-excluded",
+            "role": "excluded",
+            "confidence": 0.0,
+            "added_at": 6,
+        },
+    ])
+
+    async def get_episode(*, episode_id: str):
+        return {
+            "episode_id": episode_id,
+            "status": "active",
+            "label": episode_id,
+            "time_start": 1,
+            "time_end": 4,
+            "primary_entity_ids": [],
+            "user_label": None,
+            "user_note": None,
+        }
+
+    l2.get_episode = AsyncMock(side_effect=get_episode)
+    l2.list_episode_events = AsyncMock(return_value=[])
+    l3 = MagicMock()
+    l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+    unified.l1 = None
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        response = client.get("/api/memory/l2/experiences/exp1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["episode_id"] for item in body["source_episodes"]] == ["ep-core"]
+
+
+def test_experience_detail_uses_l3_labels_for_source_episodes(public_app_with_mock_memory):
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_experience = AsyncMock(return_value={
+        "experience_id": "exp1",
+        "status": "active",
+        "title": "Developer maintenance",
+        "time_start": 1,
+        "time_end": 4,
+        "primary_entity_ids": [],
+        "user_label": None,
+        "user_note": None,
+    })
+    l2.list_experience_members = AsyncMock(return_value=[
+        {
+            "experience_id": "exp1",
+            "member_type": "episode",
+            "member_id": "ep1",
+            "role": "core",
+            "confidence": 0.8,
+            "added_at": 5,
+        }
+    ])
+    l2.get_episode = AsyncMock(return_value={
+        "episode_id": "ep1",
+        "status": "active",
+        "label": "",
+        "summary": "",
+        "time_start": 1,
+        "time_end": 4,
+        "primary_entity_ids": [],
+        "user_label": None,
+        "user_note": None,
+    })
+    l2.list_episode_events = AsyncMock(return_value=[])
+    l3 = MagicMock()
+    l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
+    l3.get_episodic_summary_by_episode_id = AsyncMock(return_value={
+        "summary_id": "sum1",
+        "content": "Repeatedly restarted the local Tauri dev environment.",
+        "insight_metadata": {"label": "调试 Tauri 热重载"},
+        "updated_at": 10,
+    })
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+    unified.l1 = None
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        response = client.get("/api/memory/l2/experiences/exp1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source_episodes"][0]["display_title"] == "调试 Tauri 热重载"
+    assert body["source_episodes"][0]["display_description"] == "Repeatedly restarted the local Tauri dev environment."
+
+
 def test_annotate_experience_updates_user_fields(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
     l2 = MagicMock()

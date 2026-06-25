@@ -7,7 +7,11 @@ import uuid
 from typing import Any
 
 from .models import ExperiencePromotionStats
-from .seed_discovery import discover_experience_seeds, is_generic_experience_anchor
+from .seed_discovery import (
+    discover_experience_seeds,
+    is_generic_experience_anchor,
+    is_technical_artifact_experience_token,
+)
 from .seed_recall import recall_candidate_evidence_for_seed
 from .seed_selection import SelectionProvider, select_experience_from_seed
 
@@ -68,16 +72,50 @@ def _is_bad_legacy_experience(experience: dict[str, Any]) -> bool:
     )
 
 
-async def _hide_bad_legacy_experiences(store: Any) -> int:
+def _is_user_curated_experience(experience: dict[str, Any]) -> bool:
+    return bool(
+        experience.get("user_label")
+        or experience.get("user_note")
+        or experience.get("user_cover_asset_ref")
+        or experience.get("user_pinned")
+    )
+
+
+def _is_bad_seed_generated_experience(experience: dict[str, Any]) -> bool:
+    if not experience.get("source_seed_id") or _is_user_curated_experience(experience):
+        return False
+    values: list[Any] = [
+        experience.get("title"),
+        experience.get("intent"),
+        experience.get("outcome"),
+        experience.get("magi_interpretation"),
+    ]
+    for key in ("primary_entity_ids", "primary_place_ids", "primary_topic_keys"):
+        values.extend(experience.get(key) or [])
+    return any(is_technical_artifact_experience_token(value) for value in values)
+
+
+async def _hide_bad_existing_experiences(store: Any) -> int:
     hidden = 0
+    now = time.time()
     for experience in await store.list_experiences(status="active", limit=500):
-        if not _is_bad_legacy_experience(experience):
+        is_bad_seed_generated = _is_bad_seed_generated_experience(experience)
+        if not (_is_bad_legacy_experience(experience) or is_bad_seed_generated):
             continue
         updated = await store.update_experience(
             experience_id=str(experience["experience_id"]),
             status="hidden",
-            last_recomputed_at=time.time(),
+            last_recomputed_at=now,
         )
+        if updated and is_bad_seed_generated:
+            seed_id = str(experience.get("source_seed_id") or "").strip()
+            if seed_id:
+                await store.update_experience_seed(
+                    seed_id=seed_id,
+                    status="rejected",
+                    promoted_experience_id=None,
+                    last_evaluated_at=now,
+                )
         hidden += int(updated)
     return hidden
 
@@ -197,7 +235,7 @@ async def promote_experiences_from_episodes(
 ) -> ExperiencePromotionStats:
     """Promote active episode substrate rows through durable experience seeds."""
     active_episodes = await store.list_episodes(status="active", limit=500)
-    await _hide_bad_legacy_experiences(store)
+    await _hide_bad_existing_experiences(store)
     discovery_candidates = 0
     if target_seed_id:
         seed = await store.get_experience_seed(seed_id=target_seed_id)

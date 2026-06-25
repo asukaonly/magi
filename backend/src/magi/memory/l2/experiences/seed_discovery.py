@@ -93,6 +93,31 @@ TEXT_SOURCE_NOISE = {
     "动态",
     "应用",
 }
+OPERATIONAL_ARTIFACT_EXTENSIONS = {
+    ".db",
+    ".env",
+    ".json",
+    ".lock",
+    ".log",
+    ".md",
+    ".pid",
+    ".sh",
+    ".sock",
+    ".sqlite",
+    ".sqlite3",
+    ".toml",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
+CODE_ARTIFACT_EXTENSIONS = {
+    ".js",
+    ".jsx",
+    ".py",
+    ".ts",
+    ".tsx",
+}
+ARTIFACT_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_@~./\\-]+\.[A-Za-z0-9_@./\\-]+")
 RepeatedGoalSelector = Callable[
     [Sequence[dict[str, Any]]],
     Sequence[Mapping[str, Any]] | Awaitable[Sequence[Mapping[str, Any]]],
@@ -164,10 +189,38 @@ def is_generic_experience_anchor(value: Any) -> bool:
     return any(item in GENERIC_EXPERIENCE_ANCHORS for item in canonical_values)
 
 
+def is_technical_artifact_experience_token(value: Any) -> bool:
+    """Return True when text is a low-level file/script/log artifact."""
+    text = str(value or "").strip().casefold()
+    if not text:
+        return False
+    for match in ARTIFACT_TOKEN_PATTERN.findall(text):
+        token = match.strip(" \t\r\n.。:：()（）[]【】<>《》")
+        if not token:
+            continue
+        leaf = re.split(r"[/\\]", token)[-1]
+        if "." not in leaf:
+            continue
+        stem, extension = leaf.rsplit(".", 1)
+        extension = f".{extension}"
+        if extension in OPERATIONAL_ARTIFACT_EXTENSIONS:
+            return True
+        is_file_like = (
+            "/" in token
+            or "\\" in token
+            or "-" in stem
+            or "_" in stem
+            or stem in {"app", "client", "config", "index", "main", "server", "test", "tests"}
+        )
+        if extension in CODE_ARTIFACT_EXTENSIONS and is_file_like:
+            return True
+    return False
+
+
 def readable_anchor_label(value: Any) -> str:
     """Convert a concrete anchor into a compact human-readable label."""
     leaf = _anchor_leaf(value)
-    if not leaf or is_generic_experience_anchor(value):
+    if not leaf or is_generic_experience_anchor(value) or is_technical_artifact_experience_token(value):
         return ""
     label = leaf.replace("_", " ").replace("-", " ").strip()
     if "/" in label:
@@ -209,6 +262,7 @@ def _episode_concrete_topic_keys(episode: Mapping[str, Any]) -> list[str]:
         topic
         for topic in episode.get("primary_topic_keys") or []
         if not is_generic_experience_anchor(topic)
+        and not is_technical_artifact_experience_token(topic)
     )
 
 
@@ -241,6 +295,8 @@ def _is_text_noise(token: str) -> bool:
     if not text:
         return True
     if len(text) > 40:
+        return True
+    if is_technical_artifact_experience_token(text):
         return True
     if is_generic_experience_anchor(text):
         return True
@@ -949,5 +1005,6 @@ __all__ = [
     "discover_experience_seeds",
     "discover_manual_experience_seed",
     "is_generic_experience_anchor",
+    "is_technical_artifact_experience_token",
     "readable_anchor_label",
 ]

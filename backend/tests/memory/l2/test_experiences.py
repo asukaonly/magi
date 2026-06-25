@@ -544,3 +544,41 @@ async def test_experience_promotion_hides_bad_legacy_experience(l2_store_with_sc
     hidden = await store.get_experience(experience_id="exp-legacy-bad")
     assert hidden is not None
     assert hidden["status"] == "hidden"
+
+
+@pytest.mark.asyncio
+async def test_experience_promotion_hides_seeded_technical_artifact_experience(l2_store_with_schema):
+    from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    seed_id = await store.create_experience_seed(
+        seed_id="seed-dev-script",
+        seed_type="repeated_goal",
+        status="promoted",
+        title="dev-tauri-hot.sh",
+        anchor_topic_keys=["dev-tauri-hot.sh"],
+        confidence=0.7,
+    )
+    await store.create_experience(
+        experience_id="exp-dev-script",
+        source_seed_id=seed_id,
+        status="active",
+        title="Dev-tauri-hot.sh",
+        time_start=100.0,
+        time_end=200.0,
+        intent="Dev-tauri-hot.sh",
+        primary_topic_keys=["dev-tauri-hot.sh"],
+        source_episode_count=10,
+        source_event_count=94,
+    )
+
+    stats = await promote_experiences_from_episodes(store)
+
+    assert stats.promoted == 0
+    hidden = await store.get_experience(experience_id="exp-dev-script")
+    assert hidden is not None
+    assert hidden["status"] == "hidden"
+    seed = await store.get_experience_seed(seed_id=seed_id)
+    assert seed is not None
+    assert seed["status"] == "rejected"

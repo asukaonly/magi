@@ -356,6 +356,45 @@ async def test_repeated_goal_seed_rejects_source_noise_from_l3_summaries(
 
 
 @pytest.mark.asyncio
+async def test_repeated_goal_seed_rejects_technical_artifact_topic(
+    l2_store_with_schema,
+):
+    from magi.memory.l2.experiences.seed_discovery import discover_experience_seeds
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    summaries = [
+        "Terminal History 里多次运行 dev-tauri-hot.sh 并查看 backend-dev-hot.log。",
+        "继续围绕 dev-tauri-hot.sh 重启本地开发服务，检查日志输出。",
+        "清理 backend-dev-hot.log 后再次运行 dev-tauri-hot.sh。",
+    ]
+    for index, summary in enumerate(summaries):
+        start = 100.0 + index * 600.0
+        episode_id = f"ep-dev-script-{index}"
+        await store.create_episode(
+            episode_id=episode_id,
+            status="active",
+            time_start=start,
+            time_end=start + 300.0,
+            primary_entity_ids=["software:terminal"],
+            source_event_count=8,
+        )
+        await _insert_episodic_summary(
+            store,
+            episode_id=episode_id,
+            content=summary,
+            period_start=start,
+            period_end=start + 300.0,
+            key_topics=["dev-tauri-hot.sh"],
+        )
+
+    stats = await discover_experience_seeds(store)
+
+    assert stats.created == 0
+    assert await store.list_experience_seeds(statuses=["candidate", "accepted"]) == []
+
+
+@pytest.mark.asyncio
 async def test_repeated_goal_selector_creates_candidate_for_weak_chrome_only_seed(
     l2_store_with_schema,
 ):

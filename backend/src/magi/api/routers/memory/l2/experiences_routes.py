@@ -11,7 +11,7 @@ from ..asset_uploads import store_uploaded_image_asset
 from ..helpers import memory_t
 from ..router import memory_router
 from ..schemas import ExperienceAnnotationRequest, ExperienceSeedCreateRequest
-from .episode_review_helpers import serialize_episodic_summary
+from .episode_review_helpers import build_episode_display_fields, serialize_episodic_summary
 from .episodes_routes import (
     _attach_episode_entity_previews,
     _get_configured_or_real_method,
@@ -162,8 +162,17 @@ async def _source_episode_previews(
     get_episode = _get_configured_or_real_method(unified_memory.l2, "get_episode")
     if get_episode is None:
         return previews
+    l3_store = _get_unified_layer(unified_memory, "l3")
+    get_episode_summary = (
+        _get_configured_or_real_method(l3_store, "get_episodic_summary_by_episode_id")
+        if l3_store is not None
+        else None
+    )
     for member in members:
         if member.get("member_type") != "episode":
+            continue
+        role = str(member.get("role") or "")
+        if role == "excluded":
             continue
         episode_id = str(member.get("member_id") or "").strip()
         if not episode_id:
@@ -172,7 +181,14 @@ async def _source_episode_previews(
         if episode is None:
             continue
         item = dict(episode)
-        item["membership_role"] = str(member.get("role") or "")
+        episode_summary = (
+            serialize_episodic_summary(await get_episode_summary(episode_id))
+            if get_episode_summary is not None
+            else None
+        )
+        item["episode_summary"] = episode_summary
+        item.update(build_episode_display_fields(item, episode_summary))
+        item["membership_role"] = role
         item["membership_confidence"] = float(member.get("confidence") or 0.0)
         item["membership_added_at"] = member.get("added_at")
         previews.append(item)
