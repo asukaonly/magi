@@ -14,6 +14,7 @@ from fastapi import APIRouter, Query
 from ....memory.l2.entities.catalog.lookup import get_canonical_names
 from ....memory.portrait.contracts import PortraitObservation, PortraitPayload
 from ....memory.provider import get_unified_memory
+from ....user_profile.portrait_signal_policy import assertion_portrait_role
 from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ....user_profile.projection_repository import UserProfileProjectionRepository
 
@@ -289,7 +290,9 @@ def _observations_from_assertion_items(items: list[dict[str, Any]]) -> list[Port
     if not items:
         return []
     obs: list[PortraitObservation] = []
-    for item in items[:20]:
+    for item in items:
+        if assertion_portrait_role(item) == "skip":
+            continue
         trait = str(item.get("trait_name") or item.get("predicate") or "")
         value = str(item.get("value") or item.get("trait_value") or "")
         if not trait or not value:
@@ -313,6 +316,8 @@ def _observations_from_assertion_items(items: list[dict[str, Any]]) -> list[Port
             basis_summary="L2 assertion",
             basis_refs=refs,
         ))
+        if len(obs) >= 20:
+            break
     return obs
 
 

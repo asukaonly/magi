@@ -311,6 +311,97 @@ def test_self_view_dedupes_world_items_and_prioritizes_stronger_profile_signals(
     assert routine_items[1]["assertion_id"] == "assert-dup"
 
 
+def test_self_view_skips_non_world_ready_passive_assertions():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    l2 = MagicMock()
+    l2.list_tom_snapshots = AsyncMock(return_value=[])
+    l2.get_relationships = AsyncMock(return_value=[])
+    l2.list_tom_assertions = AsyncMock(return_value=[
+        {
+            "assertion_id": "assert-weak",
+            "trait_family": "preference_profile",
+            "trait_name": "interest.deepseek",
+            "trait_value": "DeepSeek",
+            "validation_state": "stable",
+            "source_domain": "external_activity",
+            "evidence_count": 1,
+        },
+        {
+            "assertion_id": "assert-mismatch",
+            "trait_family": "preference_profile",
+            "trait_name": "tool.chrome",
+            "trait_value": "Chrome",
+            "validation_state": "stable",
+            "source_domain": "external_activity",
+            "evidence_count": 5,
+        },
+        {
+            "assertion_id": "assert-rag",
+            "trait_family": "preference_profile",
+            "trait_name": "interest.rag",
+            "trait_value": "RAG",
+            "validation_state": "stable",
+            "source_domain": "external_activity",
+            "evidence_count": 3,
+        },
+    ])
+
+    with override_dependencies_for_test(profile_repo=profile_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    world_groups = {group["id"]: group["items"] for group in body["self_view"]["world"]["groups"]}
+    preferences = [item["text"] for item in world_groups["preferences"]]
+    observations_text = "\n".join(item["text"] for item in body["observations"])
+
+    assert preferences == ["RAG"]
+    assert "DeepSeek" not in observations_text
+    assert "Chrome" not in observations_text
+
+
+def test_self_view_applies_assertion_limit_after_signal_filtering():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    l2 = MagicMock()
+    l2.list_tom_snapshots = AsyncMock(return_value=[])
+    l2.get_relationships = AsyncMock(return_value=[])
+    weak_items = [
+        {
+            "assertion_id": f"assert-weak-{index}",
+            "trait_family": "preference_profile",
+            "trait_name": f"interest.weak_{index}",
+            "trait_value": f"Weak {index}",
+            "validation_state": "stable",
+            "source_domain": "external_activity",
+            "evidence_count": 1,
+        }
+        for index in range(20)
+    ]
+    l2.list_tom_assertions = AsyncMock(return_value=[
+        *weak_items,
+        {
+            "assertion_id": "assert-rag",
+            "trait_family": "preference_profile",
+            "trait_name": "interest.rag",
+            "trait_value": "RAG",
+            "validation_state": "stable",
+            "source_domain": "external_activity",
+            "evidence_count": 3,
+        },
+    ])
+
+    with override_dependencies_for_test(profile_repo=profile_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+
+    assert resp.status_code == 200
+    world_groups = {group["id"]: group["items"] for group in resp.json()["self_view"]["world"]["groups"]}
+    assert [item["text"] for item in world_groups["preferences"]] == ["RAG"]
+
+
 def test_self_view_includes_safe_graph_relationship_signals():
     profile_repo = MagicMock()
     profile_repo.get = AsyncMock(return_value=None)

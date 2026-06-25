@@ -335,6 +335,16 @@ metadata into the main model prompt. Clearing L2 cognition artifacts must also
 clear profile and portrait projections so local re-imports do not keep stale
 user-understanding caches.
 
+Portrait projection is a qualification layer above raw assertions. Explicit
+user-authored, settings-backed, and user-confirmed profile assertions may enter
+the portrait once they are active, but passive source assertions must also pass
+source strength, evidence-count, validation-state, and trait-family alignment
+checks. For example, an external `interest.*` assertion can become a preference
+only after enough evidence accumulates, while a `tool.*` assertion belongs in
+routines and must not appear as a preference. Assertions that fail this gate can
+remain L2 facts or review material, but they must not enter `world` or
+`prompt_summary`.
+
 Bootstrap is only responsible for injecting the first assistant opening for a
 persona. After that opening is persisted, all profile extraction returns to the
 normal chat -> L1 -> L2 pipeline; bootstrap must not own a separate user-profile
@@ -705,7 +715,9 @@ the backend read model. The frontend may translate section and source labels,
 but it should not infer grouping from keywords, source names, or raw text.
 When a materialized `user_portrait_projection` exists, the endpoint may return
 that page model directly; otherwise it can assemble the same shape from the
-current projection/snapshot/assertion fallback path.
+current projection/snapshot/assertion fallback path. The fallback path must use
+the same portrait qualification policy as the materialized projection so weak
+passive assertions do not leak into the page before the cache is refreshed.
 The read model may include safe L2 graph relationships such as visited places
 or owned/used tools as user-visible clues; those clues do not become durable
 profile assertions unless they pass assertion policy separately.
