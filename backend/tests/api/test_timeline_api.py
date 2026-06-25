@@ -9,6 +9,7 @@ class _FakeTimelineService:
     def __init__(self):
         self.viewport_calls = []
         self.context_calls = []
+        self.cover_calls = []
 
     async def get_viewport(self, *, scale, start, end, query=None, timezone=None, focus="self", locale="en"):
         self.viewport_calls.append(
@@ -164,6 +165,33 @@ class _FakeTimelineService:
             "runtime_trace": [],
         }
 
+    async def set_cover_preference(
+        self, *, scale, start, end, mode, asset_ref=None, source="current_period", locale="en"
+    ):
+        self.cover_calls.append(
+            {
+                "scale": scale,
+                "start": start,
+                "end": end,
+                "mode": mode,
+                "asset_ref": asset_ref,
+                "source": source,
+                "locale": locale,
+            }
+        )
+        return {
+            "mode": mode,
+            "asset_ref": asset_ref if mode == "asset" else None,
+            "source": source if mode == "asset" else mode,
+            "candidates": [
+                {
+                    "asset_ref": "photo-library://asset-a",
+                    "source": "current_period",
+                    "label": "Photo walk",
+                }
+            ],
+        }
+
 
 def _build_client(monkeypatch):
     app = FastAPI()
@@ -235,3 +263,36 @@ def test_get_timeline_context_bundle_returns_cross_layer_sections(monkeypatch):
     assert body["l3_reflections"][0]["summary_id"] == "summary-1"
     assert body["l4_related_procedures"][0]["skill_id"] == "skill-1"
     assert service.context_calls == ["cluster-1"]
+
+
+def test_set_timeline_cover_preference(monkeypatch):
+    client, service = _build_client(monkeypatch)
+
+    response = client.post(
+        "/api/timeline/cover",
+        json={
+            "scale": "day",
+            "start": 1710000000,
+            "end": 1710086400,
+            "mode": "asset",
+            "asset_ref": "photo-library://asset-a",
+            "source": "current_period",
+            "locale": "zh-CN",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "asset"
+    assert body["asset_ref"] == "photo-library://asset-a"
+    assert service.cover_calls == [
+        {
+            "scale": "day",
+            "start": 1710000000.0,
+            "end": 1710086400.0,
+            "mode": "asset",
+            "asset_ref": "photo-library://asset-a",
+            "source": "current_period",
+            "locale": "zh-CN",
+        }
+    ]

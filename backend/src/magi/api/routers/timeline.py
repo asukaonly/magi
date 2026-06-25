@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
+from pydantic import BaseModel
 
 from ... import i18n as core_i18n
 from ...memory.provider import get_manual_entry_asset_store, get_unified_memory
 from ...timeline.service import TimelineService
 
 timeline_router = APIRouter()
+
+
+class TimelineCoverPreferenceRequest(BaseModel):
+    scale: Literal["month", "week", "day", "hour"]
+    start: float
+    end: float
+    mode: Literal["auto", "asset", "hidden"]
+    asset_ref: Optional[str] = None
+    source: str = "current_period"
+    locale: str = "en"
 
 
 def _resolve_manual_entry_asset_store():
@@ -56,6 +67,28 @@ async def get_timeline_viewport(
         locale=locale,
         focus=focus,
     )
+
+
+@timeline_router.post("/cover")
+async def set_timeline_cover_preference(payload: TimelineCoverPreferenceRequest):
+    service = get_timeline_service()
+    try:
+        return await service.set_cover_preference(
+            scale=payload.scale,
+            start=payload.start,
+            end=payload.end,
+            mode=payload.mode,
+            asset_ref=payload.asset_ref,
+            source=payload.source,
+            locale=payload.locale,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
 
 
 @timeline_router.get("/standout")

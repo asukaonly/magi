@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 
 import { PeriodCard } from "@/components/timeline/immersive/PeriodCard";
@@ -114,5 +115,134 @@ describe("PeriodCard", () => {
     );
 
     expect(screen.getByText(/再陪你几天/)).toBeInTheDocument();
+  });
+
+  it("uses a manually selected timeline cover over the automatic cluster photo", () => {
+    const clusters: TimelineClusterBlock[] = [
+      {
+        episode_id: "ep-a",
+        block_id: "cluster-a",
+        time_start: 0,
+        time_end: 3600,
+        label: "morning",
+        representative_asset_ref: "photo-library://auto",
+      } as unknown as TimelineClusterBlock,
+    ];
+
+    render(
+      <PeriodCard
+        scale="day"
+        viewport={makeViewport({
+          clusters,
+          cover: {
+            mode: "asset",
+            asset_ref: "photo-library://manual",
+            source: "current_period",
+            candidates: [],
+          },
+        } as Partial<TimelineViewportResponse>)}
+        dateLabel="2026 · 5 · 17 · 周日"
+        onTogglePinned={vi.fn()}
+        onHide={vi.fn()}
+        pendingAction={{}}
+      />
+    );
+
+    expect(screen.getByAltText("hero photo")).toHaveAttribute(
+      "src",
+      expect.stringContaining("photo-library%3A%2F%2Fmanual")
+    );
+  });
+
+  it("hides the hero image when the cover is hidden", () => {
+    const clusters: TimelineClusterBlock[] = [
+      {
+        episode_id: "ep-a",
+        block_id: "cluster-a",
+        time_start: 0,
+        time_end: 3600,
+        label: "morning",
+        representative_asset_ref: "photo-library://auto",
+      } as unknown as TimelineClusterBlock,
+    ];
+
+    render(
+      <PeriodCard
+        scale="day"
+        viewport={makeViewport({
+          clusters,
+          cover: {
+            mode: "hidden",
+            asset_ref: null,
+            source: "hidden",
+            candidates: [],
+          },
+        } as Partial<TimelineViewportResponse>)}
+        dateLabel="2026 · 5 · 17 · 周日"
+        onTogglePinned={vi.fn()}
+        onHide={vi.fn()}
+        pendingAction={{}}
+      />
+    );
+
+    expect(screen.queryByAltText("hero photo")).not.toBeInTheDocument();
+  });
+
+  it("lets the user choose, hide, and restore the cover", async () => {
+    const user = userEvent.setup();
+    const onChangeCover = vi.fn().mockResolvedValue(undefined);
+    const clusters: TimelineClusterBlock[] = [
+      {
+        episode_id: "ep-a",
+        block_id: "cluster-a",
+        time_start: 0,
+        time_end: 3600,
+        label: "morning",
+        representative_asset_ref: "photo-library://asset-a",
+      } as unknown as TimelineClusterBlock,
+    ];
+
+    render(
+      <PeriodCard
+        scale="day"
+        viewport={makeViewport({
+          clusters,
+          cover: {
+            mode: "auto",
+            asset_ref: "photo-library://asset-a",
+            source: "auto",
+            candidates: [
+              {
+                asset_ref: "photo-library://asset-a",
+                source: "current_period",
+                label: "晨间照片",
+                cluster_id: "cluster-a",
+              },
+            ],
+          },
+        } as Partial<TimelineViewportResponse>)}
+        dateLabel="2026 · 5 · 17 · 周日"
+        onTogglePinned={vi.fn()}
+        onHide={vi.fn()}
+        pendingAction={{}}
+        onChangeCover={onChangeCover}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "更换封面" }));
+    const sheet = screen.getByRole("dialog", { name: "更换封面" });
+    await user.click(within(sheet).getByRole("button", { name: "晨间照片" }));
+    await user.click(within(sheet).getByRole("button", { name: "设为封面" }));
+    expect(onChangeCover).toHaveBeenCalledWith({
+      mode: "asset",
+      asset_ref: "photo-library://asset-a",
+      source: "current_period",
+    });
+
+    await user.click(within(sheet).getByRole("button", { name: "隐藏封面" }));
+    expect(onChangeCover).toHaveBeenCalledWith({ mode: "hidden" });
+
+    await user.click(within(sheet).getByRole("button", { name: "恢复自动" }));
+    expect(onChangeCover).toHaveBeenCalledWith({ mode: "auto" });
   });
 });

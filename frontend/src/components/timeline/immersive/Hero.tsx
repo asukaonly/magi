@@ -15,6 +15,7 @@ interface HeroProps {
   placeLine?: string;
   photoUrl: string | null;
   fallbackTone?: HeroFallbackTone;
+  action?: React.ReactNode;
   className?: string;
 }
 
@@ -32,6 +33,7 @@ export const Hero: React.FC<HeroProps> = ({
   placeLine,
   photoUrl,
   fallbackTone = "neutral",
+  action,
   className,
 }) => {
   const hasPhoto = Boolean(photoUrl);
@@ -60,6 +62,8 @@ export const Hero: React.FC<HeroProps> = ({
       {hasPhoto && (
         <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/25 to-black/75" />
       )}
+
+      {action && <div className="absolute right-4 top-4 z-20">{action}</div>}
 
       {/* Normal-flow text block (no longer absolute) so its height
           contributes to the container — Hero grows with essence length.

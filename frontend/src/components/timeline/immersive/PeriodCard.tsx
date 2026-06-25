@@ -1,9 +1,13 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Image } from "lucide-react";
 
 import type { TimelineViewportResponse } from "@/api/modules/timeline";
 import type { ManualEntry } from "@/api/modules/manualEntries";
+import { Button } from "@/components/ui/button";
 import { resolveTimelineAssetUrl } from "@/utils/timelineAssetUrl";
 
+import { CoverPickerSheet, type TimelineCoverChangeRequest } from "./CoverPickerSheet";
 import { DayBuckets } from "./DayBuckets";
 import { Hero, type HeroFallbackTone } from "./Hero";
 import { PeriodCardEmpty } from "./PeriodCardEmpty";
@@ -27,6 +31,8 @@ interface PeriodCardProps {
   manualEntries?: ManualEntry[];
   onEditManualEntry?: (entry: ManualEntry) => void;
   onDeleteManualEntry?: (entryId: string) => void;
+  onChangeCover?: (payload: TimelineCoverChangeRequest) => void | Promise<void>;
+  coverSaving?: boolean;
 }
 
 function formatTimeRange(startSec: number, endSec: number): string {
@@ -39,15 +45,18 @@ function formatTimeRange(startSec: number, endSec: number): string {
   return `${fmt(startSec)} – ${fmt(endSec)}`;
 }
 
-function pickHeroPhotoUrl(viewport: TimelineViewportResponse): string | null {
+function pickHeroAssetRef(viewport: TimelineViewportResponse): string | null {
+  if (viewport.cover?.mode === "hidden") return null;
+  if (viewport.cover?.asset_ref) return viewport.cover.asset_ref;
+
   // Prefer user-pinned clusters, then longer episodes.
   const ranked = [...(viewport.clusters || [])].sort((a, b) => {
     if (a.user_pinned !== b.user_pinned) return a.user_pinned ? -1 : 1;
     return (b.time_end - b.time_start) - (a.time_end - a.time_start);
   });
   for (const cluster of ranked) {
-    const url = resolveTimelineAssetUrl(cluster.representative_asset_ref);
-    if (url) return url;
+    const ref = String(cluster.representative_asset_ref || "").trim();
+    if (ref) return ref;
   }
   return null;
 }
@@ -70,13 +79,18 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
   manualEntries,
   onEditManualEntry,
   onDeleteManualEntry,
+  onChangeCover,
+  coverSaving = false,
 }) => {
+  const { t } = useTranslation("app");
+  const [coverSheetOpen, setCoverSheetOpen] = useState(false);
   const hasContent =
     (viewport.clusters?.length ?? 0) > 0 ||
     (viewport.summary?.event_count ?? 0) > 0 ||
     (viewport.overview?.essence_prose ?? "").length > 0;
 
-  const photoUrl = useMemo(() => pickHeroPhotoUrl(viewport), [viewport]);
+  const heroAssetRef = useMemo(() => pickHeroAssetRef(viewport), [viewport]);
+  const photoUrl = useMemo(() => resolveTimelineAssetUrl(heroAssetRef), [heroAssetRef]);
   // state_summary in the real type uses mood_label etc., but callers may pass
   // a dominant_valence field (Plan 3 backend extension). Access via unknown cast.
   const dominantValence = (viewport.state_summary as unknown as Record<string, unknown>)?.dominant_valence as string | undefined;
@@ -104,7 +118,31 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
         placeLine={resolvedPlaceLine}
         photoUrl={photoUrl}
         fallbackTone={fallbackTone}
+        action={
+          onChangeCover ? (
+            <Button
+              type="button"
+              size="icon"
+              variant="secondary"
+              aria-label={t("timeline.cover.open", { defaultValue: "更换封面" })}
+              title={t("timeline.cover.open", { defaultValue: "更换封面" })}
+              onClick={() => setCoverSheetOpen(true)}
+              className="bg-background/80 text-foreground shadow-sm backdrop-blur hover:bg-background"
+            >
+              <Image className="h-4 w-4" />
+            </Button>
+          ) : null
+        }
       />
+      {onChangeCover ? (
+        <CoverPickerSheet
+          open={coverSheetOpen}
+          cover={viewport.cover}
+          onOpenChange={setCoverSheetOpen}
+          onChangeCover={onChangeCover}
+          saving={coverSaving}
+        />
+      ) : null}
       <StateBand
         bands={viewport.state_bands ?? []}
         periodStart={viewport.viewport.start}

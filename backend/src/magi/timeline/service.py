@@ -8,6 +8,7 @@ from urllib.parse import unquote
 from ..media.adapters.photo_library import PHOTO_LIBRARY_SOURCE_FILTERS
 from .. import i18n as core_i18n
 from .contracts import TimelineEvent
+from .cover_store import TimelineCoverPreferenceStore
 from .insight_pipeline import TimelineInsightPipeline
 from .viewport_builder import TimelineViewportBuilder
 
@@ -95,6 +96,10 @@ class TimelineService:
     def __init__(self, unified_memory, *, location_resolver=None, manual_entry_asset_store=None) -> None:
         self._unified_memory = unified_memory
         self._manual_entry_asset_store = manual_entry_asset_store
+        memory_db_path = getattr(unified_memory, "memory_db_path", None)
+        self._cover_store = (
+            TimelineCoverPreferenceStore(db_path=str(memory_db_path)) if memory_db_path else None
+        )
         self._insight_pipeline = TimelineInsightPipeline(unified_memory)
         self._viewport_builder = TimelineViewportBuilder(
             l1_store=getattr(unified_memory, "l1", None),
@@ -137,7 +142,7 @@ class TimelineService:
         focus: str = "self",
         locale: str = "en",
     ) -> dict:
-        return await self._viewport_builder.build_viewport(
+        viewport = await self._viewport_builder.build_viewport(
             scale=scale,
             start=start,
             end=end,
@@ -146,6 +151,71 @@ class TimelineService:
             focus=focus,
             locale=locale,
         )
+        viewport["cover"] = await self._resolve_cover_state(
+            viewport=viewport,
+            scale=scale,
+            start=start,
+            end=end,
+        )
+        return viewport
+
+    async def set_cover_preference(
+        self,
+        *,
+        scale: str,
+        start: float,
+        end: float,
+        mode: str,
+        asset_ref: str | None = None,
+        source: str = "current_period",
+        locale: str = "en",
+    ) -> dict[str, Any]:
+        if self._cover_store is None:
+            raise RuntimeError("Timeline cover preferences are unavailable")
+
+        viewport = await self._viewport_builder.build_viewport(
+            scale=scale,
+            start=start,
+            end=end,
+            query=None,
+            timezone=None,
+            focus="self",
+            locale=locale,
+        )
+        candidates = self._cover_candidates_from_viewport(viewport)
+
+        if mode == "auto":
+            await self._cover_store.clear_preference(scale=scale, period_start=start, period_end=end)
+            return self._cover_state_from_preference(candidates=candidates, preference=None)
+
+        if mode == "asset":
+            normalized_asset_ref = (asset_ref or "").strip()
+            if not normalized_asset_ref:
+                raise ValueError("asset_ref is required")
+            if source == "current_period":
+                candidate_refs = {str(item.get("asset_ref") or "") for item in candidates}
+                if normalized_asset_ref not in candidate_refs:
+                    raise ValueError("asset_ref is not available in the current timeline period")
+            preference = await self._cover_store.set_preference(
+                scale=scale,
+                period_start=start,
+                period_end=end,
+                mode="asset",
+                asset_ref=normalized_asset_ref,
+                source=source or "current_period",
+            )
+            return self._cover_state_from_preference(candidates=candidates, preference=preference)
+
+        if mode == "hidden":
+            preference = await self._cover_store.set_preference(
+                scale=scale,
+                period_start=start,
+                period_end=end,
+                mode="hidden",
+            )
+            return self._cover_state_from_preference(candidates=candidates, preference=preference)
+
+        raise ValueError(f"Unsupported timeline cover mode: {mode}")
 
     async def list_standout(
         self,
@@ -275,6 +345,91 @@ class TimelineService:
             return data, content_type or "application/octet-stream"
 
         return None
+
+    async def _resolve_cover_state(
+        self, *, viewport: dict[str, Any], scale: str, start: float, end: float
+    ) -> dict[str, Any]:
+        candidates = self._cover_candidates_from_viewport(viewport)
+        preference = None
+        if self._cover_store is not None:
+            preference = await self._cover_store.get_preference(
+                scale=scale,
+                period_start=start,
+                period_end=end,
+            )
+        return self._cover_state_from_preference(candidates=candidates, preference=preference)
+
+    @staticmethod
+    def _cover_state_from_preference(
+        *, candidates: list[dict[str, Any]], preference: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        if preference is not None:
+            mode = str(preference.get("mode") or "")
+            if mode == "hidden":
+                return {
+                    "mode": "hidden",
+                    "asset_ref": None,
+                    "source": "hidden",
+                    "candidates": candidates,
+                }
+            if mode == "asset":
+                asset_ref = str(preference.get("asset_ref") or "").strip() or None
+                return {
+                    "mode": "asset",
+                    "asset_ref": asset_ref,
+                    "source": str(preference.get("source") or "current_period"),
+                    "candidates": candidates,
+                }
+
+        auto_asset_ref = candidates[0]["asset_ref"] if candidates else None
+        return {
+            "mode": "auto",
+            "asset_ref": auto_asset_ref,
+            "source": "auto",
+            "candidates": candidates,
+        }
+
+    @staticmethod
+    def _cover_candidates_from_viewport(viewport: dict[str, Any]) -> list[dict[str, Any]]:
+        clusters = list(viewport.get("clusters") or [])
+        ranked = sorted(
+            clusters,
+            key=lambda cluster: (
+                0 if cluster.get("user_pinned") else 1,
+                -(float(cluster.get("time_end") or 0.0) - float(cluster.get("time_start") or 0.0)),
+            ),
+        )
+        candidates: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for cluster in ranked:
+            refs: list[str] = []
+            representative_ref = str(cluster.get("representative_asset_ref") or "").strip()
+            if representative_ref:
+                refs.append(representative_ref)
+            media_refs = cluster.get("media_refs") or []
+            if isinstance(media_refs, list):
+                refs.extend(str(ref).strip() for ref in media_refs if str(ref or "").strip())
+
+            label = str(
+                cluster.get("slice_narrative")
+                or cluster.get("summary")
+                or cluster.get("label")
+                or ""
+            ).strip()
+            for ref in refs:
+                if ref in seen:
+                    continue
+                seen.add(ref)
+                candidates.append(
+                    {
+                        "asset_ref": ref,
+                        "source": "current_period",
+                        "label": label,
+                        "cluster_id": str(cluster.get("block_id") or ""),
+                        "episode_id": str(cluster.get("episode_id") or "") or None,
+                    }
+                )
+        return candidates
 
     async def _resolve_photo_library_asset_from_l1(
         self, asset_ref: str,

@@ -442,6 +442,18 @@
     "titlebar": {
       "hour": "时"
     },
+    "cover": {
+      "title": "更换封面",
+      "description": "时间线封面设置",
+      "open": "更换封面",
+      "currentPeriod": "当前周期",
+      "candidate": "图片",
+      "empty": "这个周期暂时没有可用图片",
+      "restoreAuto": "恢复自动",
+      "hide": "隐藏封面",
+      "useSelected": "设为封面",
+      "saved": "封面已更新"
+    },
     "nav": {
       "previous": "上一窗口",
       "next": "下一窗口",
@@ -588,7 +600,8 @@
     "errors": {
       "loadFailed": "时间线加载失败：{{message}}",
       "detailFailed": "时间线上下文加载失败：{{message}}",
-      "feedbackFailed": "时间线反馈保存失败：{{message}}"
+      "feedbackFailed": "时间线反馈保存失败：{{message}}",
+      "coverFailed": "封面更新失败：{{message}}"
     },
     "immersive": {
       "themesLabel": "你那时关心的",

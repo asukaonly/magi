@@ -42,6 +42,7 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/sensors/{source_name}/flush-state" in paths
     assert "/api/sensors/{source_name}/authorize" in paths
     assert "/api/timeline/viewport" in paths
+    assert "/api/timeline/cover" in paths
     assert "/api/timeline/context/{anchor_id}" in paths
     assert "/api/tools/config" in paths
     assert "/api/skills/" in paths

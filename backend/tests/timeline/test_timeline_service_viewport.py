@@ -323,6 +323,126 @@ async def test_timeline_service_uses_idempotency_key_as_source_item_fallback() -
     assert viewport["raw_events"][0]["source_item_id"] == "calendar_event:42"
 
 
+async def test_timeline_service_returns_cover_candidates_and_auto_asset(tmp_path) -> None:
+    class _PhotoL1Store(_FakeL1Store):
+        async def query_events(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.last_query = kwargs
+            return [
+                {
+                    "event_id": "photo-a",
+                    "timestamp": 100.0,
+                    "source": "photo_library",
+                    "content": "Took a photo.",
+                    "asset_ref": "photo-library://asset-a",
+                    "metadata": {
+                        "timeline": {
+                            "title": "Photo walk",
+                            "summary": "A bright photo from the walk.",
+                            "tags": ["photo"],
+                        }
+                    },
+                },
+                {
+                    "event_id": "photo-b",
+                    "timestamp": 200.0,
+                    "source": "photo_library",
+                    "content": "Took another photo.",
+                    "asset_ref": "photo-library://asset-b",
+                    "metadata": {
+                        "timeline": {
+                            "title": "Desk photo",
+                            "summary": "A later photo at the desk.",
+                            "tags": ["desk"],
+                        }
+                    },
+                },
+            ]
+
+    service = TimelineService(
+        SimpleNamespace(
+            l1=_PhotoL1Store(),
+            l2=_FakeL2Store(),
+            l3=_FakeL3Store(),
+            l4=_FakeL4Store(),
+            memory_db_path=str(tmp_path / "memory.db"),
+        )
+    )
+
+    viewport = await service.get_viewport(scale="day", start=0.0, end=300.0, focus="self")
+
+    assert viewport["cover"]["mode"] == "auto"
+    assert viewport["cover"]["asset_ref"] == "photo-library://asset-a"
+    assert [item["asset_ref"] for item in viewport["cover"]["candidates"]] == [
+        "photo-library://asset-a",
+        "photo-library://asset-b",
+    ]
+
+
+async def test_timeline_service_persists_selected_and_hidden_cover(tmp_path) -> None:
+    class _PhotoL1Store(_FakeL1Store):
+        async def query_events(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.last_query = kwargs
+            return [
+                {
+                    "event_id": "photo-a",
+                    "timestamp": 100.0,
+                    "source": "photo_library",
+                    "content": "Took a photo.",
+                    "asset_ref": "photo-library://asset-a",
+                    "metadata": {"timeline": {"summary": "A bright photo.", "tags": ["photo"]}},
+                },
+                {
+                    "event_id": "photo-b",
+                    "timestamp": 200.0,
+                    "source": "photo_library",
+                    "content": "Took another photo.",
+                    "asset_ref": "photo-library://asset-b",
+                    "metadata": {"timeline": {"summary": "A later photo.", "tags": ["desk"]}},
+                },
+            ]
+
+    service = TimelineService(
+        SimpleNamespace(
+            l1=_PhotoL1Store(),
+            l2=_FakeL2Store(),
+            l3=_FakeL3Store(),
+            l4=_FakeL4Store(),
+            memory_db_path=str(tmp_path / "memory.db"),
+        )
+    )
+
+    selected = await service.set_cover_preference(
+        scale="day",
+        start=0.0,
+        end=300.0,
+        mode="asset",
+        asset_ref="photo-library://asset-b",
+    )
+    assert selected["mode"] == "asset"
+    assert selected["asset_ref"] == "photo-library://asset-b"
+
+    viewport = await service.get_viewport(scale="day", start=0.0, end=300.0, focus="self")
+    assert viewport["cover"]["asset_ref"] == "photo-library://asset-b"
+
+    hidden = await service.set_cover_preference(
+        scale="day",
+        start=0.0,
+        end=300.0,
+        mode="hidden",
+    )
+    assert hidden["mode"] == "hidden"
+    assert hidden["asset_ref"] is None
+
+    restored = await service.set_cover_preference(
+        scale="day",
+        start=0.0,
+        end=300.0,
+        mode="auto",
+    )
+    assert restored["mode"] == "auto"
+    assert restored["asset_ref"] == "photo-library://asset-a"
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Theme card construction
 # ─────────────────────────────────────────────────────────────────────

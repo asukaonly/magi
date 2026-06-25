@@ -13,6 +13,7 @@ vi.mock("@/api/modules/timeline", async () => {
       getContext: vi.fn(),
       getStandout: vi.fn(),
       getMoodCalendar: vi.fn(),
+      setCoverPreference: vi.fn(),
     },
   };
 });

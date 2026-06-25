@@ -52,6 +52,34 @@ export interface TimelineClusterBlock {
   representative_asset_ref?: string;
 }
 
+export type TimelineCoverMode = 'auto' | 'asset' | 'hidden';
+export type TimelineCoverSource = 'auto' | 'current_period' | 'hidden' | string;
+
+export interface TimelineCoverCandidate {
+  asset_ref: string;
+  source: TimelineCoverSource;
+  label?: string | null;
+  cluster_id?: string | null;
+  episode_id?: string | null;
+}
+
+export interface TimelineCoverState {
+  mode: TimelineCoverMode;
+  asset_ref: string | null;
+  source: TimelineCoverSource;
+  candidates: TimelineCoverCandidate[];
+}
+
+export interface TimelineCoverPreferencePayload {
+  scale: 'month' | 'week' | 'day' | 'hour';
+  start: number;
+  end: number;
+  mode: TimelineCoverMode;
+  asset_ref?: string | null;
+  source?: TimelineCoverSource;
+  locale?: string;
+}
+
 export interface TimelineReflectionWindow {
   reflection_id: string;
   time_start: number;
@@ -145,6 +173,7 @@ export interface TimelineViewportResponse {
   state_markers: TimelineStateMarker[];
   source_mix: TimelineSourceMixItem[];
   theme_cards: TimelineThemeCard[];
+  cover?: TimelineCoverState;
   /** Top labels for the period from LocationResolver (city/region/POI),
    *  ordered by aggregate time-weighted contribution. Index 0 is the
    *  primary chip; subsequent entries can be rendered as secondary chips. */
@@ -216,6 +245,13 @@ export const timelineApi = {
     const response = await api.get<TimelineMoodCalendarResponse>('/timeline/mood-calendar', {
       params: { month },
     });
+    return unwrapGatewayPayload(response);
+  },
+
+  setCoverPreference: async (
+    payload: TimelineCoverPreferencePayload
+  ): Promise<TimelineCoverState> => {
+    const response = await api.post<TimelineCoverState>('/timeline/cover', payload);
     return unwrapGatewayPayload(response);
   },
 };

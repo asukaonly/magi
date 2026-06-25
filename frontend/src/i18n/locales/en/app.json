@@ -458,6 +458,18 @@
     "titlebar": {
       "hour": "Hour"
     },
+    "cover": {
+      "title": "Change cover",
+      "description": "Timeline cover settings",
+      "open": "Change cover",
+      "currentPeriod": "Current period",
+      "candidate": "Image",
+      "empty": "No usable images in this period yet",
+      "restoreAuto": "Restore auto",
+      "hide": "Hide cover",
+      "useSelected": "Set as cover",
+      "saved": "Cover updated"
+    },
     "nav": {
       "previous": "Previous window",
       "next": "Next window",
@@ -604,7 +616,8 @@
     "errors": {
       "loadFailed": "Failed to load timeline: {{message}}",
       "detailFailed": "Failed to load timeline context: {{message}}",
-      "feedbackFailed": "Failed to save timeline feedback: {{message}}"
+      "feedbackFailed": "Failed to save timeline feedback: {{message}}",
+      "coverFailed": "Failed to update cover: {{message}}"
     },
     "emptyState": {
       "heading": "Let me see your activity",

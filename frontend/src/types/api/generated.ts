@@ -3835,6 +3835,23 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/timeline/cover": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /** Set Timeline Cover Preference */
+        readonly post: operations["set_timeline_cover_preference_api_timeline_cover_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/timeline/mood-calendar": {
         readonly parameters: {
             readonly query?: never;
@@ -7504,6 +7521,35 @@ export interface components {
         /** TimelineConfigModel */
         readonly TimelineConfigModel: {
             readonly sources?: components["schemas"]["TimelineSourcesConfigModel"];
+        };
+        /** TimelineCoverPreferenceRequest */
+        readonly TimelineCoverPreferenceRequest: {
+            /** Asset Ref */
+            readonly asset_ref?: string | null;
+            /** End */
+            readonly end: number;
+            /**
+             * Locale
+             * @default en
+             */
+            readonly locale: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            readonly mode: "auto" | "asset" | "hidden";
+            /**
+             * Scale
+             * @enum {string}
+             */
+            readonly scale: "month" | "week" | "day" | "hour";
+            /**
+             * Source
+             * @default current_period
+             */
+            readonly source: string;
+            /** Start */
+            readonly start: number;
         };
         /** TimelineSourceConfigModel */
         readonly TimelineSourceConfigModel: {
@@ -15118,6 +15164,39 @@ export interface operations {
             readonly cookie?: never;
         };
         readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly set_timeline_cover_preference_api_timeline_cover_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["TimelineCoverPreferenceRequest"];
+            };
+        };
         readonly responses: {
             /** @description Successful Response */
             readonly 200: {

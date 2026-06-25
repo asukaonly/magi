@@ -124,6 +124,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         # suffix has to be included here too — otherwise the route
         # silently doesn't get mounted on the public router.
         "/asset/{asset_ref:path}": {"GET"},
+        "/cover": {"POST"},
     },
     "sensors": {
         "/status": {"GET"},

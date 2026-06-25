@@ -10,6 +10,7 @@ import {
   type TimelineStandoutItem,
   type TimelineViewportResponse,
 } from "@/api/modules/timeline";
+import type { TimelineCoverChangeRequest } from "@/components/timeline/immersive/CoverPickerSheet";
 import { HourDetail } from "@/components/timeline/immersive/HourDetail";
 import { PeriodCard } from "@/components/timeline/immersive/PeriodCard";
 import { QuickEntrySheet } from "@/components/timeline/manual-entries/QuickEntrySheet";
@@ -133,6 +134,7 @@ export const TimelinePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [firstLoad, setFirstLoad] = useState(true);
   const [pendingAction, setPendingAction] = useState<Record<string, "pin" | "hide" | null>>({});
+  const [coverSaving, setCoverSaving] = useState(false);
 
   const viewportEnd = getPeriodEnd(scale, viewportStart);
   const latestPeriodStart = getLatestCompletePeriodStart(scale);
@@ -266,6 +268,32 @@ export const TimelinePage: React.FC = () => {
       setPendingAction((s) => ({ ...s, [episodeId]: null }));
     }
   };
+
+  const handleChangeCover = useCallback(async (payload: TimelineCoverChangeRequest) => {
+    setCoverSaving(true);
+    try {
+      const cover = await timelineApi.setCoverPreference({
+        scale,
+        start: viewportStart,
+        end: viewportEnd,
+        mode: payload.mode,
+        asset_ref: payload.asset_ref,
+        source: payload.source,
+        locale: timelineLocale,
+      });
+      setViewport((current) => (current ? { ...current, cover } : current));
+      toast.success(t("timeline.cover.saved", { defaultValue: "封面已更新" }));
+    } catch (error: any) {
+      toast.error(
+        t("timeline.errors.coverFailed", {
+          message: error?.message || "unknown",
+          defaultValue: "封面更新失败：{{message}}",
+        })
+      );
+    } finally {
+      setCoverSaving(false);
+    }
+  }, [scale, timelineLocale, t, viewportEnd, viewportStart]);
 
   const handleSelectDate = useCallback((isoDate: string) => {
     const [y, m, d] = isoDate.split("-").map(Number);
@@ -464,6 +492,8 @@ export const TimelinePage: React.FC = () => {
               manualEntries={manualEntries}
               onEditManualEntry={handleEditEntry}
               onDeleteManualEntry={handleDeleteEntry}
+              onChangeCover={handleChangeCover}
+              coverSaving={coverSaving}
             />
           )
         ) : null}
