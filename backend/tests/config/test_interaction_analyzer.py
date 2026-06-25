@@ -9,10 +9,12 @@ import pytest
 from magi.personality.interaction_analyzer import (
     DEFAULT_ANALYSIS,
     InteractionAnalysis,
+    InteractionObservation,
     _build_system_prompt,
     analyze_interaction,
     parse_analysis,
 )
+from magi.llm.provider_bridge.models import ProviderResponse, ProviderToolCall
 from magi.personality.behavior_evolution import SatisfactionLevel
 from magi.personality.emotional_state import EngagementLevel, InteractionOutcome
 
@@ -190,6 +192,96 @@ class TestAnalyzeInteraction:
             assert result.sentiment == pytest.approx(0.6)
             assert result.engagement == EngagementLevel.HIGH
             assert result.satisfaction == SatisfactionLevel.HIGH
+
+    @pytest.mark.asyncio
+    async def test_tool_observer_returns_analysis_and_memory_observations(self):
+        mock_adapter = MagicMock()
+        mock_bridge = MagicMock()
+        mock_bridge.chat_with_tools = AsyncMock(
+            return_value=ProviderResponse(
+                content="",
+                tool_calls=[
+                    ProviderToolCall(
+                        id="call-analysis",
+                        name="submit_interaction_analysis",
+                        arguments={
+                            "sentiment": 0.4,
+                            "engagement": "high",
+                            "complexity": 0.6,
+                            "outcome": "success",
+                            "satisfaction": "high",
+                        },
+                    ),
+                    ProviderToolCall(
+                        id="call-profile",
+                        name="remember_profile_signal",
+                        arguments={
+                            "trait_family": "communication_profile",
+                            "trait_name": "communication.response_style.preferred",
+                            "trait_value": "先说结论，再说风险",
+                            "evidence_text": "以后这种方案讨论，先说结论，再说风险。",
+                            "confidence": 0.9,
+                        },
+                    ),
+                    ProviderToolCall(
+                        id="call-relationship",
+                        name="record_persona_relationship_signal",
+                        arguments={
+                            "signal_type": "milestone",
+                            "milestone_key": "seven_guard_down",
+                            "evidence_text": "七号这里可以稍微软一点。",
+                            "confidence": 0.86,
+                        },
+                    ),
+                ],
+            )
+        )
+
+        mock_pool = MagicMock()
+        mock_pool.get.return_value = mock_adapter
+
+        with (
+            patch(
+                "magi.personality.interaction_analyzer.get_scenario_llm_pool",
+                return_value=mock_pool,
+            ),
+            patch(
+                "magi.personality.interaction_analyzer.LLMProviderBridge",
+                return_value=mock_bridge,
+            ),
+        ):
+            result = await analyze_interaction(
+                "以后这种方案讨论，先说结论，再说风险。",
+                "好，我按这个顺序说。",
+                milestone_conditions={"seven_guard_down": "User earns deeper trust."},
+            )
+
+        assert result.sentiment == pytest.approx(0.4)
+        assert result.engagement == EngagementLevel.HIGH
+        assert result.satisfaction == SatisfactionLevel.HIGH
+        assert result.memory_observations == [
+            InteractionObservation(
+                kind="profile_signal",
+                arguments={
+                    "trait_family": "communication_profile",
+                    "trait_name": "communication.response_style.preferred",
+                    "trait_value": "先说结论，再说风险",
+                    "evidence_text": "以后这种方案讨论，先说结论，再说风险。",
+                    "confidence": 0.9,
+                },
+            ),
+            InteractionObservation(
+                kind="persona_relationship_signal",
+                arguments={
+                    "signal_type": "milestone",
+                    "milestone_key": "seven_guard_down",
+                    "evidence_text": "七号这里可以稍微软一点。",
+                    "confidence": 0.86,
+                },
+            ),
+        ]
+        mock_bridge.chat.assert_not_called()
+        assert mock_bridge.chat_with_tools.call_args[1]["max_tokens"] <= 256
 
     @pytest.mark.asyncio
     async def test_llm_call_failure_returns_default(self):

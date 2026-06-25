@@ -11,6 +11,7 @@ from magi.core.logger import get_logger
 from magi.memory.l3.models import TaskOutcomePacket
 from magi.personality.feature_flags import get_personality_feature_flags
 from magi.personality.interaction_analyzer import analyze_interaction
+from magi.personality.interaction_observation_router import apply_interaction_observations
 from magi.agent.task_agents.common import ExecutionResult, IncomingFactKind
 from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
 
@@ -139,6 +140,7 @@ class ChatPostprocessMemoryMixin:
                         execution_mode=self._enum_value(result.mode),
                         session_id=context.session_id,
                         turn_id=result.turn_id,
+                        persona_id=context.active_persona_id,
                     )
                 await self._record_task_reflection(
                     context=context,
@@ -175,6 +177,7 @@ class ChatPostprocessMemoryMixin:
         execution_mode: str | None = None,
         session_id: str | None = None,
         turn_id: str | None = None,
+        persona_id: str | None = None,
     ) -> bool:
         host = cast(_MemoryPostprocessHostProtocol, self)
         features = get_personality_feature_flags()
@@ -223,6 +226,23 @@ class ChatPostprocessMemoryMixin:
                 )
             except Exception as exc:
                 logger.warning("Failed to process turn outcome: %s", exc)
+
+        if analysis.memory_observations:
+            try:
+                updated = bool(
+                    await apply_interaction_observations(
+                        observations=analysis.memory_observations,
+                        user_id=user_id,
+                        user_message=user_message,
+                        unified_memory=host._unified_memory,
+                        self_memory=host._memory,
+                        persona_id=persona_id,
+                        session_id=session_id,
+                        turn_id=turn_id,
+                    )
+                ) or updated
+            except Exception as exc:
+                logger.warning("Failed to apply interaction observations: %s", exc)
 
         return updated
 

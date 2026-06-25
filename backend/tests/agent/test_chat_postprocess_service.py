@@ -4,6 +4,7 @@ import asyncio
 import json
 import pytest
 from types import SimpleNamespace
+from typing import Any
 
 from magi.chat import ChatStore
 from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
@@ -23,7 +24,13 @@ from magi.agent.task_agents.common import (
 )
 from magi.agent.runtime.contracts import FactRecord
 from magi.events.events import EventTypes
-from magi.personality.interaction_analyzer import DEFAULT_ANALYSIS
+from magi.personality.interaction_analyzer import (
+    DEFAULT_ANALYSIS,
+    InteractionAnalysis,
+    InteractionObservation,
+)
+from magi.personality.behavior_evolution import SatisfactionLevel
+from magi.personality.emotional_state import EngagementLevel, InteractionOutcome
 from magi.runtime_trace.store import RuntimeTraceStore
 
 
@@ -214,6 +221,7 @@ class _FakeUnifiedMemory:
     def __init__(self, events: list[dict[str, object]] | None = None, l0=None) -> None:
         self.l0 = l0
         self.l1 = _FakeL1Store(events or [])
+        self.l2 = None
         self.task_packets = []
 
     async def persist_task_outcome_reflection(self, packet):  # type: ignore[no-untyped-def]
@@ -224,6 +232,7 @@ class _FakeUnifiedMemory:
 class _RecordingPersonalityMemory:
     def __init__(self) -> None:
         self.process_calls: list[dict[str, object]] = []
+        self.relationship_signal_calls: list[dict[str, object]] = []
 
     async def get_core_personality(self):  # type: ignore[no-untyped-def]
         return SimpleNamespace(
@@ -233,6 +242,19 @@ class _RecordingPersonalityMemory:
     async def process_turn_outcome(self, **kwargs):  # type: ignore[no-untyped-def]
         self.process_calls.append(dict(kwargs))
         return True
+
+    async def record_observer_relationship_signal(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.relationship_signal_calls.append(dict(kwargs))
+        return True
+
+
+class _RecordingL2Store:
+    def __init__(self) -> None:
+        self.candidates: list[dict[str, object]] = []
+
+    async def upsert_assertion_candidate(self, candidate):  # type: ignore[no-untyped-def]
+        self.candidates.append(dict(candidate))
+        return "assert-observer"
 
 
 class _FakeChatProjector:
@@ -331,6 +353,117 @@ async def test_memory_updates_skip_stp_rules_outside_direct_chat_scope(monkeypat
 
     assert analysis_calls[-1].get("stp_rules") is None
     assert "allow_state_transition" not in memory.process_calls[-1]
+
+
+@pytest.mark.asyncio
+async def test_memory_updates_route_observer_candidates(monkeypatch) -> None:
+    import magi.chat.task_agent.postprocess.memory as postprocess_module
+
+    async def _fake_analyze_interaction(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = args, kwargs
+        return InteractionAnalysis(
+            sentiment=0.4,
+            engagement=EngagementLevel.HIGH,
+            complexity=0.6,
+            outcome=InteractionOutcome.SUCCESS,
+            satisfaction=SatisfactionLevel.HIGH,
+            memory_observations=[
+                InteractionObservation(
+                    kind="profile_signal",
+                    arguments={
+                        "trait_family": "communication_profile",
+                        "trait_name": "communication.response_style.preferred",
+                        "trait_value": "先说结论，再说风险",
+                        "evidence_text": "以后这种方案讨论，先说结论，再说风险。",
+                        "confidence": 0.9,
+                    },
+                ),
+                InteractionObservation(
+                    kind="persona_relationship_signal",
+                    arguments={
+                        "signal_type": "milestone",
+                        "milestone_key": "seven_guard_down",
+                        "evidence_text": "七号这里可以稍微软一点。",
+                        "confidence": 0.86,
+                    },
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(
+        postprocess_module,
+        "get_personality_feature_flags",
+        lambda: SimpleNamespace(
+            state_memory_enabled=True,
+            state_transition_enabled=True,
+            deep_persona_enabled=True,
+        ),
+    )
+    monkeypatch.setattr(postprocess_module, "analyze_interaction", _fake_analyze_interaction)
+    memory = _RecordingPersonalityMemory()
+    unified_memory = _FakeUnifiedMemory()
+    unified_memory.l2 = _RecordingL2Store()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        memory=memory,
+        unified_memory=unified_memory,
+    )
+
+    await service._record_memory_updates(
+        user_id="local_user",
+        user_message="以后这种方案讨论，先说结论，再说风险。七号这里可以稍微软一点。",
+        response_text="好，我按这个顺序说。",
+        incoming_fact_kind="user_message",
+        execution_mode="direct_llm",
+        session_id="session-1",
+        turn_id="turn-1",
+        persona_id="seven",
+    )
+
+    assert unified_memory.l2.candidates == [
+        {
+            "entity_id": "user:local_user",
+            "entity_type": "user",
+            "trait_family": "communication_profile",
+            "trait_name": "communication.response_style.preferred",
+            "trait_value": "先说结论，再说风险",
+            "confidence_score": 0.9,
+            "evidence_events": ["turn-1"],
+            "volatility_index": 0.25,
+            "source_domain": "conversation",
+            "inference_depth": "explicit",
+            "validation_state": "tentative",
+            "first_inferred_at": pytest.approx(unified_memory.l2.candidates[0]["first_inferred_at"]),
+            "last_validated_at": pytest.approx(unified_memory.l2.candidates[0]["last_validated_at"]),
+            "target_entity_id": "",
+            "target_entity_type": "",
+            "target_scope": "global",
+            "temporal_scope": "stable",
+            "decay_policy": None,
+            "decay_anchor_at": pytest.approx(unified_memory.l2.candidates[0]["decay_anchor_at"]),
+            "context_ref_id": "turn-1",
+            "expires_at": None,
+            "memory_subdomain": "semantic",
+            "natural_summary": "以后这种方案讨论，先说结论，再说风险。",
+        }
+    ]
+    assert memory.relationship_signal_calls == [
+        {
+            "user_id": "local_user",
+            "persona_id": "seven",
+            "signal_type": "milestone",
+            "milestone_key": "seven_guard_down",
+            "trust_delta": 0.0,
+            "evidence_text": "七号这里可以稍微软一点。",
+            "confidence": 0.86,
+            "turn_id": "turn-1",
+            "session_id": "session-1",
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -3041,4 +3174,3 @@ async def test_segmented_agent_response_routes_each_segment_through_seam(
     # No notifier agent_response rows written.
     notifications = await runtime_trace_store.list_notifications(after_id=0)
     assert [n.channel for n in notifications] == []
-

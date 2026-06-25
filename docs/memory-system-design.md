@@ -286,6 +286,11 @@ Profile-signal claims must be grounded in current user-authored text before they
 can produce profile assertions; assistant persona text, recalled history, and
 one-off task phrasing are not sufficient evidence for durable identity or
 communication-profile fields.
+Post-turn observers may submit explicit profile candidates from chat, but they
+must not write portrait projections directly. The host validates that the
+candidate is grounded in the user's own text, persists it as an L2 assertion
+candidate, and lets normal assertion state, conflict handling, review, and
+portrait projection decide how it appears to the user.
 
 L2 keeps a semi-open graph predicate model so source-specific relationships can
 be captured before the core ontology knows every useful verb. That openness is

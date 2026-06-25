@@ -5,6 +5,7 @@ from magi.context.schema import (
     IdentityConstraintContext,
     ProfileMemoryContext,
     PromptAssemblyContext,
+    RetrievalMemoryContext,
     RuntimeSystemContext,
     SelfMemoryContext,
     ToolCatalogContext,
@@ -90,3 +91,46 @@ class TestPersonaTurnPlanRendering:
         assert "Pinned identity." in prompt
         assert "Solve first." in prompt
         assert "# Contextual Behavior Protocol" not in prompt
+
+    def test_task_preference_memory_renders_explicit_prefers_and_avoids(self):
+        ctx = PromptAssemblyContext(
+            identity_constraints=IdentityConstraintContext(
+                system_definition="You are a test entity.",
+                core_truths_and_boundaries="Be useful.",
+            ),
+            self_memory=SelfMemoryContext(
+                persona_turn_plan=PersonaTurnPlan(
+                    persona_name="Seven",
+                    identity_core={"identity_statement": "Pinned identity."},
+                    register="task",
+                ),
+                retrieval_memory=RetrievalMemoryContext(
+                    preference_memory={
+                        "task_preferences": {
+                            "task_category": "coding",
+                            "information_density": "medium",
+                            "ambiguity_tolerance": "adaptive",
+                            "proactivity": "reactive",
+                            "response_prefers": ["改代码前先讲方案"],
+                            "response_avoids": ["未验证就说完成"],
+                        }
+                    }
+                ),
+            ),
+            profile_memory=ProfileMemoryContext(user_id="u1"),
+            runtime_system=RuntimeSystemContext(
+                current_time_iso="2025-01-01T00:00:00",
+                timezone="UTC",
+                os_name="Darwin",
+                os_version="24.0",
+                cwd="/tmp",
+                agent_id="test",
+                agent_type="chat",
+            ),
+            tool_catalog=ToolCatalogContext(),
+        )
+
+        prompt = PromptContextRenderer().render_system_prompt(ctx)
+
+        assert "* Prefer: 改代码前先讲方案" in prompt
+        assert "* Avoid: 未验证就说完成" in prompt

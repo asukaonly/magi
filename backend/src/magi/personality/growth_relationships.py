@@ -156,6 +156,13 @@ class GrowthRelationshipMixin:
             profile.depth = max(0.0, min(1.0, profile.depth + delta))
             await self._save_relationship(profile)
 
+    async def update_relationship_trust(self, user_id: str, delta: float) -> None:
+        profile = await self.get_relationship(user_id)
+        if profile:
+            profile.trust_level = max(0.0, min(1.0, profile.trust_level + delta))
+            profile.depth = await self._calculate_relationship_depth(profile)
+            await self._save_relationship(profile)
+
     async def _check_relationship_milestones(self, profile: RelationshipProfile) -> None:
         host = self._relationship_host
         user_id = profile.user_id

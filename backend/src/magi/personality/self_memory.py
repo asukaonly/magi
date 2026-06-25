@@ -1,7 +1,7 @@
 """SelfMemory facade — owns persona-scoped behavior/emotional/growth engines."""
 import logging
 import time
-from typing import Dict, Any, Optional, List
+from typing import Dict, Optional, List
 from dataclasses import asdict
 
 from .models import (
@@ -154,6 +154,42 @@ class SelfMemory:
                 accepted=accepted,
             )
 
+    async def record_task_preference(
+        self,
+        *,
+        user_id: str,
+        persona_id: str = "",
+        task_category: str,
+        preference: str,
+        polarity: str = "prefer",
+        evidence_text: str = "",
+        confidence: float = 0.0,
+        turn_id: str = "",
+        session_id: str = "",
+    ) -> bool:
+        """Record an explicit user preference for future task handling."""
+        _ = persona_id
+        if not self.enable_evolution or self._behavior_engine is None:
+            return False
+        return bool(
+            await self._behavior_engine.record_task_preference(
+                task_category=task_category,
+                preference=preference,
+                polarity=polarity,
+                evidence_text=evidence_text,
+                confidence=confidence,
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+            )
+        )
+
+    async def get_task_behavior_profile(self, task_category: str):
+        """Return task behavior profile enriched with explicit task preferences."""
+        if not self.enable_evolution or self._behavior_engine is None:
+            return None
+        return await self._behavior_engine.get_behavior_profile(task_category)
+
 
     async def get_emotional_state(self) -> EmotionalState:
         """Get current emotional state"""
@@ -238,6 +274,43 @@ class SelfMemory:
             description=f"Persona milestone: {description}",
         )
         logger.info("Persona milestone recorded: %s", key)
+
+    async def record_observer_relationship_signal(
+        self,
+        *,
+        user_id: str,
+        persona_id: str = "",
+        signal_type: str,
+        milestone_key: str = "",
+        trust_delta: float = 0.0,
+        evidence_text: str = "",
+        confidence: float = 0.0,
+        turn_id: str = "",
+        session_id: str = "",
+    ) -> bool:
+        """Apply a validated persona-scoped relationship signal."""
+        _ = persona_id, turn_id, session_id
+        if not self.enable_evolution or self._growth_engine is None:
+            return False
+        if confidence < 0.65:
+            return False
+
+        updated = False
+        signal = str(signal_type or "").strip().casefold()
+        if signal == "trust_delta" and trust_delta:
+            updater = getattr(self._growth_engine, "update_relationship_trust", None)
+            if updater is not None:
+                await updater(user_id, float(trust_delta))
+                updated = True
+
+        if signal == "milestone" and milestone_key:
+            conditions = getattr(self._personality_config, "milestone_conditions", {}) or {}
+            if milestone_key in conditions:
+                description = str(conditions.get(milestone_key) or evidence_text or milestone_key)
+                await self.record_persona_milestone(milestone_key, description)
+                updated = True
+
+        return updated
 
     async def process_turn_outcome(
         self,

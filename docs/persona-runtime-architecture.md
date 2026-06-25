@@ -47,6 +47,10 @@ The Context Layer owns prompt-context assembly and rendering. It consumes the pl
 The Agent Runtime owns execution coordination. It provides task/runtime signals such as intent, selected tools, execution mode, conversation history, and current user message; it does not know persona-specific trigger semantics.
 
 Post-processing owns future-state updates after a response is emitted. It updates relationship, milestones, satisfaction, and dynamic state; it does not decide what persona state the already emitted response should have used.
+The post-turn observer should stay on this post-processing path: it may submit
+profile, task-preference, and persona-relationship candidates through narrow
+tool calls, but those candidates must be validated by host code and routed to
+the owning stores before they affect future turns.
 
 ## Runtime Flow
 
@@ -517,6 +521,10 @@ The replacement surfaces are:
 - Retain relationship, satisfaction, emotion, and milestone updates.
 - Remove post-response STP trigger selection as the main behavior-switch mechanism.
 - Scope any trigger carryover state to avoid cross-session bleed.
+- Keep observer-based memory updates as future-state candidates: user-profile
+  candidates go through L2 assertion governance, task-handling preferences go
+  through behavior evolution, and persona relationship signals stay in
+  persona-scoped growth memory.
 
 ### P6. Frontend Editor
 

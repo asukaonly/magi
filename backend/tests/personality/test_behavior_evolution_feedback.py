@@ -62,6 +62,20 @@ async def engine(tmp_path: Path) -> BehaviorEvolutionEngine:
         updated_at REAL NOT NULL,
         persona_id TEXT NOT NULL DEFAULT ''
     );
+    CREATE TABLE IF NOT EXISTS task_preferences (
+        preference_id TEXT PRIMARY KEY,
+        task_category TEXT NOT NULL,
+        polarity TEXT NOT NULL,
+        preference_text TEXT NOT NULL,
+        evidence_text TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        user_id TEXT NOT NULL DEFAULT '',
+        session_id TEXT NOT NULL DEFAULT '',
+        turn_id TEXT NOT NULL DEFAULT '',
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        persona_id TEXT NOT NULL DEFAULT ''
+    );
     """
     async with aiosqlite.connect(db_path) as db:
         await db.executescript(schema)
@@ -155,3 +169,23 @@ async def test_ambiguity_tolerance_tracks_cautious_score(
         AmbiguityTolerance.CAUTIOUS,
         AmbiguityTolerance.ADAPTIVE,
     }
+
+
+@pytest.mark.asyncio
+async def test_task_preferences_feed_behavior_profile(
+    engine: BehaviorEvolutionEngine,
+) -> None:
+    await engine.record_task_preference(
+        task_category="coding",
+        preference="改代码前先讲方案",
+        polarity="prefer",
+        evidence_text="以后改代码前先讲方案。",
+        confidence=0.9,
+        user_id="local_user",
+        session_id="session-1",
+        turn_id="turn-1",
+    )
+
+    profile = await engine.get_behavior_profile("coding")
+    assert profile.response_prefers == ["改代码前先讲方案"]
+    assert profile.response_avoids == []

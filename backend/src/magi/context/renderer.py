@@ -290,6 +290,12 @@ class PromptContextRenderer:
                 lines.append(f"* Information Density: {task_pref.get('information_density', 'medium')}")
                 lines.append(f"* Ambiguity Tolerance: {task_pref.get('ambiguity_tolerance', 'adaptive')}")
                 lines.append(f"* Proactivity: {task_pref.get('proactivity', 'reactive')}")
+                response_prefers = self._string_list(task_pref.get("response_prefers"))
+                response_avoids = self._string_list(task_pref.get("response_avoids"))
+                if response_prefers:
+                    lines.append(f"* Prefer: {'; '.join(response_prefers[:4])}")
+                if response_avoids:
+                    lines.append(f"* Avoid: {'; '.join(response_avoids[:4])}")
             user_pref = pref.get("user_preferences", {})
             if user_pref:
                 lines.append("### User Preferences")

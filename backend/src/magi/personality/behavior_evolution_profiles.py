@@ -35,11 +35,13 @@ class BehaviorEvolutionProfileMixin:
                 if "ambiguity_tolerance" in data:
                     data["ambiguity_tolerance"] = AmbiguityTolerance(data["ambiguity_tolerance"])
                 profile = TaskBehaviorProfile(**data)
+                await self._apply_explicit_task_preferences(profile)
                 self._cache[task_category] = profile
                 return profile
 
         stats = await self.get_category_statistics(task_category)
         profile = self._infer_profile_from_stats(stats)
+        await self._apply_explicit_task_preferences(profile)
 
         await self._save_behavior_profile(task_category, profile)
 
@@ -81,6 +83,14 @@ class BehaviorEvolutionProfileMixin:
             error_tolerance=error_tolerance,
             proactivity=proactivity,
         )
+
+    async def _apply_explicit_task_preferences(self, profile: TaskBehaviorProfile) -> None:
+        get_task_preferences = getattr(self, "get_task_preferences", None)
+        if get_task_preferences is None:
+            return
+        preferences = await get_task_preferences(profile.task_category)
+        profile.response_prefers = list(preferences.get("response_prefers", []))
+        profile.response_avoids = list(preferences.get("response_avoids", []))
 
     async def _save_behavior_profile(self, task_category: str, profile: TaskBehaviorProfile) -> None:
         """Persist behavior profile."""
