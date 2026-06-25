@@ -234,7 +234,7 @@ describe('MemoryGovernancePage', () => {
   it('renders object maintenance categories without exposing layer codes', async () => {
     renderPage();
     expect(await screen.findByRole('tab', { name: '对象明细' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('button', { name: /实体 人物、地点/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /实体 人物、地点/ })).toHaveClass('text-xs');
     expect(screen.getByRole('button', { name: /断言 偏好、判断/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /关系图谱/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /实体：用户/ })).toBeInTheDocument();
@@ -262,7 +262,7 @@ describe('MemoryGovernancePage', () => {
   });
 
   it('requests the next server page instead of slicing the first loaded rows', async () => {
-    const entities = Array.from({ length: 6 }, (_, index) => ({
+    const entities = Array.from({ length: 20 }, (_, index) => ({
       entity_id: `ent_page_${index + 1}`,
       canonical_name: `分页实体 ${index + 1}`,
       entity_type: 'person',
@@ -272,7 +272,7 @@ describe('MemoryGovernancePage', () => {
     vi.mocked(useMemory).mockReturnValue({
       ...baseMemoryState,
       l2Entities: entities,
-      l2EntitiesTotal: 8,
+      l2EntitiesTotal: 24,
       l2Assertions: [],
       l2AssertionsTotal: 0,
       l2Relations: [],
@@ -284,13 +284,13 @@ describe('MemoryGovernancePage', () => {
 
     renderPage();
 
-    expect(await screen.findByRole('button', { name: /分页实体 1/ })).toBeInTheDocument();
-    expect(screen.getByText('1-6 / 8 条')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^打开记录 实体：分页实体 1$/ })).toBeInTheDocument();
+    expect(screen.getByText('1-20 / 24 条')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '下一页' }));
 
     await waitFor(() => {
-      expect(baseMemoryState.loadL2Entities).toHaveBeenCalledWith({ limit: 6, offset: 6 });
+      expect(baseMemoryState.loadL2Entities).toHaveBeenCalledWith({ limit: 20, offset: 20 });
     });
   });
 
@@ -347,7 +347,7 @@ describe('MemoryGovernancePage', () => {
     await waitFor(() => {
       expect(memoryApi.deleteL1Event).toHaveBeenCalledWith('evt_1');
     });
-    expect(baseMemoryState.queryL1Events).toHaveBeenCalledWith({ limit: 6, offset: 0 });
+    expect(baseMemoryState.queryL1Events).toHaveBeenCalledWith({ limit: 20, offset: 0 });
 
     await user.click(screen.getByRole('button', { name: /实体 人物/ }));
     await user.click(await screen.findByRole('button', { name: /实体：用户/ }));
@@ -358,7 +358,7 @@ describe('MemoryGovernancePage', () => {
     await waitFor(() => {
       expect(memoryApi.forgetEntity).toHaveBeenCalledWith('ent_user_8f3e', false);
     });
-    expect(baseMemoryState.loadL2Entities).toHaveBeenCalledWith({ limit: 6, offset: 0 });
+    expect(baseMemoryState.loadL2Entities).toHaveBeenCalledWith({ limit: 20, offset: 0 });
   });
 
   it('marks assertions and relations invalid from the drawer', async () => {
@@ -387,7 +387,7 @@ describe('MemoryGovernancePage', () => {
     await waitFor(() => {
       expect(memoryApi.rejectL2Edge).toHaveBeenCalledWith('rel_1');
     });
-    expect(baseMemoryState.loadL2Relations).toHaveBeenCalledWith({ limit: 6, offset: 0 });
+    expect(baseMemoryState.loadL2Relations).toHaveBeenCalledWith({ limit: 20, offset: 0 });
   });
 
   it('keeps manual chapter consolidation available', async () => {

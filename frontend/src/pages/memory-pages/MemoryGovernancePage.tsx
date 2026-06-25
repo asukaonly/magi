@@ -73,7 +73,7 @@ interface LayerSummary {
   records: LayerRecord[];
 }
 
-const RECORD_PAGE_SIZE = 6;
+const RECORD_PAGE_SIZE = 20;
 
 const toList = <T,>(value: T[] | null | undefined): T[] => (Array.isArray(value) ? value : []);
 
@@ -776,18 +776,18 @@ function LayerWorkspace({
               type="button"
               onClick={() => onSelectLayer(layer.id)}
               className={cn(
-                'flex w-full items-center justify-between rounded-lg border px-3 py-3 text-left transition-colors',
+                'flex w-full items-center justify-between rounded-lg border px-3 py-3 text-left text-xs transition-colors',
                 layer.id === activeLayer
                   ? 'border-[hsl(var(--memory-accent)/0.36)] bg-[hsl(var(--memory-accent-soft)/0.45)]'
                   : 'border-transparent hover:bg-[hsl(var(--memory-panel-subtle)/0.58)]'
               )}
             >
               <span className="min-w-0">
-                <span className="block text-sm font-semibold text-[hsl(var(--memory-title))]">{layer.label}</span>
+                <span className="block text-xs font-semibold text-[hsl(var(--memory-title))]">{layer.label}</span>
                 <span className="mt-1 block truncate text-xs text-[hsl(var(--memory-muted))]">{layer.description}</span>
               </span>
               <span className="ml-3 shrink-0 text-right">
-                <span className="block text-sm font-medium text-[hsl(var(--memory-title))]">{formatCount(layer.count)}</span>
+                <span className="block text-xs font-medium text-[hsl(var(--memory-title))]">{formatCount(layer.count)}</span>
                 <span className={cn('mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] ring-1', getStatusToneClass(layer.tone))}>
                   {layer.status}
                 </span>
