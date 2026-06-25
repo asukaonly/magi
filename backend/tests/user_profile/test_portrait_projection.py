@@ -182,6 +182,19 @@ async def test_portrait_projection_repository_roundtrips_prompt_and_page_model(t
     assert loaded.source_counts == {"conversation": 1}
 
 
+async def test_portrait_projection_repository_ignores_stale_projection_versions(tmp_path):
+    repo = UserPortraitProjectionRepository(str(tmp_path / "memory.db"))
+    await repo.upsert(UserPortraitProjection(
+        user_id="local_user",
+        entity_id="user:local_user",
+        version=1,
+        world={"groups": [{"id": "preferences", "items": [{"text": "Old weak signal"}]}]},
+        prompt_summary=["旧画像缓存。"],
+    ))
+
+    assert await repo.get("local_user") is None
+
+
 async def test_portrait_projection_builder_filters_internal_fields_and_separates_review():
     projection = await UserPortraitProjectionBuilder(_FakeL2()).build("local_user")
 

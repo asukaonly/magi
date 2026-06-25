@@ -9,7 +9,7 @@ from typing import Any
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
-from .models import UserPortraitProjection
+from .models import USER_PORTRAIT_PROJECTION_VERSION, UserPortraitProjection
 
 
 class UserPortraitProjectionRepository:
@@ -55,7 +55,12 @@ class UserPortraitProjectionRepository:
                 (user_id,),
             ) as cursor:
                 row = await cursor.fetchone()
-        return self._row_to_projection(row) if row is not None else None
+        if row is None:
+            return None
+        projection = self._row_to_projection(row)
+        if projection.version < USER_PORTRAIT_PROJECTION_VERSION:
+            return None
+        return projection
 
     async def upsert(self, projection: UserPortraitProjection) -> UserPortraitProjection:
         await self.initialize()
