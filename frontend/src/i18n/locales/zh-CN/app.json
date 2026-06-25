@@ -2942,6 +2942,13 @@
         "empty": "这一层暂时没有可展示的记录。",
         "openRecord": "打开记录 {{id}}"
       },
+      "objects": {
+        "openRecord": "打开记录 {{title}}",
+        "recordSubtitle": {
+          "entity": "{{type}} · {{source}}",
+          "relation": "{{source}} 关系"
+        }
+      },
       "fallbacks": {
         "untitledSession": "未命名会话"
       },
@@ -2972,6 +2979,7 @@
         "session": "会话",
         "turn": "回合",
         "aliases": "别名",
+        "content": "内容",
         "type": "类型",
         "source": "来源",
         "updatedAt": "更新时间",

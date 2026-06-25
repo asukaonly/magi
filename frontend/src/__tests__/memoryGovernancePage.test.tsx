@@ -234,9 +234,25 @@ describe('MemoryGovernancePage', () => {
     expect(screen.getByRole('button', { name: /实体 人物、地点/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /断言 偏好、判断/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /关系图谱/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /ent_user_8f3e/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /实体：用户/ })).toBeInTheDocument();
     expect(screen.queryByText(/\bL[0-4]\b/)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText('episode_id')).not.toBeInTheDocument();
+  });
+
+  it('uses readable record content in the list and keeps ids in the drawer', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /断言 偏好/ }));
+
+    expect(screen.getByText('内容')).toBeInTheDocument();
+    expect(screen.queryByText('ID')).not.toBeInTheDocument();
+    expect(screen.queryByText('assert_1')).not.toBeInTheDocument();
+
+    await user.click(await screen.findByRole('button', { name: /直白/ }));
+
+    const drawer = await screen.findByRole('dialog', { name: '记录详情' });
+    expect(within(drawer).getByText('assert_1')).toBeInTheDocument();
   });
 
   it('paginates the object record list instead of rendering every row at once', async () => {
@@ -262,13 +278,13 @@ describe('MemoryGovernancePage', () => {
 
     renderPage();
 
-    expect(await screen.findByRole('button', { name: /ent_page_1/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /ent_page_7/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /分页实体 1/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /分页实体 7/ })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '下一页' }));
 
-    expect(await screen.findByRole('button', { name: /ent_page_7/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /ent_page_1/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /分页实体 7/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /分页实体 1/ })).not.toBeInTheDocument();
   });
 
   it('opens record details in a right-side drawer when a row is selected', async () => {
@@ -277,7 +293,7 @@ describe('MemoryGovernancePage', () => {
 
     expect(screen.queryByRole('dialog', { name: '记录详情' })).not.toBeInTheDocument();
 
-    await user.click(await screen.findByRole('button', { name: /ent_user_8f3e/ }));
+    await user.click(await screen.findByRole('button', { name: /实体：用户/ }));
 
     const drawer = await screen.findByRole('dialog', { name: '记录详情' });
     expect(within(drawer).getByText('实体：用户')).toBeInTheDocument();
@@ -292,7 +308,7 @@ describe('MemoryGovernancePage', () => {
     renderPage();
 
     await user.click(screen.getByRole('button', { name: /原始事件/ }));
-    await user.click(await screen.findByRole('button', { name: /evt_1/ }));
+    await user.click(await screen.findByRole('button', { name: /用户说自己正在整理记忆页面/ }));
 
     const drawer = await screen.findByRole('dialog', { name: '记录详情' });
     expect(drawer).toHaveClass('!w-[min(96vw,720px)]');
@@ -400,6 +416,6 @@ describe('MemoryGovernancePage', () => {
     renderPage();
 
     expect(await screen.findByRole('tab', { name: '对象明细' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /ent_sparse/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sparse entity/ })).toBeInTheDocument();
   });
 });

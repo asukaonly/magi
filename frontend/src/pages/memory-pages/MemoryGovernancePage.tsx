@@ -695,9 +695,9 @@ function LayerWorkspace({
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 overflow-x-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.8)]">
-              <div className="min-w-[760px]">
-                <div className="grid grid-cols-[minmax(150px,1.1fr)_120px_120px_120px_92px_40px] border-b border-[hsl(var(--memory-divider)/0.5)] px-4 py-2 text-xs font-medium text-[hsl(var(--memory-muted))]">
-                  <span>ID</span>
+              <div className="min-w-[720px]">
+                <div className="grid grid-cols-[minmax(230px,1.35fr)_104px_112px_112px_88px_32px] border-b border-[hsl(var(--memory-divider)/0.5)] px-4 py-2 text-xs font-medium text-[hsl(var(--memory-muted))]">
+                  <span>{label('fields.content', '内容')}</span>
                   <span>{label('fields.type', '类型')}</span>
                   <span>{label('fields.source', '来源')}</span>
                   <span>{label('fields.updatedAt', '更新时间')}</span>
@@ -705,25 +705,30 @@ function LayerWorkspace({
                   <span />
                 </div>
                 <div className="max-h-[390px] divide-y divide-[hsl(var(--memory-divider)/0.46)] overflow-y-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.8)]">
-                  {visibleRecords.map((record) => (
-                    <button
-                      key={`${record.categoryId}:${record.id}`}
-                      type="button"
-                      aria-label={label('objects.openRecord', '打开记录 {{id}}', { id: record.id })}
-                      onClick={() => onSelectRecord(record)}
-                      className="grid w-full grid-cols-[minmax(150px,1.1fr)_120px_120px_120px_92px_40px] items-center px-4 py-3 text-left text-sm transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.48)]"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate font-medium text-[hsl(var(--memory-title))]">{record.id}</span>
-                        <span className="mt-0.5 block truncate text-xs text-[hsl(var(--memory-muted))]">{record.title}</span>
-                      </span>
-                      <span className="truncate text-[hsl(var(--memory-body))]">{record.type}</span>
-                      <span className="truncate text-[hsl(var(--memory-body))]">{record.source}</span>
-                      <span className="text-[hsl(var(--memory-body))]">{formatTime(record.updatedAt)}</span>
-                      <span className={cn('font-medium', getRowStatusClass(record.status))}>{record.status}</span>
-                      <ChevronRight className="h-4 w-4 text-[hsl(var(--memory-muted))]" />
-                    </button>
-                  ))}
+                  {visibleRecords.map((record) => {
+                    const listCopy = getRecordListCopy(record, label);
+                    return (
+                      <button
+                        key={`${record.categoryId}:${record.id}`}
+                        type="button"
+                        aria-label={label('objects.openRecord', '打开记录 {{title}}', { title: listCopy.title })}
+                        onClick={() => onSelectRecord(record)}
+                        className="grid w-full grid-cols-[minmax(230px,1.35fr)_104px_112px_112px_88px_32px] items-center px-4 py-3 text-left text-sm transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.48)]"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-[hsl(var(--memory-title))]">{listCopy.title}</span>
+                          {listCopy.subtitle ? (
+                            <span className="mt-0.5 block truncate text-xs text-[hsl(var(--memory-muted))]">{listCopy.subtitle}</span>
+                          ) : null}
+                        </span>
+                        <span className="truncate text-[hsl(var(--memory-body))]">{record.type}</span>
+                        <span className="truncate text-[hsl(var(--memory-body))]">{record.source}</span>
+                        <span className="text-[hsl(var(--memory-body))]">{formatTime(record.updatedAt)}</span>
+                        <span className={cn('font-medium', getRowStatusClass(record.status))}>{record.status}</span>
+                        <ChevronRight className="h-4 w-4 text-[hsl(var(--memory-muted))]" />
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -766,6 +771,45 @@ function LayerWorkspace({
       </div>
     </section>
   );
+}
+
+function getRecordListCopy(
+  record: LayerRecord,
+  label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string
+) {
+  if (record.categoryId === 'assertions') {
+    const title = clampText(record.summary, record.title, 88);
+    return {
+      title,
+      subtitle: title === record.title ? null : record.title,
+    };
+  }
+
+  if (record.categoryId === 'events') {
+    return {
+      title: record.title,
+      subtitle: record.summary && record.summary !== record.title ? clampText(record.summary, record.type, 88) : record.type,
+    };
+  }
+
+  if (record.categoryId === 'entities') {
+    return {
+      title: record.title,
+      subtitle: record.summary || label('objects.recordSubtitle.entity', '{{type}} · {{source}}', { type: record.type, source: record.source }),
+    };
+  }
+
+  if (record.categoryId === 'relations') {
+    return {
+      title: record.title,
+      subtitle: record.summary || label('objects.recordSubtitle.relation', '{{source}} 关系', { source: record.source }),
+    };
+  }
+
+  return {
+    title: record.title,
+    subtitle: record.summary || record.categoryLabel,
+  };
 }
 
 function TaskMaintenancePanel({

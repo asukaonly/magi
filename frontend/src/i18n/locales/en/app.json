@@ -2943,6 +2943,13 @@
         "empty": "No records are available for this layer yet.",
         "openRecord": "Open record {{id}}"
       },
+      "objects": {
+        "openRecord": "Open record {{title}}",
+        "recordSubtitle": {
+          "entity": "{{type}} · {{source}}",
+          "relation": "{{source}} relation"
+        }
+      },
       "fallbacks": {
         "untitledSession": "Untitled session"
       },
@@ -2973,6 +2980,7 @@
         "session": "Session",
         "turn": "Turn",
         "aliases": "Aliases",
+        "content": "Content",
         "type": "Type",
         "source": "Source",
         "updatedAt": "Updated",
