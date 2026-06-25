@@ -15,8 +15,10 @@ from magi.memory.l2.entities.maintenance import (
     L2MaintenanceLifecycle,
 )
 from magi.memory.l2.storage.utils import (
+    MAX_EVIDENCE_EVENT_IDS,
     MOOD_TRAJECTORY_LIMIT,
     SNAPSHOT_HISTORY_LIMIT,
+    max_evidence_event_ids,
     mood_trajectory_limit,
     snapshot_history_limit,
 )
@@ -135,6 +137,7 @@ def test_runtime_config_l2_limits_defaults():
     assert isinstance(limits, MemoryL2LimitsSettings)
     assert limits.snapshot_history_limit == 5
     assert limits.mood_trajectory_limit == 20
+    assert limits.max_evidence_event_ids == 50
 
 
 def test_l2_limits_config_defaults_match_module_constants():
@@ -143,6 +146,7 @@ def test_l2_limits_config_defaults_match_module_constants():
 
     assert limits.snapshot_history_limit == SNAPSHOT_HISTORY_LIMIT
     assert limits.mood_trajectory_limit == MOOD_TRAJECTORY_LIMIT
+    assert limits.max_evidence_event_ids == MAX_EVIDENCE_EVENT_IDS
 
 
 def test_l2_limit_accessors_fall_back_when_config_unavailable(monkeypatch):
@@ -156,6 +160,7 @@ def test_l2_limit_accessors_fall_back_when_config_unavailable(monkeypatch):
 
     assert snapshot_history_limit() == SNAPSHOT_HISTORY_LIMIT
     assert mood_trajectory_limit() == MOOD_TRAJECTORY_LIMIT
+    assert max_evidence_event_ids() == MAX_EVIDENCE_EVENT_IDS
 
 
 def test_l2_limit_accessors_read_config_overrides(monkeypatch):
@@ -164,9 +169,11 @@ def test_l2_limit_accessors_read_config_overrides(monkeypatch):
     cfg = AppConfig()
     cfg.agent.memory.l2.limits.snapshot_history_limit = 9
     cfg.agent.memory.l2.limits.mood_trajectory_limit = 42
+    cfg.agent.memory.l2.limits.max_evidence_event_ids = 7
     monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
 
     assert snapshot_history_limit() == 9
     assert mood_trajectory_limit() == 42
+    assert max_evidence_event_ids() == 7
 
 

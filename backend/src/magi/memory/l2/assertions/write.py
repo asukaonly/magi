@@ -13,7 +13,7 @@ import aiosqlite
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
 from ..storage.utils import (
-    MAX_EVIDENCE_EVENT_IDS,
+    max_evidence_event_ids,
     normalize_event_ids,
     normalize_store_entity_ref,
     normalize_store_entity_type,
@@ -197,8 +197,9 @@ class L2StoreAssertionMixin:
                             normalized_candidate["evidence_events"]
                         )
                     )
-                    if len(merged_evidence) > MAX_EVIDENCE_EVENT_IDS:
-                        merged_evidence = merged_evidence[-MAX_EVIDENCE_EVENT_IDS:]
+                    evidence_cap = max_evidence_event_ids()
+                    if len(merged_evidence) > evidence_cap:
+                        merged_evidence = merged_evidence[-evidence_cap:]
                     first_inferred_at = min(
                         float(existing["first_inferred_at"]),
                         float(normalized_candidate["first_inferred_at"]),

@@ -99,6 +99,7 @@ agent:
       limits:
         snapshot_history_limit: 5 # entries per snapshot history field
         mood_trajectory_limit: 20 # entries in a snapshot mood/stress/engagement trajectory
+        max_evidence_event_ids: 50 # evidence event IDs retained per edge/assertion/facet merge
 
     l3:
       enabled: true

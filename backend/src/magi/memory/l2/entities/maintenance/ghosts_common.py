@@ -7,10 +7,7 @@ import re
 import uuid
 from typing import Any, Protocol
 
-
-# Maximum number of evidence event IDs retained per edge/facet merge.
-# When exceeded, the oldest entries are dropped.
-MAX_EVIDENCE_EVENT_IDS = 50
+from ...storage.utils import MAX_EVIDENCE_EVENT_IDS, max_evidence_event_ids
 
 
 def _slugify_entity_id_suffix(value: str) -> str:
@@ -26,7 +23,8 @@ def _canonical_entity_id(entity_type: str, canonical_name: str) -> str:
     return f"{entity_type}:{_slugify_entity_id_suffix(canonical_name)}"
 
 
-def _merge_evidence_json(a: str, b: str, *, max_items: int = MAX_EVIDENCE_EVENT_IDS) -> str:
+def _merge_evidence_json(a: str, b: str, *, max_items: int | None = None) -> str:
+    cap = max_items if max_items is not None else max_evidence_event_ids()
     try:
         la = json.loads(a or "[]")
         lb = json.loads(b or "[]")
@@ -43,8 +41,8 @@ def _merge_evidence_json(a: str, b: str, *, max_items: int = MAX_EVIDENCE_EVENT_
         if s not in seen:
             seen.add(s)
             out.append(item)
-    if len(out) > max_items:
-        out = out[-max_items:]
+    if len(out) > cap:
+        out = out[-cap:]
     return json.dumps(out)
 
 

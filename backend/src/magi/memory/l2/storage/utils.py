@@ -62,6 +62,11 @@ def mood_trajectory_limit() -> int:
     return _l2_limit("mood_trajectory_limit", MOOD_TRAJECTORY_LIMIT)
 
 
+def max_evidence_event_ids() -> int:
+    """Max evidence event IDs retained per edge/assertion/facet merge."""
+    return _l2_limit("max_evidence_event_ids", MAX_EVIDENCE_EVENT_IDS)
+
+
 
 def normalize_store_entity_type(entity_type: str | None) -> str | None:
     if entity_type is None:

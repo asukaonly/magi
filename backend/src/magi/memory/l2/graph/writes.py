@@ -14,8 +14,8 @@ from ....core.sqlite import sqlite_connection_async
 from ..ontology import are_predicates_synonymous
 from ..storage.utils import (
     DEFAULT_FUTURE_INTENT_TTL_SECONDS,
-    MAX_EVIDENCE_EVENT_IDS,
     accumulate_confidence,
+    max_evidence_event_ids,
     normalize_store_entity_ref,
     normalize_store_entity_type,
 )
@@ -254,8 +254,9 @@ class L2StoreGraphWriteMixin:
             existing_evidence = set(json.loads(existing["evidence_event_ids"] or "[]"))
             merged_set = existing_evidence.union(evidence_event_ids)
             merged_evidence = sorted(merged_set)
-            if len(merged_evidence) > MAX_EVIDENCE_EVENT_IDS:
-                merged_evidence = merged_evidence[-MAX_EVIDENCE_EVENT_IDS:]
+            evidence_cap = max_evidence_event_ids()
+            if len(merged_evidence) > evidence_cap:
+                merged_evidence = merged_evidence[-evidence_cap:]
             # Only count corroboration when genuinely new evidence arrived. Replays
             # (requeue, stale-job retry, overlapping windows) re-apply identical
             # evidence; bumping unconditionally inflates confidence/observation_count
@@ -399,8 +400,9 @@ class L2StoreGraphWriteMixin:
             existing_evidence = set(json.loads(existing["evidence_event_ids"] or "[]"))
             merged_set = existing_evidence.union(evidence_event_ids)
             merged_evidence = sorted(merged_set)
-            if len(merged_evidence) > MAX_EVIDENCE_EVENT_IDS:
-                merged_evidence = merged_evidence[-MAX_EVIDENCE_EVENT_IDS:]
+            evidence_cap = max_evidence_event_ids()
+            if len(merged_evidence) > evidence_cap:
+                merged_evidence = merged_evidence[-evidence_cap:]
             # Bump only on genuinely new evidence; identical-evidence replays must
             # not inflate confidence/observation_count (#137).
             evidence_grew = len(merged_set) > len(existing_evidence)

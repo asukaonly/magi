@@ -11,8 +11,8 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ..storage.utils import (
-    MAX_EVIDENCE_EVENT_IDS,
     accumulate_confidence,
+    max_evidence_event_ids,
     normalize_store_entity_ref,
     normalize_store_entity_type,
 )
@@ -58,8 +58,9 @@ class L2EntityFacetStoreMixin:
 
             if existing:
                 merged_evidence = sorted(set(json.loads(existing["evidence_event_ids"] or "[]")).union(evidence_event_ids))
-                if len(merged_evidence) > MAX_EVIDENCE_EVENT_IDS:
-                    merged_evidence = merged_evidence[-MAX_EVIDENCE_EVENT_IDS:]
+                evidence_cap = max_evidence_event_ids()
+                if len(merged_evidence) > evidence_cap:
+                    merged_evidence = merged_evidence[-evidence_cap:]
                 accumulated_confidence = accumulate_confidence(float(existing["confidence"]), float(confidence))
                 await db.execute(
                     """

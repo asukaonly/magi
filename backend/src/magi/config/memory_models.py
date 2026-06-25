@@ -176,6 +176,11 @@ class MemoryL2LimitsSettings(BaseModel):
         ge=1,
         description="Max retained entries in a ToM snapshot mood/stress/engagement trajectory.",
     )
+    max_evidence_event_ids: int = Field(
+        default=50,
+        ge=1,
+        description="Max evidence event IDs retained per knowledge-graph edge, assertion, or facet merge.",
+    )
 
 
 class MemoryL2Settings(BaseModel):
