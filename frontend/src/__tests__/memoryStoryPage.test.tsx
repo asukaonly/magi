@@ -131,7 +131,9 @@ describe('MemoryStoryPage', () => {
     renderPage();
     const page = await screen.findByTestId('memory-stories-feed');
     const periodic = screen.getByTestId('memory-stories-section-periodic');
+    expect(screen.getByTestId('memory-stories-featured')).toHaveTextContent('trend body');
     expect(page.textContent).toContain('trend body');
+    expect(screen.getAllByText('trend body')).toHaveLength(1);
     expect(periodic.textContent).toContain('day digest');
   });
 

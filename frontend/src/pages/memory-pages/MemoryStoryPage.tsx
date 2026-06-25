@@ -134,11 +134,6 @@ export const MemoryStoryPage = () => {
     [filteredItems]
   );
 
-  const focusStories = useMemo(
-    () => filteredItems.filter((story) => story.summary_id !== featuredStory?.summary_id).slice(0, 3),
-    [featuredStory?.summary_id, filteredItems]
-  );
-
   const feedStories = useMemo(
     () => {
       const withoutFeatured = filteredItems.filter((story) => story.summary_id !== featuredStory?.summary_id);
@@ -159,7 +154,7 @@ export const MemoryStoryPage = () => {
       title={t('memory.stories.title')}
       description={t('memory.stories.subtitle')}
       hideHeader
-      className="max-w-[1240px] gap-3 px-4 py-4 lg:px-6 lg:py-6"
+      className="max-w-[900px] gap-3 px-4 py-4"
       contentClassName="pb-6"
     >
       <section data-testid="memory-stories-feed" className="space-y-5">
@@ -172,14 +167,14 @@ export const MemoryStoryPage = () => {
           <>
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <div className="flex max-w-full overflow-x-auto rounded-xl border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.78)] p-1">
+                <div className="inline-flex w-fit max-w-full flex-wrap gap-0.5 rounded-lg border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.72)] p-0.5">
                   {FILTERS.map((filter) => (
                     <button
                       key={filter.id}
                       type="button"
                       onClick={() => setActiveFilter(filter.id)}
                       className={cn(
-                        'whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium transition-colors',
+                        'inline-flex h-8 items-center whitespace-nowrap rounded-md px-2.5 text-sm font-medium transition-colors',
                         activeFilter === filter.id
                           ? 'bg-[hsl(var(--memory-title))] text-[hsl(var(--memory-panel))]'
                           : 'text-[hsl(var(--memory-body))] hover:bg-[hsl(var(--memory-panel-subtle)/0.62)]'
@@ -213,73 +208,37 @@ export const MemoryStoryPage = () => {
               </div>
             ) : (
               <>
-                <div className={cn(
-                  'grid gap-4',
-                  focusStories.length > 0 ? 'xl:grid-cols-[1.08fr_0.92fr]' : ''
-                )}>
-                  {featuredStory ? (
-                    <article
-                      className="rounded-2xl border border-[hsl(var(--memory-border)/0.56)] bg-[linear-gradient(135deg,hsl(var(--memory-accent-soft)/0.26),hsl(var(--memory-panel-elevated)/0.86))] px-6 py-6"
-                    >
-                      <div className="mb-3 inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
-                        {t('memory.stories.heroLabel')}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setDetailStory(featuredStory)}
-                        className="block text-left text-[1.35rem] font-semibold leading-9 text-[hsl(var(--memory-title))] transition-colors hover:text-[hsl(var(--memory-accent))]"
-                      >
-                        {storyPrimaryText(featuredStory)}
-                      </button>
-                      {storySecondaryText(featuredStory) ? (
-                        <p className="mt-4 max-w-3xl text-sm leading-7 text-[hsl(var(--memory-body))]">
-                          {storySecondaryText(featuredStory)}
-                        </p>
-                      ) : null}
-                      <div className="mt-7 flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
-                        {formatStoryDate(featuredStory, i18n.language) ? <span>{formatStoryDate(featuredStory, i18n.language)}</span> : null}
-                        {featuredStory.evidence_event_count > 0 ? (
-                          <>
-                            <span>·</span>
-                            <span>{t('memory.stories.evidenceChip', { count: featuredStory.evidence_event_count })}</span>
-                          </>
-                        ) : null}
-                      </div>
-                    </article>
-                  ) : null}
-
-                  {focusStories.length > 0 ? (
-                    <div className="overflow-hidden rounded-2xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.72)]">
-                      {focusStories.map((story, index) => (
-                        <button
-                          key={story.summary_id}
-                          type="button"
-                          onClick={() => setDetailStory(story)}
-                          className="grid w-full grid-cols-[10px_minmax(0,1fr)] gap-4 border-b border-[hsl(var(--memory-divider)/0.58)] px-5 py-4 text-left last:border-b-0 hover:bg-[hsl(var(--memory-panel-subtle)/0.34)]"
-                        >
-                          <span
-                            className={cn(
-                              'mt-1 h-9 rounded-full',
-                              index === 0 && 'bg-sky-500/70',
-                              index === 1 && 'bg-emerald-600/70',
-                              index === 2 && 'bg-amber-600/70'
-                            )}
-                          />
-                          <span className="min-w-0">
-                            <span className="block text-sm font-semibold leading-6 text-[hsl(var(--memory-title))]">
-                              {storyPrimaryText(story)}
-                            </span>
-                            {storySecondaryText(story) ? (
-                              <span className="mt-1 block text-sm leading-6 text-[hsl(var(--memory-body))]">
-                                {storySecondaryText(story)}
-                              </span>
-                            ) : null}
-                          </span>
-                        </button>
-                      ))}
+                {featuredStory ? (
+                  <article
+                    data-testid="memory-stories-featured"
+                    className="rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.72)] px-4 py-4"
+                  >
+                    <div className="mb-2 inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
+                      {t('memory.stories.heroLabel')}
                     </div>
-                  ) : null}
-                </div>
+                    <button
+                      type="button"
+                      onClick={() => setDetailStory(featuredStory)}
+                      className="line-clamp-6 block text-left text-base font-semibold leading-7 text-[hsl(var(--memory-title))] transition-colors hover:text-[hsl(var(--memory-accent))]"
+                    >
+                      {storyPrimaryText(featuredStory)}
+                    </button>
+                    {storySecondaryText(featuredStory) ? (
+                      <p className="mt-2 line-clamp-3 text-sm leading-6 text-[hsl(var(--memory-body))]">
+                        {storySecondaryText(featuredStory)}
+                      </p>
+                    ) : null}
+                    <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
+                      {formatStoryDate(featuredStory, i18n.language) ? <span>{formatStoryDate(featuredStory, i18n.language)}</span> : null}
+                      {featuredStory.evidence_event_count > 0 ? (
+                        <>
+                          <span>·</span>
+                          <span>{t('memory.stories.evidenceChip', { count: featuredStory.evidence_event_count })}</span>
+                        </>
+                      ) : null}
+                    </div>
+                  </article>
+                ) : null}
 
                 <section data-testid="memory-stories-section-feed" className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
