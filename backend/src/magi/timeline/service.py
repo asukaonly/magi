@@ -1,9 +1,11 @@
 """Timeline service facade over memory-backed viewport and context bundles."""
 from __future__ import annotations
 
+import mimetypes
 from typing import Any, Optional
 from urllib.parse import unquote
 
+from ..media.adapters.photo_library import PHOTO_LIBRARY_SOURCE_FILTERS
 from .. import i18n as core_i18n
 from .contracts import TimelineEvent
 from .insight_pipeline import TimelineInsightPipeline
@@ -53,6 +55,38 @@ async def _resolve_photo_library_asset(asset_ref: str) -> tuple[Optional[str], O
     Tests monkeypatch this function at the module level.
     """
     return None, None
+
+
+def _photo_metadata(event: dict[str, Any]) -> dict[str, Any]:
+    for key in ("metadata", "metadata_json"):
+        value = event.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def _iter_representative_photos(metadata: dict[str, Any]):
+    photos = metadata.get("representative_photos")
+    if not isinstance(photos, list):
+        return
+    for photo in photos:
+        if isinstance(photo, dict):
+            yield photo
+
+
+def _photo_library_asset_id(asset_ref: str) -> str:
+    scheme, _, tail = asset_ref.partition("://")
+    if scheme != "photo-library":
+        return ""
+    return tail.strip()
+
+
+def _guess_image_content_type(path: str) -> str:
+    lowered = path.lower()
+    if lowered.endswith((".heic", ".heif")):
+        return "image/heic"
+    guessed, _ = mimetypes.guess_type(path)
+    return guessed or "application/octet-stream"
 
 
 class TimelineService:
@@ -124,7 +158,7 @@ class TimelineService:
 
         Returns serializable dicts shaped for the GET /timeline/standout payload.
         """
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         store = getattr(self._unified_memory, "l2", None)
         if store is None:
@@ -228,7 +262,9 @@ class TimelineService:
             return self._manual_entry_asset_store.resolve(asset_ref)
 
         if scheme == "photo-library":
-            file_path, content_type = await _resolve_photo_library_asset(asset_ref)
+            file_path, content_type = await self._resolve_photo_library_asset_from_l1(asset_ref)
+            if not file_path:
+                file_path, content_type = await _resolve_photo_library_asset(asset_ref)
             if not file_path:
                 return None
             try:
@@ -239,6 +275,39 @@ class TimelineService:
             return data, content_type or "application/octet-stream"
 
         return None
+
+    async def _resolve_photo_library_asset_from_l1(
+        self, asset_ref: str,
+    ) -> tuple[Optional[str], Optional[str]]:
+        asset_id = _photo_library_asset_id(asset_ref)
+        if not asset_id:
+            return None, None
+        l1_store = getattr(self._unified_memory, "l1", None)
+        if l1_store is None or not hasattr(l1_store, "query_events"):
+            return None, None
+        try:
+            events = await l1_store.query_events(
+                source_filters=list(PHOTO_LIBRARY_SOURCE_FILTERS),
+                limit=5000,
+                order_by="timestamp_desc",
+            )
+        except Exception:
+            return None, None
+
+        for event in events or []:
+            metadata = _photo_metadata(event)
+            for photo in _iter_representative_photos(metadata) or []:
+                candidate = photo.get("asset_local_id") or photo.get("local_identifier")
+                if not isinstance(candidate, str) or candidate.strip() != asset_id:
+                    continue
+                path = photo.get("path")
+                if not isinstance(path, str) or not path.strip():
+                    return None, None
+                content_type = photo.get("mime_type") or photo.get("content_type")
+                if not isinstance(content_type, str) or not content_type.strip():
+                    content_type = _guess_image_content_type(path)
+                return path.strip(), content_type.strip()
+        return None, None
 
     async def get_context_bundle(self, anchor_id: str) -> Optional[dict]:
         if getattr(self._unified_memory, "l1", None) is None:

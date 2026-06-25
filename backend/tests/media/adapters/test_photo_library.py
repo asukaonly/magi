@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import List
-
 import pytest
 
 
@@ -84,10 +82,46 @@ async def test_list_assets_maps_photo_events_to_asset_dicts():
     assert first.get("mime_type") == "image/heic"
     assert first.get("location") == "家"
 
-    # Verify the adapter called the L1 store with the expected source_filters
-    assert l1.last_call["source_filters"] == ["photo_library"]
+    # Verify the adapter called the L1 store with all supported photo sources.
+    assert l1.last_call["source_filters"] == [
+        "photo_library",
+        "photo_library_apple_photos",
+        "photo_library_directory",
+    ]
     assert l1.last_call["start_time"] == 0.0
     assert l1.last_call["end_time"] == 1000.0
+
+
+@pytest.mark.asyncio
+async def test_list_assets_extracts_apple_photos_representative_photo_metadata():
+    from magi.media.adapters.photo_library import PhotoLibraryMediaSource
+
+    l1 = _FakeL1Store()
+    l1.events.append({
+        "event_id": "evt-apple-photo",
+        "source": "photo_library_apple_photos",
+        "timestamp": 500.0,
+        "metadata_json": {
+            "representative_photos": [
+                {
+                    "asset_local_id": "apple-photos:9456A1CD-8623-4061-88F0-13BA88023FAA",
+                    "path": "/Users/asuka/Pictures/Photos Library.photoslibrary/originals/9/photo.heic",
+                    "location_name": "Tiankongzhicheng, Hangzhou",
+                }
+            ],
+        },
+    })
+
+    src = PhotoLibraryMediaSource(l1_store=l1)
+    out = await src.list_assets(start=0.0, end=1000.0)
+
+    assert out == [
+        {
+            "ref": "photo-library://apple-photos:9456A1CD-8623-4061-88F0-13BA88023FAA",
+            "timestamp": 500.0,
+            "location": "Tiankongzhicheng, Hangzhou",
+        }
+    ]
 
 
 @pytest.mark.asyncio

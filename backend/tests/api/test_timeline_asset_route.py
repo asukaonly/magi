@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from urllib.parse import quote
 
 import pytest
@@ -74,6 +73,47 @@ async def test_serve_asset_streams_existing_file(
     body_bytes, content_type = result
     assert body_bytes == b"\x00\x01\x02\x03"
     assert content_type == "image/heic"
+
+
+@pytest.mark.asyncio
+async def test_serve_asset_streams_apple_photos_metadata_file(tmp_path):
+    fake_file = tmp_path / "IMG.heic"
+    fake_file.write_bytes(b"apple-photo-bytes")
+
+    class _FakeL1:
+        async def query_events(self, **kwargs):
+            assert kwargs["source_filters"] == [
+                "photo_library",
+                "photo_library_apple_photos",
+                "photo_library_directory",
+            ]
+            return [
+                {
+                    "event_id": "evt-apple-photo",
+                    "source": "photo_library_apple_photos",
+                    "timestamp": 1782300426.499,
+                    "metadata_json": {
+                        "representative_photos": [
+                            {
+                                "asset_local_id": (
+                                    "apple-photos:"
+                                    "9456A1CD-8623-4061-88F0-13BA88023FAA"
+                                ),
+                                "path": str(fake_file),
+                            }
+                        ]
+                    },
+                }
+            ]
+
+    unified = type("Unified", (), {"l1": _FakeL1()})()
+    service = TimelineService(unified)
+
+    result = await service.serve_asset(
+        asset_ref="photo-library://apple-photos:9456A1CD-8623-4061-88F0-13BA88023FAA"
+    )
+
+    assert result == (b"apple-photo-bytes", "image/heic")
 
 
 @pytest.mark.asyncio
