@@ -100,6 +100,10 @@ agent:
         snapshot_history_limit: 5 # entries per snapshot history field
         mood_trajectory_limit: 20 # entries in a snapshot mood/stress/engagement trajectory
         max_evidence_event_ids: 50 # evidence event IDs retained per edge/assertion/facet merge
+      # Confidence policy for L2 extraction and evidence accumulation.
+      confidence:
+        accumulation_cap: 0.99 # noisy-OR ceiling for accumulated edge/facet evidence
+        single_event_cap: 0.3 # confidence ceiling for single-event extraction batches
 
     l3:
       enabled: true

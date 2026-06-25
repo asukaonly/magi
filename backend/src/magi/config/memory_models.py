@@ -183,6 +183,28 @@ class MemoryL2LimitsSettings(BaseModel):
     )
 
 
+class MemoryL2ConfidenceSettings(BaseModel):
+    """Confidence policy for L2 extraction and evidence accumulation.
+
+    These previously lived as inline magic numbers. Defaults preserve the prior
+    runtime behavior; the runtime reads them through config-aware accessors that
+    fall back to the same defaults when no config is bound.
+    """
+
+    accumulation_cap: float = Field(
+        default=0.99,
+        gt=0.0,
+        le=1.0,
+        description="Noisy-OR ceiling when accumulating evidence confidence on a graph edge or facet.",
+    )
+    single_event_cap: float = Field(
+        default=0.3,
+        gt=0.0,
+        le=1.0,
+        description="Confidence ceiling for claims/assertions extracted from a single-event batch.",
+    )
+
+
 class MemoryL2Settings(BaseModel):
     """L2 structured cognition settings."""
 
@@ -245,6 +267,7 @@ class MemoryL2Settings(BaseModel):
     )
     lifecycle: MemoryL2LifecycleSettings = Field(default_factory=MemoryL2LifecycleSettings)
     limits: MemoryL2LimitsSettings = Field(default_factory=MemoryL2LimitsSettings)
+    confidence: MemoryL2ConfidenceSettings = Field(default_factory=MemoryL2ConfidenceSettings)
 
 
 class MemoryL3Settings(BaseModel):
@@ -391,6 +414,7 @@ __all__ = [
     "MemoryHistoryBehavior",
     "MemoryL0Settings",
     "MemoryL1Settings",
+    "MemoryL2ConfidenceSettings",
     "MemoryL2LifecycleSettings",
     "MemoryL2LimitsSettings",
     "MemoryL2Settings",

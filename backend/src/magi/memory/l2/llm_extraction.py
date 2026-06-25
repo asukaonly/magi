@@ -14,6 +14,7 @@ from .pipeline.prompts import (
     render_phase1_extract_prompt,
     render_phase2_integrate_prompt,
 )
+from .storage.utils import single_event_confidence_cap
 
 logger = get_logger(__name__)
 
@@ -67,8 +68,9 @@ class L2LLMExtractionMixin:
         result = L2Phase1Result.from_dict(payload)
         is_single_event = len(event_window.event_ids) <= 1
         if is_single_event:
+            cap = single_event_confidence_cap()
             for claim in result.fact_claims:
-                claim.confidence = min(claim.confidence, 0.3)
+                claim.confidence = min(claim.confidence, cap)
         duration_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
         logger.info(
             "L2 Phase 1 extraction completed",
@@ -150,8 +152,9 @@ class L2LLMExtractionMixin:
         result = L2Phase2Result.from_dict(payload)
         is_single_event = len(event_window.event_ids) <= 1
         if is_single_event:
+            cap = single_event_confidence_cap()
             for assertion in result.assertion_candidates:
-                assertion.confidence = min(assertion.confidence, 0.3)
+                assertion.confidence = min(assertion.confidence, cap)
         duration_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
         logger.info(
             "L2 Phase 2 integration completed",

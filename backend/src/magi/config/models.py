@@ -23,6 +23,7 @@ from .memory_models import (
     MemoryHistoryBehavior as MemoryHistoryBehavior,
     MemoryL0Settings as MemoryL0Settings,
     MemoryL1Settings as MemoryL1Settings,
+    MemoryL2ConfidenceSettings as MemoryL2ConfidenceSettings,
     MemoryL2LifecycleSettings as MemoryL2LifecycleSettings,
     MemoryL2LimitsSettings as MemoryL2LimitsSettings,
     MemoryL2Settings as MemoryL2Settings,

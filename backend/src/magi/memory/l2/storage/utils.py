@@ -33,23 +33,29 @@ MOOD_TRAJECTORY_FAMILIES = {"mood", "stress", "engagement"}
 MOOD_TRAJECTORY_LIMIT = 20
 DEFAULT_FUTURE_INTENT_TTL_SECONDS = 30 * 24 * 3600
 MAX_EVIDENCE_EVENT_IDS = 50
+CONFIDENCE_ACCUMULATION_CAP = 0.99
+SINGLE_EVENT_CONFIDENCE_CAP = 0.3
 
 
-def _l2_limit(attr: str, default: int) -> int:
-    """Read an ``agent.memory.l2.limits`` value, falling back to *default*.
+def _l2_setting(group: str, attr: str, default: object) -> object:
+    """Read an ``agent.memory.l2.<group>.<attr>`` value, falling back to *default*.
 
     Pure L2 helpers run in contexts without a bound config (isolated unit and
-    benchmark stores), so any failure to resolve the config returns the module
+    benchmark stores), so any failure to resolve the config returns the supplied
     default rather than raising. The config loader caches by file signature, so
     repeated calls are cheap.
     """
     try:
         from ....config import get_config
 
-        value = getattr(get_config().agent.memory.l2.limits, attr)
-        return int(value)
+        node = getattr(get_config().agent.memory.l2, group)
+        return getattr(node, attr)
     except Exception:
         return default
+
+
+def _l2_limit(attr: str, default: int) -> int:
+    return int(_l2_setting("limits", attr, default))
 
 
 def snapshot_history_limit() -> int:
@@ -65,6 +71,17 @@ def mood_trajectory_limit() -> int:
 def max_evidence_event_ids() -> int:
     """Max evidence event IDs retained per edge/assertion/facet merge."""
     return _l2_limit("max_evidence_event_ids", MAX_EVIDENCE_EVENT_IDS)
+
+
+def confidence_accumulation_cap() -> float:
+    """Noisy-OR confidence ceiling for accumulated edge/facet evidence."""
+    return float(_l2_setting("confidence", "accumulation_cap", CONFIDENCE_ACCUMULATION_CAP))
+
+
+def single_event_confidence_cap() -> float:
+    """Confidence ceiling for claims/assertions from a single-event extraction batch."""
+    return float(_l2_setting("confidence", "single_event_cap", SINGLE_EVENT_CONFIDENCE_CAP))
+
 
 
 
@@ -92,6 +109,6 @@ def normalize_store_entity_ref(entity_id: str | None, entity_type: str | None) -
 
 
 def accumulate_confidence(old: float, new: float) -> float:
-    """Combine old and new confidence using noisy-OR, clamped to [0.0, 0.99]."""
+    """Combine old and new confidence using noisy-OR, clamped to the configured cap."""
     combined = 1.0 - (1.0 - max(0.0, old)) * (1.0 - max(0.0, new))
-    return min(combined, 0.99)
+    return min(combined, confidence_accumulation_cap())

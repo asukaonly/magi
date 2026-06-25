@@ -6,6 +6,7 @@ from magi.config import memory_models
 from magi.config.models import AppConfig
 from magi.config import models as runtime_models
 from magi.config.memory_models import (
+    MemoryL2ConfidenceSettings,
     MemoryL2LifecycleSettings,
     MemoryL2LimitsSettings,
     MemoryL2Settings,
@@ -15,11 +16,15 @@ from magi.memory.l2.entities.maintenance import (
     L2MaintenanceLifecycle,
 )
 from magi.memory.l2.storage.utils import (
+    CONFIDENCE_ACCUMULATION_CAP,
     MAX_EVIDENCE_EVENT_IDS,
     MOOD_TRAJECTORY_LIMIT,
+    SINGLE_EVENT_CONFIDENCE_CAP,
     SNAPSHOT_HISTORY_LIMIT,
+    confidence_accumulation_cap,
     max_evidence_event_ids,
     mood_trajectory_limit,
+    single_event_confidence_cap,
     snapshot_history_limit,
 )
 
@@ -43,6 +48,7 @@ def test_l2_edge_embedding_drain_interval_default():
         "MemoryHistoryBehavior",
         "MemoryL0Settings",
         "MemoryL1Settings",
+        "MemoryL2ConfidenceSettings",
         "MemoryL2LifecycleSettings",
         "MemoryL2LimitsSettings",
         "MemoryL2Settings",
@@ -149,6 +155,21 @@ def test_l2_limits_config_defaults_match_module_constants():
     assert limits.max_evidence_event_ids == MAX_EVIDENCE_EVENT_IDS
 
 
+def test_runtime_config_l2_confidence_defaults():
+    confidence = AppConfig().agent.memory.l2.confidence
+
+    assert isinstance(confidence, MemoryL2ConfidenceSettings)
+    assert confidence.accumulation_cap == 0.99
+    assert confidence.single_event_cap == 0.3
+
+
+def test_l2_confidence_config_defaults_match_module_constants():
+    confidence = MemoryL2ConfidenceSettings()
+
+    assert confidence.accumulation_cap == CONFIDENCE_ACCUMULATION_CAP
+    assert confidence.single_event_cap == SINGLE_EVENT_CONFIDENCE_CAP
+
+
 def test_l2_limit_accessors_fall_back_when_config_unavailable(monkeypatch):
     """The user-facing guarantee: defaults still apply when no config resolves."""
     import magi.config
@@ -161,6 +182,8 @@ def test_l2_limit_accessors_fall_back_when_config_unavailable(monkeypatch):
     assert snapshot_history_limit() == SNAPSHOT_HISTORY_LIMIT
     assert mood_trajectory_limit() == MOOD_TRAJECTORY_LIMIT
     assert max_evidence_event_ids() == MAX_EVIDENCE_EVENT_IDS
+    assert confidence_accumulation_cap() == CONFIDENCE_ACCUMULATION_CAP
+    assert single_event_confidence_cap() == SINGLE_EVENT_CONFIDENCE_CAP
 
 
 def test_l2_limit_accessors_read_config_overrides(monkeypatch):
@@ -170,10 +193,27 @@ def test_l2_limit_accessors_read_config_overrides(monkeypatch):
     cfg.agent.memory.l2.limits.snapshot_history_limit = 9
     cfg.agent.memory.l2.limits.mood_trajectory_limit = 42
     cfg.agent.memory.l2.limits.max_evidence_event_ids = 7
+    cfg.agent.memory.l2.confidence.accumulation_cap = 0.5
+    cfg.agent.memory.l2.confidence.single_event_cap = 0.1
     monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
 
     assert snapshot_history_limit() == 9
     assert mood_trajectory_limit() == 42
     assert max_evidence_event_ids() == 7
+    assert confidence_accumulation_cap() == 0.5
+    assert single_event_confidence_cap() == 0.1
+
+
+def test_accumulate_confidence_honors_configured_cap(monkeypatch):
+    import magi.config
+    from magi.memory.l2.storage.utils import accumulate_confidence
+
+    cfg = AppConfig()
+    cfg.agent.memory.l2.confidence.accumulation_cap = 0.5
+    monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
+
+    # Noisy-OR of 0.9 and 0.9 is 0.99, but the configured cap clamps it to 0.5.
+    assert accumulate_confidence(0.9, 0.9) == 0.5
+
 
 

@@ -462,7 +462,7 @@ Experience promotion is a second-stage process over active episodes:
 - Temporal validity: `valid_from` / `valid_to` on edges
 - Privacy scope: `privacy_scope` on edges, facets, assertions, episodes, and experiences
 - Synonym-aware edge dedup prevents predicate drift
-- Confidence accumulation uses noisy-OR: `1 - (1-old)(1-new)`, capped at 0.99
+- Confidence accumulation uses noisy-OR: `1 - (1-old)(1-new)`, capped at `agent.memory.l2.confidence.accumulation_cap` (default 0.99)
 
 #### L2 Projection Pipeline
 
