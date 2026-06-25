@@ -6,22 +6,22 @@ import logging
 import re
 import time
 from contextlib import contextmanager
-from inspect import isawaitable
 from typing import Any
 
 from fastapi import APIRouter, Query
 
-from ....memory.l2.entities.catalog.lookup import get_canonical_names
 from ....memory.portrait.contracts import PortraitObservation, PortraitPayload
 from ....memory.provider import get_unified_memory
+from ....user_profile.portrait_graph_signals import (
+    PortraitGraphSignal,
+    collect_portrait_graph_signals,
+)
 from ....user_profile.portrait_signal_policy import (
-    PORTRAIT_GRAPH_WORLD_RULES,
     PORTRAIT_RECENT_FAMILIES,
     PORTRAIT_REVIEW_STATES,
     PORTRAIT_SOURCE_STRENGTH,
     PORTRAIT_VALIDATION_STRENGTH,
     assertion_portrait_role,
-    graph_relation_portrait_world_group,
 )
 from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ....user_profile.projection_repository import UserProfileProjectionRepository
@@ -291,122 +291,28 @@ async def _observations_from_graph_relationships(
     *,
     entity_id: str,
 ) -> list[PortraitObservation]:
-    getter = getattr(l2, "get_relationships", None)
-    if not callable(getter):
-        return []
-
-    result = getter(
-        subject_id=entity_id,
-        predicates=list(PORTRAIT_GRAPH_WORLD_RULES),
-        status="active",
-        limit=80,
-    )
-    if not isawaitable(result):
-        return []
-    relationships = await result
-    if not isinstance(relationships, list) or not relationships:
-        return []
-
-    object_ids = [
-        str(edge.get("object_id") or "").strip()
-        for edge in relationships
-        if isinstance(edge, dict) and str(edge.get("object_id") or "").strip()
-    ]
-    canonical_names: dict[str, str] = {}
-    db_path = getattr(l2, "db_path", None)
-    if isinstance(db_path, str) and db_path.strip() and object_ids:
-        try:
-            canonical_names = await get_canonical_names(db_path, object_ids)
-        except Exception as exc:
-            logger.debug("self portrait: graph canonical name lookup failed: %s", exc)
-
-    observations: list[PortraitObservation] = []
-    seen: set[tuple[str, str]] = set()
-    for edge in relationships:
-        if not isinstance(edge, dict):
-            continue
-        observation = _observation_from_graph_relationship(edge, canonical_names)
-        if observation is None:
-            continue
-        group_id = _ref_value(observation, "world_group") or ""
-        key = (group_id, observation.text.casefold())
-        if key in seen:
-            continue
-        seen.add(key)
-        observations.append(observation)
-        if len(observations) >= 12:
-            break
-    return observations
+    signals = await collect_portrait_graph_signals(l2, entity_id=entity_id)
+    return [_observation_from_graph_signal(signal) for signal in signals]
 
 
-def _observation_from_graph_relationship(
-    edge: dict[str, Any],
-    canonical_names: dict[str, str],
-) -> PortraitObservation | None:
-    predicate = str(edge.get("predicate") or "").strip().upper()
-    object_type = str(edge.get("object_type") or "").strip().casefold()
-    world_group = graph_relation_portrait_world_group(
-        predicate=predicate,
-        object_type=object_type,
-        observation_count=int(edge.get("observation_count", 0) or 0),
-    )
-    if world_group is None:
-        return None
-
-    text = _graph_object_name(edge=edge, canonical_names=canonical_names)
-    if not text:
-        return None
-
+def _observation_from_graph_signal(signal: PortraitGraphSignal) -> PortraitObservation:
     refs = [
-        f"world_group:{world_group}",
-        f"predicate:{predicate}",
-        f"object_type:{object_type}",
+        f"world_group:{signal.world_group}",
+        f"predicate:{signal.predicate}",
+        f"object_type:{signal.object_type}",
     ]
-    source_type = str(edge.get("source_type") or "").strip()
-    if source_type:
-        refs.append(f"source:{source_type}")
-    triple_id = str(edge.get("triple_id") or "").strip()
-    if triple_id:
-        refs.append(f"graph:{triple_id}")
+    if signal.source_type:
+        refs.append(f"source:{signal.source_type}")
+    if signal.triple_id:
+        refs.append(f"graph:{signal.triple_id}")
 
     return PortraitObservation(
         kind="relationship",
-        text=text,
-        basis_count=int(edge.get("observation_count") or 1),
-        basis_summary=(source_type or "knowledge_graph"),
+        text=signal.text,
+        basis_count=signal.observation_count,
+        basis_summary=(signal.source_type or "knowledge_graph"),
         basis_refs=refs,
     )
-
-
-def _graph_object_name(
-    *,
-    edge: dict[str, Any],
-    canonical_names: dict[str, str],
-) -> str:
-    object_id = str(edge.get("object_id") or "").strip()
-    raw_name = canonical_names.get(object_id, "") if object_id else ""
-    if not raw_name:
-        raw_name = _object_slug(object_id)
-    name = raw_name.replace("_", " ").strip()
-    if not name:
-        return ""
-    if _LOW_VALUE_GRAPH_NAME_RE.fullmatch(name):
-        return ""
-    if _COORDINATE_GRAPH_NAME_RE.fullmatch(name):
-        return ""
-    return name[:80]
-
-
-_LOW_VALUE_GRAPH_NAME_RE = re.compile(r"[0-9a-f]{10,}", re.IGNORECASE)
-_COORDINATE_GRAPH_NAME_RE = re.compile(
-    r"[-+]?\d{1,3}(?:\.\d+)?\s*,\s*[-+]?\d{1,3}(?:\.\d+)?"
-)
-
-
-def _object_slug(object_id: str) -> str:
-    if ":" in object_id:
-        return object_id.split(":", 1)[1]
-    return object_id
 
 
 def _build_self_view(observations: list[PortraitObservation]) -> dict[str, Any]:

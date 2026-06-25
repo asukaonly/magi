@@ -607,3 +607,84 @@ def test_materialized_and_fallback_portrait_classify_assertions_identically():
     assert sorted(item["text"] for item in fallback["review"]["items"]) == ["一次性页面"]
     assert sorted(item["text"] for item in fallback["recent"]["items"]) == ["验证画像"]
 
+
+class _ConsistencyGraphL2:
+    """L2 fake exposing assertions plus graph relationships for both paths."""
+
+    def __init__(self, assertions: list[dict], relationships: list[dict]):
+        self._assertions = assertions
+        self._relationships = relationships
+
+    async def list_tom_assertions(self, **kwargs):
+        return [dict(item) for item in self._assertions]
+
+    async def list_tom_snapshots(self, **kwargs):
+        return []
+
+    async def get_relationships(self, **kwargs):
+        return [dict(edge) for edge in self._relationships]
+
+
+def test_materialized_and_fallback_portrait_include_graph_clues_identically():
+    """Visited places / owned-used tools must land in the same world groups in
+    both the materialized projection and the API fallback path."""
+    assertions = [
+        {
+            "assertion_id": "a-routine",
+            "trait_family": "routine_profile",
+            "trait_name": "tool",
+            "trait_value": "本地插件仓库",
+            "validation_state": "stable",
+            "source_domain": "user_authored",
+            "evidence_count": 2,
+        },
+    ]
+    relationships = [
+        {
+            "triple_id": "t-place",
+            "predicate": "VISITED",
+            "object_id": "place:东京",
+            "object_type": "place",
+            "source_type": "photo_library_apple_photos",
+            "observation_count": 3,
+        },
+        {
+            "triple_id": "t-tool",
+            "predicate": "USES",
+            "object_id": "software:Chrome",
+            "object_type": "software",
+            "source_type": "chrome_history",
+            "observation_count": 5,
+        },
+        {
+            "triple_id": "t-single",
+            "predicate": "VISITED",
+            "object_id": "place:一次性地点",
+            "object_type": "place",
+            "observation_count": 1,
+        },
+    ]
+    l2 = _ConsistencyGraphL2(assertions, relationships)
+
+    materialized = asyncio.run(UserPortraitProjectionBuilder(l2).build("u1"))
+
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    portrait_repo = MagicMock()
+    portrait_repo.get = AsyncMock(return_value=None)
+    with override_dependencies_for_test(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+    assert resp.status_code == 200
+    fallback = resp.json()["self_view"]
+
+    assert _world_buckets(materialized.world) == _world_buckets(fallback["world"])
+    assert _world_buckets(fallback["world"]) == {
+        "identity": [],
+        "preferences": [],
+        "routine": ["Chrome", "本地插件仓库"],
+        "places": ["东京"],
+        "communication": [],
+    }
+
+

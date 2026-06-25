@@ -239,6 +239,65 @@ async def test_portrait_projection_treats_confirmed_feedback_as_user_qualified()
     assert "DeepSeek" in "\n".join(projection.prompt_summary)
 
 
+class _GraphSignalL2:
+    async def list_tom_assertions(self, **kwargs):
+        return [
+            {
+                "assertion_id": "a-tool",
+                "trait_family": "routine_profile",
+                "trait_name": "tool",
+                "trait_value": "本地插件仓库",
+                "validation_state": "stable",
+                "source_domain": "user_authored",
+                "evidence_events": ["e1", "e2"],
+            },
+        ]
+
+    async def list_tom_snapshots(self, **kwargs):
+        return []
+
+    async def get_relationships(self, **kwargs):
+        return [
+            {
+                "triple_id": "t-place",
+                "predicate": "VISITED",
+                "object_id": "place:东京",
+                "object_type": "place",
+                "source_type": "photo_library_apple_photos",
+                "observation_count": 3,
+            },
+            {
+                "triple_id": "t-tool",
+                "predicate": "USES",
+                "object_id": "software:Chrome",
+                "object_type": "software",
+                "source_type": "chrome_history",
+                "observation_count": 5,
+            },
+            {
+                "triple_id": "t-single",
+                "predicate": "VISITED",
+                "object_id": "place:一次性地点",
+                "object_type": "place",
+                "observation_count": 1,
+            },
+        ]
+
+
+async def test_portrait_projection_includes_safe_graph_world_clues():
+    projection = await UserPortraitProjectionBuilder(_GraphSignalL2()).build("local_user")
+
+    world_groups = {group["id"]: [item["text"] for item in group["items"]] for group in projection.world["groups"]}
+    assert world_groups["places"] == ["东京"]  # single-observation place is dropped
+    assert world_groups["routine"] == ["本地插件仓库", "Chrome"]  # assertion ranks above passive clue
+
+    prompt_text = "\n".join(projection.prompt_summary)
+    assert "本地插件仓库" in prompt_text
+    # Passive graph clues stay on the page but must not leak into the prompt.
+    assert "Chrome" not in prompt_text
+    assert "东京" not in prompt_text
+
+
 async def test_l2_clear_removes_profile_and_portrait_projection_caches(tmp_path):
     db_path = str(tmp_path / "memory.db")
     await apply_memory_shared_schema(db_path)

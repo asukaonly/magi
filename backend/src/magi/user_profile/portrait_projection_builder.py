@@ -7,6 +7,10 @@ import time
 from typing import Any, Protocol
 
 from .models import DEFAULT_USER_ID, PROFILE_ASSERTION_FAMILIES, UserPortraitProjection
+from .portrait_graph_signals import (
+    PortraitGraphSignal,
+    collect_portrait_graph_signals,
+)
 from .portrait_signal_policy import (
     PORTRAIT_RECENT_FAMILIES,
     PORTRAIT_SOURCE_STRENGTH as SOURCE_STRENGTH,
@@ -42,12 +46,15 @@ class UserPortraitProjectionBuilder:
         entity_id = f"user:{user_id}"
         assertions = await self._list_assertions(entity_id)
         snapshot = await self._latest_snapshot(entity_id)
+        graph_world = await self._graph_world_items(entity_id)
 
-        world = self._build_world(assertions)
+        world = self._build_world(assertions, graph_world)
         review = self._build_review(assertions)
         recent = self._build_recent(assertions=assertions, snapshot=snapshot)
         evidence_refs = self._evidence_refs(assertions=assertions, snapshot=snapshot)
         source_counts = self._source_counts(assertions)
+        # prompt_summary stays assertion-grounded: passive graph clues may appear
+        # on the page but must not leak into the main-model prompt.
         prompt_summary = self._rule_prompt_summary(world=world, recent=recent)
         generated_by = "rule"
 
@@ -117,7 +124,11 @@ class UserPortraitProjectionBuilder:
             return None
         return dict(snapshot) if isinstance(snapshot, dict) else None
 
-    def _build_world(self, assertions: list[dict[str, Any]]) -> dict[str, Any]:
+    def _build_world(
+        self,
+        assertions: list[dict[str, Any]],
+        graph_world: dict[str, list[dict[str, Any]]],
+    ) -> dict[str, Any]:
         groups = [{"id": group_id, "items": []} for group_id in WORLD_GROUP_IDS]
         by_id = {group["id"]: group for group in groups}
 
@@ -132,12 +143,30 @@ class UserPortraitProjectionBuilder:
             if item:
                 by_id[group_id]["items"].append(item)
 
+        for group_id, items in graph_world.items():
+            target = by_id.get(group_id)
+            if target is not None:
+                target["items"].extend(items)
+
         for group in groups:
             group["items"] = _dedupe_items(group["items"])[:5]
         return {
             "total_count": sum(len(group["items"]) for group in groups),
             "groups": groups,
         }
+
+    async def _graph_world_items(self, entity_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Promote safe L2 graph relationships into world-group page items.
+
+        Uses the same shared admission/cleaning policy as the API fallback path
+        so visited places and owned/used tools appear consistently regardless of
+        whether the materialized projection or the live fallback is served.
+        """
+        signals = await collect_portrait_graph_signals(self._l2_store, entity_id=entity_id)
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for signal in signals:
+            grouped.setdefault(signal.world_group, []).append(_item_from_graph_signal(signal))
+        return grouped
 
     def _build_review(self, assertions: list[dict[str, Any]]) -> dict[str, Any]:
         items = []
@@ -194,7 +223,10 @@ class UserPortraitProjectionBuilder:
         return {"items": _dedupe_items_in_order(items)[:6]}
 
     def _rule_prompt_summary(self, *, world: dict[str, Any], recent: dict[str, Any]) -> list[str]:
-        groups = {group["id"]: group.get("items", []) for group in world.get("groups", [])}
+        groups = {
+            group["id"]: [item for item in group.get("items", []) if not _is_graph_item(item)]
+            for group in world.get("groups", [])
+        }
         lines: list[str] = []
         preferences = _item_texts(groups.get("preferences", []))[:4]
         if preferences:
@@ -271,6 +303,31 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
         "basis_count": _evidence_count(assertion),
         "basis_refs": refs,
     }
+
+
+def _item_from_graph_signal(signal: PortraitGraphSignal) -> dict[str, Any]:
+    refs = [
+        f"world_group:{signal.world_group}",
+        f"predicate:{signal.predicate}",
+        f"object_type:{signal.object_type}",
+    ]
+    if signal.source_type:
+        refs.append(f"source:{signal.source_type}")
+    if signal.triple_id:
+        refs.append(f"graph:{signal.triple_id}")
+    return {
+        "id": signal.triple_id or f"{signal.world_group}:{signal.text}",
+        "text": signal.text,
+        "source": "",
+        "source_key": None,
+        "assertion_id": None,
+        "basis_count": signal.observation_count,
+        "basis_refs": refs,
+    }
+
+
+def _is_graph_item(item: dict[str, Any]) -> bool:
+    return any(str(ref).startswith("graph:") for ref in (item.get("basis_refs") or []))
 
 
 def _dedupe_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
