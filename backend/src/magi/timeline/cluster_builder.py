@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
+from ..media.adapters.photo_library import extract_photo_library_asset_ref
+
 
 # Tag values that just restate the source name — surfacing them as the
 # cluster label would duplicate what the SourceGroup header in the day
@@ -192,6 +194,12 @@ class TimelineClusterBuilder:
                 entity_ids_raw = _json.loads(entity_ids_raw)
             except (ValueError, TypeError):
                 entity_ids_raw = []
+        representative_asset_ref = str(
+            episode.get("representative_asset_ref")
+            or self._extract_representative_asset_ref(episode_events or [])
+            or ""
+        )
+
         return {
             "block_id": f"episode:{episode.get('episode_id', index)}",
             "time_start": time_start,
@@ -214,7 +222,7 @@ class TimelineClusterBuilder:
             # Plan 1+2 immersive fields, surfaced for the frontend
             "slice_narrative": str(episode.get("slice_narrative") or ""),
             "slice_sensory_detail": str(episode.get("slice_sensory_detail") or ""),
-            "representative_asset_ref": str(episode.get("representative_asset_ref") or ""),
+            "representative_asset_ref": representative_asset_ref,
         }
 
     @staticmethod
@@ -261,7 +269,16 @@ class TimelineClusterBuilder:
             "keywords": keywords,
             "media_refs": [],
             "state_snapshot": {},
+            "representative_asset_ref": self._extract_representative_asset_ref(events),
         }
+
+    @staticmethod
+    def _extract_representative_asset_ref(events: list[dict[str, Any]]) -> str:
+        for event in events:
+            ref = extract_photo_library_asset_ref(event)
+            if ref:
+                return ref
+        return ""
 
     def _shares_theme(self, left: dict[str, Any], right: dict[str, Any]) -> bool:
         left_tags = set(self._extract_tags(left))
@@ -351,4 +368,3 @@ class TimelineClusterBuilder:
             if isinstance(timeline, dict):
                 return timeline
         return {}
-

@@ -122,6 +122,61 @@ async def test_cluster_builder_exposes_episode_user_annotations() -> None:
     assert clusters[0]["user_pinned"] is True
 
 
+async def test_cluster_builder_surfaces_photo_asset_ref_from_transient_cluster() -> None:
+    builder = TimelineClusterBuilder()
+
+    clusters = builder.build(
+        [
+            {
+                "event_id": "photo-1",
+                "timestamp": 300.0,
+                "source": "photo_library_apple_photos",
+                "metadata": {
+                    "representative_photos": [
+                        {"asset_local_id": "apple-photos:asset-1"}
+                    ],
+                    "timeline": {"tags": ["photo_library"]},
+                },
+            }
+        ],
+        scale="day",
+    )
+
+    assert clusters[0]["representative_asset_ref"] == "photo-library://apple-photos:asset-1"
+
+
+async def test_cluster_builder_surfaces_photo_asset_ref_from_episode_events() -> None:
+    builder = TimelineClusterBuilder()
+
+    clusters = builder.build(
+        [
+            {
+                "event_id": "photo-1",
+                "timestamp": 150.0,
+                "source": "photo_library_apple_photos",
+                "metadata": {
+                    "representative_photos": [
+                        {"asset_local_id": "apple-photos:asset-1"}
+                    ],
+                    "timeline": {"tags": ["photo_library"]},
+                },
+            }
+        ],
+        scale="day",
+        episodes=[
+            {
+                "episode_id": "ep-1",
+                "time_start": 100.0,
+                "time_end": 200.0,
+                "label": "activity",
+                "source_event_count": 1,
+            }
+        ],
+    )
+
+    assert clusters[0]["representative_asset_ref"] == "photo-library://apple-photos:asset-1"
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Event-derived label fallback (P12-T2)
 # ──────────────────────────────────────────────────────────────────────

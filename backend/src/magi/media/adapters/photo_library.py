@@ -49,7 +49,7 @@ class PhotoLibraryMediaSource:
 
         out: list[dict] = []
         for ev in events or []:
-            ref = self._extract_asset_ref(ev)
+            ref = extract_photo_library_asset_ref(ev)
             if not ref:
                 continue
             ts = float(ev.get("timestamp") or 0.0)
@@ -77,38 +77,6 @@ class PhotoLibraryMediaSource:
             out.append(entry)
         return out
 
-    @staticmethod
-    def _extract_asset_ref(event: dict) -> str | None:
-        """Defensive extraction. Looks at common locations.
-
-        Adapt as the plugin's L1 event schema evolves.
-        """
-        # Top-level asset_ref
-        ref = event.get("asset_ref")
-        if isinstance(ref, str) and ref.strip():
-            return ref.strip()
-
-        # First content_block with a usable ref/value
-        content_blocks = event.get("content_blocks")
-        if isinstance(content_blocks, list) and content_blocks:
-            first = content_blocks[0]
-            if isinstance(first, dict):
-                candidate = first.get("ref") or first.get("value")
-                if isinstance(candidate, str) and candidate.startswith("photo-library://"):
-                    return candidate.strip()
-
-        metadata = _event_metadata(event)
-        representative_photo = _first_representative_photo(metadata)
-        if representative_photo:
-            asset_id = (
-                representative_photo.get("asset_local_id")
-                or representative_photo.get("local_identifier")
-            )
-            if isinstance(asset_id, str) and asset_id.strip():
-                return f"photo-library://{asset_id.strip()}"
-
-        return None
-
 
 def _event_metadata(event: dict) -> dict[str, Any]:
     for key in ("metadata", "metadata_json"):
@@ -125,4 +93,31 @@ def _first_representative_photo(metadata: dict[str, Any]) -> dict[str, Any] | No
     for photo in photos:
         if isinstance(photo, dict):
             return photo
+    return None
+
+
+def extract_photo_library_asset_ref(event: dict) -> str | None:
+    """Extract a stable ``photo-library://`` asset ref from a photo L1 event."""
+    ref = event.get("asset_ref")
+    if isinstance(ref, str) and ref.strip():
+        return ref.strip()
+
+    content_blocks = event.get("content_blocks")
+    if isinstance(content_blocks, list) and content_blocks:
+        first = content_blocks[0]
+        if isinstance(first, dict):
+            candidate = first.get("ref") or first.get("value")
+            if isinstance(candidate, str) and candidate.startswith("photo-library://"):
+                return candidate.strip()
+
+    metadata = _event_metadata(event)
+    representative_photo = _first_representative_photo(metadata)
+    if representative_photo:
+        asset_id = (
+            representative_photo.get("asset_local_id")
+            or representative_photo.get("local_identifier")
+        )
+        if isinstance(asset_id, str) and asset_id.strip():
+            return f"photo-library://{asset_id.strip()}"
+
     return None
