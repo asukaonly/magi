@@ -246,6 +246,58 @@ describe("PeriodCard", () => {
     expect(onChangeCover).toHaveBeenCalledWith({ mode: "auto" });
   });
 
+  it("shows cluster representative photos in the picker when cover candidates are empty", async () => {
+    const user = userEvent.setup();
+    const onChangeCover = vi.fn().mockResolvedValue(undefined);
+    const clusters: TimelineClusterBlock[] = [
+      {
+        episode_id: "ep-food",
+        block_id: "cluster-food",
+        time_start: 0,
+        time_end: 3600,
+        label: "晚餐照片",
+        representative_asset_ref: "photo-library://food-cover",
+      } as unknown as TimelineClusterBlock,
+    ];
+
+    render(
+      <PeriodCard
+        scale="day"
+        viewport={makeViewport({
+          clusters,
+          cover: {
+            mode: "auto",
+            asset_ref: null,
+            source: "auto",
+            candidates: [],
+          },
+        } as Partial<TimelineViewportResponse>)}
+        dateLabel="2026 · 5 · 17 · 周日"
+        onTogglePinned={vi.fn()}
+        onHide={vi.fn()}
+        pendingAction={{}}
+        onChangeCover={onChangeCover}
+      />
+    );
+
+    expect(screen.getByAltText("hero photo")).toHaveAttribute(
+      "src",
+      expect.stringContaining("photo-library%3A%2F%2Ffood-cover")
+    );
+
+    await user.click(screen.getByRole("button", { name: "更换封面" }));
+    const sheet = screen.getByRole("dialog", { name: "更换封面" });
+    expect(within(sheet).queryByText("这个周期暂时没有可用图片")).not.toBeInTheDocument();
+    await user.click(within(sheet).getByRole("button", { name: "晚餐照片" }));
+    await user.click(within(sheet).getByRole("button", { name: "设为封面" }));
+
+    expect(onChangeCover).toHaveBeenCalledWith({
+      mode: "asset",
+      asset_ref: "photo-library://food-cover",
+      source: "current_period",
+    });
+  });
+
   it("uploads a custom local image and uses a wider picker", async () => {
     const user = userEvent.setup();
     const onChangeCover = vi.fn().mockResolvedValue(undefined);

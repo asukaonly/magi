@@ -2,7 +2,11 @@ import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Image } from "lucide-react";
 
-import type { TimelineViewportResponse } from "@/api/modules/timeline";
+import type {
+  TimelineCoverCandidate,
+  TimelineCoverState,
+  TimelineViewportResponse,
+} from "@/api/modules/timeline";
 import type { ManualEntry } from "@/api/modules/manualEntries";
 import { Button } from "@/components/ui/button";
 import { resolveTimelineAssetUrl } from "@/utils/timelineAssetUrl";
@@ -62,6 +66,53 @@ function pickHeroAssetRef(viewport: TimelineViewportResponse): string | null {
   return null;
 }
 
+function clusterCoverCandidates(viewport: TimelineViewportResponse): TimelineCoverCandidate[] {
+  const ranked = [...(viewport.clusters || [])].sort((a, b) => {
+    if (a.user_pinned !== b.user_pinned) return a.user_pinned ? -1 : 1;
+    return (b.time_end - b.time_start) - (a.time_end - a.time_start);
+  });
+  const candidates: TimelineCoverCandidate[] = [];
+  const seen = new Set<string>();
+  for (const cluster of ranked) {
+    const ref = String(cluster.representative_asset_ref || "").trim();
+    if (!ref || seen.has(ref)) continue;
+    seen.add(ref);
+    candidates.push({
+      asset_ref: ref,
+      source: "current_period",
+      label: cluster.slice_narrative || cluster.summary || cluster.label || "",
+      cluster_id: cluster.block_id,
+      episode_id: cluster.episode_id ?? null,
+    });
+  }
+  return candidates;
+}
+
+function resolveCoverForPicker(viewport: TimelineViewportResponse): TimelineCoverState {
+  const fallbackCandidates = clusterCoverCandidates(viewport);
+  const cover = viewport.cover;
+  const coverCandidates = cover?.candidates ?? [];
+  const mergedCandidates = coverCandidates.length > 0 ? [...coverCandidates] : [...fallbackCandidates];
+  const assetRef = cover?.asset_ref ?? null;
+  if (assetRef && !mergedCandidates.some((candidate) => candidate.asset_ref === assetRef)) {
+    mergedCandidates.unshift({
+      asset_ref: assetRef,
+      source: cover?.source || "current_period",
+      label: "",
+      cluster_id: null,
+      episode_id: null,
+    });
+  }
+
+  const mode = cover?.mode ?? "auto";
+  return {
+    mode,
+    asset_ref: mode === "hidden" ? null : assetRef || fallbackCandidates[0]?.asset_ref || null,
+    source: cover?.source ?? "auto",
+    candidates: mergedCandidates,
+  };
+}
+
 function valenceToFallbackTone(dominant: string | undefined): HeroFallbackTone {
   const allowed: HeroFallbackTone[] = ["warm", "cool", "neutral", "bright", "tense"];
   if (dominant && (allowed as string[]).includes(dominant)) return dominant as HeroFallbackTone;
@@ -92,6 +143,7 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
     (viewport.overview?.essence_prose ?? "").length > 0;
 
   const heroAssetRef = useMemo(() => pickHeroAssetRef(viewport), [viewport]);
+  const coverForPicker = useMemo(() => resolveCoverForPicker(viewport), [viewport]);
   const photoUrl = useMemo(() => resolveTimelineAssetUrl(heroAssetRef), [heroAssetRef]);
   // state_summary in the real type uses mood_label etc., but callers may pass
   // a dominant_valence field (Plan 3 backend extension). Access via unknown cast.
@@ -139,7 +191,7 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
       {onChangeCover ? (
         <CoverPickerSheet
           open={coverSheetOpen}
-          cover={viewport.cover}
+          cover={coverForPicker}
           onOpenChange={setCoverSheetOpen}
           onChangeCover={onChangeCover}
           onUploadCover={onUploadCover}
