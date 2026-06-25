@@ -144,6 +144,55 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
 
         return None
 
+    async def _prefer_existing_same_name_entity(
+        self,
+        *,
+        proposed_entity_id: str | None,
+        canonical_name: str,
+        entity_type: str | None,
+        mention_text: str,
+        confidence: float,
+    ) -> str | None:
+        """Prefer an existing same-name entity over a newly proposed ID."""
+        assert self._entity_catalog is not None
+        if not entity_type:
+            return proposed_entity_id
+
+        existing_by_name = await self._entity_catalog.find_by_canonical_name(
+            canonical_name,
+            entity_type=entity_type,
+        )
+        if not existing_by_name:
+            return proposed_entity_id
+
+        for existing in existing_by_name:
+            matched_id = str(existing["entity_id"])
+            if matched_id == proposed_entity_id:
+                return proposed_entity_id
+
+        for existing in existing_by_name:
+            existing_type = str(existing.get("entity_type", ""))
+            if existing_type == entity_type or self._are_types_mergeable(
+                entity_type,
+                existing_type,
+            ):
+                matched_id = str(existing["entity_id"])
+                logger.debug(
+                    "L2 entity dedup: replacing proposed resolved id with same-name entity",
+                    mention_text=mention_text,
+                    canonical_name=canonical_name,
+                    proposed_entity_id=proposed_entity_id,
+                    matched_entity_id=matched_id,
+                )
+                await self._entity_catalog.add_alias(
+                    entity_id=matched_id,
+                    alias_text=mention_text,
+                    confidence=min(max(confidence, 0.9), 0.99),
+                )
+                return matched_id
+
+        return proposed_entity_id
+
     async def _finalize_unresolved_entity(
         self,
         *,

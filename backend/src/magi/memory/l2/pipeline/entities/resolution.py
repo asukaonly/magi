@@ -109,6 +109,13 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
 
             # If Phase 1 already resolved the entity to an existing ID, use it
             if entity.resolved_id:
+                resolved_entity_id = await self._prefer_existing_same_name_entity(
+                    proposed_entity_id=entity.resolved_id,
+                    canonical_name=normalized_surface,
+                    entity_type=entity_type,
+                    mention_text=mention_text,
+                    confidence=mention_confidence,
+                )
                 pending.append(
                     (
                         entity,
@@ -116,7 +123,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                         normalized_surface,
                         entity_type,
                         mention_confidence,
-                        entity.resolved_id,
+                        resolved_entity_id,
                         entity.confidence,
                         False,
                     )

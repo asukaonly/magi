@@ -44,6 +44,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                 canonical_name=canonical_name,
                 entity_type=entity_type,
             )
+            seen_ids.add(normalized_entity_id)
             alias = host._non_empty_text(alias_text) or canonical_name
             if alias:
                 await catalog.add_alias(
@@ -70,6 +71,20 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                     entity_type=entity_type,
                     canonical_name=canonical_name,
                 )
+                existing_entity_id = await self._resolve_existing_structured_ref_entity_id(
+                    catalog=catalog,
+                    entity_ref=entity_id,
+                    entity_type=entity_type,
+                    canonical_name=canonical_name,
+                )
+                if existing_entity_id:
+                    await catalog.add_alias(
+                        entity_id=existing_entity_id,
+                        alias_text=mention_text,
+                        confidence=0.98,
+                    )
+                    seen_ids.add(existing_entity_id)
+                    continue
                 await upsert_hint(
                     entity_id=entity_id,
                     entity_type=entity_type,
@@ -99,6 +114,22 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                         entity_ref=entity_ref,
                         entity_type=entity_type,
                     )
+                    existing_entity_id = await self._resolve_existing_structured_ref_entity_id(
+                        catalog=catalog,
+                        entity_ref=entity_ref,
+                        entity_type=entity_type,
+                        canonical_name=canonical_name,
+                    )
+                    if existing_entity_id:
+                        alias = host._non_empty_text(canonical_name)
+                        if alias:
+                            await catalog.add_alias(
+                                entity_id=existing_entity_id,
+                                alias_text=alias,
+                                confidence=0.98,
+                            )
+                        seen_ids.add(existing_entity_id)
+                        continue
                     await upsert_hint(
                         entity_id=entity_ref,
                         entity_type=entity_type,
@@ -123,6 +154,66 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                 text = text[len(marker):]
                 break
         return text.replace("_", " ").replace("-", " ").strip() or entity_ref
+
+    async def _resolve_existing_structured_ref_entity_id(
+        self,
+        *,
+        catalog: Any,
+        entity_ref: str,
+        entity_type: str,
+        canonical_name: str,
+    ) -> str | None:
+        """Return an existing same-name entity for a structured graph ref."""
+        for candidate in self._structured_ref_lookup_candidates(
+            entity_ref=entity_ref,
+            entity_type=entity_type,
+            canonical_name=canonical_name,
+        ):
+            matches = await catalog.find_by_canonical_name(
+                candidate,
+                entity_type=entity_type,
+            )
+            if matches:
+                return str(matches[0]["entity_id"])
+        return None
+
+    def _structured_ref_lookup_candidates(
+        self,
+        *,
+        entity_ref: str,
+        entity_type: str,
+        canonical_name: str,
+    ) -> list[str]:
+        candidates: list[str] = []
+
+        def add(value: str | None) -> None:
+            text = str(value or "").strip()
+            if text and text.casefold() not in {item.casefold() for item in candidates}:
+                candidates.append(text)
+
+        if ":" in entity_ref:
+            prefix, _, suffix = entity_ref.partition(":")
+            stripped_suffix = self._strip_structured_ref_type_prefix(
+                value=suffix,
+                entity_type=entity_type or prefix,
+            )
+            add(suffix)
+            add(stripped_suffix)
+        else:
+            add(entity_ref)
+        add(canonical_name)
+        return candidates
+
+    def _strip_structured_ref_type_prefix(self, *, value: str, entity_type: str) -> str:
+        text = str(value or "").strip()
+        normalized_type = str(entity_type or "").strip().casefold()
+        if not text or not normalized_type:
+            return text
+        for separator in ("-", "_", ":"):
+            marker = f"{normalized_type}{separator}"
+            if text.casefold().startswith(marker):
+                return text[len(marker):].strip()
+        return text
 
     def _inject_structured_entity_hints(
         self,

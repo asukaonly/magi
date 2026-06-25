@@ -3760,6 +3760,109 @@ async def test_upsert_structured_graph_hints_uses_normalized_entity_id_for_alias
         assert resolved["entity_id"] == "software:google.com"
 
 
+@pytest.mark.asyncio
+async def test_structured_graph_ref_reuses_entity_hint_for_punctuated_hardware_id():
+    """Graph refs should reuse same-event entity hints instead of creating ID fragments."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+        event = _make_memory_event(
+            event_id="evt-ipad-graph-ref",
+            content="Apple iPad Pro (11-inch) (3rd generation) photo",
+        )
+        event.metadata_json = {
+            "structured_entity_hints": [
+                {
+                    "mention_text": "Apple iPad Pro (11-inch) (3rd generation)",
+                    "entity_type": "device",
+                    "canonical_name_hint": "apple-ipad-pro-(11-inch)-(3rd-generation)",
+                }
+            ],
+            "structured_graph_hints": [
+                {
+                    "subject_ref": "user:self",
+                    "subject_type": "user",
+                    "predicate": "OWNS",
+                    "object_ref": "hardware:apple-ipad-pro-(11-inch)-(3rd-generation)",
+                    "object_type": "hardware",
+                    "fact_kind": "interaction_evidence",
+                    "origin_mode": "source_structured",
+                    "confidence": 0.9,
+                }
+            ],
+        }
+
+        await pipeline._upsert_structured_hint_entities(event)
+
+        entities = await pipeline._entity_catalog.list_entities(limit=10)
+        ipad_entities = [
+            entity
+            for entity in entities
+            if "apple-ipad-pro" in str(entity.get("entity_id") or "")
+        ]
+        assert [entity["entity_id"] for entity in ipad_entities] == [
+            "hardware:apple-ipad-pro-11-inch-3rd-generation"
+        ]
+
+        catalog_name_index = await pipeline._build_catalog_name_index()
+        object_id = pipeline._resolve_phase2_object_id(
+            raw_object_ref="hardware:apple-ipad-pro-(11-inch)-(3rd-generation)",
+            object_type="hardware",
+            resolved_mentions=[],
+            catalog_name_index=catalog_name_index,
+        )
+        assert object_id == "hardware:apple-ipad-pro-11-inch-3rd-generation"
+
+
+@pytest.mark.asyncio
+async def test_phase1_resolved_id_reuses_existing_same_name_entity():
+    """Phase 1 resolved IDs should not create a second entity for the same canonical name."""
+    from magi.memory.l2.models import L2Phase1Entity, L2Phase1Result
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+        canonical_id = "hardware:apple-ipad-pro-11-inch-3rd-generation"
+        canonical_name = "apple-ipad-pro-(11-inch)-(3rd-generation)"
+        await pipeline._entity_catalog.upsert_entity(
+            entity_id=canonical_id,
+            canonical_name=canonical_name,
+            entity_type="hardware",
+        )
+
+        event = _make_memory_event(
+            event_id="evt-ipad-phase1",
+            content="iPad Pro (11-inch) (3rd generation)",
+        )
+        phase1_result = L2Phase1Result(
+            entities=[
+                L2Phase1Entity(
+                    surface="iPad Pro (11-inch) (3rd generation)",
+                    normalized_name=canonical_name,
+                    entity_type="hardware",
+                    resolved_id="hardware:apple-ipad-pro-(11-inch)-(3rd-generation)",
+                    confidence=1.0,
+                )
+            ]
+        )
+
+        resolved_mentions = await pipeline._resolve_phase1_entities(
+            event,
+            phase1_result,
+            evidence_event_ids=[event.event_id],
+            evidence_events=[event],
+            allowed_entity_types=frozenset({"hardware"}),
+        )
+
+        assert resolved_mentions[0].resolved_entity_id == canonical_id
+        entities = await pipeline._entity_catalog.list_entities(limit=10)
+        ipad_entities = [
+            entity
+            for entity in entities
+            if "apple-ipad-pro" in str(entity.get("canonical_name") or "")
+        ]
+        assert [entity["entity_id"] for entity in ipad_entities] == [canonical_id]
+
+
 def test_inject_structured_entity_hints_noop_without_metadata():
     """Missing or empty hints should be a no-op."""
     from magi.memory.l2.pipeline import L2Pipeline
