@@ -627,6 +627,35 @@ describe('MemoryEpisodesPage', () => {
     });
   });
 
+  it('shows structured review JSON as an editable recap', async () => {
+    const user = userEvent.setup();
+    const structuredReview = JSON.stringify({
+      label: '调试 Tauri 与跑基准测试',
+      content: '这段时间主要在调试本地热重载，并穿插跑基准测试。',
+      key_topics: ['dev-tauri-hot.sh'],
+    }, null, 2);
+    vi.mocked(memoryApi.getExperience).mockResolvedValue({
+      ...experienceDetail,
+      user_note: null,
+      display_description: structuredReview,
+      experience_review: {
+        summary_id: 'sum-structured',
+        content: structuredReview,
+        label: '调试 Tauri 与跑基准测试',
+        updated_at: 1700100000,
+        is_fallback: false,
+      },
+    });
+    renderDetailPage();
+
+    expect(await screen.findByText('这段时间主要在调试本地热重载，并穿插跑基准测试。')).toBeInTheDocument();
+    expect(screen.queryByText(/key_topics/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Edit recap' }));
+
+    expect(screen.getByLabelText('Recap')).toHaveValue('这段时间主要在调试本地热重载，并穿插跑基准测试。');
+  });
+
   it('confirms before regenerating over a user-edited recap', async () => {
     const user = userEvent.setup();
     vi.mocked(memoryApi.getExperience).mockResolvedValue({

@@ -22,6 +22,34 @@ def _clean_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _summary_payload(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text.startswith("{"):
+            return {}
+        try:
+            decoded = json.loads(text)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return {}
+
+
+def _summary_content_text(value: Any) -> str:
+    payload = _summary_payload(value)
+    if payload:
+        return _first_text(
+            payload.get("content"),
+            payload.get("summary"),
+            payload.get("description"),
+            payload.get("recap"),
+            payload.get("text"),
+        )
+    return _clean_text(value)
+
+
 def _first_text(*values: Any) -> str:
     for value in values:
         text = _clean_text(value)
@@ -57,10 +85,11 @@ def serialize_episodic_summary(row: dict[str, Any] | None) -> dict[str, Any] | N
     if row is None:
         return None
     metadata = _metadata_dict(row.get("insight_metadata"))
+    content_payload = _summary_payload(row.get("content"))
     return {
         "summary_id": row.get("summary_id"),
-        "content": _clean_text(row.get("content")),
-        "label": _clean_text(metadata.get("label")),
+        "content": _summary_content_text(row.get("content")),
+        "label": _first_text(metadata.get("label"), content_payload.get("label"), content_payload.get("title")),
         "updated_at": row.get("updated_at"),
         "is_fallback": bool(metadata.get("fallback")),
     }

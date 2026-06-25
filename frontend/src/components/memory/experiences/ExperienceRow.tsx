@@ -53,6 +53,36 @@ const isGeneratedTitleUsable = (value: unknown): value is string => {
   );
 };
 
+const STRUCTURED_RECAP_KEYS = ['content', 'summary', 'description', 'recap', 'text'];
+
+const getReadableStructuredText = (value: unknown): string => {
+  if (value == null) {
+    return '';
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    for (const key of STRUCTURED_RECAP_KEYS) {
+      const text = String(record[key] || '').trim();
+      if (text) {
+        return text;
+      }
+    }
+    return '';
+  }
+  const raw = String(value).trim();
+  if (!raw) {
+    return '';
+  }
+  if (!raw.startsWith('{')) {
+    return raw;
+  }
+  try {
+    return getReadableStructuredText(JSON.parse(raw)) || raw;
+  } catch {
+    return raw;
+  }
+};
+
 const compactDateRange = (experience: ExperienceReviewLike, locale: string): string => {
   const start = Number(experience.time_start ?? 0);
   const end = Number(experience.time_end ?? 0);
@@ -115,15 +145,14 @@ export const getExperienceDisplayTitle = (
 };
 
 export const getExperienceDescription = (experience: ExperienceReviewLike): string => (
-  String(
-    experience.user_note ||
-    (experience as L2ExperienceWithReview).display_description ||
-    (experience as L2ExperienceWithReview).experience_review?.content ||
-    experience.magi_interpretation ||
-    experience.outcome ||
-    experience.intent ||
-    ''
-  ).trim()
+  [
+    experience.user_note,
+    (experience as L2ExperienceWithReview).display_description,
+    (experience as L2ExperienceWithReview).experience_review?.content,
+    experience.magi_interpretation,
+    experience.outcome,
+    experience.intent,
+  ].map(getReadableStructuredText).find(Boolean) || ''
 );
 
 const getExperienceSummary = (experience: ExperienceReviewLike): string => {

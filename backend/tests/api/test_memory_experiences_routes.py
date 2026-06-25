@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -314,6 +315,52 @@ def test_list_experiences_returns_active_reviews(public_app_with_mock_memory):
     assert item["display_title"] == "Generated experience title"
     assert item["display_description"] == "Generated experience recap"
     assert l2.list_experiences.await_args.kwargs["status"] == "active"
+
+
+def test_list_experiences_extracts_structured_review_json(public_app_with_mock_memory):
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.list_experiences = AsyncMock(return_value=[
+        {
+            "experience_id": "exp1",
+            "status": "active",
+            "title": "Fallback title",
+            "time_start": 1,
+            "time_end": 2,
+            "primary_entity_ids": [],
+            "user_label": None,
+            "user_note": None,
+        }
+    ])
+    l3 = MagicMock()
+    l3.get_episodic_summary_by_experience_id = AsyncMock(return_value={
+        "summary_id": "sum1",
+        "content": json.dumps(
+            {
+                "label": "调试 Tauri 与跑基准测试",
+                "content": "这段时间主要在调试本地热重载，并穿插跑基准测试。",
+                "key_topics": ["dev-tauri-hot.sh"],
+            },
+            ensure_ascii=False,
+        ),
+        "insight_metadata": {},
+        "updated_at": 10,
+    })
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+
+    with build_patcher(unified):
+        client = TestClient(app)
+        response = client.get("/api/memory/l2/experiences")
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["experience_review"]["label"] == "调试 Tauri 与跑基准测试"
+    assert item["experience_review"]["content"] == "这段时间主要在调试本地热重载，并穿插跑基准测试。"
+    assert item["display_title"] == "调试 Tauri 与跑基准测试"
+    assert item["display_description"] == "这段时间主要在调试本地热重载，并穿插跑基准测试。"
+    assert "key_topics" not in item["display_description"]
 
 
 def test_experience_detail_returns_source_episodes(public_app_with_mock_memory):
