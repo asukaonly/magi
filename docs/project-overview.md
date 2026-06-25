@@ -52,6 +52,8 @@ Magi is a desktop-only application:
 
 The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, chat attachment upload/download resource handling, config file I/O, and session/task mutations natively in Rust. Requests that require the Python runtime (message send, attachment parsing/context preparation, LLM calls, agent execution) are dispatched over IPC to the Python sidecar, using Unix Domain Sockets on Unix-like systems and loopback TCP on Windows. The Python process runs no public HTTP server; FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
 
+On confirmed desktop quit, the Tauri shell hides the main window first and then stops the Python sidecar in the background before exiting. Windows helper processes used for sidecar startup and shutdown must be launched without visible console windows so quit feels like a native desktop close rather than a terminal-driven teardown.
+
 ### Gateway-visible API contract
 
 The frontend talks to the Rust gateway, not directly to the Python FastAPI app. The gateway-visible contract is therefore the union of Rust-native routes, Rust static mounts, and Python routes that are reached through the IPC proxy fallback.
