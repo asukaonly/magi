@@ -117,7 +117,7 @@ export const MemoryRecallPage = () => {
   const noResults = resultSections.length === 0;
 
   return (
-    <MemoryPageFrame title={t('memory.recall.title')} description={t('memory.recall.subtitle')}>
+    <MemoryPageFrame title={t('memory.recall.title')} description={t('memory.recall.subtitle')} hideHeader>
       {!hasSearched && noResults && (
         <div className="mb-6 flex flex-col gap-4">
           <p className="text-sm text-[#7d685a] dark:text-[#c8b7a7]">

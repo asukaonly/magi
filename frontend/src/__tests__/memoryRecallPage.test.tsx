@@ -47,9 +47,10 @@ beforeEach(() => {
 });
 
 describe('MemoryRecallPage', () => {
-  it('does not show storage stats in the header', () => {
+  it('does not render the page header card', () => {
     renderPage();
-    expect(screen.queryByText(/记忆条数|占用大小/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
+    expect(screen.queryByText('回忆')).not.toBeInTheDocument();
   });
 
   it('renders returned memory search results', () => {
