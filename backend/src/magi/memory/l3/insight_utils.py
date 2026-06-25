@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ...i18n import is_effective_zh_language
+from ... import i18n as core_i18n
 
 
 _TRAIT_LABELS_ZH = {
@@ -40,7 +40,7 @@ _TRAIT_GROUP_LABELS_EN = {
 
 def wants_zh() -> bool:
     """Return whether generated user-facing insight text should use zh-CN."""
-    return is_effective_zh_language(default="en")
+    return core_i18n.is_effective_zh_language(default="en")
 
 
 def trait_label(trait_name: str, *, zh: bool) -> str | None:
@@ -120,14 +120,35 @@ _TRAIT_FAMILY_LABELS_EN: dict[str, str] = {
 }
 
 
+def locale_for_zh(zh: bool) -> str:
+    """Return the concrete backend locale for a boolean language flag."""
+    return "zh-CN" if zh else "en"
+
+
+def _catalog_text(key: str, *, zh: bool, fallback: str | None = None, **kwargs: Any) -> str | None:
+    sentinel = "__magi_l3_insight_missing__"
+    value = core_i18n.t(
+        key,
+        language=locale_for_zh(zh),
+        fallback=sentinel,
+        **kwargs,
+    )
+    if value == sentinel:
+        return fallback
+    return value
+
+
 def trait_family_label(family: str, *, zh: bool) -> str | None:
     """Translate a closed-enum trait_family to a human label, or None on miss."""
     normalized = str(family or "").strip()
     if not normalized:
         return None
-    if zh:
-        return _TRAIT_FAMILY_LABELS_ZH.get(normalized)
-    return _TRAIT_FAMILY_LABELS_EN.get(normalized)
+    fallback = _TRAIT_FAMILY_LABELS_ZH.get(normalized) if zh else _TRAIT_FAMILY_LABELS_EN.get(normalized)
+    return _catalog_text(
+        f"memory.l3.insight.trait_families.{normalized}",
+        zh=zh,
+        fallback=fallback,
+    )
 
 
 def state_change_phrase(statuses: list[str], *, zh: bool) -> str:

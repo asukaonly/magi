@@ -358,6 +358,35 @@
       "module_uninitialized": "技能模块尚未初始化"
     }
   },
+  "memory": {
+    "l3": {
+      "insight": {
+        "trait_families": {
+          "state_profile": "状态",
+          "mood": "情绪",
+          "stress": "压力",
+          "engagement": "投入度",
+          "trigger": "触发因素",
+          "communication_profile": "沟通偏好",
+          "preference_profile": "偏好",
+          "routine_profile": "行为节律",
+          "identity_profile": "身份信息",
+          "relationship_shift": "关系变化",
+          "group_atmosphere": "群体氛围",
+          "public_sentiment": "公众情绪",
+          "interest_profile": "关注"
+        },
+        "frames": {
+          "state_change": "你的{fragments}。",
+          "trend_shift": "长期趋势 — 你的{fragments}。",
+          "conflict_resolution": "出现冲突 — 你的{fragments}。"
+        },
+        "trend": {
+          "interest": "最近持续关注：{values}。"
+        }
+      }
+    }
+  },
   "plugins": {
     "errors": {
       "not_found": "未找到插件",

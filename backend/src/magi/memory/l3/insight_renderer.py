@@ -22,8 +22,9 @@ import logging
 import re
 from typing import Literal
 
+from ... import i18n as core_i18n
 from ..l2.models import ReconciledTraitOutcome
-from .insight_utils import compact_values, decode_value, trait_family_label
+from .insight_utils import compact_values, decode_value, locale_for_zh, trait_family_label
 
 logger = logging.getLogger(__name__)
 
@@ -128,20 +129,27 @@ def _frame(
 
     # source == "trait_family" — add a kind-specific frame for context.
     joined = ("；" if zh else "; ").join(fragments)
+    fallback = joined
     if zh:
         if insight_kind == "state_change":
-            return f"你的{joined}。"
+            fallback = f"你的{joined}。"
         if insight_kind == "trend_shift":
-            return f"长期趋势 — 你的{joined}。"
+            fallback = f"长期趋势 — 你的{joined}。"
         if insight_kind == "conflict_resolution":
-            return f"出现冲突 — 你的{joined}。"
-    if insight_kind == "state_change":
-        return f"Your {joined}."
-    if insight_kind == "trend_shift":
-        return f"Longer-span trend — your {joined}."
-    if insight_kind == "conflict_resolution":
-        return f"Conflict detected — your {joined}."
-    return joined
+            fallback = f"出现冲突 — 你的{joined}。"
+    else:
+        if insight_kind == "state_change":
+            fallback = f"Your {joined}."
+        if insight_kind == "trend_shift":
+            fallback = f"Longer-span trend — your {joined}."
+        if insight_kind == "conflict_resolution":
+            fallback = f"Conflict detected — your {joined}."
+    return core_i18n.t(
+        f"memory.l3.insight.frames.{insight_kind}",
+        language=locale_for_zh(zh),
+        fallback=fallback,
+        fragments=joined,
+    )
 
 
 __all__ = ["render_insight_content", "InsightKind"]

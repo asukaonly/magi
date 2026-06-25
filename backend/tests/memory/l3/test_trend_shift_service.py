@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l3.models import TrendShiftPacket
+from magi.memory.l3 import trend_shift_service
 from magi.memory.l3.trend_shift_service import TrendShiftService
 
 
@@ -281,3 +284,40 @@ async def test_trend_shift_interest_content_does_not_expose_rule_template(monkey
     assert "Codex" in candidate.content
     assert "DeepSeek" in candidate.content
     assert "持续关注" in candidate.content
+
+
+async def test_trend_shift_interest_content_uses_backend_i18n(monkeypatch) -> None:
+    def fake_t(key: str, *, fallback=None, language=None, **kwargs):
+        if key == "memory.l3.insight.trend.interest":
+            return f"本地化关注：{kwargs['values']}。"
+        return fallback if fallback is not None else key
+
+    monkeypatch.setattr("magi.memory.l3.trend_shift_service.wants_zh", lambda: True)
+    monkeypatch.setattr(trend_shift_service, "core_i18n", SimpleNamespace(t=fake_t), raising=False)
+    service = TrendShiftService()
+
+    candidate = await service.build_candidate(
+        TrendShiftPacket(
+            entity_id="user:self",
+            entity_type="user",
+            outcomes=[
+                _outcome(
+                    trait_name="interest.codex-coding-tools-by-openai",
+                    winning_value="Codex",
+                    evidence_event_ids=["evt-1", "evt-2", "evt-3"],
+                    natural_summary="Recurring interested_in signal for Codex",
+                    trait_family="preference_profile",
+                ),
+                _outcome(
+                    trait_name="interest.deepseek",
+                    winning_value="DeepSeek",
+                    evidence_event_ids=["evt-4", "evt-5", "evt-6"],
+                    natural_summary="Recurring interested_in signal for DeepSeek",
+                    trait_family="preference_profile",
+                ),
+            ],
+        )
+    )
+
+    assert candidate is not None
+    assert candidate.content == "本地化关注：Codex、DeepSeek。"

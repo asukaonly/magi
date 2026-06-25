@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l3.insight_renderer import render_insight_content
+from magi.memory.l3 import insight_renderer, insight_utils
 
 
 def _outcome(**overrides) -> ReconciledTraitOutcome:
@@ -97,6 +100,31 @@ def test_tier2_trait_family_used_when_natural_summary_missing():
     # CRITICAL invariant: no raw trait_name
     assert "state.sleep_quality" not in content
     assert "state_profile" not in content
+
+
+def test_tier2_frame_and_family_labels_use_backend_i18n(monkeypatch):
+    """Rule-rendered insight copy must come from backend i18n resources."""
+
+    def fake_t(key: str, *, fallback=None, language=None, **kwargs):
+        if key == "memory.l3.insight.trait_families.stress":
+            return "本地化压力"
+        if key == "memory.l3.insight.frames.state_change":
+            return f"本地化状态：{kwargs['fragments']}"
+        return fallback if fallback is not None else key
+
+    fake_i18n = SimpleNamespace(t=fake_t)
+    monkeypatch.setattr(insight_utils, "core_i18n", fake_i18n, raising=False)
+    monkeypatch.setattr(insight_renderer, "core_i18n", fake_i18n, raising=False)
+
+    content = render_insight_content(
+        insight_kind="state_change",
+        outcomes=[
+            _outcome(natural_summary="", trait_family="stress", winning_value="偏高"),
+        ],
+        user_lang_zh=True,
+    )
+
+    assert content == "本地化状态：本地化压力：偏高"
 
 
 def test_tier2_works_for_all_three_insight_kinds():

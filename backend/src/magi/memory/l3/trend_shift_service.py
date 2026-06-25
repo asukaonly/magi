@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 
+from ... import i18n as core_i18n
 from ..l2.models import ReconciledTraitOutcome
 from .insight_renderer import render_insight_content
 from .insight_utils import (
     decode_value,
+    locale_for_zh,
     trait_group,
     wants_zh,
 )
@@ -35,7 +37,6 @@ class TrendShiftService:
             trait_name = str(outcome.trait_name or "").strip()
             winning_value = str(outcome.winning_value or "").strip()
             status = str(outcome.status or "").strip()
-            time_span_hours = float(outcome.time_span_hours or 0.0)
             evidence_event_ids = [str(event_id).strip() for event_id in outcome.evidence_event_ids if str(event_id).strip()]
             if not trait_name or not winning_value or not status or not evidence_event_ids:
                 continue
@@ -121,8 +122,15 @@ class TrendShiftService:
             return None
         joined = "、".join(values) if zh else ", ".join(values)
         if zh:
-            return f"最近持续关注：{joined}。"
-        return f"Sustained interest: {joined}."
+            fallback = f"最近持续关注：{joined}。"
+        else:
+            fallback = f"Sustained interest: {joined}."
+        return core_i18n.t(
+            "memory.l3.insight.trend.interest",
+            language=locale_for_zh(zh),
+            fallback=fallback,
+            values=joined,
+        )
 
     def _trend_group(self, outcome: ReconciledTraitOutcome) -> str:
         if self._is_interest_outcome(outcome):

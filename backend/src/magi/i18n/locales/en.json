@@ -358,6 +358,35 @@
       "module_uninitialized": "Skills module not initialized"
     }
   },
+  "memory": {
+    "l3": {
+      "insight": {
+        "trait_families": {
+          "state_profile": "state",
+          "mood": "mood",
+          "stress": "stress",
+          "engagement": "engagement",
+          "trigger": "trigger",
+          "communication_profile": "communication preference",
+          "preference_profile": "preference",
+          "routine_profile": "routine",
+          "identity_profile": "identity",
+          "relationship_shift": "relationship",
+          "group_atmosphere": "group atmosphere",
+          "public_sentiment": "public sentiment",
+          "interest_profile": "interest"
+        },
+        "frames": {
+          "state_change": "Your {fragments}.",
+          "trend_shift": "Longer-span trend — your {fragments}.",
+          "conflict_resolution": "Conflict detected — your {fragments}."
+        },
+        "trend": {
+          "interest": "Sustained interest: {values}."
+        }
+      }
+    }
+  },
   "plugins": {
     "errors": {
       "not_found": "Plugin not found",
