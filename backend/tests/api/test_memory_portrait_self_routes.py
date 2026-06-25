@@ -353,6 +353,41 @@ def test_self_view_includes_safe_graph_relationship_signals():
     world_groups = {group["id"]: group["items"] for group in body["self_view"]["world"]["groups"]}
 
     assert [item["text"] for item in world_groups["places"]] == ["东京"]
-    assert world_groups["places"][0]["source_key"] == "photo_library_apple_photos"
+    assert world_groups["places"][0]["source"] == ""
+    assert world_groups["places"][0]["source_key"] is None
     assert [item["text"] for item in world_groups["routine"]] == ["Sony A7C"]
     assert "一次性地点" not in " ".join(item["text"] for group in world_groups.values() for item in group)
+
+
+def test_self_view_skips_coordinate_only_photo_places():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    l2 = MagicMock()
+    l2.list_tom_snapshots = AsyncMock(return_value=[])
+    l2.list_tom_assertions = AsyncMock(return_value=[])
+    l2.get_relationships = AsyncMock(return_value=[
+        {
+            "triple_id": "triple-coord",
+            "predicate": "VISITED",
+            "object_id": "place:30.1234, 120.5678",
+            "object_type": "place",
+            "source_type": "photo_library_apple_photos",
+            "observation_count": 4,
+        },
+        {
+            "triple_id": "triple-place",
+            "predicate": "VISITED",
+            "object_id": "place:杭州",
+            "object_type": "place",
+            "source_type": "photo_library_apple_photos",
+            "observation_count": 4,
+        },
+    ])
+
+    with override_dependencies_for_test(profile_repo=profile_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+
+    assert resp.status_code == 200
+    world_groups = {group["id"]: group["items"] for group in resp.json()["self_view"]["world"]["groups"]}
+    assert [item["text"] for item in world_groups["places"]] == ["杭州"]

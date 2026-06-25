@@ -56,7 +56,12 @@ _RECENT_FAMILIES = {
     "group_atmosphere",
 }
 _REVIEW_STATES = {"tentative", "contradicted"}
-_INTERNAL_SOURCE_KEYS = {"external_activity"}
+_INTERNAL_SOURCE_KEYS = {
+    "external_activity",
+    "photo_library",
+    "photo_library_apple_photos",
+    "photo_library_directory",
+}
 _SOURCE_STRENGTH = {
     "user_authored": 5,
     "settings_profile": 5,
@@ -419,10 +424,15 @@ def _graph_object_name(
         return ""
     if _LOW_VALUE_GRAPH_NAME_RE.fullmatch(name):
         return ""
+    if _COORDINATE_GRAPH_NAME_RE.fullmatch(name):
+        return ""
     return name[:80]
 
 
 _LOW_VALUE_GRAPH_NAME_RE = re.compile(r"[0-9a-f]{10,}", re.IGNORECASE)
+_COORDINATE_GRAPH_NAME_RE = re.compile(
+    r"[-+]?\d{1,3}(?:\.\d+)?\s*,\s*[-+]?\d{1,3}(?:\.\d+)?"
+)
 
 
 def _object_slug(object_id: str) -> str:
