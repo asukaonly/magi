@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from ..storage.utils import SNAPSHOT_HISTORY_LIMIT as _SNAPSHOT_HISTORY_LIMIT
+from ..storage.utils import (
+    SNAPSHOT_HISTORY_LIMIT as _SNAPSHOT_HISTORY_LIMIT,
+    snapshot_history_limit,
+)
 
 
 class L2SnapshotEvolutionMixin:
@@ -192,7 +195,7 @@ class L2SnapshotEvolutionMixin:
             if any(self._same_history_entry(entry, candidate) for candidate in merged):
                 continue
             merged.append(dict(entry))
-        return merged[:_SNAPSHOT_HISTORY_LIMIT]
+        return merged[:snapshot_history_limit()]
 
     def _same_history_entry(self, left: Dict[str, Any], right: Dict[str, Any]) -> bool:
         return (

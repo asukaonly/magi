@@ -35,6 +35,34 @@ DEFAULT_FUTURE_INTENT_TTL_SECONDS = 30 * 24 * 3600
 MAX_EVIDENCE_EVENT_IDS = 50
 
 
+def _l2_limit(attr: str, default: int) -> int:
+    """Read an ``agent.memory.l2.limits`` value, falling back to *default*.
+
+    Pure L2 helpers run in contexts without a bound config (isolated unit and
+    benchmark stores), so any failure to resolve the config returns the module
+    default rather than raising. The config loader caches by file signature, so
+    repeated calls are cheap.
+    """
+    try:
+        from ....config import get_config
+
+        value = getattr(get_config().agent.memory.l2.limits, attr)
+        return int(value)
+    except Exception:
+        return default
+
+
+def snapshot_history_limit() -> int:
+    """Max retained entries per ToM snapshot history field."""
+    return _l2_limit("snapshot_history_limit", SNAPSHOT_HISTORY_LIMIT)
+
+
+def mood_trajectory_limit() -> int:
+    """Max retained entries in a ToM snapshot mood/stress/engagement trajectory."""
+    return _l2_limit("mood_trajectory_limit", MOOD_TRAJECTORY_LIMIT)
+
+
+
 def normalize_store_entity_type(entity_type: str | None) -> str | None:
     if entity_type is None:
         return None

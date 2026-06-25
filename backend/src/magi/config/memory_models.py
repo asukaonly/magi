@@ -158,6 +158,26 @@ class MemoryL2LifecycleSettings(BaseModel):
     )
 
 
+class MemoryL2LimitsSettings(BaseModel):
+    """Retention/capacity caps for L2 cognition artifacts.
+
+    These previously lived as hardcoded module constants. Defaults preserve the
+    prior runtime behavior; the runtime reads them through config-aware accessors
+    that fall back to the same defaults when no config is bound.
+    """
+
+    snapshot_history_limit: int = Field(
+        default=5,
+        ge=1,
+        description="Max retained entries per ToM snapshot history field (core traits, preferences, relationships).",
+    )
+    mood_trajectory_limit: int = Field(
+        default=20,
+        ge=1,
+        description="Max retained entries in a ToM snapshot mood/stress/engagement trajectory.",
+    )
+
+
 class MemoryL2Settings(BaseModel):
     """L2 structured cognition settings."""
 
@@ -219,6 +239,7 @@ class MemoryL2Settings(BaseModel):
         description="Interval between L2 derive runs (seconds). Minimum 300s.",
     )
     lifecycle: MemoryL2LifecycleSettings = Field(default_factory=MemoryL2LifecycleSettings)
+    limits: MemoryL2LimitsSettings = Field(default_factory=MemoryL2LimitsSettings)
 
 
 class MemoryL3Settings(BaseModel):
@@ -366,6 +387,7 @@ __all__ = [
     "MemoryL0Settings",
     "MemoryL1Settings",
     "MemoryL2LifecycleSettings",
+    "MemoryL2LimitsSettings",
     "MemoryL2Settings",
     "MemoryL3Settings",
     "MemoryL4Settings",

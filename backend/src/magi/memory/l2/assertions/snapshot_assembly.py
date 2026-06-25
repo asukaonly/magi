@@ -6,7 +6,7 @@ from typing import Any, Dict, List, cast
 
 
 from ..assertion_family_policy import get_assertion_family_policy
-from ..storage.utils import MOOD_TRAJECTORY_FAMILIES, MOOD_TRAJECTORY_LIMIT
+from ..storage.utils import MOOD_TRAJECTORY_FAMILIES, mood_trajectory_limit
 from .snapshot_protocols import _SnapshotHostProtocol
 from .source_tier import source_tier
 
@@ -217,7 +217,7 @@ class L2SnapshotAssemblyMixin:
                 "at": float(item.get("last_validated_at", 0)),
             })
         prev_trajectory.sort(key=lambda entry: entry["at"])
-        return prev_trajectory[-MOOD_TRAJECTORY_LIMIT:]
+        return prev_trajectory[-mood_trajectory_limit():]
 
 
 __all__ = ["L2SnapshotAssemblyMixin"]

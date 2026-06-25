@@ -5,10 +5,20 @@ import pytest
 from magi.config import memory_models
 from magi.config.models import AppConfig
 from magi.config import models as runtime_models
-from magi.config.memory_models import MemoryL2LifecycleSettings, MemoryL2Settings
+from magi.config.memory_models import (
+    MemoryL2LifecycleSettings,
+    MemoryL2LimitsSettings,
+    MemoryL2Settings,
+)
 from magi.memory.l2.entities.maintenance import (
     L2EntityMaintenance,
     L2MaintenanceLifecycle,
+)
+from magi.memory.l2.storage.utils import (
+    MOOD_TRAJECTORY_LIMIT,
+    SNAPSHOT_HISTORY_LIMIT,
+    mood_trajectory_limit,
+    snapshot_history_limit,
 )
 
 
@@ -32,6 +42,7 @@ def test_l2_edge_embedding_drain_interval_default():
         "MemoryL0Settings",
         "MemoryL1Settings",
         "MemoryL2LifecycleSettings",
+        "MemoryL2LimitsSettings",
         "MemoryL2Settings",
         "MemoryL3Settings",
         "MemoryL4Settings",
@@ -116,4 +127,46 @@ def test_maintenance_honors_lifecycle_overrides():
     assert maint.ARCHIVE_CONFIDENCE_THRESHOLD == 0.5
     assert maint.RECONCILE_BATCH_SIZE == 7
     assert maint.RECONCILE_MAX_TOTAL == 9
+
+
+def test_runtime_config_l2_limits_defaults():
+    limits = AppConfig().agent.memory.l2.limits
+
+    assert isinstance(limits, MemoryL2LimitsSettings)
+    assert limits.snapshot_history_limit == 5
+    assert limits.mood_trajectory_limit == 20
+
+
+def test_l2_limits_config_defaults_match_module_constants():
+    """Guard against drift between config defaults and the module fallback constants."""
+    limits = MemoryL2LimitsSettings()
+
+    assert limits.snapshot_history_limit == SNAPSHOT_HISTORY_LIMIT
+    assert limits.mood_trajectory_limit == MOOD_TRAJECTORY_LIMIT
+
+
+def test_l2_limit_accessors_fall_back_when_config_unavailable(monkeypatch):
+    """The user-facing guarantee: defaults still apply when no config resolves."""
+    import magi.config
+
+    def _boom() -> object:
+        raise RuntimeError("no config bound")
+
+    monkeypatch.setattr(magi.config, "get_config", _boom)
+
+    assert snapshot_history_limit() == SNAPSHOT_HISTORY_LIMIT
+    assert mood_trajectory_limit() == MOOD_TRAJECTORY_LIMIT
+
+
+def test_l2_limit_accessors_read_config_overrides(monkeypatch):
+    import magi.config
+
+    cfg = AppConfig()
+    cfg.agent.memory.l2.limits.snapshot_history_limit = 9
+    cfg.agent.memory.l2.limits.mood_trajectory_limit = 42
+    monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
+
+    assert snapshot_history_limit() == 9
+    assert mood_trajectory_limit() == 42
+
 

@@ -95,6 +95,10 @@ agent:
         reconcile_batch_size: 100
         reconcile_max_total: 500
         promotion_counter_retention_seconds: 2592000 # 30 days
+      # Retention/capacity caps for L2 cognition artifacts.
+      limits:
+        snapshot_history_limit: 5 # entries per snapshot history field
+        mood_trajectory_limit: 20 # entries in a snapshot mood/stress/engagement trajectory
 
     l3:
       enabled: true
