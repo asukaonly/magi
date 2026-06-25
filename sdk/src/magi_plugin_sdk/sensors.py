@@ -76,6 +76,25 @@ class SensorNarration:
 
 
 @dataclass(slots=True, frozen=True)
+class TimelinePresentation:
+    """Hint for how a sensor event should appear in the main timeline."""
+
+    mode: str = "full"
+    title: str | None = None
+    summary: str | None = None
+
+    def __post_init__(self) -> None:
+        normalized_mode = str(self.mode or "full").strip() or "full"
+        if normalized_mode not in {"full", "compact", "evidence_only"}:
+            raise ValueError(
+                "TimelinePresentation.mode must be one of: full, compact, evidence_only"
+            )
+        object.__setattr__(self, "mode", normalized_mode)
+        object.__setattr__(self, "title", _clean_optional_text(self.title))
+        object.__setattr__(self, "summary", _clean_optional_text(self.summary))
+
+
+@dataclass(slots=True, frozen=True)
 class SensorMemoryPolicy:
     """Declarative memory routing policy for a sensor's outputs."""
 
@@ -128,6 +147,7 @@ class SensorOutput:
     entities: list[dict[str, Any]] = field(default_factory=list)
     provenance: dict[str, Any] = field(default_factory=dict)
     domain_payload: dict[str, Any] = field(default_factory=dict)
+    timeline_presentation: TimelinePresentation = field(default_factory=TimelinePresentation)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -178,6 +198,9 @@ class SensorOutput:
             entities=list(data.get("entities", [])),
             provenance=dict(data.get("provenance", {})),
             domain_payload=dict(data.get("domain_payload", {})),
+            timeline_presentation=_timeline_presentation_from_dict(
+                data.get("timeline_presentation")
+            ),
         )
 
 
@@ -499,6 +522,7 @@ class SensorBase(ABC):
         tags: list[str] | None = None,
         provenance: dict[str, Any] | None = None,
         domain_payload: dict[str, Any] | None = None,
+        timeline_presentation: TimelinePresentation | None = None,
     ) -> SensorOutput:
         """Convenience builder analogous to the legacy timeline sensor helper."""
         now = time.time()
@@ -514,7 +538,27 @@ class SensorBase(ABC):
             tags=list(tags or []),
             provenance=provenance or {"sensor_id": self.sensor_id},
             domain_payload=domain_payload or {},
+            timeline_presentation=timeline_presentation or TimelinePresentation(),
         )
+
+
+def _clean_optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _timeline_presentation_from_dict(value: Any) -> TimelinePresentation:
+    if isinstance(value, TimelinePresentation):
+        return value
+    if not isinstance(value, dict):
+        return TimelinePresentation()
+    return TimelinePresentation(
+        mode=str(value.get("mode") or "full"),
+        title=value.get("title"),
+        summary=value.get("summary"),
+    )
 
 
 __all__ = [
@@ -532,4 +576,5 @@ __all__ = [
     "SensorSpec",
     "SensorSyncContext",
     "SensorSyncResult",
+    "TimelinePresentation",
 ]

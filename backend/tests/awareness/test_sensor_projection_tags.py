@@ -15,6 +15,7 @@ from magi.awareness.sensor_output import (
     SensorNarration,
     SensorOutput,
     SensorOutputMetadata,
+    TimelinePresentation,
 )
 from magi.awareness.sensor_projection import build_sensor_projection
 from magi_plugin_sdk.sensors import ActivityFacet, ContentBlock
@@ -121,3 +122,43 @@ def test_no_tags_anywhere_omits_retrieval_terms_key() -> None:
     projection = build_sensor_projection(_FakeSensor(), output, metadata=None)
 
     assert "retrieval_terms" not in projection.metadata.get("projection", {})
+
+
+def test_timeline_presentation_keeps_evidence_text_out_of_summary() -> None:
+    """High-volume evidence sensors can keep OCR searchable without flooding timeline."""
+    full_ocr_text = (
+        "Magi AI Agent Framework 通知 对话 时间线 记忆 任务 设置 后台任务 "
+        "调度配置 调度记录 今天 近 24 小时 近 7 天 全部 用户自定义 0 "
+        "传感器同步 5 记忆维护 1 时间线维护 0 状态 全部"
+    )
+    output = SensorOutput(
+        source_type="screenshot_timeline",
+        source_item_id="cap-1",
+        occurred_at=1000.0,
+        captured_at=1001.0,
+        activity=SensorActivity(
+            source=ActivityFacet(
+                code="screenshot_timeline",
+                i18n_key="activity.source.screenshot_timeline",
+                fallback="Screenshot Timeline",
+            ),
+            action=ActivityFacet(
+                code="screen_capture",
+                i18n_key="activity.action.screen_capture",
+                fallback="Screen Capture",
+            ),
+        ),
+        narration=SensorNarration(title="Magi: 调度记录", body=full_ocr_text),
+        content_blocks=[ContentBlock(kind="text", value=full_ocr_text)],
+        timeline_presentation=TimelinePresentation(
+            mode="evidence_only",
+            title="Magi: 调度记录",
+        ),
+    )
+
+    projection = build_sensor_projection(_FakeSensor(), output, metadata=None)
+
+    assert "Magi: 调度记录" in projection.summary
+    assert full_ocr_text not in projection.summary
+    assert full_ocr_text in projection.content
+    assert projection.metadata["projection"]["timeline_presentation"]["mode"] == "evidence_only"

@@ -12,6 +12,7 @@ from magi_plugin_sdk.sensors import (
     SensorActivity,
     SensorNarration,
     SensorOutput,
+    TimelinePresentation,
 )
 
 
@@ -49,3 +50,21 @@ def test_promotion_override_round_trips_through_dict() -> None:
     out = _minimal_output(promotion_override="force_full")
     restored = SensorOutput.from_dict(out.to_dict())
     assert restored.promotion_override == "force_full"
+
+
+def test_timeline_presentation_defaults_to_full() -> None:
+    assert _minimal_output().timeline_presentation.mode == "full"
+
+
+def test_timeline_presentation_round_trips_through_dict() -> None:
+    out = _minimal_output(
+        timeline_presentation=TimelinePresentation(
+            mode="evidence_only",
+            title="Code: plugin.toml",
+            summary="Screen capture in Code",
+        )
+    )
+    restored = SensorOutput.from_dict(out.to_dict())
+    assert restored.timeline_presentation.mode == "evidence_only"
+    assert restored.timeline_presentation.title == "Code: plugin.toml"
+    assert restored.timeline_presentation.summary == "Screen capture in Code"

@@ -8,6 +8,7 @@ from magi_plugin_sdk.sensors import (  # noqa: F401
     SensorNarration,
     SensorOutput,
     SensorOutputMetadata,
+    TimelinePresentation,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "SensorNarration",
     "SensorOutput",
     "SensorOutputMetadata",
+    "TimelinePresentation",
 ]

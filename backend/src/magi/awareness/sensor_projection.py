@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from .sensor_base import SensorBase
-from .sensor_output import ActivityFacet, SensorOutput, SensorOutputMetadata
+from .sensor_output import (
+    ActivityFacet,
+    SensorOutput,
+    SensorOutputMetadata,
+)
 
 _RENDERER_VERSION = "sensor_activity_v1"
 _ASCII_RE = re.compile(r"[A-Za-z0-9]")
@@ -62,18 +66,39 @@ def build_sensor_projection(
 
     narration_title = str(output.narration.title or "").strip()
     narration_body = _normalize_body(output, display_prefix=display_prefix, embedding_head=embedding_head)
+    presentation = output.timeline_presentation
 
-    title = display_prefix or narration_title or str(output.source_type or "").strip()
-    if display_prefix and narration_title:
-        title = f"{display_prefix} · {narration_title}"
-    elif narration_title:
-        title = narration_title
+    full_title = _compose_title(
+        display_prefix=display_prefix,
+        event_title=narration_title,
+        fallback=str(output.source_type or "").strip(),
+    )
+    full_content = _compose_summary(
+        display_prefix=display_prefix,
+        body=narration_body,
+        fallback_title=full_title,
+    )
 
-    summary = display_prefix or narration_body or title
-    if display_prefix and narration_body:
-        summary = f"{display_prefix} {narration_body}".strip()
-    elif narration_body:
-        summary = narration_body
+    title = full_title
+    summary = full_content
+    content = full_content
+    if presentation.mode in {"compact", "evidence_only"}:
+        presentation_title = presentation.title or narration_title
+        title = _compose_title(
+            display_prefix=display_prefix,
+            event_title=presentation_title,
+            fallback=full_title,
+        )
+        presentation_summary_body = (
+            presentation.summary
+            or presentation.title
+            or narration_title
+        )
+        summary = _compose_summary(
+            display_prefix=display_prefix,
+            body=presentation_summary_body or "",
+            fallback_title=title,
+        )
 
     projection_metadata: dict[str, Any] = {
         "plugin_id": sensor.plugin_id,
@@ -92,6 +117,10 @@ def build_sensor_projection(
         projection_metadata["activity"]["qualifiers"] = dict(output.activity.qualifiers)
     if embedding_head and embedding_head != summary:
         projection_metadata["projection"]["embedding_head"] = embedding_head
+    if presentation.mode != "full":
+        projection_metadata["projection"]["timeline_presentation"] = {
+            "mode": presentation.mode,
+        }
     # Retrieval terms feed the L1 FTS index, so anything we want BM25 /
     # keyword paths to match must land here. Both producer-side tags
     # (``output.tags``, e.g. ``app_category:gaming`` from screen-time)
@@ -105,7 +134,7 @@ def build_sensor_projection(
     return SensorProjection(
         title=title,
         summary=summary,
-        content=summary,
+        content=content,
         embedding_head=embedding_head,
         metadata=projection_metadata,
     )
@@ -155,6 +184,24 @@ def _normalize_body(
         if duplicate_prefix and body.startswith(duplicate_prefix):
             body = body[len(duplicate_prefix):].strip()
     return body
+
+
+def _compose_title(*, display_prefix: str, event_title: str, fallback: str) -> str:
+    title = display_prefix or event_title or fallback
+    if display_prefix and event_title:
+        title = f"{display_prefix} · {event_title}"
+    elif event_title:
+        title = event_title
+    return title.strip()
+
+
+def _compose_summary(*, display_prefix: str, body: str, fallback_title: str) -> str:
+    summary = display_prefix or body or fallback_title
+    if display_prefix and body:
+        summary = f"{display_prefix} {body}".strip()
+    elif body:
+        summary = body
+    return summary.strip()
 
 
 def _join_with_space(*parts: str) -> str:

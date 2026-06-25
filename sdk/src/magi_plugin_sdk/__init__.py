@@ -79,6 +79,7 @@ from .sensors import (
     SensorSpec,
     SensorSyncContext,
     SensorSyncResult,
+    TimelinePresentation,
 )
 from .subprocess import (
     DEFAULT_REGISTRY_PATH,
@@ -142,6 +143,7 @@ __all__ = [
     "SensorSpec",
     "SensorSyncContext",
     "SensorSyncResult",
+    "TimelinePresentation",
     # Field / settings specs
     "ExtensionFieldOption",
     "ExtensionFieldSpec",

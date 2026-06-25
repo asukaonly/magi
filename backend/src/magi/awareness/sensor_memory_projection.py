@@ -79,6 +79,7 @@ def build_sensor_memory_event(
 
     timeline_event_dict = build_timeline_event_dict(payload, event_id=event_id)
     summary = projection.get("summary") or timeline_event_dict.get("summary") or ""
+    content = projection.get("content") or summary
 
     metadata_json: dict[str, Any] = dict(output.get("domain_payload") or {})
     projection_metadata = dict(projection.get("metadata") or {})
@@ -99,15 +100,11 @@ def build_sensor_memory_event(
         if bp.get("max_wait_seconds") is not None:
             metadata_json["l2_batch_max_wait_seconds"] = int(bp["max_wait_seconds"])
 
-    # De-duplicate: build_sensor_projection sets content=summary by design,
-    # so the L1 `content` column already holds the full summary text. Every
-    # consumer that reads metadata.timeline.summary in this codebase falls
-    # back to event.get("content") when the key is missing — see e.g.
-    # timeline/viewport_builder.py:760, timeline/service.py, l1/storage/rows.py.
-    # Dropping the duplicate cuts L1 metadata_json size ~40-50% for chatty
-    # sensors (the worst offender being screenshot_timeline's OCR text).
+    # De-duplicate when timeline summary and L1 content match. For compact /
+    # evidence-only presentations they intentionally differ: timeline.summary
+    # stays short while event.content keeps the full searchable text.
     timeline_for_metadata = dict(timeline_event_dict)
-    if timeline_for_metadata.get("summary") == summary:
+    if timeline_for_metadata.get("summary") == content:
         timeline_for_metadata.pop("summary", None)
     metadata_json["timeline"] = timeline_for_metadata
     if timeline_event_dict.get("raw_payload_ref"):
@@ -160,7 +157,7 @@ def build_sensor_memory_event(
         turn_id=None,
         user_id=owner_user_id,
         task_id=None,
-        content=summary,
+        content=content,
         author_type=str(policy_data.get("author_type", "external")),
         content_type=str(policy_data.get("content_type", "observation")),
         importance_score=float(policy_data.get("importance_bias", 0.5)),

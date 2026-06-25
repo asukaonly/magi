@@ -48,7 +48,7 @@ def _make_payload(**overrides: Any) -> SensorEventEmitted:
         projection_dict=SensorProjection(
             title="Used Chrome",
             summary="Used Chrome on Mac",
-            content="full body...",
+            content="Used Chrome on Mac",
             embedding_head="head",
             metadata={"projection_kind": "activity"},
         ).to_dict(),
@@ -117,6 +117,33 @@ def test_build_sensor_memory_event_carries_pinned_payload_off_the_row():
     assert me.pinned_payload == "the full frozen note body, much longer than the summary"
     assert me.content == "Used Chrome on Mac"  # lean summary, not the full body
     assert "pinned_payload" not in (me.metadata_json or {})
+
+
+def test_build_sensor_memory_event_can_store_full_content_with_compact_timeline_summary():
+    full_evidence_text = (
+        "Magi AI Agent Framework 通知 对话 时间线 记忆 任务 设置 后台任务 "
+        "调度配置 调度记录 今天 近 24 小时 近 7 天 全部 用户自定义 0 "
+        "传感器同步 5 记忆维护 1 时间线维护 0 状态 全部"
+    )
+    compact_summary = "Screenshot Timeline Screen Capture Magi: 调度记录"
+    projection = SensorProjection(
+        title="Screenshot Timeline Screen Capture · Magi: 调度记录",
+        summary=compact_summary,
+        content=f"Screenshot Timeline Screen Capture {full_evidence_text}",
+        embedding_head="Screenshot Timeline Screen Capture",
+        metadata={
+            "projection": {
+                "renderer_version": "sensor_activity_v1",
+                "timeline_presentation": {"mode": "evidence_only"},
+            }
+        },
+    )
+    payload = _make_payload(projection_dict=projection.to_dict())
+
+    me = build_sensor_memory_event(payload, event_id="evt-evidence")
+
+    assert me.content == f"Screenshot Timeline Screen Capture {full_evidence_text}"
+    assert me.metadata_json["timeline"]["summary"] == compact_summary
 
 
 def test_build_sensor_memory_event_threads_promotion_override():

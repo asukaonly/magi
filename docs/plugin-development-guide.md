@@ -474,12 +474,25 @@ Required truth fields inside `SensorOutput`:
 - optional `activity.qualifiers`: stable low-cardinality qualifiers such as capture mode or session type
 - `narration.body`: factual event narration without host-owned source/action prefix
 - optional `narration.title`: short source-owned headline that the host may reuse in timeline titles
+- optional `timeline_presentation`: display policy for the primary timeline surface
 
 Important ownership rule:
 
 - plugins own `activity` and `narration` truth
 - the host runtime owns final `L1` text, timeline title/summary, and embedding projection
 - plugins should not pre-compose final `{source} {action} ...` display strings inside `narration.body`
+
+`timeline_presentation` lets high-volume evidence sources keep the raw evidence
+available without flooding the primary timeline:
+
+- `full` (default): timeline summary and L1 content both use the host-rendered full narration
+- `compact`: timeline summary uses the provided short `title` or `summary`; L1 content keeps the full narration
+- `evidence_only`: same compact primary display, intended for raw evidence such as OCR, transcripts, or logs that should remain searchable and openable but not inline-expanded in the main timeline
+
+For example, a screenshot sensor should put OCR/AX text in `narration.body` and
+`content_blocks`, then set `timeline_presentation=TimelinePresentation(mode="evidence_only", title="App: Window")`.
+The timeline will show the short app/window label, while search/detail paths can
+still use the complete captured text.
 
 Typical authoring pattern:
 

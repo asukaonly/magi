@@ -72,6 +72,15 @@ The canonical timeline fact. Created by the host projection pipeline from `Senso
 
 `TimelineEvent` is L12-internal. Sensors produce `SensorOutput` truth (L9), the host renders timeline display text, and `TimelineAdapter` stores the resulting `TimelineEvent`.
 
+The host projection layer also enforces each sensor output's
+`timeline_presentation` policy. Default `full` events keep the historical
+behavior: the primary timeline summary mirrors the host-rendered event content.
+`compact` and `evidence_only` events use a short title/summary for the primary
+timeline while preserving the complete narration/content as L1 evidence for
+search, recall, context bundles, and detail drawers. This keeps raw evidence
+sources such as OCR screenshots or logs useful without turning the main timeline
+into a dump of intermediate text.
+
 ### Viewport Response
 
 Assembled by `TimelineViewportBuilder`. Contains:
@@ -153,6 +162,9 @@ The page must therefore separate user-facing interpretation from intermediate
 memory artifacts. Raw L1 events, L2 assertions, L3 summaries, and L4 procedures
 remain available as evidence, but the primary viewport should present a clear
 overview first, then prioritized review units, then drill-down evidence.
+For high-volume evidence sources, the primary viewport must prefer the compact
+timeline summary produced by the host projection and reserve the full captured
+text for evidence/detail contexts.
 
 When the user confirms, rejects, or corrects a derived interpretation from the evidence
 drawer, timeline should route that action back to the owning memory layer rather
@@ -174,7 +186,7 @@ document.
 
 ### `adapter.py` — TimelineAdapter
 
-Stores pre-rendered `TimelineEvent` objects. Called post-ingestion by the timeline handler after the host projection layer has rendered title/summary from `SensorOutput.activity` and `SensorOutput.narration`. Does not re-ingest into memory.
+Stores pre-rendered `TimelineEvent` objects. Called post-ingestion by the timeline handler after the host projection layer has rendered title/summary from `SensorOutput.activity`, `SensorOutput.narration`, and `SensorOutput.timeline_presentation`. Does not re-ingest into memory.
 
 ### `service.py` — TimelineService
 
