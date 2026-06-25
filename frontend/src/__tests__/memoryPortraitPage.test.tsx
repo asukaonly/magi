@@ -236,6 +236,86 @@ describe('MemoryPortraitPage', () => {
     expect(within(preferences).queryByText('external_activity')).not.toBeInTheDocument();
   });
 
+  it('hides source labels from portrait world and recent sections but keeps them in review', async () => {
+    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
+      session_id: '', persona_id: '', topic: 'self', generated_at: 0,
+      observations: [],
+      self_view: {
+        world: {
+          total_count: 4,
+          groups: [
+            { id: 'identity', items: [] },
+            { id: 'preferences', items: [] },
+            {
+              id: 'routine',
+              items: [{
+                id: 'routine-1',
+                text: 'Chrome',
+                source: 'Chrome 浏览器历史',
+                source_key: 'chrome_history',
+                assertion_id: 'assert-routine',
+                basis_count: 4,
+                basis_refs: ['assertion:assert-routine', 'source:chrome_history'],
+              }],
+            },
+            {
+              id: 'places',
+              items: [{
+                id: 'place-1',
+                text: 'Tiankongzhicheng, Hangzhou, Zhejiang, China',
+                source: '照片库',
+                source_key: 'photo_library_apple_photos',
+                assertion_id: 'assert-place',
+                basis_count: 2,
+                basis_refs: ['assertion:assert-place', 'source:photo_library_apple_photos'],
+              }],
+            },
+            { id: 'communication', items: [] },
+          ],
+        },
+        review: {
+          items: [{
+            id: 'review-1',
+            text: 'Magi 记忆体验',
+            source: 'conversation',
+            source_key: 'conversation',
+            assertion_id: 'assert-review',
+            basis_count: 1,
+            basis_refs: ['assertion:assert-review', 'source:conversation'],
+          }],
+        },
+        recent: {
+          items: [{
+            id: 'recent-1',
+            text: '最近在验证画像页面',
+            source: 'tom',
+            source_key: 'tom',
+            assertion_id: null,
+            basis_count: 1,
+            basis_refs: ['source:tom'],
+          }],
+        },
+      },
+      is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
+    });
+
+    renderPage();
+
+    const world = await screen.findByTestId('portrait-world-map');
+    expect(within(world).getByText('Chrome')).toBeInTheDocument();
+    expect(within(world).getByText('Tiankongzhicheng, Hangzhou, Zhejiang, China')).toBeInTheDocument();
+    expect(within(world).queryByText('Chrome 浏览器历史')).not.toBeInTheDocument();
+    expect(within(world).queryByText('照片库')).not.toBeInTheDocument();
+
+    const recent = screen.getByTestId('portrait-recent-state');
+    expect(within(recent).getByText('最近在验证画像页面')).toBeInTheDocument();
+    expect(within(recent).queryByText('总结')).not.toBeInTheDocument();
+
+    const review = screen.getByTestId('portrait-review-queue');
+    expect(within(review).getByText('Magi 记忆体验')).toBeInTheDocument();
+    expect(within(review).getByText('来源：{{source}}')).toBeInTheDocument();
+  });
+
   it('routes review queue actions to assertion feedback and correction APIs', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       session_id: '', persona_id: '', topic: 'self', generated_at: 0,

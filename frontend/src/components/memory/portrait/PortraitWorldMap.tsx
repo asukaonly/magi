@@ -1,20 +1,10 @@
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
-import type { PortraitDisplayItem, PortraitWorldGroup } from './portraitGrouping';
+import type { PortraitWorldGroup } from './portraitGrouping';
 
 interface PortraitWorldMapProps {
   groups: PortraitWorldGroup[];
   totalCount: number;
 }
-
-const sourceText = (item: PortraitDisplayItem, t: TFunction<'app'>): string | null => {
-  if (!item.source) {
-    return null;
-  }
-  return item.sourceKey
-    ? t(`memory.portrait.sources.${item.sourceKey}`, { defaultValue: item.source })
-    : item.source;
-};
 
 export const PortraitWorldMap = ({ groups, totalCount }: PortraitWorldMapProps) => {
   const { t } = useTranslation('app');
@@ -78,21 +68,13 @@ export const PortraitWorldMap = ({ groups, totalCount }: PortraitWorldMapProps) 
                           {t('memory.portrait.world.empty')}
                         </p>
                       ) : (
-                        group.items.slice(0, 4).map((item) => {
-                          const source = sourceText(item, t);
-                          return (
-                            <div key={item.id} className="space-y-1">
-                              <p className="text-sm leading-6 text-[hsl(var(--memory-title))]">
-                                {item.text}
-                              </p>
-                              {source ? (
-                                <p className="text-xs text-[hsl(var(--memory-muted))]">
-                                  {source}
-                                </p>
-                              ) : null}
-                            </div>
-                          );
-                        })
+                        group.items.slice(0, 4).map((item) => (
+                          <div key={item.id}>
+                            <p className="text-sm leading-6 text-[hsl(var(--memory-title))]">
+                              {item.text}
+                            </p>
+                          </div>
+                        ))
                       )}
                     </div>
                   </div>
