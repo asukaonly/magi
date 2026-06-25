@@ -100,6 +100,7 @@ _TRAIT_FAMILY_LABELS_ZH: dict[str, str] = {
     "relationship_shift":    "关系变化",
     "group_atmosphere":      "群体氛围",
     "public_sentiment":      "公众情绪",
+    "interest_profile":      "关注",
 }
 
 _TRAIT_FAMILY_LABELS_EN: dict[str, str] = {
@@ -115,6 +116,7 @@ _TRAIT_FAMILY_LABELS_EN: dict[str, str] = {
     "relationship_shift":    "relationship",
     "group_atmosphere":      "group atmosphere",
     "public_sentiment":      "public sentiment",
+    "interest_profile":      "interest",
 }
 
 

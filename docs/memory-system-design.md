@@ -739,6 +739,8 @@ L3 summary LLM calls use the optional `memory_summarizer` runtime scenario. This
 
 Temporal LLM generation is split into two calls over the same stable evidence-prefix prompt. The first call produces only the user-facing summary body and is the required product output. The second call reuses the same evidence prefix plus the accepted body to extract optional structured fields such as topics, entities, sentiment, and change/pattern metadata. If the structured extraction fails, the accepted body still writes as a `temporal-llm` summary with empty structured fields. Rule-backed summaries remain an internal fallback and retry/debug lower bound; they should not be treated as normal Summary-page content unless a UI-specific quality gate explicitly allows them.
 
+The same product contract applies to thematic topic summaries and episodic/experience summaries: user-facing prose is generated first and structured fields are extracted afterward. A failed structure pass must not discard accepted prose. L3 insight renderers also apply a display-quality gate; L2 natural summaries that still look like raw machine signals are ignored and the renderer falls back to structured family/value text or skips the insight.
+
 Generation starts from `L1` facts that are eligible for cognition and excludes runtime telemetry and disposable events. The store does not load every matching event into the prompt. Instead, [evidence_selector.py](../backend/src/magi/memory/l3/evidence_selector.py) performs source-aware compaction:
 
 1. Query lightweight per-source counts for the requested time window.

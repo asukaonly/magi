@@ -19,6 +19,7 @@ the rendering logic per service.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Literal
 
 from ..l2.models import ReconciledTraitOutcome
@@ -28,6 +29,11 @@ logger = logging.getLogger(__name__)
 
 
 InsightKind = Literal["state_change", "trend_shift", "conflict_resolution"]
+
+_RAW_SIGNAL_PATTERNS = (
+    re.compile(r"\bRecurring\b.*\bsignal for\b", re.IGNORECASE),
+    re.compile(r"\b[a-z][a-z0-9_]*_[a-z0-9_]+\s+signal\b", re.IGNORECASE),
+)
 
 
 def render_insight_content(
@@ -56,7 +62,7 @@ def render_insight_content(
     summaries: list[str] = []
     for outcome in outcomes:
         summary = str(getattr(outcome, "natural_summary", "") or "").strip().rstrip("。.")
-        if summary and summary not in summaries:
+        if summary and _is_clean_natural_summary(summary) and summary not in summaries:
             summaries.append(summary)
     if len(summaries) == len(outcomes) and summaries:
         # All outcomes had a natural_summary — premium path.
@@ -91,6 +97,13 @@ def render_insight_content(
         },
     )
     return None
+
+
+def _is_clean_natural_summary(summary: str) -> bool:
+    text = str(summary or "").strip()
+    if not text:
+        return False
+    return not any(pattern.search(text) for pattern in _RAW_SIGNAL_PATTERNS)
 
 
 def _family_phrase(family_label: str, value: str, *, zh: bool) -> str:

@@ -60,6 +60,26 @@ def test_tier1_partial_natural_summary_falls_through():
     assert "state.sleep_quality" not in content
 
 
+def test_machine_signal_natural_summary_falls_through_to_readable_renderer():
+    content = render_insight_content(
+        insight_kind="trend_shift",
+        outcomes=[
+            _outcome(
+                trait_name="interest.software",
+                trait_family="interest_profile",
+                winning_value="RAG",
+                natural_summary="Recurring interested_in signal for RAG",
+            ),
+        ],
+        user_lang_zh=True,
+    )
+
+    assert content is not None
+    assert "Recurring" not in content
+    assert "interested_in" not in content
+    assert "RAG" in content
+
+
 # ─── Tier 2: trait_family ─────────────────────────────────────────────
 
 def test_tier2_trait_family_used_when_natural_summary_missing():

@@ -106,14 +106,43 @@ async def test_generate_topic_candidate_falls_back_on_timeout(monkeypatch: pytes
 
     async def _slow_call(_pack):  # type: ignore[no-untyped-def]
         await asyncio.sleep(0.1)
-        return {"content": "should never arrive"}
+        return "should never arrive"
 
-    monkeypatch.setattr(service, "_call_topic_model", _slow_call)
+    monkeypatch.setattr(service, "_call_topic_prose_model", _slow_call)
 
     result = await service.generate_topic_candidate(pack, fallback_summary="rule topic text")
 
     assert result.used_fallback is True
     assert result.candidate.content == "rule topic text"
+
+
+@pytest.mark.asyncio
+async def test_generate_topic_candidate_keeps_prose_when_structure_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TopicSummaryLLMService()
+    pack = ThematicEvidencePack(
+        topic="job",
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            ThematicEvidenceItem(event_id="evt-1", event_type="UserMessage", content="我在考虑换工作"),
+            ThematicEvidenceItem(event_id="evt-2", event_type="AIResponse", content="远程岗位更值得先看"),
+        ],
+    )
+
+    class _FakeBridge:
+        async def chat_response(self, **kwargs: object) -> SimpleNamespace:
+            if kwargs.get("json_mode"):
+                return SimpleNamespace(content="not-json")
+            return SimpleNamespace(content="围绕换工作的话题，重点一直落在远程岗位和成长空间上。")
+
+    fake_adapter = SimpleNamespace(provider_name="fake", model_name="fake-model")
+    monkeypatch.setattr(service, "_get_llm_target", lambda: (fake_adapter, _FakeBridge()))
+
+    result = await service.generate_topic_candidate(pack, fallback_summary="rule topic text")
+
+    assert result.used_fallback is False
+    assert result.candidate.content == "围绕换工作的话题，重点一直落在远程岗位和成长空间上。"
+    assert result.summary_overrides["key_topics"] == []
 
 
 @pytest.mark.asyncio

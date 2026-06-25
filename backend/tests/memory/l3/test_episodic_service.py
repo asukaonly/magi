@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from magi.memory.l3.episodic_service import EpisodicSummaryLLMService
@@ -61,6 +63,30 @@ async def test_fallback_when_no_pool():
         _pack(), fallback_label="x", fallback_content="y",
     )
     assert result.used_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_keeps_prose_when_structure_fails():
+    service = EpisodicSummaryLLMService(enabled=True, scenario_llm_pool=object())
+
+    class _FakeBridge:
+        async def chat_response(self, **kwargs: object) -> SimpleNamespace:
+            if kwargs.get("json_mode"):
+                return SimpleNamespace(content="{not-json")
+            return SimpleNamespace(content="这段经历主要是在 V2EX 和 Kimi 之间切换，围绕 AI 工具做轻量探索。")
+
+    service._get_llm_target = lambda: (SimpleNamespace(provider_name="fake", model_name="fake-model"), _FakeBridge())  # type: ignore[method-assign]
+
+    result = await service.generate_episodic_candidate(
+        _pack(),
+        fallback_label="V2EX 与 Kimi",
+        fallback_content="fallback content",
+    )
+
+    assert result.used_fallback is False
+    assert result.candidate.content == "这段经历主要是在 V2EX 和 Kimi 之间切换，围绕 AI 工具做轻量探索。"
+    assert result.candidate.insight_metadata["label"] == "V2EX 与 Kimi"
+    assert result.candidate.insight_metadata.get("fallback") is not True
 
 
 def test_evidence_pack_builder_caps_and_sorts():

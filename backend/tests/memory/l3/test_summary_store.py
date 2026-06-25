@@ -7,7 +7,7 @@ import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import normalize_runtime_event
-from magi.memory.l3.models import L3Candidate, ValidationDecision
+from magi.memory.l3.models import EpisodicGenerationResult, L3Candidate, ValidationDecision
 
 
 class _ExperienceSummaryL2Stub:
@@ -242,6 +242,64 @@ async def test_generate_experience_summary_ignores_machine_entity_ids_in_label(t
     assert "7e4eb50fae61" not in label.lower()
     assert "local" not in label.lower()
     assert "01KV" not in label
+
+
+@pytest.mark.asyncio
+async def test_generate_experience_summary_marks_llm_candidate(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"), vector_enabled=False)
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await l1_store.initialize()
+    await l3_store.initialize()
+
+    event = normalize_runtime_event(
+        Event(
+            type=EventTypes.USER_MESSAGE,
+            data={"user_id": "u1", "session_id": "s1", "content": "在 V2EX 和 Kimi 之间切换，比较 AI 工具。"},
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id="evt-exp-llm",
+            timestamp=1710000000.0,
+            event_id="evt-exp-llm",
+        )
+    )
+    await l1_store.store(event)
+
+    async def _fake_generate(pack, *, fallback_label, fallback_content):  # type: ignore[no-untyped-def]
+        _ = fallback_label, fallback_content
+        return EpisodicGenerationResult(
+            candidate=L3Candidate(
+                summary_type="thematic",
+                summary_category="episodic",
+                content="这段经历主要是在 V2EX 和 Kimi 之间比较 AI 工具。",
+                source_event_ids=list(pack.source_event_ids),
+                insight_metadata={"label": "比较 AI 工具"},
+            ),
+            used_fallback=False,
+        )
+
+    monkeypatch.setattr(l3_store._episodic_llm_service, "generate_episodic_candidate", _fake_generate)
+
+    summary = await l3_store.generate_experience_summary(
+        l1_store=l1_store,
+        l2_store=_ExperienceSummaryL2Stub(["evt-exp-llm"]),
+        experience={
+            "experience_id": "exp-llm",
+            "title": "AI 工具比较",
+            "time_start": 1710000000.0,
+            "time_end": 1710000300.0,
+            "primary_entity_ids": ["software:v2ex", "software:kimi"],
+            "primary_topic_keys": ["ai-tools"],
+        },
+        experience_members=[
+            {"member_type": "episode", "member_id": "ep-llm", "role": "core"},
+        ],
+    )
+
+    assert summary is not None
+    assert summary["generated_by_model"] == "episodic-llm"
 
 
 @pytest.mark.asyncio
@@ -1125,14 +1183,18 @@ async def test_generate_thematic_summary_uses_llm_candidate_when_available(tmp_p
             )
     )
 
-    async def _fake_model(_pack):  # type: ignore[no-untyped-def]
+    async def _fake_prose_model(_pack):  # type: ignore[no-untyped-def]
+        return "Job-switch planning kept centering on remote opportunities."
+
+    async def _fake_structure_model(_pack, *, prose_content):  # type: ignore[no-untyped-def]
+        assert prose_content == "Job-switch planning kept centering on remote opportunities."
         return {
-            "content": "Job-switch planning kept centering on remote opportunities.",
             "key_topics": ["job_search", "remote_roles"],
             "importance_aggregate": 0.88,
         }
 
-    monkeypatch.setattr(l3_store._topic_llm_service, "_call_topic_model", _fake_model)
+    monkeypatch.setattr(l3_store._topic_llm_service, "_call_topic_prose_model", _fake_prose_model)
+    monkeypatch.setattr(l3_store._topic_llm_service, "_call_topic_structure_model", _fake_structure_model)
 
     summary = await l3_store.generate_thematic_summary(
         l1_store=l1_store,

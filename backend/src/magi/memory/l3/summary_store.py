@@ -624,6 +624,7 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
                 "summary_category": "episodic",
                 "period_start": pack.time_start,
                 "period_end": pack.time_end,
+                "generated_by_model": "rule-summary" if generation.used_fallback else "episodic-llm",
             },
         )
         return summary
@@ -753,6 +754,7 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
             or (max(timestamps) if timestamps else period_start)
         )
 
+        used_fallback = True
         if events:
             pack = self._episodic_llm_service.build_episodic_evidence_pack(
                 episode={
@@ -773,6 +775,7 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
             source_event_ids = list(generation.candidate.source_event_ids)
             content = str(generation.candidate.content or "").strip()
             metadata = dict(generation.candidate.insight_metadata)
+            used_fallback = generation.used_fallback
         else:
             source_event_ids = list(event_ids)
             content = fallback_content
@@ -809,6 +812,7 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
                 "summary_category": "episodic",
                 "period_start": period_start,
                 "period_end": period_end,
+                "generated_by_model": "rule-summary" if used_fallback else "episodic-llm",
                 "generation_reason": "experience:episodic",
             },
         )
