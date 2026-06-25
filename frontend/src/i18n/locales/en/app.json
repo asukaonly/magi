@@ -3069,6 +3069,7 @@
         "impact": "Downstream impact",
         "noImpact": "No computable downstream impact is available.",
         "safeActions": "Maintenance actions",
+        "noActions": "This record type can only be inspected for now.",
         "reprocessEventHint": "Send this raw event through structured extraction again to update entities, assertions, and relationships.",
         "reprocessEntityHint": "Recheck this entity's merges, relationships, and conflict state.",
         "reprocessUnavailableHint": "This record type can be inspected here, but cannot be regenerated from this drawer yet.",

@@ -3068,6 +3068,7 @@
         "impact": "下游影响",
         "noImpact": "暂无可计算的下游影响。",
         "safeActions": "维护操作",
+        "noActions": "这个类型目前只能查看。",
         "reprocessEventHint": "把这条原始事件重新送入结构抽取，更新实体、断言和关系。",
         "reprocessEntityHint": "重新核对这个实体的合并、关系和冲突状态。",
         "reprocessUnavailableHint": "这类记录目前只能查看，不能从这里重新生成。",

@@ -469,6 +469,16 @@ export interface ForgetEpisodeResponse {
   l1_events_deleted: number;
 }
 
+export interface DeleteL1EventResponse {
+  event_id: string;
+  deleted: boolean;
+}
+
+export interface ForgetEntityResponse {
+  l2_counts: Record<string, number>;
+  l1_events_deleted: number;
+}
+
 export interface L2GraphConflictRule {
   predicate: string;
   opposite_predicates: string[];
@@ -746,6 +756,8 @@ export const memoryApi = {
   // L1 Event Stream
   getL1Events: async (params?: L1EventQueryParams): Promise<PaginatedResponse<L1Event>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L1Event>>('/memory/l1/events', { params })),
+  deleteL1Event: async (eventId: string): Promise<DeleteL1EventResponse> =>
+    unwrapMemoryResponse(await api.delete<DeleteL1EventResponse>(`/memory/l1/events/${eventId}`)),
 
   // L2 Cognition
   getL2Statistics: async (): Promise<L2Statistics> =>
@@ -754,6 +766,8 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<MemoryIdentityLinksResponse>('/memory/identity/links')),
   getL2Relations: async (params?: PaginationParams): Promise<PaginatedResponse<L2Relation>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Relation>>('/memory/l2/relations', { params })),
+  rejectL2Edge: async (tripleId: string): Promise<L2Relation> =>
+    unwrapMemoryResponse(await api.patch<L2Relation>(`/memory/l2/edges/${tripleId}/reject`)),
   getL2Assertions: async (params?: PaginationParams): Promise<PaginatedResponse<L2Assertion>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Assertion>>('/memory/l2/assertions', { params })),
   submitAssertionFeedback: async (assertionId: string, feedback: 'confirmed' | 'rejected'): Promise<L2Assertion> =>
@@ -845,6 +859,11 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.post<ForgetEpisodeResponse>('/memory/forget/episode', {
       episode_id: episodeId,
       delete_events: deleteEvents,
+    })),
+  forgetEntity: async (entityId: string, deleteL1Events = false): Promise<ForgetEntityResponse> =>
+    unwrapMemoryResponse(await api.post<ForgetEntityResponse>('/memory/forget/entity', {
+      entity_id: entityId,
+      delete_l1_events: deleteL1Events,
     })),
   upsertL2ConflictRule: async (payload: L2GraphConflictRulePayload): Promise<L2GraphConflictRule> =>
     unwrapMemoryResponse(await api.put<L2GraphConflictRule>(`/memory/l2/conflict-rules/${payload.predicate}`, {

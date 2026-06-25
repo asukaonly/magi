@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 from typing import Optional
 
-from fastapi import Query
+from fastapi import HTTPException, Query, status
 
 from ..dependencies import _resolve_unified_memory
+from ..helpers import memory_t
 from ..router import memory_router
 from .events import build_l1_event_query_args, build_l1_events_response
 
@@ -62,3 +63,21 @@ async def get_l1_events(
         limit=limit,
         offset=offset,
     )
+
+
+@memory_router.delete("/l1/events/{event_id}")
+async def delete_l1_event(event_id: str):
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l1:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l1_store_uninitialized", "L1 store not initialized"),
+        )
+
+    deleted = await unified_memory.l1.mark_deleted(event_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.event_not_found", "Event not found"),
+        )
+    return {"event_id": event_id, "deleted": True}

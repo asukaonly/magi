@@ -21,7 +21,10 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@/api/modules/memory', () => ({
   memoryApi: {
+    deleteL1Event: vi.fn(),
+    forgetEntity: vi.fn(),
     forgetEpisode: vi.fn(),
+    rejectL2Edge: vi.fn(),
     reconsolidateEpisodes: vi.fn(),
   },
 }));
@@ -304,7 +307,8 @@ describe('MemoryGovernancePage', () => {
     expect(within(drawer).getByText('下游影响')).toBeInTheDocument();
     expect(within(drawer).getByText('重新核对这个实体的合并、关系和冲突状态。')).toBeInTheDocument();
     expect(within(drawer).getByRole('button', { name: '重新校准实体' })).toBeEnabled();
-    expect(within(drawer).getByRole('button', { name: '删除' })).toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: '连带遗忘（包含下游）' })).toBeEnabled();
+    expect(within(drawer).queryByRole('button', { name: '删除' })).not.toBeInTheDocument();
   });
 
   it('opens a wider drawer and explains raw event re-extraction', async () => {
@@ -325,6 +329,65 @@ describe('MemoryGovernancePage', () => {
     await user.click(action);
 
     expect(baseMemoryState.replayL2Extraction).toHaveBeenCalledWith('evt_1');
+  });
+
+  it('enables supported maintenance actions from the drawer', async () => {
+    vi.mocked(memoryApi.deleteL1Event).mockResolvedValue({ event_id: 'evt_1', deleted: true });
+    vi.mocked(memoryApi.forgetEntity).mockResolvedValue({ l2_counts: { entities: 1 }, l1_events_deleted: 0 });
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /原始事件/ }));
+    await user.click(await screen.findByRole('button', { name: /用户说自己正在整理记忆页面/ }));
+    const eventDrawer = await screen.findByRole('dialog', { name: '记录详情' });
+    const deleteButton = within(eventDrawer).getByRole('button', { name: '删除' });
+    expect(deleteButton).toBeEnabled();
+    await user.click(deleteButton);
+    await waitFor(() => {
+      expect(memoryApi.deleteL1Event).toHaveBeenCalledWith('evt_1');
+    });
+    expect(baseMemoryState.queryL1Events).toHaveBeenCalledWith({ limit: 6, offset: 0 });
+
+    await user.click(screen.getByRole('button', { name: /实体 人物/ }));
+    await user.click(await screen.findByRole('button', { name: /实体：用户/ }));
+    const entityDrawer = await screen.findByRole('dialog', { name: '记录详情' });
+    const cascadeButton = within(entityDrawer).getByRole('button', { name: '连带遗忘（包含下游）' });
+    expect(cascadeButton).toBeEnabled();
+    await user.click(cascadeButton);
+    await waitFor(() => {
+      expect(memoryApi.forgetEntity).toHaveBeenCalledWith('ent_user_8f3e', false);
+    });
+    expect(baseMemoryState.loadL2Entities).toHaveBeenCalledWith({ limit: 6, offset: 0 });
+  });
+
+  it('marks assertions and relations invalid from the drawer', async () => {
+    vi.mocked(memoryApi.rejectL2Edge).mockResolvedValue({
+      ...baseMemoryState.l2Relations[0],
+      status: 'user_rejected',
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /断言 偏好/ }));
+    await user.click(await screen.findByRole('button', { name: /直白/ }));
+    const assertionDrawer = await screen.findByRole('dialog', { name: '记录详情' });
+    const assertionReject = within(assertionDrawer).getByRole('button', { name: '标记无效' });
+    expect(assertionReject).toBeEnabled();
+    await user.click(assertionReject);
+    expect(baseMemoryState.submitAssertionFeedback).toHaveBeenCalledWith('assert_1', 'rejected');
+
+    await user.click(screen.getByRole('button', { name: /关系图谱/ }));
+    await user.click(await screen.findByRole('button', { name: /关系：ent_user_8f3e USES tool_codex/ }));
+    const relationDrawer = await screen.findByRole('dialog', { name: '记录详情' });
+    const relationReject = within(relationDrawer).getByRole('button', { name: '标记无效' });
+    expect(relationReject).toBeEnabled();
+    await user.click(relationReject);
+    await waitFor(() => {
+      expect(memoryApi.rejectL2Edge).toHaveBeenCalledWith('rel_1');
+    });
+    expect(baseMemoryState.loadL2Relations).toHaveBeenCalledWith({ limit: 6, offset: 0 });
   });
 
   it('keeps manual chapter consolidation available', async () => {

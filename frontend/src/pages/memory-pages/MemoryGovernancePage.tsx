@@ -141,6 +141,7 @@ export const MemoryGovernancePage = () => {
   const [activePage, setActivePage] = useState(1);
   const [selectedRecord, setSelectedRecord] = useState<LayerRecord | null>(null);
   const [reconsolidating, setReconsolidating] = useState(false);
+  const [recordActionLoading, setRecordActionLoading] = useState(false);
   const [reconsolidateResult, setReconsolidateResult] = useState<EpisodeReconsolidateResult | null>(null);
   const [reconsolidateError, setReconsolidateError] = useState<string | null>(null);
 
@@ -432,6 +433,40 @@ export const MemoryGovernancePage = () => {
   const openBreakerCount = toFiniteNumber(memory.stats.l4?.open_circuit_breakers);
   const l1EventCount = toFiniteNumber(memory.stats.l1?.event_count) || memory.l1Total;
   const extractSkippedCount = toFiniteNumber(memory.l2Stats?.extract_skipped);
+  const currentPageParams = () => ({
+    limit: RECORD_PAGE_SIZE,
+    offset: (currentPage - 1) * RECORD_PAGE_SIZE,
+  });
+
+  const refreshCategory = async (category: MaintenanceCategoryId) => {
+    const params = currentPageParams();
+    switch (category) {
+      case 'sessions':
+        await memory.loadL0Sessions(params);
+        break;
+      case 'events':
+        await memory.queryL1Events(params);
+        break;
+      case 'entities':
+        await memory.loadL2Entities(params);
+        break;
+      case 'assertions':
+        await memory.loadL2Assertions(params);
+        break;
+      case 'relations':
+        await memory.loadL2Relations(params);
+        break;
+      case 'snapshots':
+        await memory.loadL2Snapshots(params);
+        break;
+      case 'summaries':
+        await memory.loadL3Summaries(params);
+        break;
+      case 'skills':
+        await memory.loadL4Skills(params);
+        break;
+    }
+  };
 
   useEffect(() => {
     const offset = (currentPage - 1) * RECORD_PAGE_SIZE;
@@ -520,6 +555,50 @@ export const MemoryGovernancePage = () => {
     }
     if (selectedRecord.categoryId === 'entities') {
       await memory.runL2Reconcile([selectedRecord.id]);
+    }
+  };
+
+  const handleInvalidateSelected = async () => {
+    if (!selectedRecord) return;
+    setRecordActionLoading(true);
+    try {
+      if (selectedRecord.categoryId === 'assertions') {
+        await memory.submitAssertionFeedback(selectedRecord.id, 'rejected');
+        await refreshCategory('assertions');
+        setSelectedRecord(null);
+        return;
+      }
+      if (selectedRecord.categoryId === 'relations') {
+        await memoryApi.rejectL2Edge(selectedRecord.id);
+        await refreshCategory('relations');
+        setSelectedRecord(null);
+      }
+    } finally {
+      setRecordActionLoading(false);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!selectedRecord || selectedRecord.categoryId !== 'events') return;
+    setRecordActionLoading(true);
+    try {
+      await memoryApi.deleteL1Event(selectedRecord.id);
+      await refreshCategory('events');
+      setSelectedRecord(null);
+    } finally {
+      setRecordActionLoading(false);
+    }
+  };
+
+  const handleCascadeForgetSelected = async () => {
+    if (!selectedRecord || selectedRecord.categoryId !== 'entities') return;
+    setRecordActionLoading(true);
+    try {
+      await memoryApi.forgetEntity(selectedRecord.id, false);
+      await refreshCategory('entities');
+      setSelectedRecord(null);
+    } finally {
+      setRecordActionLoading(false);
     }
   };
 
@@ -617,8 +696,11 @@ export const MemoryGovernancePage = () => {
           if (!open) setSelectedRecord(null);
         }}
         label={label}
-        actionLoading={memory.l2ActionLoading}
+        actionLoading={memory.l2ActionLoading || recordActionLoading}
         onReplay={() => void handleReplaySelected()}
+        onInvalidate={() => void handleInvalidateSelected()}
+        onDelete={() => void handleDeleteSelected()}
+        onCascadeForget={() => void handleCascadeForgetSelected()}
       />
     </MemoryPageFrame>
   );
@@ -1039,6 +1121,9 @@ function RecordDrawer({
   label,
   actionLoading,
   onReplay,
+  onInvalidate,
+  onDelete,
+  onCascadeForget,
 }: {
   record: LayerRecord | null;
   open: boolean;
@@ -1046,8 +1131,15 @@ function RecordDrawer({
   label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string;
   actionLoading: boolean;
   onReplay: () => void;
+  onInvalidate: () => void;
+  onDelete: () => void;
+  onCascadeForget: () => void;
 }) {
   const replayAction = record ? getReplayActionCopy(record, label) : null;
+  const canInvalidate = record?.categoryId === 'assertions' || record?.categoryId === 'relations';
+  const canDelete = record?.categoryId === 'events';
+  const canCascadeForget = record?.categoryId === 'entities';
+  const hasMaintenanceActions = Boolean(replayAction || canInvalidate || canDelete || canCascadeForget);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -1115,25 +1207,39 @@ function RecordDrawer({
               <div>
                 <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{label('drawer.safeActions', '维护操作')}</div>
                 {replayAction ? <p className="mt-1.5 text-xs leading-5 text-[hsl(var(--memory-muted))]">{replayAction.hint}</p> : null}
-                <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                  <Button variant="outline" className="h-9 rounded-sm" onClick={onReplay} disabled={actionLoading || !replayAction?.enabled}>
-                    {actionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                    {replayAction?.buttonLabel || label('drawer.actions.reprocessUnavailable', '不可重新处理')}
-                  </Button>
-                  <Button variant="outline" className="h-9 rounded-sm" disabled>
-                    <SlidersHorizontal className="mr-2 h-4 w-4" />
-                    {label('drawer.actions.invalidate', '标记无效')}
-                  </Button>
-                  <Button variant="outline" className="h-9 rounded-sm border-red-200 text-red-700 hover:bg-red-50" disabled>
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    {label('drawer.actions.delete', '删除')}
-                  </Button>
-                </div>
+                {hasMaintenanceActions ? (
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {replayAction ? (
+                      <Button variant="outline" className="h-9 rounded-sm" onClick={onReplay} disabled={actionLoading}>
+                        {actionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        {replayAction.buttonLabel}
+                      </Button>
+                    ) : null}
+                    {canInvalidate ? (
+                      <Button variant="outline" className="h-9 rounded-sm" onClick={onInvalidate} disabled={actionLoading}>
+                        {actionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <SlidersHorizontal className="mr-2 h-4 w-4" />}
+                        {label('drawer.actions.invalidate', '标记无效')}
+                      </Button>
+                    ) : null}
+                    {canDelete ? (
+                      <Button variant="outline" className="h-9 rounded-sm border-red-200 text-red-700 hover:bg-red-50" onClick={onDelete} disabled={actionLoading}>
+                        {actionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                        {label('drawer.actions.delete', '删除')}
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs leading-5 text-[hsl(var(--memory-muted))]">
+                    {label('drawer.noActions', '这个类型目前只能查看。')}
+                  </p>
+                )}
               </div>
-              <Button className="h-10 w-full rounded-sm bg-red-600 text-white hover:bg-red-700" disabled>
-                <Trash2 className="mr-2 h-4 w-4" />
-                {label('drawer.actions.cascadeForget', '连带遗忘（包含下游）')}
-              </Button>
+              {canCascadeForget ? (
+                <Button className="h-10 w-full rounded-sm bg-red-600 text-white hover:bg-red-700" onClick={onCascadeForget} disabled={actionLoading}>
+                  {actionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                  {label('drawer.actions.cascadeForget', '连带遗忘（包含下游）')}
+                </Button>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -1156,17 +1262,12 @@ function getReplayActionCopy(
 
   if (record.categoryId === 'entities') {
     return {
-      enabled: true,
       buttonLabel: label('drawer.actions.reprocessEntity', '重新校准实体'),
       hint: label('drawer.reprocessEntityHint', '重新核对这个实体的合并、关系和冲突状态。'),
     };
   }
 
-  return {
-    enabled: false,
-    buttonLabel: label('drawer.actions.reprocessUnavailable', '不可重新处理'),
-    hint: label('drawer.reprocessUnavailableHint', '这类记录目前只能查看，不能从这里重新生成。'),
-  };
+  return null;
 }
 
 function DetailGroup({ title, children }: { title: string; children: ReactNode }) {

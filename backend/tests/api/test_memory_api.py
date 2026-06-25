@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from magi.api.routes import register_api_routes
+from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router, register_api_routes
 from magi.api.routers.memory import memory_router
 from magi.i18n import language_context
 from magi.memory.event_contracts import (
@@ -35,6 +35,7 @@ class _FakeL1Store:
 
     def __init__(self):
         self.last_query_kwargs = None
+        self.deleted_event_ids: list[str] = []
 
     async def count_events(self, **kwargs):
         return 12
@@ -110,6 +111,10 @@ class _FakeL1Store:
     async def clear(self):
         return 12
 
+    async def mark_deleted(self, event_id: str):
+        self.deleted_event_ids.append(event_id)
+        return event_id == "evt-1"
+
     def get_statistics(self):
         return {
             "db_path": self.db_path,
@@ -122,6 +127,10 @@ class _FakeL1Store:
 
 class _FakeL2Store:
     db_path = "/tmp/l2.db"
+
+    def __init__(self):
+        self.rejected_edges: list[str] = []
+        self.forgotten_entities: list[str] = []
 
     async def count_relationships(self):
         return 0
@@ -175,6 +184,16 @@ class _FakeL2Store:
             "exclusive_scope": payload.get("exclusive_scope", "same_subject"),
             "exclusive_resolution": payload.get("exclusive_resolution", "mark_deprecated"),
         }
+
+    async def reject_edge(self, *, triple_id: str):
+        self.rejected_edges.append(triple_id)
+        if triple_id != "rel-1":
+            return None
+        return {"triple_id": triple_id, "status": "user_rejected"}
+
+    async def forget_entity(self, *, entity_id: str):
+        self.forgotten_entities.append(entity_id)
+        return {"entities": 1, "relations": 2, "assertions": 3}
 
     async def clear(self):
         return 5
@@ -1768,6 +1787,31 @@ def test_memory_l1_events_api_forwards_identity_filters(monkeypatch):
     assert memory.l1.last_query_kwargs is not None
     assert memory.l1.last_query_kwargs["source_item_id"] == "chrome:181979-181982"
     assert memory.l1.last_query_kwargs["idempotency_key"] == "default:181979-181982"
+
+
+def test_memory_l1_event_delete_route_soft_deletes_public_event(monkeypatch):
+    app = FastAPI()
+    register_api_routes(app)
+
+    memory = _FakeUnifiedMemory()
+    monkeypatch.setattr("magi.api.routers.memory.l1.routes._resolve_unified_memory", lambda: memory)
+
+    client = TestClient(app)
+    response = client.delete("/api/memory/l1/events/evt-1")
+
+    assert response.status_code == 200
+    assert response.json() == {"event_id": "evt-1", "deleted": True}
+    assert memory.l1.deleted_event_ids == ["evt-1"]
+
+
+def test_memory_governance_action_routes_are_publicly_allowlisted():
+    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
+    route_methods = {route.path: route.methods for route in public.routes if hasattr(route, "methods")}
+
+    assert "DELETE" in route_methods["/l1/events/{event_id}"]
+    assert "PATCH" in route_methods["/l2/edges/{triple_id}/reject"]
+    assert "POST" in route_methods["/forget/entity"]
+
 
 def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):
     class _RejectingL2Store(_FakeL2Store):
