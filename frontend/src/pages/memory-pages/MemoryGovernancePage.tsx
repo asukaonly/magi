@@ -959,11 +959,13 @@ function RecordDrawer({
   actionLoading: boolean;
   onReplay: () => void;
 }) {
+  const replayAction = record ? getReplayActionCopy(record, label) : null;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex w-[min(92vw,560px)] max-w-[560px] flex-col overflow-y-auto border-[hsl(var(--memory-border)/0.65)] bg-[hsl(var(--memory-panel))] p-0"
+        className="flex !w-[min(96vw,720px)] !max-w-[720px] flex-col overflow-y-auto border-[hsl(var(--memory-border)/0.65)] bg-[hsl(var(--memory-panel))] p-0"
       >
         <SheetHeader className="border-b border-[hsl(var(--memory-divider)/0.58)] px-5 py-5">
           <SheetTitle className="text-lg text-[hsl(var(--memory-title))]">{label('drawer.title', '记录详情')}</SheetTitle>
@@ -1023,11 +1025,12 @@ function RecordDrawer({
 
             <div className="mt-auto space-y-3 border-t border-[hsl(var(--memory-divider)/0.58)] pt-4">
               <div>
-                <div className="mb-2 text-sm font-semibold text-[hsl(var(--memory-title))]">{label('drawer.safeActions', '安全操作')}</div>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <Button variant="outline" className="h-9 rounded-sm" onClick={onReplay} disabled={actionLoading || (record.categoryId !== 'events' && record.categoryId !== 'entities')}>
+                <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{label('drawer.safeActions', '维护操作')}</div>
+                {replayAction ? <p className="mt-1.5 text-xs leading-5 text-[hsl(var(--memory-muted))]">{replayAction.hint}</p> : null}
+                <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                  <Button variant="outline" className="h-9 rounded-sm" onClick={onReplay} disabled={actionLoading || !replayAction?.enabled}>
                     {actionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                    {label('drawer.actions.reprocess', '重新处理')}
+                    {replayAction?.buttonLabel || label('drawer.actions.reprocessUnavailable', '不可重新处理')}
                   </Button>
                   <Button variant="outline" className="h-9 rounded-sm" disabled>
                     <SlidersHorizontal className="mr-2 h-4 w-4" />
@@ -1049,6 +1052,33 @@ function RecordDrawer({
       </SheetContent>
     </Sheet>
   );
+}
+
+function getReplayActionCopy(
+  record: LayerRecord,
+  label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string
+) {
+  if (record.categoryId === 'events') {
+    return {
+      enabled: true,
+      buttonLabel: label('drawer.actions.reprocessEvent', '重新抽取结构'),
+      hint: label('drawer.reprocessEventHint', '把这条原始事件重新送入结构抽取，更新实体、断言和关系。'),
+    };
+  }
+
+  if (record.categoryId === 'entities') {
+    return {
+      enabled: true,
+      buttonLabel: label('drawer.actions.reprocessEntity', '重新校准实体'),
+      hint: label('drawer.reprocessEntityHint', '重新核对这个实体的合并、关系和冲突状态。'),
+    };
+  }
+
+  return {
+    enabled: false,
+    buttonLabel: label('drawer.actions.reprocessUnavailable', '不可重新处理'),
+    hint: label('drawer.reprocessUnavailableHint', '这类记录目前只能查看，不能从这里重新生成。'),
+  };
 }
 
 function DetailGroup({ title, children }: { title: string; children: ReactNode }) {

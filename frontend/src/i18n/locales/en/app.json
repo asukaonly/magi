@@ -3060,9 +3060,15 @@
         "noRelated": "No direct evidence references are available.",
         "impact": "Downstream impact",
         "noImpact": "No computable downstream impact is available.",
-        "safeActions": "Safe actions",
+        "safeActions": "Maintenance actions",
+        "reprocessEventHint": "Send this raw event through structured extraction again to update entities, assertions, and relationships.",
+        "reprocessEntityHint": "Recheck this entity's merges, relationships, and conflict state.",
+        "reprocessUnavailableHint": "This record type can be inspected here, but cannot be regenerated from this drawer yet.",
         "actions": {
           "reprocess": "Reprocess",
+          "reprocessEvent": "Re-extract structure",
+          "reprocessEntity": "Reconcile entity",
+          "reprocessUnavailable": "Not reprocessable",
           "invalidate": "Mark invalid",
           "delete": "Delete",
           "cascadeForget": "Cascade forget (including downstream)"

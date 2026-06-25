@@ -3059,9 +3059,15 @@
         "noRelated": "没有可直接展示的证据引用。",
         "impact": "下游影响",
         "noImpact": "暂无可计算的下游影响。",
-        "safeActions": "安全操作",
+        "safeActions": "维护操作",
+        "reprocessEventHint": "把这条原始事件重新送入结构抽取，更新实体、断言和关系。",
+        "reprocessEntityHint": "重新核对这个实体的合并、关系和冲突状态。",
+        "reprocessUnavailableHint": "这类记录目前只能查看，不能从这里重新生成。",
         "actions": {
           "reprocess": "重新处理",
+          "reprocessEvent": "重新抽取结构",
+          "reprocessEntity": "重新校准实体",
+          "reprocessUnavailable": "不可重新处理",
           "invalidate": "标记无效",
           "delete": "删除",
           "cascadeForget": "连带遗忘（包含下游）"

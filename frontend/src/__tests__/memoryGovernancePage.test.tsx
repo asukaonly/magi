@@ -282,7 +282,29 @@ describe('MemoryGovernancePage', () => {
     const drawer = await screen.findByRole('dialog', { name: '记录详情' });
     expect(within(drawer).getByText('实体：用户')).toBeInTheDocument();
     expect(within(drawer).getByText('下游影响')).toBeInTheDocument();
+    expect(within(drawer).getByText('重新核对这个实体的合并、关系和冲突状态。')).toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: '重新校准实体' })).toBeEnabled();
     expect(within(drawer).getByRole('button', { name: '删除' })).toBeInTheDocument();
+  });
+
+  it('opens a wider drawer and explains raw event re-extraction', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /原始事件/ }));
+    await user.click(await screen.findByRole('button', { name: /evt_1/ }));
+
+    const drawer = await screen.findByRole('dialog', { name: '记录详情' });
+    expect(drawer).toHaveClass('!w-[min(96vw,720px)]');
+    expect(drawer).toHaveClass('!max-w-[720px]');
+
+    const action = within(drawer).getByRole('button', { name: '重新抽取结构' });
+    expect(action).toBeEnabled();
+    expect(within(drawer).getByText('把这条原始事件重新送入结构抽取，更新实体、断言和关系。')).toBeInTheDocument();
+
+    await user.click(action);
+
+    expect(baseMemoryState.replayL2Extraction).toHaveBeenCalledWith('evt_1');
   });
 
   it('keeps manual chapter consolidation available', async () => {
