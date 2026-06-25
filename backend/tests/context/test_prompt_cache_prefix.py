@@ -120,6 +120,66 @@ def test_profile_memory_prefers_prompt_summary_over_raw_preferences() -> None:
     assert "source_tier" not in prompt
 
 
+def test_profile_memory_fallback_omits_internal_profile_keys() -> None:
+    context = _assembly_context(["alpha_tool"])
+    context.profile_memory = ProfileMemoryContext(
+        user_id="u1",
+        user_name="Asuka",
+        user_preferences={
+            "identity.real_name": "明日香",
+            "communication.address.preferred": "Asuka",
+            "identity.birth_date": "2000-01-01",
+            "identity.age_years": 26,
+            "identity.location.home": "Hangzhou",
+            "communication.address.disallowed": ["老师"],
+            "interest.rag": {
+                "value": "RAG",
+                "affinity": 1.0,
+                "family": "preference_profile",
+            },
+        },
+    )
+
+    prompt = PromptContextRenderer().render_system_prompt(context)
+
+    assert "Asuka" in prompt
+    assert "明日香" in prompt
+    assert "Hangzhou" in prompt
+    assert "2000-01-01" in prompt
+    assert "26" in prompt
+    assert "老师" in prompt
+    assert "identity.real_name" not in prompt
+    assert "communication.address.preferred" not in prompt
+    assert "identity.birth_date" not in prompt
+    assert "identity.age_years" not in prompt
+    assert "interest.rag" not in prompt
+    assert "affinity" not in prompt
+    assert "family" not in prompt
+
+
+def test_profile_memory_recent_emotion_uses_labels_without_scores() -> None:
+    context = _assembly_context(["alpha_tool"])
+    context.profile_memory = ProfileMemoryContext(
+        user_id="u1",
+        prompt_summary=["用户偏好先讲结论。"],
+        recent_emotion={
+            "sentiment_score": 0.03,
+            "emotion_label": "neutral",
+            "trust_level": 0.55,
+            "trust_label": "medium",
+        },
+    )
+
+    prompt = PromptContextRenderer().render_system_prompt(context)
+
+    assert "neutral" in prompt
+    assert "medium" in prompt
+    assert "score:" not in prompt
+    assert "level:" not in prompt
+    assert "0.03" not in prompt
+    assert "0.55" not in prompt
+
+
 def test_persona_identity_in_head_per_turn_steer_in_tail() -> None:
     # The persona DEFINITION (Identity Core + Baseline Voice) is stable across
     # turns and stays in the cached head. The per-turn STEER (register,

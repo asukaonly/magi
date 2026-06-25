@@ -2,6 +2,7 @@
 
 import time
 
+from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.context.assembler import PromptContextRenderer
 from magi.context.schema import (
     IdentityConstraintContext,
@@ -72,11 +73,13 @@ class TestPersonaJournalRendering:
         assert "Internal Reflections" in prompt
         assert "Reflected on recent growth." in prompt
 
-        # Journal should come after the persona plan and before memory context
+        # Journal should be dynamic turn context: after the cache boundary and
+        # before memory context.
         persona_pos = prompt.index("Persona Runtime Plan")
+        boundary_pos = prompt.index(SYSTEM_PROMPT_CACHE_BOUNDARY)
         journal_pos = prompt.index("Internal Reflections")
         memory_pos = prompt.index("Memory Library")
-        assert persona_pos < journal_pos < memory_pos
+        assert persona_pos < boundary_pos < journal_pos < memory_pos
 
     def test_skips_entries_without_content(self):
         renderer = PromptContextRenderer()
@@ -90,5 +93,5 @@ class TestPersonaJournalRendering:
 
         assert "Valid entry." in text
         # Empty content entry should be skipped, so no extra empty bold-date lines
-        formatted_lines = [l for l in lines if l.startswith("**")]
+        formatted_lines = [line for line in lines if line.startswith("**")]
         assert len(formatted_lines) == 1

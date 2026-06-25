@@ -65,7 +65,6 @@ class PromptContextRenderer:
         # below the boundary so the bridge moves it into the per-turn message
         # tail (#100/P2a).
         lines.extend(self._render_persona_identity(context.self_memory.persona_turn_plan))
-        lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
 
         # Cache boundary: identity + tool catalog + persona identity above is the
         # stable head; the per-turn blocks below (persona turn steer / memory /
@@ -77,6 +76,7 @@ class PromptContextRenderer:
 
         # Per-turn dynamic blocks — moved to the message tail by the bridge.
         lines.extend(self._render_persona_turn_steer(context.self_memory.persona_turn_plan))
+        lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
         lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
         lines.extend(self._render_profile_memory(context.profile_memory))
         lines.extend(self._render_runtime_system(context.runtime_system))
@@ -312,26 +312,37 @@ class PromptContextRenderer:
             body.append(f"* User Name: {user_name}")
 
         prefs = profile.user_preferences or {}
-        preferred_address = self._first_profile_text(prefs.get("address.preferred"))
-        stated_real_name = self._first_profile_text(prefs.get("address.real_name"))
-        disallowed_addresses = self._profile_text_list(prefs.get("address.disallowed"))
+        preferred_address = self._first_profile_text_from_keys(
+            prefs,
+            "communication.address.preferred",
+            "address.preferred",
+        )
+        stated_real_name = self._first_profile_text_from_keys(
+            prefs,
+            "identity.real_name",
+            "address.real_name",
+        )
+        birth_date = self._first_profile_text_from_keys(prefs, "identity.birth_date")
+        age_years = self._first_profile_text_from_keys(prefs, "identity.age_years")
+        home_location = self._first_profile_text_from_keys(prefs, "identity.location.home")
+        disallowed_addresses = self._profile_text_list_from_keys(
+            prefs,
+            "communication.address.disallowed",
+            "address.disallowed",
+        )
 
         if preferred_address:
             body.append(f"* Preferred Address: {preferred_address}")
         if stated_real_name and stated_real_name != user_name:
             body.append(f"* Stated Real Name: {stated_real_name}")
+        if birth_date:
+            body.append(f"* Birth Date: {birth_date}")
+        if age_years:
+            body.append(f"* Age: {age_years}")
+        if home_location:
+            body.append(f"* Home Location: {home_location}")
         if disallowed_addresses:
             body.append(f"* Avoid Addressing As: {', '.join(disallowed_addresses)}")
-
-        visible_prefs = {
-            key: value
-            for key, value in prefs.items()
-            if key not in {"address.preferred", "address.real_name", "address.disallowed"}
-        }
-        if visible_prefs:
-            body.append("* User Preferences:")
-            for key, value in visible_prefs.items():
-                body.append(f"  - {key}: {value}")
 
         emotion = self._render_recent_emotion_lines(profile.recent_emotion)
         if emotion:
@@ -345,15 +356,27 @@ class PromptContextRenderer:
     def _render_recent_emotion_lines(self, emotion: Dict[str, Any] | None) -> List[str]:
         if not emotion:
             return []
-        sentiment = emotion.get("sentiment_score", 0.0)
         label = emotion.get("emotion_label", "neutral")
-        trust = emotion.get("trust_level", 0.5)
         trust_label = emotion.get("trust_label", "medium")
         return [
-            "* Recent Emotion:",
-            f"  - Sentiment: {label} (score: {sentiment:.2f})",
-            f"  - Trust: {trust_label} (level: {trust:.2f})",
+            f"* Recent Relationship Signal: sentiment {label}, trust {trust_label}.",
         ]
+
+    @classmethod
+    def _first_profile_text_from_keys(cls, values: Dict[str, Any], *keys: str) -> str:
+        for key in keys:
+            text = cls._first_profile_text(values.get(key))
+            if text:
+                return text
+        return ""
+
+    @classmethod
+    def _profile_text_list_from_keys(cls, values: Dict[str, Any], *keys: str) -> List[str]:
+        for key in keys:
+            items = cls._profile_text_list(values.get(key))
+            if items:
+                return items
+        return []
 
     @staticmethod
     def _first_profile_text(value: Any) -> str:
@@ -367,6 +390,8 @@ class PromptContextRenderer:
             return ""
         if isinstance(value, dict):
             return str(value.get("value") or "").strip()
+        if value is not None:
+            return str(value).strip()
         return ""
 
     @classmethod
