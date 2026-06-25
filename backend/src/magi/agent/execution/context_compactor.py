@@ -229,9 +229,10 @@ class ContextCompactor:
 
     def _current_token_estimate(self, messages: List[Dict[str, Any]]) -> int:
         """Best-effort token count: prefer provider-reported, else estimate."""
+        message_estimate = _estimate_message_tokens(messages)
         if self._last_input_tokens is not None and self._last_input_tokens > 0:
-            return self._last_input_tokens
-        return _estimate_message_tokens(messages)
+            return max(self._last_input_tokens, message_estimate)
+        return message_estimate
 
     # -- decision -------------------------------------------------------------
 

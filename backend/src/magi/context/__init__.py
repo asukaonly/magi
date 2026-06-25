@@ -1,4 +1,4 @@
-"""LLM context assembly layer - prompt building and compression."""
+"""LLM context assembly layer - prompt-context policy, retrieval, and rendering."""
 
 from .assembler import PromptContextAssembler, PromptContextRenderer
 from .contracts import ContextPolicyDecision, PromptPackage

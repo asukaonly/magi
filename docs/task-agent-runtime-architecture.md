@@ -265,6 +265,8 @@ Durable rolling summaries live with chat truth in `chat.db`, not in long-term me
 
 Workbench Memory may expose the active `token_budget` summary and the latest context-budget usage snapshot for the selected session. This is a session-continuation inspection surface: it helps users understand what was compressed and how full the recent prompt context was, without promoting the summary into long-term memory layers.
 
+Function-calling loops have a separate per-turn compaction guard inside the agent execution layer. That guard uses the configured `core` scenario context window when available, compacts only the mutable tool-loop message list, and does not own durable session summaries.
+
 Persona switches add a second prompt-history boundary. When a session tail contains messages from an older active persona followed by the current persona's segment, `ChatHistoryService` condenses the older segment into an active `persona_boundary` summary scoped by the current persona ID. Prompt assembly then receives the neutral boundary summary plus only the raw tail for the current persona segment, so continuity survives without carrying another persona's assistant voice into the active persona prompt.
 
 Memory retrieval remains a separate input to prompt assembly. Long-term memory can be queried alongside session summaries, but session summaries are not promoted into L1/L2/L3/L4 by default because they are continuation checkpoints rather than canonical cross-session facts.

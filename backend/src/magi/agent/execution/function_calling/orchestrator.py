@@ -156,7 +156,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         self._current_messages: List[Dict[str, Any]] = []
         self._context_compactor = ContextCompactor(
             scenario_llm_pool=scenario_llm_pool,
-            context_window=context_window,
+            context_window=context_window or self._resolve_context_window(scenario_llm_pool),
             on_event=loop_event_callback,
         )
 
@@ -168,6 +168,19 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             except AttributeError:
                 pass
         raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
+
+    @staticmethod
+    def _resolve_context_window(scenario_llm_pool: Any | None) -> int | None:
+        if scenario_llm_pool is None:
+            return None
+        resolver = getattr(scenario_llm_pool, "context_window_for", None)
+        if not callable(resolver):
+            return None
+        try:
+            value = resolver(LLMScenario.CORE)
+        except Exception:
+            return None
+        return value if isinstance(value, int) and value > 0 else None
 
     def build_step_state(
         self,

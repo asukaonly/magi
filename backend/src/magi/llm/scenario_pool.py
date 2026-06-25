@@ -30,6 +30,16 @@ class ScenarioLLMPool:
             self._cache[scenario] = self._build_adapter(scenario)
         return self._cache[scenario]
 
+    def context_window_for(self, scenario: LLMScenario) -> int | None:
+        selection = self._selection_for_scenario(scenario)
+        if selection is None:
+            return None
+        limits = getattr(selection, "limits", None)
+        context_window = getattr(limits, "context_window", None)
+        if isinstance(context_window, int) and context_window > 0:
+            return context_window
+        return None
+
     def refresh(self, config: AppConfig) -> None:
         self._config = config
         self._cache.clear()

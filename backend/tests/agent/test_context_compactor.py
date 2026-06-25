@@ -23,6 +23,7 @@ from magi.agent.execution.context_compactor import (
     _estimate_message_tokens,
     _group_messages_by_round,
 )
+from magi.agent.execution.function_calling import FunctionCallingOrchestrator
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +155,27 @@ class TestContextCompactorProperties:
         assert c.effective_window == 100_000
 
 
+class TestOrchestratorContextWindow:
+    def test_uses_core_context_window_from_scenario_pool(self) -> None:
+        class _Pool:
+            def __init__(self) -> None:
+                self.requested: list[str] = []
+
+            def context_window_for(self, scenario: Any) -> int:
+                self.requested.append(str(getattr(scenario, "value", scenario)))
+                return 65_536
+
+        pool = _Pool()
+
+        orchestrator = FunctionCallingOrchestrator(
+            tool_registry=object(),
+            scenario_llm_pool=pool,
+        )
+
+        assert orchestrator._context_compactor.effective_window == 65_536
+        assert pool.requested == ["core"]
+
+
 class TestRecordInputTokens:
     def test_record_positive(self) -> None:
         c = ContextCompactor(context_window=128_000)
@@ -175,6 +197,18 @@ class TestRecordInputTokens:
         est2 = c._current_token_estimate(msgs)
         assert est2 == 42_000
         assert est1 != est2
+
+    def test_message_estimate_used_when_new_tool_result_exceeds_last_provider_count(self) -> None:
+        c = ContextCompactor(context_window=128_000)
+        c.record_input_tokens(10_000)
+        msgs = [
+            {"role": "user", "content": "inspect this"},
+            {"role": "assistant", "content": "calling tool"},
+            {"role": "tool", "tool_call_id": "tool-1", "content": "x" * 400_000},
+        ]
+
+        assert c._current_token_estimate(msgs) > c.compact_threshold
+        assert c.should_compact(msgs) is True
 
 
 class TestShouldCompact:
