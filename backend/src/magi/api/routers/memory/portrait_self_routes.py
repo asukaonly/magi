@@ -21,6 +21,7 @@ from ....user_profile.portrait_signal_policy import (
     PORTRAIT_SOURCE_STRENGTH,
     PORTRAIT_VALIDATION_STRENGTH,
     assertion_portrait_role,
+    graph_relation_portrait_world_group,
 )
 from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ....user_profile.projection_repository import UserProfileProjectionRepository
@@ -343,15 +344,13 @@ def _observation_from_graph_relationship(
     canonical_names: dict[str, str],
 ) -> PortraitObservation | None:
     predicate = str(edge.get("predicate") or "").strip().upper()
-    rule = PORTRAIT_GRAPH_WORLD_RULES.get(predicate)
-    if rule is None:
-        return None
-    if int(edge.get("observation_count", 0) or 0) < int(rule["min_observations"]):
-        return None
-
     object_type = str(edge.get("object_type") or "").strip().casefold()
-    object_types = rule["object_types"]
-    if object_type not in object_types:
+    world_group = graph_relation_portrait_world_group(
+        predicate=predicate,
+        object_type=object_type,
+        observation_count=int(edge.get("observation_count", 0) or 0),
+    )
+    if world_group is None:
         return None
 
     text = _graph_object_name(edge=edge, canonical_names=canonical_names)
@@ -359,7 +358,7 @@ def _observation_from_graph_relationship(
         return None
 
     refs = [
-        f"world_group:{rule['group']}",
+        f"world_group:{world_group}",
         f"predicate:{predicate}",
         f"object_type:{object_type}",
     ]
