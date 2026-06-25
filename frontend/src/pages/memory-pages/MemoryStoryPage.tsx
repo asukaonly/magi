@@ -142,8 +142,6 @@ export const MemoryStoryPage = () => {
     [featuredStory?.summary_id, filteredItems]
   );
 
-  const timelineStories = filteredItems.filter(isTemporalStory).slice(0, 4);
-
   const statItems = visibleBaseItems;
   const insightCount = statItems.filter((story) => story.summary_type === 'insight').length;
   const temporalCount = statItems.filter(isTemporalStory).length;
@@ -265,26 +263,6 @@ export const MemoryStoryPage = () => {
                     ))}
                   </div>
                 </section>
-
-                {timelineStories.length > 0 ? (
-                  <section data-testid="memory-stories-section-periodic" className="grid gap-3 border-t border-[hsl(var(--memory-divider)/0.62)] pt-5 md:grid-cols-2 xl:grid-cols-4">
-                    {timelineStories.map((story) => (
-                      <button
-                        key={story.summary_id}
-                        type="button"
-                        onClick={() => setDetailStory(story)}
-                        className="rounded-2xl border border-[hsl(var(--memory-border)/0.5)] bg-[hsl(var(--memory-panel-elevated)/0.52)] px-4 py-3 text-left transition-colors hover:bg-[hsl(var(--memory-panel-elevated)/0.82)]"
-                      >
-                        <span className="text-sm font-semibold text-[hsl(var(--memory-title))]">
-                          {t(`memory.stories.categories.${story.summary_category}`, { defaultValue: story.summary_category })}
-                        </span>
-                        <span className="mt-2 block text-xs leading-5 text-[hsl(var(--memory-body))]">
-                          {storyPrimaryText(story)}
-                        </span>
-                      </button>
-                    ))}
-                  </section>
-                ) : null}
 
                 <div className="flex justify-center pt-1">
                   {hasMore ? (

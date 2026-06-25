@@ -130,11 +130,11 @@ describe('MemoryStoryPage', () => {
     });
     renderPage();
     const page = await screen.findByTestId('memory-stories-feed');
-    const periodic = screen.getByTestId('memory-stories-section-periodic');
     expect(screen.getByTestId('memory-stories-featured')).toHaveTextContent('trend body');
     expect(page.textContent).toContain('trend body');
+    expect(page.textContent).toContain('day digest');
     expect(screen.getAllByText('trend body')).toHaveLength(1);
-    expect(periodic.textContent).toContain('day digest');
+    expect(screen.queryByTestId('memory-stories-section-periodic')).not.toBeInTheDocument();
   });
 
   it('keeps the filter bar simple and filters visible summaries', async () => {
