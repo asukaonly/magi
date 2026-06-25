@@ -154,10 +154,10 @@ export const MemoryStoryPage = () => {
       title={t('memory.stories.title')}
       description={t('memory.stories.subtitle')}
       hideHeader
-      className="max-w-[900px] gap-3 px-4 py-4"
+      className="max-w-[900px] gap-3 px-4 pb-4 pt-3"
       contentClassName="pb-6"
     >
-      <section data-testid="memory-stories-feed" className="space-y-5">
+      <section data-testid="memory-stories-feed" className="space-y-4">
         {loading ? (
           <div className={`${MEMORY_EMPTY_PANEL_CLASS} flex items-center gap-2`}>
             <LoadingSpinner className="h-4 w-4" />
@@ -165,7 +165,7 @@ export const MemoryStoryPage = () => {
           </div>
         ) : (
           <>
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <div className="inline-flex w-fit max-w-full flex-wrap gap-0.5 rounded-lg border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.72)] p-0.5">
                   {FILTERS.map((filter) => (
@@ -186,19 +186,24 @@ export const MemoryStoryPage = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center">
-                <div className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.58)] px-4 py-2.5">
-                  <div className="text-lg font-semibold leading-none text-[hsl(var(--memory-title))]">{insightCount}</div>
-                  <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">{t('memory.stories.stats.highlights')}</div>
-                </div>
-                <div className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.58)] px-4 py-2.5">
-                  <div className="text-lg font-semibold leading-none text-[hsl(var(--memory-title))]">{temporalCount}</div>
-                  <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">{t('memory.stories.stats.periodic')}</div>
-                </div>
-                <div className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.58)] px-4 py-2.5">
-                  <div className="text-lg font-semibold leading-none text-[hsl(var(--memory-title))]">{observationCount}</div>
-                  <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">{t('memory.stories.stats.observations')}</div>
-                </div>
+              <div
+                data-testid="memory-stories-stats"
+                className="inline-flex h-8 w-fit max-w-full items-center gap-2 rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.58)] px-2.5 text-xs text-[hsl(var(--memory-muted))]"
+              >
+                <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                  <span className="font-semibold text-[hsl(var(--memory-title))]">{insightCount}</span>
+                  <span>{t('memory.stories.stats.highlights')}</span>
+                </span>
+                <span className="h-3 w-px bg-[hsl(var(--memory-divider)/0.78)]" aria-hidden="true" />
+                <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                  <span className="font-semibold text-[hsl(var(--memory-title))]">{temporalCount}</span>
+                  <span>{t('memory.stories.stats.periodic')}</span>
+                </span>
+                <span className="h-3 w-px bg-[hsl(var(--memory-divider)/0.78)]" aria-hidden="true" />
+                <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                  <span className="font-semibold text-[hsl(var(--memory-title))]">{observationCount}</span>
+                  <span>{t('memory.stories.stats.observations')}</span>
+                </span>
               </div>
             </div>
 

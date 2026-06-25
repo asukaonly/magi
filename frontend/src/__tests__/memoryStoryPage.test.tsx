@@ -167,6 +167,9 @@ describe('MemoryStoryPage', () => {
     const user = userEvent.setup();
 
     expect(await screen.findByRole('button', { name: '全部' })).toBeInTheDocument();
+    expect(screen.getByTestId('memory-stories-stats')).toHaveTextContent('近期重点');
+    expect(screen.getByTestId('memory-stories-stats')).toHaveTextContent('时段总结');
+    expect(screen.getByTestId('memory-stories-stats')).toHaveTextContent('长期观察');
     expect(screen.getByRole('button', { name: '时段总结' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '长期观察' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '任务复盘' })).toBeInTheDocument();
