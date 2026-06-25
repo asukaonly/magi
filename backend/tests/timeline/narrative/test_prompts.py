@@ -6,12 +6,30 @@ from __future__ import annotations
 def test_system_prompt_includes_forbidden_patterns():
     from magi.timeline.narrative.prompts import DIARY_NARRATIVE_SYSTEM_PROMPT
 
-    assert "第二人称" in DIARY_NARRATIVE_SYSTEM_PROMPT
+    assert "second person" in DIARY_NARRATIVE_SYSTEM_PROMPT
     # Forbidden patterns from spec §Voice and writing
     for forbidden in ("id", "markdown", "metric"):
         assert forbidden.lower() in DIARY_NARRATIVE_SYSTEM_PROMPT.lower(), (
             f"system prompt should mention forbidden: {forbidden}"
         )
+
+
+def test_system_prompt_uses_private_timeline_editor_voice():
+    from magi.timeline.narrative.prompts import DIARY_NARRATIVE_SYSTEM_PROMPT
+
+    assert "private timeline editor" in DIARY_NARRATIVE_SYSTEM_PROMPT
+    assert "not a poetic diary writer" in DIARY_NARRATIVE_SYSTEM_PROMPT
+    assert "Simplified Chinese" in DIARY_NARRATIVE_SYSTEM_PROMPT
+    assert "What actually happened" in DIARY_NARRATIVE_SYSTEM_PROMPT
+    assert "What made this period different" in DIARY_NARRATIVE_SYSTEM_PROMPT
+    assert "Do not invent sensory details" in DIARY_NARRATIVE_SYSTEM_PROMPT
+
+
+def test_system_prompt_discourages_reusable_literary_cliches():
+    from magi.timeline.narrative.prompts import DIARY_NARRATIVE_SYSTEM_PROMPT
+
+    for phrase in ("穿梭", "数字与现实", "定格", "游离", "画上句号"):
+        assert phrase in DIARY_NARRATIVE_SYSTEM_PROMPT
 
 
 def test_user_prompt_contains_all_episode_ids():

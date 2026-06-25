@@ -96,6 +96,11 @@ which they were originally generated and require regeneration to change language
 New L3 summary generation prompts should honor the active language context so
 freshly generated reflections align with the user's selected language while
 preserving source names, ids, URLs, file paths, and quoted evidence text.
+Diary-style timeline narratives should behave as private timeline editing rather
+than poetic journaling: they should foreground what happened, what made the
+period distinctive, and what interpretation is directly supported by evidence.
+Decorative sensory detail and reusable literary phrasing should be avoided
+unless the underlying evidence supports it.
 
 The frontend should request calendar-aligned complete periods by default rather
 than rolling windows. Month, week, day, and hour views open on the latest complete
