@@ -6,6 +6,7 @@ from magi.config import memory_models
 from magi.config.models import AppConfig
 from magi.config import models as runtime_models
 from magi.config.memory_models import (
+    MemoryL2AssertionSettings,
     MemoryL2ConfidenceSettings,
     MemoryL2EpisodeSettings,
     MemoryL2ExperienceSettings,
@@ -61,6 +62,7 @@ def test_l2_edge_embedding_drain_interval_default():
         "MemoryHistoryBehavior",
         "MemoryL0Settings",
         "MemoryL1Settings",
+        "MemoryL2AssertionSettings",
         "MemoryL2ConfidenceSettings",
         "MemoryL2EpisodeSettings",
         "MemoryL2ExperienceSettings",
@@ -328,6 +330,213 @@ def test_l2_experience_config_defaults_match_module_constants():
     assert experience.max_repeated_goal_gap_seconds == MAX_REPEATED_GOAL_GAP_SECONDS
 
 
+def test_runtime_config_l2_assertion_defaults():
+    assertion = AppConfig().agent.memory.l2.assertion
+
+    assert isinstance(assertion, MemoryL2AssertionSettings)
+    assert assertion.confidence_base == 0.3
+    assert assertion.confidence_slope == 0.25
+    assert assertion.confidence_ceiling == 0.95
+    assert assertion.stable_evidence_count == 3
+    assert assertion.stable_time_span_hours == 24.0
+    assert assertion.corroborated_evidence_count == 2
+    assert assertion.user_rejected_confidence == 0.10
+    assert assertion.user_confirmed_confidence_floor == 0.85
+    assert assertion.expired_confidence_ceiling == 0.30
+    assert assertion.contradicted_confidence_ceiling == 0.35
+    assert assertion.stable_confidence_floor == 0.82
+    assert assertion.temporary_corroborated_confidence_floor == 0.50
+    assert assertion.corroborated_confidence_floor == 0.58
+    assert assertion.tentative_confidence_ceiling == 0.30
+    assert assertion.mood_ttl_seconds == 12 * 60 * 60
 
 
+def test_l2_assertion_config_defaults_match_module_constants():
+    from magi.memory.l2.assertions.state_machine import (
+        CONFIDENCE_BASE,
+        CONFIDENCE_CEILING,
+        CONFIDENCE_SLOPE,
+        CORROBORATED_CONFIDENCE_FLOOR,
+        CORROBORATED_EVIDENCE_COUNT,
+        CONTRADICTED_CONFIDENCE_CEILING,
+        EXPIRED_CONFIDENCE_CEILING,
+        STABLE_EVIDENCE_COUNT,
+        STABLE_CONFIDENCE_FLOOR,
+        STABLE_TIME_SPAN_HOURS,
+        TEMPORARY_CORROBORATED_CONFIDENCE_FLOOR,
+        TENTATIVE_CONFIDENCE_CEILING,
+        USER_CONFIRMED_CONFIDENCE_FLOOR,
+        USER_REJECTED_CONFIDENCE,
+    )
+    from magi.memory.l2.assertions.settings import (
+        ENGAGEMENT_TTL_SECONDS,
+        GROUP_SENTIMENT_TTL_SECONDS,
+        MOMENTARY_TTL_SECONDS,
+        MOOD_TTL_SECONDS,
+        STRESS_TTL_SECONDS,
+    )
 
+    assertion = MemoryL2AssertionSettings()
+
+    assert assertion.confidence_base == CONFIDENCE_BASE
+    assert assertion.confidence_slope == CONFIDENCE_SLOPE
+    assert assertion.confidence_ceiling == CONFIDENCE_CEILING
+    assert assertion.stable_evidence_count == STABLE_EVIDENCE_COUNT
+    assert assertion.stable_time_span_hours == STABLE_TIME_SPAN_HOURS
+    assert assertion.corroborated_evidence_count == CORROBORATED_EVIDENCE_COUNT
+    assert assertion.user_rejected_confidence == USER_REJECTED_CONFIDENCE
+    assert assertion.user_confirmed_confidence_floor == USER_CONFIRMED_CONFIDENCE_FLOOR
+    assert assertion.expired_confidence_ceiling == EXPIRED_CONFIDENCE_CEILING
+    assert assertion.contradicted_confidence_ceiling == CONTRADICTED_CONFIDENCE_CEILING
+    assert assertion.stable_confidence_floor == STABLE_CONFIDENCE_FLOOR
+    assert (
+        assertion.temporary_corroborated_confidence_floor
+        == TEMPORARY_CORROBORATED_CONFIDENCE_FLOOR
+    )
+    assert assertion.corroborated_confidence_floor == CORROBORATED_CONFIDENCE_FLOOR
+    assert assertion.tentative_confidence_ceiling == TENTATIVE_CONFIDENCE_CEILING
+    assert assertion.momentary_ttl_seconds == MOMENTARY_TTL_SECONDS
+    assert assertion.mood_ttl_seconds == MOOD_TTL_SECONDS
+    assert assertion.stress_ttl_seconds == STRESS_TTL_SECONDS
+    assert assertion.engagement_ttl_seconds == ENGAGEMENT_TTL_SECONDS
+    assert assertion.group_sentiment_ttl_seconds == GROUP_SENTIMENT_TTL_SECONDS
+
+
+def test_compute_confidence_falls_back_without_config(monkeypatch):
+    import magi.config
+    from magi.memory.l2.assertions.state_machine import compute_confidence
+
+    def _boom() -> object:
+        raise RuntimeError("no config bound")
+
+    monkeypatch.setattr(magi.config, "get_config", _boom)
+
+    # Default curve: 0.3 + 0.25*(n-1), capped at 0.95.
+    assert compute_confidence(1) == 0.3
+    assert compute_confidence(3) == 0.8
+
+
+def test_compute_confidence_reads_config_override(monkeypatch):
+    import magi.config
+    from magi.memory.l2.assertions.state_machine import compute_confidence
+
+    cfg = AppConfig()
+    cfg.agent.memory.l2.assertion.confidence_base = 0.5
+    cfg.agent.memory.l2.assertion.confidence_slope = 0.1
+    cfg.agent.memory.l2.assertion.confidence_ceiling = 0.6
+    monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
+
+    assert compute_confidence(1) == 0.5
+    assert compute_confidence(2) == pytest.approx(0.6)  # 0.5 + 0.1, at ceiling
+    assert compute_confidence(5) == 0.6  # clamped to ceiling
+
+
+def test_derive_validation_state_honors_graduation_gate_override(monkeypatch):
+    import magi.config
+    from magi.memory.l2.assertions.state_machine import derive_validation_state
+
+    cfg = AppConfig()
+    cfg.agent.memory.l2.assertion.stable_evidence_count = 2
+    cfg.agent.memory.l2.assertion.stable_time_span_hours = 1.0
+    monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
+
+    state, _confidence, _kind = derive_validation_state(
+        current_state="corroborated",
+        current_confidence=0.6,
+        evidence_count=2,
+        time_span_hours=1.0,
+        trait_name="preference.coffee",
+    )
+    assert state == "stable"
+
+
+def test_derive_validation_state_honors_state_threshold_overrides(monkeypatch):
+    import magi.config
+    from magi.memory.l2.assertions.state_machine import derive_validation_state
+
+    cfg = AppConfig()
+    cfg.agent.memory.l2.assertion.stable_confidence_floor = 0.91
+    cfg.agent.memory.l2.assertion.contradicted_confidence_ceiling = 0.22
+    cfg.agent.memory.l2.assertion.user_rejected_confidence = 0.04
+    monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
+
+    stable_state, stable_confidence, _kind = derive_validation_state(
+        current_state="tentative",
+        current_confidence=0.6,
+        evidence_count=3,
+        time_span_hours=24.0,
+        trait_name="preference.coffee",
+    )
+    assert stable_state == "stable"
+    assert stable_confidence == 0.91
+
+    contradicted_state, contradicted_confidence, _kind = derive_validation_state(
+        current_state="contradicted",
+        current_confidence=0.8,
+        evidence_count=3,
+        time_span_hours=24.0,
+        trait_name="preference.coffee",
+    )
+    assert contradicted_state == "contradicted"
+    assert contradicted_confidence == 0.22
+
+    rejected_state, rejected_confidence, _kind = derive_validation_state(
+        current_state="tentative",
+        current_confidence=0.8,
+        evidence_count=3,
+        time_span_hours=24.0,
+        trait_name="preference.coffee",
+        user_feedback="rejected",
+    )
+    assert rejected_state == "user_rejected"
+    assert rejected_confidence == 0.04
+
+
+def test_phase2_assertion_decay_reads_configured_family_ttl(monkeypatch):
+    import magi.config
+    from magi.memory.l2.pipeline.validation.assertions import L2AssertionValidationMixin
+
+    cfg = AppConfig()
+    cfg.agent.memory.l2.assertion.momentary_ttl_seconds = 45.0
+    cfg.agent.memory.l2.assertion.mood_ttl_seconds = 123.0
+    monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
+
+    class Host(L2AssertionValidationMixin):
+        def _non_empty_text(self, value):
+            if value is None:
+                return None
+            text = str(value).strip()
+            return text or None
+
+    event = type("Event", (), {"timestamp": 1000.0})()
+
+    temporal_scope, decay_policy, expires_at = Host()._derive_assertion_decay_from_family(
+        event=event,
+        trait_family="mood",
+        trait_name="mood",
+    )
+
+    assert temporal_scope == "session"
+    assert decay_policy == "session_decay"
+    assert expires_at == 1123.0
+
+    candidate = type(
+        "Candidate",
+        (),
+        {
+            "temporal_scope": "",
+            "decay_policy": "",
+            "expires_at": None,
+            "trait_family": "mood",
+            "trait_name": "annoyance",
+        },
+    )()
+    temporal_scope, decay_policy, expires_at = Host()._derive_assertion_decay(
+        event=event,
+        candidate=candidate,
+        target_entity_id="person:alice",
+    )
+
+    assert temporal_scope == "momentary"
+    assert decay_policy == "fast_decay"
+    assert expires_at == 1045.0

@@ -11,6 +11,11 @@ import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
+from .settings import (
+    USER_CONFIRMED_CONFIDENCE_FLOOR,
+    USER_REJECTED_CONFIDENCE,
+    assertion_float_setting,
+)
 
 logger = get_logger(__name__)
 
@@ -65,10 +70,19 @@ class L2StoreFeedbackMixin:
             current_state = str(existing["validation_state"])
 
             if feedback == "confirmed":
-                new_confidence = min(0.95, current_confidence + 0.20)
+                new_confidence = max(
+                    min(0.95, current_confidence + 0.20),
+                    assertion_float_setting(
+                        "user_confirmed_confidence_floor",
+                        USER_CONFIRMED_CONFIDENCE_FLOOR,
+                    ),
+                )
                 new_state = "stable" if current_state != "contradicted" else current_state
             else:
-                new_confidence = 0.10
+                new_confidence = assertion_float_setting(
+                    "user_rejected_confidence",
+                    USER_REJECTED_CONFIDENCE,
+                )
                 new_state = "user_rejected"
 
             await db.execute(
@@ -261,7 +275,13 @@ class L2StoreFeedbackMixin:
                     )
 
                 # 3. Promote the shadow to active, authoritative, user-confirmed.
-                new_confidence = min(0.95, current_confidence + 0.20)
+                new_confidence = max(
+                    min(0.95, current_confidence + 0.20),
+                    assertion_float_setting(
+                        "user_confirmed_confidence_floor",
+                        USER_CONFIRMED_CONFIDENCE_FLOOR,
+                    ),
+                )
                 await db.execute(
                     """
                     UPDATE tom_trait_assertions

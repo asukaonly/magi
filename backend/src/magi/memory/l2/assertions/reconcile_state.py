@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 from ..assertion_family_policy import get_assertion_family_policy
 from ..storage.utils import MOMENTARY_TRAITS as _MOMENTARY_TRAITS
+from .settings import momentary_ttl_seconds
 from .state_machine import (
     _TEMPORARY_STATE_TRAITS,
     derive_validation_state as _derive_validation_state,
@@ -57,15 +58,7 @@ class L2ReconcileStateMixin:
             return float(value)
         normalized_trait_name = trait_name.strip().lower()
         if target_entity_id and normalized_trait_name in _MOMENTARY_TRAITS:
-            return anchor_at + 2 * 60 * 60
-        if trait_family == "mood":
-            return anchor_at + 12 * 60 * 60
-        if trait_family == "stress":
-            return anchor_at + 24 * 60 * 60
-        if trait_family == "engagement":
-            return anchor_at + 12 * 60 * 60
-        if trait_family in {"group_atmosphere", "public_sentiment", "relationship_shift"}:
-            return anchor_at + 6 * 60 * 60
+            return anchor_at + momentary_ttl_seconds()
         policy = get_assertion_family_policy(trait_family)
         if policy is not None and policy.default_ttl_seconds is not None:
             return anchor_at + policy.default_ttl_seconds

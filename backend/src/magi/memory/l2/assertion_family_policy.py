@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 
@@ -15,7 +15,7 @@ class AssertionFamilyPolicy:
     phase2_guidance: str
     default_temporal_scope: str
     default_decay_policy: str
-    default_ttl_seconds: int | None
+    default_ttl_seconds: float | None
     snapshot_bucket: str
     value_i18n: str
 
@@ -150,7 +150,18 @@ def get_assertion_family_policy(family: str | None) -> AssertionFamilyPolicy | N
     """Return the canonical policy for an assertion family."""
 
     key = str(family or "").strip().casefold()
-    return ASSERTION_FAMILY_POLICIES.get(key)
+    policy = ASSERTION_FAMILY_POLICIES.get(key)
+    if policy is None:
+        return None
+    try:
+        from .assertions.settings import configured_family_ttl_seconds
+
+        ttl_seconds = configured_family_ttl_seconds(policy.family, policy.default_ttl_seconds)
+    except Exception:
+        return policy
+    if ttl_seconds == policy.default_ttl_seconds:
+        return policy
+    return replace(policy, default_ttl_seconds=ttl_seconds)
 
 
 def render_assertion_family_list() -> str:

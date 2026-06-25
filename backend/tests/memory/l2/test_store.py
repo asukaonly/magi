@@ -1270,6 +1270,54 @@ async def test_apply_user_feedback_rejected_drops_confidence(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_apply_user_feedback_honors_assertion_confidence_config(tmp_path, monkeypatch):
+    from magi.config.models import AppConfig
+    import magi.config
+    from magi.memory.l2.store import L2CognitionStore
+
+    cfg = AppConfig()
+    cfg.agent.memory.l2.assertion.user_confirmed_confidence_floor = 0.91
+    cfg.agent.memory.l2.assertion.user_rejected_confidence = 0.04
+    monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
+
+    confirmed_store = L2CognitionStore(db_path=str(tmp_path / "confirmed.db"))
+    confirmed_event = await _build_user_message(
+        "I have been really stressed.",
+        correlation_id="evt-fb-config-confirmed",
+        timestamp=1710000000.0,
+    )
+    await _apply_rule_candidates(confirmed_store, confirmed_event)
+    confirmed_assertions = await confirmed_store.list_tom_assertions(entity_id="user:u1")
+
+    confirmed = await confirmed_store.apply_user_feedback(
+        assertion_id=confirmed_assertions[0]["assertion_id"],
+        feedback="confirmed",
+    )
+
+    assert confirmed is not None
+    assert confirmed["validation_state"] == "stable"
+    assert confirmed["confidence_score"] == pytest.approx(0.91)
+
+    rejected_store = L2CognitionStore(db_path=str(tmp_path / "rejected.db"))
+    rejected_event = await _build_user_message(
+        "I have been really stressed.",
+        correlation_id="evt-fb-config-rejected",
+        timestamp=1710000000.0,
+    )
+    await _apply_rule_candidates(rejected_store, rejected_event)
+    rejected_assertions = await rejected_store.list_tom_assertions(entity_id="user:u1")
+
+    rejected = await rejected_store.apply_user_feedback(
+        assertion_id=rejected_assertions[0]["assertion_id"],
+        feedback="rejected",
+    )
+
+    assert rejected is not None
+    assert rejected["validation_state"] == "user_rejected"
+    assert rejected["confidence_score"] == pytest.approx(0.04)
+
+
+@pytest.mark.asyncio
 async def test_apply_user_feedback_not_found_returns_none(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 

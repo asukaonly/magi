@@ -297,6 +297,125 @@ class MemoryL2ExperienceSettings(BaseModel):
     )
 
 
+class MemoryL2AssertionSettings(BaseModel):
+    """Assertion confidence curve, graduation gates, and state-family decay TTLs.
+
+    Only the legitimate tuning knobs are surfaced: the evidence->confidence curve,
+    the evidence/time gates that graduate an assertion tentative -> corroborated ->
+    stable, the state confidence floors/ceilings, and the fast-decay TTLs for
+    volatile state families. These previously lived as inline magic numbers;
+    defaults preserve prior behavior and the runtime reads them through
+    config-aware accessors that fall back when no config is bound.
+    """
+
+    confidence_base: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Base confidence for a single-evidence assertion.",
+    )
+    confidence_slope: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        description="Confidence gained per additional supporting evidence event.",
+    )
+    confidence_ceiling: float = Field(
+        default=0.95,
+        gt=0.0,
+        le=1.0,
+        description="Maximum confidence from the evidence-count curve.",
+    )
+    stable_evidence_count: int = Field(
+        default=3,
+        ge=1,
+        description="Evidence events required (with the time span) to graduate to stable.",
+    )
+    stable_time_span_hours: float = Field(
+        default=24.0,
+        ge=0.0,
+        description="Evidence time span (hours) required to graduate to stable.",
+    )
+    corroborated_evidence_count: int = Field(
+        default=2,
+        ge=1,
+        description="Evidence events required to graduate to corroborated.",
+    )
+    user_rejected_confidence: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Confidence assigned to a user-rejected assertion.",
+    )
+    user_confirmed_confidence_floor: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence for a user-confirmed assertion.",
+    )
+    expired_confidence_ceiling: float = Field(
+        default=0.30,
+        ge=0.0,
+        le=1.0,
+        description="Maximum confidence retained by an expired assertion.",
+    )
+    contradicted_confidence_ceiling: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        description="Maximum confidence retained by a contradicted assertion.",
+    )
+    stable_confidence_floor: float = Field(
+        default=0.82,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence for assertions that graduate to stable.",
+    )
+    temporary_corroborated_confidence_floor: float = Field(
+        default=0.50,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence for temporary-state assertions with one or more evidence events.",
+    )
+    corroborated_confidence_floor: float = Field(
+        default=0.58,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence for assertions that graduate to corroborated.",
+    )
+    tentative_confidence_ceiling: float = Field(
+        default=0.30,
+        ge=0.0,
+        le=1.0,
+        description="Maximum confidence retained by tentative assertions.",
+    )
+    momentary_ttl_seconds: float = Field(
+        default=2 * 60 * 60,
+        ge=0,
+        description="Decay TTL for momentary entity-scoped traits (annoyance/irritation/frustration).",
+    )
+    mood_ttl_seconds: float = Field(
+        default=12 * 60 * 60,
+        ge=0,
+        description="Decay TTL for mood-family assertions (seconds).",
+    )
+    stress_ttl_seconds: float = Field(
+        default=24 * 60 * 60,
+        ge=0,
+        description="Decay TTL for stress-family assertions (seconds).",
+    )
+    engagement_ttl_seconds: float = Field(
+        default=12 * 60 * 60,
+        ge=0,
+        description="Decay TTL for engagement-family assertions (seconds).",
+    )
+    group_sentiment_ttl_seconds: float = Field(
+        default=6 * 60 * 60,
+        ge=0,
+        description="Decay TTL for group_atmosphere/public_sentiment/relationship_shift assertions (seconds).",
+    )
+
+
 class MemoryL2Settings(BaseModel):
     """L2 structured cognition settings."""
 
@@ -362,6 +481,7 @@ class MemoryL2Settings(BaseModel):
     confidence: MemoryL2ConfidenceSettings = Field(default_factory=MemoryL2ConfidenceSettings)
     episode: MemoryL2EpisodeSettings = Field(default_factory=MemoryL2EpisodeSettings)
     experience: MemoryL2ExperienceSettings = Field(default_factory=MemoryL2ExperienceSettings)
+    assertion: MemoryL2AssertionSettings = Field(default_factory=MemoryL2AssertionSettings)
 
 
 class MemoryL3Settings(BaseModel):
@@ -508,6 +628,7 @@ __all__ = [
     "MemoryHistoryBehavior",
     "MemoryL0Settings",
     "MemoryL1Settings",
+    "MemoryL2AssertionSettings",
     "MemoryL2ConfidenceSettings",
     "MemoryL2EpisodeSettings",
     "MemoryL2ExperienceSettings",

@@ -4,6 +4,25 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .settings import (
+    CONFIDENCE_BASE,
+    CONFIDENCE_CEILING,
+    CONFIDENCE_SLOPE,
+    CORROBORATED_CONFIDENCE_FLOOR,
+    CORROBORATED_EVIDENCE_COUNT,
+    CONTRADICTED_CONFIDENCE_CEILING,
+    EXPIRED_CONFIDENCE_CEILING,
+    STABLE_CONFIDENCE_FLOOR,
+    STABLE_EVIDENCE_COUNT,
+    STABLE_TIME_SPAN_HOURS,
+    TEMPORARY_CORROBORATED_CONFIDENCE_FLOOR,
+    TENTATIVE_CONFIDENCE_CEILING,
+    USER_CONFIRMED_CONFIDENCE_FLOOR,
+    USER_REJECTED_CONFIDENCE,
+    assertion_float_setting,
+    assertion_int_setting,
+)
+
 _TEMPORARY_STATE_TRAITS = frozenset({"stress_level", "mood", "engagement"})
 
 # Validation states representing live, retrievable assertions. These are the only
@@ -23,7 +42,10 @@ RETRIEVAL_EXCLUDED_STATUSES: tuple[str, ...] = ("archived", "invalidated", "user
 
 def compute_confidence(evidence_count: int) -> float:
     """Base confidence curve from accumulated evidence count."""
-    return min(0.95, 0.3 + 0.25 * max(0, evidence_count - 1))
+    base = assertion_float_setting("confidence_base", CONFIDENCE_BASE)
+    slope = assertion_float_setting("confidence_slope", CONFIDENCE_SLOPE)
+    ceiling = assertion_float_setting("confidence_ceiling", CONFIDENCE_CEILING)
+    return min(ceiling, base + slope * max(0, evidence_count - 1))
 
 
 def derive_validation_state(
@@ -43,39 +65,139 @@ def derive_validation_state(
     is_temporary = trait_name in _TEMPORARY_STATE_TRAITS
 
     if user_feedback == "rejected":
-        return ("user_rejected", 0.10, "volatile_pattern")
+        return (
+            "user_rejected",
+            assertion_float_setting("user_rejected_confidence", USER_REJECTED_CONFIDENCE),
+            "volatile_pattern",
+        )
 
     if user_feedback == "confirmed":
         stability_kind = "temporary_state" if is_temporary else "stable_trait"
-        return ("stable", max(current_confidence, 0.85), stability_kind)
+        return (
+            "stable",
+            max(
+                current_confidence,
+                assertion_float_setting(
+                    "user_confirmed_confidence_floor",
+                    USER_CONFIRMED_CONFIDENCE_FLOOR,
+                ),
+            ),
+            stability_kind,
+        )
 
     if current_state == "user_rejected":
-        return ("user_rejected", min(current_confidence, 0.10), "volatile_pattern")
+        return (
+            "user_rejected",
+            min(
+                current_confidence,
+                assertion_float_setting("user_rejected_confidence", USER_REJECTED_CONFIDENCE),
+            ),
+            "volatile_pattern",
+        )
 
     if current_state == "expired":
-        return ("expired", min(current_confidence, 0.30), "volatile_pattern")
+        return (
+            "expired",
+            min(
+                current_confidence,
+                assertion_float_setting("expired_confidence_ceiling", EXPIRED_CONFIDENCE_CEILING),
+            ),
+            "volatile_pattern",
+        )
 
     if current_state == "contradicted":
-        return ("contradicted", min(current_confidence, 0.35), "volatile_pattern")
+        return (
+            "contradicted",
+            min(
+                current_confidence,
+                assertion_float_setting(
+                    "contradicted_confidence_ceiling",
+                    CONTRADICTED_CONFIDENCE_CEILING,
+                ),
+            ),
+            "volatile_pattern",
+        )
+
+    stable_count = assertion_int_setting("stable_evidence_count", STABLE_EVIDENCE_COUNT)
+    stable_span = assertion_float_setting("stable_time_span_hours", STABLE_TIME_SPAN_HOURS)
+    corroborated_count = assertion_int_setting(
+        "corroborated_evidence_count",
+        CORROBORATED_EVIDENCE_COUNT,
+    )
 
     if is_temporary:
-        if evidence_count >= 3 and time_span_hours >= 24.0:
-            return ("stable", max(current_confidence, 0.82), "temporary_state")
+        if evidence_count >= stable_count and time_span_hours >= stable_span:
+            return (
+                "stable",
+                max(
+                    current_confidence,
+                    assertion_float_setting("stable_confidence_floor", STABLE_CONFIDENCE_FLOOR),
+                ),
+                "temporary_state",
+            )
         if evidence_count >= 1:
-            return ("corroborated", max(current_confidence, 0.50), "temporary_state")
+            return (
+                "corroborated",
+                max(
+                    current_confidence,
+                    assertion_float_setting(
+                        "temporary_corroborated_confidence_floor",
+                        TEMPORARY_CORROBORATED_CONFIDENCE_FLOOR,
+                    ),
+                ),
+                "temporary_state",
+            )
 
-    if evidence_count >= 3 and time_span_hours >= 24.0:
-        return ("stable", max(current_confidence, 0.82), "stable_trait")
+    if evidence_count >= stable_count and time_span_hours >= stable_span:
+        return (
+            "stable",
+            max(
+                current_confidence,
+                assertion_float_setting("stable_confidence_floor", STABLE_CONFIDENCE_FLOOR),
+            ),
+            "stable_trait",
+        )
 
-    if evidence_count >= 2:
-        return ("corroborated", max(current_confidence, 0.58), "volatile_pattern")
+    if evidence_count >= corroborated_count:
+        return (
+            "corroborated",
+            max(
+                current_confidence,
+                assertion_float_setting(
+                    "corroborated_confidence_floor",
+                    CORROBORATED_CONFIDENCE_FLOOR,
+                ),
+            ),
+            "volatile_pattern",
+        )
 
-    return ("tentative", min(current_confidence, 0.3), "volatile_pattern")
+    return (
+        "tentative",
+        min(
+            current_confidence,
+            assertion_float_setting("tentative_confidence_ceiling", TENTATIVE_CONFIDENCE_CEILING),
+        ),
+        "volatile_pattern",
+    )
 
 
 __all__ = [
     "compute_confidence",
     "derive_validation_state",
+    "CONFIDENCE_BASE",
+    "CONFIDENCE_SLOPE",
+    "CONFIDENCE_CEILING",
+    "STABLE_EVIDENCE_COUNT",
+    "STABLE_TIME_SPAN_HOURS",
+    "CORROBORATED_EVIDENCE_COUNT",
+    "USER_REJECTED_CONFIDENCE",
+    "USER_CONFIRMED_CONFIDENCE_FLOOR",
+    "EXPIRED_CONFIDENCE_CEILING",
+    "CONTRADICTED_CONFIDENCE_CEILING",
+    "STABLE_CONFIDENCE_FLOOR",
+    "TEMPORARY_CORROBORATED_CONFIDENCE_FLOOR",
+    "CORROBORATED_CONFIDENCE_FLOOR",
+    "TENTATIVE_CONFIDENCE_CEILING",
     "_TEMPORARY_STATE_TRAITS",
     "ACTIVE_VALIDATION_STATES",
     "HISTORICAL_VALIDATION_STATES",

@@ -122,6 +122,27 @@ agent:
         min_repeated_goal_events: 8
         max_repeated_goal_window_seconds: 2592000 # 30 days
         max_repeated_goal_gap_seconds: 604800 # 7 days
+      # Assertion confidence curve, graduation gates, and state-family decay TTLs.
+      assertion:
+        confidence_base: 0.3
+        confidence_slope: 0.25
+        confidence_ceiling: 0.95
+        stable_evidence_count: 3
+        stable_time_span_hours: 24.0
+        corroborated_evidence_count: 2
+        user_rejected_confidence: 0.10
+        user_confirmed_confidence_floor: 0.85
+        expired_confidence_ceiling: 0.30
+        contradicted_confidence_ceiling: 0.35
+        stable_confidence_floor: 0.82
+        temporary_corroborated_confidence_floor: 0.50
+        corroborated_confidence_floor: 0.58
+        tentative_confidence_ceiling: 0.30
+        momentary_ttl_seconds: 7200 # 2h
+        mood_ttl_seconds: 43200 # 12h
+        stress_ttl_seconds: 86400 # 24h
+        engagement_ttl_seconds: 43200 # 12h
+        group_sentiment_ttl_seconds: 21600 # 6h
 
     l3:
       enabled: true

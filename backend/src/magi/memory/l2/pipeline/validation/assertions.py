@@ -10,6 +10,7 @@ from ...context_bundle import ResolvedContextRef
 from ...extraction_profiles import ExtractionProfile
 from ...models import L2AssertionCandidate, L2Phase1Result
 from ...assertion_family_policy import get_assertion_family_policy
+from ...assertions.settings import momentary_ttl_seconds
 from ...ontology import is_leaf_fact_duplicate, validate_assertion_candidate
 from ...ontology_aliases import canonicalize_predicate
 from ...storage.utils import normalize_event_ids
@@ -205,7 +206,7 @@ class L2AssertionValidationMixin:
         """Derive decay policy from trait family and name."""
         name_lower = trait_name.casefold()
         if name_lower in {"annoyance", "irritation", "frustration"}:
-            return "momentary", "fast_decay", event.timestamp + 2 * 60 * 60
+            return "momentary", "fast_decay", event.timestamp + momentary_ttl_seconds()
         policy = get_assertion_family_policy(trait_family)
         if policy is not None:
             expires_at = (
@@ -368,7 +369,7 @@ class L2AssertionValidationMixin:
         trait_family = candidate.trait_family.casefold()
         trait_name = candidate.trait_name.casefold()
         if target_entity_id and trait_name in {"annoyance", "irritation", "frustration"}:
-            return "momentary", "fast_decay", event.timestamp + 2 * 60 * 60
+            return "momentary", "fast_decay", event.timestamp + momentary_ttl_seconds()
         policy = get_assertion_family_policy(trait_family)
         if policy is not None:
             expires_at = (

@@ -28,6 +28,20 @@ def test_family_policy_defines_lifecycle_and_snapshot_defaults() -> None:
     assert routine.snapshot_bucket == "core_traits"
 
 
+def test_family_policy_reads_configured_ttl(monkeypatch) -> None:
+    from magi.config.models import AppConfig
+    import magi.config
+    from magi.memory.l2.assertion_family_policy import get_assertion_family_policy
+
+    cfg = AppConfig()
+    cfg.agent.memory.l2.assertion.mood_ttl_seconds = 123.0
+    monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
+
+    mood = get_assertion_family_policy("mood")
+
+    assert mood.default_ttl_seconds == 123.0
+
+
 def test_phase2_prompt_explains_assertion_family_semantics() -> None:
     from magi.memory.l2.pipeline.prompts import PHASE2_INTEGRATE_SYSTEM_PROMPT
 
