@@ -259,4 +259,83 @@ describe('MemoryGovernancePage', () => {
     });
     expect(memoryApi.reconsolidateEpisodes).toHaveBeenCalled();
   });
+
+  it('renders when memory payloads are only partially populated', async () => {
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      stats: {
+        l0: {},
+        l1: {},
+        l2: {},
+        l3: {},
+        attention: {},
+      },
+      l0Sessions: [
+        {
+          session_id: 'session_sparse',
+          short_session_id: '',
+          display_title: '',
+        },
+      ],
+      l1Events: [
+        {
+          event_id: 'evt_sparse',
+          event_type: 'chat.message',
+          timestamp: 1719300000,
+          content: '',
+          memory_domain: 'conversation',
+          retention_class: 'standard',
+        },
+      ],
+      l2Relations: [
+        {
+          triple_id: 'rel_sparse',
+          subject_id: 'ent_sparse',
+          subject_type: 'person',
+          predicate: 'USES',
+          object_id: 'tool_sparse',
+          object_type: 'software',
+        },
+      ],
+      l2Assertions: [
+        {
+          assertion_id: 'assert_sparse',
+          entity_id: 'ent_sparse',
+          entity_type: 'person',
+          trait_name: 'preference',
+          trait_value: '',
+        },
+      ],
+      l2Entities: [
+        {
+          entity_id: 'ent_sparse',
+          canonical_name: 'Sparse entity',
+          entity_type: 'person',
+        },
+      ],
+      l3Summaries: [
+        {
+          summary_id: 'sum_sparse',
+          summary_type: 'periodic',
+          summary_category: 'day',
+          period_start: 1719290000,
+          period_end: 1719300000,
+          content: '',
+          created_at: 1719300000,
+        },
+      ],
+      l4Skills: [
+        {
+          skill_id: 'skill_sparse',
+          skill_name: '',
+          skill_category: 'frontend',
+        },
+      ],
+    } as unknown as ReturnType<typeof useMemory>);
+
+    renderPage();
+
+    expect(await screen.findByRole('tab', { name: '分层明细' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /ent_sparse/ })).toBeInTheDocument();
+  });
 });

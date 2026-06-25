@@ -62,7 +62,21 @@ interface LayerSummary {
   records: LayerRecord[];
 }
 
-const formatCount = (value: number): string => new Intl.NumberFormat().format(Math.max(0, value));
+const toList = <T,>(value: T[] | null | undefined): T[] => (Array.isArray(value) ? value : []);
+
+const toFiniteNumber = (value: unknown, fallback = 0): number => {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+const toOptionalNumber = (value: unknown): number | null => {
+  const numeric = toFiniteNumber(value, Number.NaN);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const formatDecimal = (value: unknown, digits = 2): string => toFiniteNumber(value).toFixed(digits);
+
+const formatCount = (value: unknown): string => new Intl.NumberFormat().format(Math.max(0, toFiniteNumber(value)));
 
 const formatTime = (timestamp?: number | null): string => {
   if (!timestamp) return '-';
@@ -79,6 +93,11 @@ const clampText = (value: string | null | undefined, fallback: string, max = 96)
   const cleaned = String(value || '').replace(/\s+/g, ' ').trim();
   if (!cleaned) return fallback;
   return cleaned.length > max ? `${cleaned.slice(0, max - 1)}…` : cleaned;
+};
+
+const safeText = (value: unknown, fallback: string): string => {
+  const cleaned = String(value ?? '').trim();
+  return cleaned || fallback;
 };
 
 const getStatusToneClass = (tone: LayerSummary['tone']) => {
@@ -117,166 +136,184 @@ export const MemoryGovernancePage = () => {
     t(`memory.governance.${key}`, { defaultValue, ...(values || {}) });
 
   const layerSummaries = useMemo<LayerSummary[]>(() => {
+    const l0Sessions = toList(memory.l0Sessions);
+    const l1Events = toList(memory.l1Events);
+    const l2Assertions = toList(memory.l2Assertions);
+    const l2Relations = toList(memory.l2Relations);
+    const l2Entities = toList(memory.l2Entities);
+    const l2Snapshots = toList(memory.l2Snapshots);
+    const l3Summaries = toList(memory.l3Summaries);
+    const l4Skills = toList(memory.l4Skills);
     const l2EntityEvidence = (entityId: string) => (
-      memory.l2Assertions.filter((assertion) => assertion.entity_id === entityId).length +
-      memory.l2Relations.filter((relation) => relation.subject_id === entityId || relation.object_id === entityId).length
+      l2Assertions.filter((assertion) => assertion.entity_id === entityId).length +
+      l2Relations.filter((relation) => relation.subject_id === entityId || relation.object_id === entityId).length
     );
 
-    const l0Records: LayerRecord[] = memory.l0Sessions.map((session) => ({
-      id: session.short_session_id || session.session_id,
+    const l0Records: LayerRecord[] = l0Sessions.map((session) => ({
+      id: safeText(session.short_session_id || session.session_id, label('fallbacks.unknownRecord', '未知记录')),
       layer: 'l0',
       title: clampText(session.display_title, label('fallbacks.untitledSession', '未命名会话'), 64),
       type: label('recordTypes.session', '会话'),
       source: session.workspace_path ? label('sources.workspace', '工作区') : label('sources.chat', '对话'),
-      status: session.status,
+      status: safeText(session.status, label('statuses.unknown', '未知')),
       updatedAt: session.last_active_at,
-      evidenceCount: session.message_count ?? null,
+      evidenceCount: toOptionalNumber(session.message_count),
       summary: session.last_message_preview || session.last_user_message_preview || null,
       impact: [
-        { label: label('impact.goals', '目标'), value: session.goal_count },
-        { label: label('impact.entities', '实体'), value: session.entity_count },
-        { label: label('impact.tactics', '策略'), value: session.tactic_count },
+        { label: label('impact.goals', '目标'), value: toFiniteNumber(session.goal_count) },
+        { label: label('impact.entities', '实体'), value: toFiniteNumber(session.entity_count) },
+        { label: label('impact.tactics', '策略'), value: toFiniteNumber(session.tactic_count) },
       ],
     }));
 
-    const l1Records: LayerRecord[] = memory.l1Events.map((event) => ({
-      id: event.event_id,
+    const l1Records: LayerRecord[] = l1Events.map((event) => ({
+      id: safeText(event.event_id, label('fallbacks.unknownRecord', '未知记录')),
       layer: 'l1',
-      title: clampText(event.content, event.event_type, 88),
-      type: event.event_type,
-      source: event.source || label('sources.unknown', '未知来源'),
-      status: event.deleted_at ? label('statuses.deleted', '已删除') : event.embedding_status || label('statuses.valid', '有效'),
+      title: clampText(event.content, safeText(event.event_type, label('recordTypes.event', '事件')), 88),
+      type: safeText(event.event_type, label('recordTypes.event', '事件')),
+      source: safeText(event.source, label('sources.unknown', '未知来源')),
+      status: event.deleted_at ? label('statuses.deleted', '已删除') : safeText(event.embedding_status, label('statuses.valid', '有效')),
       updatedAt: event.timestamp || event.created_at,
-      evidenceCount: event.embedding_chunk_count ?? null,
+      evidenceCount: toOptionalNumber(event.embedding_chunk_count),
       summary: event.content,
       related: [
         event.session_id ? `${label('fields.session', '会话')} ${event.session_id}` : '',
         event.turn_id ? `${label('fields.turn', '回合')} ${event.turn_id}` : '',
       ].filter(Boolean),
       impact: [
-        { label: label('impact.importance', '重要度'), value: event.importance_score.toFixed(2) },
+        { label: label('impact.importance', '重要度'), value: formatDecimal(event.importance_score) },
         { label: label('impact.cognition', '进入认知'), value: event.cognition_eligible ? label('yes', '是') : label('no', '否') },
       ],
     }));
 
-    const l2EntityRecords: LayerRecord[] = memory.l2Entities.map((entity) => {
+    const l2EntityRecords: LayerRecord[] = l2Entities.map((entity) => {
+      const aliases = toList(entity.aliases);
       const evidenceCount = l2EntityEvidence(entity.entity_id);
       return {
-        id: entity.entity_id,
+        id: safeText(entity.entity_id, label('fallbacks.unknownRecord', '未知记录')),
         layer: 'l2',
-        title: `${label('recordTypes.entity', '实体')}：${entity.canonical_name}`,
+        title: `${label('recordTypes.entity', '实体')}：${safeText(entity.canonical_name, label('fallbacks.unknownRecord', '未知记录'))}`,
         type: label('recordTypes.entity', '实体'),
-        source: entity.entity_type,
+        source: safeText(entity.entity_type, label('sources.unknown', '未知来源')),
         status: label('statuses.valid', '有效'),
         updatedAt: entity.updated_at,
         evidenceCount,
-        summary: entity.aliases?.length ? `${label('fields.aliases', '别名')}：${entity.aliases.join('、')}` : null,
-        related: entity.aliases || [],
+        summary: aliases.length ? `${label('fields.aliases', '别名')}：${aliases.join('、')}` : null,
+        related: aliases,
         impact: [
-          { label: label('impact.relations', '关系'), value: memory.l2Relations.filter((item) => item.subject_id === entity.entity_id || item.object_id === entity.entity_id).length },
-          { label: label('impact.assertions', '断言'), value: memory.l2Assertions.filter((item) => item.entity_id === entity.entity_id).length },
-          { label: label('impact.snapshots', '快照'), value: memory.l2Snapshots.filter((item) => item.entity_id === entity.entity_id).length },
+          { label: label('impact.relations', '关系'), value: l2Relations.filter((item) => item.subject_id === entity.entity_id || item.object_id === entity.entity_id).length },
+          { label: label('impact.assertions', '断言'), value: l2Assertions.filter((item) => item.entity_id === entity.entity_id).length },
+          { label: label('impact.snapshots', '快照'), value: l2Snapshots.filter((item) => item.entity_id === entity.entity_id).length },
         ],
       };
     });
 
-    const l2AssertionRecords: LayerRecord[] = memory.l2Assertions.map((assertion) => ({
-      id: assertion.assertion_id,
-      layer: 'l2',
-      title: `${label('recordTypes.assertion', '断言')}：${assertion.trait_name}`,
-      type: label('recordTypes.assertion', '断言'),
-      source: assertion.source_domain,
-      status: assertion.validation_state,
-      updatedAt: assertion.last_validated_at,
-      evidenceCount: assertion.evidence_events.length,
-      summary: assertion.trait_value,
-      related: assertion.evidence_events,
-      impact: [
-        { label: label('impact.confidence', '可信度'), value: assertion.confidence_score.toFixed(2) },
-        { label: label('impact.volatility', '波动'), value: assertion.volatility_index.toFixed(2) },
-      ],
-    }));
+    const l2AssertionRecords: LayerRecord[] = l2Assertions.map((assertion) => {
+      const evidenceEvents = toList(assertion.evidence_events);
+      return {
+        id: safeText(assertion.assertion_id, label('fallbacks.unknownRecord', '未知记录')),
+        layer: 'l2',
+        title: `${label('recordTypes.assertion', '断言')}：${safeText(assertion.trait_name, label('fallbacks.unknownRecord', '未知记录'))}`,
+        type: label('recordTypes.assertion', '断言'),
+        source: safeText(assertion.source_domain, label('sources.unknown', '未知来源')),
+        status: safeText(assertion.validation_state, label('statuses.unknown', '未知')),
+        updatedAt: assertion.last_validated_at,
+        evidenceCount: evidenceEvents.length,
+        summary: assertion.trait_value,
+        related: evidenceEvents,
+        impact: [
+          { label: label('impact.confidence', '可信度'), value: formatDecimal(assertion.confidence_score) },
+          { label: label('impact.volatility', '波动'), value: formatDecimal(assertion.volatility_index) },
+        ],
+      };
+    });
 
-    const l2RelationRecords: LayerRecord[] = memory.l2Relations.map((relation) => ({
-      id: relation.triple_id,
-      layer: 'l2',
-      title: `${label('recordTypes.relation', '关系')}：${relation.subject_id} ${relation.predicate} ${relation.object_id}`,
-      type: label('recordTypes.relation', '关系'),
-      source: relation.subject_type,
-      status: relation.status,
-      updatedAt: relation.updated_at || relation.last_observed_at,
-      evidenceCount: relation.evidence_event_ids.length,
-      summary: `${relation.subject_type} → ${relation.object_type}`,
-      related: relation.evidence_event_ids,
-      impact: [
-        { label: label('impact.observations', '观察'), value: relation.observation_count },
-        { label: label('impact.confidence', '可信度'), value: relation.confidence.toFixed(2) },
-      ],
-    }));
+    const l2RelationRecords: LayerRecord[] = l2Relations.map((relation) => {
+      const evidenceEventIds = toList(relation.evidence_event_ids);
+      return {
+        id: safeText(relation.triple_id, label('fallbacks.unknownRecord', '未知记录')),
+        layer: 'l2',
+        title: `${label('recordTypes.relation', '关系')}：${safeText(relation.subject_id, '?')} ${safeText(relation.predicate, '?')} ${safeText(relation.object_id, '?')}`,
+        type: label('recordTypes.relation', '关系'),
+        source: safeText(relation.subject_type, label('sources.unknown', '未知来源')),
+        status: safeText(relation.status, label('statuses.unknown', '未知')),
+        updatedAt: relation.updated_at || relation.last_observed_at,
+        evidenceCount: evidenceEventIds.length,
+        summary: `${safeText(relation.subject_type, '?')} → ${safeText(relation.object_type, '?')}`,
+        related: evidenceEventIds,
+        impact: [
+          { label: label('impact.observations', '观察'), value: toFiniteNumber(relation.observation_count) },
+          { label: label('impact.confidence', '可信度'), value: formatDecimal(relation.confidence) },
+        ],
+      };
+    });
 
-    const l2SnapshotRecords: LayerRecord[] = memory.l2Snapshots.map((snapshot) => ({
-      id: snapshot.snapshot_id,
+    const l2SnapshotRecords: LayerRecord[] = l2Snapshots.map((snapshot) => ({
+      id: safeText(snapshot.snapshot_id, label('fallbacks.unknownRecord', '未知记录')),
       layer: 'l2',
-      title: `${label('recordTypes.snapshot', '快照')}：${snapshot.entity_id}`,
+      title: `${label('recordTypes.snapshot', '快照')}：${safeText(snapshot.entity_id, label('fallbacks.unknownRecord', '未知记录'))}`,
       type: label('recordTypes.snapshot', '快照'),
-      source: snapshot.entity_type,
+      source: safeText(snapshot.entity_type, label('sources.unknown', '未知来源')),
       status: label('statuses.valid', '有效'),
       updatedAt: snapshot.last_updated_at,
-      evidenceCount: snapshot.interaction_count ?? null,
+      evidenceCount: toOptionalNumber(snapshot.interaction_count),
       summary: snapshot.current_mood || null,
       impact: [
-        { label: label('impact.engagement', '参与度'), value: snapshot.current_engagement ?? '-' },
-        { label: label('impact.stress', '压力'), value: snapshot.current_stress_level ?? '-' },
+        { label: label('impact.engagement', '参与度'), value: toOptionalNumber(snapshot.current_engagement) ?? '-' },
+        { label: label('impact.stress', '压力'), value: toOptionalNumber(snapshot.current_stress_level) ?? '-' },
       ],
     }));
 
     const l2Records = [...l2EntityRecords, ...l2AssertionRecords, ...l2RelationRecords, ...l2SnapshotRecords];
 
-    const l3Records: LayerRecord[] = memory.l3Summaries.map((summary) => ({
-      id: summary.summary_id,
-      layer: 'l3',
-      title: clampText(summary.content, summary.summary_category, 88),
-      type: summary.summary_category,
-      source: summary.summary_type,
-      status: summary.review_state || label('statuses.generated', '已生成'),
-      updatedAt: summary.updated_at || summary.created_at,
-      evidenceCount: summary.source_event_count,
-      summary: summary.content,
-      related: summary.key_topics,
-      impact: [
-        { label: label('impact.events', '事件'), value: summary.source_event_count },
-        { label: label('impact.topics', '主题'), value: summary.key_topics.length },
-      ],
-    }));
+    const l3Records: LayerRecord[] = l3Summaries.map((summary) => {
+      const keyTopics = toList(summary.key_topics);
+      return {
+        id: safeText(summary.summary_id, label('fallbacks.unknownRecord', '未知记录')),
+        layer: 'l3',
+        title: clampText(summary.content, safeText(summary.summary_category, label('recordTypes.summary', '总结')), 88),
+        type: safeText(summary.summary_category, label('recordTypes.summary', '总结')),
+        source: safeText(summary.summary_type, label('sources.unknown', '未知来源')),
+        status: safeText(summary.review_state, label('statuses.generated', '已生成')),
+        updatedAt: summary.updated_at || summary.created_at,
+        evidenceCount: toOptionalNumber(summary.source_event_count),
+        summary: summary.content,
+        related: keyTopics,
+        impact: [
+          { label: label('impact.events', '事件'), value: toFiniteNumber(summary.source_event_count) },
+          { label: label('impact.topics', '主题'), value: keyTopics.length },
+        ],
+      };
+    });
 
-    const l4Records: LayerRecord[] = memory.l4Skills.map((skill) => ({
-      id: skill.skill_id,
+    const l4Records: LayerRecord[] = l4Skills.map((skill) => ({
+      id: safeText(skill.skill_id, label('fallbacks.unknownRecord', '未知记录')),
       layer: 'l4',
-      title: skill.skill_name,
-      type: skill.skill_category,
+      title: safeText(skill.skill_name, label('fallbacks.untitledSkill', '未命名技能')),
+      type: safeText(skill.skill_category, label('recordTypes.skill', '技能')),
       source: label('sources.procedure', '程序记忆'),
-      status: skill.circuit_breaker_state,
+      status: safeText(skill.circuit_breaker_state, label('statuses.unknown', '未知')),
       updatedAt: skill.last_used_at,
-      evidenceCount: skill.total_attempts,
+      evidenceCount: toOptionalNumber(skill.total_attempts),
       summary: label('skillSummary', '成功 {{success}} / 失败 {{failure}}', {
-        success: skill.success_count,
-        failure: skill.failure_count,
+        success: formatCount(skill.success_count),
+        failure: formatCount(skill.failure_count),
       }),
       impact: [
-        { label: label('impact.proficiency', '熟练度'), value: skill.proficiency.toFixed(2) },
-        { label: label('impact.successRate', '成功率'), value: `${Math.round(skill.success_rate * 100)}%` },
+        { label: label('impact.proficiency', '熟练度'), value: formatDecimal(skill.proficiency) },
+        { label: label('impact.successRate', '成功率'), value: `${Math.round(toFiniteNumber(skill.success_rate) * 100)}%` },
       ],
     }));
 
     const pendingAssertions = memory.stats.attention?.pending_assertions ?? 0;
-    const openBreakers = memory.stats.l4.open_circuit_breakers ?? 0;
+    const openBreakers = memory.stats.l4?.open_circuit_breakers ?? 0;
 
     return [
       {
         id: 'l0',
         label: 'L0 工作台',
         description: label('layers.l0Description', '会话、目标、策略等'),
-        count: memory.l0Total || memory.stats.l0.active_sessions || l0Records.length,
+        count: memory.l0Total || memory.stats.l0?.active_sessions || l0Records.length,
         status: label('statuses.healthy', '健康'),
         tone: 'ok',
         records: l0Records,
@@ -285,7 +322,7 @@ export const MemoryGovernancePage = () => {
         id: 'l1',
         label: 'L1 原始事件',
         description: label('layers.l1Description', '事件、片段、观察等'),
-        count: memory.l1Total || memory.stats.l1.event_count || l1Records.length,
+        count: memory.l1Total || memory.stats.l1?.event_count || l1Records.length,
         status: label('statuses.stable', '稳定'),
         tone: 'ok',
         records: l1Records,
@@ -303,7 +340,7 @@ export const MemoryGovernancePage = () => {
         id: 'l3',
         label: 'L3 总结',
         description: label('layers.l3Description', '日/周/月总结'),
-        count: memory.l3Total || memory.stats.l3.summary_count || l3Records.length,
+        count: memory.l3Total || memory.stats.l3?.summary_count || l3Records.length,
         status: label('statuses.generated', '已生成'),
         tone: 'ok',
         records: l3Records,
@@ -312,7 +349,7 @@ export const MemoryGovernancePage = () => {
         id: 'l4',
         label: 'L4 工具记忆',
         description: label('layers.l4Description', '技能、流程、模板等'),
-        count: memory.l4Total || memory.stats.l4.skill_count || l4Records.length,
+        count: memory.l4Total || memory.stats.l4?.skill_count || l4Records.length,
         status: openBreakers > 0 ? label('statuses.breakers', '熔断 {{count}}', { count: openBreakers }) : label('statuses.healthy', '健康'),
         tone: openBreakers > 0 ? 'danger' : 'ok',
         records: l4Records,
@@ -322,32 +359,33 @@ export const MemoryGovernancePage = () => {
 
   const activeLayerSummary = layerSummaries.find((layer) => layer.id === activeLayer) || layerSummaries[0];
   const activeRecords = activeLayerSummary.records;
+  const pendingAssertionCount = toFiniteNumber(memory.stats.attention?.pending_assertions);
+  const openBreakerCount = toFiniteNumber(memory.stats.l4?.open_circuit_breakers);
+  const l1EventCount = toFiniteNumber(memory.stats.l1?.event_count) || memory.l1Total;
+  const extractSkippedCount = toFiniteNumber(memory.l2Stats?.extract_skipped);
 
   const diagnostics = useMemo(() => {
-    const pendingAssertions = memory.stats.attention?.pending_assertions ?? 0;
-    const openBreakers = memory.stats.l4.open_circuit_breakers ?? 0;
-    const extractSkipped = memory.l2Stats.extract_skipped ?? 0;
     return [
       {
         id: 'pending-assertions',
-        severity: pendingAssertions > 0 ? 'warn' : 'ok',
+        severity: pendingAssertionCount > 0 ? 'warn' : 'ok',
         title: label('diagnostics.pendingAssertions', 'L2 仍有待确认断言'),
-        detail: label('diagnostics.pendingAssertionsDetail', '{{count}} 条判断还没有用户确认或拒绝。', { count: pendingAssertions }),
+        detail: label('diagnostics.pendingAssertionsDetail', '{{count}} 条判断还没有用户确认或拒绝。', { count: pendingAssertionCount }),
       },
       {
         id: 'l4-breakers',
-        severity: openBreakers > 0 ? 'danger' : 'ok',
+        severity: openBreakerCount > 0 ? 'danger' : 'ok',
         title: label('diagnostics.openBreakers', 'L4 存在打开的熔断器'),
-        detail: label('diagnostics.openBreakersDetail', '{{count}} 个工具记忆暂时不可用。', { count: openBreakers }),
+        detail: label('diagnostics.openBreakersDetail', '{{count}} 个工具记忆暂时不可用。', { count: openBreakerCount }),
       },
       {
         id: 'l2-skipped',
-        severity: extractSkipped > 0 ? 'warn' : 'ok',
+        severity: extractSkippedCount > 0 ? 'warn' : 'ok',
         title: label('diagnostics.skippedExtraction', 'L2 抽取跳过记录'),
-        detail: label('diagnostics.skippedExtractionDetail', '{{count}} 条事件被规则跳过。', { count: extractSkipped }),
+        detail: label('diagnostics.skippedExtractionDetail', '{{count}} 条事件被规则跳过。', { count: extractSkippedCount }),
       },
     ];
-  }, [label, memory.l2Stats.extract_skipped, memory.stats.attention?.pending_assertions, memory.stats.l4.open_circuit_breakers]);
+  }, [extractSkippedCount, label, openBreakerCount, pendingAssertionCount]);
 
   const handleReconsolidate = async () => {
     setReconsolidating(true);
@@ -394,9 +432,9 @@ export const MemoryGovernancePage = () => {
       <div className="space-y-4">
         <section className="grid gap-3 rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)] p-3 md:grid-cols-4">
           <MetricCell icon={<Layers3 className="h-5 w-5" />} label={label('metrics.layerRecords', '分层记录')} value={formatCount(layerSummaries.reduce((sum, layer) => sum + layer.count, 0))} />
-          <MetricCell icon={<AlertTriangle className="h-5 w-5" />} label={label('metrics.pending', '待处理')} value={formatCount(memory.stats.attention?.pending_assertions ?? 0)} tone={(memory.stats.attention?.pending_assertions ?? 0) > 0 ? 'warn' : 'default'} />
-          <MetricCell icon={<Database className="h-5 w-5" />} label={label('metrics.l1Events', 'L1 事件')} value={formatCount(memory.stats.l1.event_count || memory.l1Total)} />
-          <MetricCell icon={<ShieldAlert className="h-5 w-5" />} label={label('metrics.l4Breakers', 'L4 熔断')} value={formatCount(memory.stats.l4.open_circuit_breakers || 0)} tone={(memory.stats.l4.open_circuit_breakers || 0) > 0 ? 'danger' : 'default'} />
+          <MetricCell icon={<AlertTriangle className="h-5 w-5" />} label={label('metrics.pending', '待处理')} value={formatCount(pendingAssertionCount)} tone={pendingAssertionCount > 0 ? 'warn' : 'default'} />
+          <MetricCell icon={<Database className="h-5 w-5" />} label={label('metrics.l1Events', 'L1 事件')} value={formatCount(l1EventCount)} />
+          <MetricCell icon={<ShieldAlert className="h-5 w-5" />} label={label('metrics.l4Breakers', 'L4 熔断')} value={formatCount(openBreakerCount)} tone={openBreakerCount > 0 ? 'danger' : 'default'} />
         </section>
 
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GovernanceTab)} className="space-y-4">
