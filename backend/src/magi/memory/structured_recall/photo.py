@@ -16,6 +16,8 @@ from ..l1.source_facets import (
     normalize_facet_text,
 )
 
+PHOTO_QUERY_LOCATION_FACETS = (*PHOTO_LOCATION_FACETS, "photo.retrieval_term")
+
 
 async def expand_photo_structured_recall(
     *,
@@ -31,13 +33,17 @@ async def expand_photo_structured_recall(
         return None
 
     aliases = _seed_location_aliases(payload.l1_events)
+    facet_names = list(PHOTO_LOCATION_FACETS)
+    if not aliases:
+        aliases = _query_location_aliases(request.query)
+        facet_names = list(PHOTO_QUERY_LOCATION_FACETS)
     if not aliases:
         return None
 
     await _ensure_photo_facets(l1_store)
     events = await l1_store.find_events_by_source_facets(
         source=PHOTO_LIBRARY_SOURCE,
-        facet_names=list(PHOTO_LOCATION_FACETS),
+        facet_names=facet_names,
         normalized_text_values=sorted(aliases),
         user_id=request.user_id,
         time_start=_coerce_float((request.time_range or {}).get("start")),
@@ -67,7 +73,7 @@ async def expand_photo_structured_recall(
             "omitted_count": max(len(items) - len(returned_items), 0),
             "scope": {
                 "source": PHOTO_LIBRARY_SOURCE,
-                "facet_names": list(PHOTO_LOCATION_FACETS),
+                "facet_names": facet_names,
                 "alias_count": len(aliases),
             },
         },
@@ -128,6 +134,58 @@ def _main_location_aliases_from_content(content: str) -> set[str]:
     if normalized:
         aliases.add(normalized)
     return aliases
+
+
+def _query_location_aliases(query: str) -> set[str]:
+    aliases: set[str] = set()
+    for candidate in _iter_query_location_candidates(query):
+        normalized = normalize_facet_text(candidate)
+        if not _is_selective_query_alias(normalized):
+            continue
+        aliases.add(normalized)
+        aliases.update(_known_location_equivalents(normalized))
+    return aliases
+
+
+def _iter_query_location_candidates(query: str) -> list[str]:
+    text = str(query or "").strip()
+    if not text:
+        return []
+
+    candidates: list[str] = []
+    patterns = (
+        r"(?:在|去|到|于)\s*([^，。！？?、,]{1,48}?)(?:拍|照|照片|相片|图片|$)",
+        r"\b(?:in|at|near|around)\s+([a-z][a-z0-9\s.'-]{1,80}?)(?=\s+(?:photo|photos|picture|pictures|shot|shots|take|took|taken|$))",
+    )
+    for pattern in patterns:
+        candidates.extend(match.group(1).strip() for match in re.finditer(pattern, text, re.I))
+    return candidates
+
+
+def _is_selective_query_alias(alias: str) -> bool:
+    if not alias or len(alias) < 2:
+        return False
+    blocked = {
+        "照片",
+        "图片",
+        "相片",
+        "什么",
+        "什么照片",
+        "photo",
+        "photos",
+        "picture",
+        "pictures",
+    }
+    return alias not in blocked
+
+
+def _known_location_equivalents(alias: str) -> set[str]:
+    equivalents: set[str] = set()
+    if alias == "东京" or " tokyo " in f" {alias} " or alias.endswith(" tokyo"):
+        equivalents.update({"东京", "tokyo"})
+    if alias == "tokyo":
+        equivalents.add("东京")
+    return equivalents
 
 
 def _matches_main_location(*, alias: str, main_aliases: set[str]) -> bool:

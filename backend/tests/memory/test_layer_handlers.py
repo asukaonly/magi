@@ -13,6 +13,7 @@ from magi.memory.hybrid_retrieval.handlers import (
     L4Handler,
     execute_plan,
 )
+from magi.memory.hybrid_retrieval.service_plan_execution import execute_layer_plan
 from magi.memory.hybrid_retrieval.models import (
     L1Conditions,
     L2Conditions,
@@ -1020,6 +1021,18 @@ class TestExecutePlan:
         plan = LayerQueryPlan(layer="L2", conditions=L2Conditions())
         result = await execute_plan(plan)
         assert result == {"entity_cards": [], "relationships": []}
+
+
+class TestExecuteLayerPlan:
+    @pytest.mark.asyncio
+    async def test_dispatches_to_layer_handler(self):
+        l1 = AsyncMock(spec=L1Handler)
+        l1.execute.return_value = [{"id": "e1"}]
+        plan = LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query="x"))
+
+        result = await execute_layer_plan(plan, l1=l1)
+
+        assert result == [{"id": "e1"}]
 
 
 class TestL2HandlerEdgeVectorSupplement:

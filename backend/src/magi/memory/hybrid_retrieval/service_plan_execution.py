@@ -7,7 +7,7 @@ import logging
 from dataclasses import asdict, is_dataclass
 from typing import Any, Optional, cast
 
-from .handlers import L1Handler
+from .handlers import L1Handler, execute_plan
 from .debug_detail import log_detail
 from .models import LayerQueryPlan, RetrievalPayload, RetrievalQuery
 
@@ -15,9 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 async def execute_layer_plan(plan: LayerQueryPlan, **kwargs: Any) -> Any:
-    from . import service as service_module
-
-    return await service_module.execute_plan(plan, **kwargs)
+    return await execute_plan(plan, **kwargs)
 
 
 class HybridRetrievalPlanExecutionMixin:

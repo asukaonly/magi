@@ -140,6 +140,60 @@ async def test_photo_structured_recall_expands_seed_to_complete_stats(tmp_path) 
 
 
 @pytest.mark.asyncio
+async def test_photo_structured_recall_uses_query_location_without_seed(tmp_path) -> None:
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+
+    tokyo_event = _photo_event(
+        "evt-photo-tokyo-1",
+        "照片 拍摄 2025-07-14 周一上午用 Apple iPhone 16 Pro Max 在Honshu, Taito, Tokyo, Japan拍摄了3 张照片（08:22–09:00）",
+        timestamp=1_752_452_577.0,
+    )
+    tokyo_event.metadata_json["representative_photos"][0]["location_name"] = (
+        "Honshu, Taito, Tokyo, Japan"
+    )
+    tokyo_event.metadata_json["representative_photos"][0]["apple_photos_place_address"] = (
+        "Senso-ji, Taito, Tokyo, Japan"
+    )
+    tokyo_event.metadata_json["projection"]["retrieval_terms"] = [
+        "photo_library",
+        "session",
+        "geo",
+        "日本",
+        "东京",
+        "Honshu, Taito, Tokyo, Japan",
+        "Senso-ji, Taito, Tokyo, Japan",
+    ]
+
+    other_event = _photo_event(
+        "evt-photo-hangzhou-1",
+        "照片 拍摄 2024-02-06 周二下午用 Apple iPhone 13 Pro Max 在Tiankongzhicheng, Hangzhou, Zhejiang, China拍摄了2 张照片",
+        timestamp=1_707_200_000.0,
+    )
+
+    await store.store(tokyo_event)
+    await store.store(other_event)
+
+    result = await expand_photo_structured_recall(
+        l1_store=store,
+        request=RetrievalQuery(
+            query="我在东京拍了什么照片",
+            query_mode="experience_recall",
+            user_id="user-1",
+        ),
+        recall_shape=classify_recall_shape("我在东京拍了什么照片"),
+        payload=RetrievalPayload(l1_events=[]),
+    )
+
+    assert result is not None
+    assert result["coverage"]["can_claim_total"] is True
+    assert result["summary"]["session_count"] == 1
+    assert result["summary"]["photo_count"] == 3
+    assert [item["event_id"] for item in result["items"]] == ["evt-photo-tokyo-1"]
+
+
+@pytest.mark.asyncio
 async def test_service_attaches_photo_structured_recall(tmp_path) -> None:
     db_path = _migrated_l1_db_path(tmp_path)
     store = L1EventStore(db_path=str(db_path), vector_enabled=False)
