@@ -2864,15 +2864,6 @@
       "title": "找记忆",
       "subtitle": "用自然语言把过去翻出来。",
       "searchPlaceholder": "想找一段对话、一个名字、一件做过的事…",
-      "modes": {
-        "auto": "智能",
-        "events": "你说过 / 做过的事",
-        "knowledge": "一句具体的事实",
-        "state": "你现在的状态",
-        "episodes": "一段经历",
-        "summaries": "Magi 的总结",
-        "skills": "Magi 学到的做事方式"
-      },
       "advancedToggle": "调试细节",
       "noResults": "没找到合适的记忆，可以换一个更具体的词。",
       "resultCount": "{{count}} 条",

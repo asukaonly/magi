@@ -13,13 +13,6 @@ vi.mock('react-i18next', () => {
     'memory.recall.searchPlaceholder': '想找一段对话…',
     'memory.recall.advancedToggle': '调试细节',
     'memory.recall.noResults': '没找到合适的记忆',
-    'memory.recall.modes.auto': '智能',
-    'memory.recall.modes.events': '你说过 / 做过的事',
-    'memory.recall.modes.knowledge': '一句具体的事实',
-    'memory.recall.modes.state': '你现在的状态',
-    'memory.recall.modes.episodes': '一段经历',
-    'memory.recall.modes.summaries': 'Magi 的总结',
-    'memory.recall.modes.skills': 'Magi 学到的做事方式',
   };
   return {
     useTranslation: () => ({
@@ -87,6 +80,30 @@ describe('MemoryRecallPage', () => {
     renderPage();
 
     expect(screen.getByText('在东京站附近看到了很安静的夜景')).toBeInTheDocument();
+  });
+
+  it('searches without exposing a manual mode selector', async () => {
+    const handleSearch = vi.fn();
+    vi.mocked(useMemory).mockReturnValue({
+      loading: false,
+      stats: { l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
+      searchQuery: '东京',
+      setSearchQuery: vi.fn(),
+      searchResults: { l1_events: [], l2_relationships: [], l2_entity_cards: [], l3_reflections: [], l4_procedures: [], trace: {} },
+      searching: false,
+      handleSearch,
+      refreshAll: vi.fn(),
+    } as unknown as ReturnType<typeof useMemory>);
+
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(screen.queryByLabelText('回忆')).not.toBeInTheDocument();
+    const searchSection = screen.getByTestId('memory-recall-search');
+    const searchButton = searchSection.querySelector('button.bg-primary');
+    expect(searchButton).toBeInstanceOf(HTMLButtonElement);
+    await user.click(searchButton as HTMLButtonElement);
+    expect(handleSearch).toHaveBeenCalledWith();
   });
 
   it('hides diagnostics panel until disclosure is toggled', async () => {

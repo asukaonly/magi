@@ -4,18 +4,15 @@ import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { SelectField } from '@/components/config-forms/fields';
 import { useMemory } from '@/hooks/useMemory';
-import type { MemorySearchQueryMode, MemorySearchResultPayload } from '@/api/modules/memory';
+import type { MemorySearchResultPayload } from '@/api/modules/memory';
 import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
 import { QuickEntrySheet } from '@/components/timeline/manual-entries/QuickEntrySheet';
 import MemoryPageFrame, {
   MEMORY_FILTER_INPUT_CLASS,
-  MEMORY_FILTER_SELECT_CLASS,
   MEMORY_EMPTY_PANEL_CLASS,
 } from './MemoryPageFrame';
 
-type RecallMode = 'auto' | 'events' | 'knowledge' | 'summaries' | 'skills' | 'state' | 'episodes';
 type MemorySearchItem = Record<string, unknown>;
 
 const SEARCH_RESULT_SECTIONS: Array<{
@@ -98,21 +95,8 @@ const BODY_FIELDS = [
 
 const META_FIELDS = ['source_type', 'source', 'memory_domain', 'status', 'score', 'confidence', 'importance_score'];
 
-const MODE_TO_QUERY: Record<RecallMode, MemorySearchQueryMode | undefined> = {
-  auto: undefined,
-  events: 'event_stream',
-  knowledge: 'exact_fact',
-  summaries: 'summary',
-  skills: 'strategy',
-  state: 'current_state',
-  episodes: 'episode_recall',
-};
-
-const RECALL_MODES: RecallMode[] = ['auto', 'events', 'knowledge', 'summaries', 'skills', 'state', 'episodes'];
-
 export const MemoryRecallPage = () => {
   const { t } = useTranslation('app');
-  const [mode, setMode] = useState<RecallMode>('auto');
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [entrySheetOpen, setEntrySheetOpen] = useState(false);
@@ -126,15 +110,9 @@ export const MemoryRecallPage = () => {
   })).filter((section) => section.items.length > 0);
 
   const runSearch = () => {
-    const queryMode = MODE_TO_QUERY[mode];
     setHasSearched(true);
-    void handleSearch(queryMode);
+    void handleSearch();
   };
-
-  const modeOptions = RECALL_MODES.map((m) => ({
-    value: m,
-    label: t(`memory.recall.modes.${m}`),
-  }));
 
   const noResults = resultSections.length === 0;
 
@@ -156,16 +134,7 @@ export const MemoryRecallPage = () => {
         </div>
       )}
       <section data-testid="memory-recall-search" className="space-y-4">
-        <div className="grid gap-2 md:grid-cols-[168px_minmax(0,1fr)_auto]">
-          <SelectField
-            ariaLabel={t('memory.recall.title')}
-            value={mode}
-            onChange={(v) => setMode((v || 'auto') as RecallMode)}
-            options={modeOptions}
-            allowEmpty={false}
-            triggerClassName={`${MEMORY_FILTER_SELECT_CLASS} justify-between shadow-none`}
-            menuClassName="rounded-sm border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] shadow-[0_10px_20px_rgba(15,23,42,0.06)]"
-          />
+        <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
           <Input
             className={MEMORY_FILTER_INPUT_CLASS}
             value={searchQuery}

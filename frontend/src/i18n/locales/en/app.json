@@ -2865,15 +2865,6 @@
       "title": "Search memories",
       "subtitle": "Dig up the past in natural language.",
       "searchPlaceholder": "Find a conversation, a name, something you did...",
-      "modes": {
-        "auto": "Auto",
-        "events": "Things you said or did",
-        "knowledge": "A specific fact",
-        "state": "Your current state",
-        "episodes": "An episode",
-        "summaries": "Magi's summaries",
-        "skills": "Skills Magi has learned"
-      },
       "advancedToggle": "Debug details",
       "noResults": "No matching memories found. Try a more specific term.",
       "resultCount": "{{count}} items",
