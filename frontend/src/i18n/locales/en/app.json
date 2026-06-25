@@ -2897,7 +2897,103 @@
     },
     "governance": {
       "title": "Manage",
-      "subtitle": "Review, correct, and forget — the memory control panel.",
+      "subtitle": "Inspect layers, run maintenance, clean up forgetting, and diagnose memory health.",
+      "tabs": {
+        "layers": "Layer details",
+        "tasks": "Scheduled jobs",
+        "manual": "Manual runs",
+        "forget": "Forget & clean",
+        "diagnostics": "Diagnostics"
+      },
+      "actions": {
+        "refresh": "Refresh"
+      },
+      "metrics": {
+        "layerRecords": "Layer records",
+        "pending": "Pending",
+        "l1Events": "L1 events",
+        "l4Breakers": "L4 breakers"
+      },
+      "layers": {
+        "choose": "Choose layer",
+        "l0Description": "Sessions, goals, tactics",
+        "l1Description": "Events, fragments, observations",
+        "l2Description": "Entities, relations, assertions",
+        "l3Description": "Daily, weekly, monthly summaries",
+        "l4Description": "Skills, workflows, templates",
+        "tableSubtitle": "{{description}} ({{count}} total)",
+        "searchHint": "Open a record to inspect impact",
+        "empty": "No records are available for this layer yet.",
+        "openRecord": "Open record {{id}}"
+      },
+      "fallbacks": {
+        "untitledSession": "Untitled session"
+      },
+      "recordTypes": {
+        "session": "Session",
+        "entity": "Entity",
+        "assertion": "Assertion",
+        "relation": "Relation",
+        "snapshot": "Snapshot"
+      },
+      "sources": {
+        "workspace": "Workspace",
+        "chat": "Chat",
+        "unknown": "Unknown source",
+        "procedure": "Procedural memory"
+      },
+      "statuses": {
+        "deleted": "Deleted",
+        "valid": "Valid",
+        "healthy": "Healthy",
+        "stable": "Stable",
+        "pendingCount": "{{count}} pending",
+        "breakers": "{{count}} breaker(s)",
+        "generated": "Generated",
+        "enabled": "Enabled"
+      },
+      "fields": {
+        "session": "Session",
+        "turn": "Turn",
+        "aliases": "Aliases",
+        "type": "Type",
+        "source": "Source",
+        "updatedAt": "Updated",
+        "status": "Status",
+        "evidenceCount": "Evidence"
+      },
+      "impact": {
+        "goals": "Goals",
+        "entities": "Entities",
+        "tactics": "Tactics",
+        "importance": "Importance",
+        "cognition": "Cognition",
+        "relations": "Relations",
+        "assertions": "Assertions",
+        "snapshots": "Snapshots",
+        "confidence": "Confidence",
+        "volatility": "Volatility",
+        "observations": "Observations",
+        "events": "Events",
+        "topics": "Topics",
+        "engagement": "Engagement",
+        "stress": "Stress",
+        "proficiency": "Proficiency",
+        "successRate": "Success rate"
+      },
+      "yes": "Yes",
+      "no": "No",
+      "skillSummary": "{{success}} succeeded / {{failure}} failed",
+      "tasks": {
+        "title": "Memory maintenance jobs",
+        "subtitle": "Memory-related jobs are grouped here. Full editing still lives in Schedule config.",
+        "openSchedules": "Open schedule config",
+        "l1": "Compress cleanup-ready events and prune expired payloads",
+        "l2Derive": "Process structured-knowledge derivation work",
+        "l2Consolidate": "Promote chapters, experiences, and missing summaries",
+        "l3": "Generate period summaries and prune old records",
+        "l4": "Maintain procedural memory and breaker state"
+      },
       "sections": {
         "forget": "Forget",
         "privacy": "Privacy scope",
@@ -2913,8 +3009,48 @@
       "reconsolidateTitle": "Refresh chapters",
       "reconsolidateBody": "Let Magi promote recent activity into chapters and draft titles for them.",
       "reconsolidateRun": "Run now",
+      "reconsolidateRunSpecific": "Refresh chapters now",
       "reconsolidateBusy": "Running...",
-      "reconsolidateResult": "{{promoted}} promoted · {{standouts}} standout · {{summaries}} new chapters"
+      "reconsolidateResult": "{{promoted}} promoted · {{standouts}} standout · {{summaries}} new chapters",
+      "manual": {
+        "flushTitle": "Process L2 backlog",
+        "flushBody": "Flush currently staged L2 microbatches, useful when debugging extraction latency.",
+        "flushRun": "Process now"
+      },
+      "forgetDrawerHint": "Forgetting and deletion start from a concrete record: open one in Layer details, then inspect impact in the drawer.",
+      "forgetBySource": "Clean by source/event",
+      "forgetBySourceBody": "Open L1 raw events and filter by source, time, or content.",
+      "forgetByEntity": "Handle by entity",
+      "forgetByEntityBody": "Open L2 structured knowledge to inspect entities, assertions, and relations.",
+      "forgetByEpisode": "Handle by experience",
+      "forgetByEpisodeBody": "Open experience details to adjust chapter boundaries and visibility.",
+      "diagnostics": {
+        "title": "Maintenance diagnostics",
+        "subtitle": "Memory issues that need operational attention are grouped here.",
+        "pendingAssertions": "L2 still has pending assertions",
+        "pendingAssertionsDetail": "{{count}} judgment(s) have not been confirmed or rejected.",
+        "openBreakers": "L4 has open breakers",
+        "openBreakersDetail": "{{count}} procedural memory item(s) are temporarily unavailable.",
+        "skippedExtraction": "L2 extraction skipped records",
+        "skippedExtractionDetail": "{{count}} event(s) were skipped by policy."
+      },
+      "drawer": {
+        "title": "Record details",
+        "empty": "Choose a record to inspect details.",
+        "noSummary": "No summary available.",
+        "metadata": "Metadata",
+        "related": "Source evidence",
+        "noRelated": "No direct evidence references are available.",
+        "impact": "Downstream impact",
+        "noImpact": "No computable downstream impact is available.",
+        "safeActions": "Safe actions",
+        "actions": {
+          "reprocess": "Reprocess",
+          "invalidate": "Mark invalid",
+          "delete": "Delete",
+          "cascadeForget": "Cascade forget (including downstream)"
+        }
+      }
     },
     "pages": {
       "workbench": {

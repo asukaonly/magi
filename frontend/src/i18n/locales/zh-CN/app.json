@@ -2896,7 +2896,103 @@
     },
     "governance": {
       "title": "整理",
-      "subtitle": "可审阅、可纠正、可遗忘的记忆控制台。",
+      "subtitle": "分层查看、手动整理、遗忘清理和维护诊断。",
+      "tabs": {
+        "layers": "分层明细",
+        "tasks": "定时任务",
+        "manual": "手动整理",
+        "forget": "遗忘清理",
+        "diagnostics": "诊断"
+      },
+      "actions": {
+        "refresh": "刷新"
+      },
+      "metrics": {
+        "layerRecords": "分层记录",
+        "pending": "待处理",
+        "l1Events": "L1 事件",
+        "l4Breakers": "L4 熔断"
+      },
+      "layers": {
+        "choose": "选择层级",
+        "l0Description": "会话、目标、策略等",
+        "l1Description": "事件、片段、观察等",
+        "l2Description": "实体、关系、断言等",
+        "l3Description": "日/周/月总结",
+        "l4Description": "技能、流程、模板等",
+        "tableSubtitle": "{{description}}（共 {{count}} 条）",
+        "searchHint": "点击记录查看详情和影响",
+        "empty": "这一层暂时没有可展示的记录。",
+        "openRecord": "打开记录 {{id}}"
+      },
+      "fallbacks": {
+        "untitledSession": "未命名会话"
+      },
+      "recordTypes": {
+        "session": "会话",
+        "entity": "实体",
+        "assertion": "断言",
+        "relation": "关系",
+        "snapshot": "快照"
+      },
+      "sources": {
+        "workspace": "工作区",
+        "chat": "对话",
+        "unknown": "未知来源",
+        "procedure": "程序记忆"
+      },
+      "statuses": {
+        "deleted": "已删除",
+        "valid": "有效",
+        "healthy": "健康",
+        "stable": "稳定",
+        "pendingCount": "待确认 {{count}}",
+        "breakers": "熔断 {{count}}",
+        "generated": "已生成",
+        "enabled": "已启用"
+      },
+      "fields": {
+        "session": "会话",
+        "turn": "回合",
+        "aliases": "别名",
+        "type": "类型",
+        "source": "来源",
+        "updatedAt": "更新时间",
+        "status": "状态",
+        "evidenceCount": "证据数"
+      },
+      "impact": {
+        "goals": "目标",
+        "entities": "实体",
+        "tactics": "策略",
+        "importance": "重要度",
+        "cognition": "进入认知",
+        "relations": "关系",
+        "assertions": "断言",
+        "snapshots": "快照",
+        "confidence": "可信度",
+        "volatility": "波动",
+        "observations": "观察",
+        "events": "事件",
+        "topics": "主题",
+        "engagement": "参与度",
+        "stress": "压力",
+        "proficiency": "熟练度",
+        "successRate": "成功率"
+      },
+      "yes": "是",
+      "no": "否",
+      "skillSummary": "成功 {{success}} / 失败 {{failure}}",
+      "tasks": {
+        "title": "记忆维护任务",
+        "subtitle": "这里只聚合记忆相关任务；完整编辑仍在调度配置里。",
+        "openSchedules": "打开调度配置",
+        "l1": "压缩可清理事件、清除过期负载",
+        "l2Derive": "处理结构知识派生任务",
+        "l2Consolidate": "升级章节、经历和缺失总结",
+        "l3": "生成时段总结并清理过期内容",
+        "l4": "维护工具记忆和熔断状态"
+      },
       "sections": {
         "forget": "遗忘",
         "privacy": "隐私范围",
@@ -2912,8 +3008,48 @@
       "reconsolidateTitle": "整理章节",
       "reconsolidateBody": "让 Magi 把最近形成的活动片段升级成章节，并给它们起标题。",
       "reconsolidateRun": "立即整理",
+      "reconsolidateRunSpecific": "立即整理章节",
       "reconsolidateBusy": "整理中...",
-      "reconsolidateResult": "升级 {{promoted}} 条 · 标志 {{standouts}} 条 · 新章节 {{summaries}} 条"
+      "reconsolidateResult": "升级 {{promoted}} 条 · 标志 {{standouts}} 条 · 新章节 {{summaries}} 条",
+      "manual": {
+        "flushTitle": "处理 L2 积压",
+        "flushBody": "立即提交当前暂存的 L2 微批次，适合调试抽取延迟。",
+        "flushRun": "立即处理"
+      },
+      "forgetDrawerHint": "遗忘和删除从具体记录发起：先在「分层明细」里打开一条记录，再在抽屉中查看影响。",
+      "forgetBySource": "按来源/事件清理",
+      "forgetBySourceBody": "进入 L1 原始事件后按来源、时间和内容筛选。",
+      "forgetByEntity": "按实体处理",
+      "forgetByEntityBody": "进入 L2 结构知识后查看实体、断言和关系。",
+      "forgetByEpisode": "按经历处理",
+      "forgetByEpisodeBody": "进入经历详情后处理章节边界和可见性。",
+      "diagnostics": {
+        "title": "维护诊断",
+        "subtitle": "把需要运维注意的记忆问题集中在这里。",
+        "pendingAssertions": "L2 仍有待确认断言",
+        "pendingAssertionsDetail": "{{count}} 条判断还没有用户确认或拒绝。",
+        "openBreakers": "L4 存在打开的熔断器",
+        "openBreakersDetail": "{{count}} 个工具记忆暂时不可用。",
+        "skippedExtraction": "L2 抽取跳过记录",
+        "skippedExtractionDetail": "{{count}} 条事件被规则跳过。"
+      },
+      "drawer": {
+        "title": "记录详情",
+        "empty": "选择一条记录查看详情。",
+        "noSummary": "暂无摘要。",
+        "metadata": "元数据",
+        "related": "来源证据",
+        "noRelated": "没有可直接展示的证据引用。",
+        "impact": "下游影响",
+        "noImpact": "暂无可计算的下游影响。",
+        "safeActions": "安全操作",
+        "actions": {
+          "reprocess": "重新处理",
+          "invalidate": "标记无效",
+          "delete": "删除",
+          "cascadeForget": "连带遗忘（包含下游）"
+        }
+      }
     },
     "pages": {
       "workbench": {
