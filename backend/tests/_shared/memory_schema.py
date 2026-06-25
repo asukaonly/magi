@@ -38,6 +38,7 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "0015_l2_experiences.py",
     "0016_l2_experience_seeds.py",
     "0017_l2_experience_cover_asset.py",
+    "0018_user_portrait_projection.py",
 )
 
 

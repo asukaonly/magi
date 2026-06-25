@@ -342,6 +342,7 @@ Important behavioral rules:
 - runtime telemetry should not be treated as equivalent to user-authored memory
 - user-visible chat transcript is not owned by `L1`; it is owned by the dedicated chat domain store
 - expert memory controls belong in Settings and operator tooling, not first-run onboarding
+- personal profile settings are user-confirmed facts; memory-derived values may be shown as suggestions, but accepting and saving them is the action that turns them into authoritative profile settings
 
 Current storage implementation notes:
 

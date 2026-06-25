@@ -7,8 +7,6 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
-import aiosqlite
-
 from ...core.logger import get_logger
 from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
@@ -153,6 +151,8 @@ class L2CognitionStore(
                 DELETE FROM entity_facets;
                 DELETE FROM tom_trait_assertions;
                 DELETE FROM tom_snapshots;
+                DELETE FROM user_profile_projection;
+                DELETE FROM user_portrait_projection;
                 DELETE FROM experience_seed_evidence;
                 DELETE FROM experience_seeds;
                 DELETE FROM experience_key_events;

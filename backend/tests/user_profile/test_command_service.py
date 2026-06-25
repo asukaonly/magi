@@ -4,6 +4,8 @@ from pathlib import Path
 
 from magi.user_profile.command_service import UserProfileCommandService
 from magi.user_profile.models import ProfileUpdatePatch
+from magi.user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
+from magi.user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from magi.user_profile.projection_builder import UserProfileProjectionBuilder
 from magi.user_profile.projection_repository import UserProfileProjectionRepository
 from magi.user_profile.query_service import UserProfileQueryService
@@ -45,6 +47,7 @@ class _FakeUnifiedMemory:
 async def test_command_service_writes_profile_assertions_and_refreshes_projection(tmp_path: Path):
     unified_memory = _FakeUnifiedMemory()
     repository = UserProfileProjectionRepository(str(tmp_path / "memory.db"))
+    portrait_repository = UserPortraitProjectionRepository(str(tmp_path / "memory.db"))
     query_service = UserProfileQueryService(
         repository=repository,
         builder=UserProfileProjectionBuilder(unified_memory.l2),
@@ -52,6 +55,8 @@ async def test_command_service_writes_profile_assertions_and_refreshes_projectio
     command_service = UserProfileCommandService(
         unified_memory=unified_memory,
         query_service=query_service,
+        portrait_repository=portrait_repository,
+        portrait_builder=UserPortraitProjectionBuilder(unified_memory.l2),
     )
 
     projection = await command_service.update_from_settings(
@@ -71,3 +76,9 @@ async def test_command_service_writes_profile_assertions_and_refreshes_projectio
     assert all(feedback == "confirmed" for _, feedback in unified_memory.l2.feedback)
     assert projection.display_name == "子涵"
     assert projection.birth_year == 2000
+
+    portrait = await portrait_repository.get("local_user")
+    assert portrait is not None
+    portrait_text = str(portrait.world) + "\n" + "\n".join(portrait.prompt_summary)
+    assert "明日香" in portrait_text
+    assert "子涵" in portrait_text

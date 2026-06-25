@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from magi.user_profile.models import UserPortraitProjection
+from _shared.memory_schema import apply_memory_shared_schema
+from magi.memory.l2.store import L2CognitionStore
+from magi.user_profile.models import UserPortraitProjection, UserProfileProjection
 from magi.user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from magi.user_profile.portrait_projection_repository import UserPortraitProjectionRepository
+from magi.user_profile.projection_repository import UserProfileProjectionRepository
 
 
 class _FakeL2:
@@ -130,3 +133,28 @@ async def test_portrait_projection_builder_filters_internal_fields_and_separates
         "验证 L2 断言和画像质量",
     ]
     assert "assertion:a-interest-rag" in projection.evidence_refs
+
+
+async def test_l2_clear_removes_profile_and_portrait_projection_caches(tmp_path):
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    profile_repo = UserProfileProjectionRepository(db_path)
+    portrait_repo = UserPortraitProjectionRepository(db_path)
+    await profile_repo.upsert(UserProfileProjection(
+        user_id="local_user",
+        entity_id="user:local_user",
+        display_name="子涵",
+        preferred_form_of_address="子涵",
+    ))
+    await portrait_repo.upsert(UserPortraitProjection(
+        user_id="local_user",
+        entity_id="user:local_user",
+        world={"groups": [{"id": "identity", "items": [{"text": "子涵"}]}]},
+        prompt_summary=["用户希望被称呼为子涵。"],
+    ))
+
+    store = L2CognitionStore(db_path=db_path)
+    await store.clear()
+
+    assert await profile_repo.get("local_user") is None
+    assert await portrait_repo.get("local_user") is None

@@ -6,6 +6,7 @@ import json
 import time
 from typing import Any
 
+from ..core.logger import get_logger
 from ..memory.event_contracts import (
     IngestTarget,
     MemoryDomain,
@@ -18,6 +19,8 @@ from .derivation import derive_birth_year, parse_iso_date
 from .models import DEFAULT_USER_ID, ProfileUpdatePatch, UserProfileProjection
 from .query_service import UserProfileQueryService
 
+logger = get_logger(__name__)
+
 
 class UserProfileCommandService:
     """Persist settings edits as L2 assertions and refresh the projection."""
@@ -27,9 +30,13 @@ class UserProfileCommandService:
         *,
         unified_memory: Any,
         query_service: UserProfileQueryService,
+        portrait_repository: Any = None,
+        portrait_builder: Any = None,
     ):
         self._unified_memory = unified_memory
         self._query_service = query_service
+        self._portrait_repository = portrait_repository
+        self._portrait_builder = portrait_builder
 
     async def update_from_settings(
         self,
@@ -53,7 +60,21 @@ class UserProfileCommandService:
         for candidate in candidates:
             assertion_id = await l2.upsert_assertion_candidate(candidate)
             await l2.apply_user_feedback(assertion_id=assertion_id, feedback="confirmed")
-        return await self._query_service.refresh_profile(user_id)
+        return await self.refresh_from_memory(user_id)
+
+    async def refresh_from_memory(self, user_id: str = DEFAULT_USER_ID) -> UserProfileProjection:
+        profile = await self._query_service.refresh_profile(user_id)
+        await self._refresh_portrait(user_id)
+        return profile
+
+    async def _refresh_portrait(self, user_id: str) -> None:
+        if self._portrait_repository is None or self._portrait_builder is None:
+            return
+        try:
+            portrait = await self._portrait_builder.build(user_id)
+            await self._portrait_repository.upsert(portrait)
+        except Exception as exc:
+            logger.debug("Failed to refresh portrait projection for %s: %s", user_id, exc)
 
     async def _write_profile_update_event(self, *, user_id: str, updates: dict[str, Any]) -> str | None:
         l1 = getattr(self._unified_memory, "l1", None)
