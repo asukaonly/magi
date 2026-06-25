@@ -2,7 +2,62 @@
 
 from __future__ import annotations
 
+import json
+import time
+
 import pytest
+
+
+async def _insert_episodic_summary(
+    store,
+    *,
+    episode_id: str,
+    content: str,
+    period_start: float,
+    period_end: float,
+    key_topics: list[str] | None = None,
+    key_entities: list[dict[str, str]] | None = None,
+) -> None:
+    from magi.core.sqlite import sqlite_connection_async
+
+    now = time.time()
+    async with sqlite_connection_async(store.db_path) as db:
+        await db.execute(
+            """
+            INSERT INTO summaries(
+                summary_id, summary_type, summary_category,
+                period_start, period_end, content,
+                key_topics, key_entities, source_event_ids, source_event_count,
+                generated_by_model, generation_reason, insight_metadata,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"summary-{episode_id}",
+                "thematic",
+                "episodic",
+                period_start,
+                period_end,
+                content,
+                "[]",
+                "[]",
+                "[]",
+                0,
+                "test",
+                "test:episodic",
+                json.dumps(
+                    {
+                        "source_episode_id": episode_id,
+                        "key_topics": key_topics or [],
+                        "key_entities": key_entities or [],
+                    },
+                    ensure_ascii=False,
+                ),
+                now,
+                now,
+            ),
+        )
+        await db.commit()
 
 
 @pytest.mark.asyncio
@@ -239,6 +294,74 @@ async def test_experience_promotion_promotes_project_seed_from_concrete_anchor(
     assert seed is not None
     assert seed["status"] == "promoted"
     assert seed["promoted_experience_id"] == experience["experience_id"]
+
+
+@pytest.mark.asyncio
+async def test_experience_promotion_promotes_repeated_goal_seed_from_l3_summaries(
+    l2_store_with_schema,
+):
+    from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    episodes = [
+        (
+            "ep-japan-route",
+            100.0,
+            500.0,
+            "日本旅行前，把东京到京都的新干线车票和出发节奏定下来。",
+        ),
+        (
+            "ep-japan-hotel",
+            700.0,
+            1100.0,
+            "继续整理日本旅行，比较东京酒店、京都住宿和周边地图。",
+        ),
+        (
+            "ep-japan-map",
+            1300.0,
+            1700.0,
+            "围绕日本旅行查看 Google Maps，把奈良和大阪的路线串起来。",
+        ),
+    ]
+    for index, (episode_id, start, end, summary) in enumerate(episodes):
+        await store.create_episode(
+            episode_id=episode_id,
+            status="active",
+            time_start=start,
+            time_end=end,
+            primary_entity_ids=["user:local_user", "software:chrome"],
+            source_event_count=6,
+        )
+        await store.add_episode_events(
+            episode_id=episode_id,
+            event_ids=[f"japan-{index}-{event}" for event in range(6)],
+        )
+        await _insert_episodic_summary(
+            store,
+            episode_id=episode_id,
+            content=summary,
+            period_start=start,
+            period_end=end,
+            key_topics=["日本旅行"],
+        )
+
+    stats = await promote_experiences_from_episodes(store)
+
+    assert stats.promoted == 1
+    experiences = await store.list_experiences(status="active")
+    assert len(experiences) == 1
+    experience = experiences[0]
+    assert "日本旅行" in experience["title"]
+    assert experience["source_episode_count"] == 3
+    assert experience["source_event_count"] == 18
+    assert "Chrome" not in experience["title"]
+    members = await store.list_experience_members(experience_id=experience["experience_id"])
+    assert [member["member_id"] for member in members] == [
+        "ep-japan-route",
+        "ep-japan-hotel",
+        "ep-japan-map",
+    ]
 
 
 @pytest.mark.asyncio

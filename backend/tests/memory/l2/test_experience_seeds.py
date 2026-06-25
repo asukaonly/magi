@@ -2,7 +2,62 @@
 
 from __future__ import annotations
 
+import json
+import time
+
 import pytest
+
+
+async def _insert_episodic_summary(
+    store,
+    *,
+    episode_id: str,
+    content: str,
+    period_start: float,
+    period_end: float,
+    key_topics: list[str] | None = None,
+    key_entities: list[dict[str, str]] | None = None,
+) -> None:
+    from magi.core.sqlite import sqlite_connection_async
+
+    now = time.time()
+    async with sqlite_connection_async(store.db_path) as db:
+        await db.execute(
+            """
+            INSERT INTO summaries(
+                summary_id, summary_type, summary_category,
+                period_start, period_end, content,
+                key_topics, key_entities, source_event_ids, source_event_count,
+                generated_by_model, generation_reason, insight_metadata,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"summary-{episode_id}",
+                "thematic",
+                "episodic",
+                period_start,
+                period_end,
+                content,
+                "[]",
+                "[]",
+                "[]",
+                0,
+                "test",
+                "test:episodic",
+                json.dumps(
+                    {
+                        "source_episode_id": episode_id,
+                        "key_topics": key_topics or [],
+                        "key_entities": key_entities or [],
+                    },
+                    ensure_ascii=False,
+                ),
+                now,
+                now,
+            ),
+        )
+        await db.commit()
 
 
 @pytest.mark.asyncio
@@ -192,6 +247,111 @@ async def test_does_not_discover_seed_from_only_generic_anchors(l2_store_with_sc
 
     assert stats.created == 0
     assert stats.skipped_generic >= 1
+    assert await store.list_experience_seeds(statuses=["candidate", "accepted"]) == []
+
+
+@pytest.mark.asyncio
+async def test_discovers_repeated_goal_seed_from_l3_episode_summaries(
+    l2_store_with_schema,
+):
+    from magi.memory.l2.experiences.seed_discovery import discover_experience_seeds
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    episodes = [
+        (
+            "ep-japan-route",
+            100.0,
+            500.0,
+            "日本旅行前，把东京到京都的新干线车票和出发节奏定下来。",
+        ),
+        (
+            "ep-japan-hotel",
+            700.0,
+            1100.0,
+            "继续整理日本旅行，比较东京酒店、京都住宿和周边地图。",
+        ),
+        (
+            "ep-japan-map",
+            1300.0,
+            1700.0,
+            "围绕日本旅行查看 Google Maps，把奈良和大阪的路线串起来。",
+        ),
+    ]
+    for episode_id, start, end, summary in episodes:
+        await store.create_episode(
+            episode_id=episode_id,
+            status="active",
+            time_start=start,
+            time_end=end,
+            primary_entity_ids=["user:local_user", "software:chrome"],
+            source_event_count=8,
+        )
+        await _insert_episodic_summary(
+            store,
+            episode_id=episode_id,
+            content=summary,
+            period_start=start,
+            period_end=end,
+            key_topics=["日本旅行"],
+        )
+
+    stats = await discover_experience_seeds(store)
+
+    assert stats.created == 1
+    seeds = await store.list_experience_seeds(status="candidate", seed_type="repeated_goal")
+    assert len(seeds) == 1
+    assert "Chrome" not in seeds[0]["title"]
+    assert seeds[0]["confidence"] >= 0.6
+    evidence = await store.list_experience_seed_evidence(seed_id=seeds[0]["seed_id"])
+    assert [item["ref_id"] for item in evidence] == [
+        "ep-japan-route",
+        "ep-japan-hotel",
+        "ep-japan-map",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_repeated_goal_seed_rejects_source_noise_from_l3_summaries(
+    l2_store_with_schema,
+):
+    from magi.memory.l2.experiences.seed_discovery import discover_experience_seeds
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    summaries = [
+        "Chrome 浏览 Google Search、GitHub 通知和 Gmail 收件箱。",
+        "Chrome 浏览 X 时间线、Reddit 首页和 Google Search。",
+        "Chrome 浏览 YouTube 首页、Gmail 邮件和 GitHub 通知。",
+    ]
+    for index, summary in enumerate(summaries):
+        start = 100.0 + index * 600.0
+        await store.create_episode(
+            episode_id=f"ep-source-noise-{index}",
+            status="active",
+            time_start=start,
+            time_end=start + 300.0,
+            primary_entity_ids=[
+                "user:local_user",
+                "software:chrome",
+                "software:google",
+                "software:github",
+                "software:gmail",
+            ],
+            source_event_count=20,
+        )
+        await _insert_episodic_summary(
+            store,
+            episode_id=f"ep-source-noise-{index}",
+            content=summary,
+            period_start=start,
+            period_end=start + 300.0,
+            key_topics=["Chrome", "Google", "Gmail", "GitHub"],
+        )
+
+    stats = await discover_experience_seeds(store)
+
+    assert stats.created == 0
     assert await store.list_experience_seeds(statuses=["candidate", "accepted"]) == []
 
 

@@ -121,6 +121,18 @@ def _selection_topics(seed: dict[str, Any], selection: Any) -> list[str]:
     return selection.primary_topic_keys or _concrete(seed.get("anchor_topic_keys") or [])
 
 
+def _seed_processing_key(seed: dict[str, Any]) -> tuple[int, int, float, float]:
+    status_rank = 0 if str(seed.get("status") or "") == "accepted" else 1
+    type_rank = {
+        "manual": 0,
+        "project": 1,
+        "repeated_goal": 2,
+    }.get(str(seed.get("seed_type") or ""), 9)
+    confidence_rank = -float(seed.get("confidence") or 0.0)
+    time_rank = float(seed.get("time_start") or 0.0)
+    return status_rank, type_rank, confidence_rank, time_rank
+
+
 async def _promote_seed_selection(
     store: Any,
     *,
@@ -197,6 +209,7 @@ async def promote_experiences_from_episodes(
         )
         discovery_candidates = discovery_stats.candidates
         seeds = await store.list_experience_seeds(statuses=["accepted", "candidate"], limit=500)
+        seeds = sorted(seeds, key=_seed_processing_key)
     existing_sets = await _existing_active_episode_member_sets(store)
 
     processed = 0

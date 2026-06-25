@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import json
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Iterable, Mapping, Sequence
+
+import aiosqlite
+
+from ....core.sqlite import sqlite_connection_async
 
 
 GENERIC_EXPERIENCE_ANCHORS = {
@@ -33,6 +38,61 @@ GENERIC_EXPERIENCE_ANCHORS = {
     "x formerly twitter",
 }
 MACHINE_ID_PATTERN = re.compile(r"^(?:[0-9a-f]{10,}|[0-9A-HJKMNP-TV-Z]{12,})$", re.IGNORECASE)
+TEXT_TOKEN_SPLIT_PATTERN = re.compile(r"[\n,，;；、|]+")
+QUOTE_PATTERN = re.compile(r"[「“\"]([^」”\"]{2,40})[」”\"]")
+MAX_REPEATED_GOAL_WINDOW_SECONDS = 30 * 24 * 60 * 60
+MAX_REPEATED_GOAL_GAP_SECONDS = 7 * 24 * 60 * 60
+MIN_REPEATED_GOAL_EPISODES = 3
+MIN_REPEATED_GOAL_EVENTS = 8
+TEXT_SOURCE_NOISE = {
+    "about",
+    "apple",
+    "browse",
+    "browsing",
+    "browser",
+    "chrome",
+    "com",
+    "edge",
+    "firefox",
+    "gmail",
+    "google",
+    "github",
+    "homepage",
+    "iphone",
+    "local",
+    "login",
+    "mail",
+    "media",
+    "notification",
+    "notifications",
+    "page",
+    "reddit",
+    "safari",
+    "search",
+    "software",
+    "tabs",
+    "timeline",
+    "user",
+    "visited",
+    "youtube",
+    "关于",
+    "使用",
+    "查看",
+    "浏览",
+    "浏览器",
+    "搜索",
+    "访问",
+    "通知",
+    "邮件",
+    "收件箱",
+    "首页",
+    "页面",
+    "时间线",
+    "相关",
+    "登录",
+    "动态",
+    "应用",
+}
 RepeatedGoalSelector = Callable[
     [Sequence[dict[str, Any]]],
     Sequence[Mapping[str, Any]] | Awaitable[Sequence[Mapping[str, Any]]],
@@ -48,6 +108,18 @@ class ExperienceSeedDiscoveryStats:
     skipped_duplicates: int = 0
     skipped_generic: int = 0
     created_seed_ids: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _EpisodeSeedFeatures:
+    """Normalized signal packet used by deterministic repeated-goal discovery."""
+
+    episode: dict[str, Any]
+    text: str
+    entity_ids: list[str]
+    place_ids: list[str]
+    topic_keys: list[str]
+    text_tokens: list[str]
 
 
 def _ordered_unique(values: Iterable[Any]) -> list[str]:
@@ -74,12 +146,18 @@ def _anchor_leaf(value: Any) -> str:
     return text.strip()
 
 
+def _normalized_match_text(value: Any) -> str:
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", str(value or "").casefold())
+
+
 def is_generic_experience_anchor(value: Any) -> bool:
     """Return True when an anchor is too generic to justify an experience."""
     raw = str(value or "").strip()
     leaf = _anchor_leaf(raw)
     canonical_values = {_canonical_anchor(raw), _canonical_anchor(leaf)}
     if not raw or not leaf:
+        return True
+    if _canonical_anchor(raw).startswith("hardware:"):
         return True
     if MACHINE_ID_PATTERN.fullmatch(raw) or MACHINE_ID_PATTERN.fullmatch(leaf):
         return True
@@ -147,6 +225,261 @@ def _project_anchor_items(episode: Mapping[str, Any]) -> list[tuple[str, str]]:
         if lowered.startswith("project:") or "/" in text:
             anchors.append((text, label))
     return anchors
+
+
+def _readable_text_token(token: str) -> str:
+    text = str(token or "").strip()
+    if not text:
+        return ""
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return text
+    return " ".join(part.capitalize() for part in text.replace("_", " ").split())
+
+
+def _is_text_noise(token: str) -> bool:
+    text = str(token or "").strip().casefold()
+    if not text:
+        return True
+    if len(text) > 40:
+        return True
+    if is_generic_experience_anchor(text):
+        return True
+    canonical = _canonical_anchor(text)
+    if canonical in TEXT_SOURCE_NOISE:
+        return True
+    if MACHINE_ID_PATTERN.fullmatch(text):
+        return True
+    return False
+
+
+def _text_tokens(value: str) -> list[str]:
+    """Extract explicit reusable text anchors without free-form n-gram slicing."""
+    tokens: list[str] = []
+    for raw in TEXT_TOKEN_SPLIT_PATTERN.split(value or ""):
+        token = raw.strip(" \t\r\n.。:：()（）[]【】<>《》")
+        if not token or _is_text_noise(token):
+            continue
+        if re.search(r"[\u4e00-\u9fff]", token):
+            if len(_normalized_match_text(token)) < 3:
+                continue
+            tokens.append(token)
+        else:
+            if len(_normalized_match_text(token)) < 4:
+                continue
+            if not re.search(r"[\s./_-]", token):
+                continue
+            tokens.append(token.casefold())
+    return _ordered_unique(tokens)
+
+
+def _source_entity_label_variants(anchor: Any) -> set[str]:
+    text = str(anchor or "").strip()
+    if not text.casefold().startswith(("software:", "hardware:")):
+        return set()
+    leaf = _anchor_leaf(text)
+    variants = {
+        leaf,
+        leaf.replace("-", " "),
+        leaf.replace("_", " "),
+        readable_anchor_label(text),
+    }
+    if "." in leaf:
+        variants.add(leaf.split(".", 1)[0])
+    return {
+        normalized
+        for value in variants
+        if (normalized := _normalized_match_text(value))
+    }
+
+
+def _token_matches_source_entity(
+    token: str,
+    features: Sequence[_EpisodeSeedFeatures],
+) -> bool:
+    normalized_token = _normalized_match_text(token)
+    if not normalized_token:
+        return True
+    matched = 0
+    for feature in features:
+        variants = {
+            variant
+            for entity_id in feature.episode.get("primary_entity_ids") or []
+            for variant in _source_entity_label_variants(entity_id)
+        }
+        if normalized_token in variants:
+            matched += 1
+    return matched > 0
+
+
+def _summary_metadata_terms(raw_metadata: Any, content: str) -> list[str]:
+    try:
+        metadata = json.loads(str(raw_metadata or "{}"))
+    except json.JSONDecodeError:
+        metadata = {}
+    if not isinstance(metadata, Mapping):
+        metadata = {}
+
+    terms: list[str] = []
+    for topic in metadata.get("key_topics") or []:
+        if isinstance(topic, str):
+            terms.append(topic)
+        elif isinstance(topic, Mapping):
+            terms.append(str(topic.get("label") or topic.get("id") or ""))
+    terms.extend(match.strip() for match in QUOTE_PATTERN.findall(content or ""))
+
+    if not terms:
+        label = str(metadata.get("label") or "").strip()
+        if label:
+            terms.append(label)
+    return _ordered_unique(terms)
+
+
+async def _load_episodic_summary_texts(
+    store: Any,
+    episode_ids: list[str],
+) -> dict[str, str]:
+    db_path = str(getattr(store, "db_path", "") or "")
+    if not db_path or not episode_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in episode_ids)
+    try:
+        await store.initialize()
+        async with sqlite_connection_async(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"""
+                SELECT json_extract(insight_metadata, '$.source_episode_id') AS episode_id,
+                       content,
+                       insight_metadata,
+                       updated_at
+                FROM summaries
+                WHERE summary_category = 'episodic'
+                  AND json_extract(insight_metadata, '$.source_episode_id') IN ({placeholders})
+                ORDER BY updated_at DESC
+                """,
+                tuple(episode_ids),
+            ) as cursor:
+                rows = await cursor.fetchall()
+    except Exception:
+        return {}
+
+    summaries: dict[str, str] = {}
+    for row in rows:
+        episode_id = str(row["episode_id"] or "").strip()
+        content = str(row["content"] or "").strip()
+        terms = _summary_metadata_terms(row["insight_metadata"], content)
+        if episode_id and terms and episode_id not in summaries:
+            summaries[episode_id] = "\n".join(terms)
+    return summaries
+
+
+def _episode_seed_text(
+    episode: Mapping[str, Any],
+    summary_texts: Mapping[str, str],
+) -> str:
+    episode_id = str(episode.get("episode_id") or "")
+    parts = [
+        episode.get("user_label"),
+        summary_texts.get(episode_id),
+    ]
+    return "\n".join(str(part).strip() for part in parts if str(part or "").strip())
+
+
+def _episode_features(
+    episodes: Sequence[dict[str, Any]],
+    summary_texts: Mapping[str, str],
+) -> list[_EpisodeSeedFeatures]:
+    features: list[_EpisodeSeedFeatures] = []
+    for episode in episodes:
+        text = _episode_seed_text(episode, summary_texts)
+        features.append(
+            _EpisodeSeedFeatures(
+                episode=episode,
+                text=text,
+                entity_ids=_episode_concrete_entity_ids(episode),
+                place_ids=_episode_concrete_place_ids(episode),
+                topic_keys=_episode_concrete_topic_keys(episode),
+                text_tokens=_text_tokens(text),
+            )
+        )
+    return features
+
+
+def _total_source_events(features: Sequence[_EpisodeSeedFeatures]) -> int:
+    return sum(int(item.episode.get("source_event_count") or 0) for item in features)
+
+
+def _time_bounds(features: Sequence[_EpisodeSeedFeatures]) -> tuple[float, float]:
+    return (
+        min(float(item.episode["time_start"]) for item in features),
+        max(float(item.episode["time_end"]) for item in features),
+    )
+
+
+def _passes_repeated_goal_gate(features: Sequence[_EpisodeSeedFeatures]) -> bool:
+    if len(features) < MIN_REPEATED_GOAL_EPISODES:
+        return False
+    if _total_source_events(features) < MIN_REPEATED_GOAL_EVENTS:
+        return False
+    ordered = sorted(features, key=lambda item: float(item.episode["time_start"]))
+    start, end = _time_bounds(ordered)
+    if end - start > MAX_REPEATED_GOAL_WINDOW_SECONDS:
+        return False
+    for left, right in zip(ordered, ordered[1:]):
+        gap = float(right.episode["time_start"]) - float(left.episode["time_end"])
+        if gap > MAX_REPEATED_GOAL_GAP_SECONDS:
+            return False
+    return True
+
+
+def _repeated_goal_confidence(
+    features: Sequence[_EpisodeSeedFeatures],
+    *,
+    token: str = "",
+) -> float:
+    base = 0.56 + 0.06 * min(len(features), 4)
+    event_bonus = min(0.08, _total_source_events(features) / 200.0)
+    token_bonus = min(0.06, len(token) / 100.0)
+    return min(0.88, base + event_bonus + token_bonus)
+
+
+def _candidate_episode_ids(features: Sequence[_EpisodeSeedFeatures]) -> list[str]:
+    return [
+        str(item.episode["episode_id"])
+        for item in sorted(features, key=lambda feature: float(feature.episode["time_start"]))
+    ]
+
+
+async def _create_repeated_seed_from_features(
+    store: Any,
+    *,
+    seed_id: str,
+    title: str,
+    description: str,
+    features: Sequence[_EpisodeSeedFeatures],
+    anchor_entity_ids: list[str] | None = None,
+    anchor_place_ids: list[str] | None = None,
+    anchor_topic_keys: list[str] | None = None,
+    confidence: float,
+) -> tuple[bool, str]:
+    start, end = _time_bounds(features)
+    return await _create_seed_if_missing(
+        store,
+        seed_id=seed_id,
+        seed_type="repeated_goal",
+        status="candidate",
+        title=title,
+        description=description,
+        anchor_entity_ids=anchor_entity_ids or [],
+        anchor_place_ids=anchor_place_ids or [],
+        anchor_topic_keys=anchor_topic_keys or [],
+        time_start=start,
+        time_end=end,
+        confidence=confidence,
+        source_ref_type="episode_group",
+        source_ref_id=",".join(_candidate_episode_ids(features)),
+        evidence_episode_ids=_candidate_episode_ids(features),
+    )
 
 
 async def _create_seed_if_missing(
@@ -299,6 +632,184 @@ async def _discover_project_seeds(
     )
 
 
+async def _discover_anchor_repeated_goal_seeds(
+    store: Any,
+    features: Sequence[_EpisodeSeedFeatures],
+) -> ExperienceSeedDiscoveryStats:
+    grouped_by_anchor: dict[tuple[str, str], list[_EpisodeSeedFeatures]] = defaultdict(list)
+    labels: dict[tuple[str, str], str] = {}
+    for feature in features:
+        for kind, anchors in (
+            ("place", feature.place_ids),
+            ("topic", feature.topic_keys),
+        ):
+            for anchor in anchors:
+                lowered = anchor.casefold()
+                if lowered.startswith("project:") or "/" in anchor:
+                    continue
+                label = readable_anchor_label(anchor)
+                if not label:
+                    continue
+                key = (kind, anchor)
+                grouped_by_anchor[key].append(feature)
+                labels[key] = label
+
+    candidates = 0
+    created = 0
+    skipped_duplicates = 0
+    created_seed_ids: list[str] = []
+    for (kind, anchor), grouped in sorted(grouped_by_anchor.items()):
+        unique_by_id = {
+            str(feature.episode["episode_id"]): feature
+            for feature in grouped
+        }
+        ordered = sorted(unique_by_id.values(), key=lambda item: float(item.episode["time_start"]))
+        if any(_project_anchor_items(feature.episode) for feature in ordered):
+            continue
+        if not _passes_repeated_goal_gate(ordered):
+            continue
+        candidates += 1
+        label = labels[(kind, anchor)]
+        seed_id = _seed_id("repeated", f"{kind}:{anchor}")
+        anchor_entity_ids = [anchor] if kind == "entity" else []
+        anchor_place_ids = [anchor] if kind == "place" else []
+        anchor_topic_keys = [anchor] if kind == "topic" else []
+        was_created, _ = await _create_repeated_seed_from_features(
+            store,
+            seed_id=seed_id,
+            title=label,
+            description=f"这些片段在一段连续时间里反复围绕「{label}」展开。",
+            features=ordered,
+            anchor_entity_ids=anchor_entity_ids,
+            anchor_place_ids=anchor_place_ids,
+            anchor_topic_keys=anchor_topic_keys,
+            confidence=_repeated_goal_confidence(ordered),
+        )
+        if was_created:
+            created += 1
+            created_seed_ids.append(seed_id)
+        else:
+            skipped_duplicates += 1
+
+    return ExperienceSeedDiscoveryStats(
+        candidates=candidates,
+        created=created,
+        skipped_duplicates=skipped_duplicates,
+        created_seed_ids=created_seed_ids,
+    )
+
+
+def _contiguous_feature_runs(
+    features: Sequence[_EpisodeSeedFeatures],
+) -> list[list[_EpisodeSeedFeatures]]:
+    ordered = sorted(features, key=lambda item: float(item.episode["time_start"]))
+    runs: list[list[_EpisodeSeedFeatures]] = []
+    current: list[_EpisodeSeedFeatures] = []
+    for feature in ordered:
+        if not current:
+            current = [feature]
+            continue
+        gap = float(feature.episode["time_start"]) - float(current[-1].episode["time_end"])
+        if gap > MAX_REPEATED_GOAL_GAP_SECONDS:
+            runs.append(current)
+            current = [feature]
+        else:
+            current.append(feature)
+    if current:
+        runs.append(current)
+    return runs
+
+
+def _overlaps_selected_episode_set(
+    episode_ids: tuple[str, ...],
+    selected_sets: Sequence[set[str]],
+) -> bool:
+    current = set(episode_ids)
+    for selected in selected_sets:
+        overlap = len(current & selected)
+        if overlap and overlap / min(len(current), len(selected)) >= 0.66:
+            return True
+    return False
+
+
+async def _discover_text_repeated_goal_seeds(
+    store: Any,
+    features: Sequence[_EpisodeSeedFeatures],
+) -> ExperienceSeedDiscoveryStats:
+    token_groups: dict[str, list[_EpisodeSeedFeatures]] = defaultdict(list)
+    for feature in features:
+        for token in feature.text_tokens:
+            token_groups[token].append(feature)
+
+    best_by_episode_set: dict[tuple[str, ...], tuple[str, list[_EpisodeSeedFeatures], float]] = {}
+    for token, grouped in token_groups.items():
+        unique_by_id = {
+            str(feature.episode["episode_id"]): feature
+            for feature in grouped
+        }
+        for run in _contiguous_feature_runs(list(unique_by_id.values())):
+            if any(_project_anchor_items(feature.episode) for feature in run):
+                continue
+            if _token_matches_source_entity(token, run):
+                continue
+            if not _passes_repeated_goal_gate(run):
+                continue
+            episode_ids = tuple(_candidate_episode_ids(run))
+            score = len(token) * len(run)
+            previous = best_by_episode_set.get(episode_ids)
+            if previous is None or score > previous[2]:
+                best_by_episode_set[episode_ids] = (token, run, float(score))
+
+    selected_sets: list[set[str]] = []
+    selected_candidates: list[
+        tuple[tuple[str, ...], tuple[str, list[_EpisodeSeedFeatures], float]]
+    ] = []
+    for item in sorted(
+        best_by_episode_set.items(),
+        key=lambda item: (-len(item[0]), -item[1][2], float(item[1][1][0].episode["time_start"])),
+    ):
+        episode_ids, candidate = item
+        if _overlaps_selected_episode_set(episode_ids, selected_sets):
+            continue
+        selected_sets.append(set(episode_ids))
+        selected_candidates.append(item)
+
+    candidates = 0
+    created = 0
+    skipped_duplicates = 0
+    created_seed_ids: list[str] = []
+    for episode_ids, (token, grouped, _) in sorted(
+        selected_candidates,
+        key=lambda item: (float(item[1][1][0].episode["time_start"]), item[0]),
+    ):
+        candidates += 1
+        title = _readable_text_token(token)
+        if not title:
+            continue
+        seed_id = _seed_id("repeated", f"text:{token}:{'|'.join(episode_ids)}")
+        was_created, _ = await _create_repeated_seed_from_features(
+            store,
+            seed_id=seed_id,
+            title=title,
+            description=f"这些片段在一段连续时间里反复围绕「{title}」展开。",
+            features=grouped,
+            anchor_topic_keys=[token],
+            confidence=_repeated_goal_confidence(grouped, token=token),
+        )
+        if was_created:
+            created += 1
+            created_seed_ids.append(seed_id)
+        else:
+            skipped_duplicates += 1
+
+    return ExperienceSeedDiscoveryStats(
+        candidates=candidates,
+        created=created,
+        skipped_duplicates=skipped_duplicates,
+        created_seed_ids=created_seed_ids,
+    )
+
+
 async def _selector_proposals(
     selector: RepeatedGoalSelector | None,
     episodes: Sequence[dict[str, Any]],
@@ -416,13 +927,20 @@ async def discover_experience_seeds(
     if not episodes:
         return ExperienceSeedDiscoveryStats()
     sorted_episodes = sorted(episodes, key=lambda item: float(item["time_start"]))
+    summary_texts = await _load_episodic_summary_texts(
+        store,
+        [str(episode["episode_id"]) for episode in sorted_episodes],
+    )
+    features = _episode_features(sorted_episodes, summary_texts)
     project_stats = await _discover_project_seeds(store, sorted_episodes)
+    anchor_stats = await _discover_anchor_repeated_goal_seeds(store, features)
+    text_stats = await _discover_text_repeated_goal_seeds(store, features)
     repeated_stats = await _discover_repeated_goal_seeds(
         store,
         sorted_episodes,
         repeated_goal_selector,
     )
-    return _merge_stats(project_stats, repeated_stats)
+    return _merge_stats(project_stats, anchor_stats, text_stats, repeated_stats)
 
 
 __all__ = [

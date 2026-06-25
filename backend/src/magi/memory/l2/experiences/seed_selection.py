@@ -157,12 +157,24 @@ def _default_selection(seed: dict[str, Any], evidence_pack: dict[str, Any]) -> E
             reason="Seed has no concrete anchors.",
         )
 
+    seed_type = str(seed.get("seed_type") or "")
     trigger_ids = set(evidence_pack.get("trigger_episode_ids") or [])
+    evidence_episode_ids = {
+        str(item.get("ref_id") or "")
+        for item in (evidence_pack.get("seed_evidence") or [])
+        if isinstance(item, Mapping)
+        and str(item.get("ref_type") or "") == "episode"
+        and str(item.get("role") or "") in {"trigger", "support"}
+    }
     candidate_episodes = list(evidence_pack.get("candidate_episodes") or [])
     included = [
         episode
         for episode in candidate_episodes
         if str(episode["episode_id"]) in trigger_ids
+        or (
+            seed_type == "repeated_goal"
+            and str(episode["episode_id"]) in evidence_episode_ids
+        )
         or _episode_shares_seed_anchor(
             episode,
             seed_entities=seed_entities,
