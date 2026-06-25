@@ -201,7 +201,9 @@ def test_evidence_insight_uses_source_event_ids(app_factory):
         {"event_id": "evt-a", "timestamp": 100.0, "source": "chat", "event_type": "user_message", "memory_domain": "user_authored", "content": "I slept badly"},
         {"event_id": "evt-b", "timestamp": 150.0, "source": "chat", "event_type": "user_message", "memory_domain": "user_authored", "content": "mosquito kept biting"},
     ])
-    unified = MagicMock(); unified.l3 = l3; unified.l1 = l1
+    unified = MagicMock()
+    unified.l3 = l3
+    unified.l1 = l1
     with override_unified_memory_for_test(unified):
         client = TestClient(app_factory())
         resp = client.get("/api/memory/stories/ins-1/evidence")
@@ -229,7 +231,9 @@ def test_evidence_temporal_uses_time_window(app_factory):
     l1.query_events = AsyncMock(return_value=[
         {"event_id": "e1", "timestamp": 1700010000.0, "source": "chrome_history", "event_type": "SENSOR_EVENT", "memory_domain": "external_activity", "content": "visited example.com"},
     ])
-    unified = MagicMock(); unified.l3 = l3; unified.l1 = l1
+    unified = MagicMock()
+    unified.l3 = l3
+    unified.l1 = l1
     with override_unified_memory_for_test(unified):
         client = TestClient(app_factory())
         resp = client.get("/api/memory/stories/day-1/evidence")
@@ -248,8 +252,10 @@ def test_evidence_temporal_uses_time_window(app_factory):
 
 
 def test_evidence_404_for_missing_summary(app_factory):
-    l3 = MagicMock(); l3.get_summary_by_id = AsyncMock(return_value=None)
-    unified = MagicMock(); unified.l3 = l3
+    l3 = MagicMock()
+    l3.get_summary_by_id = AsyncMock(return_value=None)
+    unified = MagicMock()
+    unified.l3 = l3
     with override_unified_memory_for_test(unified):
         client = TestClient(app_factory())
         resp = client.get("/api/memory/stories/nope/evidence")
@@ -502,3 +508,38 @@ def test_legible_filter_does_not_touch_temporal_summaries(app_factory):
         resp = client.get("/api/memory/stories", params={"limit": 20})
     body = resp.json()
     assert [item["summary_id"] for item in body["items"]] == ["day1"]
+
+
+def test_story_feed_hides_rule_fallback_temporal_summaries(app_factory):
+    temporal = [
+        {
+            "summary_id": "rule-day",
+            "summary_type": "temporal",
+            "summary_category": "day",
+            "content": "这一天的记忆主要围绕浏览记录展开。",
+            "period_end": 200.0,
+            "updated_at": 200.0,
+            "review_state": "neutral",
+            "source_event_count": 120,
+            "generated_by_model": "rule-summary",
+        },
+        {
+            "summary_id": "llm-day",
+            "summary_type": "temporal",
+            "summary_category": "day",
+            "content": "这一天主要在调整 Magi 的总结生成，让正文先稳定可读。",
+            "period_end": 100.0,
+            "updated_at": 100.0,
+            "review_state": "neutral",
+            "source_event_count": 12,
+            "generated_by_model": "temporal-llm",
+        },
+    ]
+    unified = _stub_memory(insights=[], temporal=temporal)
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get("/api/memory/stories", params={"limit": 20})
+    body = resp.json()
+    ids = [item["summary_id"] for item in body["items"]]
+    assert "llm-day" in ids
+    assert "rule-day" not in ids

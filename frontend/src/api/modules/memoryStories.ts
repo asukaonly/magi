@@ -22,6 +22,8 @@ export interface StoryItem {
   insight_key: string | null;
   insight_metadata: Record<string, unknown>;
   evidence_event_count: number;
+  generated_by_model?: string | null;
+  narrative_style?: string | null;
 }
 
 export interface StoryFeedPayload {

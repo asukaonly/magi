@@ -232,7 +232,7 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         *,
         fallback_summary: str,
     ) -> TemporalGenerationResult:
-        """Try the model path and fall back to a rule summary on failure."""
+        """Generate user-facing prose first, then best-effort structured fields."""
         fallback = self._build_fallback_result(pack, fallback_summary)
         if not self._enabled:
             return fallback
@@ -241,8 +241,8 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         timeout_seconds = self._timeout_seconds_for_pack(pack)
         disable_thinking = self._disable_thinking_for_pack(pack)
         try:
-            payload = await asyncio.wait_for(
-                self._call_temporal_model(
+            prose_content = await asyncio.wait_for(
+                self._call_temporal_prose_model(
                     pack,
                     timeout_seconds=timeout_seconds,
                     disable_thinking=disable_thinking,
@@ -262,17 +262,196 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
             return fallback
         except Exception:
             return fallback
-        if not isinstance(payload, dict):
+        prose_content = str(prose_content or "").strip()
+        if not prose_content:
             return fallback
         try:
-            candidate, summary_overrides = self.parse_llm_output(payload, pack=pack)
+            self._validate_temporal_prose(prose_content)
         except Exception:
             return fallback
+
+        candidate = L3Candidate(
+            summary_type="temporal",
+            summary_category=pack.summary_category,
+            content=prose_content,
+            source_event_ids=list(pack.source_event_ids),
+        )
+        summary_overrides: dict[str, object] = {
+            "key_topics": [],
+            "key_entities": [],
+            "sentiment_summary": None,
+            "change_and_pattern": None,
+        }
+        try:
+            payload = await asyncio.wait_for(
+                self._call_temporal_structure_model(
+                    pack,
+                    prose_content=prose_content,
+                    timeout_seconds=timeout_seconds,
+                    disable_thinking=disable_thinking,
+                ),
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "L3 temporal structure LLM call timed out",
+                extra={
+                    "summary_category": pack.summary_category,
+                    "event_count": pack.source_event_count,
+                    "timeout_seconds": timeout_seconds,
+                    "thinking_enabled": not disable_thinking,
+                },
+            )
+            payload = None
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            try:
+                summary_overrides.update(
+                    self.parse_structure_output(payload, pack=pack, content=prose_content)
+                )
+            except Exception as exc:
+                logger.warning(
+                    "L3 temporal structure output rejected",
+                    extra={
+                        "summary_category": pack.summary_category,
+                        "event_count": pack.source_event_count,
+                        "error": str(exc),
+                    },
+                )
         return TemporalGenerationResult(
             candidate=candidate,
             summary_overrides=summary_overrides,
             used_fallback=False,
         )
+
+    async def _call_temporal_prose_model(
+        self,
+        pack: TemporalEvidencePack,
+        *,
+        timeout_seconds: float | None = None,
+        disable_thinking: bool | None = None,
+    ) -> str | None:
+        """Call the configured LLM for user-facing temporal summary prose."""
+        llm_target = self._get_llm_target()
+        if llm_target is None:
+            return None
+        adapter, provider_bridge = llm_target
+        prompt = self._render_temporal_prose_prompt(pack)
+        system_prompt = _render_temporal_summary_system_prompt()
+        resolved_timeout_seconds = timeout_seconds or self._timeout_seconds_for_pack(pack)
+        resolved_disable_thinking = (
+            disable_thinking if disable_thinking is not None else self._disable_thinking_for_pack(pack)
+        )
+        started_at = time.perf_counter()
+        provider = str(getattr(adapter, "provider_name", "unknown") or "unknown")
+        model = str(getattr(adapter, "model_name", "unknown") or "unknown")
+        log_context = {
+            "request_kind": "memory:l3_temporal_summary_prose",
+            "provider": provider,
+            "model": model,
+            "event_count": pack.source_event_count,
+            "summary_category": pack.summary_category,
+            "timeout_seconds": resolved_timeout_seconds,
+            "thinking_enabled": not resolved_disable_thinking,
+        }
+        logger.info("L3 temporal prose LLM call started", extra=log_context)
+        try:
+            response = await provider_bridge.chat_response(
+                system_prompt=system_prompt,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                json_mode=False,
+                disable_thinking=resolved_disable_thinking,
+                cache_system=True,
+                timeout_seconds=resolved_timeout_seconds,
+                event_context={
+                    "request_kind": "memory:l3_temporal_summary_prose",
+                    "turn_id": pack.source_event_ids[0] if pack.source_event_ids else None,
+                    "agent_id": "memory:l3",
+                },
+            )
+        except Exception as exc:
+            logger.warning("L3 temporal prose LLM call failed", extra={**log_context, "error": str(exc)})
+            raise
+
+        raw = str(response.content or "").strip()
+        logger.info(
+            "L3 temporal prose LLM call completed",
+            extra={
+                **log_context,
+                "duration_ms": round((time.perf_counter() - started_at) * 1000.0, 2),
+                "response_char_count": len(raw),
+            },
+        )
+        return raw or None
+
+    async def _call_temporal_structure_model(
+        self,
+        pack: TemporalEvidencePack,
+        *,
+        prose_content: str,
+        timeout_seconds: float | None = None,
+        disable_thinking: bool | None = None,
+    ) -> dict[str, Any] | None:
+        """Call the configured LLM for optional temporal summary structure."""
+        llm_target = self._get_llm_target()
+        if llm_target is None:
+            return None
+        adapter, provider_bridge = llm_target
+        prompt = self._render_temporal_structure_prompt(pack, prose_content=prose_content)
+        system_prompt = _render_temporal_summary_system_prompt()
+        resolved_timeout_seconds = timeout_seconds or self._timeout_seconds_for_pack(pack)
+        resolved_disable_thinking = (
+            disable_thinking if disable_thinking is not None else self._disable_thinking_for_pack(pack)
+        )
+        started_at = time.perf_counter()
+        provider = str(getattr(adapter, "provider_name", "unknown") or "unknown")
+        model = str(getattr(adapter, "model_name", "unknown") or "unknown")
+        log_context = {
+            "request_kind": "memory:l3_temporal_summary_structure",
+            "provider": provider,
+            "model": model,
+            "event_count": pack.source_event_count,
+            "summary_category": pack.summary_category,
+            "timeout_seconds": resolved_timeout_seconds,
+            "thinking_enabled": not resolved_disable_thinking,
+        }
+        logger.info("L3 temporal structure LLM call started", extra=log_context)
+        try:
+            response = await provider_bridge.chat_response(
+                system_prompt=system_prompt,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                json_mode=True,
+                disable_thinking=resolved_disable_thinking,
+                cache_system=True,
+                timeout_seconds=resolved_timeout_seconds,
+                event_context={
+                    "request_kind": "memory:l3_temporal_summary_structure",
+                    "turn_id": pack.source_event_ids[0] if pack.source_event_ids else None,
+                    "agent_id": "memory:l3",
+                },
+            )
+        except Exception as exc:
+            logger.warning("L3 temporal structure LLM call failed", extra={**log_context, "error": str(exc)})
+            raise
+
+        raw = str(response.content or "").strip()
+        logger.info(
+            "L3 temporal structure LLM call completed",
+            extra={
+                **log_context,
+                "duration_ms": round((time.perf_counter() - started_at) * 1000.0, 2),
+                "response_char_count": len(raw),
+            },
+        )
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            logger.warning("L3 temporal structure LLM returned invalid JSON", extra=log_context)
+            return None
+        return parsed if isinstance(parsed, dict) else None
 
     async def _call_temporal_model(
         self,
@@ -474,13 +653,17 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
                     strings.append(value)
         return [item.strip() for item in strings if item.strip()]
 
+    def _validate_temporal_prose(self, content: str) -> None:
+        if _target_language_code() == "zh" and self._looks_like_non_zh_user_text(content):
+            raise ValueError("Temporal LLM prose does not match target language zh-CN")
+
     def _looks_like_non_zh_user_text(self, text: str) -> bool:
         if _CJK_PATTERN.search(text):
             return False
         return bool(_LATIN_WORD_PATTERN.search(text))
 
-    def _render_temporal_summary_prompt(self, pack: TemporalEvidencePack) -> str:
-        payload = {
+    def _temporal_prompt_payload(self, pack: TemporalEvidencePack) -> dict[str, object]:
+        return {
             "summary_type": "temporal",
             "summary_category": pack.summary_category,
             "period_start": pack.period_start,
@@ -509,13 +692,15 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
                 for item in pack.events
             ],
         }
-        schema = json.dumps(TEMPORAL_SUMMARY_OUTPUT_SCHEMA, ensure_ascii=False, indent=2)
+
+    def _render_temporal_context_prompt(self, pack: TemporalEvidencePack) -> str:
+        payload = self._temporal_prompt_payload(pack)
         evidence = json.dumps(payload, ensure_ascii=False, indent=2)
         period_focus = self._period_focus_instruction(pack)
         period_structure = self._period_structure_instruction(pack)
         return (
-            "Task:\n"
-            "Write a temporal summary for the provided memory window.\n"
+            "Shared Context:\n"
+            "You are working on one temporal memory summary for the provided memory window.\n"
             "Use the rule_hints as guidance, not as independent evidence.\n"
             "When plugin_summary_features are present, use them to surface source-specific behavior patterns such as concentration, revisits, and session structure.\n"
             "Use source_distribution, window_event_count, and omitted_event_count to understand coverage and avoid treating representative events as exhaustive.\n"
@@ -528,6 +713,50 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
             f"{period_focus}\n\n"
             "Structure Contract:\n"
             f"{period_structure}\n\n"
+            "Language Rules:\n"
+            f"{_target_language_instruction()}\n\n"
+            "Evidence Pack:\n"
+            f"{evidence}\n"
+        )
+
+    def _render_temporal_prose_prompt(self, pack: TemporalEvidencePack) -> str:
+        return (
+            self._render_temporal_context_prompt(pack)
+            + "\nGeneration Task / 生成用户可读正文:\n"
+            "- Write only the user-facing summary body.\n"
+            "- Do not return JSON.\n"
+            "- Keep the tone concrete, neutral, and compact; avoid literary prose.\n"
+            "- Use Markdown only when section headings or bullets help clarity.\n"
+            "- Preserve concrete names that improve future recall, but do not dump raw event lists.\n"
+        )
+
+    def _render_temporal_structure_prompt(
+        self,
+        pack: TemporalEvidencePack,
+        *,
+        prose_content: str,
+    ) -> str:
+        schema = json.dumps(TEMPORAL_SUMMARY_OUTPUT_SCHEMA, ensure_ascii=False, indent=2)
+        return (
+            self._render_temporal_context_prompt(pack)
+            + "\nAccepted User-Facing Summary:\n"
+            f"{prose_content.strip()}\n\n"
+            "Extraction Task / 提取结构化字段:\n"
+            "- Extract optional structured fields from the same evidence and accepted summary.\n"
+            "- Do not rewrite the accepted summary.\n"
+            "- Return one JSON object only.\n"
+            "- `content` is optional here; when present it must exactly match the accepted summary.\n"
+            "- Use empty lists or nulls when a field has no support; never fabricate metrics.\n\n"
+            "Output JSON Schema:\n"
+            f"{schema}\n"
+        )
+
+    def _render_temporal_summary_prompt(self, pack: TemporalEvidencePack) -> str:
+        schema = json.dumps(TEMPORAL_SUMMARY_OUTPUT_SCHEMA, ensure_ascii=False, indent=2)
+        return (
+            "Task:\n"
+            "Write a temporal summary for the provided memory window.\n"
+            f"{self._render_temporal_context_prompt(pack)}\n"
             "Output Requirements:\n"
             "- Return one JSON object only.\n"
             "- The `content` field MUST be Markdown using `##` section headings (no top-level `#`). Section bodies should be tight bullet lists or short paragraphs; omit a section entirely when no evidence supports it.\n"
@@ -537,9 +766,7 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
             f"{_target_language_instruction()}\n"
             "- Use empty lists or nulls when a field has no support; never fabricate metrics.\n\n"
             "Output JSON Schema:\n"
-            f"{schema}\n\n"
-            "Evidence Pack:\n"
-            f"{evidence}\n"
+            f"{schema}\n"
         )
 
     def _period_focus_instruction(self, pack: TemporalEvidencePack) -> str:

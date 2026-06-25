@@ -737,6 +737,8 @@ There is no separate digest layer or digest-specific scheduler. A digest-style v
 
 L3 summary LLM calls use the optional `memory_summarizer` runtime scenario. This scenario is intentionally not a required normal-settings choice: when it is absent, the scenario pool falls back to `core`, so users are not forced to understand or configure a separate summary model. Operators may still define `memory_summarizer` explicitly in configuration when summary generation should use a different model profile.
 
+Temporal LLM generation is split into two calls over the same stable evidence-prefix prompt. The first call produces only the user-facing summary body and is the required product output. The second call reuses the same evidence prefix plus the accepted body to extract optional structured fields such as topics, entities, sentiment, and change/pattern metadata. If the structured extraction fails, the accepted body still writes as a `temporal-llm` summary with empty structured fields. Rule-backed summaries remain an internal fallback and retry/debug lower bound; they should not be treated as normal Summary-page content unless a UI-specific quality gate explicitly allows them.
+
 Generation starts from `L1` facts that are eligible for cognition and excludes runtime telemetry and disposable events. The store does not load every matching event into the prompt. Instead, [evidence_selector.py](../backend/src/magi/memory/l3/evidence_selector.py) performs source-aware compaction:
 
 1. Query lightweight per-source counts for the requested time window.

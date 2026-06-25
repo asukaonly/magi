@@ -540,15 +540,19 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
     await l1_store.store(chat_event)
     await l1_store.store(ai_event)
 
-    async def _fake_model(_pack, **_kwargs):  # type: ignore[no-untyped-def]
+    async def _fake_prose_model(_pack, **_kwargs):  # type: ignore[no-untyped-def]
+        return "LLM rewritten temporal summary"
+
+    async def _fake_structure_model(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
+        assert prose_content == "LLM rewritten temporal summary"
         return {
-            "content": "LLM rewritten temporal summary",
             "key_topics": ["job_search"],
             "change_and_pattern": {"changes": ["moved from exploration to planning"], "patterns": []},
             "importance_aggregate": 0.9,
         }
 
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_model", _fake_model)
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model)
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model)
 
     summary = await l3_store.generate_temporal_summary(
         l1_store=l1_store,
@@ -637,16 +641,20 @@ async def test_generate_temporal_summary_includes_period_context(tmp_path, monke
     )
     captured: dict[str, object] = {}
 
-    async def _fake_model(pack, **_kwargs):  # type: ignore[no-untyped-def]
+    async def _fake_prose_model(pack, **_kwargs):  # type: ignore[no-untyped-def]
         captured["previous"] = list(pack.previous_period_summaries)
         captured["children"] = list(pack.child_period_summaries)
+        return "The month shifted from exploration toward portfolio execution."
+
+    async def _fake_structure_model(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
+        assert prose_content == "The month shifted from exploration toward portfolio execution."
         return {
-            "content": "The month shifted from exploration toward portfolio execution.",
             "key_topics": ["portfolio"],
             "change_and_pattern": {"changes": ["exploration shifted toward execution"], "patterns": []},
         }
 
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_model", _fake_model)
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model)
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model)
 
     summary = await l3_store.generate_temporal_summary(
         l1_store=l1_store,
@@ -704,7 +712,7 @@ async def test_generate_temporal_summary_falls_back_when_llm_disabled(tmp_path, 
     async def _unexpected_model(_pack):  # type: ignore[no-untyped-def]
         raise AssertionError("LLM path should be disabled")
 
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_model", _unexpected_model)
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_prose_model", _unexpected_model)
 
     summary = await l3_store.generate_temporal_summary(
         l1_store=l1_store,
@@ -778,15 +786,19 @@ async def test_generate_temporal_summary_includes_plugin_summary_features(
 
     captured_features: dict[str, object] = {}
 
-    async def _fake_model(pack, **_kwargs):  # type: ignore[no-untyped-def]
+    async def _fake_prose_model(pack, **_kwargs):  # type: ignore[no-untyped-def]
         captured_features.update(pack.plugin_summary_features)
+        return "LLM rewritten temporal summary"
+
+    async def _fake_structure_model(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
+        assert prose_content == "LLM rewritten temporal summary"
         return {
-            "content": "LLM rewritten temporal summary",
             "key_topics": ["browsing"],
             "importance_aggregate": 0.7,
         }
 
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_model", _fake_model)
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model)
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model)
 
     summary = await l3_store.generate_temporal_summary(
         l1_store=l1_store,
@@ -913,16 +925,20 @@ async def test_generate_temporal_summary_uses_source_aware_compaction(tmp_path, 
 
     captured_pack = None
 
-    async def _fake_model(pack, **_kwargs):  # type: ignore[no-untyped-def]
+    async def _fake_prose_model(pack, **_kwargs):  # type: ignore[no-untyped-def]
         nonlocal captured_pack
         captured_pack = pack
+        return "Balanced temporal summary"
+
+    async def _fake_structure_model(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
+        assert prose_content == "Balanced temporal summary"
         return {
-            "content": "Balanced temporal summary",
             "key_topics": ["browsing", "music"],
             "importance_aggregate": 0.7,
         }
 
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_model", _fake_model)
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model)
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model)
 
     summary = await l3_store.generate_temporal_summary(
         l1_store=l1_store,
@@ -979,9 +995,12 @@ async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_reject
     await l1_store.store(chat_event)
     await l1_store.store(ai_event)
 
-    async def _fake_model(_pack, **_kwargs):  # type: ignore[no-untyped-def]
+    async def _fake_prose_model(_pack, **_kwargs):  # type: ignore[no-untyped-def]
+        return "LLM rewritten temporal summary"
+
+    async def _fake_structure_model(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
+        assert prose_content == "LLM rewritten temporal summary"
         return {
-            "content": "LLM rewritten temporal summary",
             "key_topics": ["job_search"],
             "importance_aggregate": 0.9,
         }
@@ -992,7 +1011,8 @@ async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_reject
             return ValidationDecision(action="reject", reason="synthetic_rejection")
         return ValidationDecision(action="accept", reason="accepted")
 
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_model", _fake_model)
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model)
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model)
     monkeypatch.setattr(summary_store_module, "validate_candidate", _fake_validate)
 
     summary = await l3_store.generate_temporal_summary(

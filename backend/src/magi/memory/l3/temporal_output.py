@@ -71,6 +71,47 @@ class TemporalOutputParsingMixin:
             summary_overrides["importance_aggregate"] = output.importance_aggregate
         return candidate, summary_overrides
 
+    def parse_structure_output(
+        self,
+        payload: dict[str, Any],
+        *,
+        pack: TemporalEvidencePack,
+        content: str,
+    ) -> dict[str, Any]:
+        """Parse optional structured fields after user-facing prose is accepted."""
+        content = str(content or "").strip()
+        if not content:
+            raise ValueError("Temporal structure output requires accepted content")
+        payload_content = payload.get("content")
+        if payload_content is not None:
+            normalized_payload_content = str(payload_content).strip()
+            if normalized_payload_content and normalized_payload_content != content:
+                raise ValueError("Temporal structure content must match accepted content")
+        output = TemporalSummaryLLMOutput(
+            content=content,
+            key_topics=[str(item).strip() for item in payload.get("key_topics", []) if str(item).strip()],
+            key_entities=[
+                item
+                for item in payload.get("key_entities", [])
+                if isinstance(item, dict)
+            ],
+            sentiment_summary=self._normalize_sentiment_summary(payload.get("sentiment_summary")),
+            change_and_pattern=self._normalize_change_and_pattern(payload.get("change_and_pattern")),
+            importance_aggregate=self._normalize_importance_aggregate(payload.get("importance_aggregate")),
+        )
+        validator = getattr(self, "_validate_target_language", None)
+        if callable(validator):
+            validator(output)
+        summary_overrides: dict[str, Any] = {
+            "key_topics": list(output.key_topics),
+            "key_entities": list(output.key_entities),
+            "sentiment_summary": output.sentiment_summary,
+            "change_and_pattern": output.change_and_pattern,
+        }
+        if output.importance_aggregate is not None:
+            summary_overrides["importance_aggregate"] = output.importance_aggregate
+        return summary_overrides
+
     def _normalize_importance_aggregate(self, value: Any) -> float | None:
         if value is None:
             return None

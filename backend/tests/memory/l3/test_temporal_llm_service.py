@@ -228,9 +228,9 @@ async def test_generate_temporal_candidate_falls_back_to_rule_summary_on_timeout
 
     async def _slow_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
         await asyncio.sleep(0.1)
-        return {"content": "should never arrive"}
+        return "should never arrive"
 
-    monkeypatch.setattr(service, "_call_temporal_model", _slow_call)
+    monkeypatch.setattr(service, "_call_temporal_prose_model", _slow_call)
 
     result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
 
@@ -257,14 +257,88 @@ async def test_generate_temporal_candidate_falls_back_on_invalid_output(monkeypa
     )
 
     async def _bad_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
-        return {"content": ""}
+        return ""
 
-    monkeypatch.setattr(service, "_call_temporal_model", _bad_call)
+    monkeypatch.setattr(service, "_call_temporal_prose_model", _bad_call)
 
     result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
 
     assert result.used_fallback is True
     assert result.candidate.content == "rule text"
+
+
+@pytest.mark.asyncio
+async def test_generate_temporal_candidate_keeps_prose_when_structure_extraction_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="今天主要在调 Magi 总结"),
+            TemporalEvidenceItem(event_id="evt-2", event_type="AIResponse", content="结构化字段可以稍后补齐"),
+        ],
+        importance_aggregate=0.7,
+        event_type_distribution={"UserMessage": 1, "AIResponse": 1},
+    )
+
+    async def _prose_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
+        return "这一天主要在调整 Magi 的总结生成，让正文先稳定可读，再补充结构化字段。"
+
+    async def _bad_structure_call(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
+        _ = prose_content
+        return None
+
+    monkeypatch.setattr(service, "_call_temporal_prose_model", _prose_call)
+    monkeypatch.setattr(service, "_call_temporal_structure_model", _bad_structure_call)
+
+    result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
+
+    assert result.used_fallback is False
+    assert result.candidate.content == "这一天主要在调整 Magi 的总结生成，让正文先稳定可读，再补充结构化字段。"
+    assert result.summary_overrides["key_topics"] == []
+    assert result.summary_overrides["change_and_pattern"] is None
+
+
+@pytest.mark.asyncio
+async def test_generate_temporal_candidate_ignores_structure_rewrite(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="今天主要在整理总结页"),
+            TemporalEvidenceItem(event_id="evt-2", event_type="AIResponse", content="结构字段不能改写正文"),
+        ],
+    )
+
+    async def _prose_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
+        return "这一天主要在整理总结页，让正文稳定后再提取结构字段。"
+
+    async def _rewriting_structure_call(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
+        assert prose_content == "这一天主要在整理总结页，让正文稳定后再提取结构字段。"
+        return {
+            "content": "这是另一个被结构化调用改写过的总结。",
+            "key_topics": ["should_not_apply"],
+        }
+
+    monkeypatch.setattr(service, "_call_temporal_prose_model", _prose_call)
+    monkeypatch.setattr(service, "_call_temporal_structure_model", _rewriting_structure_call)
+
+    result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
+
+    assert result.used_fallback is False
+    assert result.candidate.content == "这一天主要在整理总结页，让正文稳定后再提取结构字段。"
+    assert result.summary_overrides["key_topics"] == []
 
 
 @pytest.mark.asyncio
@@ -289,13 +363,9 @@ async def test_generate_temporal_candidate_falls_back_on_language_mismatch(monke
     )
 
     async def _english_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
-        return {
-            "content": "The session began with browsing activity and then shifted to development work.",
-            "key_topics": ["browsing", "development"],
-            "change_and_pattern": {"changes": ["shifted from browsing to coding"], "patterns": []},
-        }
+        return "The session began with browsing activity and then shifted to development work."
 
-    monkeypatch.setattr(service, "_call_temporal_model", _english_call)
+    monkeypatch.setattr(service, "_call_temporal_prose_model", _english_call)
 
     result = await service.generate_temporal_candidate(
         pack,
@@ -326,7 +396,7 @@ async def test_generate_temporal_candidate_skips_llm_below_minimum_event_thresho
     async def _unexpected_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("LLM path should be skipped for low-evidence packs")
 
-    monkeypatch.setattr(service, "_call_temporal_model", _unexpected_call)
+    monkeypatch.setattr(service, "_call_temporal_prose_model", _unexpected_call)
 
     result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
 
@@ -521,6 +591,34 @@ def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
     assert "Markdown" in prompt
     assert '"headline"' in prompt
     assert "The previous day was mostly exploratory" in prompt
+
+
+def test_temporal_prose_and_structure_prompts_share_context_prefix() -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="今天在调整总结"),
+            TemporalEvidenceItem(event_id="evt-2", event_type="AIResponse", content="结构化字段稍后提取"),
+        ],
+    )
+
+    context = service._render_temporal_context_prompt(pack)
+    prose_prompt = service._render_temporal_prose_prompt(pack)
+    structure_prompt = service._render_temporal_structure_prompt(
+        pack,
+        prose_content="这一天主要在调整总结生成。",
+    )
+
+    assert prose_prompt.startswith(context)
+    assert structure_prompt.startswith(context)
+    assert "Evidence Pack:" in context
+    assert "生成用户可读正文" in prose_prompt
+    assert "提取结构化字段" in structure_prompt
 
 
 def test_render_temporal_summary_prompt_includes_period_focus() -> None:

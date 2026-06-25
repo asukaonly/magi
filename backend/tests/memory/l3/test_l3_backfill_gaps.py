@@ -9,8 +9,8 @@ These exercise the summaries-mixin contract:
   * never touch the current (still-open) period.
 
 The temporal LLM is stubbed exactly like the existing L3 tests
-(``test_summary_store.py``): patch ``L3SummaryStore._temporal_llm_service.
-_call_temporal_model`` so ``generate_temporal_summary`` produces a deterministic
+(``test_summary_store.py``): patch ``L3SummaryStore._temporal_llm_service`` prose
+and structure calls so ``generate_temporal_summary`` produces a deterministic
 candidate with no network call.
 """
 
@@ -69,14 +69,18 @@ async def unified_with_stubbed_l3_llm(tmp_path, monkeypatch: pytest.MonkeyPatch)
     await l1.initialize()
     await l3.initialize()
 
-    async def _fake_model(_pack, **_kwargs):  # type: ignore[no-untyped-def]
+    async def _fake_prose_model(_pack, **_kwargs):  # type: ignore[no-untyped-def]
+        return "Deterministic backfill summary"
+
+    async def _fake_structure_model(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
+        assert prose_content == "Deterministic backfill summary"
         return {
-            "content": "Deterministic backfill summary",
             "key_topics": ["browsing"],
             "importance_aggregate": 0.6,
         }
 
-    monkeypatch.setattr(l3._temporal_llm_service, "_call_temporal_model", _fake_model)
+    monkeypatch.setattr(l3._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model)
+    monkeypatch.setattr(l3._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model)
 
     host = _MixinHost(l1, l3)
     try:

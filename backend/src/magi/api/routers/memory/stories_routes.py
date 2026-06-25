@@ -243,6 +243,8 @@ def _row_to_story_item(row: dict[str, Any]) -> dict[str, Any]:
         "insight_key": row.get("insight_key"),
         "insight_metadata": metadata,
         "evidence_event_count": int(row.get("source_event_count") or 0),
+        "generated_by_model": row.get("generated_by_model"),
+        "narrative_style": row.get("narrative_style") or "default",
         "salience_until": salience_until,
     }
 
@@ -321,6 +323,13 @@ def build_router() -> APIRouter:
             or _is_legible_insight_content(item["content"])
         ]
         combined = _dedupe_trend_shift_items(combined)
+        combined = [
+            item for item in combined
+            if not (
+                item["summary_type"] == "temporal"
+                and item.get("generated_by_model") == "rule-summary"
+            )
+        ]
 
         # Hide state_change insights whose salience window has passed.
         # Other insight categories (trend_shift, milestone_review, ...) and
