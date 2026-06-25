@@ -12,6 +12,7 @@ from .seed_discovery import (
     is_generic_experience_anchor,
     is_technical_artifact_experience_token,
 )
+from .quality import evaluate_experience_quality
 from .seed_recall import recall_candidate_evidence_for_seed
 from .seed_selection import SelectionProvider, select_experience_from_seed
 
@@ -171,6 +172,15 @@ def _seed_processing_key(seed: dict[str, Any]) -> tuple[int, int, float, float]:
     return status_rank, type_rank, confidence_rank, time_rank
 
 
+async def _reject_seed(store: Any, *, seed_id: str, reason: str, status: str = "rejected") -> None:
+    await store.update_experience_seed(
+        seed_id=seed_id,
+        status=status,
+        description=f"Rejected: {reason}",
+        last_evaluated_at=time.time(),
+    )
+
+
 async def _promote_seed_selection(
     store: Any,
     *,
@@ -261,9 +271,10 @@ async def promote_experiences_from_episodes(
             continue
         if str(seed.get("status") or "") == "candidate" and float(seed.get("confidence") or 0.0) < MIN_CANDIDATE_SEED_CONFIDENCE:
             rejected += 1
-            await store.update_experience_seed(
+            await _reject_seed(
+                store,
                 seed_id=str(seed["seed_id"]),
-                last_evaluated_at=time.time(),
+                reason="Candidate confidence is below the promotion threshold.",
             )
             continue
 
@@ -281,17 +292,34 @@ async def promote_experiences_from_episodes(
             or selection.time_end is None
         ):
             rejected += 1
-            await store.update_experience_seed(
+            await _reject_seed(
+                store,
                 seed_id=str(seed["seed_id"]),
-                last_evaluated_at=time.time(),
+                reason=selection.reason or "Selection did not form an experience.",
+            )
+            continue
+
+        quality = evaluate_experience_quality(
+            seed=pack["seed"],
+            selection=selection,
+            evidence_pack=pack,
+        )
+        if not quality.accepted:
+            rejected += 1
+            await _reject_seed(
+                store,
+                seed_id=str(seed["seed_id"]),
+                reason=quality.reason,
             )
             continue
 
         if _is_duplicate(selection.included_episode_ids, existing_sets):
             skipped_duplicates += 1
-            await store.update_experience_seed(
+            await _reject_seed(
+                store,
                 seed_id=str(seed["seed_id"]),
-                last_evaluated_at=time.time(),
+                status="stale",
+                reason="Duplicate of an existing experience.",
             )
             continue
 

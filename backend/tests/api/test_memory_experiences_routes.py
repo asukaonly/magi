@@ -111,7 +111,7 @@ def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_moc
     )
     l2.add_experience_seed_evidence.assert_awaited_once()
     assert l2.add_experience_seed_evidence.await_args.kwargs["evidence"][0]["ref_id"] == "ep2"
-    promote.assert_awaited_once_with(l2)
+    promote.assert_awaited_once_with(l2, target_seed_id="seed1")
 
 
 def test_create_experience_seed_from_event_ids_resolves_episode(public_app_with_mock_memory):

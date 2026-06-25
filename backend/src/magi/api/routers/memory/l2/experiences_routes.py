@@ -333,7 +333,10 @@ async def create_l2_experience_seed(body: ExperienceSeedCreateRequest):
     promoted_experience_id: str | None = None
     experience_response: dict[str, Any] | None = None
     if body.promote_now:
-        stats = await promote_experiences_from_episodes(unified_memory.l2)
+        stats = await promote_experiences_from_episodes(
+            unified_memory.l2,
+            target_seed_id=seed_id,
+        )
         if stats.promoted_experience_ids:
             promoted_experience_id = str(stats.promoted_experience_ids[0])
             experience = await unified_memory.l2.get_experience(

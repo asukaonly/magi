@@ -434,6 +434,10 @@ Experience promotion is a second-stage process over active episodes:
 - Score candidates for narrative quality: theme coherence, user involvement,
   boundary clarity, outcome or turning point, long-term relevance, and duplicate
   overlap with existing experiences.
+- The V1 promotion gate applies deterministic quality checks before persistence:
+  source/tool-only clusters, technical artifacts, weak boundaries, and candidates
+  without user-action signals are rejected at seed level with a recorded reason,
+  while user-accepted manual seeds remain promotable.
 - Promote only candidates that can be expressed as a concrete natural-language
   memory, not merely as a source/app cluster.
 - Generate the L3 experience review after promotion so the prose is attached to

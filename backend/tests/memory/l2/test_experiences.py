@@ -449,6 +449,115 @@ async def test_experience_promotion_rejects_generic_adjacent_chain(l2_store_with
 
 
 @pytest.mark.asyncio
+async def test_experience_promotion_rejects_source_only_seed_and_marks_it_rejected(
+    l2_store_with_schema,
+):
+    from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    for index in range(3):
+        episode_id = f"ep-browser-noise-{index}"
+        await store.create_episode(
+            episode_id=episode_id,
+            status="active",
+            label="Browse Chrome and Google Search",
+            time_start=100.0 + index * 600.0,
+            time_end=300.0 + index * 600.0,
+            primary_entity_ids=["software:chrome", "software:google", "user:local_user"],
+            primary_topic_keys=["browser"],
+            source_event_count=20,
+        )
+        await store.add_episode_events(
+            episode_id=episode_id,
+            event_ids=[f"browser-noise-{index}-{event}" for event in range(20)],
+        )
+    seed_id = await store.create_experience_seed(
+        seed_id="seed-browser-noise",
+        seed_type="repeated_goal",
+        status="candidate",
+        title="Browser activity",
+        anchor_entity_ids=["software:chrome", "software:google"],
+        anchor_topic_keys=["browser"],
+        time_start=100.0,
+        time_end=1500.0,
+        confidence=0.8,
+        created_by="system",
+    )
+    await store.add_experience_seed_evidence(
+        seed_id=seed_id,
+        evidence=[
+            {"ref_type": "episode", "ref_id": f"ep-browser-noise-{index}", "role": "support"}
+            for index in range(3)
+        ],
+    )
+
+    stats = await promote_experiences_from_episodes(store)
+
+    assert stats.promoted == 0
+    assert stats.rejected == 1
+    assert await store.list_experiences(status="active") == []
+    seed = await store.get_experience_seed(seed_id=seed_id)
+    assert seed is not None
+    assert seed["status"] == "rejected"
+    assert seed["description"] == "Rejected: Seed has no concrete anchors."
+
+
+@pytest.mark.asyncio
+async def test_experience_promotion_rejects_technical_artifact_seed_before_creation(
+    l2_store_with_schema,
+):
+    from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    for index in range(3):
+        episode_id = f"ep-dev-script-{index}"
+        await store.create_episode(
+            episode_id=episode_id,
+            status="active",
+            label="Run dev-tauri-hot.sh and inspect backend-dev-hot.log",
+            time_start=100.0 + index * 600.0,
+            time_end=300.0 + index * 600.0,
+            primary_entity_ids=["software:terminal"],
+            primary_topic_keys=["dev-tauri-hot.sh"],
+            source_event_count=8,
+        )
+        await store.add_episode_events(
+            episode_id=episode_id,
+            event_ids=[f"dev-script-{index}-{event}" for event in range(8)],
+        )
+    seed_id = await store.create_experience_seed(
+        seed_id="seed-dev-script-candidate",
+        seed_type="repeated_goal",
+        status="candidate",
+        title="Dev-tauri-hot.sh",
+        anchor_topic_keys=["dev-tauri-hot.sh"],
+        time_start=100.0,
+        time_end=1500.0,
+        confidence=0.88,
+        created_by="system",
+    )
+    await store.add_experience_seed_evidence(
+        seed_id=seed_id,
+        evidence=[
+            {"ref_type": "episode", "ref_id": f"ep-dev-script-{index}", "role": "support"}
+            for index in range(3)
+        ],
+    )
+
+    stats = await promote_experiences_from_episodes(store)
+
+    assert stats.promoted == 0
+    assert stats.rejected == 1
+    assert await store.list_experiences(status="active") == []
+    seed = await store.get_experience_seed(seed_id=seed_id)
+    assert seed is not None
+    assert seed["status"] == "rejected"
+    assert seed["description"] == "Rejected: Technical artifact is not a user-facing experience."
+
+
+@pytest.mark.asyncio
 async def test_experience_promotion_rejects_sparse_generic_episode(l2_store_with_schema):
     from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
     from magi.memory.l2.store import L2CognitionStore
