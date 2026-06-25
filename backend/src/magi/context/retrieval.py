@@ -27,12 +27,16 @@ class ContextRetrievalService:
             return self._empty_payload()
 
         normalized_layers = self._normalize_allowed_layers(allowed_layers)
+        task_preferences = await self._load_l4_task_preferences(
+            user_id=user_id,
+            task_category=task_category,
+        )
         if normalized_layers == ("L0",):
             return {
                 "l0_workbench": await self._load_l0_workbench(session_id),
                 "l2_entity_cards": [],
                 "l3_reflection_memory": [],
-                "l4_procedural_memory": [],
+                "l4_procedural_memory": task_preferences,
                 "preference_memory": {},
             }
 
@@ -56,7 +60,10 @@ class ContextRetrievalService:
             "l0_workbench": payload.l0_workbench if "L0" in normalized_layers else [],
             "l2_entity_cards": payload.l2_entity_cards if "L2" in normalized_layers else [],
             "l3_reflection_memory": payload.l3_reflections if "L3" in normalized_layers else [],
-            "l4_procedural_memory": payload.l4_procedures if "L4" in normalized_layers else [],
+            "l4_procedural_memory": self._merge_l4_procedures(
+                payload.l4_procedures if "L4" in normalized_layers else [],
+                task_preferences,
+            ),
             "preference_memory": {},
         }
 
@@ -92,3 +99,40 @@ class ContextRetrievalService:
                 "temporary_tactics": list(workbench.get("temporary_tactics", [])[:5]),
             }
         ]
+
+    async def _load_l4_task_preferences(
+        self,
+        *,
+        user_id: str,
+        task_category: str,
+    ) -> list[dict[str, Any]]:
+        l4 = getattr(self._unified_memory, "l4", None) if self._unified_memory is not None else None
+        if l4 is None or not hasattr(l4, "get_task_preferences"):
+            return []
+        try:
+            return list(
+                await l4.get_task_preferences(
+                    user_id=user_id,
+                    task_category=task_category,
+                    limit=4,
+                )
+            )
+        except Exception:
+            return []
+
+    @staticmethod
+    def _merge_l4_procedures(
+        retrieved: list[dict[str, Any]],
+        task_preferences: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in [*task_preferences, *list(retrieved or [])]:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("skill_id") or item.get("summary") or item.get("content") or item)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(item)
+        return result

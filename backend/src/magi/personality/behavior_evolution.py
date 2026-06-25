@@ -7,7 +7,6 @@ from pathlib import Path
 from .behavior_evolution_interactions import BehaviorEvolutionInteractionMixin
 from .behavior_evolution_maintenance import BehaviorEvolutionMaintenanceMixin
 from .behavior_evolution_models import CategoryStatistics, SatisfactionLevel, TaskInteractionRecord
-from .behavior_evolution_preferences import BehaviorEvolutionPreferenceMixin
 from .behavior_evolution_profiles import BehaviorEvolutionProfileMixin
 from .behavior_evolution_schema import BehaviorEvolutionSchemaMixin
 from .behavior_evolution_statistics import BehaviorEvolutionStatisticsMixin
@@ -16,7 +15,6 @@ from .models import TaskBehaviorProfile
 
 class BehaviorEvolutionEngine(
     BehaviorEvolutionMaintenanceMixin,
-    BehaviorEvolutionPreferenceMixin,
     BehaviorEvolutionProfileMixin,
     BehaviorEvolutionStatisticsMixin,
     BehaviorEvolutionInteractionMixin,

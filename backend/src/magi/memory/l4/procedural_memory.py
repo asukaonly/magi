@@ -18,11 +18,13 @@ from .storage.schema import (
     _ADAPTIVE_MAX_THRESHOLD,
 )
 from .strategy_extraction import L4StrategyExtractor
+from .task_preferences import L4TaskPreferenceMixin
 
 
 class L4ProceduralMemoryStore(
     L4ProceduralLifecycleMixin,
     L4SkillEmbeddingMixin,
+    L4TaskPreferenceMixin,
     L4ProceduralRecordingMixin,
     L4ProceduralRetrievalMixin,
 ):

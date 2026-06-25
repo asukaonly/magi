@@ -53,7 +53,7 @@ async def apply_interaction_observations(
                 updated = (
                     await _apply_task_preference(
                         observation=observation,
-                        self_memory=self_memory,
+                        unified_memory=unified_memory,
                         user_message=user_message,
                         user_id=normalized_user_id,
                         persona_id=persona_id,
@@ -146,14 +146,15 @@ async def _apply_profile_signal(
 async def _apply_task_preference(
     *,
     observation: InteractionObservation,
-    self_memory: Any,
+    unified_memory: Any,
     user_message: str,
     user_id: str,
     persona_id: str | None,
     session_id: str | None,
     turn_id: str | None,
 ) -> bool:
-    if self_memory is None or not hasattr(self_memory, "record_task_preference"):
+    l4 = getattr(unified_memory, "l4", None) if unified_memory is not None else None
+    if l4 is None or not hasattr(l4, "record_task_preference"):
         return False
     args = observation.arguments or {}
     preference = _text(args.get("preference"))
@@ -164,7 +165,7 @@ async def _apply_task_preference(
     if not _is_grounded_in_user_message(evidence_text, user_message):
         return False
     return bool(
-        await self_memory.record_task_preference(
+        await l4.record_task_preference(
             user_id=user_id,
             persona_id=_text(persona_id),
             task_category=_text(args.get("task_category")) or "chat",

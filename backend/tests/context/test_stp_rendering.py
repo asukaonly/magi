@@ -92,7 +92,7 @@ class TestPersonaTurnPlanRendering:
         assert "Solve first." in prompt
         assert "# Contextual Behavior Protocol" not in prompt
 
-    def test_task_preference_memory_renders_explicit_prefers_and_avoids(self):
+    def test_task_preference_memory_renders_as_l4_procedural_memory(self):
         ctx = PromptAssemblyContext(
             identity_constraints=IdentityConstraintContext(
                 system_definition="You are a test entity.",
@@ -105,16 +105,11 @@ class TestPersonaTurnPlanRendering:
                     register="task",
                 ),
                 retrieval_memory=RetrievalMemoryContext(
-                    preference_memory={
-                        "task_preferences": {
-                            "task_category": "coding",
-                            "information_density": "medium",
-                            "ambiguity_tolerance": "adaptive",
-                            "proactivity": "reactive",
-                            "response_prefers": ["改代码前先讲方案"],
-                            "response_avoids": ["未验证就说完成"],
-                        }
-                    }
+                    l4_procedural_memory=[
+                        {"summary": "Prefer: 改代码前先讲方案"},
+                        {"summary": "Avoid: 未验证就说完成"},
+                    ],
+                    preference_memory={},
                 ),
             ),
             profile_memory=ProfileMemoryContext(user_id="u1"),

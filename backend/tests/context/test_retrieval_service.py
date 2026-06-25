@@ -16,13 +16,30 @@ class _FakeL0Store:
         }
 
 
+class _FakeL4Store:
+    def __init__(self):
+        self.calls: list[dict[str, object]] = []
+
+    async def get_task_preferences(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        return [
+            {
+                "skill_id": "task-pref-1",
+                "skill_name": "coding preference",
+                "skill_category": "task_preference",
+                "summary": "Prefer: 改代码前先讲完成标准",
+            }
+        ]
+
+
 class _FakeUnifiedMemory:
     def __init__(self):
         self.l0 = _FakeL0Store()
+        self.l4 = _FakeL4Store()
 
 
 class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
-    async def test_build_retrieved_memory_payload_loads_only_l0_without_hybrid_query(self) -> None:
+    async def test_build_retrieved_memory_payload_loads_l0_and_task_preferences_without_hybrid_query(self) -> None:
         retrieval_service = MagicMock()
         service = ContextRetrievalService(
             unified_memory=_FakeUnifiedMemory(),
@@ -40,8 +57,29 @@ class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["l0_workbench"][0]["session"], "s1")
         self.assertEqual(payload["l2_entity_cards"], [])
         self.assertEqual(payload["l3_reflection_memory"], [])
-        self.assertEqual(payload["l4_procedural_memory"], [])
+        self.assertEqual(payload["l4_procedural_memory"][0]["summary"], "Prefer: 改代码前先讲完成标准")
         retrieval_service.query.assert_not_called()
+
+    async def test_build_retrieved_memory_payload_appends_task_preferences_from_l4(self) -> None:
+        unified_memory = _FakeUnifiedMemory()
+        service = ContextRetrievalService(
+            unified_memory=unified_memory,
+            retrieval_service=MagicMock(),
+        )
+
+        payload = await service.build_retrieved_memory_payload(
+            user_id="u1",
+            session_id="s1",
+            query="fix this bug",
+            task_category="coding",
+            allowed_layers=("L0",),
+        )
+
+        self.assertEqual(
+            unified_memory.l4.calls,
+            [{"user_id": "u1", "task_category": "coding", "limit": 4}],
+        )
+        self.assertEqual(payload["l4_procedural_memory"][0]["skill_category"], "task_preference")
 
     async def test_build_retrieved_memory_payload_queries_hybrid_retrieval(self) -> None:
         retrieval_service = MagicMock()

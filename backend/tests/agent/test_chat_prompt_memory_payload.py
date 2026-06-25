@@ -72,7 +72,7 @@ class TestChatPromptMemoryPayload(unittest.IsolatedAsyncioTestCase):
                 "l2_entity_cards": [{"entity_id": "user:u1", "stress_level": "high"}],
                 "l3_reflection_memory": [{"summary": "User wants to switch jobs"}],
                 "l4_procedural_memory": [{"skill_name": "browser.open", "success_rate": 0.8}],
-                "preference_memory": {"task_preferences": {"verbosity": "low"}},
+                "preference_memory": {},
             },
         )
 

@@ -46,12 +46,6 @@ class PromptSelfMemoryMixin:
             preference_memory = {}
         preference_memory = dict(preference_memory)
         preference_memory.pop("user_preferences", None)
-        task_preferences = await self._build_task_preference_memory(
-            self_memory=self_memory,
-            task_category=task_category,
-        )
-        if task_preferences:
-            preference_memory["task_preferences"] = task_preferences
 
         retrieval_memory = RetrievalMemoryContext(
             l0_workbench=list(payload.get("l0_workbench", [])),
@@ -91,38 +85,6 @@ class PromptSelfMemoryMixin:
             persona_turn_plan=persona_turn_plan,
             persona_journal_entries=journal_entries,
         )
-
-    async def _build_task_preference_memory(
-        self,
-        *,
-        self_memory,
-        task_category: str,
-    ) -> Dict[str, Any]:
-        if self_memory is None or not hasattr(self_memory, "get_task_behavior_profile"):
-            return {}
-        try:
-            profile = await self_memory.get_task_behavior_profile(task_category)
-        except Exception:
-            return {}
-        if profile is None:
-            return {}
-        ambiguity = getattr(profile, "ambiguity_tolerance", "adaptive")
-        return {
-            "task_category": str(getattr(profile, "task_category", task_category) or task_category),
-            "information_density": str(getattr(profile, "information_density", "medium") or "medium"),
-            "ambiguity_tolerance": str(getattr(ambiguity, "value", ambiguity) or "adaptive"),
-            "proactivity": str(getattr(profile, "proactivity", "reactive") or "reactive"),
-            "response_prefers": [
-                str(item).strip()
-                for item in list(getattr(profile, "response_prefers", []) or [])
-                if str(item).strip()
-            ],
-            "response_avoids": [
-                str(item).strip()
-                for item in list(getattr(profile, "response_avoids", []) or [])
-                if str(item).strip()
-            ],
-        }
 
     async def _build_persona_turn_plan(
         self,

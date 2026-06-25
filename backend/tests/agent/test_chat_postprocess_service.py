@@ -222,6 +222,7 @@ class _FakeUnifiedMemory:
         self.l0 = l0
         self.l1 = _FakeL1Store(events or [])
         self.l2 = None
+        self.l4 = _RecordingL4Store()
         self.task_packets = []
 
     async def persist_task_outcome_reflection(self, packet):  # type: ignore[no-untyped-def]
@@ -246,6 +247,15 @@ class _RecordingPersonalityMemory:
     async def record_observer_relationship_signal(self, **kwargs):  # type: ignore[no-untyped-def]
         self.relationship_signal_calls.append(dict(kwargs))
         return True
+
+
+class _RecordingL4Store:
+    def __init__(self) -> None:
+        self.task_preference_calls: list[dict[str, object]] = []
+
+    async def record_task_preference(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.task_preference_calls.append(dict(kwargs))
+        return "task-pref-1"
 
 
 class _RecordingL2Store:
@@ -460,6 +470,80 @@ async def test_memory_updates_route_observer_candidates(monkeypatch) -> None:
             "trust_delta": 0.0,
             "evidence_text": "七号这里可以稍微软一点。",
             "confidence": 0.86,
+            "turn_id": "turn-1",
+            "session_id": "session-1",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_memory_updates_route_task_preferences_to_l4(monkeypatch) -> None:
+    import magi.chat.task_agent.postprocess.memory as postprocess_module
+
+    async def _fake_analyze_interaction(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = args, kwargs
+        return InteractionAnalysis(
+            sentiment=0.4,
+            engagement=EngagementLevel.HIGH,
+            complexity=0.6,
+            outcome=InteractionOutcome.SUCCESS,
+            satisfaction=SatisfactionLevel.HIGH,
+            memory_observations=[
+                InteractionObservation(
+                    kind="task_preference",
+                    arguments={
+                        "task_category": "coding",
+                        "preference": "改代码前先讲完成标准",
+                        "polarity": "prefer",
+                        "evidence_text": "以后改代码前先讲完成标准。",
+                        "confidence": 0.9,
+                    },
+                )
+            ],
+        )
+
+    monkeypatch.setattr(
+        postprocess_module,
+        "get_personality_feature_flags",
+        lambda: SimpleNamespace(
+            state_memory_enabled=True,
+            state_transition_enabled=True,
+            deep_persona_enabled=True,
+        ),
+    )
+    monkeypatch.setattr(postprocess_module, "analyze_interaction", _fake_analyze_interaction)
+    memory = _RecordingPersonalityMemory()
+    unified_memory = _FakeUnifiedMemory()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        memory=memory,
+        unified_memory=unified_memory,
+    )
+
+    await service._record_memory_updates(
+        user_id="local_user",
+        user_message="以后改代码前先讲完成标准。",
+        response_text="好，之后我会先说明完成标准。",
+        incoming_fact_kind="user_message",
+        execution_mode="direct_llm",
+        session_id="session-1",
+        turn_id="turn-1",
+        persona_id="seven",
+    )
+
+    assert unified_memory.l4.task_preference_calls == [
+        {
+            "user_id": "local_user",
+            "persona_id": "seven",
+            "task_category": "coding",
+            "preference": "改代码前先讲完成标准",
+            "polarity": "prefer",
+            "evidence_text": "以后改代码前先讲完成标准。",
+            "confidence": 0.9,
             "turn_id": "turn-1",
             "session_id": "session-1",
         }

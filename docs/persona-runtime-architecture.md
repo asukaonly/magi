@@ -523,7 +523,7 @@ The replacement surfaces are:
 - Scope any trigger carryover state to avoid cross-session bleed.
 - Keep observer-based memory updates as future-state candidates: user-profile
   candidates go through L2 assertion governance, task-handling preferences go
-  through behavior evolution, and persona relationship signals stay in
+  through L4 procedural memory, and persona relationship signals stay in
   persona-scoped growth memory.
 
 ### P6. Frontend Editor

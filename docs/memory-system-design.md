@@ -292,6 +292,11 @@ candidate is grounded in the user's own text, persists it as an L2 assertion
 candidate, and lets normal assertion state, conflict handling, review, and
 portrait projection decide how it appears to the user.
 
+Post-turn observers may also submit explicit task-handling preferences when the
+user states how future work should be handled. These preferences belong to L4
+procedural memory, not persona behavior evolution or L2 profile facts, because
+they describe reusable execution guidance rather than identity traits.
+
 L2 keeps a semi-open graph predicate model so source-specific relationships can
 be captured before the core ontology knows every useful verb. That openness is
 bounded by a quality gate: custom predicates must describe stable, reusable
@@ -316,9 +321,9 @@ local user profile. It is rebuilt from current L2 profile assertions, records
 field sources/conflicts, and derives deterministic fields such as `birth_year`
 and `age_years` from `identity.birth_date`. Settings writes are user-authored
 evidence: they create an L1 audit event, write confirmed L2 profile assertions,
-and then refresh the projection. Product code and prompt assembly should read the
-projection first and fall back to raw L2 assertions only when the projection does
-not yet exist.
+and then refresh the profile projection and self-portrait projection together.
+Product code and prompt assembly should read the projection first and fall back
+to raw L2 assertions only when the projection does not yet exist.
 
 `user_portrait_projection` is the product-facing self-portrait read model for
 the local user. It is not an authority over L2 facts. It packages L2 assertions,
@@ -326,7 +331,9 @@ the current ToM snapshot, and review state into a stable `world/review/recent`
 page model plus a short `prompt_summary` for main-chat context injection. Prompt
 assembly must use that human-readable summary when available and must not dump
 raw preference dictionaries, internal assertion keys, source tiers, or affinity
-metadata into the main model prompt.
+metadata into the main model prompt. Clearing L2 cognition artifacts must also
+clear profile and portrait projections so local re-imports do not keep stale
+user-understanding caches.
 
 Bootstrap is only responsible for injecting the first assistant opening for a
 persona. After that opening is persisted, all profile extraction returns to the
@@ -844,6 +851,7 @@ Examples:
 - Circuit-breaker states for unstable tools
 - Successful strategy templates for task categories
 - Context-dependent execution preferences
+- Explicit task-handling preferences stated by the user
 
 ---
 
@@ -1238,6 +1246,8 @@ Main implementation entry points:
 - [backend/src/magi/memory/l3/summary_store.py](../backend/src/magi/memory/l3/summary_store.py) — `L3` summaries and evidence backlinks
 
 - [backend/src/magi/memory/l4/procedural_memory.py](../backend/src/magi/memory/l4/procedural_memory.py) — `L4` procedural memory
+
+- [backend/src/magi/memory/l4/task_preferences.py](../backend/src/magi/memory/l4/task_preferences.py) — Explicit task-handling preferences stored as `L4` procedural memory
 
 - [backend/src/magi/memory/hybrid_retrieval/service.py](../backend/src/magi/memory/hybrid_retrieval/service.py) — Cross-layer unified retrieval orchestrator
 

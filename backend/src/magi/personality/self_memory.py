@@ -154,43 +154,6 @@ class SelfMemory:
                 accepted=accepted,
             )
 
-    async def record_task_preference(
-        self,
-        *,
-        user_id: str,
-        persona_id: str = "",
-        task_category: str,
-        preference: str,
-        polarity: str = "prefer",
-        evidence_text: str = "",
-        confidence: float = 0.0,
-        turn_id: str = "",
-        session_id: str = "",
-    ) -> bool:
-        """Record an explicit user preference for future task handling."""
-        _ = persona_id
-        if not self.enable_evolution or self._behavior_engine is None:
-            return False
-        return bool(
-            await self._behavior_engine.record_task_preference(
-                task_category=task_category,
-                preference=preference,
-                polarity=polarity,
-                evidence_text=evidence_text,
-                confidence=confidence,
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-            )
-        )
-
-    async def get_task_behavior_profile(self, task_category: str):
-        """Return task behavior profile enriched with explicit task preferences."""
-        if not self.enable_evolution or self._behavior_engine is None:
-            return None
-        return await self._behavior_engine.get_behavior_profile(task_category)
-
-
     async def get_emotional_state(self) -> EmotionalState:
         """Get current emotional state"""
         if not self.enable_evolution or self._emotion_engine is None:

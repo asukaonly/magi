@@ -84,7 +84,7 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
                 "l2_entity_cards": [{"entity_id": "user:u1"}],
                 "l3_reflection_memory": [{"summary": "recent reflection"}],
                 "l4_procedural_memory": [{"skill_name": "weather capability"}],
-                "preference_memory": {"task_preferences": {"verbosity": "low"}},
+                "preference_memory": {},
             },
         )
 
