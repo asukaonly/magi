@@ -252,13 +252,44 @@ describe('MemoryGovernancePage', () => {
     expect(screen.queryByText('ID')).not.toBeInTheDocument();
     expect(screen.queryByText('assert_1')).not.toBeInTheDocument();
 
-    const row = await screen.findByRole('button', { name: /直白/ });
+    const row = await screen.findByRole('button', { name: /^打开记录 用户的沟通风格偏好是直白$/ });
     expect(row).toHaveClass('text-xs');
+    expect(screen.queryByRole('button', { name: /^打开记录 直白$/ })).not.toBeInTheDocument();
 
     await user.click(row);
 
     const drawer = await screen.findByRole('dialog', { name: '记录详情' });
     expect(within(drawer).getByText('assert_1')).toBeInTheDocument();
+  });
+
+  it('collapses keyed assertion traits into readable relation labels', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l2Assertions: [
+        {
+          ...baseMemoryState.l2Assertions[0],
+          assertion_id: 'assert_tool',
+          entity_id: 'user:self',
+          trait_name: 'tool.dev-tauri-hot_sh-75135f',
+          trait_value: 'dev tauri hot sh',
+        },
+      ],
+      l2Entities: [
+        {
+          entity_id: 'user:self',
+          canonical_name: '用户',
+          entity_type: 'person',
+          aliases: [],
+        },
+      ],
+    } as ReturnType<typeof useMemory>);
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /断言 偏好/ }));
+
+    expect(await screen.findByRole('button', { name: /^打开记录 用户的工具是dev tauri hot sh$/ })).toBeInTheDocument();
+    expect(screen.queryByText(/tool\.dev-tauri-hot_sh/)).not.toBeInTheDocument();
   });
 
   it('requests the next server page instead of slicing the first loaded rows', async () => {

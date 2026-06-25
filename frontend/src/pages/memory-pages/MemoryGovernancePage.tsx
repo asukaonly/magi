@@ -91,6 +91,8 @@ const formatDecimal = (value: unknown, digits = 2): string => toFiniteNumber(val
 
 const formatCount = (value: unknown): string => new Intl.NumberFormat().format(Math.max(0, toFiniteNumber(value)));
 
+const isOpaqueTraitSegment = (value: string): boolean => /^[a-f0-9]{8,}$/i.test(value);
+
 const formatTime = (timestamp?: number | null): string => {
   if (!timestamp) return '-';
   const normalized = timestamp > 10_000_000_000 ? timestamp : timestamp * 1000;
@@ -112,6 +114,99 @@ const safeText = (value: unknown, fallback: string): string => {
   const cleaned = String(value ?? '').trim();
   return cleaned || fallback;
 };
+
+function getAssertionEntityName(
+  entityId: unknown,
+  entityNamesById: Map<string, string>,
+  label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string
+): string {
+  const id = safeText(entityId, '');
+  if (!id) return label('assertions.unknownEntity', '未知对象');
+  const knownName = entityNamesById.get(id);
+  if (knownName) return knownName;
+  if (id === 'user' || id === 'user:self' || id.startsWith('user:')) return label('assertions.userEntity', '用户');
+  return id;
+}
+
+function getAssertionTraitLabel(
+  traitName: unknown,
+  label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string
+): string {
+  const rawTrait = safeText(traitName, '');
+  if (!rawTrait) return label('assertions.unknownTrait', '某项判断');
+
+  const normalized = rawTrait.toLowerCase();
+  const directLabels = new Map<string, string>([
+    ['communication.response_style.preferred', label('assertions.traits.communicationResponseStylePreferred', '沟通风格偏好')],
+    ['response_style.preferred', label('assertions.traits.responseStylePreferred', '回应风格偏好')],
+    ['interest', label('assertions.traits.interest', '兴趣')],
+    ['preference', label('assertions.traits.preference', '偏好')],
+    ['preferences', label('assertions.traits.preference', '偏好')],
+    ['identity', label('assertions.traits.identity', '身份')],
+    ['routine', label('assertions.traits.routine', '习惯')],
+    ['location', label('assertions.traits.location', '地点')],
+    ['project', label('assertions.traits.project', '项目')],
+    ['tool', label('assertions.traits.tool', '工具')],
+    ['judgment', label('assertions.traits.judgment', '判断')],
+    ['judgement', label('assertions.traits.judgment', '判断')],
+  ]);
+  const direct = directLabels.get(normalized);
+  if (direct) return direct;
+
+  const parts = rawTrait.split('.').map((part) => part.trim()).filter(Boolean);
+  const prefix = parts[0]?.toLowerCase();
+  const prefixLabels = new Map<string, string>([
+    ['interest', label('assertions.traits.interest', '兴趣')],
+    ['preference', label('assertions.traits.preference', '偏好')],
+    ['preferences', label('assertions.traits.preference', '偏好')],
+    ['identity', label('assertions.traits.identity', '身份')],
+    ['routine', label('assertions.traits.routine', '习惯')],
+    ['location', label('assertions.traits.location', '地点')],
+    ['project', label('assertions.traits.project', '项目')],
+    ['tool', label('assertions.traits.tool', '工具')],
+    ['judgment', label('assertions.traits.judgment', '判断')],
+    ['judgement', label('assertions.traits.judgment', '判断')],
+  ]);
+  const prefixLabel = prefixLabels.get(prefix);
+  if (prefixLabel && parts.length > 1) return prefixLabel;
+
+  const segmentLabels = new Map<string, string>([
+    ['communication', label('assertions.traitSegments.communication', '沟通')],
+    ['response_style', label('assertions.traitSegments.responseStyle', '回应风格')],
+    ['preferred', label('assertions.traitSegments.preferred', '偏好')],
+    ['preference', label('assertions.traitSegments.preference', '偏好')],
+    ['preferences', label('assertions.traitSegments.preference', '偏好')],
+    ['identity', label('assertions.traitSegments.identity', '身份')],
+    ['routine', label('assertions.traitSegments.routine', '习惯')],
+    ['location', label('assertions.traitSegments.location', '地点')],
+    ['project', label('assertions.traitSegments.project', '项目')],
+    ['tool', label('assertions.traitSegments.tool', '工具')],
+    ['judgment', label('assertions.traitSegments.judgment', '判断')],
+    ['judgement', label('assertions.traitSegments.judgment', '判断')],
+  ]);
+  const readableParts = parts
+    .filter((part) => !isOpaqueTraitSegment(part))
+    .map((part) => segmentLabels.get(part.toLowerCase()) ?? part.replace(/[_-]+/g, ' '));
+
+  return readableParts.length ? readableParts.join(' · ') : rawTrait;
+}
+
+function getAssertionStatement(
+  entityName: string,
+  traitLabel: string,
+  traitValue: unknown,
+  label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string
+): string {
+  const value = safeText(traitValue, '');
+  if (!value) {
+    return label('assertions.statementWithoutValue', '{{entity}}的{{trait}}', { entity: entityName, trait: traitLabel });
+  }
+  return label('assertions.statementWithValue', '{{entity}}的{{trait}}是{{value}}', {
+    entity: entityName,
+    trait: traitLabel,
+    value,
+  });
+}
 
 const getStatusToneClass = (tone: LayerSummary['tone']) => {
   if (tone === 'danger') {
@@ -173,6 +268,13 @@ export const MemoryGovernancePage = () => {
       l2Assertions.filter((assertion) => assertion.entity_id === entityId).length +
       l2Relations.filter((relation) => relation.subject_id === entityId || relation.object_id === entityId).length
     );
+    const entityNamesById = new Map<string, string>();
+    l2Entities.forEach((entity) => {
+      const entityId = safeText(entity.entity_id, '');
+      if (entityId) {
+        entityNamesById.set(entityId, safeText(entity.canonical_name, entityId));
+      }
+    });
 
     const l0Records: LayerRecord[] = l0Sessions.map((session) => ({
       id: safeText(session.short_session_id || session.session_id, label('fallbacks.unknownRecord', '未知记录')),
@@ -241,18 +343,23 @@ export const MemoryGovernancePage = () => {
 
     const l2AssertionRecords: LayerRecord[] = l2Assertions.map((assertion) => {
       const evidenceEvents = toList(assertion.evidence_events);
+      const entityName = getAssertionEntityName(assertion.entity_id, entityNamesById, label);
+      const traitLabel = getAssertionTraitLabel(assertion.trait_name, label);
+      const traitValue = safeText(assertion.trait_value, '');
       return {
         id: safeText(assertion.assertion_id, label('fallbacks.unknownRecord', '未知记录')),
         layer: 'l2',
         categoryId: 'assertions',
         categoryLabel: categoryLabels.assertions,
-        title: `${label('recordTypes.assertion', '断言')}：${safeText(assertion.trait_name, label('fallbacks.unknownRecord', '未知记录'))}`,
+        title: getAssertionStatement(entityName, traitLabel, traitValue, label),
         type: label('recordTypes.assertion', '断言'),
         source: safeText(assertion.source_domain, label('sources.unknown', '未知来源')),
         status: safeText(assertion.validation_state, label('statuses.unknown', '未知')),
         updatedAt: assertion.last_validated_at,
         evidenceCount: evidenceEvents.length,
-        summary: assertion.trait_value,
+        summary: traitValue
+          ? label('assertions.summaryWithValue', '{{trait}}：{{value}}', { trait: traitLabel, value: traitValue })
+          : label('assertions.summaryWithoutValue', '{{trait}}：未记录具体值', { trait: traitLabel }),
         related: evidenceEvents,
         impact: [
           { label: label('impact.confidence', '可信度'), value: formatDecimal(assertion.confidence_score) },
@@ -904,10 +1011,9 @@ function getRecordListCopy(
   label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string
 ) {
   if (record.categoryId === 'assertions') {
-    const title = clampText(record.summary, record.title, 88);
     return {
-      title,
-      subtitle: title === record.title ? null : record.title,
+      title: clampText(record.title, label('fallbacks.unknownRecord', '未知记录'), 88),
+      subtitle: record.summary ? clampText(record.summary, record.type, 88) : null,
     };
   }
 
