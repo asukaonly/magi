@@ -7882,7 +7882,7 @@ export interface components {
             readonly desktop_notifications_enabled: boolean;
             /**
              * First Conversation Completed
-             * @description True once the user has sent at least one message in their very first conversation after onboarding. Used to hide the quick-start chips component once it has served its purpose.
+             * @description Legacy onboarding state retained for existing saved preferences. The chat UI no longer uses it to show starter prompts.
              * @default false
              */
             readonly first_conversation_completed: boolean;

@@ -209,9 +209,8 @@ class UserPreferencesModel(BaseModel):
     first_conversation_completed: bool = Field(
         default=False,
         description=(
-            "True once the user has sent at least one message in their very "
-            "first conversation after onboarding. Used to hide the quick-start "
-            "chips component once it has served its purpose."
+            "Legacy onboarding state retained for existing saved preferences. "
+            "The chat UI no longer uses it to show starter prompts."
         ),
     )
     product_tour_completed: bool = Field(

@@ -5,7 +5,6 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useChatComposerController } from '@/hooks/useChatComposerController';
-import { useFirstConversationFlag } from '@/hooks/useFirstConversationFlag';
 import type { PendingAskAnswerPayload } from '@/hooks/useChatSendMessage';
 import { useChatMessageOverlays } from '@/hooks/useChatMessageOverlays';
 import { useChatMessageMutations } from '@/hooks/useChatMessageMutations';
@@ -15,7 +14,6 @@ import { useChatTraceDrawer } from '@/hooks/useChatTraceDrawer';
 import { useChatExecutionControls } from '@/hooks/useChatExecutionControls';
 import { useConversationStore } from '@/stores';
 import { ChatComposerPane } from '@/components/chat/ChatComposerPane';
-import { FirstConversationChips } from '@/components/chat/FirstConversationChips';
 import { SystemSuggestionTopBar } from '@/components/chat/SystemSuggestionTopBar';
 import { SystemSuggestionSideCard } from '@/components/chat/SystemSuggestionSideCard';
 import { useSystemSuggestions } from '@/hooks/useSystemSuggestions';
@@ -309,9 +307,6 @@ export const ChatPage: React.FC = () => {
 
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const { completed: firstConvDone, markCompleted: markFirstConvCompleted } = useFirstConversationFlag();
-  const showFirstConversationChips = !firstConvDone && messages.length === 0;
-
   // System suggestions: fire after each completed user→assistant turn.
   const triggerText = useMemo(() => {
     const lastTwo = messages.slice(-2);
@@ -329,19 +324,6 @@ export const ChatPage: React.FC = () => {
   });
   const [sideCardProposal, setSideCardProposal] = useState<SuggestionProposal | null>(null);
   const topBarProposal = systemSuggestions.length > 0 ? systemSuggestions[0] : null;
-  const handleComposerPrimaryActionWithFlag = React.useCallback(() => {
-    handleComposerPrimaryAction();
-    if (!firstConvDone) {
-      void markFirstConvCompleted();
-    }
-  }, [handleComposerPrimaryAction, firstConvDone, markFirstConvCompleted]);
-  const handleFirstConversationChipPick = React.useCallback(
-    (prompt: string) => {
-      setInputValue(prompt);
-      composerTextareaRef.current?.focus();
-    },
-    [setInputValue],
-  );
 
   const mentions = useChatComposerMentions({
     inputValue,
@@ -520,16 +502,9 @@ export const ChatPage: React.FC = () => {
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (mentions.onKeyDown(event)) return;
       if (commands.onKeyDown(event)) return;
-      const wasSubmit = !event.defaultPrevented
-        && event.key === 'Enter'
-        && !event.shiftKey
-        && !event.nativeEvent.isComposing;
       handleComposerKeyDown(event);
-      if (wasSubmit && !firstConvDone && inputValue.trim().length > 0) {
-        void markFirstConvCompleted();
-      }
     },
-    [commands, firstConvDone, handleComposerKeyDown, inputValue, markFirstConvCompleted, mentions],
+    [commands, handleComposerKeyDown, mentions],
   );
 
   useEffect(() => {
@@ -710,12 +685,6 @@ export const ChatPage: React.FC = () => {
         onDeleteMessage={handleDeleteMessage}
       />
 
-      {showFirstConversationChips && (
-        <div className="mx-auto w-full max-w-[1080px] px-1 pb-3">
-          <FirstConversationChips onPick={handleFirstConversationChipPick} />
-        </div>
-      )}
-
       <ChatComposerPane
         composerRef={composerRef}
         textareaRef={composerTextareaRef}
@@ -737,7 +706,7 @@ export const ChatPage: React.FC = () => {
         onPickFile={() => fileInputRef.current?.click()}
         sessionId={currentSessionId}
         sendingMessage={sendingMessage}
-        onPrimaryAction={handleComposerPrimaryActionWithFlag}
+        onPrimaryAction={handleComposerPrimaryAction}
         imageInputRef={imageInputRef}
         fileInputRef={fileInputRef}
         onAttachmentInputChange={handleAttachmentInputChange}

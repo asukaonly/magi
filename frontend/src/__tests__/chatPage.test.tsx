@@ -293,6 +293,13 @@ describe('ChatPage', () => {
     expect(await screen.findByRole('status', { name: '0' })).toBeInTheDocument();
   });
 
+  it('does not show first-conversation starter chips in empty sessions', () => {
+    render(<ChatPage />);
+
+    expect(screen.queryByText('firstConversation.chips.refineText')).not.toBeInTheDocument();
+    expect(screen.queryByText('firstConversation.chips.plan')).not.toBeInTheDocument();
+  });
+
   it('re-fetches history when switching back to a session', async () => {
     vi.mocked(messagesApi.getHistory)
       .mockResolvedValue({ messages: [] } as any)

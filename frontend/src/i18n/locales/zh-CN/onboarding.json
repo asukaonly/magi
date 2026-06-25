@@ -204,14 +204,6 @@
     "generationFailed": "生成失败",
     "waiting": "正在输入…"
   },
-  "firstConversation": {
-    "chips": {
-      "refineText": "帮我润色这段文字",
-      "plan": "我想做件事，帮我做个计划",
-      "codeThisWeek": "我这周改了什么代码？",
-      "recallContact": "提醒我上次和某某聊了什么"
-    }
-  },
   "pluginNames": {
     "chrome-history": "Chrome 历史",
     "calendar": "日历",

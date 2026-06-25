@@ -203,14 +203,6 @@
     "generationFailed": "Generation failed",
     "waiting": "Typing…"
   },
-  "firstConversation": {
-    "chips": {
-      "refineText": "Polish this text for me",
-      "plan": "Help me plan something",
-      "codeThisWeek": "What code did I change this week?",
-      "recallContact": "Remind me what I told you about Alex"
-    }
-  },
   "pluginNames": {
     "chrome-history": "Chrome history",
     "calendar": "Calendar",
