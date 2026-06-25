@@ -49,6 +49,10 @@ vi.mock('react-i18next', () => ({
         'memory.pending.assertions.tentativeBody': '这个判断对吗？',
         'memory.pending.assertions.conflictTitle': '我发现「{{value}}」这个判断和新的证据有冲突',
         'memory.pending.assertions.conflictBody': '需要你确认它是否还应该影响 Magi 对你的理解。',
+        'memory.pending.assertions.conflictPairTitle': '「{{oldValue}}」和「{{newValue}}」这两个判断对不上',
+        'memory.pending.assertions.conflictPairBody': '旧判断是「{{oldValue}}」，新证据更支持「{{newValue}}」。请确认旧判断是否还准确。',
+        'memory.pending.assertions.uncertainTitle': '我对「{{value}}」这个判断没把握',
+        'memory.pending.assertions.uncertainBody': '证据还不够一致，但没有明确的相反判断。请确认它准不准。',
         'memory.pending.assertions.traitBody': '判断类型：{{trait}}',
         'memory.pending.conflictMeta': '和已确认记忆不一致',
         'memory.pending.evidenceCount': '{{count}} 条证据',
@@ -295,6 +299,13 @@ describe('MemoryPendingPage', () => {
             user_feedback: null,
             user_feedback_at: null,
             status: 'contradicted',
+            conflict_context: {
+              kind: 'superseded_by_assertion',
+              previous_assertion_id: 'assert-conflict',
+              previous_value: '阿里巴巴集团',
+              current_assertion_id: 'assert-current',
+              current_value: 'Frank Wang',
+            },
           },
           {
             assertion_id: 'assert-conflict-no-value',
@@ -325,12 +336,13 @@ describe('MemoryPendingPage', () => {
     renderPage();
 
     const card = await screen.findByTestId('pending-assertion-assert-conflict');
-    expect(within(card).getByText('我发现「阿里巴巴集团」这个判断和新的证据有冲突')).toBeInTheDocument();
-    expect(within(card).getByText('需要你确认它是否还应该影响 Magi 对你的理解。')).toBeInTheDocument();
+    expect(within(card).getByText('「阿里巴巴集团」和「Frank Wang」这两个判断对不上')).toBeInTheDocument();
+    expect(within(card).getByText('旧判断是「阿里巴巴集团」，新证据更支持「Frank Wang」。请确认旧判断是否还准确。')).toBeInTheDocument();
     expect(card.textContent).not.toContain('interest.frank_wang-7efea7');
 
     const fallbackCard = await screen.findByTestId('pending-assertion-assert-conflict-no-value');
-    expect(within(fallbackCard).getByText('我发现「这条记忆判断」这个判断和新的证据有冲突')).toBeInTheDocument();
+    expect(within(fallbackCard).getByText('我对「这条记忆判断」这个判断没把握')).toBeInTheDocument();
+    expect(within(fallbackCard).getByText('证据还不够一致，但没有明确的相反判断。请确认它准不准。')).toBeInTheDocument();
     expect(fallbackCard.textContent).not.toContain('interest.frank_wang-7efea7');
   });
 

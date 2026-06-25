@@ -23,6 +23,7 @@ from .statistics import build_layer_statistics
 
 
 PENDING_ASSERTION_STATES = ["tentative", "contradicted"]
+MAX_SUPERSEDED_CHAIN_DEPTH = 8
 
 
 def _start_of_local_today() -> float:
@@ -38,6 +39,52 @@ def _project_source_count(row: dict[str, Any]) -> dict[str, Any]:
         "first_event_at": row.get("min_timestamp"),
         "last_event_at": row.get("max_timestamp"),
     }
+
+
+def _clean_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+async def _resolve_superseded_successor(l2: Any, assertion: dict[str, Any]) -> dict[str, Any] | None:
+    get_assertion = getattr(l2, "get_tom_assertion", None)
+    if not callable(get_assertion):
+        return None
+
+    next_id = _clean_text(assertion.get("superseded_by"))
+    if not next_id:
+        return None
+
+    seen = {_clean_text(assertion.get("assertion_id"))}
+    successor: dict[str, Any] | None = None
+    for _ in range(MAX_SUPERSEDED_CHAIN_DEPTH):
+        if not next_id or next_id in seen:
+            break
+        seen.add(next_id)
+        candidate = await get_assertion(assertion_id=next_id)
+        if not candidate:
+            break
+        successor = dict(candidate)
+        next_id = _clean_text(successor.get("superseded_by"))
+    return successor
+
+
+async def _enrich_pending_assertions(l2: Any, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for item in items:
+        assertion = dict(item)
+        successor = await _resolve_superseded_successor(l2, assertion)
+        if successor is not None:
+            current_value = _clean_text(successor.get("trait_value"))
+            if current_value:
+                assertion["conflict_context"] = {
+                    "kind": "superseded_by_assertion",
+                    "previous_assertion_id": _clean_text(assertion.get("assertion_id")),
+                    "previous_value": _clean_text(assertion.get("trait_value")),
+                    "current_assertion_id": _clean_text(successor.get("assertion_id")),
+                    "current_value": current_value,
+                }
+        enriched.append(assertion)
+    return enriched
 
 
 async def _default_projection_backlog() -> dict[str, int]:
@@ -176,6 +223,8 @@ async def get_memory_dashboard(
         l3_today_count_coro,
         l2_edge_backlog_coro,
     )
+    if l2:
+        pending_items = await _enrich_pending_assertions(l2, pending_items)
 
     statistics = build_layer_statistics(
         unified_memory=unified_memory,

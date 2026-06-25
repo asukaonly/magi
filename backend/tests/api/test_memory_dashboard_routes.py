@@ -50,6 +50,7 @@ class _FakeL2Store:
     def __init__(self):
         self.count_assertion_kwargs: list[dict] = []
         self.list_assertion_kwargs = None
+        self.get_assertion_ids: list[str] = []
 
     async def count_relationships(self):
         return 4
@@ -85,6 +86,30 @@ class _FakeL2Store:
                 "status": "tentative",
             }
         ]
+
+    async def get_tom_assertion(self, *, assertion_id: str):
+        self.get_assertion_ids.append(assertion_id)
+        if assertion_id == "assert-current":
+            return {
+                "assertion_id": "assert-current",
+                "entity_id": "user:self",
+                "entity_type": "user",
+                "trait_family": "preference_profile",
+                "trait_name": "favorite_language",
+                "trait_value": "TypeScript",
+                "confidence_score": 0.8,
+                "evidence_events": ["evt-2"],
+                "validation_state": "stable",
+                "volatility_index": 0.3,
+                "source_domain": "conversation",
+                "inference_depth": "semantic",
+                "first_inferred_at": 1710001000.0,
+                "last_validated_at": 1710001000.0,
+                "user_feedback": None,
+                "user_feedback_at": None,
+                "status": "stable",
+            }
+        return None
 
 
 class _FakeL3Store:
@@ -230,3 +255,52 @@ def test_memory_dashboard_reports_statistics_sources_and_pending(monkeypatch):
         "limit": 4,
         "offset": 0,
     }
+
+
+def test_memory_dashboard_enriches_superseded_assertion_conflict_context(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    fake_memory = _FakeUnifiedMemory()
+
+    async def list_superseded_assertions(**kwargs):
+        fake_memory.l2.list_assertion_kwargs = kwargs
+        return [
+            {
+                "assertion_id": "assert-old",
+                "entity_id": "user:self",
+                "entity_type": "user",
+                "trait_family": "preference_profile",
+                "trait_name": "interest.frank_wang-7efea7",
+                "trait_value": "阿里巴巴集团",
+                "confidence_score": 0.35,
+                "evidence_events": ["evt-1"],
+                "validation_state": "contradicted",
+                "volatility_index": 0.4,
+                "source_domain": "external_activity",
+                "inference_depth": "topology_only",
+                "first_inferred_at": 1710000000.0,
+                "last_validated_at": 1710000000.0,
+                "user_feedback": None,
+                "user_feedback_at": None,
+                "status": "superseded",
+                "superseded_by": "assert-current",
+            }
+        ]
+
+    fake_memory.l2.list_tom_assertions = list_superseded_assertions
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.get("/api/memory/dashboard", params={"pending_limit": 4})
+
+    assert response.status_code == 200
+    item = response.json()["pending_assertions"]["items"][0]
+    assert item["conflict_context"] == {
+        "kind": "superseded_by_assertion",
+        "previous_assertion_id": "assert-old",
+        "previous_value": "阿里巴巴集团",
+        "current_assertion_id": "assert-current",
+        "current_value": "TypeScript",
+    }
+    assert fake_memory.l2.get_assertion_ids == ["assert-current"]

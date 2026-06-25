@@ -2637,6 +2637,10 @@
         "tentativeBody": "这个判断对吗？",
         "conflictTitle": "我发现「{{value}}」这个判断和新的证据有冲突",
         "conflictBody": "需要你确认它是否还应该影响 Magi 对你的理解。",
+        "conflictPairTitle": "「{{oldValue}}」和「{{newValue}}」这两个判断对不上",
+        "conflictPairBody": "旧判断是「{{oldValue}}」，新证据更支持「{{newValue}}」。请确认旧判断是否还准确。",
+        "uncertainTitle": "我对「{{value}}」这个判断没把握",
+        "uncertainBody": "证据还不够一致，但没有明确的相反判断。请确认它准不准。",
         "traitBody": "判断类型：{{trait}}"
       },
       "fallbackMemoryUpdateTitle": "待确认总结",

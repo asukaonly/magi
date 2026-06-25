@@ -72,16 +72,30 @@ const assertionDisplayValue = (assertion: L2Assertion, t: TranslationFn): string
   return t('memory.pending.assertions.unknownValue');
 };
 
+const readableConflictValue = (value: unknown): string => {
+  const text = String(value || '').trim();
+  return text && !isInternalTraitName(text) ? text : '';
+};
+
 const assertionCardCopy = (
   assertion: L2Assertion,
   t: TranslationFn,
 ): { title: string; body: string } => {
   const value = assertionDisplayValue(assertion, t);
+  const context = assertion.conflict_context;
+  const oldValue = readableConflictValue(context?.previous_value) || value;
+  const newValue = readableConflictValue(context?.current_value);
+  if (newValue && oldValue !== newValue) {
+    return {
+      title: t('memory.pending.assertions.conflictPairTitle', { oldValue, newValue }),
+      body: t('memory.pending.assertions.conflictPairBody', { oldValue, newValue }),
+    };
+  }
   const state = String(assertion.validation_state || assertion.status || '').trim().toLowerCase();
   if (state === 'contradicted') {
     return {
-      title: t('memory.pending.assertions.conflictTitle', { value }),
-      body: t('memory.pending.assertions.conflictBody'),
+      title: t('memory.pending.assertions.uncertainTitle', { value }),
+      body: t('memory.pending.assertions.uncertainBody'),
     };
   }
   const traitName = readableTraitName(assertion, value);

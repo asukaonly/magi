@@ -178,6 +178,14 @@ export interface L2Relation {
   updated_at?: number;
 }
 
+export interface L2AssertionConflictContext {
+  kind?: 'superseded_by_assertion' | string;
+  previous_assertion_id?: string | null;
+  previous_value?: string | null;
+  current_assertion_id?: string | null;
+  current_value?: string | null;
+}
+
 export interface L2Assertion {
   assertion_id: string;
   entity_id: string;
@@ -201,6 +209,7 @@ export interface L2Assertion {
   status?: string | null;
   superseded_by?: string | null;
   superseded_at?: number | null;
+  conflict_context?: L2AssertionConflictContext | null;
 }
 
 export interface L2Entity {

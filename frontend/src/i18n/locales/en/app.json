@@ -2638,6 +2638,10 @@
         "tentativeBody": "Is this judgment right?",
         "conflictTitle": "I found that \"{{value}}\" conflicts with newer evidence",
         "conflictBody": "Confirm whether it should still shape how Magi understands you.",
+        "conflictPairTitle": "\"{{oldValue}}\" and \"{{newValue}}\" do not agree",
+        "conflictPairBody": "The older judgment was \"{{oldValue}}\". Newer evidence supports \"{{newValue}}\" more. Confirm whether the older judgment is still accurate.",
+        "uncertainTitle": "I'm not sure about \"{{value}}\"",
+        "uncertainBody": "The evidence is not consistent enough, and there is no clear opposite judgment yet. Confirm whether this is accurate.",
         "traitBody": "Judgment type: {{trait}}"
       },
       "fallbackMemoryUpdateTitle": "Summary to review",
