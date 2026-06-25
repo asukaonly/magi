@@ -8,6 +8,7 @@ from magi.config import models as runtime_models
 from magi.config.memory_models import (
     MemoryL2ConfidenceSettings,
     MemoryL2EpisodeSettings,
+    MemoryL2ExperienceSettings,
     MemoryL2LifecycleSettings,
     MemoryL2LimitsSettings,
     MemoryL2Settings,
@@ -62,6 +63,7 @@ def test_l2_edge_embedding_drain_interval_default():
         "MemoryL1Settings",
         "MemoryL2ConfidenceSettings",
         "MemoryL2EpisodeSettings",
+        "MemoryL2ExperienceSettings",
         "MemoryL2LifecycleSettings",
         "MemoryL2LimitsSettings",
         "MemoryL2Settings",
@@ -292,6 +294,39 @@ def test_standout_gate_from_config_reads_override(monkeypatch):
         "primary_entity_ids": ["a", "b"],
     }
     assert _passes_standout_gate(episode, gate) is True
+
+
+def test_runtime_config_l2_experience_defaults():
+    experience = AppConfig().agent.memory.l2.experience
+
+    assert isinstance(experience, MemoryL2ExperienceSettings)
+    assert experience.min_quality_score == 6
+    assert experience.duplicate_overlap_ratio == 0.8
+    assert experience.min_repeated_goal_episodes == 3
+    assert experience.min_repeated_goal_events == 8
+    assert experience.max_repeated_goal_window_seconds == 30 * 24 * 60 * 60
+    assert experience.max_repeated_goal_gap_seconds == 7 * 24 * 60 * 60
+
+
+def test_l2_experience_config_defaults_match_module_constants():
+    from magi.memory.l2.experiences.promotion import DUPLICATE_OVERLAP_RATIO
+    from magi.memory.l2.experiences.quality import MIN_EXPERIENCE_QUALITY_SCORE
+    from magi.memory.l2.experiences.seed_discovery import (
+        MAX_REPEATED_GOAL_GAP_SECONDS,
+        MAX_REPEATED_GOAL_WINDOW_SECONDS,
+        MIN_REPEATED_GOAL_EPISODES,
+        MIN_REPEATED_GOAL_EVENTS,
+    )
+
+    experience = MemoryL2ExperienceSettings()
+
+    assert experience.min_quality_score == MIN_EXPERIENCE_QUALITY_SCORE
+    assert experience.duplicate_overlap_ratio == DUPLICATE_OVERLAP_RATIO
+    assert experience.min_repeated_goal_episodes == MIN_REPEATED_GOAL_EPISODES
+    assert experience.min_repeated_goal_events == MIN_REPEATED_GOAL_EVENTS
+    assert experience.max_repeated_goal_window_seconds == MAX_REPEATED_GOAL_WINDOW_SECONDS
+    assert experience.max_repeated_goal_gap_seconds == MAX_REPEATED_GOAL_GAP_SECONDS
+
 
 
 

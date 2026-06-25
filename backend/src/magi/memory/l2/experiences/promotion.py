@@ -6,6 +6,7 @@ import time
 import uuid
 from typing import Any
 
+from ..storage.utils import _l2_setting
 from .models import ExperiencePromotionStats
 from .seed_discovery import (
     discover_experience_seeds,
@@ -141,9 +142,10 @@ def _is_duplicate(included_episode_ids: list[str], existing_sets: list[set[str]]
     candidate_ids = set(included_episode_ids)
     if not candidate_ids:
         return False
+    duplicate_ratio = float(_l2_setting("experience", "duplicate_overlap_ratio", DUPLICATE_OVERLAP_RATIO))
     for existing in existing_sets:
         overlap = len(candidate_ids & existing) / min(len(candidate_ids), len(existing))
-        if overlap >= DUPLICATE_OVERLAP_RATIO:
+        if overlap >= duplicate_ratio:
             return True
     return False
 

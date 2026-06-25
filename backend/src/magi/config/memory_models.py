@@ -256,6 +256,47 @@ class MemoryL2EpisodeSettings(BaseModel):
     )
 
 
+class MemoryL2ExperienceSettings(BaseModel):
+    """Experience promotion gates: quality score, dedup, and repeated-goal seeds.
+
+    These previously lived as hardcoded module constants. Defaults preserve the
+    prior runtime behavior; the runtime reads them through config-aware accessors
+    that fall back to the same defaults when no config is bound.
+    """
+
+    min_quality_score: int = Field(
+        default=6,
+        ge=1,
+        description="Minimum narrative-quality score for a seed to be promoted to an experience.",
+    )
+    duplicate_overlap_ratio: float = Field(
+        default=0.8,
+        gt=0.0,
+        le=1.0,
+        description="Episode-set overlap ratio above which a candidate is treated as a duplicate experience.",
+    )
+    min_repeated_goal_episodes: int = Field(
+        default=3,
+        ge=1,
+        description="Minimum episodes in a repeated-goal cluster before it can seed an experience.",
+    )
+    min_repeated_goal_events: int = Field(
+        default=8,
+        ge=1,
+        description="Minimum total source events in a repeated-goal cluster.",
+    )
+    max_repeated_goal_window_seconds: float = Field(
+        default=30 * 24 * 60 * 60,
+        ge=0,
+        description="Maximum time span of a repeated-goal cluster (seconds).",
+    )
+    max_repeated_goal_gap_seconds: float = Field(
+        default=7 * 24 * 60 * 60,
+        ge=0,
+        description="Maximum gap between adjacent episodes in a repeated-goal cluster (seconds).",
+    )
+
+
 class MemoryL2Settings(BaseModel):
     """L2 structured cognition settings."""
 
@@ -320,6 +361,7 @@ class MemoryL2Settings(BaseModel):
     limits: MemoryL2LimitsSettings = Field(default_factory=MemoryL2LimitsSettings)
     confidence: MemoryL2ConfidenceSettings = Field(default_factory=MemoryL2ConfidenceSettings)
     episode: MemoryL2EpisodeSettings = Field(default_factory=MemoryL2EpisodeSettings)
+    experience: MemoryL2ExperienceSettings = Field(default_factory=MemoryL2ExperienceSettings)
 
 
 class MemoryL3Settings(BaseModel):
@@ -468,6 +510,7 @@ __all__ = [
     "MemoryL1Settings",
     "MemoryL2ConfidenceSettings",
     "MemoryL2EpisodeSettings",
+    "MemoryL2ExperienceSettings",
     "MemoryL2LifecycleSettings",
     "MemoryL2LimitsSettings",
     "MemoryL2Settings",

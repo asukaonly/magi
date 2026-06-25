@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable, Iterable, Mapping, Sequence
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ..storage.utils import _l2_setting
 
 
 GENERIC_EXPERIENCE_ANCHORS = {
@@ -473,17 +474,25 @@ def _time_bounds(features: Sequence[_EpisodeSeedFeatures]) -> tuple[float, float
 
 
 def _passes_repeated_goal_gate(features: Sequence[_EpisodeSeedFeatures]) -> bool:
-    if len(features) < MIN_REPEATED_GOAL_EPISODES:
+    min_episodes = int(_l2_setting("experience", "min_repeated_goal_episodes", MIN_REPEATED_GOAL_EPISODES))
+    min_events = int(_l2_setting("experience", "min_repeated_goal_events", MIN_REPEATED_GOAL_EVENTS))
+    max_window = float(
+        _l2_setting("experience", "max_repeated_goal_window_seconds", MAX_REPEATED_GOAL_WINDOW_SECONDS)
+    )
+    max_gap = float(
+        _l2_setting("experience", "max_repeated_goal_gap_seconds", MAX_REPEATED_GOAL_GAP_SECONDS)
+    )
+    if len(features) < min_episodes:
         return False
-    if _total_source_events(features) < MIN_REPEATED_GOAL_EVENTS:
+    if _total_source_events(features) < min_events:
         return False
     ordered = sorted(features, key=lambda item: float(item.episode["time_start"]))
     start, end = _time_bounds(ordered)
-    if end - start > MAX_REPEATED_GOAL_WINDOW_SECONDS:
+    if end - start > max_window:
         return False
     for left, right in zip(ordered, ordered[1:]):
         gap = float(right.episode["time_start"]) - float(left.episode["time_end"])
-        if gap > MAX_REPEATED_GOAL_GAP_SECONDS:
+        if gap > max_gap:
             return False
     return True
 
@@ -761,12 +770,15 @@ def _contiguous_feature_runs(
     ordered = sorted(features, key=lambda item: float(item.episode["time_start"]))
     runs: list[list[_EpisodeSeedFeatures]] = []
     current: list[_EpisodeSeedFeatures] = []
+    max_gap = float(
+        _l2_setting("experience", "max_repeated_goal_gap_seconds", MAX_REPEATED_GOAL_GAP_SECONDS)
+    )
     for feature in ordered:
         if not current:
             current = [feature]
             continue
         gap = float(feature.episode["time_start"]) - float(current[-1].episode["time_end"])
-        if gap > MAX_REPEATED_GOAL_GAP_SECONDS:
+        if gap > max_gap:
             runs.append(current)
             current = [feature]
         else:

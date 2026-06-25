@@ -114,6 +114,14 @@ agent:
         standout_min_duration_seconds: 2700 # 45 min
         standout_dense_event_count: 20
         standout_min_distinct_entities: 2
+      # Experience promotion gates: quality score, dedup, repeated-goal seeds.
+      experience:
+        min_quality_score: 6
+        duplicate_overlap_ratio: 0.8
+        min_repeated_goal_episodes: 3
+        min_repeated_goal_events: 8
+        max_repeated_goal_window_seconds: 2592000 # 30 days
+        max_repeated_goal_gap_seconds: 604800 # 7 days
 
     l3:
       enabled: true

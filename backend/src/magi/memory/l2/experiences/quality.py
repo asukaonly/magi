@@ -10,6 +10,7 @@ from .seed_discovery import (
     is_technical_artifact_experience_token,
 )
 from .seed_selection import ExperienceSeedSelection
+from ..storage.utils import _l2_setting
 
 
 MIN_EXPERIENCE_QUALITY_SCORE = 6
@@ -265,12 +266,16 @@ def evaluate_experience_quality(
             reason=selection.reason or "Selection did not form an experience.",
         )
 
+    min_quality_score = int(
+        _l2_setting("experience", "min_quality_score", MIN_EXPERIENCE_QUALITY_SCORE)
+    )
+
     if str(seed.get("status") or "") == "accepted" or str(seed.get("seed_type") or "") == "manual":
         return ExperienceQualityDecision(
             accepted=True,
-            score=MIN_EXPERIENCE_QUALITY_SCORE,
+            score=min_quality_score,
             reason="User accepted this seed.",
-            components={"user_confirmed": MIN_EXPERIENCE_QUALITY_SCORE},
+            components={"user_confirmed": min_quality_score},
         )
 
     episodes = _included_episodes(selection, evidence_pack)
@@ -301,7 +306,7 @@ def evaluate_experience_quality(
         and components["boundary"] > 0
         and components["involvement"] > 0
     )
-    if score < MIN_EXPERIENCE_QUALITY_SCORE or not mandatory_ok:
+    if score < min_quality_score or not mandatory_ok:
         return ExperienceQualityDecision(
             accepted=False,
             score=score,
