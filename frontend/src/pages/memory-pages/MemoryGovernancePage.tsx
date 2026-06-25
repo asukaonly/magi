@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import {
@@ -424,13 +424,56 @@ export const MemoryGovernancePage = () => {
 
   const activeLayerSummary = layerSummaries.find((layer) => layer.id === activeLayer) || layerSummaries[0];
   const activeRecords = activeLayerSummary.records;
-  const pageCount = Math.max(1, Math.ceil(activeRecords.length / RECORD_PAGE_SIZE));
+  const activeTotal = activeLayerSummary.count || activeRecords.length;
+  const pageCount = Math.max(1, Math.ceil(activeTotal / RECORD_PAGE_SIZE));
   const currentPage = Math.min(activePage, pageCount);
-  const visibleRecords = activeRecords.slice((currentPage - 1) * RECORD_PAGE_SIZE, currentPage * RECORD_PAGE_SIZE);
+  const visibleRecords = activeRecords.slice(0, RECORD_PAGE_SIZE);
   const pendingAssertionCount = toFiniteNumber(memory.stats.attention?.pending_assertions);
   const openBreakerCount = toFiniteNumber(memory.stats.l4?.open_circuit_breakers);
   const l1EventCount = toFiniteNumber(memory.stats.l1?.event_count) || memory.l1Total;
   const extractSkippedCount = toFiniteNumber(memory.l2Stats?.extract_skipped);
+
+  useEffect(() => {
+    const offset = (currentPage - 1) * RECORD_PAGE_SIZE;
+    const params = { limit: RECORD_PAGE_SIZE, offset };
+    switch (activeLayer) {
+      case 'sessions':
+        void memory.loadL0Sessions(params);
+        break;
+      case 'events':
+        void memory.queryL1Events(params);
+        break;
+      case 'entities':
+        void memory.loadL2Entities(params);
+        break;
+      case 'assertions':
+        void memory.loadL2Assertions(params);
+        break;
+      case 'relations':
+        void memory.loadL2Relations(params);
+        break;
+      case 'snapshots':
+        void memory.loadL2Snapshots(params);
+        break;
+      case 'summaries':
+        void memory.loadL3Summaries(params);
+        break;
+      case 'skills':
+        void memory.loadL4Skills(params);
+        break;
+    }
+  }, [
+    activeLayer,
+    currentPage,
+    memory.loadL0Sessions,
+    memory.queryL1Events,
+    memory.loadL2Entities,
+    memory.loadL2Assertions,
+    memory.loadL2Relations,
+    memory.loadL2Snapshots,
+    memory.loadL3Summaries,
+    memory.loadL4Skills,
+  ]);
 
   const diagnostics = useMemo(() => {
     return [
@@ -635,8 +678,9 @@ function LayerWorkspace({
   label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string;
 }) {
   const selectedLayer = layers.find((layer) => layer.id === activeLayer) || layers[0];
-  const pageStart = activeRecords.length === 0 ? 0 : (page - 1) * pageSize + 1;
-  const pageEnd = Math.min(activeRecords.length, page * pageSize);
+  const totalRecordCount = selectedLayer.count || activeRecords.length;
+  const pageStart = totalRecordCount === 0 || visibleRecords.length === 0 ? 0 : (page - 1) * pageSize + 1;
+  const pageEnd = pageStart === 0 ? 0 : Math.min(totalRecordCount, pageStart + visibleRecords.length - 1);
   return (
     <section className="grid h-full min-h-0 gap-3 lg:grid-cols-[230px_minmax(0,1fr)]">
       <aside className="min-h-0 rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)] p-2">
@@ -713,12 +757,12 @@ function LayerWorkspace({
                         type="button"
                         aria-label={label('objects.openRecord', '打开记录 {{title}}', { title: listCopy.title })}
                         onClick={() => onSelectRecord(record)}
-                        className="grid w-full grid-cols-[minmax(230px,1.35fr)_104px_112px_112px_88px_32px] items-center px-4 py-3 text-left text-sm transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.48)]"
+                        className="grid w-full grid-cols-[minmax(230px,1.35fr)_104px_112px_112px_88px_32px] items-center px-4 py-3 text-left text-xs transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.48)]"
                       >
                         <span className="min-w-0">
                           <span className="block truncate font-medium text-[hsl(var(--memory-title))]">{listCopy.title}</span>
                           {listCopy.subtitle ? (
-                            <span className="mt-0.5 block truncate text-xs text-[hsl(var(--memory-muted))]">{listCopy.subtitle}</span>
+                            <span className="mt-0.5 block truncate text-[11px] text-[hsl(var(--memory-muted))]">{listCopy.subtitle}</span>
                           ) : null}
                         </span>
                         <span className="truncate text-[hsl(var(--memory-body))]">{record.type}</span>
@@ -737,7 +781,7 @@ function LayerWorkspace({
                 {label('objects.pageSummary', '{{start}}-{{end}} / {{total}} 条', {
                   start: pageStart,
                   end: pageEnd,
-                  total: activeRecords.length,
+                  total: totalRecordCount,
                 })}
               </span>
               <div className="flex items-center justify-end gap-2">

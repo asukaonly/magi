@@ -249,14 +249,17 @@ describe('MemoryGovernancePage', () => {
     expect(screen.queryByText('ID')).not.toBeInTheDocument();
     expect(screen.queryByText('assert_1')).not.toBeInTheDocument();
 
-    await user.click(await screen.findByRole('button', { name: /直白/ }));
+    const row = await screen.findByRole('button', { name: /直白/ });
+    expect(row).toHaveClass('text-xs');
+
+    await user.click(row);
 
     const drawer = await screen.findByRole('dialog', { name: '记录详情' });
     expect(within(drawer).getByText('assert_1')).toBeInTheDocument();
   });
 
-  it('paginates the object record list instead of rendering every row at once', async () => {
-    const entities = Array.from({ length: 8 }, (_, index) => ({
+  it('requests the next server page instead of slicing the first loaded rows', async () => {
+    const entities = Array.from({ length: 6 }, (_, index) => ({
       entity_id: `ent_page_${index + 1}`,
       canonical_name: `分页实体 ${index + 1}`,
       entity_type: 'person',
@@ -266,7 +269,7 @@ describe('MemoryGovernancePage', () => {
     vi.mocked(useMemory).mockReturnValue({
       ...baseMemoryState,
       l2Entities: entities,
-      l2EntitiesTotal: entities.length,
+      l2EntitiesTotal: 8,
       l2Assertions: [],
       l2AssertionsTotal: 0,
       l2Relations: [],
@@ -279,12 +282,13 @@ describe('MemoryGovernancePage', () => {
     renderPage();
 
     expect(await screen.findByRole('button', { name: /分页实体 1/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /分页实体 7/ })).not.toBeInTheDocument();
+    expect(screen.getByText('1-6 / 8 条')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '下一页' }));
 
-    expect(await screen.findByRole('button', { name: /分页实体 7/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /分页实体 1/ })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(baseMemoryState.loadL2Entities).toHaveBeenCalledWith({ limit: 6, offset: 6 });
+    });
   });
 
   it('opens record details in a right-side drawer when a row is selected', async () => {
