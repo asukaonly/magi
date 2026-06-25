@@ -221,12 +221,47 @@ beforeEach(() => {
 });
 
 describe('MemoryGovernancePage', () => {
-  it('renders the layer maintenance table as the default workspace', async () => {
+  it('renders object maintenance categories without exposing layer codes', async () => {
     renderPage();
-    expect(await screen.findByRole('tab', { name: '分层明细' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('button', { name: /L2 结构知识/ })).toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: '对象明细' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: /实体 人物、地点/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /断言 偏好、判断/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /关系图谱/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /ent_user_8f3e/ })).toBeInTheDocument();
+    expect(screen.queryByText(/\bL[0-4]\b/)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText('episode_id')).not.toBeInTheDocument();
+  });
+
+  it('paginates the object record list instead of rendering every row at once', async () => {
+    const entities = Array.from({ length: 8 }, (_, index) => ({
+      entity_id: `ent_page_${index + 1}`,
+      canonical_name: `分页实体 ${index + 1}`,
+      entity_type: 'person',
+      aliases: [],
+      updated_at: 1719301200 + index,
+    }));
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l2Entities: entities,
+      l2EntitiesTotal: entities.length,
+      l2Assertions: [],
+      l2AssertionsTotal: 0,
+      l2Relations: [],
+      l2RelationsTotal: 0,
+      l2Snapshots: [],
+      l2SnapshotsTotal: 0,
+    } as ReturnType<typeof useMemory>);
+    const user = userEvent.setup();
+
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: /ent_page_1/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /ent_page_7/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '下一页' }));
+
+    expect(await screen.findByRole('button', { name: /ent_page_7/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /ent_page_1/ })).not.toBeInTheDocument();
   });
 
   it('opens record details in a right-side drawer when a row is selected', async () => {
@@ -335,7 +370,7 @@ describe('MemoryGovernancePage', () => {
 
     renderPage();
 
-    expect(await screen.findByRole('tab', { name: '分层明细' })).toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: '对象明细' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /ent_sparse/ })).toBeInTheDocument();
   });
 });

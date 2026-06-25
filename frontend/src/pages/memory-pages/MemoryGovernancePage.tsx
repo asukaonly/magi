@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ArrowUpRight,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Database,
   Layers3,
@@ -35,12 +36,23 @@ import MemoryPageFrame, {
   MEMORY_INFO_PANEL_CLASS,
 } from './MemoryPageFrame';
 
-type GovernanceTab = 'layers' | 'tasks' | 'manual' | 'forget' | 'diagnostics';
+type GovernanceTab = 'objects' | 'tasks' | 'manual' | 'forget' | 'diagnostics';
 type MemoryLayerId = 'l0' | 'l1' | 'l2' | 'l3' | 'l4';
+type MaintenanceCategoryId =
+  | 'sessions'
+  | 'events'
+  | 'entities'
+  | 'assertions'
+  | 'relations'
+  | 'snapshots'
+  | 'summaries'
+  | 'skills';
 
 interface LayerRecord {
   id: string;
   layer: MemoryLayerId;
+  categoryId: MaintenanceCategoryId;
+  categoryLabel: string;
   title: string;
   type: string;
   source: string;
@@ -53,7 +65,7 @@ interface LayerRecord {
 }
 
 interface LayerSummary {
-  id: MemoryLayerId;
+  id: MaintenanceCategoryId;
   label: string;
   description: string;
   count: number;
@@ -61,6 +73,8 @@ interface LayerSummary {
   tone: 'ok' | 'warn' | 'danger';
   records: LayerRecord[];
 }
+
+const RECORD_PAGE_SIZE = 6;
 
 const toList = <T,>(value: T[] | null | undefined): T[] => (Array.isArray(value) ? value : []);
 
@@ -123,8 +137,9 @@ const getRowStatusClass = (status: string) => {
 
 export const MemoryGovernancePage = () => {
   const { t } = useTranslation('app');
-  const [activeTab, setActiveTab] = useState<GovernanceTab>('layers');
-  const [activeLayer, setActiveLayer] = useState<MemoryLayerId>('l2');
+  const [activeTab, setActiveTab] = useState<GovernanceTab>('objects');
+  const [activeLayer, setActiveLayer] = useState<MaintenanceCategoryId>('entities');
+  const [activePage, setActivePage] = useState(1);
   const [selectedRecord, setSelectedRecord] = useState<LayerRecord | null>(null);
   const [reconsolidating, setReconsolidating] = useState(false);
   const [reconsolidateResult, setReconsolidateResult] = useState<EpisodeReconsolidateResult | null>(null);
@@ -144,6 +159,16 @@ export const MemoryGovernancePage = () => {
     const l2Snapshots = toList(memory.l2Snapshots);
     const l3Summaries = toList(memory.l3Summaries);
     const l4Skills = toList(memory.l4Skills);
+    const categoryLabels: Record<MaintenanceCategoryId, string> = {
+      sessions: label('categories.sessions', '会话工作台'),
+      events: label('categories.events', '原始事件'),
+      entities: label('categories.entities', '实体'),
+      assertions: label('categories.assertions', '断言'),
+      relations: label('categories.relations', '关系图谱'),
+      snapshots: label('categories.snapshots', '状态快照'),
+      summaries: label('categories.summaries', '经历总结'),
+      skills: label('categories.skills', '工具技能'),
+    };
     const l2EntityEvidence = (entityId: string) => (
       l2Assertions.filter((assertion) => assertion.entity_id === entityId).length +
       l2Relations.filter((relation) => relation.subject_id === entityId || relation.object_id === entityId).length
@@ -152,6 +177,8 @@ export const MemoryGovernancePage = () => {
     const l0Records: LayerRecord[] = l0Sessions.map((session) => ({
       id: safeText(session.short_session_id || session.session_id, label('fallbacks.unknownRecord', '未知记录')),
       layer: 'l0',
+      categoryId: 'sessions',
+      categoryLabel: categoryLabels.sessions,
       title: clampText(session.display_title, label('fallbacks.untitledSession', '未命名会话'), 64),
       type: label('recordTypes.session', '会话'),
       source: session.workspace_path ? label('sources.workspace', '工作区') : label('sources.chat', '对话'),
@@ -169,6 +196,8 @@ export const MemoryGovernancePage = () => {
     const l1Records: LayerRecord[] = l1Events.map((event) => ({
       id: safeText(event.event_id, label('fallbacks.unknownRecord', '未知记录')),
       layer: 'l1',
+      categoryId: 'events',
+      categoryLabel: categoryLabels.events,
       title: clampText(event.content, safeText(event.event_type, label('recordTypes.event', '事件')), 88),
       type: safeText(event.event_type, label('recordTypes.event', '事件')),
       source: safeText(event.source, label('sources.unknown', '未知来源')),
@@ -192,6 +221,8 @@ export const MemoryGovernancePage = () => {
       return {
         id: safeText(entity.entity_id, label('fallbacks.unknownRecord', '未知记录')),
         layer: 'l2',
+        categoryId: 'entities',
+        categoryLabel: categoryLabels.entities,
         title: `${label('recordTypes.entity', '实体')}：${safeText(entity.canonical_name, label('fallbacks.unknownRecord', '未知记录'))}`,
         type: label('recordTypes.entity', '实体'),
         source: safeText(entity.entity_type, label('sources.unknown', '未知来源')),
@@ -213,6 +244,8 @@ export const MemoryGovernancePage = () => {
       return {
         id: safeText(assertion.assertion_id, label('fallbacks.unknownRecord', '未知记录')),
         layer: 'l2',
+        categoryId: 'assertions',
+        categoryLabel: categoryLabels.assertions,
         title: `${label('recordTypes.assertion', '断言')}：${safeText(assertion.trait_name, label('fallbacks.unknownRecord', '未知记录'))}`,
         type: label('recordTypes.assertion', '断言'),
         source: safeText(assertion.source_domain, label('sources.unknown', '未知来源')),
@@ -233,6 +266,8 @@ export const MemoryGovernancePage = () => {
       return {
         id: safeText(relation.triple_id, label('fallbacks.unknownRecord', '未知记录')),
         layer: 'l2',
+        categoryId: 'relations',
+        categoryLabel: categoryLabels.relations,
         title: `${label('recordTypes.relation', '关系')}：${safeText(relation.subject_id, '?')} ${safeText(relation.predicate, '?')} ${safeText(relation.object_id, '?')}`,
         type: label('recordTypes.relation', '关系'),
         source: safeText(relation.subject_type, label('sources.unknown', '未知来源')),
@@ -251,6 +286,8 @@ export const MemoryGovernancePage = () => {
     const l2SnapshotRecords: LayerRecord[] = l2Snapshots.map((snapshot) => ({
       id: safeText(snapshot.snapshot_id, label('fallbacks.unknownRecord', '未知记录')),
       layer: 'l2',
+      categoryId: 'snapshots',
+      categoryLabel: categoryLabels.snapshots,
       title: `${label('recordTypes.snapshot', '快照')}：${safeText(snapshot.entity_id, label('fallbacks.unknownRecord', '未知记录'))}`,
       type: label('recordTypes.snapshot', '快照'),
       source: safeText(snapshot.entity_type, label('sources.unknown', '未知来源')),
@@ -264,13 +301,13 @@ export const MemoryGovernancePage = () => {
       ],
     }));
 
-    const l2Records = [...l2EntityRecords, ...l2AssertionRecords, ...l2RelationRecords, ...l2SnapshotRecords];
-
     const l3Records: LayerRecord[] = l3Summaries.map((summary) => {
       const keyTopics = toList(summary.key_topics);
       return {
         id: safeText(summary.summary_id, label('fallbacks.unknownRecord', '未知记录')),
         layer: 'l3',
+        categoryId: 'summaries',
+        categoryLabel: categoryLabels.summaries,
         title: clampText(summary.content, safeText(summary.summary_category, label('recordTypes.summary', '总结')), 88),
         type: safeText(summary.summary_category, label('recordTypes.summary', '总结')),
         source: safeText(summary.summary_type, label('sources.unknown', '未知来源')),
@@ -289,6 +326,8 @@ export const MemoryGovernancePage = () => {
     const l4Records: LayerRecord[] = l4Skills.map((skill) => ({
       id: safeText(skill.skill_id, label('fallbacks.unknownRecord', '未知记录')),
       layer: 'l4',
+      categoryId: 'skills',
+      categoryLabel: categoryLabels.skills,
       title: safeText(skill.skill_name, label('fallbacks.untitledSkill', '未命名技能')),
       type: safeText(skill.skill_category, label('recordTypes.skill', '技能')),
       source: label('sources.procedure', '程序记忆'),
@@ -310,45 +349,72 @@ export const MemoryGovernancePage = () => {
 
     return [
       {
-        id: 'l0',
-        label: 'L0 工作台',
-        description: label('layers.l0Description', '会话、目标、策略等'),
+        id: 'sessions',
+        label: categoryLabels.sessions,
+        description: label('categories.sessionsDescription', '当前会话、目标和临时策略'),
         count: memory.l0Total || memory.stats.l0?.active_sessions || l0Records.length,
         status: label('statuses.healthy', '健康'),
         tone: 'ok',
         records: l0Records,
       },
       {
-        id: 'l1',
-        label: 'L1 原始事件',
-        description: label('layers.l1Description', '事件、片段、观察等'),
+        id: 'events',
+        label: categoryLabels.events,
+        description: label('categories.eventsDescription', '来源事件、片段和观察'),
         count: memory.l1Total || memory.stats.l1?.event_count || l1Records.length,
         status: label('statuses.stable', '稳定'),
         tone: 'ok',
         records: l1Records,
       },
       {
-        id: 'l2',
-        label: 'L2 结构知识',
-        description: label('layers.l2Description', '实体、关系、断言等'),
-        count: memory.l2EntitiesTotal + memory.l2RelationsTotal + memory.l2AssertionsTotal + memory.l2SnapshotsTotal || l2Records.length,
-        status: pendingAssertions > 0 ? label('statuses.pendingCount', '待确认 {{count}}', { count: pendingAssertions }) : label('statuses.healthy', '健康'),
-        tone: pendingAssertions > 0 ? 'warn' : 'ok',
-        records: l2Records,
+        id: 'entities',
+        label: categoryLabels.entities,
+        description: label('categories.entitiesDescription', '人物、地点、项目和对象'),
+        count: memory.l2EntitiesTotal || l2EntityRecords.length,
+        status: label('statuses.healthy', '健康'),
+        tone: 'ok',
+        records: l2EntityRecords,
       },
       {
-        id: 'l3',
-        label: 'L3 总结',
-        description: label('layers.l3Description', '日/周/月总结'),
+        id: 'assertions',
+        label: categoryLabels.assertions,
+        description: label('categories.assertionsDescription', '偏好、判断和待确认事实'),
+        count: memory.l2AssertionsTotal || l2AssertionRecords.length,
+        status: pendingAssertions > 0 ? label('statuses.pendingCount', '待确认 {{count}}', { count: pendingAssertions }) : label('statuses.healthy', '健康'),
+        tone: pendingAssertions > 0 ? 'warn' : 'ok',
+        records: l2AssertionRecords,
+      },
+      {
+        id: 'relations',
+        label: categoryLabels.relations,
+        description: label('categories.relationsDescription', '实体之间的关系和连接'),
+        count: memory.l2RelationsTotal || l2RelationRecords.length,
+        status: label('statuses.healthy', '健康'),
+        tone: 'ok',
+        records: l2RelationRecords,
+      },
+      {
+        id: 'snapshots',
+        label: categoryLabels.snapshots,
+        description: label('categories.snapshotsDescription', '状态、情绪和近期上下文'),
+        count: memory.l2SnapshotsTotal || l2SnapshotRecords.length,
+        status: label('statuses.healthy', '健康'),
+        tone: 'ok',
+        records: l2SnapshotRecords,
+      },
+      {
+        id: 'summaries',
+        label: categoryLabels.summaries,
+        description: label('categories.summariesDescription', '章节、阶段和周期总结'),
         count: memory.l3Total || memory.stats.l3?.summary_count || l3Records.length,
         status: label('statuses.generated', '已生成'),
         tone: 'ok',
         records: l3Records,
       },
       {
-        id: 'l4',
-        label: 'L4 工具记忆',
-        description: label('layers.l4Description', '技能、流程、模板等'),
+        id: 'skills',
+        label: categoryLabels.skills,
+        description: label('categories.skillsDescription', '技能、流程和失败保护'),
         count: memory.l4Total || memory.stats.l4?.skill_count || l4Records.length,
         status: openBreakers > 0 ? label('statuses.breakers', '熔断 {{count}}', { count: openBreakers }) : label('statuses.healthy', '健康'),
         tone: openBreakers > 0 ? 'danger' : 'ok',
@@ -359,6 +425,9 @@ export const MemoryGovernancePage = () => {
 
   const activeLayerSummary = layerSummaries.find((layer) => layer.id === activeLayer) || layerSummaries[0];
   const activeRecords = activeLayerSummary.records;
+  const pageCount = Math.max(1, Math.ceil(activeRecords.length / RECORD_PAGE_SIZE));
+  const currentPage = Math.min(activePage, pageCount);
+  const visibleRecords = activeRecords.slice((currentPage - 1) * RECORD_PAGE_SIZE, currentPage * RECORD_PAGE_SIZE);
   const pendingAssertionCount = toFiniteNumber(memory.stats.attention?.pending_assertions);
   const openBreakerCount = toFiniteNumber(memory.stats.l4?.open_circuit_breakers);
   const l1EventCount = toFiniteNumber(memory.stats.l1?.event_count) || memory.l1Total;
@@ -369,19 +438,19 @@ export const MemoryGovernancePage = () => {
       {
         id: 'pending-assertions',
         severity: pendingAssertionCount > 0 ? 'warn' : 'ok',
-        title: label('diagnostics.pendingAssertions', 'L2 仍有待确认断言'),
+        title: label('diagnostics.pendingAssertionsObject', '仍有待确认断言'),
         detail: label('diagnostics.pendingAssertionsDetail', '{{count}} 条判断还没有用户确认或拒绝。', { count: pendingAssertionCount }),
       },
       {
         id: 'l4-breakers',
         severity: openBreakerCount > 0 ? 'danger' : 'ok',
-        title: label('diagnostics.openBreakers', 'L4 存在打开的熔断器'),
+        title: label('diagnostics.openToolBreakers', '存在打开的工具熔断器'),
         detail: label('diagnostics.openBreakersDetail', '{{count}} 个工具记忆暂时不可用。', { count: openBreakerCount }),
       },
       {
         id: 'l2-skipped',
         severity: extractSkippedCount > 0 ? 'warn' : 'ok',
-        title: label('diagnostics.skippedExtraction', 'L2 抽取跳过记录'),
+        title: label('diagnostics.skippedStructureExtraction', '结构抽取跳过记录'),
         detail: label('diagnostics.skippedExtractionDetail', '{{count}} 条事件被规则跳过。', { count: extractSkippedCount }),
       },
     ];
@@ -403,11 +472,11 @@ export const MemoryGovernancePage = () => {
 
   const handleReplaySelected = async () => {
     if (!selectedRecord) return;
-    if (selectedRecord.layer === 'l1') {
+    if (selectedRecord.categoryId === 'events') {
       await memory.replayL2Extraction(selectedRecord.id);
       return;
     }
-    if (selectedRecord.layer === 'l2' && selectedRecord.type === label('recordTypes.entity', '实体')) {
+    if (selectedRecord.categoryId === 'entities') {
       await memory.runL2Reconcile([selectedRecord.id]);
     }
   };
@@ -415,7 +484,7 @@ export const MemoryGovernancePage = () => {
   return (
     <MemoryPageFrame
       title={label('title', '整理')}
-      description={label('subtitle', '分层查看、手动整理、遗忘清理和维护诊断。')}
+      description={label('objectSubtitle', '按记忆对象查看、整理、遗忘和诊断。')}
       actions={(
         <Button
           variant="outline"
@@ -428,20 +497,22 @@ export const MemoryGovernancePage = () => {
         </Button>
       )}
       className="max-w-[1180px]"
+      contentClassName="min-h-0 flex-1 overflow-hidden pb-0"
+      scrollable={false}
     >
-      <div className="space-y-4">
+      <div className="flex h-full min-h-0 flex-col gap-4">
         <section className="grid gap-3 rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)] p-3 md:grid-cols-4">
-          <MetricCell icon={<Layers3 className="h-5 w-5" />} label={label('metrics.layerRecords', '分层记录')} value={formatCount(layerSummaries.reduce((sum, layer) => sum + layer.count, 0))} />
+          <MetricCell icon={<Layers3 className="h-5 w-5" />} label={label('metrics.objects', '维护对象')} value={formatCount(layerSummaries.reduce((sum, layer) => sum + layer.count, 0))} />
           <MetricCell icon={<AlertTriangle className="h-5 w-5" />} label={label('metrics.pending', '待处理')} value={formatCount(pendingAssertionCount)} tone={pendingAssertionCount > 0 ? 'warn' : 'default'} />
-          <MetricCell icon={<Database className="h-5 w-5" />} label={label('metrics.l1Events', 'L1 事件')} value={formatCount(l1EventCount)} />
-          <MetricCell icon={<ShieldAlert className="h-5 w-5" />} label={label('metrics.l4Breakers', 'L4 熔断')} value={formatCount(openBreakerCount)} tone={openBreakerCount > 0 ? 'danger' : 'default'} />
+          <MetricCell icon={<Database className="h-5 w-5" />} label={label('metrics.events', '原始事件')} value={formatCount(l1EventCount)} />
+          <MetricCell icon={<ShieldAlert className="h-5 w-5" />} label={label('metrics.toolBreakers', '工具熔断')} value={formatCount(openBreakerCount)} tone={openBreakerCount > 0 ? 'danger' : 'default'} />
         </section>
 
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GovernanceTab)} className="space-y-4">
-          <div className="overflow-x-auto pb-1">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GovernanceTab)} className="flex min-h-0 flex-1 flex-col space-y-4">
+          <div className="shrink-0 overflow-x-auto pb-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.8)]">
             <TabsList className="inline-flex h-auto min-w-full justify-start gap-1 rounded-sm border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-elevated)/0.86)] p-1">
               {[
-                ['layers', label('tabs.layers', '分层明细')],
+                ['objects', label('tabs.objects', '对象明细')],
                 ['tasks', label('tabs.tasks', '定时任务')],
                 ['manual', label('tabs.manual', '手动整理')],
                 ['forget', label('tabs.forget', '遗忘清理')],
@@ -458,16 +529,25 @@ export const MemoryGovernancePage = () => {
             </TabsList>
           </div>
 
-          <TabsContent value="layers" className="mt-0">
+          <TabsContent value="objects" className="mt-0 min-h-0 flex-1">
             <LayerWorkspace
               layers={layerSummaries}
               activeLayer={activeLayer}
               activeRecords={activeRecords}
+              visibleRecords={visibleRecords}
+              page={currentPage}
+              pageCount={pageCount}
+              pageSize={RECORD_PAGE_SIZE}
               onSelectLayer={(layer) => {
                 setActiveLayer(layer);
+                setActivePage(1);
                 setSelectedRecord(null);
               }}
               onSelectRecord={setSelectedRecord}
+              onPageChange={(page) => {
+                setActivePage(Math.min(Math.max(1, page), pageCount));
+                setSelectedRecord(null);
+              }}
               label={label}
             />
           </TabsContent>
@@ -544,25 +624,37 @@ function LayerWorkspace({
   layers,
   activeLayer,
   activeRecords,
+  visibleRecords,
+  page,
+  pageCount,
+  pageSize,
   onSelectLayer,
   onSelectRecord,
+  onPageChange,
   label,
 }: {
   layers: LayerSummary[];
-  activeLayer: MemoryLayerId;
+  activeLayer: MaintenanceCategoryId;
   activeRecords: LayerRecord[];
-  onSelectLayer: (layer: MemoryLayerId) => void;
+  visibleRecords: LayerRecord[];
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  onSelectLayer: (layer: MaintenanceCategoryId) => void;
   onSelectRecord: (record: LayerRecord) => void;
+  onPageChange: (page: number) => void;
   label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string;
 }) {
   const selectedLayer = layers.find((layer) => layer.id === activeLayer) || layers[0];
+  const pageStart = activeRecords.length === 0 ? 0 : (page - 1) * pageSize + 1;
+  const pageEnd = Math.min(activeRecords.length, page * pageSize);
   return (
-    <section className="grid gap-3 lg:grid-cols-[230px_minmax(0,1fr)]">
-      <aside className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)] p-2">
+    <section className="grid h-full min-h-0 gap-3 lg:grid-cols-[230px_minmax(0,1fr)]">
+      <aside className="min-h-0 rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)] p-2">
         <div className="px-2 pb-2 pt-1 text-xs font-medium text-[hsl(var(--memory-muted))]">
-          {label('layers.choose', '选择层级')}
+          {label('objects.choose', '选择对象')}
         </div>
-        <div className="space-y-1.5">
+        <div className="max-h-[min(530px,calc(100vh-340px))] space-y-1.5 overflow-y-auto pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.8)]">
           {layers.map((layer) => (
             <button
               key={layer.id}
@@ -590,12 +682,12 @@ function LayerWorkspace({
         </div>
       </aside>
 
-      <div className="min-w-0 rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)]">
+      <div className="flex min-h-0 min-w-0 flex-col rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)]">
         <div className="flex flex-col gap-3 border-b border-[hsl(var(--memory-divider)/0.58)] px-4 py-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">{selectedLayer.label}</h2>
             <p className="mt-1 text-sm text-[hsl(var(--memory-body))]">
-              {label('layers.tableSubtitle', '{{description}}（共 {{count}} 条）', {
+              {label('objects.tableSubtitle', '{{description}}（共 {{count}} 条）', {
                 description: selectedLayer.description,
                 count: formatCount(selectedLayer.count),
               })}
@@ -603,45 +695,81 @@ function LayerWorkspace({
           </div>
           <div className="flex min-w-0 items-center gap-2 rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-muted))]">
             <Search className="h-4 w-4" />
-            <span>{label('layers.searchHint', '点击记录查看详情和影响')}</span>
+            <span>{label('objects.searchHint', '点击记录查看详情和影响')}</span>
           </div>
         </div>
 
         {activeRecords.length === 0 ? (
-          <div className="p-4">
-            <div className={MEMORY_EMPTY_PANEL_CLASS}>{label('layers.empty', '这一层暂时没有可展示的记录。')}</div>
+          <div className="min-h-0 flex-1 p-4">
+            <div className={MEMORY_EMPTY_PANEL_CLASS}>{label('objects.empty', '这个对象类型暂时没有可展示的记录。')}</div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <div className="min-w-[760px]">
-              <div className="grid grid-cols-[minmax(150px,1.1fr)_120px_120px_120px_92px_40px] border-b border-[hsl(var(--memory-divider)/0.5)] px-4 py-2 text-xs font-medium text-[hsl(var(--memory-muted))]">
-                <span>ID</span>
-                <span>{label('fields.type', '类型')}</span>
-                <span>{label('fields.source', '来源')}</span>
-                <span>{label('fields.updatedAt', '更新时间')}</span>
-                <span>{label('fields.status', '状态')}</span>
-                <span />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 overflow-x-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.8)]">
+              <div className="min-w-[760px]">
+                <div className="grid grid-cols-[minmax(150px,1.1fr)_120px_120px_120px_92px_40px] border-b border-[hsl(var(--memory-divider)/0.5)] px-4 py-2 text-xs font-medium text-[hsl(var(--memory-muted))]">
+                  <span>ID</span>
+                  <span>{label('fields.type', '类型')}</span>
+                  <span>{label('fields.source', '来源')}</span>
+                  <span>{label('fields.updatedAt', '更新时间')}</span>
+                  <span>{label('fields.status', '状态')}</span>
+                  <span />
+                </div>
+                <div className="max-h-[390px] divide-y divide-[hsl(var(--memory-divider)/0.46)] overflow-y-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.8)]">
+                  {visibleRecords.map((record) => (
+                    <button
+                      key={`${record.categoryId}:${record.id}`}
+                      type="button"
+                      aria-label={label('objects.openRecord', '打开记录 {{id}}', { id: record.id })}
+                      onClick={() => onSelectRecord(record)}
+                      className="grid w-full grid-cols-[minmax(150px,1.1fr)_120px_120px_120px_92px_40px] items-center px-4 py-3 text-left text-sm transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.48)]"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-[hsl(var(--memory-title))]">{record.id}</span>
+                        <span className="mt-0.5 block truncate text-xs text-[hsl(var(--memory-muted))]">{record.title}</span>
+                      </span>
+                      <span className="truncate text-[hsl(var(--memory-body))]">{record.type}</span>
+                      <span className="truncate text-[hsl(var(--memory-body))]">{record.source}</span>
+                      <span className="text-[hsl(var(--memory-body))]">{formatTime(record.updatedAt)}</span>
+                      <span className={cn('font-medium', getRowStatusClass(record.status))}>{record.status}</span>
+                      <ChevronRight className="h-4 w-4 text-[hsl(var(--memory-muted))]" />
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="divide-y divide-[hsl(var(--memory-divider)/0.46)]">
-                {activeRecords.map((record) => (
-                  <button
-                    key={`${record.layer}:${record.id}`}
-                    type="button"
-                    aria-label={label('layers.openRecord', '打开记录 {{id}}', { id: record.id })}
-                    onClick={() => onSelectRecord(record)}
-                    className="grid w-full grid-cols-[minmax(150px,1.1fr)_120px_120px_120px_92px_40px] items-center px-4 py-3 text-left text-sm transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.48)]"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium text-[hsl(var(--memory-title))]">{record.id}</span>
-                      <span className="mt-0.5 block truncate text-xs text-[hsl(var(--memory-muted))]">{record.title}</span>
-                    </span>
-                    <span className="truncate text-[hsl(var(--memory-body))]">{record.type}</span>
-                    <span className="truncate text-[hsl(var(--memory-body))]">{record.source}</span>
-                    <span className="text-[hsl(var(--memory-body))]">{formatTime(record.updatedAt)}</span>
-                    <span className={cn('font-medium', getRowStatusClass(record.status))}>{record.status}</span>
-                    <ChevronRight className="h-4 w-4 text-[hsl(var(--memory-muted))]" />
-                  </button>
-                ))}
+            </div>
+            <div className="flex flex-col gap-2 border-t border-[hsl(var(--memory-divider)/0.5)] px-4 py-3 text-sm text-[hsl(var(--memory-body))] sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                {label('objects.pageSummary', '{{start}}-{{end}} / {{total}} 条', {
+                  start: pageStart,
+                  end: pageEnd,
+                  total: activeRecords.length,
+                })}
+              </span>
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 rounded-sm px-3"
+                  disabled={page <= 1}
+                  onClick={() => onPageChange(page - 1)}
+                >
+                  <ChevronLeft className="mr-1 h-4 w-4" />
+                  {label('objects.prevPage', '上一页')}
+                </Button>
+                <span className="min-w-[56px] text-center text-xs text-[hsl(var(--memory-muted))]">
+                  {label('objects.pageIndex', '{{page}} / {{pageCount}}', { page, pageCount })}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 rounded-sm px-3"
+                  disabled={page >= pageCount}
+                  onClick={() => onPageChange(page + 1)}
+                >
+                  {label('objects.nextPage', '下一页')}
+                  <ChevronRight className="ml-1 h-4 w-4" />
+                </Button>
               </div>
             </div>
           </div>
@@ -657,11 +785,11 @@ function TaskMaintenancePanel({
   label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string;
 }) {
   const rows = [
-    ['L1 清理', label('tasks.l1', '压缩可清理事件、清除过期负载'), 'memory-l1-maintenance:global', label('statuses.enabled', '已启用')],
-    ['L2 抽取', label('tasks.l2Derive', '处理结构知识派生任务'), 'memory-l2-derive:global', label('statuses.enabled', '已启用')],
-    ['L2 章节整理', label('tasks.l2Consolidate', '升级章节、经历和缺失总结'), 'memory-l2-consolidate:global', label('statuses.enabled', '已启用')],
-    ['L3 总结', label('tasks.l3', '生成时段总结并清理过期内容'), 'memory-l3-summary:*', label('statuses.enabled', '已启用')],
-    ['L4 整理', label('tasks.l4', '维护工具记忆和熔断状态'), 'memory_l4_maintenance', label('statuses.enabled', '已启用')],
+    [label('tasks.eventsTitle', '原始事件清理'), label('tasks.eventsBody', '压缩可清理事件、清除过期负载'), label('tasks.eventsScope', '事件维护'), label('statuses.enabled', '已启用')],
+    [label('tasks.structureTitle', '结构抽取'), label('tasks.structureBody', '处理实体、断言和关系派生任务'), label('tasks.structureScope', '知识维护'), label('statuses.enabled', '已启用')],
+    [label('tasks.chapterTitle', '章节整理'), label('tasks.chapterBody', '升级章节、经历和缺失总结'), label('tasks.chapterScope', '经历维护'), label('statuses.enabled', '已启用')],
+    [label('tasks.summaryTitle', '总结生成'), label('tasks.summaryBody', '生成时段总结并清理过期内容'), label('tasks.summaryScope', '总结维护'), label('statuses.enabled', '已启用')],
+    [label('tasks.skillsTitle', '工具记忆维护'), label('tasks.skillsBody', '维护工具技能和失败保护状态'), label('tasks.skillsScope', '技能维护'), label('statuses.enabled', '已启用')],
   ];
   return (
     <section className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)]">
@@ -676,11 +804,11 @@ function TaskMaintenancePanel({
         </Link>
       </div>
       <div className="divide-y divide-[hsl(var(--memory-divider)/0.46)]">
-        {rows.map(([name, description, scheduleId, status]) => (
-          <div key={scheduleId} className="grid gap-2 px-4 py-3 text-sm md:grid-cols-[170px_minmax(0,1fr)_220px_92px] md:items-center">
+        {rows.map(([name, description, scope, status]) => (
+          <div key={name} className="grid gap-2 px-4 py-3 text-sm md:grid-cols-[170px_minmax(0,1fr)_140px_92px] md:items-center">
             <div className="font-semibold text-[hsl(var(--memory-title))]">{name}</div>
             <div className="text-[hsl(var(--memory-body))]">{description}</div>
-            <div className="truncate text-xs text-[hsl(var(--memory-muted))]">{scheduleId}</div>
+            <div className="truncate text-xs text-[hsl(var(--memory-muted))]">{scope}</div>
             <div className="text-emerald-600">{status}</div>
           </div>
         ))}
@@ -716,8 +844,8 @@ function ManualMaintenancePanel({
         onClick={() => void onReconsolidate()}
       />
       <ActionRow
-        title={label('manual.flushTitle', '处理 L2 积压')}
-        description={label('manual.flushBody', '立即提交当前暂存的 L2 微批次，适合调试抽取延迟。')}
+        title={label('manual.flushStructureTitle', '处理结构抽取积压')}
+        description={label('manual.flushStructureBody', '立即提交当前暂存的结构抽取批次，适合调试抽取延迟。')}
         buttonLabel={label('manual.flushRun', '立即处理')}
         busy={l2ActionLoading}
         onClick={() => void onFlushMicrobatches()}
@@ -773,11 +901,11 @@ function ForgetMaintenancePanel({
   return (
     <section className="space-y-3">
       <div className={MEMORY_INFO_PANEL_CLASS}>
-        {label('forgetDrawerHint', '遗忘和删除从具体记录发起：先在「分层明细」里打开一条记录，再在抽屉中查看影响。')}
+        {label('forgetDrawerHintObjects', '遗忘和删除从具体记录发起：先在「对象明细」里打开一条记录，再在抽屉中查看影响。')}
       </div>
       <div className="grid gap-3 md:grid-cols-3">
-        <LinkPanel to="/memory/events" title={label('forgetBySource', '按来源/事件清理')} body={label('forgetBySourceBody', '进入 L1 原始事件后按来源、时间和内容筛选。')} />
-        <LinkPanel to="/memory/knowledge" title={label('forgetByEntity', '按实体处理')} body={label('forgetByEntityBody', '进入 L2 结构知识后查看实体、断言和关系。')} />
+        <LinkPanel to="/memory/events" title={label('forgetBySource', '按来源/事件清理')} body={label('forgetBySourceBodyObjects', '进入原始事件后按来源、时间和内容筛选。')} />
+        <LinkPanel to="/memory/knowledge" title={label('forgetByEntity', '按实体处理')} body={label('forgetByEntityBodyObjects', '进入结构知识后查看实体、断言和关系。')} />
         <LinkPanel to="/memory/episodes" title={label('forgetByEpisode', '按经历处理')} body={label('forgetByEpisodeBody', '进入经历详情后处理章节边界和可见性。')} />
       </div>
     </section>
@@ -851,7 +979,7 @@ function RecordDrawer({
         <SheetHeader className="border-b border-[hsl(var(--memory-divider)/0.58)] px-5 py-5">
           <SheetTitle className="text-lg text-[hsl(var(--memory-title))]">{label('drawer.title', '记录详情')}</SheetTitle>
           <SheetDescription className="text-[hsl(var(--memory-body))]">
-            {record ? `${record.layer.toUpperCase()} · ${record.id}` : label('drawer.empty', '选择一条记录查看详情。')}
+            {record ? `${record.categoryLabel} · ${record.id}` : label('drawer.empty', '选择一条记录查看详情。')}
           </SheetDescription>
         </SheetHeader>
 
@@ -908,7 +1036,7 @@ function RecordDrawer({
               <div>
                 <div className="mb-2 text-sm font-semibold text-[hsl(var(--memory-title))]">{label('drawer.safeActions', '安全操作')}</div>
                 <div className="grid gap-2 sm:grid-cols-3">
-                  <Button variant="outline" className="h-9 rounded-sm" onClick={onReplay} disabled={actionLoading || (record.layer !== 'l1' && record.type !== label('recordTypes.entity', '实体'))}>
+                  <Button variant="outline" className="h-9 rounded-sm" onClick={onReplay} disabled={actionLoading || (record.categoryId !== 'events' && record.categoryId !== 'entities')}>
                     {actionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                     {label('drawer.actions.reprocess', '重新处理')}
                   </Button>
