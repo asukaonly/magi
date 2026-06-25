@@ -101,7 +101,7 @@ export const MemoryRecallPage = () => {
   const [hasSearched, setHasSearched] = useState(false);
   const [entrySheetOpen, setEntrySheetOpen] = useState(false);
   const {
-    searchQuery, setSearchQuery, searchResults, searching, handleSearch,
+    loading, stats, searchQuery, setSearchQuery, searchResults, searching, handleSearch,
   } = useMemory({ initialLoadScope: 'overview' });
 
   const resultSections = SEARCH_RESULT_SECTIONS.map((section) => ({
@@ -115,10 +115,13 @@ export const MemoryRecallPage = () => {
   };
 
   const noResults = resultSections.length === 0;
+  const hasLoadedMemoryTotal = typeof stats.total_memories === 'number';
+  const memoryTotal = stats.total_memories ?? 0;
+  const showColdStartGuide = !loading && hasLoadedMemoryTotal && memoryTotal === 0 && !hasSearched && noResults;
 
   return (
     <MemoryPageFrame title={t('memory.recall.title')} description={t('memory.recall.subtitle')} hideHeader>
-      {!hasSearched && noResults && (
+      {showColdStartGuide && (
         <div className="mb-6 flex flex-col gap-4">
           <p className="text-sm text-[#7d685a] dark:text-[#c8b7a7]">
             {t('memory.recall.emptyStateIntro')}

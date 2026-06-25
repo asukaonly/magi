@@ -11,6 +11,8 @@ vi.mock('react-i18next', () => {
     'memory.recall.title': '回忆',
     'memory.recall.subtitle': '用自然语言把过去翻出来',
     'memory.recall.searchPlaceholder': '想找一段对话…',
+    'memory.recall.emptyStateIntro': 'magi 对你的了解还很有限',
+    'memory.recall.manualEntry': '手动添加一条记忆',
     'memory.recall.advancedToggle': '调试细节',
     'memory.recall.noResults': '没找到合适的记忆',
   };
@@ -36,7 +38,7 @@ const renderPage = () => render(
 beforeEach(() => {
   vi.mocked(useMemory).mockReturnValue({
     loading: false,
-    stats: { l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
+    stats: { total_memories: 0, l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
     searchQuery: '',
     setSearchQuery: vi.fn(),
     searchResults: { l1_events: [], l2_relationships: [], l2_entity_cards: [], l3_reflections: [], l4_procedures: [], trace: {} },
@@ -53,10 +55,42 @@ describe('MemoryRecallPage', () => {
     expect(screen.queryByText('回忆')).not.toBeInTheDocument();
   });
 
+  it('shows the cold-start guide when there are no memories yet', () => {
+    renderPage();
+    expect(screen.getByText('magi 对你的了解还很有限')).toBeInTheDocument();
+    expect(screen.getByTestId('available-sensors')).toBeInTheDocument();
+    expect(screen.getByText('手动添加一条记忆')).toBeInTheDocument();
+  });
+
+  it('hides the cold-start guide when overview stats already include memories', () => {
+    vi.mocked(useMemory).mockReturnValue({
+      loading: false,
+      stats: {
+        total_memories: 12,
+        l1: { event_count: 8 },
+        l2: { relation_count: 1, assertion_count: 2 },
+        l3: { summary_count: 1 },
+        l4: { skill_count: 0 },
+      },
+      searchQuery: '',
+      setSearchQuery: vi.fn(),
+      searchResults: { l1_events: [], l2_relationships: [], l2_entity_cards: [], l3_reflections: [], l4_procedures: [], trace: {} },
+      searching: false,
+      handleSearch: vi.fn(),
+      refreshAll: vi.fn(),
+    } as unknown as ReturnType<typeof useMemory>);
+
+    renderPage();
+
+    expect(screen.queryByText('magi 对你的了解还很有限')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('available-sensors')).not.toBeInTheDocument();
+    expect(screen.queryByText('手动添加一条记忆')).not.toBeInTheDocument();
+  });
+
   it('renders returned memory search results', () => {
     vi.mocked(useMemory).mockReturnValue({
       loading: false,
-      stats: { l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
+      stats: { total_memories: 0, l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
       searchQuery: '东京',
       setSearchQuery: vi.fn(),
       searchResults: {
@@ -87,7 +121,7 @@ describe('MemoryRecallPage', () => {
     const handleSearch = vi.fn();
     vi.mocked(useMemory).mockReturnValue({
       loading: false,
-      stats: { l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
+      stats: { total_memories: 0, l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
       searchQuery: '东京',
       setSearchQuery: vi.fn(),
       searchResults: { l1_events: [], l2_relationships: [], l2_entity_cards: [], l3_reflections: [], l4_procedures: [], trace: {} },
