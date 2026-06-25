@@ -9,6 +9,8 @@ from typing import Any, Protocol
 from .models import DEFAULT_USER_ID, PROFILE_ASSERTION_FAMILIES, UserPortraitProjection
 from .portrait_signal_policy import (
     PORTRAIT_RECENT_FAMILIES,
+    PORTRAIT_SOURCE_STRENGTH as SOURCE_STRENGTH,
+    PORTRAIT_VALIDATION_STRENGTH as VALIDATION_STRENGTH,
     assertion_portrait_role,
 )
 
@@ -19,23 +21,6 @@ WORLD_GROUP_BY_FAMILY = {
     "preference_profile": "preferences",
     "routine_profile": "routine",
     "communication_profile": "communication",
-}
-SOURCE_STRENGTH = {
-    "user_authored": 50,
-    "settings_profile": 50,
-    "conversation": 40,
-    "chat": 40,
-    "tom": 30,
-    "knowledge_graph": 20,
-    "external_activity": 10,
-}
-VALIDATION_STRENGTH = {
-    "stable": 50,
-    "confirmed": 50,
-    "corroborated": 40,
-    "validated": 40,
-    "tentative": 10,
-    "contradicted": 0,
 }
 
 

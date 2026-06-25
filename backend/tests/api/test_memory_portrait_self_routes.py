@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
@@ -12,6 +13,7 @@ from magi.api.routers.memory.portrait_self_routes import (
     override_dependencies_for_test,
 )
 from magi.user_profile.models import UserPortraitProjection
+from magi.user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 
 
 def _app():
@@ -482,3 +484,126 @@ def test_self_view_skips_coordinate_only_photo_places():
     assert resp.status_code == 200
     world_groups = {group["id"]: group["items"] for group in resp.json()["self_view"]["world"]["groups"]}
     assert [item["text"] for item in world_groups["places"]] == ["杭州"]
+
+
+class _ConsistencyL2:
+    """L2 fake usable by both the builder and the route fallback path.
+
+    Exposes only assertions plus empty snapshots and intentionally omits
+    ``get_relationships`` so the route fallback skips graph observations. This
+    isolates the comparison to assertion-derived world/review/recent
+    classification, which is exactly what the shared qualification policy owns.
+    """
+
+    def __init__(self, assertions: list[dict]):
+        self._assertions = assertions
+
+    async def list_tom_assertions(self, **kwargs):
+        return [dict(item) for item in self._assertions]
+
+    async def list_tom_snapshots(self, **kwargs):
+        return []
+
+
+def _world_buckets(world: dict) -> dict[str, list[str]]:
+    return {
+        group["id"]: sorted(item["text"] for item in group["items"])
+        for group in world["groups"]
+    }
+
+
+def test_materialized_and_fallback_portrait_classify_assertions_identically():
+    """The materialized projection and the API fallback must bucket the same
+    assertions into identical world/review/recent groups (single qualification
+    policy). This guards against the two paths drifting apart again."""
+    assertions = [
+        {  # world / preferences (explicit source)
+            "assertion_id": "a-pref",
+            "trait_family": "preference_profile",
+            "trait_name": "interest.magi_memory",
+            "trait_value": "Magi 记忆系统",
+            "validation_state": "stable",
+            "source_domain": "conversation",
+            "evidence_count": 3,
+        },
+        {  # world / routine
+            "assertion_id": "a-routine",
+            "trait_family": "routine_profile",
+            "trait_name": "tool",
+            "trait_value": "本地插件仓库",
+            "validation_state": "stable",
+            "source_domain": "user_authored",
+            "evidence_count": 2,
+        },
+        {  # world / communication
+            "assertion_id": "a-comm",
+            "trait_family": "communication_profile",
+            "trait_name": "communication.answer_style",
+            "trait_value": "先讲结论",
+            "validation_state": "stable",
+            "source_domain": "user_authored",
+            "evidence_count": 1,
+        },
+        {  # review (tentative)
+            "assertion_id": "a-review",
+            "trait_family": "preference_profile",
+            "trait_name": "interest.one_off",
+            "trait_value": "一次性页面",
+            "validation_state": "tentative",
+            "source_domain": "external_activity",
+            "evidence_count": 1,
+        },
+        {  # recent (state family)
+            "assertion_id": "a-recent",
+            "trait_family": "state_profile",
+            "trait_name": "current_focus",
+            "trait_value": "验证画像",
+            "validation_state": "stable",
+            "source_domain": "conversation",
+            "evidence_count": 4,
+        },
+        {  # skip: weak passive interest below evidence floor
+            "assertion_id": "a-skip",
+            "trait_family": "preference_profile",
+            "trait_name": "interest.weak",
+            "trait_value": "弱信号",
+            "validation_state": "stable",
+            "source_domain": "external_activity",
+            "evidence_count": 1,
+        },
+    ]
+    l2 = _ConsistencyL2(assertions)
+
+    materialized = asyncio.run(UserPortraitProjectionBuilder(l2).build("u1"))
+
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    portrait_repo = MagicMock()
+    portrait_repo.get = AsyncMock(return_value=None)
+    with override_dependencies_for_test(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+    assert resp.status_code == 200
+    fallback = resp.json()["self_view"]
+
+    assert _world_buckets(materialized.world) == _world_buckets(fallback["world"])
+    assert (
+        sorted(item["text"] for item in materialized.review["items"])
+        == sorted(item["text"] for item in fallback["review"]["items"])
+    )
+    assert (
+        sorted(item["text"] for item in materialized.recent["items"])
+        == sorted(item["text"] for item in fallback["recent"]["items"])
+    )
+
+    # Sanity: every role bucket is actually exercised (not vacuously equal).
+    assert _world_buckets(fallback["world"]) == {
+        "identity": [],
+        "preferences": ["Magi 记忆系统"],
+        "routine": ["本地插件仓库"],
+        "places": [],
+        "communication": ["先讲结论"],
+    }
+    assert sorted(item["text"] for item in fallback["review"]["items"]) == ["一次性页面"]
+    assert sorted(item["text"] for item in fallback["recent"]["items"]) == ["验证画像"]
+

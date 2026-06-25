@@ -11,6 +11,49 @@ PORTRAIT_WORLD_STATES = frozenset({"stable", "confirmed", "corroborated", "valid
 PORTRAIT_REVIEW_STATES = frozenset({"tentative", "contradicted"})
 PORTRAIT_RECENT_FAMILIES = frozenset({"state_profile", "mood", "stress", "engagement"})
 
+# Single source of truth for portrait signal strength ordering. Both the
+# materialized projection builder and the API fallback path rank portrait items
+# by these tables, so they must never define their own competing scales.
+PORTRAIT_SOURCE_STRENGTH = {
+    "user_authored": 5,
+    "settings_profile": 5,
+    "user_feedback": 5,
+    "conversation": 4,
+    "chat": 4,
+    "tom": 3,
+    "knowledge_graph": 2,
+    "external_activity": 1,
+}
+PORTRAIT_VALIDATION_STRENGTH = {
+    "stable": 5,
+    "confirmed": 5,
+    "corroborated": 4,
+    "validated": 4,
+    "tentative": 1,
+    "contradicted": 0,
+}
+
+# Admission rules for promoting safe L2 graph relationships into the portrait
+# worldview. Keyed by predicate; an edge qualifies only when its object type is
+# allowed and it has been observed at least ``min_observations`` times.
+PORTRAIT_GRAPH_WORLD_RULES: dict[str, dict[str, Any]] = {
+    "VISITED": {
+        "group": "places",
+        "object_types": frozenset({"place"}),
+        "min_observations": 2,
+    },
+    "OWNS": {
+        "group": "routine",
+        "object_types": frozenset({"hardware", "product"}),
+        "min_observations": 2,
+    },
+    "USES": {
+        "group": "routine",
+        "object_types": frozenset({"software", "hardware", "technology", "product"}),
+        "min_observations": 3,
+    },
+}
+
 _EXPLICIT_PROFILE_SOURCES = frozenset({
     "settings_profile",
     "user_feedback",
@@ -102,6 +145,28 @@ def assertion_is_portrait_world_ready(assertion: Mapping[str, Any]) -> bool:
     return evidence_count >= _SEMANTIC_MIN_EVIDENCE_BY_FAMILY.get(family, 2)
 
 
+def graph_relation_portrait_world_group(
+    *,
+    predicate: str,
+    object_type: str,
+    observation_count: int,
+) -> str | None:
+    """Return the portrait world group a graph relationship qualifies for, or None.
+
+    Centralizes the graph-to-portrait admission policy so the materialized
+    projection and the API fallback path apply the same predicate, object-type,
+    and observation-count gates.
+    """
+    rule = PORTRAIT_GRAPH_WORLD_RULES.get(_text(predicate).upper())
+    if rule is None:
+        return None
+    if observation_count < int(rule["min_observations"]):
+        return None
+    if _text(object_type).casefold() not in rule["object_types"]:
+        return None
+    return str(rule["group"])
+
+
 def _trait_matches_family(*, family: str, trait_name: str) -> bool:
     if not trait_name:
         return False
@@ -146,10 +211,14 @@ def _text(value: Any) -> str:
 
 
 __all__ = [
+    "PORTRAIT_GRAPH_WORLD_RULES",
     "PORTRAIT_RECENT_FAMILIES",
     "PORTRAIT_REVIEW_STATES",
+    "PORTRAIT_SOURCE_STRENGTH",
+    "PORTRAIT_VALIDATION_STRENGTH",
     "PORTRAIT_WORLD_STATES",
     "PortraitAssertionRole",
     "assertion_is_portrait_world_ready",
     "assertion_portrait_role",
+    "graph_relation_portrait_world_group",
 ]

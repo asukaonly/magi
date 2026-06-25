@@ -14,7 +14,14 @@ from fastapi import APIRouter, Query
 from ....memory.l2.entities.catalog.lookup import get_canonical_names
 from ....memory.portrait.contracts import PortraitObservation, PortraitPayload
 from ....memory.provider import get_unified_memory
-from ....user_profile.portrait_signal_policy import assertion_portrait_role
+from ....user_profile.portrait_signal_policy import (
+    PORTRAIT_GRAPH_WORLD_RULES,
+    PORTRAIT_RECENT_FAMILIES,
+    PORTRAIT_REVIEW_STATES,
+    PORTRAIT_SOURCE_STRENGTH,
+    PORTRAIT_VALIDATION_STRENGTH,
+    assertion_portrait_role,
+)
 from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ....user_profile.projection_repository import UserProfileProjectionRepository
 
@@ -30,55 +37,11 @@ _FAMILY_WORLD_GROUPS = {
     "routine_profile": "routine",
     "communication_profile": "communication",
 }
-_GRAPH_WORLD_RULES = {
-    "VISITED": {
-        "group": "places",
-        "object_types": {"place"},
-        "min_observations": 2,
-    },
-    "OWNS": {
-        "group": "routine",
-        "object_types": {"hardware", "product"},
-        "min_observations": 2,
-    },
-    "USES": {
-        "group": "routine",
-        "object_types": {"software", "hardware", "technology", "product"},
-        "min_observations": 3,
-    },
-}
-_RECENT_FAMILIES = {
-    "state_profile",
-    "mood",
-    "stress",
-    "engagement",
-    "trigger",
-    "relationship_shift",
-    "group_atmosphere",
-}
-_REVIEW_STATES = {"tentative", "contradicted"}
 _INTERNAL_SOURCE_KEYS = {
     "external_activity",
     "photo_library",
     "photo_library_apple_photos",
     "photo_library_directory",
-}
-_SOURCE_STRENGTH = {
-    "user_authored": 5,
-    "settings_profile": 5,
-    "conversation": 4,
-    "chat": 4,
-    "tom": 3,
-    "knowledge_graph": 2,
-    "external_activity": 1,
-}
-_VALIDATION_STRENGTH = {
-    "stable": 5,
-    "confirmed": 5,
-    "corroborated": 4,
-    "validated": 4,
-    "tentative": 1,
-    "contradicted": 0,
 }
 
 
@@ -291,13 +254,14 @@ def _observations_from_assertion_items(items: list[dict[str, Any]]) -> list[Port
         return []
     obs: list[PortraitObservation] = []
     for item in items:
-        if assertion_portrait_role(item) == "skip":
+        role = assertion_portrait_role(item)
+        if role == "skip":
             continue
         trait = str(item.get("trait_name") or item.get("predicate") or "")
         value = str(item.get("value") or item.get("trait_value") or "")
         if not trait or not value:
             continue
-        refs: list[str] = []
+        refs: list[str] = [f"role:{role}"]
         assertion_id = str(item.get("assertion_id") or "").strip()
         if assertion_id:
             refs.append(f"assertion:{assertion_id}")
@@ -332,7 +296,7 @@ async def _observations_from_graph_relationships(
 
     result = getter(
         subject_id=entity_id,
-        predicates=list(_GRAPH_WORLD_RULES),
+        predicates=list(PORTRAIT_GRAPH_WORLD_RULES),
         status="active",
         limit=80,
     )
@@ -379,7 +343,7 @@ def _observation_from_graph_relationship(
     canonical_names: dict[str, str],
 ) -> PortraitObservation | None:
     predicate = str(edge.get("predicate") or "").strip().upper()
-    rule = _GRAPH_WORLD_RULES.get(predicate)
+    rule = PORTRAIT_GRAPH_WORLD_RULES.get(predicate)
     if rule is None:
         return None
     if int(edge.get("observation_count", 0) or 0) < int(rule["min_observations"]):
@@ -502,15 +466,19 @@ def _self_view_item(observation: PortraitObservation, index: int) -> dict[str, A
 
 
 def _is_review_observation(observation: PortraitObservation) -> bool:
+    role = _ref_value(observation, "role")
+    if role:
+        return role == "review"
     state = _ref_value(observation, "status")
-    if state:
-        return state in _REVIEW_STATES
-    return bool(_extract_assertion_id(observation)) and observation.basis_summary.lower() == "l2 assertion"
+    return bool(state) and state in PORTRAIT_REVIEW_STATES
 
 
 def _is_recent_observation(observation: PortraitObservation) -> bool:
+    role = _ref_value(observation, "role")
+    if role:
+        return role == "recent"
     family = _ref_value(observation, "family")
-    if family and family in _RECENT_FAMILIES:
+    if family and family in PORTRAIT_RECENT_FAMILIES:
         return True
     return observation.kind == "reflection" or any(
         ref.startswith("state:") for ref in observation.basis_refs
@@ -561,12 +529,12 @@ def _world_item_strength(item: dict[str, Any]) -> tuple[int, int, int, str]:
 def _item_source_strength(item: dict[str, Any]) -> int:
     source_key = item.get("source_key")
     if isinstance(source_key, str) and source_key:
-        return _SOURCE_STRENGTH.get(source_key, 0)
+        return PORTRAIT_SOURCE_STRENGTH.get(source_key, 0)
     for ref in item.get("basis_refs") or []:
         if not isinstance(ref, str) or not ref.startswith("source:"):
             continue
         source = _normalize_source_key(ref.removeprefix("source:"))
-        return _SOURCE_STRENGTH.get(source, 0)
+        return PORTRAIT_SOURCE_STRENGTH.get(source, 0)
     return 0
 
 
@@ -575,7 +543,7 @@ def _item_validation_strength(item: dict[str, Any]) -> int:
         if not isinstance(ref, str) or not ref.startswith("status:"):
             continue
         state = ref.removeprefix("status:").strip().casefold()
-        return _VALIDATION_STRENGTH.get(state, 0)
+        return PORTRAIT_VALIDATION_STRENGTH.get(state, 0)
     return 0
 
 
