@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Protocol
 
 from ..core.logger import get_logger
@@ -66,8 +67,30 @@ class RepresentativeAssetPopulateSchedulerContrib:
     async def _handle_populate(
         self, context: ScheduledExecutionContext,
     ) -> ScheduledExecutionResult:
+        payload = getattr(context.schedule, "target_payload", {}) or {}
+        try:
+            days = int(payload.get("days")) if "days" in payload else None
+        except (TypeError, ValueError):
+            days = None
+
+        list_kwargs = {
+            "statuses": ["active", "candidate"],
+            "limit": self._batch_limit,
+        }
+        if days is not None and days > 0:
+            triggered_at = float(getattr(context, "triggered_at", 0.0) or 0.0)
+            if triggered_at <= 0:
+                triggered_at = datetime.now().timestamp()
+            triggered_dt = datetime.fromtimestamp(triggered_at)
+            start_date = triggered_dt.date() - timedelta(days=days - 1)
+            window_start = datetime(
+                start_date.year, start_date.month, start_date.day,
+            ).timestamp()
+            list_kwargs["time_start"] = window_start
+            list_kwargs["time_end"] = triggered_at
+
         episodes = await self._l2_store.list_episodes(
-            statuses=["active", "candidate"], limit=self._batch_limit,
+            **list_kwargs,
         )
 
         populated = 0
@@ -89,8 +112,12 @@ class RepresentativeAssetPopulateSchedulerContrib:
             )
             populated += 1
 
+        stats = {"populated": populated, "skipped": skipped_already_set}
+        if days is not None and days > 0:
+            stats["days_requested"] = days
+
         return ScheduledExecutionResult(
             success=True,
             message=f"populated {populated} refs ({skipped_already_set} already set)",
-            stats={"populated": populated, "skipped": skipped_already_set},
+            stats=stats,
         )

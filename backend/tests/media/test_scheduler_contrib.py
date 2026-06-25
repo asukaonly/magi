@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -14,9 +15,13 @@ from magi.scheduler.contracts import (
 )
 
 
-def _make_context(triggered_at: float) -> ScheduledExecutionContext:
+def _make_context(
+    triggered_at: float, *, target_payload: dict | None = None,
+) -> ScheduledExecutionContext:
+    schedule = MagicMock(name="schedule")
+    schedule.target_payload = target_payload or {}
     return ScheduledExecutionContext(
-        schedule=MagicMock(name="schedule"),
+        schedule=schedule,
         target_state=MagicMock(name="target_state"),
         runtime_dir=Path("/tmp"),
         triggered_at=triggered_at,
@@ -89,6 +94,51 @@ async def test_handler_populates_missing_refs(l2_store_with_schema):
     assert ep_a["representative_asset_ref"] == "photo-library://A.HEIC"
     # Episode B's window had no photos → stays empty
     assert ep_b["representative_asset_ref"] == ""
+
+
+@pytest.mark.asyncio
+async def test_handler_honors_days_override(l2_store_with_schema):
+    from magi.media.scheduler_contrib import RepresentativeAssetPopulateSchedulerContrib
+    from magi.media.selector import MediaSelector
+    from magi.media.source_registry import MediaSourceRegistry
+
+    triggered_at = datetime(2026, 6, 25, 10, 0, 0).timestamp()
+    recent = datetime(2026, 6, 24, 19, 0, 0).timestamp()
+    old = datetime(2026, 6, 16, 12, 0, 0).timestamp()
+
+    await l2_store_with_schema.create_episode(
+        episode_id="ep-recent", time_start=recent, time_end=recent + 60,
+    )
+    await l2_store_with_schema.update_episode(episode_id="ep-recent", status="active")
+    await l2_store_with_schema.create_episode(
+        episode_id="ep-old", time_start=old, time_end=old + 60,
+    )
+    await l2_store_with_schema.update_episode(episode_id="ep-old", status="active")
+
+    class _StubSource:
+        source_id = "photo-library"
+
+        async def list_assets(self, *, start: float, end: float) -> list[dict]:
+            return [{"ref": f"photo-library://{int(start)}.HEIC", "timestamp": start}]
+
+    registry = MediaSourceRegistry()
+    registry.register(_StubSource())
+    selector = MediaSelector(registry=registry)
+
+    contrib = RepresentativeAssetPopulateSchedulerContrib(
+        l2_store=l2_store_with_schema, selector=selector,
+    )
+
+    result = await contrib._handle_populate(
+        _make_context(triggered_at, target_payload={"days": 7})
+    )
+
+    ep_recent = await l2_store_with_schema.get_episode(episode_id="ep-recent")
+    ep_old = await l2_store_with_schema.get_episode(episode_id="ep-old")
+
+    assert ep_recent["representative_asset_ref"].startswith("photo-library://")
+    assert ep_old["representative_asset_ref"] == ""
+    assert result.stats["days_requested"] == 7
 
 
 @pytest.mark.asyncio

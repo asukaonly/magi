@@ -25,6 +25,8 @@ import { cn } from '@/lib/utils';
 const PARAM_HINTS_BY_TARGET: Record<string, string> = {
   timeline_diary_narrative:
     '{"days": 7}  // 回填过去 7 天的日记（默认 1）',
+  timeline_representative_asset:
+    '{"days": 7}  // 只给最近 7 天补代表图（默认扫描一批缺图时间段）',
 };
 
 export interface ScheduleRunButtonProps {
