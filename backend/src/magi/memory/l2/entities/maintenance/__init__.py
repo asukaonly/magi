@@ -31,9 +31,31 @@ TARGET_KEY_L2_MAINTENANCE = "memory_l2_maintenance"
 __all__ = [
     "L2EntityMaintenance",
     "L2EntityMaintenanceStats",
+    "L2MaintenanceLifecycle",
     "_canonical_entity_id",
     "get_predicate_synonym_group",
 ]
+
+
+@dataclass(frozen=True)
+class L2MaintenanceLifecycle:
+    """Tunable lifecycle thresholds for L2 maintenance.
+
+    Defaults are the daemon's canonical values; the runtime schedule builds this
+    from ``agent.memory.l2.lifecycle``. Kept config-agnostic so the daemon stays
+    decoupled from pydantic settings and remains easy to test in isolation.
+    """
+
+    fast_decay_ttl_seconds: float = 4 * 3600
+    session_decay_ttl_seconds: float = 24 * 3600
+    archive_confidence_threshold: float = 0.3
+    archive_staleness_seconds: float = 90 * 86400
+    archive_single_observation_staleness_seconds: float = 180 * 86400
+    purge_terminal_edge_staleness_seconds: float = 365 * 86400
+    reconcile_stale_threshold_seconds: float = 3600
+    reconcile_batch_size: int = 100
+    reconcile_max_total: int = 500
+
 
 
 @dataclass
@@ -73,19 +95,17 @@ class L2EntityMaintenance(
 ):
     """Best-effort cleanup: ghost graph refs, same-name type merges, low-mention orphans."""
 
-    # Reconcile entities whose assertions haven't been updated in this many seconds.
-    RECONCILE_STALE_THRESHOLD: float = 3600  # 1 hour
-    RECONCILE_BATCH_SIZE: int = 100
-    RECONCILE_MAX_TOTAL: int = 500
-
-    # Archive thresholds: edges below this confidence AND not updated within
-    # the staleness window are moved from 'active' to 'archived'.
-    ARCHIVE_CONFIDENCE_THRESHOLD: float = 0.3
-    ARCHIVE_STALENESS_SECONDS: float = 90 * 86400  # 90 days
-    ARCHIVE_SINGLE_OBS_STALENESS: float = 180 * 86400  # 180 days for observation_count == 1
-
-    # Hard-delete archived/expired edges older than this.
-    PURGE_TERMINAL_EDGE_STALENESS: float = 365 * 86400  # 1 year
+    # Lifecycle thresholds are injected via L2MaintenanceLifecycle (config-driven
+    # from agent.memory.l2.lifecycle); the mixins read them through the host.
+    RECONCILE_STALE_THRESHOLD: float
+    RECONCILE_BATCH_SIZE: int
+    RECONCILE_MAX_TOTAL: int
+    ARCHIVE_CONFIDENCE_THRESHOLD: float
+    ARCHIVE_STALENESS_SECONDS: float
+    ARCHIVE_SINGLE_OBS_STALENESS: float
+    PURGE_TERMINAL_EDGE_STALENESS: float
+    FAST_DECAY_TTL: float
+    SESSION_DECAY_TTL: float
 
     def __init__(
         self,
@@ -94,6 +114,7 @@ class L2EntityMaintenance(
         embedding_service: Any | None = None,
         edge_vector_index: SqliteVecIndex | None = None,
         cognition_store: L2CognitionStore | None = None,
+        lifecycle: L2MaintenanceLifecycle | None = None,
     ) -> None:
         self._db_path = db_path
         self._embedding_service = embedding_service
@@ -101,9 +122,17 @@ class L2EntityMaintenance(
         self._cognition_store = cognition_store
         self._run_lock = asyncio.Lock()
 
-    # Default TTLs (seconds) for decay policies that lack an explicit expires_at.
-    FAST_DECAY_TTL: float = 4 * 3600  # 4 hours
-    SESSION_DECAY_TTL: float = 24 * 3600  # 24 hours
+        lc = lifecycle or L2MaintenanceLifecycle()
+        self._lifecycle = lc
+        self.RECONCILE_STALE_THRESHOLD = lc.reconcile_stale_threshold_seconds
+        self.RECONCILE_BATCH_SIZE = lc.reconcile_batch_size
+        self.RECONCILE_MAX_TOTAL = lc.reconcile_max_total
+        self.ARCHIVE_CONFIDENCE_THRESHOLD = lc.archive_confidence_threshold
+        self.ARCHIVE_STALENESS_SECONDS = lc.archive_staleness_seconds
+        self.ARCHIVE_SINGLE_OBS_STALENESS = lc.archive_single_observation_staleness_seconds
+        self.PURGE_TERMINAL_EDGE_STALENESS = lc.purge_terminal_edge_staleness_seconds
+        self.FAST_DECAY_TTL = lc.fast_decay_ttl_seconds
+        self.SESSION_DECAY_TTL = lc.session_decay_ttl_seconds
 
     async def run(
         self,

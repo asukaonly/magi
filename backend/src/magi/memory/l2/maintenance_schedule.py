@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from typing import Any
 
 from ...config import get_config
 from ...core.logger import get_logger
@@ -15,6 +16,7 @@ from ...scheduler.service import SchedulerService
 from ..provider import get_unified_memory
 from .entities.maintenance import (
     L2EntityMaintenance,
+    L2MaintenanceLifecycle,
     SCHEDULE_ID_L2_MAINTENANCE,
     TARGET_KEY_L2_MAINTENANCE,
 )
@@ -22,9 +24,20 @@ from .entities.maintenance import (
 logger = get_logger(__name__)
 
 
-# Retention for non-promoted promotion-counter keys (RFC #56 P2): a key seen only
-# sporadically that never crossed its threshold is pruned after this window (one-off noise).
-_PROMOTION_COUNTER_RETENTION_SECONDS = 30 * 86400  # 30 days
+def _lifecycle_from_config(l2_cfg: Any) -> L2MaintenanceLifecycle:
+    """Map the ``agent.memory.l2.lifecycle`` settings onto the daemon dataclass."""
+    lc = l2_cfg.lifecycle
+    return L2MaintenanceLifecycle(
+        fast_decay_ttl_seconds=lc.fast_decay_ttl_seconds,
+        session_decay_ttl_seconds=lc.session_decay_ttl_seconds,
+        archive_confidence_threshold=lc.archive_confidence_threshold,
+        archive_staleness_seconds=lc.archive_staleness_seconds,
+        archive_single_observation_staleness_seconds=lc.archive_single_observation_staleness_seconds,
+        purge_terminal_edge_staleness_seconds=lc.purge_terminal_edge_staleness_seconds,
+        reconcile_stale_threshold_seconds=lc.reconcile_stale_threshold_seconds,
+        reconcile_batch_size=lc.reconcile_batch_size,
+        reconcile_max_total=lc.reconcile_max_total,
+    )
 
 
 async def handle_l2_entity_maintenance(
@@ -60,6 +73,7 @@ async def handle_l2_entity_maintenance(
         embedding_service=embedding_service,
         edge_vector_index=edge_vector_index,
         cognition_store=getattr(getattr(unified, "l2_pipeline", None), "_cognition_store", None),
+        lifecycle=_lifecycle_from_config(l2_cfg),
     )
     try:
         stats = await maint.run(
@@ -81,7 +95,7 @@ async def handle_l2_entity_maintenance(
     if counter is not None:
         try:
             pruned = await counter.prune_stale(
-                retention_seconds=_PROMOTION_COUNTER_RETENTION_SECONDS
+                retention_seconds=l2_cfg.lifecycle.promotion_counter_retention_seconds
             )
         except Exception as exc:
             logger.warning("L2 promotion-counter prune failed", error=str(exc))

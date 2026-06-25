@@ -82,6 +82,19 @@ agent:
       consolidation_enabled: true
       consolidation_interval_seconds: 86400
       maintenance_min_mentions: 2
+      # Lifecycle thresholds for L2 maintenance (decay / archival / reconciliation).
+      # Defaults preserve prior behavior; tune only if you understand the impact.
+      lifecycle:
+        fast_decay_ttl_seconds: 14400 # 4h: annoyance/irritation assertions
+        session_decay_ttl_seconds: 86400 # 24h: mood/engagement assertions
+        archive_confidence_threshold: 0.3
+        archive_staleness_seconds: 7776000 # 90 days
+        archive_single_observation_staleness_seconds: 15552000 # 180 days
+        purge_terminal_edge_staleness_seconds: 31536000 # 365 days
+        reconcile_stale_threshold_seconds: 3600 # 1h
+        reconcile_batch_size: 100
+        reconcile_max_total: 500
+        promotion_counter_retention_seconds: 2592000 # 30 days
 
     l3:
       enabled: true

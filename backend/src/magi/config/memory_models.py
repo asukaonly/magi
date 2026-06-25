@@ -96,6 +96,68 @@ class MemoryL1Settings(BaseModel):
     )
 
 
+class MemoryL2LifecycleSettings(BaseModel):
+    """Tunable thresholds for L2 maintenance decay, archival, and reconciliation.
+
+    These previously lived as hardcoded constants on the L2 maintenance daemon.
+    Defaults preserve the prior runtime behavior; surfacing them here keeps all
+    memory tuning in the unified ``agent.memory`` config instead of scattered
+    module constants.
+    """
+
+    fast_decay_ttl_seconds: float = Field(
+        default=4 * 3600,
+        ge=60,
+        description="Expire 'fast_decay' assertions (annoyance/irritation) this long after last update.",
+    )
+    session_decay_ttl_seconds: float = Field(
+        default=24 * 3600,
+        ge=60,
+        description="Expire 'session_decay' assertions (mood/engagement) this long after last update.",
+    )
+    archive_confidence_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Knowledge-graph edges below this confidence and past the staleness window are archived.",
+    )
+    archive_staleness_seconds: float = Field(
+        default=90 * 86400,
+        ge=3600,
+        description="Staleness window before a low-confidence edge is archived (seconds).",
+    )
+    archive_single_observation_staleness_seconds: float = Field(
+        default=180 * 86400,
+        ge=3600,
+        description="Staleness window before a single-observation edge is archived (seconds).",
+    )
+    purge_terminal_edge_staleness_seconds: float = Field(
+        default=365 * 86400,
+        ge=3600,
+        description="Hard-delete archived/expired edges older than this (seconds).",
+    )
+    reconcile_stale_threshold_seconds: float = Field(
+        default=3600,
+        ge=60,
+        description="Reconcile entities whose assertions have not been updated within this window (seconds).",
+    )
+    reconcile_batch_size: int = Field(
+        default=100,
+        ge=1,
+        description="Number of stale entities reconciled per batch in one maintenance run.",
+    )
+    reconcile_max_total: int = Field(
+        default=500,
+        ge=1,
+        description="Maximum stale entities reconciled in a single maintenance run.",
+    )
+    promotion_counter_retention_seconds: float = Field(
+        default=30 * 86400,
+        ge=3600,
+        description="Prune non-promoted promotion-counter keys older than this (seconds).",
+    )
+
+
 class MemoryL2Settings(BaseModel):
     """L2 structured cognition settings."""
 
@@ -156,6 +218,7 @@ class MemoryL2Settings(BaseModel):
         ge=300.0,
         description="Interval between L2 derive runs (seconds). Minimum 300s.",
     )
+    lifecycle: MemoryL2LifecycleSettings = Field(default_factory=MemoryL2LifecycleSettings)
 
 
 class MemoryL3Settings(BaseModel):
@@ -302,6 +365,7 @@ __all__ = [
     "MemoryHistoryBehavior",
     "MemoryL0Settings",
     "MemoryL1Settings",
+    "MemoryL2LifecycleSettings",
     "MemoryL2Settings",
     "MemoryL3Settings",
     "MemoryL4Settings",
