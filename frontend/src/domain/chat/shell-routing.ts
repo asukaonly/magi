@@ -1,7 +1,8 @@
-import type { ChatPanelType } from '@/stores';
 import type React from 'react';
 
-export const panelByPathname = (pathname: string): ChatPanelType => {
+export type RoutePanelType = 'conversation' | 'memory' | 'timeline' | 'tasks' | 'none';
+
+export const panelByPathname = (pathname: string): RoutePanelType => {
   if (pathname === '/' || pathname === '/chat') return 'conversation';
   if (pathname === '/events' || pathname.startsWith('/memory')) return 'memory';
   if (pathname === '/timeline') return 'timeline';

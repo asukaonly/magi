@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
 import { useActivePersona } from '@/hooks/useActivePersona';
-import { panelByPathname, shouldRenderChatWorkspace } from '@/pages/chat-route-helpers';
+import { panelByPathname, shouldRenderChatWorkspace } from '@/domain/chat/shell-routing';
 import { DEFAULT_USER_ID } from '@/constants';
 import AppShellProviders from './AppShellProviders';
 import { AppTitleBar } from './AppTitleBar';

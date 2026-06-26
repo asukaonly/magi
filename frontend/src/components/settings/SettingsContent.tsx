@@ -28,7 +28,7 @@ import { SettingsToolsSection } from '@/components/settings/SettingsToolsSection
 import { MCPServersSection } from '@/components/settings/MCPServersSection';
 import { CodeAgentSection } from '@/components/settings/CodeAgentSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
-import PersonalityModern from '@/pages/PersonalityModern';
+import PersonalityModern from '@/components/personality/PersonalityModern';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';

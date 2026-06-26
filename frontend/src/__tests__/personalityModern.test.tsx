@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import PersonalityModern from '@/pages/PersonalityModern';
+import PersonalityModern from '@/components/personality/PersonalityModern';
 import { usePersonality } from '@/hooks';
 import { personasApi } from '@/api/modules/personas';
 

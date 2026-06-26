@@ -5,7 +5,7 @@ import { isMacPlatform } from '@/lib/platform';
 import { cn } from '@/lib/utils';
 import { Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { shouldRenderChatWorkspace } from '@/pages/chat-route-helpers';
+import { shouldRenderChatWorkspace } from '@/domain/chat/shell-routing';
 import { ChatWorkspacePicker } from './ChatWorkspacePicker';
 import { AppWindowControls } from './AppWindowControls';
 import { NotificationBell } from './NotificationBell';

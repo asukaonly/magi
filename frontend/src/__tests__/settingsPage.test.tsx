@@ -97,7 +97,7 @@ vi.mock('@/components/config-forms/LLMForm', () => ({
   },
 }));
 
-vi.mock('@/pages/PersonalityModern', () => ({
+vi.mock('@/components/personality/PersonalityModern', () => ({
   default: ({ embedded = false }: { embedded?: boolean }) => (
     <div>{`personality-modern:${embedded ? 'embedded' : 'standalone'}`}</div>
   ),

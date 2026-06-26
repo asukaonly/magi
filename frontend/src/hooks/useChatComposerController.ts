@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type React from 'react';
-import { shouldSubmitOnEnter } from '@/pages/chat-route-helpers';
+import { shouldSubmitOnEnter } from '@/domain/chat/shell-routing';
 import type { ChatTimelineReplyPreview } from '@/domain/chat/state';
 import { useChatDraftAttachments } from './useChatDraftAttachments';
 import { useChatSendMessage, type PendingAskAnswerPayload, type PendingAskSendContext, type UseChatSendMessageOptions } from './useChatSendMessage';
