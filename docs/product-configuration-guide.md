@@ -213,6 +213,8 @@ Current product expectations:
 - fixed-fee coding plans should not inherit pay-as-you-go token rates unless the provider publishes plan-specific token pricing; usage accounting may retain the plan source metadata while leaving calculated cost empty
 - usage accounting should prefer explicit provider-reported cost when present, then fall back to registry chat model pricing for USD-denominated token usage
 - users can review the active model capability profile during onboarding and later in settings
+- first-run LLM setup should show whether the selected provider or provider plan includes a memory embedding model; missing embeddings should warn that chat still works but memory recall is keyword-only until configured
+- the post-onboarding first-context prompt should surface a one-time memory-model setup reminder before recommending data-source plugins when embeddings are missing
 - users add or edit provider instances from provider templates or a custom-provider template
 - custom providers may define manual chat model IDs and a selectable default model
 - advanced users can override capability flags, model limits, model cost metadata, and provider-specific JSON options for the current model

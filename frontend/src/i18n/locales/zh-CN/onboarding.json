@@ -160,6 +160,10 @@
   },
   "llmSetup": {
     "embeddingFallbackHint": "这个提供商没有 embedding 模型，请在下方单独配置一个。",
+    "memoryModelReadyTitle": "记忆模型：已包含",
+    "memoryModelReadyBody": "Magi 会用它更准确地找回旧内容。",
+    "memoryModelMissingTitle": "记忆模型：待配置",
+    "memoryModelMissingBody": "Magi 可以先聊天，但记忆只能按关键词查找，之后会引导你补上。",
     "providerTitle": "选择模型供应商",
     "providerDesc": "先接通一个可用模型。高级模型分配之后也可以在设置里继续调整。",
     "customRelayTitle": "自定义供应商",

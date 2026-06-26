@@ -344,6 +344,22 @@ describe('LLMSetupStep', () => {
     await user.click(await screen.findByTestId('llm-setup-provider-anthropic'));
 
     expect(screen.getByTestId('llm-setup-embedding-row')).toBeInTheDocument();
+    expect(screen.getByText('llmSetup.memoryModelMissingTitle')).toBeInTheDocument();
+    expect(screen.getByText('llmSetup.memoryModelMissingBody')).toBeInTheDocument();
+  });
+
+  it('warns that a CodePlan selection still needs a separate memory model', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(await screen.findByTestId('llm-setup-provider-glm'));
+    expect(screen.getByText('llmSetup.memoryModelReadyTitle')).toBeInTheDocument();
+
+    await user.click(screen.getByText('llm.providerPlans.default'));
+    await user.click(await screen.findByText('Z.ai CodePlan'));
+
+    expect(await screen.findByText('llmSetup.memoryModelMissingTitle')).toBeInTheDocument();
+    expect(screen.getByText('llmSetup.memoryModelMissingBody')).toBeInTheDocument();
   });
 
   it('fills and switches provider plan endpoint base URLs', async () => {

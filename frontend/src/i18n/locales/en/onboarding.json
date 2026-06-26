@@ -159,6 +159,10 @@
   },
   "llmSetup": {
     "embeddingFallbackHint": "This provider has no embedding model. Configure one separately below.",
+    "memoryModelReadyTitle": "Memory model: included",
+    "memoryModelReadyBody": "Magi will use it to recall older context more accurately.",
+    "memoryModelMissingTitle": "Memory model: needs setup",
+    "memoryModelMissingBody": "Magi can chat now, but memory recall will rely on keywords until you add one.",
     "providerTitle": "Choose a model provider",
     "providerDesc": "Connect one usable model first. You can still tune advanced model routing later in Settings.",
     "customRelayTitle": "Custom Provider",

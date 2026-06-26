@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronDown, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -311,14 +311,21 @@ function getActiveProviderId(value: LLMConfig): string {
   return value.selections?.core?.provider_id || Object.keys(value.providers || {})[0] || '';
 }
 
-function showsEmbeddingFallback(value: LLMConfig): boolean {
+function hasConfiguredEmbeddingSelection(value: LLMConfig): boolean {
+  const selection = value.selections?.embedding;
+  if (!selection?.provider_id || !selection.model) {
+    return false;
+  }
+  const provider = value.providers?.[selection.provider_id];
+  return Boolean(provider?.enabled && provider.services?.embedding?.enabled);
+}
+
+function getMemoryModelStatus(value: LLMConfig): 'ready' | 'missing' | null {
   const coreProviderId = value.selections?.core?.provider_id;
-  if (!coreProviderId) return false;
-  if (value.selections?.embedding?.model) return false;
-  const provider = value.providers?.[coreProviderId];
-  const lookupKey = provider?.provider_type || coreProviderId;
-  const recommended = getRecommendedModels(lookupKey);
-  return recommended ? recommended.embedding === null : false;
+  if (!coreProviderId || !value.providers?.[coreProviderId]) {
+    return null;
+  }
+  return hasConfiguredEmbeddingSelection(value) ? 'ready' : 'missing';
 }
 
 export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): JSX.Element {
@@ -532,6 +539,8 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
 
   const currentCoreModel = value.selections?.core?.model || '';
   const currentContextModel = value.selections?.context_decider?.model || '';
+  const memoryModelStatus = getMemoryModelStatus(value);
+  const memoryModelReady = memoryModelStatus === 'ready';
 
   const renderSecretInput = () => (
     <div className="relative">
@@ -628,6 +637,36 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
                 : t('llmSetup.builtinSelectedHint')}
             </p>
           </div>
+
+          {memoryModelStatus ? (
+            <div
+              data-testid="llm-setup-embedding-row"
+              className={cn(
+                'flex items-start gap-3 rounded-lg border px-3.5 py-3 text-sm',
+                memoryModelReady
+                  ? 'border-emerald-200 bg-emerald-50/75 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/25 dark:text-emerald-200'
+                  : 'border-amber-200 bg-amber-50/80 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200'
+              )}
+            >
+              {memoryModelReady ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              ) : (
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              )}
+              <span className="space-y-1">
+                <span className="block font-medium">
+                  {memoryModelReady
+                    ? t('llmSetup.memoryModelReadyTitle')
+                    : t('llmSetup.memoryModelMissingTitle')}
+                </span>
+                <span className="block text-xs leading-5 opacity-80">
+                  {memoryModelReady
+                    ? t('llmSetup.memoryModelReadyBody')
+                    : t('llmSetup.memoryModelMissingBody')}
+                </span>
+              </span>
+            </div>
+          ) : null}
 
           {activeProvider.provider_type !== 'custom' && activeProviderPlans.length > 0 ? (
             <label className="block space-y-2">
@@ -825,16 +864,6 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
         </div>
       )}
 
-      {showsEmbeddingFallback(value) ? (
-        <div
-          data-testid="llm-setup-embedding-row"
-          className="rounded border border-amber-400 bg-amber-50 p-4 dark:border-amber-600 dark:bg-amber-950/30"
-        >
-          <p className="text-sm text-amber-900 dark:text-amber-200">
-            {t('llmSetup.embeddingFallbackHint')}
-          </p>
-        </div>
-      ) : null}
     </div>
   );
 }
