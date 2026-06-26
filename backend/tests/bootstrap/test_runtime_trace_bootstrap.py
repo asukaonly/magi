@@ -36,6 +36,17 @@ async def test_runtime_exports_register_runtime_trace_store() -> None:
     container = get_container()
     container.runtime_trace_store.reset_override()
     container.hybrid_retrieval_service.reset_override()
+    from magi.bootstrap.tool_capabilities import (
+        build_tool_capabilities as build_host_tool_capabilities,
+        reset_tool_capabilities,
+    )
+    from magi.tools.capabilities import (
+        build_tool_capabilities,
+        reset_tool_capabilities_provider,
+    )
+
+    reset_tool_capabilities()
+    reset_tool_capabilities_provider()
 
     module = RuntimeExportsModule(context)
     await module.init()
@@ -45,8 +56,11 @@ async def test_runtime_exports_register_runtime_trace_store() -> None:
         assert container.runtime_trace_store.overridden
         assert container.hybrid_retrieval_service() is context.memory.hybrid_retrieval_service
         assert container.hybrid_retrieval_service.overridden
+        assert build_tool_capabilities() is build_host_tool_capabilities()
     finally:
         # init() overrides MANY container bindings (unified_memory, chat
         # store, plugin manager, ...) — resetting only two of them leaked
         # overrides into later test files. shutdown() resets them all.
         await module.shutdown()
+        reset_tool_capabilities_provider()
+        reset_tool_capabilities()

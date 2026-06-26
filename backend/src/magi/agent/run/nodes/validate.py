@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..nodes.protocol import NodeOutcome, NodeResult
 from ....tools.schema import ToolExecutionContext
-from magi.bootstrap.tool_capabilities import build_tool_capabilities
+from magi.tools.capabilities import build_tool_capabilities
 
 if TYPE_CHECKING:
     from ...task_agents.common.contracts import ExecutionRequest

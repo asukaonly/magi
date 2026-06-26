@@ -8,7 +8,7 @@ from typing import Any, Optional
 from magi.i18n import llm_language_label
 from magi.tools.schema import ToolExecutionContext
 from magi.tools.tool_hint_resolver import ToolHintResolver
-from magi.bootstrap.tool_capabilities import build_tool_capabilities
+from magi.tools.capabilities import build_tool_capabilities
 from magi.agent.orchestration import PlannedSubtask
 from .planning_heuristics import (
     build_research_seed_subtasks,

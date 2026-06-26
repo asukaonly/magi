@@ -413,6 +413,7 @@ Notes:
 
 - tools are agent-callable capabilities
 - if outbound side effects are needed in the future, they should be modeled as channels or runtime pipeline hooks rather than a separate action abstraction
+- concrete host tool-capability adapters are assembled by `bootstrap/tool_capabilities.py`, but runtime packages must not import that bootstrap module directly; they should call the tools-layer `tools/capabilities.py` provider, which bootstrap configures during runtime exports
 
 ### Personality versus memory contract
 

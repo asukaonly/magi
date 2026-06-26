@@ -25,7 +25,7 @@ from magi.tools.recommender import ToolRecommender
 from magi.tools.schema import ToolExecutionContext
 from magi.tools.tool_advisory_reranker import ToolAdvisoryReranker
 from magi.tools.tool_hint_resolver import ToolHintResolver
-from magi.bootstrap.tool_capabilities import build_tool_capabilities
+from magi.tools.capabilities import build_tool_capabilities
 from magi.chat.task_agent.execution_shape import derive_execution_shape
 from magi.agent.task_agents.common import (
     ExecutionMode,
@@ -1024,5 +1024,4 @@ class ChatExecutionCoordinator:
         # Ultimate safety net: English orchestration_launch line. Keeps the
         # UI contract that interim_text is always a non-empty string.
         return self._INTERIM_FALLBACK_LINES["en"]["orchestration_launch"][0]
-
 

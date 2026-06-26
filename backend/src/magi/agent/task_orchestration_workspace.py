@@ -11,7 +11,7 @@ from ..utils.runtime import get_default_chat_workspace_path
 from ..core.logger import get_logger
 from ..tools.schema import ToolExecutionContext
 from ..utils.packaged_paths import get_repo_root
-from magi.bootstrap.tool_capabilities import build_tool_capabilities
+from magi.tools.capabilities import build_tool_capabilities
 
 logger = get_logger(__name__)
 
