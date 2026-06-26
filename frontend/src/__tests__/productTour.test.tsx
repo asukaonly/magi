@@ -115,7 +115,7 @@ describe('ProductTour', () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
   });
 
-  it('shows the memory model prompt before the plugin prompt when embeddings are missing', async () => {
+  it('shows the vector model prompt before the plugin prompt when embeddings are missing', async () => {
     vi.mocked(configApi.get).mockResolvedValue({
       success: true,
       data: configWithoutEmbedding(),
@@ -132,7 +132,7 @@ describe('ProductTour', () => {
     expect(screen.getByTestId('empty-state-connect-chrome-history')).toBeInTheDocument();
   });
 
-  it('opens model settings from the memory model prompt and resumes the plugin prompt after settings closes', async () => {
+  it('opens model settings from the vector model prompt and resumes the plugin prompt after settings closes', async () => {
     vi.mocked(configApi.get).mockResolvedValue({
       success: true,
       data: configWithoutEmbedding(),

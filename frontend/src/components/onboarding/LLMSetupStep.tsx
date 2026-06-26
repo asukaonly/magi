@@ -541,6 +541,12 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
   const currentContextModel = value.selections?.context_decider?.model || '';
   const memoryModelStatus = getMemoryModelStatus(value);
   const memoryModelReady = memoryModelStatus === 'ready';
+  const memoryModelMissingTitleKey = activeProvider?.provider_plan
+    ? 'llmSetup.memoryModelPlanMissingTitle'
+    : 'llmSetup.memoryModelMissingTitle';
+  const memoryModelMissingBodyKey = activeProvider?.provider_plan
+    ? 'llmSetup.memoryModelPlanMissingBody'
+    : 'llmSetup.memoryModelMissingBody';
 
   const renderSecretInput = () => (
     <div className="relative">
@@ -657,12 +663,12 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
                 <span className="block font-medium">
                   {memoryModelReady
                     ? t('llmSetup.memoryModelReadyTitle')
-                    : t('llmSetup.memoryModelMissingTitle')}
+                    : t(memoryModelMissingTitleKey)}
                 </span>
                 <span className="block text-xs leading-5 opacity-80">
                   {memoryModelReady
                     ? t('llmSetup.memoryModelReadyBody')
-                    : t('llmSetup.memoryModelMissingBody')}
+                    : t(memoryModelMissingBodyKey)}
                 </span>
               </span>
             </div>

@@ -337,7 +337,7 @@ describe('LLMSetupStep', () => {
     expect(screen.getByTestId('llm-setup-fast-model')).toBeInTheDocument();
   });
 
-  it('shows the embedding-fallback row when the selected provider has no native embedding model', async () => {
+  it('shows the vector-model row when the selected provider has no native vector model', async () => {
     const user = userEvent.setup();
     render(<Harness />);
 
@@ -348,7 +348,7 @@ describe('LLMSetupStep', () => {
     expect(screen.getByText('llmSetup.memoryModelMissingBody')).toBeInTheDocument();
   });
 
-  it('warns that a CodePlan selection still needs a separate memory model', async () => {
+  it('warns that a CodePlan billing plan does not include a vector model', async () => {
     const user = userEvent.setup();
     render(<Harness />);
 
@@ -358,8 +358,8 @@ describe('LLMSetupStep', () => {
     await user.click(screen.getByText('llm.providerPlans.default'));
     await user.click(await screen.findByText('Z.ai CodePlan'));
 
-    expect(await screen.findByText('llmSetup.memoryModelMissingTitle')).toBeInTheDocument();
-    expect(screen.getByText('llmSetup.memoryModelMissingBody')).toBeInTheDocument();
+    expect(await screen.findByText('llmSetup.memoryModelPlanMissingTitle')).toBeInTheDocument();
+    expect(screen.getByText('llmSetup.memoryModelPlanMissingBody')).toBeInTheDocument();
   });
 
   it('fills and switches provider plan endpoint base URLs', async () => {
