@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from magi.memory.portrait.contracts import TopicResult
-from magi.memory.portrait.factory import build_snippet_fetcher
+from magi.chat.portrait.contracts import TopicResult
+from magi.memory.portrait.snippet_fetcher import build_snippet_fetcher
 
 
 def _payload(*, l3=None, l2_assertions=None, l2_relationships=None, l4=None):

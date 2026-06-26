@@ -18,7 +18,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Tuple
 
-from .contracts import PortraitObservation, PortraitPayload
+from .contracts import ChatPortraitObservation, ChatPortraitPayload
 
 
 CacheKey = Tuple[str, str, str]
@@ -46,7 +46,7 @@ class PortraitCache:
     ) -> None:
         self._ttl = float(ttl_seconds)
         self._max = int(max_entries)
-        self._data: OrderedDict[CacheKey, tuple[float, PortraitPayload]] = OrderedDict()
+        self._data: OrderedDict[CacheKey, tuple[float, ChatPortraitPayload]] = OrderedDict()
         self._lock = RLock()
         self._persistence_path: Path | None = (
             Path(persistence_path) if persistence_path else None
@@ -54,7 +54,7 @@ class PortraitCache:
         if self._persistence_path is not None:
             self._load_from_disk()
 
-    def get(self, key: CacheKey) -> PortraitPayload | None:
+    def get(self, key: CacheKey) -> ChatPortraitPayload | None:
         with self._lock:
             entry = self._data.get(key)
             if entry is None:
@@ -67,7 +67,7 @@ class PortraitCache:
             self._data.move_to_end(key)
             return payload
 
-    def get_stale(self, key: CacheKey) -> PortraitPayload | None:
+    def get_stale(self, key: CacheKey) -> ChatPortraitPayload | None:
         """Return the entry ignoring TTL. ``None`` only if never set or evicted."""
         with self._lock:
             entry = self._data.get(key)
@@ -76,7 +76,7 @@ class PortraitCache:
             self._data.move_to_end(key)
             return entry[1]
 
-    def set(self, key: CacheKey, payload: PortraitPayload) -> None:
+    def set(self, key: CacheKey, payload: ChatPortraitPayload) -> None:
         with self._lock:
             self._data[key] = (time.monotonic(), payload)
             self._data.move_to_end(key)
@@ -165,20 +165,20 @@ class PortraitCache:
             logger.warning("portrait cache save failed (%s): %s", path, exc)
 
 
-def _payload_from_dict(data: dict) -> PortraitPayload:
+def _payload_from_dict(data: dict) -> ChatPortraitPayload:
     observations_raw = data.get("observations") or []
-    observations: list[PortraitObservation] = []
+    observations: list[ChatPortraitObservation] = []
     for obs in observations_raw:
         if not isinstance(obs, dict):
             continue
-        observations.append(PortraitObservation(
+        observations.append(ChatPortraitObservation(
             kind=str(obs.get("kind") or "reflection"),  # type: ignore[arg-type]
             text=str(obs.get("text") or ""),
             basis_count=int(obs.get("basis_count") or 0),
             basis_summary=str(obs.get("basis_summary") or ""),
             basis_refs=[str(r) for r in (obs.get("basis_refs") or []) if r],
         ))
-    return PortraitPayload(
+    return ChatPortraitPayload(
         session_id=str(data.get("session_id") or ""),
         persona_id=str(data.get("persona_id") or ""),
         topic=str(data.get("topic") or ""),

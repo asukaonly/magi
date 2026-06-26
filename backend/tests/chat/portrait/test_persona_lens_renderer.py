@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from magi.memory.portrait.contracts import PortraitObservation, RawMemorySnippet
-from magi.memory.portrait.persona_lens_renderer import PersonaLensRenderer
+from magi.chat.portrait.contracts import ChatPortraitObservation, RawMemorySnippet
+from magi.chat.portrait.persona_lens_renderer import PersonaLensRenderer
 
 
 _PERSONA_CONFIG = {
@@ -54,7 +54,7 @@ async def test_render_returns_observations_from_llm_json():
         topic="罗永浩",
     )
     assert len(observations) == 1
-    assert isinstance(observations[0], PortraitObservation)
+    assert isinstance(observations[0], ChatPortraitObservation)
     assert observations[0].kind == "reflection"
     assert "你" in observations[0].text
     # M1 was mapped back to mem_a.

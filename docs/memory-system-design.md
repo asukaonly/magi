@@ -35,6 +35,8 @@ It is **not** responsible for:
 - Serving as the source of truth for complete chat transcripts
 - Serving as the source of truth for runtime spans, tool traces, or execution telemetry
 - Permanently storing every raw producer payload
+- Rendering persona-voiced chat UI cards; memory may provide traceable snippets,
+  but chat/persona layers decide how those snippets are presented in a turn
 
 Magi's memory model is layered by **information lifecycle**, not by functional plugin:
 
@@ -725,6 +727,10 @@ passive assertions do not leak into the page before the cache is refreshed.
 The read model may include safe L2 graph relationships such as visited places
 or owned/used tools as user-visible clues; those clues do not become durable
 profile assertions unless they pass assertion policy separately.
+The chat portrait rail is a separate surface: it may retrieve memory snippets
+and render them in the active persona's voice for the current conversation, but
+that presentation is not the product-facing self portrait and must not own
+memory-layer projection rules.
 
 ### L3 — Reflection and Summaries
 

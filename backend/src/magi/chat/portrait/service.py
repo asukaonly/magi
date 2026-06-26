@@ -21,7 +21,7 @@ from typing import Any, Awaitable, Callable
 
 from .cache import CacheKey, PortraitCache
 from .contracts import (
-    PortraitPayload,
+    ChatPortraitPayload,
     RawMemorySnippet,
     TopicResult,
 )
@@ -70,7 +70,7 @@ class PortraitService:
         user_id: str,
         session_id: str,
         force: bool = False,
-    ) -> PortraitPayload:
+    ) -> ChatPortraitPayload:
         """Return a cached payload if fresh; otherwise spawn a background
         compute task and return ``reason="computing"`` cold-start.
 
@@ -136,7 +136,7 @@ class PortraitService:
         # the cold-start placeholder every TTL cycle.
         stale = self._cache.get_stale(key)
         if stale is not None:
-            return PortraitPayload(
+            return ChatPortraitPayload(
                 session_id=stale.session_id,
                 persona_id=stale.persona_id,
                 topic=stale.topic,
@@ -198,7 +198,7 @@ class PortraitService:
                 )
                 return
 
-            payload = PortraitPayload(
+            payload = ChatPortraitPayload(
                 session_id=session_id,
                 persona_id=persona_id,
                 topic=topic_result.topic,
@@ -257,7 +257,7 @@ class PortraitService:
         persona_id: str,
         *,
         reason: str,
-    ) -> PortraitPayload:
+    ) -> ChatPortraitPayload:
         detail = (await self._persona_loader(persona_id)) or {}
         config = detail.get("config") or {}
         interim_lines = (config.get("interim_lines") or {}).get("portrait_cold_start") or []
@@ -278,8 +278,8 @@ class PortraitService:
         persona_id: str,
         cold_line: str,
         reason: str,
-    ) -> PortraitPayload:
-        return PortraitPayload(
+    ) -> ChatPortraitPayload:
+        return ChatPortraitPayload(
             session_id=session_id,
             persona_id=persona_id,
             topic="",

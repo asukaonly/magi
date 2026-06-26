@@ -1,88 +1,27 @@
-"""Dataclass contracts for the persona portrait rail."""
+"""Neutral contracts for memory snippets used by portrait-like surfaces."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import Literal, Protocol
 
 
 ObservationKind = Literal["reflection", "assertion", "relationship", "procedure"]
 MemoryLayer = Literal["L2", "L3", "L4"]
 
 
-@dataclass
-class PortraitObservation:
-    """One persona-voiced observation derived from raw memory."""
-
-    kind: ObservationKind
-    text: str
-    basis_count: int
-    basis_summary: str
-    basis_refs: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "kind": self.kind,
-            "text": self.text,
-            "basis_count": self.basis_count,
-            "basis_summary": self.basis_summary,
-            "basis_refs": list(self.basis_refs),
-        }
-
-
-@dataclass
-class PortraitPayload:
-    """Response payload returned by /api/memory/portrait."""
-
-    session_id: str
-    persona_id: str
-    topic: str
-    generated_at: int  # unix seconds
-    observations: list[PortraitObservation] = field(default_factory=list)
-    is_cold_start: bool = False
-    cold_start_line: str | None = None
-    # Diagnostic: which branch produced cold-start. One of:
-    #   "no_persona"          — no active persona configured
-    #   "no_messages"         — chat history loader returned empty
-    #   "topic_empty"         — topic extractor produced no topic
-    #   "no_snippets"         — L2/L3/L4 retrieval returned nothing
-    #   "no_observations"     — renderer LLM produced no observations
-    #   "computing"           — background task spawned, no warm payload yet
-    #   None                  — not a cold start, or unset
-    cold_start_reason: str | None = None
-    # True when the payload was served from cache past its TTL while a
-    # fresh recompute is in flight. UI keeps showing observations; the hook
-    # continues polling until a fresh payload arrives.
-    is_stale: bool = False
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "session_id": self.session_id,
-            "persona_id": self.persona_id,
-            "topic": self.topic,
-            "generated_at": self.generated_at,
-            "observations": [o.to_dict() for o in self.observations],
-            "is_cold_start": self.is_cold_start,
-            "cold_start_line": self.cold_start_line,
-            "cold_start_reason": self.cold_start_reason,
-            "is_stale": self.is_stale,
-        }
-
-
-@dataclass
-class TopicResult:
-    """Output of TopicExtractor."""
+class MemorySnippetQuery(Protocol):
+    """Topic-like query consumed by the memory snippet fetcher."""
 
     topic: str
-    entities: list[str] = field(default_factory=list)
+    entities: list[str]
 
-    def is_empty(self) -> bool:
-        return not self.topic.strip() and not self.entities
+    def is_empty(self) -> bool: ...
 
 
 @dataclass
 class RawMemorySnippet:
-    """A raw L2/L3/L4 memory fragment passed to the persona-lens renderer."""
+    """A raw L2/L3/L4 memory fragment returned by memory retrieval."""
 
     id: str
     kind: ObservationKind

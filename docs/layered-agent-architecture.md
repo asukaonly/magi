@@ -357,6 +357,9 @@ Notes:
 - the Rust gateway (`crates/magi-gateway/`) handles static database reads, config file I/O, and session/task mutations natively
 - requests requiring the Python runtime are dispatched via IPC `api.forward` to FastAPI routers running as an in-memory ASGI app
 - `chat/` owns transcript truth (`chat.db`), attachment storage, and session workspace; it is not the memory layer
+- `chat/portrait/` owns persona-voiced portrait cards shown in the chat rail; it
+  may consume neutral memory snippets but memory must not assemble chat/persona
+  presentation
 - `channels/` provides bidirectional adapters for external messaging platforms; each channel routes messages into the standard chat pipeline
 
 ### L15. Connection And Transport
@@ -415,6 +418,8 @@ Notes:
 
 - memory should stay relatively factual and traceable
 - personality may carry subjective or relational interpretation
+- chat/persona presentation may turn memory snippets into persona-voiced cards,
+  but the memory layer should expose only neutral retrieval/projection material
 - configuration code should not reach through personality state when the same information can be read from owned config or runtime paths
 
 ## Practical Guidance

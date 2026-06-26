@@ -6,47 +6,14 @@ export type PortraitObservationKind =
   | 'relationship'
   | 'procedure';
 
-export interface PortraitObservation {
+export type ChatPortraitObservationKind = PortraitObservationKind;
+
+export interface ChatPortraitObservation {
   kind: PortraitObservationKind;
   text: string;
   basis_count: number;
   basis_summary: string;
   basis_refs: string[];
-}
-
-export type PortraitSelfViewWorldGroupId =
-  | 'identity'
-  | 'preferences'
-  | 'routine'
-  | 'places'
-  | 'communication';
-
-export interface PortraitSelfViewItem {
-  id: string;
-  text: string;
-  source: string;
-  source_key: string | null;
-  assertion_id: string | null;
-  basis_count: number;
-  basis_refs: string[];
-}
-
-export interface PortraitSelfViewWorldGroup {
-  id: PortraitSelfViewWorldGroupId;
-  items: PortraitSelfViewItem[];
-}
-
-export interface PortraitSelfView {
-  world: {
-    total_count: number;
-    groups: PortraitSelfViewWorldGroup[];
-  };
-  review: {
-    items: PortraitSelfViewItem[];
-  };
-  recent: {
-    items: PortraitSelfViewItem[];
-  };
 }
 
 export type ColdStartReason =
@@ -57,13 +24,12 @@ export type ColdStartReason =
   | 'no_observations'
   | 'computing';
 
-export interface PortraitPayload {
+export interface ChatPortraitPayload {
   session_id: string;
   persona_id: string;
   topic: string;
   generated_at: number;
-  observations: PortraitObservation[];
-  self_view?: PortraitSelfView | null;
+  observations: ChatPortraitObservation[];
   is_cold_start: boolean;
   cold_start_line: string | null;
   cold_start_reason: ColdStartReason | null;
@@ -81,8 +47,8 @@ export const memoryPortraitApi = {
     sessionId: string,
     userId: string,
     options?: { force?: boolean },
-  ): Promise<PortraitPayload> => {
-    const response = await api.get<PortraitPayload>('/memory/portrait', {
+  ): Promise<ChatPortraitPayload> => {
+    const response = await api.get<ChatPortraitPayload>('/memory/portrait', {
       params: {
         session_id: sessionId,
         user_id: userId,

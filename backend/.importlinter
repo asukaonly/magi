@@ -108,7 +108,6 @@ ignore_imports =
     # control->chat/transport edges were removed and only this one added.
     magi.chat.control_transcript_subscriber -> magi.transport.chat_events
     magi.memory.event_translation -> magi.awareness.sensor_memory_projection
-    magi.memory.portrait.factory -> magi.personality.persona_repository
 
 [importlinter:contract:plugin-isolation]
 name = Plugin implementations depend on SDK only, never host layers

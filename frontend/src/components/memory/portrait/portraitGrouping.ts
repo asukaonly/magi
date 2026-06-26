@@ -1,9 +1,9 @@
 import type {
-  PortraitObservation,
+  SelfPortraitObservation,
   PortraitSelfView,
   PortraitSelfViewItem,
   PortraitSelfViewWorldGroupId,
-} from '@/api/modules/memoryPortrait';
+} from '@/api/modules/memoryPortraitSelf';
 
 export type PortraitWorldGroupId = PortraitSelfViewWorldGroupId;
 
@@ -12,7 +12,7 @@ export interface PortraitDisplayItem {
   text: string;
   source: string;
   sourceKey: string | null;
-  observation: PortraitObservation;
+  observation: SelfPortraitObservation;
   assertionId: string | null;
 }
 
@@ -69,18 +69,18 @@ const normalizeUserFacingSource = (
   return { label: source, key: key ?? null };
 };
 
-export const extractAssertionId = (obs: PortraitObservation): string | null => {
+export const extractAssertionId = (obs: SelfPortraitObservation): string | null => {
   const ref = obs.basis_refs.find((r) => r.startsWith('assertion:') || ASSERTION_REF_PATTERN.test(r));
   if (!ref) return null;
   return ref.startsWith('assertion:') ? ref.slice('assertion:'.length) : ref;
 };
 
-const refValue = (obs: PortraitObservation, prefix: string): string | null => {
+const refValue = (obs: SelfPortraitObservation, prefix: string): string | null => {
   const ref = obs.basis_refs.find((r) => r.startsWith(`${prefix}:`));
   return ref ? ref.slice(prefix.length + 1).trim() || null : null;
 };
 
-const hasRefPrefix = (obs: PortraitObservation, prefix: string): boolean =>
+const hasRefPrefix = (obs: SelfPortraitObservation, prefix: string): boolean =>
   obs.basis_refs.some((ref) => ref.startsWith(prefix));
 
 const simplifyText = (text: string): string => {
@@ -104,7 +104,7 @@ const simplifyText = (text: string): string => {
 const normalizeSourceKey = (value: string): string =>
   value.trim().toLowerCase().replace(/[\s-]+/g, '_');
 
-const sourceLabel = (obs: PortraitObservation): { label: string; key: string | null } => {
+const sourceLabel = (obs: SelfPortraitObservation): { label: string; key: string | null } => {
   const source = refValue(obs, 'source');
   if (source) {
     return normalizeUserFacingSource(source.replace(/[-_]/g, ' '), normalizeSourceKey(source));
@@ -118,7 +118,7 @@ const sourceLabel = (obs: PortraitObservation): { label: string; key: string | n
   return { label: '', key: null };
 };
 
-const displayItem = (obs: PortraitObservation, index: number): PortraitDisplayItem => {
+const displayItem = (obs: SelfPortraitObservation, index: number): PortraitDisplayItem => {
   const source = sourceLabel(obs);
   return {
     id: `${obs.kind}-${index}-${extractAssertionId(obs) ?? obs.text}`,
@@ -148,7 +148,7 @@ const displayItemFromSelfView = (item: PortraitSelfViewItem): PortraitDisplayIte
   };
 };
 
-const isReviewItem = (obs: PortraitObservation): boolean => {
+const isReviewItem = (obs: SelfPortraitObservation): boolean => {
   const status = refValue(obs, 'status');
   if (status) {
     return REVIEW_STATUSES.has(status);
@@ -156,7 +156,7 @@ const isReviewItem = (obs: PortraitObservation): boolean => {
   return Boolean(extractAssertionId(obs)) && /l2 assertion/i.test(obs.basis_summary || '');
 };
 
-const isRecentItem = (obs: PortraitObservation): boolean => {
+const isRecentItem = (obs: SelfPortraitObservation): boolean => {
   const family = refValue(obs, 'family');
   if (family && STATE_FAMILIES.has(family)) {
     return true;
@@ -164,7 +164,7 @@ const isRecentItem = (obs: PortraitObservation): boolean => {
   return obs.kind === 'reflection' || hasRefPrefix(obs, 'state:');
 };
 
-const worldGroupFor = (obs: PortraitObservation): PortraitWorldGroupId | null => {
+const worldGroupFor = (obs: SelfPortraitObservation): PortraitWorldGroupId | null => {
   const family = refValue(obs, 'family');
   return family ? FAMILY_GROUPS.get(family) ?? null : null;
 };
@@ -172,7 +172,7 @@ const worldGroupFor = (obs: PortraitObservation): PortraitWorldGroupId | null =>
 const emptyWorldGroups = (): PortraitWorldGroup[] =>
   WORLD_GROUP_IDS.map((id) => ({ id, items: [] }));
 
-export const buildPortraitViewModel = (observations: PortraitObservation[]): PortraitViewModel => {
+export const buildPortraitViewModel = (observations: SelfPortraitObservation[]): PortraitViewModel => {
   const groups = emptyWorldGroups();
   const groupById = new Map(groups.map((group) => [group.id, group]));
   const reviewItems: PortraitDisplayItem[] = [];

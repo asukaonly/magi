@@ -1,5 +1,5 @@
 import { Brain, Heart, Network, Wrench } from 'lucide-react';
-import type { PortraitObservation } from '@/api/modules/memoryPortrait';
+import type { ChatPortraitObservation } from '@/api/modules/memoryPortrait';
 import { cn } from '@/lib/utils';
 
 // Icon stays as a subtle visual differentiator across kinds so users can
@@ -13,14 +13,14 @@ const KIND_ICON = {
   procedure: Wrench,
 } as const;
 
-const KIND_ICON_TINT: Record<PortraitObservation['kind'], string> = {
+const KIND_ICON_TINT: Record<ChatPortraitObservation['kind'], string> = {
   reflection: 'text-amber-600/70',
   assertion: 'text-rose-500/70',
   relationship: 'text-cyan-600/70',
   procedure: 'text-emerald-600/70',
 };
 
-export const PortraitCard = ({ observation }: { observation: PortraitObservation }) => {
+export const PortraitCard = ({ observation }: { observation: ChatPortraitObservation }) => {
   const Icon = KIND_ICON[observation.kind];
   return (
     <div

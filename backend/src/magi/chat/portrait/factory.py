@@ -1,10 +1,4 @@
-"""Wiring helpers: build a snippet fetcher around hybrid_retrieval service.
-
-Also exposes :func:`build_portrait_service` which assembles a production
-:class:`PortraitService` against live magi dependencies (LLM pool, persona
-repository, retrieval service, chat history). The service is constructed
-lazily on first /api/memory/portrait request to keep startup cheap.
-"""
+"""Production assembly for the chat portrait rail."""
 
 from __future__ import annotations
 
@@ -12,118 +6,17 @@ import json
 import logging
 import os
 from dataclasses import asdict, is_dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
-from ..hybrid_retrieval import build_query
-from .contracts import RawMemorySnippet, TopicResult
+from ...memory.portrait.snippet_fetcher import build_snippet_fetcher
 
 
 logger = logging.getLogger(__name__)
 
 
-_MAX_SNIPPETS = 15
-
-
 def _llm_debug_enabled() -> bool:
     """Toggle full prompt + response dumps via MAGI_PORTRAIT_LLM_DEBUG=1."""
     return os.environ.get("MAGI_PORTRAIT_LLM_DEBUG", "").strip() not in ("", "0", "false", "False")
-
-
-def build_snippet_fetcher(
-    *,
-    retrieval_service_provider: Callable[[], Any | None],
-) -> Callable[[str, TopicResult], Awaitable[list[RawMemorySnippet]]]:
-    """Return an async fetcher that converts a TopicResult to RawMemorySnippet list."""
-
-    async def fetch(user_id: str, topic_result: TopicResult) -> list[RawMemorySnippet]:
-        if topic_result.is_empty():
-            return []
-        service = retrieval_service_provider()
-        if service is None:
-            return []
-        query_text = " ".join(filter(None, [topic_result.topic, *topic_result.entities]))
-        try:
-            request = build_query(
-                query=query_text,
-                user_id=user_id,
-                session_id=None,
-                time_range={},
-                query_mode="summary",
-                limit=_MAX_SNIPPETS,
-            )
-            payload = await service.query(request)
-        except Exception as exc:
-            logger.debug("portrait retrieval failed: %s", exc)
-            return []
-        return _to_snippets(payload)
-
-    return fetch
-
-
-def _to_snippets(payload: Any) -> list[RawMemorySnippet]:
-    out: list[RawMemorySnippet] = []
-    for item in getattr(payload, "l3_reflections", None) or []:
-        if not isinstance(item, dict):
-            continue
-        statement = str(item.get("content") or "").strip()
-        if not statement:
-            continue
-        out.append(RawMemorySnippet(
-            id=str(item.get("summary_id") or item.get("id") or f"l3-{len(out)}"),
-            kind="reflection",
-            layer="L3",
-            statement=statement,
-            confidence=_safe_float(item.get("confidence")),
-        ))
-    for item in getattr(payload, "l2_assertions", None) or []:
-        if not isinstance(item, dict):
-            continue
-        statement = str(item.get("statement") or item.get("content") or "").strip()
-        if not statement:
-            continue
-        out.append(RawMemorySnippet(
-            id=str(item.get("assertion_id") or item.get("id") or f"l2a-{len(out)}"),
-            kind="assertion",
-            layer="L2",
-            statement=statement,
-            confidence=_safe_float(item.get("confidence")),
-        ))
-    for item in getattr(payload, "l2_relationships", None) or []:
-        if not isinstance(item, dict):
-            continue
-        subject = str(item.get("subject") or "").strip()
-        predicate = str(item.get("predicate") or "").strip()
-        obj = str(item.get("object") or "").strip()
-        statement = f"{subject} {predicate} {obj}".strip()
-        if not statement:
-            continue
-        out.append(RawMemorySnippet(
-            id=str(item.get("relationship_id") or item.get("id") or f"l2r-{len(out)}"),
-            kind="relationship",
-            layer="L2",
-            statement=statement,
-            confidence=_safe_float(item.get("confidence")),
-        ))
-    for item in getattr(payload, "l4_procedures", None) or []:
-        if not isinstance(item, dict):
-            continue
-        title = str(item.get("title") or item.get("name") or "").strip()
-        if not title:
-            continue
-        out.append(RawMemorySnippet(
-            id=str(item.get("procedure_id") or item.get("id") or f"l4-{len(out)}"),
-            kind="procedure",
-            layer="L4",
-            statement=title,
-            confidence=_safe_float(item.get("success_rate")),
-        ))
-    return out[:_MAX_SNIPPETS]
-
-
-def _safe_float(value: Any) -> float | None:
-    if isinstance(value, (int, float)):
-        return float(value)
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +121,7 @@ class _BridgeJsonAdapter:
             return {}
 
 
-def build_portrait_service(chat_read_service_factory=None):
+def build_chat_portrait_service(chat_read_service_factory=None):
     """Construct a :class:`PortraitService` wired to live magi services.
 
     Imports are local so this module can be imported without pulling in the
@@ -236,16 +129,16 @@ def build_portrait_service(chat_read_service_factory=None):
 
     ``chat_read_service_factory`` is a zero-arg callable returning the chat
     read service, injected by the composition root (the api portrait route).
-    Injected rather than imported here so this L5 memory module does not reach
-    up through the api layer into chat. When ``None`` (e.g. isolated tests that
-    never exercise ``message_loader``) the loader yields no history.
+    Injected rather than imported here so this chat rail assembly stays testable
+    and does not depend directly on the API router. When ``None`` (e.g. isolated
+    tests that never exercise ``message_loader``) the loader yields no history.
     """
     from ...config.models import ThinkingDepth
     from ...llm import LLMProviderBridge, LLMScenario
     from ...llm.provider import get_scenario_llm_pool
     from ...personality.persona_repository import PersonaRepository
     from ...utils.runtime import get_runtime_paths
-    from ..provider import get_hybrid_retrieval_service
+    from ...memory.provider import get_hybrid_retrieval_service
     from .cache import PortraitCache
     from .persona_lens_renderer import PersonaLensRenderer
     from .service import PortraitService

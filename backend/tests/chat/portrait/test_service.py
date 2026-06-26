@@ -3,12 +3,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from magi.memory.portrait.contracts import (
-    PortraitObservation,
+from magi.chat.portrait.contracts import (
+    ChatPortraitObservation,
     RawMemorySnippet,
     TopicResult,
 )
-from magi.memory.portrait.service import PortraitService
+from magi.chat.portrait.service import PortraitService
 
 
 def _persona_detail(name="七号", cold_lines=None):
@@ -52,7 +52,7 @@ async def test_first_call_returns_computing_then_warms_cache(deps):
         RawMemorySnippet(id="m1", kind="reflection", layer="L3", statement="x"),
     ]
     deps["renderer"].render = AsyncMock(return_value=[
-        PortraitObservation(kind="reflection", text="你又在想老罗", basis_count=1,
+        ChatPortraitObservation(kind="reflection", text="你又在想老罗", basis_count=1,
                             basis_summary="1 条", basis_refs=["m1"]),
     ])
 
@@ -81,7 +81,7 @@ async def test_concurrent_requests_single_flight(deps):
         RawMemorySnippet(id="m1", kind="reflection", layer="L3", statement="x"),
     ]
     deps["renderer"].render = AsyncMock(return_value=[
-        PortraitObservation(kind="reflection", text="o", basis_count=1,
+        ChatPortraitObservation(kind="reflection", text="o", basis_count=1,
                             basis_summary="1", basis_refs=["m1"]),
     ])
 
@@ -137,7 +137,7 @@ async def test_force_refresh_spawns_new_task(deps):
         RawMemorySnippet(id="m1", kind="reflection", layer="L3", statement="x"),
     ]
     deps["renderer"].render = AsyncMock(return_value=[
-        PortraitObservation(kind="reflection", text="o1", basis_count=1,
+        ChatPortraitObservation(kind="reflection", text="o1", basis_count=1,
                             basis_summary="1", basis_refs=["m1"]),
     ])
     service = PortraitService(**deps, active_persona_resolver=_async_returning("p1"))
@@ -162,11 +162,11 @@ async def test_stale_while_revalidate_after_ttl(deps):
         RawMemorySnippet(id="m1", kind="reflection", layer="L3", statement="x"),
     ]
     deps["renderer"].render = AsyncMock(return_value=[
-        PortraitObservation(kind="reflection", text="你又在想老罗", basis_count=1,
+        ChatPortraitObservation(kind="reflection", text="你又在想老罗", basis_count=1,
                             basis_summary="1 条", basis_refs=["m1"]),
     ])
 
-    from magi.memory.portrait.cache import PortraitCache
+    from magi.chat.portrait.cache import PortraitCache
     cache = PortraitCache(ttl_seconds=0.01, max_entries=10)
     service = PortraitService(**deps, active_persona_resolver=_async_returning("p1"),
                               cache=cache)

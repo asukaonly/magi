@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Any, Callable
 
-from .contracts import PortraitObservation, RawMemorySnippet
+from .contracts import ChatPortraitObservation, RawMemorySnippet
 
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class PersonaLensRenderer:
         snippets: list[RawMemorySnippet],
         recent_message_excerpt: str,
         topic: str,
-    ) -> list[PortraitObservation]:
+    ) -> list[ChatPortraitObservation]:
         if not snippets:
             return []
         bridge = self._bridge_factory()
@@ -166,13 +166,13 @@ class PersonaLensRenderer:
         payload: Any,
         *,
         token_to_id: dict[str, str] | None = None,
-    ) -> list[PortraitObservation]:
+    ) -> list[ChatPortraitObservation]:
         if not isinstance(payload, dict):
             return []
         items = payload.get("observations")
         if not isinstance(items, list):
             return []
-        observations: list[PortraitObservation] = []
+        observations: list[ChatPortraitObservation] = []
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -202,7 +202,7 @@ class PersonaLensRenderer:
                         basis_refs.append(token_to_id[ref_str])
                 else:
                     basis_refs.append(ref_str)
-            observations.append(PortraitObservation(
+            observations.append(ChatPortraitObservation(
                 kind=kind,  # type: ignore[arg-type]
                 text=text,
                 basis_count=int(item.get("basis_count") or 0),

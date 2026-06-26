@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { memoryPortraitSelfApi } from '@/api/modules/memoryPortraitSelf';
-import type { PortraitPayload } from '@/api/modules/memoryPortrait';
+import { memoryPortraitSelfApi, type SelfPortraitPayload } from '@/api/modules/memoryPortraitSelf';
 import { memoryApi } from '@/api/modules/memory';
 import PortraitWorldMap from '@/components/memory/portrait/PortraitWorldMap';
 import PortraitReviewQueue from '@/components/memory/portrait/PortraitReviewQueue';
@@ -15,7 +14,7 @@ import { DEFAULT_USER_ID } from '@/constants';
 
 export const MemoryPortraitPage = () => {
   const { t } = useTranslation('app');
-  const [payload, setPayload] = useState<PortraitPayload | null>(null);
+  const [payload, setPayload] = useState<SelfPortraitPayload | null>(null);
 
   useEffect(() => {
     void memoryPortraitSelfApi.get(DEFAULT_USER_ID).then(setPayload).catch(() => setPayload(null));

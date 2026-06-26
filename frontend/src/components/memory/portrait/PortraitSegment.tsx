@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react';
-import type { PortraitObservation } from '@/api/modules/memoryPortrait';
+import type { SelfPortraitObservation } from '@/api/modules/memoryPortraitSelf';
 
 interface PortraitSegmentProps {
   title: string;
-  observations: PortraitObservation[];
+  observations: SelfPortraitObservation[];
   emptyText?: string;
-  renderItem?: (obs: PortraitObservation) => ReactNode;
+  renderItem?: (obs: SelfPortraitObservation) => ReactNode;
 }
 
 export const PortraitSegment = ({ title, observations, emptyText, renderItem }: PortraitSegmentProps) => (

@@ -1,13 +1,11 @@
 import time
 
-import pytest
-
-from magi.memory.portrait.cache import PortraitCache
-from magi.memory.portrait.contracts import PortraitPayload
+from magi.chat.portrait.cache import PortraitCache
+from magi.chat.portrait.contracts import ChatPortraitPayload
 
 
-def _payload(session: str, persona: str) -> PortraitPayload:
-    return PortraitPayload(
+def _payload(session: str, persona: str) -> ChatPortraitPayload:
+    return ChatPortraitPayload(
         session_id=session,
         persona_id=persona,
         topic="t",
@@ -25,7 +23,7 @@ def test_set_then_get_returns_payload():
 
 def test_get_expired_entry_returns_none(monkeypatch):
     now = [1_000_000.0]
-    monkeypatch.setattr("magi.memory.portrait.cache.time.monotonic", lambda: now[0])
+    monkeypatch.setattr("magi.chat.portrait.cache.time.monotonic", lambda: now[0])
     cache = PortraitCache(ttl_seconds=300, max_entries=100)
     key = ("s1", "h", "p1")
     cache.set(key, _payload("s1", "p1"))

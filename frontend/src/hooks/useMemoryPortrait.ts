@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   memoryPortraitApi,
-  type PortraitPayload,
+  type ChatPortraitPayload,
 } from '@/api/modules/memoryPortrait';
 
 const THROTTLE_MS = 5 * 60 * 1000;
@@ -15,7 +15,7 @@ export interface UseMemoryPortraitArgs {
 }
 
 export interface UseMemoryPortraitResult {
-  payload: PortraitPayload | null;
+  payload: ChatPortraitPayload | null;
   isLoading: boolean;
   error: string | null;
   refresh: () => void;
@@ -26,7 +26,7 @@ export function useMemoryPortrait({
   userId,
   personaId,
 }: UseMemoryPortraitArgs): UseMemoryPortraitResult {
-  const [payload, setPayload] = useState<PortraitPayload | null>(null);
+  const [payload, setPayload] = useState<ChatPortraitPayload | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastFetchAt = useRef<number>(0);
@@ -42,7 +42,7 @@ export function useMemoryPortrait({
   }, []);
 
   const fetchPayload = useCallback(
-    async (force: boolean): Promise<PortraitPayload | null> => {
+    async (force: boolean): Promise<ChatPortraitPayload | null> => {
       if (!sessionId || !userId || !personaId) {
         setPayload(null);
         return null;
@@ -65,7 +65,7 @@ export function useMemoryPortrait({
   );
 
   const schedulePollIfComputing = useCallback(
-    (latest: PortraitPayload | null) => {
+    (latest: ChatPortraitPayload | null) => {
       clearPollTimer();
       // Keep polling whenever the backend is still working: either the
       // initial "computing" cold-start, or a stale-while-revalidate

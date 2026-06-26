@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from magi.memory.portrait.contracts import TopicResult
-from magi.memory.portrait.topic_extractor import TopicExtractor
+from magi.chat.portrait.contracts import TopicResult
+from magi.chat.portrait.topic_extractor import TopicExtractor
 
 
 @pytest.mark.asyncio

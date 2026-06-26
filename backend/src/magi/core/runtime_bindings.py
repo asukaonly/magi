@@ -29,3 +29,8 @@ def require_agent_runtime():
 def require_scheduler_service():
     """Return the active scheduler service binding."""
     return _require_binding("scheduler_service")
+
+
+def require_chat_portrait_service():
+    """Return the active chat portrait service binding."""
+    return _require_binding("chat_portrait_service")

@@ -10,8 +10,8 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from ....memory.portrait.contracts import PortraitObservation, PortraitPayload
 from ....memory.provider import get_unified_memory
+from ....user_profile.portrait_contracts import UserPortraitObservation, UserPortraitPayload
 from ....user_profile.portrait_graph_signals import (
     PortraitGraphSignal,
     collect_portrait_graph_signals,
@@ -118,7 +118,7 @@ def build_router() -> APIRouter:
                 logger.debug("self portrait: portrait projection lookup failed: %s", exc)
                 portrait_projection = None
             if portrait_projection is not None:
-                payload = PortraitPayload(
+                payload = UserPortraitPayload(
                     session_id="",
                     persona_id="",
                     topic="self",
@@ -138,7 +138,7 @@ def build_router() -> APIRouter:
                 return data
 
         profile_repo = _resolve_profile_repo()
-        observations: list[PortraitObservation] = []
+        observations: list[UserPortraitObservation] = []
 
         projection = None
         if profile_repo is not None:
@@ -180,7 +180,7 @@ def build_router() -> APIRouter:
                 logger.debug("self portrait: graph relationship lookup failed: %s", exc)
 
         is_cold_start = len(observations) == 0
-        payload = PortraitPayload(
+        payload = UserPortraitPayload(
             session_id="",
             persona_id="",
             topic="self",
@@ -197,7 +197,7 @@ def build_router() -> APIRouter:
     return router
 
 
-def _observations_from_projection(projection: Any) -> list[PortraitObservation]:
+def _observations_from_projection(projection: Any) -> list[UserPortraitObservation]:
     if projection is None:
         return []
 
@@ -220,7 +220,7 @@ def _observations_from_projection(projection: Any) -> list[PortraitObservation]:
         facts.append((f"近期状态：{key} = {value}", "state_profile", f"state:{key}"))
 
     return [
-        PortraitObservation(
+        UserPortraitObservation(
             kind="assertion",
             text=text,
             basis_count=1,
@@ -231,14 +231,14 @@ def _observations_from_projection(projection: Any) -> list[PortraitObservation]:
     ]
 
 
-def _observations_from_snapshot(snapshot: dict[str, Any] | None) -> list[PortraitObservation]:
+def _observations_from_snapshot(snapshot: dict[str, Any] | None) -> list[UserPortraitObservation]:
     values = snapshot_recent_values(snapshot)
     if not values:
         return []
     snapshot_id = str((snapshot or {}).get("snapshot_id") or "tom-latest")
     basis_count = int((snapshot or {}).get("evidence_count") or 1)
     return [
-        PortraitObservation(
+        UserPortraitObservation(
             kind="reflection",
             text=text,
             basis_count=basis_count,
@@ -249,10 +249,10 @@ def _observations_from_snapshot(snapshot: dict[str, Any] | None) -> list[Portrai
     ]
 
 
-def _observations_from_assertion_items(items: list[dict[str, Any]]) -> list[PortraitObservation]:
+def _observations_from_assertion_items(items: list[dict[str, Any]]) -> list[UserPortraitObservation]:
     if not items:
         return []
-    obs: list[PortraitObservation] = []
+    obs: list[UserPortraitObservation] = []
     for item in items:
         role = assertion_portrait_role(item)
         if role == "skip":
@@ -273,7 +273,7 @@ def _observations_from_assertion_items(items: list[dict[str, Any]]) -> list[Port
             raw_value = str(item.get(key) or "").strip()
             if raw_value:
                 refs.append(f"{prefix}:{raw_value}")
-        obs.append(PortraitObservation(
+        obs.append(UserPortraitObservation(
             kind="assertion",
             text=f"{trait}: {value}",
             basis_count=int(item.get("evidence_count") or 1),
@@ -289,12 +289,12 @@ async def _observations_from_graph_relationships(
     l2: Any,
     *,
     entity_id: str,
-) -> list[PortraitObservation]:
+) -> list[UserPortraitObservation]:
     signals = await collect_portrait_graph_signals(l2, entity_id=entity_id)
     return [_observation_from_graph_signal(signal) for signal in signals]
 
 
-def _observation_from_graph_signal(signal: PortraitGraphSignal) -> PortraitObservation:
+def _observation_from_graph_signal(signal: PortraitGraphSignal) -> UserPortraitObservation:
     refs = [
         f"world_group:{signal.world_group}",
         f"predicate:{signal.predicate}",
@@ -305,7 +305,7 @@ def _observation_from_graph_signal(signal: PortraitGraphSignal) -> PortraitObser
     if signal.triple_id:
         refs.append(f"graph:{signal.triple_id}")
 
-    return PortraitObservation(
+    return UserPortraitObservation(
         kind="relationship",
         text=signal.text,
         basis_count=signal.observation_count,
@@ -314,7 +314,7 @@ def _observation_from_graph_signal(signal: PortraitGraphSignal) -> PortraitObser
     )
 
 
-def _build_self_view(observations: list[PortraitObservation]) -> dict[str, Any]:
+def _build_self_view(observations: list[UserPortraitObservation]) -> dict[str, Any]:
     world = _empty_world()
     groups = world["groups"]
     groups_by_id = {group["id"]: group for group in groups}
@@ -355,7 +355,7 @@ def _empty_world() -> dict[str, Any]:
     }
 
 
-def _self_view_item(observation: PortraitObservation, index: int) -> dict[str, Any]:
+def _self_view_item(observation: UserPortraitObservation, index: int) -> dict[str, Any]:
     source, source_key = _source_info(observation)
     assertion_id = _extract_assertion_id(observation)
     return {
@@ -369,7 +369,7 @@ def _self_view_item(observation: PortraitObservation, index: int) -> dict[str, A
     }
 
 
-def _is_review_observation(observation: PortraitObservation) -> bool:
+def _is_review_observation(observation: UserPortraitObservation) -> bool:
     role = _ref_value(observation, "role")
     if role:
         return role == "review"
@@ -377,7 +377,7 @@ def _is_review_observation(observation: PortraitObservation) -> bool:
     return bool(state) and state in PORTRAIT_REVIEW_STATES
 
 
-def _is_recent_observation(observation: PortraitObservation) -> bool:
+def _is_recent_observation(observation: UserPortraitObservation) -> bool:
     role = _ref_value(observation, "role")
     if role:
         return role == "recent"
@@ -389,7 +389,7 @@ def _is_recent_observation(observation: PortraitObservation) -> bool:
     )
 
 
-def _world_group_id(observation: PortraitObservation) -> str | None:
+def _world_group_id(observation: UserPortraitObservation) -> str | None:
     explicit_group = _ref_value(observation, "world_group")
     if explicit_group in _WORLD_GROUP_IDS:
         return explicit_group
@@ -451,7 +451,7 @@ def _item_validation_strength(item: dict[str, Any]) -> int:
     return 0
 
 
-def _extract_assertion_id(observation: PortraitObservation) -> str | None:
+def _extract_assertion_id(observation: UserPortraitObservation) -> str | None:
     for ref in observation.basis_refs:
         if ref.startswith("assertion:"):
             value = ref.removeprefix("assertion:").strip()
@@ -462,7 +462,7 @@ def _extract_assertion_id(observation: PortraitObservation) -> str | None:
     return None
 
 
-def _ref_value(observation: PortraitObservation, prefix: str) -> str | None:
+def _ref_value(observation: UserPortraitObservation, prefix: str) -> str | None:
     needle = f"{prefix}:"
     for ref in observation.basis_refs:
         if ref.startswith(needle):
@@ -485,7 +485,7 @@ def _simplify_observation_text(text: str) -> str:
     return trimmed
 
 
-def _source_info(observation: PortraitObservation) -> tuple[str, str | None]:
+def _source_info(observation: UserPortraitObservation) -> tuple[str, str | None]:
     source = _ref_value(observation, "source")
     if source:
         source_key = _normalize_source_key(source)

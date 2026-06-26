@@ -69,6 +69,14 @@ class RuntimeExportsModule(LifecycleModule):
         if background_task_manager is not None:
             container.background_task_manager.override(providers.Object(background_task_manager))
 
+        from ..chat import get_chat_read_service
+        from ..chat.portrait.factory import build_chat_portrait_service
+
+        chat_portrait_service = build_chat_portrait_service(
+            chat_read_service_factory=get_chat_read_service,
+        )
+        container.chat_portrait_service.override(providers.Object(chat_portrait_service))
+
         if self._context.scheduler.scheduler_service is not None:
             container.scheduler_service.override(providers.Object(self._context.scheduler.scheduler_service))
         if self._context.agent_runtime.sensor_scheduler_contrib is not None:
@@ -112,3 +120,4 @@ class RuntimeExportsModule(LifecycleModule):
         container.skill_loader.reset_override()
         container.skill_runner.reset_override()
         container.background_task_manager.reset_override()
+        container.chat_portrait_service.reset_override()
