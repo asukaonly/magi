@@ -1,12 +1,4 @@
-"""Pure projection functions: SensorEventEmitted -> MemoryEvent / TimelineEvent dict.
-
-Used by:
-- MemoryIngestionSubscriber._from_sensor (memory ingest)
-- TimelineSubscriber._on_event (timeline read model)
-
-Replaces SensorIngestionGateway._build_memory_event by reading from the event
-payload instead of holding sensor / output objects directly.
-"""
+"""Project sensor domain events into canonical memory events."""
 from __future__ import annotations
 
 import time
@@ -24,45 +16,6 @@ from magi.memory.event_contracts import (
 from magi.runtime_defaults import DEFAULT_USER_ID
 
 
-def build_timeline_event_dict(
-    payload: SensorEventEmitted,
-    *,
-    event_id: str,
-) -> Mapping[str, Any]:
-    """Build the TimelineEvent dict shape from sensor payload context.
-
-    Mirrors the existing build_sensor_timeline_event output structure (see
-    awareness/sensor_projection.py) but reads from payload dicts.
-    """
-    output = payload.output_dict or {}
-    metadata = payload.metadata_dict or {}
-    projection = payload.projection_dict or {}
-    extra_entities = metadata.get("entities") or []
-    extra_tags = metadata.get("tags") or []
-    domain_payload = output.get("domain_payload") or {}
-
-    return {
-        "event_id": event_id,
-        "source_type": output.get("source_type", ""),
-        "source_item_id": output.get("source_item_id", ""),
-        "occurred_at": float(output.get("occurred_at", 0.0)),
-        "captured_at": float(output.get("captured_at", 0.0)),
-        "title": projection.get("title", ""),
-        "summary": projection.get("summary", ""),
-        "retention_mode": domain_payload.get("retention_mode", "analyze_only"),
-        "raw_payload_ref": output.get("raw_payload_ref"),
-        "content_blocks": list(output.get("content_blocks", [])),
-        "entities": list(output.get("entities", [])) + list(extra_entities),
-        "tags": list(dict.fromkeys(list(output.get("tags", [])) + list(extra_tags))),
-        "privacy_labels": list(domain_payload.get("privacy_labels", [])),
-        "processing_status": {
-            "stored": True,
-            "analyzed": bool(metadata.get("relation_candidates") or metadata.get("fact_hints")),
-        },
-        "provenance": dict(output.get("provenance") or {}),
-    }
-
-
 def build_sensor_memory_event(
     payload: SensorEventEmitted,
     *,
@@ -77,8 +30,8 @@ def build_sensor_memory_event(
     projection = payload.projection_dict or {}
     policy_data = payload.policy_dict or {}
 
-    timeline_event_dict = build_timeline_event_dict(payload, event_id=event_id)
-    summary = projection.get("summary") or timeline_event_dict.get("summary") or ""
+    timeline_metadata = _build_sensor_timeline_metadata(payload, event_id=event_id)
+    summary = projection.get("summary") or timeline_metadata.get("summary") or ""
     content = projection.get("content") or summary
 
     metadata_json: dict[str, Any] = dict(output.get("domain_payload") or {})
@@ -103,14 +56,14 @@ def build_sensor_memory_event(
     # De-duplicate when timeline summary and L1 content match. For compact /
     # evidence-only presentations they intentionally differ: timeline.summary
     # stays short while event.content keeps the full searchable text.
-    timeline_for_metadata = dict(timeline_event_dict)
+    timeline_for_metadata = dict(timeline_metadata)
     if timeline_for_metadata.get("summary") == content:
         timeline_for_metadata.pop("summary", None)
     metadata_json["timeline"] = timeline_for_metadata
-    if timeline_event_dict.get("raw_payload_ref"):
-        metadata_json["raw_payload_ref"] = timeline_event_dict["raw_payload_ref"]
-    if timeline_event_dict.get("processing_status"):
-        metadata_json["processing_status"] = dict(timeline_event_dict["processing_status"])
+    if timeline_metadata.get("raw_payload_ref"):
+        metadata_json["raw_payload_ref"] = timeline_metadata["raw_payload_ref"]
+    if timeline_metadata.get("processing_status"):
+        metadata_json["processing_status"] = dict(timeline_metadata["processing_status"])
 
     entity_hints = metadata.get("entities") or []
     if entity_hints:
@@ -171,3 +124,37 @@ def build_sensor_memory_event(
         span_id=getattr(trace_context, "span_id", None) if trace_context else None,
         parent_span_id=getattr(trace_context, "parent_span_id", None) if trace_context else None,
     )
+
+
+def _build_sensor_timeline_metadata(
+    payload: SensorEventEmitted,
+    *,
+    event_id: str,
+) -> Mapping[str, Any]:
+    output = payload.output_dict or {}
+    metadata = payload.metadata_dict or {}
+    projection = payload.projection_dict or {}
+    extra_entities = metadata.get("entities") or []
+    extra_tags = metadata.get("tags") or []
+    domain_payload = output.get("domain_payload") or {}
+
+    return {
+        "event_id": event_id,
+        "source_type": output.get("source_type", ""),
+        "source_item_id": output.get("source_item_id", ""),
+        "occurred_at": float(output.get("occurred_at", 0.0)),
+        "captured_at": float(output.get("captured_at", 0.0)),
+        "title": projection.get("title", ""),
+        "summary": projection.get("summary", ""),
+        "retention_mode": domain_payload.get("retention_mode", "analyze_only"),
+        "raw_payload_ref": output.get("raw_payload_ref"),
+        "content_blocks": list(output.get("content_blocks", [])),
+        "entities": list(output.get("entities", [])) + list(extra_entities),
+        "tags": list(dict.fromkeys(list(output.get("tags", [])) + list(extra_tags))),
+        "privacy_labels": list(domain_payload.get("privacy_labels", [])),
+        "processing_status": {
+            "stored": True,
+            "analyzed": bool(metadata.get("relation_candidates") or metadata.get("fact_hints")),
+        },
+        "provenance": dict(output.get("provenance") or {}),
+    }

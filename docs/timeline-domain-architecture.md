@@ -31,9 +31,9 @@ Timeline does not own:
 
 ```
 Sensor plugin
-  → SensorIngestionGateway (L9, writes L1 event + metadata)
-  → TimelineHandler callback
-  → TimelineAdapter.on_sensor_output()
+  → SensorIngestionGateway (L9, publishes SensorEventEmitted)
+  → TimelineSubscriber
+  → timeline-owned SensorEventEmitted projection
   → TimelineEvent (L12 read model)
   → TimelineService.upsert_event()
       ├─ TimelineInsightPipeline (relation → L2 graph)
@@ -70,7 +70,10 @@ The canonical timeline fact. Created by the host projection pipeline from `Senso
 - `raw_payload_ref` — reference to the original sensor payload
 - `processing_status`, `provenance` — metadata and audit trail
 
-`TimelineEvent` is L12-internal. Sensors produce `SensorOutput` truth (L9), the host renders timeline display text, and `TimelineAdapter` stores the resulting `TimelineEvent`.
+`TimelineEvent` is L12-internal. Sensors produce `SensorOutput` truth (L9), the
+host renders display text, and the timeline layer owns the final
+`SensorEventEmitted` → `TimelineEvent` projection. Awareness does not construct
+timeline read-model records.
 
 The host projection layer also enforces each sensor output's
 `timeline_presentation` policy. Default `full` events keep the historical

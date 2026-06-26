@@ -8,7 +8,7 @@ The MemoryEvent's metadata_json is then patched in for the tool-invocation case.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Mapping, Optional
+from typing import Any, Callable, Optional
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.domain_payloads import (
@@ -27,6 +27,7 @@ from magi.events.domain_payloads import (
 from magi.events.payload_helpers import PayloadTypeError, expect_payload
 
 from .event_contracts import MemoryEvent, normalize_runtime_event
+from .sensor_event_projection import build_sensor_memory_event
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,6 @@ def _from_assistant_response(event: Event) -> MemoryEvent:
 
 def _from_sensor(event: Event) -> MemoryEvent:
     p: SensorEventEmitted = event.data
-    from magi.awareness.sensor_memory_projection import build_sensor_memory_event
     return build_sensor_memory_event(
         p,
         event_id=event.event_id,

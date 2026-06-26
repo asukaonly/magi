@@ -8,7 +8,7 @@ from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SensorEventEmitted
 from magi.events.payload_helpers import expect_payload, PayloadTypeError
 from ..contracts import TimelineEvent
-from magi.awareness.sensor_memory_projection import build_timeline_event_dict
+from ..sensor_event_projection import build_timeline_event_dict
 
 logger = logging.getLogger(__name__)
 

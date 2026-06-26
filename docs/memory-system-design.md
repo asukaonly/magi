@@ -71,6 +71,12 @@ Examples:
 
 The memory system sits between "raw data sources" and "higher-level reasoning". It is not the raw data source itself.
 
+Sensor ingestion follows the same ownership rule. `awareness/` publishes the
+neutral `SensorEventEmitted` envelope; `memory/` owns the conversion from that
+envelope into a `MemoryEvent`. Timeline read-model projection is owned by
+`timeline/`. This keeps sensor capture separate from memory retention and
+timeline presentation.
+
 ---
 
 ## Runtime Boundaries and Data Stores
