@@ -77,6 +77,10 @@ class RuntimeExportsModule(LifecycleModule):
         )
         container.chat_portrait_service.override(providers.Object(chat_portrait_service))
 
+        from ..api.services.message_dispatch_service import dispatch_user_message
+
+        container.user_message_dispatcher.override(providers.Object(dispatch_user_message))
+
         if self._context.scheduler.scheduler_service is not None:
             container.scheduler_service.override(providers.Object(self._context.scheduler.scheduler_service))
         if self._context.agent_runtime.sensor_scheduler_contrib is not None:
@@ -121,3 +125,4 @@ class RuntimeExportsModule(LifecycleModule):
         container.skill_runner.reset_override()
         container.background_task_manager.reset_override()
         container.chat_portrait_service.reset_override()
+        container.user_message_dispatcher.reset_override()

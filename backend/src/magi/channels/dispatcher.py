@@ -14,9 +14,12 @@ from magi_plugin_sdk.channels import (
     ChannelMessageDispatchOutcome,
 )
 
-from ..api.services.message_dispatch_service import dispatch_user_message
+from ..core.runtime_bindings import require_user_message_dispatcher
 from ..control.permission.slash_commands import try_handle_control_command
 from .session_commands import try_handle_session_command
+
+
+MESSAGE_DISPATCHER_NOT_INITIALIZED = "MESSAGE_DISPATCHER_NOT_INITIALIZED"
 
 
 class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
@@ -28,6 +31,7 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
         permission_registry: object | None = None,
         interaction_broker: object | None = None,
         session_mapper: object | None = None,
+        message_dispatcher: object | None = None,
     ) -> None:
         # Optional Phase H+2 wiring — when both are provided, inbound
         # messages are checked for /approve|/deny slash commands before
@@ -40,6 +44,7 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
         # new-session command (/新会话 …), which resets the channel→session
         # binding so the next message starts fresh. None disables it.
         self._session_mapper = session_mapper
+        self._message_dispatcher = message_dispatcher
 
     async def dispatch_user_message(
         self,
@@ -88,6 +93,20 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
                     session_id=session_id,
                     ack_message=session_outcome.ack_message,
                 )
+
+        try:
+            dispatch_user_message = self._message_dispatcher or require_user_message_dispatcher()
+        except RuntimeError as exc:
+            return ChannelMessageDispatchOutcome(
+                success=False,
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=None,
+                message_id=None,
+                error_code=MESSAGE_DISPATCHER_NOT_INITIALIZED,
+                error_message=str(exc),
+                queue_size=None,
+            )
 
         outcome = await dispatch_user_message(
             source=source,

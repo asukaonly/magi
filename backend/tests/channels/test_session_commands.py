@@ -132,10 +132,11 @@ async def test_dispatcher_short_circuits_new_session(monkeypatch) -> None:
             message_id="m", error_code=None, error_message=None, queue_size=0,
         )
 
-    monkeypatch.setattr(dispatcher_mod, "dispatch_user_message", _spy_dispatch)
-
     mapper = _FakeMapper(_FakeMapping("weixin", "chat-abc@im.wechat"))
-    disp = dispatcher_mod.ChannelMessageDispatcher(session_mapper=mapper)
+    disp = dispatcher_mod.ChannelMessageDispatcher(
+        session_mapper=mapper,
+        message_dispatcher=_spy_dispatch,
+    )
     outcome = await disp.dispatch_user_message(
         source="weixin", user_id="u", message="/新会话", session_id="chsess_x",
     )
@@ -160,10 +161,11 @@ async def test_dispatcher_dispatches_normal_message(monkeypatch) -> None:
             message_id="m", error_code=None, error_message=None, queue_size=0,
         )
 
-    monkeypatch.setattr(dispatcher_mod, "dispatch_user_message", _spy_dispatch)
-
     mapper = _FakeMapper(_FakeMapping("weixin", "c"))
-    disp = dispatcher_mod.ChannelMessageDispatcher(session_mapper=mapper)
+    disp = dispatcher_mod.ChannelMessageDispatcher(
+        session_mapper=mapper,
+        message_dispatcher=_spy_dispatch,
+    )
     outcome = await disp.dispatch_user_message(
         source="weixin", user_id="u", message="今天天气怎么样", session_id="chsess_x",
     )

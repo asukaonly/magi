@@ -99,7 +99,6 @@ ignore_imports =
     magi.api.services.personality_bootstrap_messages -> magi.chat.provider
     magi.api.services.personality_bootstrap_messages -> magi.transport.chat_events
     magi.channels.attachments -> magi.chat.attachment_storage
-    magi.channels.dispatcher -> magi.api.services.message_dispatch_service
     magi.channels.session_mapper -> magi.chat
     # Control-Plane Extraction Phase 1: the transcript-projection broadcast
     # dependency was RELOCATED here from the now-deleted

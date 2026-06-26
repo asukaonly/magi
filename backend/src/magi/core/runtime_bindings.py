@@ -34,3 +34,8 @@ def require_scheduler_service():
 def require_chat_portrait_service():
     """Return the active chat portrait service binding."""
     return _require_binding("chat_portrait_service")
+
+
+def require_user_message_dispatcher():
+    """Return the active user-message dispatcher binding."""
+    return _require_binding("user_message_dispatcher")
