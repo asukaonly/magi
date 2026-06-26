@@ -7,7 +7,12 @@ from typing import Any, Dict, Optional
 
 from ..assertion_family_policy import get_assertion_family_policy
 from ..storage.utils import MOMENTARY_TRAITS as _MOMENTARY_TRAITS
-from .settings import momentary_ttl_seconds
+from .settings import (
+    CONTRADICTED_CONFIDENCE_CEILING,
+    USER_REJECTED_CONFIDENCE,
+    assertion_float_setting,
+    momentary_ttl_seconds,
+)
 from .state_machine import (
     _TEMPORARY_STATE_TRAITS,
     derive_validation_state as _derive_validation_state,
@@ -119,13 +124,21 @@ class L2ReconcileStateMixin:
             return 0.5
 
     def _contradicted_confidence(self, *, current_confidence: float, hint_confidence: float, action: str) -> float:
-        base = current_confidence * 0.35
+        ceiling = assertion_float_setting(
+            "contradicted_confidence_ceiling",
+            CONTRADICTED_CONFIDENCE_CEILING,
+        )
+        floor = min(
+            ceiling,
+            assertion_float_setting("user_rejected_confidence", USER_REJECTED_CONFIDENCE),
+        )
+        base = current_confidence * ceiling
         if action == "mark_conflicted":
-            return round(max(0.1, min(base, 0.35)), 4)
+            return round(max(floor, min(base, ceiling)), 4)
         if action == "revalidate_only":
             return round(max(0.15, current_confidence * 0.75), 4)
         confidence_weight = 1.0 - min(max(hint_confidence, 0.0), 1.0) * 0.45
-        return round(max(0.1, min(current_confidence * confidence_weight, 0.35)), 4)
+        return round(max(floor, min(current_confidence * confidence_weight, ceiling)), 4)
 
 
 __all__ = ["L2ReconcileStateMixin", "_MOMENTARY_TRAITS"]

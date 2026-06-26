@@ -6,7 +6,7 @@ import ast
 import json
 import time
 import uuid
-from typing import Any, Dict, List, Protocol, cast
+from typing import Any, Dict, Protocol, cast
 
 import aiosqlite
 
@@ -17,6 +17,10 @@ from ..storage.utils import (
     normalize_event_ids,
     normalize_store_entity_ref,
     normalize_store_entity_type,
+)
+from .settings import (
+    CONTRADICTED_CONFIDENCE_CEILING,
+    assertion_float_setting,
 )
 from .source_tier import source_tier
 from .state_machine import compute_confidence, derive_validation_state
@@ -272,7 +276,14 @@ class L2StoreAssertionMixin:
 
                     if existing_value != next_value and existing_temporal_scope in ("session", "momentary"):
                         # In-place rewrite for volatile temporal traits.
-                        confidence = max(0.15, float(existing["confidence_score"]) * 0.35)
+                        contradicted_ceiling = assertion_float_setting(
+                            "contradicted_confidence_ceiling",
+                            CONTRADICTED_CONFIDENCE_CEILING,
+                        )
+                        confidence = min(
+                            contradicted_ceiling,
+                            max(0.15, float(existing["confidence_score"]) * contradicted_ceiling),
+                        )
                         validation_state = "contradicted"
                         await db.execute(
                             """

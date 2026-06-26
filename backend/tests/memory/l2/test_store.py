@@ -1318,6 +1318,36 @@ async def test_apply_user_feedback_honors_assertion_confidence_config(tmp_path, 
 
 
 @pytest.mark.asyncio
+async def test_apply_user_feedback_honors_configured_confidence_ceiling(tmp_path, monkeypatch):
+    from magi.config.models import AppConfig
+    import magi.config
+    from magi.memory.l2.store import L2CognitionStore
+
+    cfg = AppConfig()
+    cfg.agent.memory.l2.assertion.confidence_ceiling = 0.6
+    cfg.agent.memory.l2.assertion.user_confirmed_confidence_floor = 0.5
+    monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    event = await _build_user_message(
+        "I have been really stressed.",
+        correlation_id="evt-fb-config-ceiling",
+        timestamp=1710000000.0,
+    )
+    await _apply_rule_candidates(store, event)
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
+
+    confirmed = await store.apply_user_feedback(
+        assertion_id=assertions[0]["assertion_id"],
+        feedback="confirmed",
+    )
+
+    assert confirmed is not None
+    assert confirmed["validation_state"] == "stable"
+    assert confirmed["confidence_score"] == pytest.approx(0.6)
+
+
+@pytest.mark.asyncio
 async def test_apply_user_feedback_not_found_returns_none(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
@@ -3453,6 +3483,48 @@ async def test_session_scope_value_change_updates_in_place(tmp_path):
     assert a is not None
     assert a["trait_value"] == "sad"
     assert a["status"] == "contradicted"
+
+
+@pytest.mark.asyncio
+async def test_session_scope_value_change_honors_contradicted_confidence_config(tmp_path, monkeypatch):
+    """Session-scope value changes clamp contradicted confidence via config."""
+    from magi.config.models import AppConfig
+    import magi.config
+    from magi.memory.l2.store import L2CognitionStore
+
+    cfg = AppConfig()
+    cfg.agent.memory.l2.assertion.contradicted_confidence_ceiling = 0.22
+    monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    c1 = _make_assertion_candidate(
+        trait_value="happy",
+        temporal_scope="session",
+        evidence_events=["evt-1"],
+    )
+    id1 = await store.upsert_assertion_candidate(c1)
+    await _force_assertion_state(
+        str(tmp_path / "l2.db"),
+        trait_name="mood",
+        validation_state="corroborated",
+        confidence=1.0,
+    )
+
+    c2 = _make_assertion_candidate(
+        trait_value="sad",
+        temporal_scope="session",
+        evidence_events=["evt-2"],
+        last_validated_at=1710010000.0,
+    )
+    id2 = await store.upsert_assertion_candidate(c2)
+
+    assert id1 == id2
+    assertion = await store.get_tom_assertion(assertion_id=id1)
+    assert assertion is not None
+    assert assertion["status"] == "contradicted"
+    assert assertion["confidence_score"] == pytest.approx(0.22)
 
 
 @pytest.mark.asyncio

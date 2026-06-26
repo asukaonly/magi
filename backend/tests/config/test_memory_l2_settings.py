@@ -492,6 +492,29 @@ def test_derive_validation_state_honors_state_threshold_overrides(monkeypatch):
     assert rejected_confidence == 0.04
 
 
+def test_contradiction_confidence_honors_state_threshold_overrides(monkeypatch):
+    import magi.config
+    from magi.memory.l2.assertions.reconcile_state import L2ReconcileStateMixin
+
+    cfg = AppConfig()
+    cfg.agent.memory.l2.assertion.contradicted_confidence_ceiling = 0.22
+    cfg.agent.memory.l2.assertion.user_rejected_confidence = 0.04
+    monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
+
+    mixin = L2ReconcileStateMixin()
+
+    assert mixin._contradicted_confidence(
+        current_confidence=0.9,
+        hint_confidence=1.0,
+        action="downgrade_confidence",
+    ) == 0.22
+    assert mixin._contradicted_confidence(
+        current_confidence=0.1,
+        hint_confidence=1.0,
+        action="mark_conflicted",
+    ) == 0.04
+
+
 def test_phase2_assertion_decay_reads_configured_family_ttl(monkeypatch):
     import magi.config
     from magi.memory.l2.pipeline.validation.assertions import L2AssertionValidationMixin

@@ -12,6 +12,7 @@ import aiosqlite
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
 from .settings import (
+    CONFIDENCE_CEILING,
     USER_CONFIRMED_CONFIDENCE_FLOOR,
     USER_REJECTED_CONFIDENCE,
     assertion_float_setting,
@@ -70,8 +71,12 @@ class L2StoreFeedbackMixin:
             current_state = str(existing["validation_state"])
 
             if feedback == "confirmed":
+                confidence_ceiling = assertion_float_setting(
+                    "confidence_ceiling",
+                    CONFIDENCE_CEILING,
+                )
                 new_confidence = max(
-                    min(0.95, current_confidence + 0.20),
+                    min(confidence_ceiling, current_confidence + 0.20),
                     assertion_float_setting(
                         "user_confirmed_confidence_floor",
                         USER_CONFIRMED_CONFIDENCE_FLOOR,
@@ -275,8 +280,12 @@ class L2StoreFeedbackMixin:
                     )
 
                 # 3. Promote the shadow to active, authoritative, user-confirmed.
+                confidence_ceiling = assertion_float_setting(
+                    "confidence_ceiling",
+                    CONFIDENCE_CEILING,
+                )
                 new_confidence = max(
-                    min(0.95, current_confidence + 0.20),
+                    min(confidence_ceiling, current_confidence + 0.20),
                     assertion_float_setting(
                         "user_confirmed_confidence_floor",
                         USER_CONFIRMED_CONFIDENCE_FLOOR,
