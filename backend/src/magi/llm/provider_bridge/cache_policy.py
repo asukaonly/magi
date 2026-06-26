@@ -1,9 +1,9 @@
 """Unified prompt-cache layer: provider-capability-gated cache_control markers.
 
 Caching is a prefix match. The renderer marks the byte-stable head of the
-system prompt with ``SYSTEM_PROMPT_CACHE_BOUNDARY`` (everything before it —
-identity/boundary/tool-catalog — is stable across turns; everything after —
-persona/memory/runtime — varies per turn). Here we:
+system prompt with ``SYSTEM_PROMPT_CACHE_BOUNDARY`` (identity and persona
+definition before it are stable across turns; selected tools, persona steer,
+memory, and runtime context after it vary per turn). Here we:
 
 - gate by provider capability: only vendors whose wire API honors inline
   ``cache_control`` markers get them (Anthropic, Qwen/DashScope; others are

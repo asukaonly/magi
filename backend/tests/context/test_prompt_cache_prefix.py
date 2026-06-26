@@ -2,15 +2,16 @@
 
 Prompt caching on every provider is a prefix match: any byte that changes
 between consecutive requests invalidates the cache from that point onward.
-These tests pin the two prefix-stabilising guarantees for the system prompt:
+These tests pin the prefix-stabilising guarantees for the system prompt:
 
-1. Static blocks (identity + tool catalog) render BEFORE the per-turn
-   dynamic blocks (persona plan, memory, runtime/time) so the largest stable
-   chunk sits at the front of the prefix.
+1. Static blocks (identity + persona definition) render BEFORE the per-turn
+   dynamic blocks (tool catalog, persona steer, memory, runtime/time) so the
+   largest stable chunk sits at the front of the prefix.
 2. The tool list — both the wire ``tools`` parameter and the in-prompt tool
    catalog — serialises in a deterministic, name-sorted order, so an unchanged
    tool SET produces byte-identical output even when the upstream selector
    reranks it per turn.
+3. Changing the selected tool SET does not change the cacheable system head.
 """
 
 from __future__ import annotations
@@ -60,36 +61,59 @@ def _assembly_context(selected_tools: list[str]) -> PromptAssemblyContext:
     )
 
 
+def _split_prompt(prompt: str) -> tuple[str, str]:
+    assert SYSTEM_PROMPT_CACHE_BOUNDARY in prompt
+    head, _, tail = prompt.partition(SYSTEM_PROMPT_CACHE_BOUNDARY)
+    return head, tail
+
+
 def test_static_blocks_render_before_dynamic_blocks() -> None:
     prompt = PromptContextRenderer().render_system_prompt(_assembly_context(["alpha_tool"]))
 
     i_definition = prompt.index("# System Definition")
     i_tools = prompt.index("# Tool Information")
     i_persona = prompt.index("# Persona Runtime Plan")
+    i_boundary = prompt.index(SYSTEM_PROMPT_CACHE_BOUNDARY)
     i_memory = prompt.index("# Memory Library")
     i_runtime = prompt.index("# System Information")
 
-    # Identity stays first; the tool catalog (static when the tool set is
-    # stable) must precede every per-turn dynamic block.
-    assert i_definition < i_tools
-    assert i_tools < i_persona
+    # Identity and persona definition are the stable cached head. The tool
+    # catalog is turn-selected, so it belongs with the dynamic tail.
+    assert i_definition < i_persona
+    assert i_persona < i_boundary
+    assert i_boundary < i_tools
     assert i_tools < i_memory
     assert i_tools < i_runtime
 
 
 def test_cache_boundary_sits_after_persona_identity_before_dynamic() -> None:
     # P2a (#100): only the byte-stable persona DEFINITION (identity + baseline
-    # voice) joins the cached head. The boundary sits after identity + tool
-    # catalog + persona identity, and before the per-turn blocks (memory /
-    # runtime) that the provider bridge moves out to the message tail.
+    # voice) joins the cached head. The boundary sits after identity + persona
+    # identity, and before the turn-selected tool catalog plus the per-turn
+    # blocks (memory / runtime) that the provider bridge moves out to the
+    # message tail.
     prompt = PromptContextRenderer().render_system_prompt(_assembly_context(["alpha_tool"]))
 
     assert SYSTEM_PROMPT_CACHE_BOUNDARY in prompt
     i_boundary = prompt.index(SYSTEM_PROMPT_CACHE_BOUNDARY)
-    assert prompt.index("# Tool Information") < i_boundary
     assert prompt.index("# Persona Runtime Plan") < i_boundary
+    assert i_boundary < prompt.index("# Tool Information")
     assert i_boundary < prompt.index("# Memory Library")
     assert i_boundary < prompt.index("# System Information")
+
+
+def test_selected_tool_changes_do_not_change_cacheable_head() -> None:
+    prompt_a = PromptContextRenderer().render_system_prompt(_assembly_context(["alpha_tool"]))
+    prompt_b = PromptContextRenderer().render_system_prompt(_assembly_context(["beta_tool"]))
+
+    head_a, tail_a = _split_prompt(prompt_a)
+    head_b, tail_b = _split_prompt(prompt_b)
+
+    assert head_a == head_b
+    assert "alpha_tool" not in head_a
+    assert "beta_tool" not in head_b
+    assert "alpha_tool" in tail_a
+    assert "beta_tool" in tail_b
 
 
 def test_profile_memory_prefers_prompt_summary_over_raw_preferences() -> None:

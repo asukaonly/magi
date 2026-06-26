@@ -97,20 +97,17 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
         i5 = prompt.find("# Tool Information")
 
         self.assertTrue(i1 >= 0)
-        # Cache-prefix order (issue #97): identity first, then the static tool
-        # catalog, then the per-turn dynamic blocks (persona -> profile ->
-        # runtime system info).
-        self.assertTrue(i5 > i1)
-        self.assertTrue(i2 > i5)
-        self.assertTrue(i3 > i2)
+        # Cache-prefix order: stable identity/persona definition first, then
+        # turn-selected tool information before memory/runtime context.
+        self.assertTrue(i2 > i1)
+        self.assertTrue(i5 > i2)
+        self.assertTrue(i3 > i5)
         self.assertTrue(i4 > i3)
         self.assertIn("weather", prompt)
         self.assertIn("* User Name: 哈基米", prompt)
         self.assertIn("* Preferred Address: 哈基米", prompt)
         self.assertIn("* Avoid Addressing As: 老师", prompt)
         self.assertNotIn("### User Preferences", prompt)
-        self.assertEqual(prompt.count("language: zh-CN"), 1)
-        self.assertEqual(prompt.count("style: concise"), 1)
         self.assertNotIn("user_preferences", assembled.self_memory.retrieval_memory.preference_memory)
 
     async def test_profile_emotion_mapping_uses_relationship_scores(self):

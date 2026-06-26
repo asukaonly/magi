@@ -32,12 +32,26 @@ class PromptContextRenderer:
             "",
         ])
 
-        # Cache-prefix ordering (issue #97): prompt caching is a prefix match,
-        # so the byte-stable blocks are emitted first to maximise the cacheable
-        # head of the request, and the per-turn dynamic blocks follow. Identity
-        # is already first; the tool catalog (stable when the selected tool set
-        # is unchanged) is rendered next, ahead of the persona plan / memory /
-        # runtime blocks that change every turn.
+        # Only the byte-stable persona DEFINITION (identity + baseline voice)
+        # joins the cached head. Per-turn steer (register / modulation /
+        # relationship layer / examples) and selected tools are recomputed by
+        # PersonaTurnPlanner and tool routing — keeping either above the
+        # boundary invalidated the cached prefix when it changed. They are
+        # rendered below the boundary so the bridge moves them into the
+        # per-turn message tail (#100/P2a).
+        lines.extend(self._render_persona_identity(context.self_memory.persona_turn_plan))
+
+        # Cache boundary: identity + persona definition above is the stable
+        # head; the per-turn blocks below (persona turn steer / selected tools /
+        # memory / profile / runtime+time / attachments) are moved OUT of the
+        # system prompt into the message stream by the provider bridge
+        # (#100/P2a), so the system head + conversation history stay a
+        # byte-stable, cacheable prefix. The marker is stripped before sending
+        # so it never reaches the model.
+        lines.append(SYSTEM_PROMPT_CACHE_BOUNDARY)
+
+        # Per-turn dynamic blocks — moved to the message tail by the bridge.
+        lines.extend(self._render_persona_turn_steer(context.self_memory.persona_turn_plan))
         if include_tool_catalog:
             # The "You MUST use the available tools" block frames the turn as
             # a task to complete. In emotional / crisis registers that frame
@@ -56,26 +70,6 @@ class PromptContextRenderer:
                 context.tool_catalog,
                 suppress_imperatives=suppress_tool_imperatives,
             ))
-
-        # Only the byte-stable persona DEFINITION (identity + baseline voice)
-        # joins the cached head. The per-turn STEER (register / modulation /
-        # relationship layer / examples) is recomputed every turn by
-        # PersonaTurnPlanner — keeping it above the boundary invalidated the
-        # cached prefix on every turn (chat-path cache read=0). It is rendered
-        # below the boundary so the bridge moves it into the per-turn message
-        # tail (#100/P2a).
-        lines.extend(self._render_persona_identity(context.self_memory.persona_turn_plan))
-
-        # Cache boundary: identity + tool catalog + persona identity above is the
-        # stable head; the per-turn blocks below (persona turn steer / memory /
-        # profile / runtime+time / attachments) are moved OUT of the system prompt
-        # into the message stream by the provider bridge (#100/P2a), so the system
-        # head + conversation history stay a byte-stable, cacheable prefix. The
-        # marker is stripped before sending so it never reaches the model.
-        lines.append(SYSTEM_PROMPT_CACHE_BOUNDARY)
-
-        # Per-turn dynamic blocks — moved to the message tail by the bridge.
-        lines.extend(self._render_persona_turn_steer(context.self_memory.persona_turn_plan))
         lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
         lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
         lines.extend(self._render_profile_memory(context.profile_memory))
