@@ -83,7 +83,6 @@ class ChannelsModule(LifecycleModule):
         self._context.channels.module = None
 
     async def _start_channels(self) -> None:
-        from .attachments import ChannelAttachmentStore
         from .chat_sse_channel import ChatSseChannel
         from .dispatcher import ChannelMessageDispatcher
         from .registry import ChannelRegistry
@@ -91,7 +90,14 @@ class ChannelsModule(LifecycleModule):
 
         plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
-        chat_store = require_initialized(self._context.chat.store, "chat store")
+        session_provisioner = require_initialized(
+            self._context.chat.channel_session_provisioner,
+            "chat channel session provisioner",
+        )
+        attachment_store = require_initialized(
+            self._context.chat.channel_attachment_store,
+            "chat channel attachment store",
+        )
         trace_store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
 
         # Collect channel instances from loaded plugins.
@@ -118,7 +124,7 @@ class ChannelsModule(LifecycleModule):
         identity_resolver = getattr(self._context.identity, "resolver", None)
         session_mapper = ChannelSessionMapper(
             db_path=channels_db_path,
-            chat_store=chat_store,
+            session_provisioner=session_provisioner,
             identity_resolver=identity_resolver,
         )
         await session_mapper.initialize()
@@ -166,8 +172,6 @@ class ChannelsModule(LifecycleModule):
             permission_registry=(cp_wiring.pending_permissions if cp_wiring else None),
             interaction_broker=(cp_wiring.broker if cp_wiring else None),
         )
-        attachment_store = ChannelAttachmentStore(runtime_paths=runtime_paths)
-
         registry = ChannelRegistry()
         for channel in channel_instances:
             channel.bind_session_mapper(session_mapper)
@@ -354,7 +358,7 @@ class ChannelsModule(LifecycleModule):
             # until timeout). Bind a callback that delivers the question as a
             # plain-text message to the channel the session is bound to. The
             # inbound answer already routes back via
-            # message_dispatch_service._resolve_pending_ask_response (a text
+            # chat.ingress._resolve_pending_ask_response (a text
             # reply on the session resolves the broker), so no inbound code is
             # needed here.
             from ..control.common.ask_fanout import (

@@ -61,6 +61,11 @@ def _export_available_infrastructure_bindings(context: RuntimeBootstrapContext) 
     if context.runtime_trace.store is not None:
         container.runtime_trace_store.override(providers.Object(context.runtime_trace.store))
         bound.append("runtime_trace_store")
+    if context.chat.store is not None and context.runtime_commands.runtime_command_queue is not None:
+        from ..chat.ingress import dispatch_user_message
+
+        container.user_message_dispatcher.override(providers.Object(dispatch_user_message))
+        bound.append("user_message_dispatcher")
 
     if bound:
         logger.info("Infrastructure bindings exported during deferred init: %s", ", ".join(bound))

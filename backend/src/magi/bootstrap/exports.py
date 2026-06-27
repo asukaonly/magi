@@ -79,7 +79,7 @@ class RuntimeExportsModule(LifecycleModule):
         container.chat_portrait_service.override(providers.Object(chat_portrait_service))
         container.chat_message_notifier.override(providers.Object(chat_message_notifier))
 
-        from ..api.services.message_dispatch_service import dispatch_user_message
+        from ..chat.ingress import dispatch_user_message
 
         container.user_message_dispatcher.override(providers.Object(dispatch_user_message))
 

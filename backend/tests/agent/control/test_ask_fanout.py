@@ -15,7 +15,7 @@ got nothing.
   when the ask opens, and still works when no callback is bound.
 
 The inbound answer round-trip is NOT tested here — it already works via
-``message_dispatch_service._resolve_pending_ask_response`` (a text reply on the
+``chat.ingress._resolve_pending_ask_response`` (a text reply on the
 session resolves the broker before any new turn starts).
 """
 from __future__ import annotations

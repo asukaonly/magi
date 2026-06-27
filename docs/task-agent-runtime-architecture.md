@@ -172,7 +172,7 @@ Frontend flows should treat `ready` as the only state that guarantees first-chat
 flowchart TD
     U["User Message"] --> G["Rust Axum Gateway"]
     G --> IPC["IPC Dispatch (UDS)"]
-    IPC --> D["Shared Message Dispatch Service"]
+    IPC --> D["Chat User Message Ingress"]
     D --> Q["Runtime Command Queue"]
     Q --> B["Runtime Worker Local Message Bus"]
     B --> R["Router Agent / Sensor Hub"]

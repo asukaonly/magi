@@ -87,13 +87,8 @@ ignore_imports =
     magi.api.routers.messages -> magi.chat
     magi.api.routers.messages -> magi.chat.provider
     magi.api.routers.messages_common -> magi.chat
-    magi.api.services.message_dispatch_service -> magi.chat.attachment_ingestion
-    magi.api.services.message_dispatch_service -> magi.chat.provider
-    magi.api.services.message_dispatch_service -> magi.chat.read_service
     magi.api.services.personality_bootstrap_messages -> magi.chat.contracts
     magi.api.services.personality_bootstrap_messages -> magi.chat.provider
-    magi.channels.attachments -> magi.chat.attachment_storage
-    magi.channels.session_mapper -> magi.chat
 
 [importlinter:contract:plugin-isolation]
 name = Plugin implementations depend on SDK only, never host layers

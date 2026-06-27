@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -62,6 +61,11 @@ CREATE TABLE user_identity_bindings (
 """
 
 
+class _FakeSessionProvisioner:
+    async def create_channel_session(self, **kwargs):  # type: ignore[no-untyped-def]
+        return "chsess_identity_test"
+
+
 @pytest.mark.asyncio
 async def test_weixin_and_desktop_inbounds_converge_on_canonical_user(
     tmp_path: Path,
@@ -84,11 +88,9 @@ async def test_weixin_and_desktop_inbounds_converge_on_canonical_user(
     # === Path 1: weixin inbound through session_mapper (ingress #1) =======
     channels_db = tmp_path / "channels.db"
     sqlite3.connect(channels_db).executescript(_CHANNELS_SCHEMA)
-    mock_chat_store = MagicMock()
-    mock_chat_store.upsert_session = AsyncMock()
     mapper = ChannelSessionMapper(
         db_path=str(channels_db),
-        chat_store=mock_chat_store,
+        session_provisioner=_FakeSessionProvisioner(),
         identity_resolver=resolver,
     )
     await mapper.initialize()
@@ -102,7 +104,7 @@ async def test_weixin_and_desktop_inbounds_converge_on_canonical_user(
     # === Path 2: desktop inbound via api dispatch ingress (ingress #4) ====
     # The desktop path doesn't go through session_mapper — it gets a
     # user_id form arg from HTTP and runs it through canonicalize_user_id
-    # at message_dispatch_service entry. Simulate that.
+    # at chat ingress entry. Simulate that.
     desktop_user_id_raw = "local_user"  # what api default supplies
     desktop_canonical = canonicalize_user_id(desktop_user_id_raw)
 

@@ -379,7 +379,7 @@ class _HostInteractionPort:
         # channel the user is chatting from — only the desktop gets the chips +
         # transcript card. Fire it after the ask is open and the desktop events
         # are emitted; a failure here must never block or fail the ask. The
-        # inbound answer round-trips via message_dispatch_service (a text reply
+        # inbound answer round-trips via chat ingress (a text reply
         # on the session resolves the broker), so this is egress-only.
         try:
             from magi.control.common.ask_fanout import get_ask_fanout_callback

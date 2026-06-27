@@ -4,17 +4,31 @@ from __future__ import annotations
 
 import json
 import time
-import uuid
 from pathlib import Path
+from typing import Protocol
 
 import aiosqlite
 
-from ..chat import ChatSessionRecord, ChatStore
 from ..core.logger import get_logger
 from ..identity import CANONICAL_LOCAL_USER, ExternalIdentity, IdentityResolver
 from .contracts import ChannelSessionMapping
 
 logger = get_logger(__name__)
+
+
+class ChannelChatSessionProvisioner(Protocol):
+    """Creates chat-domain sessions for external channel conversations."""
+
+    async def create_channel_session(
+        self,
+        *,
+        channel_type: str,
+        external_chat_id: str,
+        magi_user_id: str,
+        display_name: str | None,
+        created_at_ms: int,
+    ) -> str:
+        ...
 
 
 class ChannelSessionMapper:
@@ -35,11 +49,11 @@ class ChannelSessionMapper:
         self,
         *,
         db_path: str,
-        chat_store: ChatStore,
+        session_provisioner: ChannelChatSessionProvisioner,
         identity_resolver: IdentityResolver | None = None,
     ) -> None:
         self._db_path = str(Path(db_path).expanduser())
-        self._chat_store = chat_store
+        self._session_provisioner = session_provisioner
         self._identity_resolver = identity_resolver
         self._initialized = False
 
@@ -90,29 +104,13 @@ class ChannelSessionMapper:
             )
         else:
             magi_user_id = str(CANONICAL_LOCAL_USER)
-        session_id = f"chsess_{uuid.uuid4().hex[:12]}"
         now_ms = int(time.time() * 1000)
-        title = display_name or f"{channel_type.capitalize()}: {external_chat_id}"
-
-        await self._chat_store.upsert_session(
-            ChatSessionRecord(
-                session_id=session_id,
-                user_id=magi_user_id,
-                title=title,
-                title_overridden=False,
-                summary="",
-                created_at_ms=now_ms,
-                updated_at_ms=now_ms,
-                last_message_at_ms=None,
-                last_user_message_at_ms=None,
-                last_message_preview="",
-                last_user_message_preview="",
-                message_count=0,
-                archived_at_ms=None,
-                deleted_at_ms=None,
-                workspace_path=None,
-                history_version=0,
-            )
+        session_id = await self._session_provisioner.create_channel_session(
+            channel_type=channel_type,
+            external_chat_id=external_chat_id,
+            magi_user_id=magi_user_id,
+            display_name=display_name,
+            created_at_ms=now_ms,
         )
 
         meta = {

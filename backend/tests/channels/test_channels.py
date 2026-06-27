@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -92,18 +91,24 @@ def mapper_db(runtime_paths_with_schema) -> str:
 
 
 @pytest.fixture
-def mock_chat_store() -> MagicMock:
-    store = MagicMock()
-    store.upsert_session = AsyncMock()
-    return store
+def session_provisioner():
+    class _FakeSessionProvisioner:
+        def __init__(self) -> None:
+            self.created: list[dict[str, object]] = []
+
+        async def create_channel_session(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.created.append(dict(kwargs))
+            return f"chsess_{len(self.created):012d}"
+
+    return _FakeSessionProvisioner()
 
 
 @pytest.mark.asyncio
 class TestChannelSessionMapper:
     async def test_resolve_creates_new_session(
-        self, mapper_db: str, mock_chat_store: MagicMock
+        self, mapper_db: str, session_provisioner
     ) -> None:
-        mapper = ChannelSessionMapper(db_path=mapper_db, chat_store=mock_chat_store)
+        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
         await mapper.initialize()
 
         mapping = await mapper.resolve_or_create(
@@ -123,10 +128,11 @@ class TestChannelSessionMapper:
         # Pre-identity-layer this column would have held the synthetic
         # f"channel_{type}_{ext}" string instead.
         assert mapping.magi_user_id == "local_user"
-        mock_chat_store.upsert_session.assert_called_once()
+        assert len(session_provisioner.created) == 1
+        assert session_provisioner.created[0]["display_name"] == "TG: @testuser"
 
     async def test_resolve_canonicalizes_user_id_via_resolver(
-        self, mapper_db: str, mock_chat_store: MagicMock
+        self, mapper_db: str, session_provisioner
     ) -> None:
         """Phase H+2 identity layer (I-5): when a resolver is injected,
         magi_user_id MUST be the resolver's canonical output — not the
@@ -163,7 +169,7 @@ class TestChannelSessionMapper:
         )
         mapper = ChannelSessionMapper(
             db_path=mapper_db,
-            chat_store=mock_chat_store,
+            session_provisioner=session_provisioner,
             identity_resolver=resolver,
         )
         await mapper.initialize()
@@ -185,9 +191,9 @@ class TestChannelSessionMapper:
         )
 
     async def test_resolve_returns_existing(
-        self, mapper_db: str, mock_chat_store: MagicMock
+        self, mapper_db: str, session_provisioner
     ) -> None:
-        mapper = ChannelSessionMapper(db_path=mapper_db, chat_store=mock_chat_store)
+        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
         await mapper.initialize()
 
         first = await mapper.resolve_or_create(
@@ -202,21 +208,21 @@ class TestChannelSessionMapper:
         )
 
         assert first.magi_session_id == second.magi_session_id
-        # upsert_session called only once (first create)
-        assert mock_chat_store.upsert_session.call_count == 1
+        # Session provisioner called only once (first create)
+        assert len(session_provisioner.created) == 1
 
     async def test_lookup_nonexistent(
-        self, mapper_db: str, mock_chat_store: MagicMock
+        self, mapper_db: str, session_provisioner
     ) -> None:
-        mapper = ChannelSessionMapper(db_path=mapper_db, chat_store=mock_chat_store)
+        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
         await mapper.initialize()
         result = await mapper.lookup("telegram", "nonexistent")
         assert result is None
 
     async def test_lookup_by_session(
-        self, mapper_db: str, mock_chat_store: MagicMock
+        self, mapper_db: str, session_provisioner
     ) -> None:
-        mapper = ChannelSessionMapper(db_path=mapper_db, chat_store=mock_chat_store)
+        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
         await mapper.initialize()
 
         mapping = await mapper.resolve_or_create(
@@ -230,9 +236,9 @@ class TestChannelSessionMapper:
         assert reverse.external_chat_id == "12345"
 
     async def test_delete_mapping(
-        self, mapper_db: str, mock_chat_store: MagicMock
+        self, mapper_db: str, session_provisioner
     ) -> None:
-        mapper = ChannelSessionMapper(db_path=mapper_db, chat_store=mock_chat_store)
+        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
         await mapper.initialize()
 
         await mapper.resolve_or_create(
@@ -245,9 +251,9 @@ class TestChannelSessionMapper:
         assert result is None
 
     async def test_group_session(
-        self, mapper_db: str, mock_chat_store: MagicMock
+        self, mapper_db: str, session_provisioner
     ) -> None:
-        mapper = ChannelSessionMapper(db_path=mapper_db, chat_store=mock_chat_store)
+        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
         await mapper.initialize()
 
         mapping = await mapper.resolve_or_create(
@@ -261,9 +267,9 @@ class TestChannelSessionMapper:
         assert mapping.is_group is True
 
     async def test_notification_cursor(
-        self, mapper_db: str, mock_chat_store: MagicMock
+        self, mapper_db: str, session_provisioner
     ) -> None:
-        mapper = ChannelSessionMapper(db_path=mapper_db, chat_store=mock_chat_store)
+        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
         await mapper.initialize()
 
         cursor = await mapper.get_notification_cursor("telegram", "12345")

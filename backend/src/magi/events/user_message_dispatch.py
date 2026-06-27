@@ -1,0 +1,48 @@
+"""Shared user-message dispatch outcome contract."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+CHAT_STORE_NOT_INITIALIZED = "CHAT_STORE_NOT_INITIALIZED"
+CHAT_STORE_PERSIST_FAILED = "CHAT_STORE_PERSIST_FAILED"
+MESSAGE_DISPATCHER_NOT_INITIALIZED = "MESSAGE_DISPATCHER_NOT_INITIALIZED"
+RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED = "RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED"
+RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED = "RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED"
+SESSION_ID_REQUIRED = "SESSION_ID_REQUIRED"
+EMPTY_TURN = "EMPTY_TURN"
+MALFORMED_ATTACHMENTS = "MALFORMED_ATTACHMENTS"
+ASK_RESPONSE_RESOLVE_FAILED = "ASK_RESPONSE_RESOLVE_FAILED"
+ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED = "ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED"
+
+
+@dataclass(slots=True)
+class MessageDispatchOutcome:
+    """Result returned after accepting or rejecting a user-message ingress."""
+
+    success: bool
+    user_id: str
+    session_id: str | None = None
+    turn_id: str | None = None
+    message_id: str | None = None
+    handled_as: str | None = None
+    ask_request_id: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    queue_size: int | None = None
+
+
+__all__ = [
+    "ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED",
+    "ASK_RESPONSE_RESOLVE_FAILED",
+    "CHAT_STORE_NOT_INITIALIZED",
+    "CHAT_STORE_PERSIST_FAILED",
+    "EMPTY_TURN",
+    "MALFORMED_ATTACHMENTS",
+    "MESSAGE_DISPATCHER_NOT_INITIALIZED",
+    "MessageDispatchOutcome",
+    "RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED",
+    "RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED",
+    "SESSION_ID_REQUIRED",
+]

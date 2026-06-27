@@ -28,7 +28,7 @@ clean).
 
 The answer round-trip needs no code here: an inbound channel reply already
 routes to the pending ask via
-``message_dispatch_service._resolve_pending_ask_response`` — it looks up
+``chat.ingress._resolve_pending_ask_response`` — it looks up
 ``ask_state(session_id)`` and resolves the broker BEFORE starting a new turn,
 on the channel plugin's own dispatch task, so a foreground ask never deadlocks
 behind the blocked turn. (Only a text reply resolves it: an empty message

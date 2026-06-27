@@ -5,6 +5,8 @@ from __future__ import annotations
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
+from .channel_attachments import ChatChannelAttachmentStore
+from .channel_sessions import ChatChannelSessionProvisioner
 from .conversation_log import ChatRunConsumedEventsStore, ConversationLog
 from .projector import ChatProjector
 from .store import ChatStore
@@ -34,6 +36,12 @@ class ChatStoreModule(LifecycleModule):
         store = ChatStore(db_path=chat_db_path)
         await store.initialize()
         self._context.chat.store = store
+        self._context.chat.channel_session_provisioner = ChatChannelSessionProvisioner(
+            chat_store=store,
+        )
+        self._context.chat.channel_attachment_store = ChatChannelAttachmentStore(
+            runtime_paths=runtime_paths,
+        )
         # Phase F: build the ConversationLog alongside the ChatStore so
         # downstream consumers (ChatTaskAgent → ChatContextAssembler) can
         # reach it through ``ctx.chat.module._conversation_log``. The
@@ -53,6 +61,8 @@ class ChatStoreModule(LifecycleModule):
         if self._context.chat.store is not None:
             await self._context.chat.store.shutdown()
             self._context.chat.store = None
+        self._context.chat.channel_session_provisioner = None
+        self._context.chat.channel_attachment_store = None
         self._conversation_log = None
         self._consumed_events_store = None
         self._context.chat.module = None

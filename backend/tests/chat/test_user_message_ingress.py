@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.api.services import message_dispatch_service as service
+from magi.chat import ingress as service
 from magi.i18n import language_context
 from magi.utils.runtime import get_runtime_paths, set_runtime_dir
 

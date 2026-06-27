@@ -1,4 +1,4 @@
-"""Attachment storage adapter for channel plugins."""
+"""Chat-owned attachment store for channel plugins."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from typing import Any
 
 from magi_plugin_sdk.channels import ChannelAttachmentStoreProtocol
 
-from ..chat.attachment_storage import LocalChatAttachmentStorage
 from ..utils.runtime import RuntimePaths
+from .attachment_storage import LocalChatAttachmentStorage, StoredChatAttachment
 
 
-class ChannelAttachmentStore(ChannelAttachmentStoreProtocol):
-    """Persist channel inbound attachments through Magi's chat attachment store."""
+class ChatChannelAttachmentStore(ChannelAttachmentStoreProtocol):
+    """Persist channel inbound attachments through the chat attachment store."""
 
     def __init__(self, *, runtime_paths: RuntimePaths) -> None:
         self._storage = LocalChatAttachmentStorage(runtime_paths=runtime_paths)
@@ -55,7 +55,7 @@ class ChannelAttachmentStore(ChannelAttachmentStoreProtocol):
         original_name: str,
         content: bytes,
         mime_type: str,
-    ):
+    ) -> StoredChatAttachment:
         if str(kind or "").strip() == "image" or str(mime_type or "").startswith("image/"):
             return self._storage.store_image_attachment(
                 session_id=session_id,
@@ -71,3 +71,6 @@ class ChannelAttachmentStore(ChannelAttachmentStoreProtocol):
             content=content,
             mime_type=mime_type,
         )
+
+
+__all__ = ["ChatChannelAttachmentStore"]

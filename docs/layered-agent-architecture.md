@@ -44,7 +44,7 @@ Outcome of the layering cleanup (ADRs 0001–0004):
 
 - **`plugin-isolation` baseline = 0** — capability tools are fully SDK-isolated (Framework A). Runtime-control tools (`agent_tool`, batch tools, plan/todo) live in host layers and are composition-root-registered, never in the plugin surface (ADR-0002).
 - **`layers` baseline: 115 → 20.** Retired: the `agent → chat` task-agent cluster (the chat-driver descent, ADR-0003/0004 P2), `agent → timeline`, `runtime_trace → events` (layer repositioned above events), `awareness → timeline` (subscribers inverted into timeline), the `tools ↔ skills` cycle (ordered + `ToolRegistryPort`), `chat.workspace` / `chat_trace` (lowered), the old `chat → channels` delivery-router reach-through (now injected as a channel-owned delivery dispatcher), and the wrong-direction tail (permission-shim repoint, plus `core→config` / `memory→api` / `skills→engine` / `plugins→tools/awareness` injected, and the `message_text` util lowered).
-- **Remaining ~20 edges are intentionally left** — overwhelmingly `api/channels → chat` (the api router IS the HTTP surface over chat; channels are the delivery surface). Inverting these inherent surface→domain dependencies costs more than it returns; they are a conscious carry, not unaddressed debt. Revisit only if a concrete need (e.g. a second front end) makes the coupling bite.
+- **Remaining ~15 edges are intentionally left** — mostly API router and command surfaces over `chat`. The high-churn ingress work now enters through chat-owned services: user-message persistence/attachment preparation/queueing live in `chat.ingress`, external channel session creation lives behind a chat-owned provisioner, and channel inbound attachments are stored by a chat-owned attachment service. The remaining surface→domain imports are a conscious carry, not unaddressed debt. Revisit only if a concrete need (e.g. a second front end) makes the coupling bite.
 
 When adding code, keep both contracts green. A new lower→upper import is a design smell — inject the dependency from the composition root, lower a shared contract/util, or register via the origin-agnostic registry instead.
 
@@ -359,10 +359,11 @@ Notes:
 - the Rust gateway (`crates/magi-gateway/`) handles static database reads, config file I/O, and session/task mutations natively
 - requests requiring the Python runtime are dispatched via IPC `api.forward` to FastAPI routers running as an in-memory ASGI app
 - `chat/` owns transcript truth (`chat.db`), attachment storage, and session workspace; it is not the memory layer
+- inbound user-message handling is chat-owned: API and channel surfaces should hand off to the active user-message dispatcher instead of assembling chat turns, attachments, and runtime queue commands themselves
 - `chat/portrait/` owns persona-voiced portrait cards shown in the chat rail; it
   may consume neutral memory snippets but memory must not assemble chat/persona
   presentation
-- `channels/` provides bidirectional adapters for external messaging platforms; each channel routes messages into the standard chat pipeline, and channel-owned dispatchers own chat egress fanout, delivery preferences, delivery receipts, and delivered-message retraction
+- `channels/` provides bidirectional adapters for external messaging platforms; each channel routes messages into the standard chat pipeline, while chat owns creation of chat sessions and storage of inbound chat attachments; channel-owned dispatchers own chat egress fanout, delivery preferences, delivery receipts, and delivered-message retraction
 
 ### L15. Connection And Transport
 

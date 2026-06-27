@@ -43,13 +43,14 @@ class _FakePluginManager:
         return list(self._plugins)
 
 
-class _StubChatStore:
-    """Minimal ChatStore stub — ChannelSessionMapper only calls
-    ``upsert_session`` on the resolve path, which our tests never trigger
-    during _start_channels (no inbound messages flow during init)."""
+class _StubSessionProvisioner:
+    async def create_channel_session(self, **kwargs):  # type: ignore[no-untyped-def]
+        return "chsess_lifecycle_test"
 
-    async def upsert_session(self, *args, **kwargs) -> None:  # pragma: no cover
-        return None
+
+class _StubAttachmentStore:
+    async def store_attachment(self, **kwargs):  # type: ignore[no-untyped-def]
+        return {}
 
 
 def _build_ctx(*, plugins: list[Channel], tmp_path: Path) -> RuntimeBootstrapContext:
@@ -60,7 +61,8 @@ def _build_ctx(*, plugins: list[Channel], tmp_path: Path) -> RuntimeBootstrapCon
     ctx = RuntimeBootstrapContext()
     ctx.plugins.plugin_manager = _FakePluginManager(plugins)  # type: ignore[assignment]
     ctx.core.runtime_paths = RuntimePaths(base_dir=tmp_path)
-    ctx.chat.store = _StubChatStore()  # type: ignore[assignment]
+    ctx.chat.channel_session_provisioner = _StubSessionProvisioner()
+    ctx.chat.channel_attachment_store = _StubAttachmentStore()
     # Real RuntimeTraceStore — ChannelsModule passes it to ChatSseChannel,
     # which only needs an object exposing ``append_notification``.
     ctx.runtime_trace.store = RuntimeTraceStore(db_path=str(tmp_path / "trace.db"))
