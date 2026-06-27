@@ -42,8 +42,6 @@ from magi.agent.task_agents.handlers.contracts import (
     TraceDisplayMode,
     TurnUXPlan,
 )
-from magi.channels.delivery_router import DeliveryRouter
-from magi.channels.delivery_prefs import resolve_delivery_targets
 from magi_plugin_sdk.delivery import DeliveryContent
 from magi.agent.run.builder import GraphBuilder
 from magi.agent.run.ports import AttachmentResolverPort, NullAttachmentResolver
@@ -54,6 +52,7 @@ from magi.agent.run.nodes.validate import ValidateNode
 from magi.agent.run.registry import NodeRegistry
 from magi.agent.run.runner import NodeSequenceRunner
 from magi.agent.task_agents.handlers.attachment_context import resolve_effective_turn_attachments
+from .delivery_dispatch import ChatDeliveryDispatchPort
 from .fact_classifier import ChatFactClassifier
 
 logger = get_logger(__name__)
@@ -144,9 +143,7 @@ class ChatExecutionCoordinator:
         tool_advisory_provider: ToolAdvisoryProvider | None = None,
         tool_selection_trace_callback: ToolSelectionTraceCallback | None = None,
         session_run_store: Any | None = None,
-        channel_registry: Any | None = None,
-        user_prefs_provider: Callable[[str], Awaitable[dict]] | None = None,
-        receipts_store: Any | None = None,
+        delivery_dispatcher: ChatDeliveryDispatchPort | None = None,
         conversation_log: Any | None = None,
         attachment_resolver: AttachmentResolverPort | None = None,
     ) -> None:
@@ -160,32 +157,12 @@ class ChatExecutionCoordinator:
         self._intent_trace_callback = intent_trace_callback
         self._tool_advisory_provider = tool_advisory_provider
         self._tool_selection_trace_callback = tool_selection_trace_callback
-        # Phase G+1 / Task 9: optional async lookup that returns the user's
-        # stored delivery preferences (e.g. ``{"delivery_channels": [...]}``).
-        # When None, ``execute()`` falls back to default chat_sse-only fanout.
-        # Errors raised by the provider are swallowed so delivery never breaks
-        # because a user-pref lookup fails.
-        self._user_prefs_provider = user_prefs_provider
         # Phase E: optional store for per-turn snapshot persistence.
         # When supplied, execute() calls run_with_snapshot and persists the
         # returned RunSnapshot so background-detached multi-node runs can
         # resume from the in-progress node. None for legacy / test callers.
         self._session_run_store = session_run_store
-        # Phase G: DeliveryRouter for fanning out replies to user's
-        # configured channels. Optional — if channel_registry is None,
-        # delivery falls back to chat SSE only (no fanout).
-        # This makes Phase G a strict additive change.
-        self._delivery_router = (
-            DeliveryRouter(channel_registry=channel_registry)
-            if channel_registry is not None
-            else None
-        )
-        # Phase G+3: receipts live independent of the run snapshot.
-        # When supplied, ``execute()`` writes per-turn DeliveryReceipts here
-        # so SessionRunCoordinator.request_retract can recover them without
-        # walking stale snapshot.node_states. None for legacy callers; the
-        # fanout path simply skips persistence in that case.
-        self._receipts_store = receipts_store
+        self._delivery_dispatcher = delivery_dispatcher
         # Phase F Task 10: optional ConversationLog. When supplied,
         # ``execute()`` records this run as a consumer of the currently
         # visible message_ids so a later cross-run retract (Task 11) can
@@ -589,7 +566,7 @@ class ChatExecutionCoordinator:
         handler-registry path (ORCHESTRATION_UPDATE / EXPLORE_TASK_RENDER) so a
         turn that gets offloaded to a worker subagent reaches the originating
         external channel (WeChat/Telegram), not just the message bus. No-op when
-        no DeliveryRouter is wired.
+        no delivery dispatcher is wired.
 
         P3 Step 3: the chat_sse ``agent_response`` and the external-channel
         delivery are split into two mutually-exclusive passes:
@@ -601,74 +578,16 @@ class ChatExecutionCoordinator:
         Returns the DeliveryReceipts so callers can chain if needed (receipts are
         also persisted here as before).
         """
-        if self._delivery_router is None:
+        if self._delivery_dispatcher is None:
             return []
-        context = getattr(request, "context", None)
-        session_id = getattr(context, "session_id", "") or ""
-        session_run_id = getattr(context, "session_run_id", "") or ""
-        user_id = getattr(context, "user_id", "") or ""
-        # Phase G+1: stored prefs from the injected provider; request-time
-        # context prefs win on conflict.
-        user_prefs = await self._resolve_user_prefs(user_id)
-        ctx_prefs = getattr(context, "user_prefs", None)
-        if isinstance(ctx_prefs, dict):
-            user_prefs = {**user_prefs, **ctx_prefs}
-        # Auto-append the originating channel (from this run's RunTrigger) so an
-        # inbound from WeChat/Telegram fans back to that channel, not just the
-        # chat_sse default.
-        origin_channel: str | None = None
-        active_run = getattr(context, "active_run", None)
-        if active_run is not None:
-            trigger = getattr(active_run, "trigger", None)
-            if trigger is not None:
-                origin_channel = getattr(trigger, "source_channel", None)
-        targets = resolve_delivery_targets(
-            user_id=user_id,
-            session_id=session_id,
-            user_prefs=user_prefs,
-            origin_channel=origin_channel,
+        return await self._delivery_dispatcher.deliver_final_response(
+            request,
+            response_text=response_text,
+            attachments=attachments,
+            content=content,
+            exclude_chat_sse=exclude_chat_sse,
+            chat_sse_only=chat_sse_only,
         )
-        # P3 Step 3: restrict the target set to the half this pass owns.
-        if exclude_chat_sse:
-            targets = [t for t in targets if t.channel_type != "chat_sse"]
-        if chat_sse_only:
-            targets = [t for t in targets if t.channel_type == "chat_sse"]
-        if not targets:
-            return []
-        # Phase A media-outbound: attachments ride along so external channels
-        # can send images/documents back, not just the joined text. When a
-        # pre-built rich content is supplied (postprocess seam), use it verbatim.
-        delivery_content = content if content is not None else DeliveryContent(
-            text=response_text or "",
-            attachments=tuple(attachments or ()),
-        )
-        # Phase H+2 diagnostic — temporary INFO log so the user can
-        # confirm attachments are flowing into the fanout (vs being
-        # dropped upstream by FC orchestrator etc.). Demote to DEBUG
-        # once stable.
-        logger.info(
-            "fanout_to_origin_channels text_len=%d attachments=%d targets=%s",
-            len(delivery_content.text or ""),
-            len(delivery_content.attachments or ()),
-            [t.channel_type for t in targets],
-        )
-        receipts = await self._delivery_router.fanout_deliver(
-            content=delivery_content, targets=targets
-        )
-        if receipts and self._receipts_store is not None and session_id and session_run_id:
-            try:
-                await self._receipts_store.save_receipts(
-                    session_id=session_id,
-                    run_id=session_run_id,
-                    revision=int(getattr(context, "revision", 0) or 0),
-                    receipts=receipts,
-                )
-            except Exception:
-                logger.warning(
-                    "DeliveryReceiptsStore.save_receipts failed",
-                    exc_info=True,
-                )
-        return receipts
 
     async def deliver_final_chat_response(
         self,
@@ -682,13 +601,11 @@ class ChatExecutionCoordinator:
         ``DeliveryContent``. Reuses the fanout target/prefs/origin/receipts
         machinery but restricts delivery to chat_sse — external channels are
         served by the execute()-time fanout (``exclude_chat_sse=True``), so no
-        channel is double-served. No-op when no DeliveryRouter is wired.
+        channel is double-served. No-op when no delivery dispatcher is wired.
 
         ``context`` is the postprocess ``ChatRuntimeContext``; the fanout helper
         only reads ``request.context``, so a thin shim is sufficient.
         """
-        if self._delivery_router is None:
-            return []
         request = SimpleNamespace(context=context)
         return await self._fanout_to_origin_channels(
             request,
@@ -697,28 +614,6 @@ class ChatExecutionCoordinator:
             content=content,
             chat_sse_only=True,
         )
-
-    async def _resolve_user_prefs(self, user_id: str) -> dict:
-        """Pull stored delivery prefs from the injected provider.
-
-        Phase G+1 / Task 9: the provider is the seam between this coordinator
-        and the real user-preference store (not wired here). Behaviour:
-
-        - No provider configured → return ``{}``.
-        - Blank ``user_id`` → return ``{}`` without invoking the provider
-          (nothing meaningful to look up).
-        - Provider raises → swallow + return ``{}`` (delivery must never
-          break because a user-pref lookup fails).
-        - Provider returns ``None`` → treat as ``{}``.
-        """
-        if self._user_prefs_provider is None or not user_id:
-            return {}
-        try:
-            extra = await self._user_prefs_provider(user_id)
-        except Exception as exc:
-            logger.debug("user_prefs_provider raised, defaulting to empty prefs: %s", exc)
-            return {}
-        return dict(extra or {})
 
     async def dispatch_stream_chunk(
         self,
@@ -734,42 +629,21 @@ class ChatExecutionCoordinator:
     ) -> None:
         """Stream one chunk to every configured channel for this user/session.
 
-        Resolves the user's stored delivery preferences via the injected
-        ``user_prefs_provider`` (same source ``execute()`` uses for the
-        final fanout) so streaming chunks reach the SAME set of channels
-        the assembled response will. Without this, the streaming and
-        fanout paths would silently disagree on the target list — a
-        user with ``{"delivery_channels": ["chat_sse", "telegram"]}``
-        would only see chunks on chat_sse but get the final reply on
-        both, which is exactly the wire-up bug Phase G+1 exists to
-        prevent.
-
-        No-op when no delivery router is wired (legacy / test paths) or
-        session_id is empty. Errors per channel are isolated inside
-        DeliveryRouter.fanout_chunk. Errors from the prefs provider are
-        already swallowed by ``_resolve_user_prefs`` (returns ``{}``).
+        The injected dispatcher owns target resolution and preference lookup
+        so streaming chunks reach the same delivery surface as final replies.
+        No-op when no dispatcher is wired or session_id is empty.
         """
-        if self._delivery_router is None or not session_id:
+        if self._delivery_dispatcher is None or not session_id:
             return
-        from magi_plugin_sdk.delivery import DeliveryChunk
-        user_prefs = await self._resolve_user_prefs(user_id)
-        targets = resolve_delivery_targets(
-            user_id=user_id, session_id=session_id, user_prefs=user_prefs,
-        )
-        await self._delivery_router.fanout_chunk(
-            chunk=DeliveryChunk(
-                text=text, is_final=is_final, seq=seq,
-                turn_id=turn_id,
-                # Phase G+1 Step 2: carry the full stream-event dict so
-                # ChatSseChannel.deliver_chunk can serialize every kind
-                # (tool_call / reasoning / status / text_flush / text_delta),
-                # not just the legacy text_delta fallback. ``None`` keeps the
-                # legacy shape for callers that don't supply an event (e.g. the
-                # handler's final boundary chunk).
-                event=event.to_wire_dict() if event is not None else None,
-                persona_id=persona_id,
-            ),
-            targets=targets,
+        await self._delivery_dispatcher.dispatch_stream_chunk(
+            session_id=session_id,
+            user_id=user_id,
+            text=text,
+            is_final=is_final,
+            seq=seq,
+            turn_id=turn_id,
+            event=event,
+            persona_id=persona_id,
         )
 
     @staticmethod
@@ -1024,4 +898,3 @@ class ChatExecutionCoordinator:
         # Ultimate safety net: English orchestration_launch line. Keeps the
         # UI contract that interim_text is always a non-empty string.
         return self._INTERIM_FALLBACK_LINES["en"]["orchestration_launch"][0]
-

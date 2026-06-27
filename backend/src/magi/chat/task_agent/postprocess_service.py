@@ -32,7 +32,7 @@ from .postprocess.outcomes import ChatPostprocessOutcomeMixin
 from .postprocess.session import ChatPostprocessSessionMixin
 from .postprocess.tool_events import ChatPostprocessToolEventMixin
 from .postprocess.trace import ChatPostprocessTraceMixin
-from .session_run_coordinator import TurnSupersession
+from .session_run_decisions import TurnSupersession
 
 if TYPE_CHECKING:
     from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService

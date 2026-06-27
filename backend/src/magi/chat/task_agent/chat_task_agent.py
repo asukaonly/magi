@@ -113,23 +113,15 @@ class ChatTaskAgent(
         background_launch_service: Any | None = None,
         permission_gateway_provider: Callable[[], Any] | None = None,
         control_session_store_provider: Callable[[], Any] | None = None,
-        channel_registry_resolver: Callable[[], Any] | None = None,
-        receipts_store_resolver: Callable[[], Any] | None = None,
+        delivery_dispatcher_resolver: Callable[[], Any] | None = None,
         conversation_log_resolver: Callable[[], Any] | None = None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
-        # Phase G+1: resolver returning the live ChannelRegistry (or None
-        # when channels aren't configured). Defaults to a helper that reads
-        # the runtime container; tests inject a callable to bypass it.
-        self._channel_registry_resolver = (
-            channel_registry_resolver or self._resolve_channel_registry
-        )
-        # Phase G+3: resolver returning the live DeliveryReceiptsStore (or
-        # None pre-bootstrap / in tests). The coordinator persists per-turn
-        # receipts here so SessionRunCoordinator.request_retract can replay
-        # them without walking the run snapshot.
-        self._receipts_store_resolver = (
-            receipts_store_resolver or self._resolve_receipts_store
+        # Resolver returning the channel-owned delivery dispatcher (or None
+        # when channels are not configured yet). Tests inject a callable to
+        # bypass the runtime container.
+        self._delivery_dispatcher_resolver = (
+            delivery_dispatcher_resolver or self._resolve_delivery_dispatcher
         )
         # Phase F: resolver returning the live ConversationLog (or None
         # pre-bootstrap / in tests). Threaded into ChatContextAssembler so
@@ -202,12 +194,13 @@ class ChatTaskAgent(
             llm_adapter=llm_adapter,
             llm_pool=llm_pool,
         )
+        _delivery_dispatcher = self._delivery_dispatcher_resolver()
         self._session_run_coordinator = SessionRunCoordinator(
             run_store=SessionRunStore(
                 l0_store=(unified_memory.l0 if unified_memory is not None else None),
             ),
             interruption_classifier=self._interruption_classifier,
-            receipts_store=self._receipts_store_resolver(),
+            delivery_dispatcher=_delivery_dispatcher,
             conversation_log=self._conversation_log_resolver(),
         )
         self._planning_service = ChatPlanningService(
@@ -312,8 +305,6 @@ class ChatTaskAgent(
             ExploreRenderHandler(handler_deps),
         ):
             self._handler_registry.register(handler)
-        _channel_registry = self._channel_registry_resolver()
-        _receipts_store = self._receipts_store_resolver()
         _conversation_log = self._conversation_log_resolver()
         self._coordinator = ChatExecutionCoordinator(
             context_decider=self.context_decider,
@@ -322,9 +313,7 @@ class ChatTaskAgent(
             intent_trace_callback=self._postprocess_service.record_intent_resolution,
             tool_advisory_provider=self._get_tool_advisory,
             tool_selection_trace_callback=self._postprocess_service.record_tool_selection,
-            channel_registry=_channel_registry,
-            user_prefs_provider=self._read_delivery_prefs,
-            receipts_store=_receipts_store,
+            delivery_dispatcher=_delivery_dispatcher,
             conversation_log=_conversation_log,
             attachment_resolver=self._attachment_resolver,
         )
@@ -341,9 +330,7 @@ class ChatTaskAgent(
         # full rich payload through ChatSseChannel.deliver (P3 Step 3); the chunk
         # path is already driven by ChatExecutionCoordinator.dispatch_stream_chunk
         # (P3 Step 2).
-        if _channel_registry is not None and self._chat_sse_channel_registered(
-            _channel_registry
-        ):
+        if _delivery_dispatcher is not None:
             self._postprocess_service._deliver_final_response = (
                 self._coordinator.deliver_final_chat_response
             )
@@ -362,27 +349,11 @@ class ChatTaskAgent(
         return self._postprocess_service
 
     @staticmethod
-    def _chat_sse_channel_registered(registry: Any) -> bool:
-        """Return True when ``chat_sse`` is registered on the channel registry.
+    def _resolve_delivery_dispatcher() -> Any | None:
+        """Pull the channel-owned chat delivery dispatcher from the container.
 
-        Used to decide whether the legacy ``ChatRuntimeNotifier`` stream
-        write must be silenced. ``ChannelRegistry.get`` returns the channel
-        or ``None``; any unexpected registry shape is treated as "not
-        registered" so the legacy path keeps working as a fallback.
-        """
-        try:
-            return registry.get("chat_sse") is not None
-        except Exception:
-            return False
-
-    @staticmethod
-    def _resolve_channel_registry() -> Any | None:
-        """Pull the live ChannelRegistry out of the runtime container.
-
-        Returns ``None`` when the container isn't initialized (test paths,
-        early bootstrap, or runtimes where channels are intentionally off)
-        so coordinator construction never fails. The coordinator falls back
-        to the legacy delivery path when the registry is ``None``.
+        Returns ``None`` when the container is not initialized, channels are
+        intentionally off, or the channels module has not finished starting.
         """
         try:
             from magi.core.container import get_container
@@ -399,37 +370,13 @@ class ChatTaskAgent(
         module = getattr(channels_state, "module", None)
         if module is None:
             return None
-        return getattr(module, "_registry", None)
-
-    @staticmethod
-    def _resolve_receipts_store() -> Any | None:
-        """Pull the live DeliveryReceiptsStore out of the runtime container.
-
-        Mirrors :meth:`_resolve_channel_registry`. Returns ``None`` pre-
-        bootstrap, in tests where the container provider returns a bare
-        ``object()`` placeholder, or when the channels module hasn't been
-        wired with a store. The coordinator simply skips per-turn receipt
-        persistence in that case.
-        """
-        try:
-            from magi.core.container import get_container
-
-            context = get_container().runtime_bootstrap_context()
-        except Exception:
-            return None
-        channels_state = getattr(context, "channels", None)
-        if channels_state is None:
-            return None
-        module = getattr(channels_state, "module", None)
-        if module is None:
-            return None
-        return getattr(module, "_receipts_store", None)
+        return getattr(module, "_chat_delivery_dispatcher", None)
 
     @staticmethod
     def _resolve_conversation_log() -> Any | None:
         """Pull the live ConversationLog out of the runtime container.
 
-        Mirrors :meth:`_resolve_receipts_store`. Returns ``None`` pre-
+        Mirrors :meth:`_resolve_delivery_dispatcher`. Returns ``None`` pre-
         bootstrap, in tests where the container provider returns a bare
         ``object()`` placeholder, or when the chat lifecycle module hasn't
         wired a log yet. ChatContextAssembler falls back to legacy paths in
@@ -448,24 +395,6 @@ class ChatTaskAgent(
         if module is None:
             return None
         return getattr(module, "_conversation_log", None)
-
-    @staticmethod
-    async def _read_delivery_prefs(user_id: str) -> dict[str, Any]:
-        """Pull this user's delivery-channel preferences from the config store.
-
-        Returns the shape ``resolve_delivery_targets`` expects:
-        ``{"delivery_channels": [<channel_id>, ...]}`` when the user has a
-        non-empty list configured, or ``{}`` otherwise so fanout defaults
-        safely to chat_sse-only delivery.
-
-        TODO(per-user): ``get_user_preference`` is process-wide today (single-
-        user model). When the per-user preferences store lands, key the lookup
-        by ``user_id`` instead of ignoring it.
-        """
-        channels = get_user_preference("delivery_channels", None)
-        if isinstance(channels, list) and channels:
-            return {"delivery_channels": list(channels)}
-        return {}
 
     async def _persist_turn_supersessions_from_handler(
         self,

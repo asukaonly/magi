@@ -4,6 +4,7 @@ import pytest
 
 from magi.agent.task_agents.handlers import ChatRuntimeContext, ExecutionMode, UserMessagePayload
 from magi.agent.task_agents.handlers import ExecutionHandlerRegistry
+from magi.channels.chat_delivery_dispatcher import ChatDeliveryDispatcher
 from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 from magi.chat.task_agent.fact_classifier import ChatFactClassifier, IncomingFactKind
 from magi.agent.runtime.contracts import FactRecord
@@ -27,6 +28,24 @@ class _FakeToolRegistry:
 
     def list_tools(self) -> list[str]:
         return list(self._tools)
+
+
+def _build_delivery_dispatcher(
+    registry,
+    *,
+    user_prefs_provider=None,
+    receipts_store=None,
+):
+    return ChatDeliveryDispatcher.from_registry(
+        channel_registry=registry,
+        user_prefs_provider=user_prefs_provider,
+        receipts_store=receipts_store,
+    )
+
+
+class _EmptyChannelRegistry:
+    def get(self, _channel_type):
+        return None
 
 
 def _build_real_tool_registry() -> ToolRegistry:
@@ -1131,7 +1150,7 @@ async def test_coordinator_works_without_advisory_provider() -> None:
         latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
     )
 
-    decision = await coordinator.match_intent(context)
+    await coordinator.match_intent(context)
     dc = decider.last_decision_context
     assert dc is not None
     assert dc.tool_advisory == []
@@ -1409,7 +1428,7 @@ async def test_dispatch_stream_chunk_routes_to_chat_sse_channel_when_registry_wi
         context_decider=decider,
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
-        channel_registry=_Registry(rec),
+        delivery_dispatcher=_build_delivery_dispatcher(_Registry(rec)),
     )
     await coordinator.dispatch_stream_chunk(
         session_id="s1", user_id="u1", text="hello",
@@ -1436,7 +1455,7 @@ async def test_dispatch_stream_chunk_noop_when_no_router():
         context_decider=decider,
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
-        # no channel_registry → _delivery_router is None
+        # no delivery_dispatcher -> no delivery fanout
     )
     # Should be a no-op — would raise AttributeError if accessed
     await coordinator.dispatch_stream_chunk(
@@ -1465,7 +1484,7 @@ async def test_dispatch_stream_chunk_noop_when_session_id_empty():
         context_decider=decider,
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
-        channel_registry=_Registry(rec),
+        delivery_dispatcher=_build_delivery_dispatcher(_Registry(rec)),
     )
     await coordinator.dispatch_stream_chunk(
         session_id="", user_id="u1", text="hello",
@@ -1499,7 +1518,7 @@ async def test_dispatch_stream_chunk_carries_event_and_persona_on_delivery_chunk
         context_decider=decider,
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
-        channel_registry=_Registry(rec),
+        delivery_dispatcher=_build_delivery_dispatcher(_Registry(rec)),
     )
     event = LLMStreamEvent(
         kind="tool_call_start", tool_call_id="tc1", tool_name="web-search",
@@ -1527,16 +1546,8 @@ async def test_dispatch_stream_chunk_carries_event_and_persona_on_delivery_chunk
 @pytest.mark.asyncio
 async def test_resolve_user_prefs_returns_empty_when_no_provider():
     """No provider wired → returns empty dict, no error."""
-    decider = _FakeContextDecider(RouteDecision(
-        profile="chat", graph_shape="reply", complexity="simple",
-        tools=[], reasoning=""
-    ))
-    coordinator = ChatExecutionCoordinator(
-        context_decider=decider,
-        fact_classifier=ChatFactClassifier(),
-        handler_registry=ExecutionHandlerRegistry(),
-    )
-    prefs = await coordinator._resolve_user_prefs("u-1")
+    dispatcher = _build_delivery_dispatcher(_EmptyChannelRegistry())
+    prefs = await dispatcher._resolve_user_prefs("u-1")
     assert prefs == {}
 
 
@@ -1549,17 +1560,11 @@ async def test_resolve_user_prefs_returns_empty_when_user_id_blank():
         calls.append(user_id)
         return {"delivery_channels": ["chat_sse", "telegram"]}
 
-    decider = _FakeContextDecider(RouteDecision(
-        profile="chat", graph_shape="reply", complexity="simple",
-        tools=[], reasoning=""
-    ))
-    coordinator = ChatExecutionCoordinator(
-        context_decider=decider,
-        fact_classifier=ChatFactClassifier(),
-        handler_registry=ExecutionHandlerRegistry(),
+    dispatcher = _build_delivery_dispatcher(
+        _EmptyChannelRegistry(),
         user_prefs_provider=provider,
     )
-    prefs = await coordinator._resolve_user_prefs("")
+    prefs = await dispatcher._resolve_user_prefs("")
     assert prefs == {}
     assert calls == []
 
@@ -1571,17 +1576,11 @@ async def test_resolve_user_prefs_returns_provider_result():
         assert user_id == "u-7"
         return {"delivery_channels": ["chat_sse", "telegram"]}
 
-    decider = _FakeContextDecider(RouteDecision(
-        profile="chat", graph_shape="reply", complexity="simple",
-        tools=[], reasoning=""
-    ))
-    coordinator = ChatExecutionCoordinator(
-        context_decider=decider,
-        fact_classifier=ChatFactClassifier(),
-        handler_registry=ExecutionHandlerRegistry(),
+    dispatcher = _build_delivery_dispatcher(
+        _EmptyChannelRegistry(),
         user_prefs_provider=provider,
     )
-    prefs = await coordinator._resolve_user_prefs("u-7")
+    prefs = await dispatcher._resolve_user_prefs("u-7")
     assert prefs == {"delivery_channels": ["chat_sse", "telegram"]}
 
 
@@ -1591,17 +1590,11 @@ async def test_resolve_user_prefs_swallows_provider_errors():
     async def bad_provider(user_id):
         raise RuntimeError("user-pref store down")
 
-    decider = _FakeContextDecider(RouteDecision(
-        profile="chat", graph_shape="reply", complexity="simple",
-        tools=[], reasoning=""
-    ))
-    coordinator = ChatExecutionCoordinator(
-        context_decider=decider,
-        fact_classifier=ChatFactClassifier(),
-        handler_registry=ExecutionHandlerRegistry(),
+    dispatcher = _build_delivery_dispatcher(
+        _EmptyChannelRegistry(),
         user_prefs_provider=bad_provider,
     )
-    prefs = await coordinator._resolve_user_prefs("u-7")
+    prefs = await dispatcher._resolve_user_prefs("u-7")
     assert prefs == {}
 
 
@@ -1660,8 +1653,10 @@ async def test_execute_uses_user_prefs_provider_for_fanout_targets():
         context_decider=decider,
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
-        channel_registry=registry,
-        user_prefs_provider=provider,
+        delivery_dispatcher=_build_delivery_dispatcher(
+            registry,
+            user_prefs_provider=provider,
+        ),
     )
 
     # Mock the runner so execute() short-circuits with a fixed result.
@@ -1791,9 +1786,11 @@ async def test_deliver_final_chat_response_delivers_rich_content_to_chat_sse_onl
         context_decider=decider,
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
-        channel_registry=_Registry({"chat_sse": sse, "telegram": telegram}),
-        user_prefs_provider=_provider,
-        receipts_store=_RecReceiptsStore(),
+        delivery_dispatcher=_build_delivery_dispatcher(
+            _Registry({"chat_sse": sse, "telegram": telegram}),
+            user_prefs_provider=_provider,
+            receipts_store=_RecReceiptsStore(),
+        ),
     )
 
     fact = FactRecord(
@@ -1909,8 +1906,10 @@ async def test_execute_swallows_user_prefs_provider_errors_and_uses_default_targ
         context_decider=decider,
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
-        channel_registry=registry,
-        user_prefs_provider=bad_provider,
+        delivery_dispatcher=_build_delivery_dispatcher(
+            registry,
+            user_prefs_provider=bad_provider,
+        ),
     )
 
     canned_result = ExecutionResult(
@@ -2039,8 +2038,10 @@ async def test_execute_passes_runner_attachments_through_to_delivery_content():
         context_decider=decider,
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
-        channel_registry=registry,
-        user_prefs_provider=_provider,
+        delivery_dispatcher=_build_delivery_dispatcher(
+            registry,
+            user_prefs_provider=_provider,
+        ),
     )
 
     image_attachment = {
@@ -2178,8 +2179,10 @@ async def test_execute_passes_empty_attachments_when_runner_has_none():
         context_decider=decider,
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
-        channel_registry=_Registry(),
-        user_prefs_provider=_prov,
+        delivery_dispatcher=_build_delivery_dispatcher(
+            _Registry(),
+            user_prefs_provider=_prov,
+        ),
     )
     canned_result = ExecutionResult(
         mode=ExecutionMode.DIRECT_LLM,
@@ -2291,8 +2294,10 @@ async def test_execute_routes_reply_back_to_origin_channel_from_run_trigger():
         context_decider=decider,
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
-        channel_registry=registry,
-        user_prefs_provider=empty_provider,
+        delivery_dispatcher=_build_delivery_dispatcher(
+            registry,
+            user_prefs_provider=empty_provider,
+        ),
     )
 
     canned_result = ExecutionResult(
@@ -2436,8 +2441,10 @@ async def test_execute_context_user_prefs_wins_over_provider():
         context_decider=decider,
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
-        channel_registry=registry,
-        user_prefs_provider=provider,
+        delivery_dispatcher=_build_delivery_dispatcher(
+            registry,
+            user_prefs_provider=provider,
+        ),
     )
 
     canned_result = ExecutionResult(

@@ -25,6 +25,7 @@ from magi.agent.task_agents.common.contracts import (
     ExecutionResult,
     ToolSelection,
 )
+from magi.channels.chat_delivery_dispatcher import ChatDeliveryDispatcher
 from magi.events.events import EventTypes
 from magi.tools.context_routing import RouteDecision
 
@@ -188,9 +189,11 @@ async def test_execute_writes_receipts_to_store_not_snapshot():
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
         session_run_store=session_run_store,
-        channel_registry=_StubRegistry({"chat_sse": sse, "telegram": tg}),
-        user_prefs_provider=_prefs,
-        receipts_store=receipts_store,
+        delivery_dispatcher=ChatDeliveryDispatcher.from_registry(
+            channel_registry=_StubRegistry({"chat_sse": sse, "telegram": tg}),
+            user_prefs_provider=_prefs,
+            receipts_store=receipts_store,
+        ),
     )
 
     canned_result = ExecutionResult(

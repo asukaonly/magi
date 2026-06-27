@@ -28,21 +28,18 @@ from magi.agent.execution.function_calling.step_executor import (
     FunctionCallingStepOutcome,
     FunctionCallingStepState,
 )
-from magi.agent.run_control import SteerInbox, SteerMessage
+from magi.agent.run_control import SteerInbox
 from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
 from magi.agent.task_agents.handlers.handlers import (
     ChatHandlerDependencies,
     FunctionCallingHandler,
 )
-from magi.chat.task_agent.session_run_coordinator import (
-    SessionRunCoordinator,
-    TurnSupersession,
-)
+from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
+from magi.chat.task_agent.session_run_decisions import TurnSupersession
 from magi.agent.task_agents.common import (
     ExecutionMode,
     FunctionCallingRequest,
     IncomingFactKind,
-    OrchestrationPlan,
     ToolSelection,
     UserMessagePayload,
 )
@@ -350,13 +347,6 @@ async def test_steer_turn_arriving_mid_run_is_drained_on_next_iteration() -> Non
 @pytest.mark.asyncio
 async def test_no_steer_drain_when_coordinator_is_absent() -> None:
     """Handler must tolerate missing coordinator — plain path only."""
-    orchestrator = _FakeOrchestrator(
-        step_results=[
-            FunctionCallingStepOutcome(
-                status="completed", iteration=1, content="final"
-            ),
-        ]
-    )
     deps = ChatHandlerDependencies(
         context_service=SimpleNamespace(),
         prompt_service=SimpleNamespace(),

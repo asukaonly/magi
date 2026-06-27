@@ -13,7 +13,7 @@ from magi.chat.task_agent.postprocess.components import (
     ChatRuntimeNotifier,
 )
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
-from magi.chat.task_agent.session_run_coordinator import TurnSupersession
+from magi.chat.task_agent.session_run_decisions import TurnSupersession
 from magi.agent.task_agents.common import (
     AssistantResponsePlan,
     AssistantResponseSegment,

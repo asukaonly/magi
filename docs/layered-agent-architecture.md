@@ -43,8 +43,8 @@ These rules are **CI-enforced**, not conventional. `backend/.importlinter` defin
 Outcome of the layering cleanup (ADRs 0001–0004):
 
 - **`plugin-isolation` baseline = 0** — capability tools are fully SDK-isolated (Framework A). Runtime-control tools (`agent_tool`, batch tools, plan/todo) live in host layers and are composition-root-registered, never in the plugin surface (ADR-0002).
-- **`layers` baseline: 115 → 22.** Retired: the `agent → chat` task-agent cluster (the chat-driver descent, ADR-0003/0004 P2), `agent → timeline`, `runtime_trace → events` (layer repositioned above events), `awareness → timeline` (subscribers inverted into timeline), the `tools ↔ skills` cycle (ordered + `ToolRegistryPort`), `chat.workspace` / `chat_trace` (lowered), and the wrong-direction tail (permission-shim repoint, plus `core→config` / `memory→api` / `skills→engine` / `plugins→tools/awareness` injected, and the `message_text` util lowered).
-- **Remaining ~22 edges are intentionally left** — overwhelmingly `api/channels → chat` (the api router IS the HTTP surface over chat; channels are the delivery surface). Inverting these inherent surface→domain dependencies costs more than it returns; they are a conscious carry, not unaddressed debt. Revisit only if a concrete need (e.g. a second front end) makes the coupling bite.
+- **`layers` baseline: 115 → 20.** Retired: the `agent → chat` task-agent cluster (the chat-driver descent, ADR-0003/0004 P2), `agent → timeline`, `runtime_trace → events` (layer repositioned above events), `awareness → timeline` (subscribers inverted into timeline), the `tools ↔ skills` cycle (ordered + `ToolRegistryPort`), `chat.workspace` / `chat_trace` (lowered), the old `chat → channels` delivery-router reach-through (now injected as a channel-owned delivery dispatcher), and the wrong-direction tail (permission-shim repoint, plus `core→config` / `memory→api` / `skills→engine` / `plugins→tools/awareness` injected, and the `message_text` util lowered).
+- **Remaining ~20 edges are intentionally left** — overwhelmingly `api/channels → chat` (the api router IS the HTTP surface over chat; channels are the delivery surface). Inverting these inherent surface→domain dependencies costs more than it returns; they are a conscious carry, not unaddressed debt. Revisit only if a concrete need (e.g. a second front end) makes the coupling bite.
 
 When adding code, keep both contracts green. A new lower→upper import is a design smell — inject the dependency from the composition root, lower a shared contract/util, or register via the origin-agnostic registry instead.
 
@@ -360,7 +360,7 @@ Notes:
 - `chat/portrait/` owns persona-voiced portrait cards shown in the chat rail; it
   may consume neutral memory snippets but memory must not assemble chat/persona
   presentation
-- `channels/` provides bidirectional adapters for external messaging platforms; each channel routes messages into the standard chat pipeline
+- `channels/` provides bidirectional adapters for external messaging platforms; each channel routes messages into the standard chat pipeline, and channel-owned dispatchers own chat egress fanout, delivery preferences, delivery receipts, and delivered-message retraction
 
 ### L15. Connection And Transport
 

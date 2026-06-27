@@ -1,15 +1,11 @@
-"""Tests for ChatTaskAgent wiring the ChannelRegistry into ChatExecutionCoordinator.
+"""Tests for ChatTaskAgent wiring channel delivery into ChatExecutionCoordinator.
 
-Phase G+1 (Task 6): ChatTaskAgent must pull the live ``ChannelRegistry`` out of
-the runtime container at construction time and pass it into
-``ChatExecutionCoordinator`` so ``DeliveryRouter`` fanout fires in production.
-A ``channel_registry_resolver`` injection point is exposed so tests can pass a
-stub without depending on the runtime container.
+A delivery-dispatcher resolver injection point lets tests pass a stub without
+depending on the runtime container.
 """
 from __future__ import annotations
 
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
-from magi.channels.delivery_router import DeliveryRouter
 
 
 class _FakeLLMAdapter:
@@ -17,42 +13,25 @@ class _FakeLLMAdapter:
     supports_embeddings = False
 
 
-class _StubChannelRegistry:
-    """Bare-bones registry — DeliveryRouter only needs ``get``/``register``."""
-
-    def get(self, key):  # noqa: D401, ANN001
-        return None
-
-    def register(self, channel):  # noqa: D401, ANN001
-        return None
-
-
-def test_chat_task_agent_passes_channel_registry_to_coordinator() -> None:
-    """When a registry resolver returns a real registry, the coordinator should
-    construct a ``DeliveryRouter`` wrapping it."""
-    stub = _StubChannelRegistry()
+def test_chat_task_agent_passes_delivery_dispatcher_to_coordinator() -> None:
+    stub = object()
     agent = ChatTaskAgent(
         agent_id="u-chat",
         llm_adapter=_FakeLLMAdapter(),
-        channel_registry_resolver=lambda: stub,
+        delivery_dispatcher_resolver=lambda: stub,
     )
 
     coord = agent._coordinator
-    assert coord._delivery_router is not None
-    assert isinstance(coord._delivery_router, DeliveryRouter)
-    # The router's internal registry must be exactly the stub we injected
-    assert coord._delivery_router._channel_registry is stub
+    assert coord._delivery_dispatcher is stub
 
 
 def test_chat_task_agent_handles_missing_runtime_container() -> None:
-    """Default resolver returns None when get_container() raises — coordinator
-    falls back to no-delivery legacy path without ChatTaskAgent crashing."""
     agent = ChatTaskAgent(
         agent_id="u-chat",
         llm_adapter=_FakeLLMAdapter(),
-        channel_registry_resolver=lambda: None,
+        delivery_dispatcher_resolver=lambda: None,
     )
-    assert agent._coordinator._delivery_router is None
+    assert agent._coordinator._delivery_dispatcher is None
 
 
 def test_chat_task_agent_default_resolver_no_container_does_not_crash() -> None:
@@ -61,4 +40,4 @@ def test_chat_task_agent_default_resolver_no_container_does_not_crash() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     # In tests the runtime_bootstrap_context provider returns a bare ``object``
     # placeholder, so the helper must return None — not crash.
-    assert agent._coordinator._delivery_router is None
+    assert agent._coordinator._delivery_dispatcher is None

@@ -35,6 +35,7 @@ from magi.agent.task_agents.handlers import (
     UserMessagePayload,
 )
 from magi.agent.task_agents.handlers import ExecutionHandlerRegistry
+from magi.channels.chat_delivery_dispatcher import ChatDeliveryDispatcher
 from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 from magi.agent.task_agents.handlers.contracts import IntentDecision
 from magi.chat.task_agent.fact_classifier import (
@@ -223,7 +224,7 @@ def _build_coordinator(
     channels: dict[str, Channel],
     prefs_provider,
 ) -> ChatExecutionCoordinator:
-    """Construct a coordinator wired with the channel registry + prefs provider."""
+    """Construct a coordinator wired with the channel delivery dispatcher."""
 
     decider = _FakeContextDecider(
         RouteDecision(
@@ -238,8 +239,10 @@ def _build_coordinator(
         context_decider=decider,
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
-        channel_registry=_StubRegistry(channels),
-        user_prefs_provider=prefs_provider,
+        delivery_dispatcher=ChatDeliveryDispatcher.from_registry(
+            channel_registry=_StubRegistry(channels),
+            user_prefs_provider=prefs_provider,
+        ),
     )
 
 

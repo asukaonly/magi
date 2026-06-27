@@ -73,10 +73,8 @@ ignore_imports =
     # arms were inverted via ToolRegistryPort.
     # ChatExecutionCoordinator RELOCATED from magi.agent.task_agents.chat.coordinator
     # to magi.chat.task_agent.coordinator (P2 Task 6, chat-driver descent). The old
-    # edge was agent->channels; the new edge is chat->channels cross-sibling (L14).
-    # Faithful relocation, not new debt.
-    magi.chat.task_agent.coordinator -> magi.channels.delivery_prefs
-    magi.chat.task_agent.coordinator -> magi.channels.delivery_router
+    # agent->channels delivery edge and its chat->channels relocation are retired;
+    # chat now receives a channel-owned delivery dispatcher by injection.
     magi.api.routers.commands -> magi.chat
     magi.api.routers.commands -> magi.chat.provider
     # _resolve_notifier imports the ChatRuntimeNotifier; its module RELOCATED

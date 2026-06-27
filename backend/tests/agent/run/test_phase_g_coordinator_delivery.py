@@ -1,46 +1,44 @@
-"""Phase G coordinator + DeliveryRouter integration tests."""
+"""Phase G coordinator delivery integration tests."""
 from __future__ import annotations
 
 import inspect
 
 
-def test_coordinator_constructs_delivery_router_in_init() -> None:
-    """ChatExecutionCoordinator.__init__ must construct a DeliveryRouter
-    if channel_registry is supplied."""
+def test_coordinator_accepts_injected_delivery_dispatcher() -> None:
+    """ChatExecutionCoordinator must accept an injected delivery dispatcher
+    instead of constructing channel delivery infrastructure itself."""
     from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
+    params = inspect.signature(ChatExecutionCoordinator.__init__).parameters
+    assert "delivery_dispatcher" in params
+    assert "channel_registry" not in params
+
     src = inspect.getsource(ChatExecutionCoordinator.__init__)
-    assert "DeliveryRouter" in src, (
-        "ChatExecutionCoordinator.__init__ must construct a DeliveryRouter"
-    )
+    assert "DeliveryRouter" not in src
 
 
-def test_coordinator_execute_calls_fanout_deliver_on_completion() -> None:
-    """ChatExecutionCoordinator.execute must call delivery_router.fanout_deliver
-    after the node sequence completes and store receipts."""
+def test_coordinator_execute_calls_delivery_helper_on_completion() -> None:
+    """ChatExecutionCoordinator.execute must call the delivery helper after
+    the node sequence completes."""
     from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator.execute)
-    # Delivery was refactored into the ``_fanout_to_origin_channels`` helper,
-    # which constructs targets and calls ``self._delivery_router.fanout_deliver``;
-    # execute() invokes that helper after the node sequence completes.
-    assert (
-        "fanout_deliver" in src
-        or "_delivery_router" in src
-        or "_fanout_to_origin_channels" in src
-    ), "execute() must invoke the delivery router after run completes"
+    assert "_fanout_to_origin_channels" in src
 
 
-def test_session_run_coordinator_request_retract_calls_fanout_retract() -> None:
-    """When retract is fired, the coordinator must read receipts from the
-    DeliveryReceiptsStore (Phase G+3 — no longer the snapshot) and call
-    DeliveryRouter.fanout_retract."""
+def test_session_run_coordinator_request_retract_uses_delivery_dispatcher() -> None:
+    """When retract is fired, chat must delegate channel cleanup to the
+    injected delivery dispatcher."""
     import inspect
     from magi.chat.task_agent.session_run_coordinator import (
         SessionRunCoordinator,
     )
 
+    params = inspect.signature(SessionRunCoordinator.__init__).parameters
+    assert "delivery_dispatcher" in params
+    assert "delivery_router" not in params
+    assert "receipts_store" not in params
+
     src = inspect.getsource(SessionRunCoordinator.request_retract)
-    assert "fanout_retract" in src or "_delivery_router" in src, (
-        "request_retract must call DeliveryRouter.fanout_retract when receipts exist"
-    )
+    assert "retract_run_deliveries" in src
+    assert "fanout_retract" not in src

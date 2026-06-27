@@ -49,6 +49,7 @@ class ChannelsModule(LifecycleModule):
         self._relay = None
         self._session_mapper = None
         self._receipts_store = None
+        self._chat_delivery_dispatcher = None
         self._binding_settings_store = None
 
     async def init(self) -> None:
@@ -191,6 +192,16 @@ class ChannelsModule(LifecycleModule):
 
         self._registry = registry
         self._session_mapper = session_mapper
+        from .chat_delivery_dispatcher import (
+            ChatDeliveryDispatcher,
+            read_configured_delivery_prefs,
+        )
+
+        self._chat_delivery_dispatcher = ChatDeliveryDispatcher.from_registry(
+            channel_registry=registry,
+            user_prefs_provider=read_configured_delivery_prefs,
+            receipts_store=self._receipts_store,
+        )
 
         # Phase H+2: close the late-binding loop for control fanout.
         # Three hooks established by CF-5/6/8 get wired here:
@@ -385,4 +396,5 @@ class ChannelsModule(LifecycleModule):
             await self._registry.stop_all()
         self._registry = None
         self._session_mapper = None
+        self._chat_delivery_dispatcher = None
         logger.info("Channels module stopped")

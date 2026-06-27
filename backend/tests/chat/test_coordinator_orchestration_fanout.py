@@ -11,6 +11,7 @@ import pytest
 
 from magi_plugin_sdk.delivery import DeliveryReceipt
 from magi.agent.task_agents.common.contracts import ExecutionMode, ExecutionResult
+from magi.channels.chat_delivery_dispatcher import ChatDeliveryDispatcher
 from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
 
@@ -60,7 +61,9 @@ def _coordinator(result: ExecutionResult, registry: _FakeChannelRegistry) -> Cha
         context_decider=SimpleNamespace(tool_registry=None),
         fact_classifier=SimpleNamespace(),
         handler_registry=_FakeHandlerRegistry(_FakeHandler(result)),
-        channel_registry=registry,
+        delivery_dispatcher=ChatDeliveryDispatcher.from_registry(
+            channel_registry=registry,
+        ),
     )
 
 
