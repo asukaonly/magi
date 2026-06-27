@@ -1,27 +1,31 @@
-"""IPC worker entry point — runs agent runtime with IPC server, no HTTP.
+"""IPC worker entry point for the Python runtime sidecar.
 
-Used by Tauri desktop host when the management plane runs in Rust.
+Used by the Tauri desktop host when the management plane runs in Rust.
 Python only handles IPC commands and the agent runtime.
 """
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 import os
+from pathlib import Path
 import signal
 import sys
 import time
 import uuid
-from pathlib import Path
 
-from .core.container import get_container, wire_container
-from .core.logger import configure_logging, get_logger
-from .core.runtime_bindings import require_runtime_command_queue
-from .bootstrap import initialize_agent_runtime, shutdown_agent_runtime
-from .bootstrap.runtime_startup_state import get_runtime_startup_snapshot
-from .runtime_trace import RuntimeHeartbeatRecord
-from .runtime_trace.provider import resolve_runtime_trace_store
-from .utils.runtime import get_runtime_paths
+from fastapi import FastAPI
+
+from ..core.container import get_container, wire_container
+from ..core.logger import configure_logging, get_logger
+from ..core.runtime_bindings import require_runtime_command_queue
+from ..runtime_trace import RuntimeHeartbeatRecord
+from ..runtime_trace.provider import resolve_runtime_trace_store
+from ..utils.runtime import get_runtime_paths
+from .backend import initialize_agent_runtime, shutdown_agent_runtime
+from .runtime_startup_state import get_runtime_startup_snapshot
 
 logger = get_logger(__name__, category="WORKER")
 
@@ -50,21 +54,15 @@ async def _run_worker() -> None:
 
     logger.info("IPC worker starting")
 
-    # Wire DI container
     t0 = time.monotonic()
     wire_container()
     logger.info("DI container wired", elapsed_ms=round((time.monotonic() - t0) * 1000, 1))
 
-    # Initialize agent runtime
     t0 = time.monotonic()
     await initialize_agent_runtime()
     logger.info("Agent runtime initialized", elapsed_ms=round((time.monotonic() - t0) * 1000, 1))
 
-    # Build FastAPI app for IPC api.forward dispatch (no HTTP server)
-    from .transport.http_app import create_transport_app
-    from contextlib import asynccontextmanager
-    from collections.abc import AsyncIterator
-    from fastapi import FastAPI
+    from ..transport.http_app import create_transport_app
 
     @asynccontextmanager
     async def _noop_lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -72,19 +70,22 @@ async def _run_worker() -> None:
 
     app = create_transport_app(lifespan=_noop_lifespan)
 
-    # Start IPC server
     ipc_server = None
     ipc_socket = os.environ.get("MAGI_IPC_SOCKET")
     if ipc_socket:
-        from .ipc import IpcServer
+        from ..ipc import IpcServer
+
         t0 = time.monotonic()
         ipc_server = IpcServer(asgi_app=app)
         await ipc_server.start()
-        logger.info("IPC server started on %s", ipc_socket, elapsed_ms=round((time.monotonic() - t0) * 1000, 1))
+        logger.info(
+            "IPC server started on %s",
+            ipc_socket,
+            elapsed_ms=round((time.monotonic() - t0) * 1000, 1),
+        )
     else:
         logger.warning("MAGI_IPC_SOCKET not set — worker has no IPC transport")
 
-    # Heartbeat
     instance_id = uuid.uuid4().hex
     started_at_ms = int(time.time() * 1000)
     heartbeat_stop = asyncio.Event()
@@ -104,7 +105,6 @@ async def _run_worker() -> None:
         )
     )
 
-    # Signal readiness via health file (Tauri can check this)
     health_file = runtime_paths.base_dir / "runtime" / "worker.ready"
     health_file.parent.mkdir(parents=True, exist_ok=True)
     health_file.write_text(str(os.getpid()))
@@ -116,17 +116,18 @@ async def _run_worker() -> None:
         startup_snapshot.startup_state,
     )
 
-    # Wait for shutdown signal
     shutdown_event = asyncio.Event()
     loop = asyncio.get_running_loop()
 
     if sys.platform == "win32":
+
         def _signal_handler(signum, frame):
             loop.call_soon_threadsafe(shutdown_event.set)
 
         signal.signal(signal.SIGTERM, _signal_handler)
         signal.signal(signal.SIGINT, _signal_handler)
     else:
+
         def _signal_handler() -> None:
             shutdown_event.set()
 
@@ -136,7 +137,6 @@ async def _run_worker() -> None:
     await shutdown_event.wait()
     logger.info("IPC worker shutting down")
 
-    # Cleanup
     await _begin_runtime_drain(timeout_seconds=DEFAULT_RUNTIME_DRAIN_TIMEOUT_SECONDS)
     shutdown_snapshot = get_runtime_startup_snapshot()
     await _publish_runtime_heartbeat(
@@ -157,7 +157,6 @@ async def _run_worker() -> None:
 
     await shutdown_agent_runtime()
 
-    # Remove health file
     try:
         health_file.unlink(missing_ok=True)
     except Exception:
@@ -170,10 +169,6 @@ def main() -> None:
     """Entry point for IPC worker process."""
     asyncio.run(_run_worker())
 
-
-# ---------------------------------------------------------------------------
-# Heartbeat / drain helpers
-# ---------------------------------------------------------------------------
 
 async def _heartbeat_loop(
     *,

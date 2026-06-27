@@ -44,6 +44,7 @@ Outcome of the layering cleanup (ADRs 0001–0004):
 
 - **`plugin-isolation` baseline = 0** — capability tools are fully SDK-isolated (Framework A). Runtime-control tools (`agent_tool`, batch tools, plan/todo) live in host layers and are composition-root-registered, never in the plugin surface (ADR-0002).
 - **`layers` baseline: 115 → 2.** Retired: the `agent → chat` task-agent cluster (the chat-driver descent, ADR-0003/0004 P2), `agent → timeline`, `runtime_trace → events` (layer repositioned above events), `awareness → timeline` (subscribers inverted into timeline), the `tools ↔ skills` cycle (ordered + `ToolRegistryPort`), `chat.workspace` / `chat_trace` (lowered), the old `chat → channels` delivery-router reach-through (now injected as a channel-owned delivery dispatcher), the API/messages surface-to-chat reach-through, the command transcript-write reach-through, and the wrong-direction tail (permission-shim repoint, plus `core→config` / `memory→api` / `skills→engine` / `plugins→tools/awareness` injected, and the `message_text` util lowered).
+- **Root runtime modules retired.** Runtime entrypoints and process-role constants live under `bootstrap/`; the runtime namespace default lives under `core/`; the canonical local user lives under `identity/`. `backend/tests/architecture/test_root_module_boundaries.py` keeps the `magi/` root free of runtime modules.
 - **Remaining 2 edges are intentionally left** — `api.routers.commands → commands` for the product command endpoint and `api.routers.memory.dependencies → chat` for the memory read-side facade. The high-churn ingress and transcript-write work now enters through chat-owned services: user-message persistence/attachment preparation/queueing live in `chat.ingress`, command/background/bootstrap transcript rows live behind `chat.surface_writes`, external channel session creation lives behind a chat-owned provisioner, and channel inbound attachments are stored by a chat-owned attachment service. Revisit the remaining carry only if a concrete need makes the coupling bite.
 
 When adding code, keep both contracts green. A new lower→upper import is a design smell — inject the dependency from the composition root, lower a shared contract/util, or register via the origin-agnostic registry instead.
@@ -58,6 +59,10 @@ The current codebase maps to the layered model like this.
 	Thin assembly boundary for lifecycle orchestration, bootstrap context slices, and exported runtime bindings
 
 This package is not a numbered business layer.
+
+The `magi/` package root should only contain `__init__.py`. Runtime
+code belongs in an owned package so import-linter and the root-module
+boundary test can see its architectural position.
 
 ### L1. Application Infrastructure
 

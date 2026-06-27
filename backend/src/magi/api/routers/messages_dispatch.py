@@ -11,7 +11,7 @@ from ... import i18n as core_i18n
 from ...mcp.attachment_resolver import resolve_attachment_resources
 from ...personality.active_persona import get_current_personality
 from ...personality.bootstrap_service import build_bootstrap_l2_priority_metadata
-from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE
+from ...core.runtime_namespace import DEFAULT_RUNTIME_NAMESPACE
 from ...utils.agent_logger import get_agent_logger
 from ..services import dispatch_user_message, get_runtime_system_status
 from .messages_models import MessageResponse, UserMessageRequest

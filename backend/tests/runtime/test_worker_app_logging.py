@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from magi import worker_app
+from magi.bootstrap import worker_app
 
 
 def test_configure_worker_logging_uses_runtime_log_file(monkeypatch, tmp_path: Path) -> None:

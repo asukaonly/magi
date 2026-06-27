@@ -23,7 +23,7 @@ from ..events.user_message_dispatch import (
     SESSION_ID_REQUIRED,
 )
 from ..i18n import t
-from ..runtime_defaults import DEFAULT_RUNTIME_NAMESPACE
+from ..core.runtime_namespace import DEFAULT_RUNTIME_NAMESPACE
 from .attachment_ingestion import LocalChatAttachmentIngestionService
 from .provider import get_chat_projector, get_chat_store
 

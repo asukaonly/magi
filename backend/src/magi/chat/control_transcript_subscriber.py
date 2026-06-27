@@ -30,7 +30,7 @@ from ..events.domain_payloads import (
 )
 from ..events.events import Event, EventTypes
 from ..events.payload_helpers import expect_payload, PayloadTypeError
-from ..runtime_defaults import DEFAULT_USER_ID
+from ..identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from .contracts import ChatMessageRecord
 from .message_notifications import (
     broadcast_chat_message_hidden,

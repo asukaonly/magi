@@ -26,9 +26,9 @@ codebase).
 
 ## 2. Problem
 
-Magi today has no central identity service. The closest thing to a
-canonical user id is `runtime_defaults.DEFAULT_USER_ID = "local_user"`,
-a bare string used by the desktop / HTTP `/chat` path. External
+Magi historically had no central identity service. The closest thing
+to a canonical user id was a bare `"local_user"` default shared through
+runtime-default helpers and used by the desktop / HTTP `/chat` path. External
 channels synthesize their own id at
 `channels/session_mapper.py:57`:
 
@@ -117,11 +117,10 @@ which agree on the same string scheme.
 
 ### 5.1 Default user id
 
-- `runtime_defaults.DEFAULT_USER_ID = "local_user"` is the desktop /
-  HTTP `/chat` default. Bare string, no type wrapper.
-- `user_profile/models.py` re-declares the same constant
-  independently — two source-of-truth declarations of the same
-  value.
+- `identity.defaults.CANONICAL_LOCAL_USER` is the canonical desktop /
+  HTTP `/chat` default and is typed as `MagiUserID`.
+- `user_profile/models.py` re-exports the same value for profile read
+  models instead of declaring an independent source of truth.
 - `awareness/sensor_hub.py` falls back to `DEFAULT_USER_ID` when an
   inbound event lacks `user_id`.
 
@@ -317,7 +316,7 @@ existing code becomes redundant or simplifies:
 | `memory/hybrid_retrieval/l2_query_frame_utils.py:62`                               | special-case `user:self` alias only for `DEFAULT_USER_ID`        | unconditional alias (all callers now pass canonical user)            |
 | `memory/l2/context_collector.py:27`                                                | `str(event.user_id or "user:self")`                              | always-canonical user_id; `or` fallback never fires                  |
 | `user_profile/models.py:9`                                                         | duplicated `DEFAULT_USER_ID = "local_user"`                      | re-export from `identity.defaults.CANONICAL_LOCAL_USER`              |
-| `runtime_defaults.py:3`                                                            | bare-string `DEFAULT_USER_ID = "local_user"`                     | re-export as `MagiUserID` for back-compat; new code imports from `identity.defaults` |
+| `identity/defaults.py`                                                             | canonical `CANONICAL_LOCAL_USER`                                 | single owner for the desktop default user id                         |
 | `tools/builtin/schedule_tool.py:149`                                               | `"local_user"` literal                                           | `identity.defaults.CANONICAL_LOCAL_USER`                             |
 | `chat/control_transcript_subscriber.py:51`                                         | `return normalized or DEFAULT_USER_ID`                           | typed canonical fallback                                             |
 

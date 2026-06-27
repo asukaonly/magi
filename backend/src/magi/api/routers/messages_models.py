@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from ...runtime_defaults import DEFAULT_USER_ID
+from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
 
 class UserMessageRequest(BaseModel):

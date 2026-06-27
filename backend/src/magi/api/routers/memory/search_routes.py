@@ -7,7 +7,7 @@ from dataclasses import asdict
 from fastapi import HTTPException, status
 
 from magi.memory.hybrid_retrieval import build_query
-from magi.runtime_defaults import DEFAULT_USER_ID
+from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
 from .dependencies import _resolve_hybrid_retrieval_service
 from .helpers import memory_t

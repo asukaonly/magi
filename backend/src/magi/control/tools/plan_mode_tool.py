@@ -12,7 +12,7 @@ from typing import Any, Dict
 from magi.control.common.events import publish_control_plan_state_changed
 from magi.control.provider import resolve_control_session_store
 from magi.core.logger import get_logger
-from magi.runtime_defaults import DEFAULT_USER_ID
+from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from magi_plugin_sdk.tools import (
     ParameterType,
     Tool,

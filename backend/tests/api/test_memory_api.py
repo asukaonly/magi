@@ -16,7 +16,7 @@ from magi.memory.event_contracts import (
     TomDepth,
 )
 from magi.memory.hybrid_retrieval import RetrievalPayload
-from magi.runtime_defaults import DEFAULT_USER_ID
+from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
 
 class _FakeL0Store:

@@ -8,7 +8,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException, Query
 
 from ...core.runtime_bindings import require_chat_read_service
-from ...runtime_defaults import DEFAULT_USER_ID
+from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from .messages_common import get_default_chat_workspace_path
 from .messages_models import RenameSessionRequest, UpdateSessionWorkspaceRequest
 

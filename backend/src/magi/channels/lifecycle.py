@@ -256,7 +256,7 @@ class ChannelsModule(LifecycleModule):
         import json
         from magi_plugin_sdk import ControlRequest
         from magi_plugin_sdk.channels import ChannelTarget
-        from ..runtime_defaults import DEFAULT_USER_ID
+        from ..identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
         from .delivery_router import DeliveryRouter
 
         try:

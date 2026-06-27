@@ -14,13 +14,13 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 # Add src directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from magi.process_roles import PROCESS_ROLE_ENV_VAR, PROCESS_ROLE_VALUE
+from magi.bootstrap.process_roles import PROCESS_ROLE_ENV_VAR, PROCESS_ROLE_VALUE
 
 
 def main() -> None:
     os.environ[PROCESS_ROLE_ENV_VAR] = PROCESS_ROLE_VALUE
 
-    from magi.worker_app import main as run_ipc_worker
+    from magi.bootstrap.worker_app import main as run_ipc_worker
     run_ipc_worker()
 
 

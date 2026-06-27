@@ -17,7 +17,7 @@ from magi.memory.event_contracts import (
     RetentionClass,
     TomDepth,
 )
-from magi.runtime_defaults import DEFAULT_USER_ID
+from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
 
 def build_sensor_memory_event(

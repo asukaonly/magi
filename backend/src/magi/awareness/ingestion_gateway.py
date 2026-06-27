@@ -14,7 +14,7 @@ from ..core.logger import get_logger
 from ..events.events import Event, EventTypes
 from ..events.domain_payloads import SensorEventEmitted, TaskContext
 from ..identity import canonicalize_user_id as _canonicalize_user_id
-from ..runtime_defaults import DEFAULT_USER_ID
+from ..identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from .sensor_base import SensorBase
 from .sensor_output import SensorOutput, SensorOutputMetadata
 from .sensor_projection import build_sensor_projection

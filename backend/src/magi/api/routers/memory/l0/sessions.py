@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from magi.runtime_defaults import DEFAULT_USER_ID
+from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from .display import derive_l0_session_display
 
 

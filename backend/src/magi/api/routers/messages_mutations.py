@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from ... import i18n as core_i18n
 from ...core.runtime_bindings import require_chat_surface_write_service
-from ...runtime_defaults import DEFAULT_USER_ID
+from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from .messages_models import MessageLabelRequest
 
 message_mutations_router = APIRouter()

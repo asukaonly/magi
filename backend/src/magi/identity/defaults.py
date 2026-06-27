@@ -2,11 +2,12 @@
 
 ``CANONICAL_LOCAL_USER`` is the magi-internal user id assumed by
 single-user mode (the default deployment model today). Historically
-this value lived as the bare string ``"local_user"`` in
-``runtime_defaults.DEFAULT_USER_ID`` and again in
+this value lived as the bare string ``"local_user"`` in runtime helper
+modules and again in
 ``user_profile/models.DEFAULT_USER_ID`` — duplicated. The identity
-layer is now the single source of truth; those two modules re-export
-from here so existing imports keep working.
+layer is now the single source of truth; current code imports from
+here directly, while ``user_profile.models`` only re-exports for its
+own read models.
 
 The string value MUST NOT change without a migration script that
 collapses all rows referencing the old value. ``"local_user"`` is

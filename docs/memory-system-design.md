@@ -1106,7 +1106,7 @@ This keeps external activity memory consistent across plugins while avoiding per
 
 Gateway-side normalization rules:
 
-- External sensor events are written as durable memory with a stable owner `user_id` taken from `SensorOutput.provenance`, then `domain_payload`, and finally `DEFAULT_USER_ID` as fallback.
+- External sensor events are written as durable memory with a stable owner `user_id` taken from `SensorOutput.provenance`, then `domain_payload`, and finally `identity.defaults.CANONICAL_LOCAL_USER` as fallback.
 - External sensor events remain session-independent by default: `session_id` and `turn_id` are not inherited from the current chat runtime.
 - The host, not the plugin, decides the final `L1` sentence shape and embedding text shape for external activity events.
 

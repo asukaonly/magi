@@ -8,7 +8,7 @@ from ..core.logger import get_logger
 from ..events.backend import MessageBusBackend
 from ..events.events import Event, EventTypes
 from ..identity import canonicalize_user_id as _canonicalize_user_id
-from ..runtime_defaults import DEFAULT_RUNTIME_NAMESPACE
+from ..core.runtime_namespace import DEFAULT_RUNTIME_NAMESPACE
 from .contracts import SensorEvent
 
 logger = get_logger(__name__)

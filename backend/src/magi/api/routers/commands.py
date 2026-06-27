@@ -36,7 +36,7 @@ from ...control.permission.provider import get_permission_gateway
 from ...commands import CommandRunner
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_chat_surface_write_service
-from ...runtime_defaults import DEFAULT_USER_ID
+from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from ...skills.expander import expand_skill
 from ...skills.provider import resolve_skill_indexer
 from ...tools import tool_registry

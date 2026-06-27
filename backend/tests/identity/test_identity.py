@@ -121,23 +121,13 @@ def test_canonicalize_user_id_non_default_honored_in_single_user():
     assert canonicalize_user_id("alice") == "alice"
 
 
-# === Re-export invariant ==================================================
-
-
-def test_runtime_defaults_default_user_id_is_canonical():
-    """Pin the re-export wiring: ``runtime_defaults.DEFAULT_USER_ID``
-    MUST BE ``identity.defaults.CANONICAL_LOCAL_USER`` (same object,
-    not just equal value). If someone re-introduces a bare string
-    declaration in runtime_defaults, this test fires and forces them
-    to keep the re-export."""
-    from magi.runtime_defaults import DEFAULT_USER_ID as runtime_default
-    assert runtime_default is CANONICAL_LOCAL_USER
+# === Default ownership invariant ==========================================
 
 
 def test_user_profile_default_user_id_is_canonical():
     """Same invariant for ``user_profile.models.DEFAULT_USER_ID``.
-    Both modules historically declared the bare string independently
-    — this test prevents the duplicate from drifting back."""
+    The user-profile surface historically declared the bare string
+    independently; this prevents that duplicate from drifting back."""
     from magi.user_profile.models import DEFAULT_USER_ID as profile_default
     assert profile_default is CANONICAL_LOCAL_USER
 

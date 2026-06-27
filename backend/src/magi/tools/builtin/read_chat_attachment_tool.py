@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ...runtime_defaults import DEFAULT_USER_ID
+from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from ...utils.runtime import get_runtime_paths
 from ..schema import (
     ParameterType,
