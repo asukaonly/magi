@@ -8,6 +8,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from magi.awareness import SensorSyncContext
+from magi.awareness.sensor_projection import build_sensor_projection
+from magi.timeline.insight_pipeline import TimelineInsightPipeline
+from magi.timeline.sensor_projection import build_sensor_timeline_event
+
 _repo_root = Path(__file__).resolve().parents[3]
 _plugin_root = _repo_root / "plugins" / "photo-library"
 if not _plugin_root.exists():
@@ -42,11 +47,6 @@ _reader_mod = importlib.util.module_from_spec(_reader_spec)
 sys.modules[_reader_spec.name] = _reader_mod
 _reader_spec.loader.exec_module(_reader_mod)
 ScanResult = _reader_mod.ScanResult
-
-from magi.awareness import SensorSyncContext
-from magi.awareness.sensor_projection import build_sensor_projection
-from magi.timeline.sensor_projection import build_sensor_timeline_event
-from magi.timeline.insight_pipeline import TimelineInsightPipeline
 
 
 def _session_item(**overrides) -> dict:
@@ -197,7 +197,7 @@ async def test_build_output_for_photo_session():
     assert "Canon EOS R5" in output.narration.body
     assert output.occurred_at == 1710000000.0
     assert [block.kind for block in output.content_blocks] == ["image", "image", "image"]
-    assert output.tags == ["photo_library", "session", "geo"]
+    assert output.tags == ["photo_library", "session", "geo", "Tokyo Tower", "东京"]
     assert output.provenance["device_name"] == "Canon EOS R5"
     assert output.provenance["photo_count"] == 3
     assert output.domain_payload["representative_photos"][0]["asset_local_id"] == "photo-1"
@@ -232,8 +232,8 @@ async def test_extract_metadata_for_session_entities_and_relations():
     entity_types = {entity["entity_type"] for entity in meta.entities}
     # photo-library 87910b7: entity hints use host-valid ontology types — the
     # geocoded entity is "place" (in ENTITY_TYPE_REGISTRY), not "location".
-    assert entity_types == {"device", "place"}
-    assert meta.tags == ["photo_library", "session", "geo"]
+    assert entity_types == {"hardware", "place"}
+    assert meta.tags == ["photo_library", "session", "geo", "Tokyo Tower", "东京"]
     predicates = {candidate["predicate"] for candidate in meta.relation_candidates}
     # Same 87910b7 alignment: OWNS is the host-valid predicate.
     assert predicates == {"OWNS", "VISITED"}

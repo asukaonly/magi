@@ -581,8 +581,7 @@ def test_postprocessor_marks_memory_query_results_with_context_role() -> None:
     output. The legacy ``source_of_truth_for_turn`` flag and
     ``usage_guidance`` text were retired in favour of inlining the
     same instruction directly into the compacted memory prose
-    (see ``memory/tool_context_historical.py``: "Source-of-truth for
-    this turn. Do not guess beyond these findings.")."""
+    (see ``memory/tool_context_historical.py``)."""
     postprocessor = FunctionCallingPostprocessor()
     result = type(
         "Result",
@@ -611,7 +610,8 @@ def test_postprocessor_marks_memory_query_results_with_context_role() -> None:
     # prose itself instead of as a separate payload field.
     historical = payload["data"]["historical_recall"]
     assert isinstance(historical, str)
-    assert "Source-of-truth for this turn" in historical
+    assert "These findings are representative, not exhaustive" in historical
+    assert "Do not make total-count claims" in historical
 
 
 def test_build_tool_message_payload_keeps_only_projected_historical_recall_for_memory_query() -> (
@@ -678,7 +678,7 @@ def test_build_tool_message_payload_keeps_only_projected_historical_recall_for_m
     assert "status=found" in historical
     assert "mode=detail" in historical
     assert "sources=L2" in historical
-    assert "total=1" in historical
+    assert "items=1" in historical
     assert "You like rainy weather." in historical
     assert "user:u1 LIKES weather_state:rainy" in historical
     assert "conf=0.94" in historical

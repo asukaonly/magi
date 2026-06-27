@@ -84,5 +84,7 @@ def test_log_keys_allowlist_is_documented() -> None:
         "indexical_cue_orphaned",
         "mode_rrf_applied",
         "l1_retrieval_scopes",
+        "recall_shape",
+        "structured_recall",
         "dropped_unresolved_entity_count",
     )

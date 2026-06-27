@@ -542,27 +542,31 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
             return None
 
         timestamps = [float(event["timestamp"]) for event in topic_events if event.get("timestamp") is not None]
+        summary_overrides = {
+            "summary_id": f"summary_{uuid.uuid4().hex}",
+            "summary_type": "thematic",
+            "summary_category": "topic",
+            "period_start": float(period_start) if period_start is not None else (min(timestamps) if timestamps else time.time()),
+            "period_end": float(period_end) if period_end is not None else (max(timestamps) if timestamps else time.time()),
+            "key_topics": [str(topic).strip()],
+            "key_entities": [],
+            "sentiment_summary": None,
+            "change_and_pattern": None,
+            "source_event_ids": source_event_ids,
+            "source_event_count": len(source_event_ids),
+            "importance_aggregate": evidence_pack.importance_aggregate or 0.0,
+            "event_type_distribution": dict(evidence_pack.event_type_distribution),
+            "generated_by_model": "rule-summary" if generation.used_fallback else "topic-llm",
+            "generation_prompt": None,
+            "generation_reason": f"thematic:topic:{normalized_topic}",
+            **generation.summary_overrides,
+        }
+        if not summary_overrides.get("key_topics"):
+            summary_overrides["key_topics"] = [str(topic).strip()]
+
         summary = await self.upsert_candidate(
             candidate=generation.candidate,
-            summary_overrides={
-                "summary_id": f"summary_{uuid.uuid4().hex}",
-                "summary_type": "thematic",
-                "summary_category": "topic",
-                "period_start": float(period_start) if period_start is not None else (min(timestamps) if timestamps else time.time()),
-                "period_end": float(period_end) if period_end is not None else (max(timestamps) if timestamps else time.time()),
-                "key_topics": [str(topic).strip()],
-                "key_entities": [],
-                "sentiment_summary": None,
-                "change_and_pattern": None,
-                "source_event_ids": source_event_ids,
-                "source_event_count": len(source_event_ids),
-                "importance_aggregate": evidence_pack.importance_aggregate or 0.0,
-                "event_type_distribution": dict(evidence_pack.event_type_distribution),
-                "generated_by_model": "rule-summary" if generation.used_fallback else "topic-llm",
-                "generation_prompt": None,
-                "generation_reason": f"thematic:topic:{normalized_topic}",
-                **generation.summary_overrides,
-            },
+            summary_overrides=summary_overrides,
         )
         return summary
 

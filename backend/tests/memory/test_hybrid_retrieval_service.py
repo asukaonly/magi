@@ -547,7 +547,7 @@ class TestServiceLayerRouting:
                 [{"event_id": "evt-1", "content": "Went to a cafe in Hangzhou", "timestamp": 150.0, "session_id": "s1"}],
             ]
         )
-        with patch("magi.memory.hybrid_retrieval.service.execute_plan", new=execute_plan_mock):
+        with patch("magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan", new=execute_plan_mock):
             result = await svc.query(_make_request(query="最近在杭州的时候喜欢去哪些咖啡馆"))
 
         assert [call.args[0].layer for call in execute_plan_mock.await_args_list[:2]] == ["L2", "L1"]
@@ -606,7 +606,7 @@ class TestServiceLayerRouting:
                 [{"event_id": "evt-creator-1", "content": "Watched a Bilibili creator", "timestamp": 150.0, "session_id": "s1"}],
             ]
         )
-        with patch("magi.memory.hybrid_retrieval.service.execute_plan", new=execute_plan_mock):
+        with patch("magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan", new=execute_plan_mock):
             result = await svc.query(_make_request(query="最近在B站的时候喜欢看哪些up主"))
 
         assert [call.args[0].layer for call in execute_plan_mock.await_args_list[:2]] == ["L2", "L1"]
@@ -813,7 +813,7 @@ class TestServiceFallback:
             raise AssertionError(f"Unexpected query plan: {plan.conditions.content_query}")
 
         with patch(
-            "magi.memory.hybrid_retrieval.service.execute_plan",
+            "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
             new=AsyncMock(side_effect=_execute_plan_side_effect),
         ):
             result = await svc.query(
@@ -890,7 +890,7 @@ class TestServiceFallback:
             raise AssertionError(f"Unexpected query plan: {plan.conditions.content_query}")
 
         with patch(
-            "magi.memory.hybrid_retrieval.service.execute_plan",
+            "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
             new=AsyncMock(side_effect=_execute_plan_side_effect),
         ):
             result = await svc.query(
@@ -959,7 +959,7 @@ class TestServiceFallback:
             raise AssertionError(f"Unexpected query plan: {plan.conditions.content_query}")
 
         with patch(
-            "magi.memory.hybrid_retrieval.service.execute_plan",
+            "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
             new=AsyncMock(side_effect=_execute_plan_side_effect),
         ):
             result = await svc.query(
@@ -1041,7 +1041,7 @@ class TestServiceFallback:
             raise AssertionError(f"Unexpected query plan: {plan.conditions.content_query}")
 
         with patch(
-            "magi.memory.hybrid_retrieval.service.execute_plan",
+            "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
             new=AsyncMock(side_effect=_execute_plan_side_effect),
         ):
             result = await svc.query(
@@ -1113,7 +1113,7 @@ class TestServiceFallback:
             raise AssertionError(f"Unexpected query plan: {query}")
 
         with patch(
-            "magi.memory.hybrid_retrieval.service.execute_plan",
+            "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
             new=AsyncMock(side_effect=_execute_plan_side_effect),
         ):
             result = await svc.query(
@@ -1223,7 +1223,7 @@ class TestServiceFallback:
             raise AssertionError(f"Unexpected query plan: {query}")
 
         with patch(
-            "magi.memory.hybrid_retrieval.service.execute_plan",
+            "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
             new=AsyncMock(side_effect=_execute_plan_side_effect),
         ):
             result = await svc.query(
@@ -1299,7 +1299,7 @@ class TestServiceFallback:
             raise AssertionError(f"Unexpected query plan: {query}")
 
         with patch(
-            "magi.memory.hybrid_retrieval.service.execute_plan",
+            "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
             new=AsyncMock(side_effect=_execute_plan_side_effect),
         ):
             result = await svc.query(
@@ -1384,7 +1384,7 @@ class TestServiceEvidencePackaging:
         )
 
         hit = dict(session_events[2], reranker_score=0.9)
-        with patch("magi.memory.hybrid_retrieval.service.execute_plan", new=AsyncMock(return_value=[hit])):
+        with patch("magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan", new=AsyncMock(return_value=[hit])):
             result = await svc.query(_make_request(query="What was the first issue after the first service?"))
 
         assert len(result.l1_evidence_bundles) == 1
@@ -1428,7 +1428,7 @@ class TestServiceEvidencePackaging:
         )
 
         scored_events = [dict(e, reranker_score=0.8) for e in session_events]
-        with patch("magi.memory.hybrid_retrieval.service.execute_plan", new=AsyncMock(return_value=scored_events)):
+        with patch("magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan", new=AsyncMock(return_value=scored_events)):
             result = await svc.query(
                 _make_request(
                     query="Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?"
@@ -1504,7 +1504,7 @@ class TestServiceEvidencePackaging:
         )
 
         with patch(
-            "magi.memory.hybrid_retrieval.service.execute_plan",
+            "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
             new=AsyncMock(return_value=[service_session_events[2], issue_session_events[0]]),
         ):
             result = await svc.query(_make_request(query="What was the first issue I had with my new car after its first service?"))

@@ -240,30 +240,6 @@
       "not_found_on_disk": "磁盘上未找到模型"
     }
   },
-  "memory": {
-    "errors": {
-      "invalid_date": "日期值无效：{value}",
-      "system_uninitialized": "记忆系统未初始化",
-      "hybrid_retrieval_uninitialized": "混合检索服务未初始化",
-      "l0_uninitialized": "L0 工作记忆未初始化",
-      "session_not_found": "未找到会话",
-      "scenario_llm_pool_uninitialized": "场景 LLM 池未初始化",
-      "l2_store_uninitialized": "L2 存储未初始化",
-      "l2_maintenance_busy": "L2 记忆维护正在运行",
-      "l2_consolidation_busy": "L2 经历整理正在运行",
-      "edge_not_found": "未找到边",
-      "end_must_be_greater_than_start": "结束时间必须晚于开始时间",
-      "episode_not_found": "未找到片段",
-      "event_not_found_or_pipeline_unavailable": "未找到事件或流水线不可用",
-      "no_valid_entities_to_reconcile": "没有可用于归并的有效实体",
-      "no_valid_entities_to_materialize": "没有可用于物化的有效实体",
-      "no_fields_to_update": "没有可更新的字段",
-      "assertion_not_found": "未找到断言",
-      "predicate_required": "必须提供谓词",
-      "cognition_store_unavailable": "认知存储不可用",
-      "snapshot_not_found": "未找到快照"
-    }
-  },
   "personality": {
     "presets": {
       "ok": "OK",
@@ -359,6 +335,28 @@
     }
   },
   "memory": {
+    "errors": {
+      "invalid_date": "日期值无效：{value}",
+      "system_uninitialized": "记忆系统未初始化",
+      "hybrid_retrieval_uninitialized": "混合检索服务未初始化",
+      "l0_uninitialized": "L0 工作记忆未初始化",
+      "session_not_found": "未找到会话",
+      "scenario_llm_pool_uninitialized": "场景 LLM 池未初始化",
+      "l2_store_uninitialized": "L2 存储未初始化",
+      "l2_maintenance_busy": "L2 记忆维护正在运行",
+      "l2_consolidation_busy": "L2 经历整理正在运行",
+      "edge_not_found": "未找到边",
+      "end_must_be_greater_than_start": "结束时间必须晚于开始时间",
+      "episode_not_found": "未找到片段",
+      "event_not_found_or_pipeline_unavailable": "未找到事件或流水线不可用",
+      "no_valid_entities_to_reconcile": "没有可用于归并的有效实体",
+      "no_valid_entities_to_materialize": "没有可用于物化的有效实体",
+      "no_fields_to_update": "没有可更新的字段",
+      "assertion_not_found": "未找到断言",
+      "predicate_required": "必须提供谓词",
+      "cognition_store_unavailable": "认知存储不可用",
+      "snapshot_not_found": "未找到快照"
+    },
     "l3": {
       "insight": {
         "trait_families": {

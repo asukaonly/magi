@@ -240,30 +240,6 @@
       "not_found_on_disk": "Model not found on disk"
     }
   },
-  "memory": {
-    "errors": {
-      "invalid_date": "Invalid date value: {value}",
-      "system_uninitialized": "Memory system not initialized",
-      "hybrid_retrieval_uninitialized": "Hybrid retrieval service not initialized",
-      "l0_uninitialized": "L0 working memory not initialized",
-      "session_not_found": "Session not found",
-      "scenario_llm_pool_uninitialized": "Scenario LLM pool is not initialized",
-      "l2_store_uninitialized": "L2 store not initialized",
-      "l2_maintenance_busy": "L2 maintenance is already running",
-      "l2_consolidation_busy": "L2 consolidation is already running",
-      "edge_not_found": "Edge not found",
-      "end_must_be_greater_than_start": "end must be greater than start",
-      "episode_not_found": "Episode not found",
-      "event_not_found_or_pipeline_unavailable": "Event not found or pipeline unavailable",
-      "no_valid_entities_to_reconcile": "No valid entities to reconcile",
-      "no_valid_entities_to_materialize": "No valid entities to materialize",
-      "no_fields_to_update": "No fields to update",
-      "assertion_not_found": "Assertion not found",
-      "predicate_required": "Predicate is required",
-      "cognition_store_unavailable": "Cognition store unavailable",
-      "snapshot_not_found": "Snapshot not found"
-    }
-  },
   "personality": {
     "presets": {
       "ok": "OK",
@@ -359,6 +335,28 @@
     }
   },
   "memory": {
+    "errors": {
+      "invalid_date": "Invalid date value: {value}",
+      "system_uninitialized": "Memory system not initialized",
+      "hybrid_retrieval_uninitialized": "Hybrid retrieval service not initialized",
+      "l0_uninitialized": "L0 working memory not initialized",
+      "session_not_found": "Session not found",
+      "scenario_llm_pool_uninitialized": "Scenario LLM pool is not initialized",
+      "l2_store_uninitialized": "L2 store not initialized",
+      "l2_maintenance_busy": "L2 maintenance is already running",
+      "l2_consolidation_busy": "L2 consolidation is already running",
+      "edge_not_found": "Edge not found",
+      "end_must_be_greater_than_start": "end must be greater than start",
+      "episode_not_found": "Episode not found",
+      "event_not_found_or_pipeline_unavailable": "Event not found or pipeline unavailable",
+      "no_valid_entities_to_reconcile": "No valid entities to reconcile",
+      "no_valid_entities_to_materialize": "No valid entities to materialize",
+      "no_fields_to_update": "No fields to update",
+      "assertion_not_found": "Assertion not found",
+      "predicate_required": "Predicate is required",
+      "cognition_store_unavailable": "Cognition store unavailable",
+      "snapshot_not_found": "Snapshot not found"
+    },
     "l3": {
       "insight": {
         "trait_families": {
