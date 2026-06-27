@@ -160,8 +160,6 @@
   },
   "llmSetup": {
     "embeddingFallbackHint": "这个供应商没有向量模型，请之后单独配置一个。",
-    "memoryModelReadyTitle": "向量模型：已包含",
-    "memoryModelReadyBody": "Magi 会用它做语义记忆检索，更容易找回意思相近的旧内容。",
     "memoryModelMissingTitle": "向量模型：当前供应商不含",
     "memoryModelMissingBody": "当前供应商没有提供向量模型。可以先继续聊天；只是记忆只能按关键词查找，可能漏掉意思相近的内容。",
     "memoryModelPlanMissingTitle": "向量模型：当前计费方式不含",

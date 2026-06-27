@@ -159,8 +159,6 @@
   },
   "llmSetup": {
     "embeddingFallbackHint": "This provider has no vector model. Configure one separately later.",
-    "memoryModelReadyTitle": "Vector model: included",
-    "memoryModelReadyBody": "Magi will use it for semantic memory search, so similar older context is easier to find.",
     "memoryModelMissingTitle": "Vector model: not provided by this provider",
     "memoryModelMissingBody": "This provider does not include a vector model. You can keep chatting, but memory search will rely on keywords and may miss similar ideas.",
     "memoryModelPlanMissingTitle": "Vector model: not included in this billing plan",

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, ChevronDown, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { AlertCircle, ChevronDown, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -540,7 +540,6 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
   const currentCoreModel = value.selections?.core?.model || '';
   const currentContextModel = value.selections?.context_decider?.model || '';
   const memoryModelStatus = getMemoryModelStatus(value);
-  const memoryModelReady = memoryModelStatus === 'ready';
   const memoryModelMissingTitleKey = activeProvider?.provider_plan
     ? 'llmSetup.memoryModelPlanMissingTitle'
     : 'llmSetup.memoryModelMissingTitle';
@@ -644,32 +643,15 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
             </p>
           </div>
 
-          {memoryModelStatus ? (
+          {memoryModelStatus === 'missing' ? (
             <div
               data-testid="llm-setup-embedding-row"
-              className={cn(
-                'flex items-start gap-3 rounded-lg border px-3.5 py-3 text-sm',
-                memoryModelReady
-                  ? 'border-emerald-200 bg-emerald-50/75 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/25 dark:text-emerald-200'
-                  : 'border-amber-200 bg-amber-50/80 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200'
-              )}
+              className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/80 px-3.5 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
             >
-              {memoryModelReady ? (
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-              ) : (
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-              )}
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
               <span className="space-y-1">
-                <span className="block font-medium">
-                  {memoryModelReady
-                    ? t('llmSetup.memoryModelReadyTitle')
-                    : t(memoryModelMissingTitleKey)}
-                </span>
-                <span className="block text-xs leading-5 opacity-80">
-                  {memoryModelReady
-                    ? t('llmSetup.memoryModelReadyBody')
-                    : t(memoryModelMissingBodyKey)}
-                </span>
+                <span className="block font-medium">{t(memoryModelMissingTitleKey)}</span>
+                <span className="block text-xs leading-5 opacity-80">{t(memoryModelMissingBodyKey)}</span>
               </span>
             </div>
           ) : null}

@@ -353,7 +353,7 @@ describe('LLMSetupStep', () => {
     render(<Harness />);
 
     await user.click(await screen.findByTestId('llm-setup-provider-glm'));
-    expect(screen.getByText('llmSetup.memoryModelReadyTitle')).toBeInTheDocument();
+    expect(screen.queryByTestId('llm-setup-embedding-row')).not.toBeInTheDocument();
 
     await user.click(screen.getByText('llm.providerPlans.default'));
     await user.click(await screen.findByText('Z.ai CodePlan'));
