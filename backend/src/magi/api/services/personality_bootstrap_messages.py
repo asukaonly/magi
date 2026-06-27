@@ -9,9 +9,9 @@ import uuid
 from ...chat.contracts import ChatMessageRecord, ChatTurnRecord
 from ...chat.provider import get_chat_store
 from ...core.logger import get_logger
+from ...core.runtime_bindings import get_chat_message_notifier
 from ...runtime_trace.contracts import RuntimeNotificationRecord
 from ...runtime_trace.provider import resolve_runtime_trace_store
-from ...transport.chat_events import broadcast_chat_message_upsert
 
 logger = get_logger(__name__)
 
@@ -65,7 +65,7 @@ async def persist_bootstrap_assistant_message(
     ))
 
     await chat_store.bump_history_version(session_id)
-    await broadcast_chat_message_upsert(
+    await get_chat_message_notifier().broadcast_chat_message_upsert(
         user_id=user_id,
         session_id=session_id,
         message_id=message_id,

@@ -1,8 +1,7 @@
 """Broadcasters for code_agent delegation events and state transitions.
 
-Mirrors :mod:`magi.transport.chat_events` — writes ``RuntimeNotificationRecord``
-entries on two channels that the Rust event bridge picks up and forwards to
-the Tauri front-end:
+Writes ``RuntimeNotificationRecord`` entries on two channels that the Rust
+event bridge picks up and forwards to the Tauri front-end:
 
 * ``code_agent_delegation_event`` — one record per ``RunEvent``. Rate-limited
   at one push per 100 ms per ``delegation_id`` so a chatty adapter doesn't

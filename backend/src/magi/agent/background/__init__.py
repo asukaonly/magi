@@ -47,6 +47,7 @@ from .memory_isolation import (
     is_background_fact,
     tag_fact,
 )
+from .notifications import broadcast_background_task_state_changed
 from .retention import BackgroundTaskRetentionGC
 from .store import BackgroundTaskStore
 
@@ -76,6 +77,7 @@ __all__ = [
     "TERMINAL_BACKGROUND_TASK_STATUSES",
     "build_background_run_fn",
     "build_spec_from_request",
+    "broadcast_background_task_state_changed",
     "default_ack_text",
     "get_background_scope",
     "is_background_fact",

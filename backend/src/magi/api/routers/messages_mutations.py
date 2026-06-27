@@ -8,6 +8,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException
 
 from ... import i18n as core_i18n
+from ...core.runtime_bindings import get_chat_message_notifier
 from ...runtime_defaults import DEFAULT_USER_ID
 from .messages_common import legacy_messages_module
 from .messages_models import MessageLabelRequest
@@ -49,9 +50,7 @@ async def set_message_label(
             detail=core_i18n.t("chat.messages.not_found", fallback="Message not found"),
         )
 
-    from ...transport.chat_events import broadcast_chat_message_upsert
-
-    await broadcast_chat_message_upsert(
+    await get_chat_message_notifier().broadcast_chat_message_upsert(
         user_id=request.user_id,
         session_id=session_id,
         message_id=message_id,
@@ -90,9 +89,7 @@ async def delete_message(session_id: str, message_id: str, user_id: str = DEFAUL
             detail=core_i18n.t("chat.messages.not_found", fallback="Message not found"),
         )
 
-    from ...transport.chat_events import broadcast_chat_message_hidden
-
-    await broadcast_chat_message_hidden(
+    await get_chat_message_notifier().broadcast_chat_message_hidden(
         user_id=user_id,
         session_id=session_id,
         message_id=message_id,

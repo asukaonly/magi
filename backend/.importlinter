@@ -65,13 +65,12 @@ ignore_imports =
     magi.** -> magi.bootstrap.**
     #
     # == KNOWN DEBT BASELINE (frozen 2026-05-31; ratchet down, never up) ======
-    # Buckets: tools/skills->agent (33), agent->chat/channels/transport (24),
-    # L13 api/chat/channels siblings (15), runtime_trace->events (7),
-    # awareness->timeline (0; retired — timeline now subscribes down to sensor
-    # events instead of awareness feeding up), other (~23). (The L7 tools<->skills
-    # sibling cycle was broken: `tools` is now ordered above `skills` and the
-    # `skills -> tools.registry` arms were inverted via ToolRegistryPort.)
-    magi.agent.lifecycle -> magi.transport.chat_events
+    # Buckets include historical tools/skills->agent, L14 api/chat/channels
+    # sibling edges, runtime_trace->events, and other ratcheted-down legacy
+    # edges. Retired buckets include awareness->timeline and transport chat
+    # notifications. The L7 tools<->skills sibling cycle was broken:
+    # `tools` is now ordered above `skills` and the `skills -> tools.registry`
+    # arms were inverted via ToolRegistryPort.
     # ChatExecutionCoordinator RELOCATED from magi.agent.task_agents.chat.coordinator
     # to magi.chat.task_agent.coordinator (P2 Task 6, chat-driver descent). The old
     # edge was agent->channels; the new edge is chat->channels cross-sibling (L14).
@@ -90,22 +89,13 @@ ignore_imports =
     magi.api.routers.messages -> magi.chat
     magi.api.routers.messages -> magi.chat.provider
     magi.api.routers.messages_common -> magi.chat
-    magi.api.routers.messages_mutations -> magi.transport.chat_events
     magi.api.services.message_dispatch_service -> magi.chat.attachment_ingestion
     magi.api.services.message_dispatch_service -> magi.chat.provider
     magi.api.services.message_dispatch_service -> magi.chat.read_service
-    magi.api.services.message_dispatch_service -> magi.transport.chat_events
     magi.api.services.personality_bootstrap_messages -> magi.chat.contracts
     magi.api.services.personality_bootstrap_messages -> magi.chat.provider
-    magi.api.services.personality_bootstrap_messages -> magi.transport.chat_events
     magi.channels.attachments -> magi.chat.attachment_storage
     magi.channels.session_mapper -> magi.chat
-    # Control-Plane Extraction Phase 1: the transcript-projection broadcast
-    # dependency was RELOCATED here from the now-deleted
-    # ``magi.agent.control.chat_state_persister -> magi.transport.chat_events``
-    # edge (chat now owns transcript projection). Net debt shrank: three
-    # control->chat/transport edges were removed and only this one added.
-    magi.chat.control_transcript_subscriber -> magi.transport.chat_events
 
 [importlinter:contract:plugin-isolation]
 name = Plugin implementations depend on SDK only, never host layers

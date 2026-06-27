@@ -87,6 +87,7 @@ class Container(containers.DeclarativeContainer):
     runtime_bootstrap_context: providers.Singleton[RuntimeBootstrapContext] = providers.Singleton(object)
     background_task_manager: providers.Singleton[Any] = providers.Singleton(object)
     chat_portrait_service: providers.Singleton[Any] = providers.Singleton(object)
+    chat_message_notifier: providers.Singleton[Any] = providers.Singleton(object)
     user_message_dispatcher: providers.Singleton[Any] = providers.Singleton(object)
     control_session_store: providers.Singleton[Any] = providers.Singleton(object)
     control_settings_manager: providers.Singleton[Any] = providers.Singleton(object)

@@ -13,7 +13,7 @@ from ..core.logger import get_logger
 from ..control.provider import resolve_control_session_store
 from ..control.permission.provider import get_permission_gateway
 from ..tools import tool_registry
-from ..transport.chat_events import broadcast_background_task_state_changed
+from .background.notifications import broadcast_background_task_state_changed
 from ..utils.runtime import get_runtime_paths
 from .runtime import AgentRuntime, RouterAgent, TaskAgentManager
 from .scheduled_agent_task import UserAgentTaskScheduleContributor

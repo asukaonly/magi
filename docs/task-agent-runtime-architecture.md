@@ -623,7 +623,7 @@ Lifecycle (orchestrated by
      / ``attempt`` so the chat UI can render a status card that deep-links
      into the Tasks drawer via ``/tasks?taskId=...``.
    - `broadcast_background_task_state_changed` (from
-    [transport/chat_events.py](../backend/src/magi/transport/chat_events.py))
+    [agent/background/notifications.py](../backend/src/magi/agent/background/notifications.py))
      — writes a ``background_task_state_changed`` row onto the runtime
      notification channel. The Rust gateway relays that channel onto
      the Tauri event stream the frontend Tasks page subscribes to.

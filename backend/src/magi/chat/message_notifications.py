@@ -1,13 +1,13 @@
-"""Helpers for broadcasting chat transcript lifecycle updates via notification store."""
+"""Runtime notifications for chat message lifecycle changes."""
 
 from __future__ import annotations
 
 import json
 
-from ..chat import get_chat_read_service
 from ..core.logger import get_logger
 from ..runtime_trace import RuntimeNotificationRecord
 from ..runtime_trace.provider import resolve_runtime_trace_store
+from .read_service import get_chat_read_service
 
 logger = get_logger(__name__)
 
@@ -57,13 +57,15 @@ async def broadcast_chat_message_upsert(
 
     try:
         store = resolve_runtime_trace_store()
-        await store.append_notification(RuntimeNotificationRecord(
-            notification_id=0,
-            channel="chat_message_upserted",
-            user_id=normalized_user_id,
-            session_id=normalized_session_id,
-            payload_json=json.dumps(payload_data, default=str),
-        ))
+        await store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="chat_message_upserted",
+                user_id=normalized_user_id,
+                session_id=normalized_session_id,
+                payload_json=json.dumps(payload_data, default=str),
+            )
+        )
     except Exception as exc:
         logger.debug("Failed to write chat_message_upserted notification", error=str(exc))
 
@@ -105,44 +107,55 @@ async def broadcast_chat_message_hidden(
 
     try:
         store = resolve_runtime_trace_store()
-        await store.append_notification(RuntimeNotificationRecord(
-            notification_id=0,
-            channel="chat_message_hidden",
-            user_id=normalized_user_id,
-            session_id=normalized_session_id,
-            payload_json=json.dumps(payload_data, default=str),
-        ))
+        await store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="chat_message_hidden",
+                user_id=normalized_user_id,
+                session_id=normalized_session_id,
+                payload_json=json.dumps(payload_data, default=str),
+            )
+        )
     except Exception as exc:
         logger.debug("Failed to write chat_message_hidden notification", error=str(exc))
 
 
-async def broadcast_background_task_state_changed(task) -> None:
-    """Write a background-task state change notification for the UI bridge.
+class ChatMessageNotifier:
+    """Bound chat notification implementation for boundary-facing callers."""
 
-    Registered as a :class:`BackgroundTaskManager` listener so every
-    terminal transition (``succeeded`` / ``failed`` / ``cancelled``)
-    is mirrored into the runtime trace notification channel. The Rust
-    gateway relays these onto the websocket stream consumed by the
-    Tasks page.
-    """
-    try:
-        payload = task.to_dict()
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.debug("Failed to serialize background task", error=str(exc))
-        return
-    user_id = str(getattr(task.spec, "user_id", "") or "")
-    session_id = str(getattr(task.spec, "session_id", "") or "")
-    try:
-        store = resolve_runtime_trace_store()
-        await store.append_notification(RuntimeNotificationRecord(
-            notification_id=0,
-            channel="background_task_state_changed",
+    async def broadcast_chat_message_upsert(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> None:
+        await broadcast_chat_message_upsert(
             user_id=user_id,
             session_id=session_id,
-            payload_json=json.dumps(payload, default=str),
-        ))
-    except Exception as exc:
-        logger.debug(
-            "Failed to write background_task_state_changed notification",
-            error=str(exc),
+            message_id=message_id,
         )
+
+    async def broadcast_chat_message_hidden(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> None:
+        await broadcast_chat_message_hidden(
+            user_id=user_id,
+            session_id=session_id,
+            message_id=message_id,
+        )
+
+
+chat_message_notifier = ChatMessageNotifier()
+
+
+__all__ = [
+    "ChatMessageNotifier",
+    "broadcast_chat_message_hidden",
+    "broadcast_chat_message_upsert",
+    "chat_message_notifier",
+]

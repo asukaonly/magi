@@ -32,11 +32,11 @@ from ..events.events import Event, EventTypes
 from ..events.payload_helpers import expect_payload, PayloadTypeError
 from ..runtime_defaults import DEFAULT_USER_ID
 from .contracts import ChatMessageRecord
-from .provider import get_chat_store
-from ..transport.chat_events import (
+from .message_notifications import (
     broadcast_chat_message_hidden,
     broadcast_chat_message_upsert,
 )
+from .provider import get_chat_store
 
 logger = logging.getLogger(__name__)
 

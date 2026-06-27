@@ -7,7 +7,6 @@ from dependency_injector import providers
 from ..config import AppConfig, get_config
 from ..core.container import get_container
 from ..core.logger import get_logger
-from ..llm.factory import is_llm_selection_pending
 from .context import RuntimeBootstrapContext
 from .lifecycle import ModuleLifecycleOrchestrator
 from .builder import build_runtime_modules
@@ -41,6 +40,9 @@ def _export_available_infrastructure_bindings(context: RuntimeBootstrapContext) 
 
     if context.chat.store is not None:
         container.chat_store.override(providers.Object(context.chat.store))
+        from ..chat.message_notifications import chat_message_notifier
+
+        container.chat_message_notifier.override(providers.Object(chat_message_notifier))
         bound.append("chat_store")
     if context.message_bus.message_bus is not None:
         container.message_bus.override(providers.Object(context.message_bus.message_bus))

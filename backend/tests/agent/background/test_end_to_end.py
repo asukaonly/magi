@@ -21,12 +21,12 @@ from magi.agent.background import (
     BackgroundTaskStatus,
     BackgroundTaskStore,
     BackgroundTaskTriggerSource,
+    broadcast_background_task_state_changed,
 )
+from magi.agent.background import notifications as notifications_module
 from magi.agent.background.executor import BackgroundTaskRunResult
 from magi.agent.background.manager import BackgroundTaskManager
 from magi.agent.cancel import CancelToken
-from magi.transport import chat_events as chat_events_module
-from magi.transport.chat_events import broadcast_background_task_state_changed
 
 
 class _RecordingTraceStore:
@@ -70,10 +70,10 @@ async def test_background_task_end_to_end_pipeline(
         db_path=str(runtime_paths_with_schema.background_tasks_db_path)
     )
 
-    # Stand-in runtime-trace store wired into the transport broadcaster.
+    # Stand-in runtime-trace store wired into the background-task broadcaster.
     trace_store = _RecordingTraceStore()
     monkeypatch.setattr(
-        chat_events_module, "resolve_runtime_trace_store", lambda: trace_store
+        notifications_module, "resolve_runtime_trace_store", lambda: trace_store
     )
 
     # Stub run_fn: succeeds with a summary + orchestration id.
@@ -152,7 +152,7 @@ async def test_background_task_failure_broadcasts(
     )
     trace_store = _RecordingTraceStore()
     monkeypatch.setattr(
-        chat_events_module, "resolve_runtime_trace_store", lambda: trace_store
+        notifications_module, "resolve_runtime_trace_store", lambda: trace_store
     )
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:

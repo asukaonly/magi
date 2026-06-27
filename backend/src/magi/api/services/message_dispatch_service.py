@@ -11,7 +11,7 @@ from typing import Any
 from ...chat.attachment_ingestion import LocalChatAttachmentIngestionService
 from ...chat.provider import get_chat_projector, get_chat_store
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_runtime_command_queue
+from ...core.runtime_bindings import get_chat_message_notifier, require_runtime_command_queue
 from ...events.contracts import UserMessageCommand
 from ...i18n import t
 from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE
@@ -296,9 +296,7 @@ async def dispatch_user_message(
 
     stats = await runtime_command_queue.get_stats()
     queue_size = stats.get("pending_count") if isinstance(stats, dict) else None
-    from ...transport.chat_events import broadcast_chat_message_upsert
-
-    await broadcast_chat_message_upsert(
+    await get_chat_message_notifier().broadcast_chat_message_upsert(
         user_id=user_id,
         session_id=resolved_session_id,
         message_id=created_turn.message_id,

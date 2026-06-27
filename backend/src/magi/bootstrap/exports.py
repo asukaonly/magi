@@ -70,12 +70,14 @@ class RuntimeExportsModule(LifecycleModule):
             container.background_task_manager.override(providers.Object(background_task_manager))
 
         from ..chat import get_chat_read_service
+        from ..chat.message_notifications import chat_message_notifier
         from ..chat.portrait.factory import build_chat_portrait_service
 
         chat_portrait_service = build_chat_portrait_service(
             chat_read_service_factory=get_chat_read_service,
         )
         container.chat_portrait_service.override(providers.Object(chat_portrait_service))
+        container.chat_message_notifier.override(providers.Object(chat_message_notifier))
 
         from ..api.services.message_dispatch_service import dispatch_user_message
 
@@ -130,6 +132,7 @@ class RuntimeExportsModule(LifecycleModule):
         container.skill_runner.reset_override()
         container.background_task_manager.reset_override()
         container.chat_portrait_service.reset_override()
+        container.chat_message_notifier.reset_override()
         container.user_message_dispatcher.reset_override()
 
         from ..tools.capabilities import reset_tool_capabilities_provider

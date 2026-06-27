@@ -16,7 +16,7 @@ We have been resolving most plugin→host inversions with **injected capability 
 Facts established by inspection of `backend/src/magi/agent/control/` (19 files):
 
 - Its external dependencies are almost entirely **L1 infrastructure**: `core` (logger, DI container, `sqlite_connection_async`), `runtime_trace`, `runtime_defaults` — plus **L3 `events`** (it publishes control events). It does **not** depend on `agent` runtime internals, `llm`, `memory`, `plugins`, `tools`.
-- The **only** file that reaches *upward* is `chat_state_persister.py`, which imports `chat` (`ChatMessageRecord`, `get_chat_store`) and `transport.chat_events`. These exact edges already sit in the **layers contract's debt baseline** (`agent.control.chat_state_persister -> magi.chat` / `-> magi.transport.chat_events`) — i.e. the mislayering is already recorded as debt.
+- At the time of this ADR, the **only** file that reached *upward* was `chat_state_persister.py`, which imported `chat` (`ChatMessageRecord`, `get_chat_store`) and transport chat notification helpers. That debt was later retired by moving transcript projection into `chat` and keeping runtime notifications with their owning domains.
 - The agent runtime **consumes** control: `agent.execution.function_calling.permission` imports it (permission gating). So the dependency is fundamentally *agent → control*, not the reverse.
 
 **Who reads/writes control state** (plan-mode? todos? pending user question? detach requested? permissions?):
