@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.responses import FileResponse
 
 from magi.api.routers import messages as messages_router
+from magi.api.routers import (
+    messages_content,
+    messages_dispatch,
+    messages_mutations,
+    messages_run_control,
+    messages_sessions,
+)
 from magi.chat.read_service import ChatDisplayMessage
 from magi.api.services.message_dispatch_service import MessageDispatchOutcome
 from magi.i18n import language_context
@@ -33,9 +41,9 @@ async def test_send_user_message_uses_runtime_namespace_for_dispatch(monkeypatch
             turn_id="turn-1",
         )
 
-    monkeypatch.setattr(messages_router, "get_runtime_system_status", _runtime_ready)
-    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(messages_router, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
+    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -62,9 +70,9 @@ async def test_send_user_message_defaults_to_desktop_runtime_identity(monkeypatc
             turn_id="turn-1",
         )
 
-    monkeypatch.setattr(messages_router, "get_runtime_system_status", _runtime_ready)
-    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(messages_router, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
+    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -91,9 +99,9 @@ async def test_send_user_message_passes_attachments_and_workspace_path(monkeypat
             turn_id="turn-1",
         )
 
-    monkeypatch.setattr(messages_router, "get_runtime_system_status", _runtime_ready)
-    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(messages_router, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
+    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -122,9 +130,9 @@ async def test_send_user_message_forwards_reply_target(monkeypatch: pytest.Monke
             turn_id="turn-1",
         )
 
-    monkeypatch.setattr(messages_router, "get_runtime_system_status", _runtime_ready)
-    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(messages_router, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
+    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -160,9 +168,9 @@ async def test_send_user_message_rejects_when_runtime_is_not_ready(monkeypatch: 
             turn_id="turn-1",
         )
 
-    monkeypatch.setattr(messages_router, "get_runtime_system_status", _fake_runtime_status)
-    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(messages_router, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _fake_runtime_status)
+    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -190,9 +198,9 @@ async def test_send_user_message_dispatches_when_runtime_is_ready(monkeypatch: p
             turn_id="turn-1",
         )
 
-    monkeypatch.setattr(messages_router, "get_runtime_system_status", _runtime_ready)
-    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(messages_router, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
+    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -218,10 +226,10 @@ async def test_send_user_message_merges_bootstrap_l2_priority_metadata(monkeypat
             turn_id="turn-1",
         )
 
-    monkeypatch.setattr(messages_router, "get_runtime_system_status", _runtime_ready)
-    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
+    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
     monkeypatch.setattr(
-        messages_router,
+        messages_dispatch,
         "build_bootstrap_l2_priority_metadata",
         AsyncMock(
             return_value={
@@ -281,7 +289,7 @@ async def test_get_conversation_history_uses_async_read_service(monkeypatch: pyt
             assert session_id == "s1"
             return None
 
-    monkeypatch.setattr(messages_router, "get_chat_read_service", lambda: _AsyncOnlyReadService())
+    monkeypatch.setattr(messages_content, "require_chat_read_service", lambda: _AsyncOnlyReadService())
 
     response = await messages_router.get_conversation_history(user_id="u1", session_id="s1")
 
@@ -310,7 +318,7 @@ async def test_get_chat_attachment_content_returns_file_response(monkeypatch: py
                 "storage_path": str(attachment_path),
             }
 
-    monkeypatch.setattr(messages_router, "get_chat_read_service", lambda: _AsyncOnlyReadService())
+    monkeypatch.setattr(messages_content, "require_chat_read_service", lambda: _AsyncOnlyReadService())
 
     response = await messages_router.get_chat_attachment_content(
         session_id="s1",
@@ -329,17 +337,22 @@ async def test_set_message_label_route_updates_message_without_creating_new_row(
 ) -> None:
     captured: dict[str, object] = {}
 
-    class _FakeChatStore:
-        async def update_message_label(self, *, session_id: str, message_id: str, label: dict[str, object]):
+    class _FakeChatSurfaceWriter:
+        async def set_message_label(
+            self,
+            *,
+            user_id: str,
+            session_id: str,
+            message_id: str,
+            label: dict[str, object],
+        ) -> bool:
+            captured["user_id"] = user_id
             captured["session_id"] = session_id
             captured["message_id"] = message_id
             captured["label"] = label
-            return {
-                "message_id": message_id,
-                "label": label,
-            }
+            return True
 
-    monkeypatch.setattr(messages_router, "get_chat_store", lambda: _FakeChatStore())
+    monkeypatch.setattr(messages_mutations, "require_chat_surface_write_service", lambda: _FakeChatSurfaceWriter())
 
     response = await messages_router.set_message_label(
         session_id="s1",
@@ -356,6 +369,7 @@ async def test_set_message_label_route_updates_message_without_creating_new_row(
 
     assert response["success"] is True
     assert captured == {
+        "user_id": "u1",
         "session_id": "s1",
         "message_id": "msg-1",
         "label": {
@@ -374,17 +388,20 @@ async def test_delete_message_route_soft_deletes_existing_chat_message(
 ) -> None:
     captured: dict[str, object] = {}
 
-    class _FakeChatStore:
-        async def hide_message(self, *, session_id: str, message_id: str):
+    class _FakeChatSurfaceWriter:
+        async def hide_message(
+            self,
+            *,
+            user_id: str,
+            session_id: str,
+            message_id: str,
+        ) -> bool:
+            captured["user_id"] = user_id
             captured["session_id"] = session_id
             captured["message_id"] = message_id
-            return {
-                "message_id": message_id,
-                "session_id": session_id,
-                "is_visible": False,
-            }
+            return True
 
-    monkeypatch.setattr(messages_router, "get_chat_store", lambda: _FakeChatStore())
+    monkeypatch.setattr(messages_mutations, "require_chat_surface_write_service", lambda: _FakeChatSurfaceWriter())
 
     response = await messages_router.delete_message(
         session_id="s1",
@@ -399,6 +416,7 @@ async def test_delete_message_route_soft_deletes_existing_chat_message(
         "deleted_message_id": "msg-1",
     }
     assert captured == {
+        "user_id": "u1",
         "session_id": "s1",
         "message_id": "msg-1",
     }
@@ -419,8 +437,8 @@ async def test_get_execution_trace_uses_async_trace_service(monkeypatch: pytest.
             assert turn_id == "turn-1"
             return {"summary": {"headline": "done"}}
 
-    monkeypatch.setattr(messages_router, "get_chat_read_service", lambda: _FakeReadService())
-    monkeypatch.setattr(messages_router, "get_chat_trace_read_service", lambda: _AsyncOnlyTraceService())
+    monkeypatch.setattr(messages_content, "require_chat_read_service", lambda: _FakeReadService())
+    monkeypatch.setattr(messages_content, "get_chat_trace_read_service", lambda: _AsyncOnlyTraceService())
 
     response = await messages_router.get_execution_trace(user_id="u1", session_id="s1", turn_id="turn-1")
 
@@ -438,8 +456,8 @@ async def test_create_new_session_uses_default_workspace_path(monkeypatch: pytes
             captured["workspace_path"] = workspace_path
             return "session-1"
 
-    monkeypatch.setattr(messages_router, "get_chat_read_service", lambda: _FakeReadService())
-    monkeypatch.setattr(messages_router, "_get_default_chat_workspace_path", lambda: "/tmp/magi")
+    monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: _FakeReadService())
+    monkeypatch.setattr(messages_sessions, "get_default_chat_workspace_path", lambda: "/tmp/magi")
 
     response = await messages_router.create_new_session(user_id="u1")
 
@@ -451,17 +469,22 @@ async def test_create_new_session_uses_default_workspace_path(monkeypatch: pytes
 
 @pytest.mark.asyncio
 async def test_update_session_workspace_route_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    @dataclass
+    class _SessionWorkspaceUpdateResult:
+        session_id: str
+        workspace_path: str | None
+
     class _FakeReadService:
         async def aupdate_session_workspace(self, user_id: str, session_id: str, workspace_path: str | None):
             assert user_id == "u1"
             assert session_id == "s1"
             assert workspace_path == "/tmp/magi"
-            return messages_router.SessionWorkspaceUpdateResult(
+            return _SessionWorkspaceUpdateResult(
                 session_id="s1",
                 workspace_path="/tmp/magi",
             )
 
-    monkeypatch.setattr(messages_router, "get_chat_read_service", lambda: _FakeReadService())
+    monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: _FakeReadService())
 
     response = await messages_router.update_session_workspace(
         session_id="s1",
@@ -513,7 +536,7 @@ async def test_cancel_session_run_route_delegates_to_chat_agent(monkeypatch: pyt
         def get_task_agent_manager(self) -> _FakeTaskAgentManager:
             return _FakeTaskAgentManager()
 
-    monkeypatch.setattr(messages_router, "require_agent_runtime", lambda: _FakeRuntime())
+    monkeypatch.setattr(messages_run_control, "require_agent_runtime", lambda: _FakeRuntime())
 
     response = await messages_router.cancel_session_run(
         session_id="session-1",
@@ -567,7 +590,7 @@ async def test_detach_session_run_route_delegates_to_chat_agent(monkeypatch: pyt
         def get_task_agent_manager(self) -> _FakeTaskAgentManager:
             return _FakeTaskAgentManager()
 
-    monkeypatch.setattr(messages_router, "require_agent_runtime", lambda: _FakeRuntime())
+    monkeypatch.setattr(messages_run_control, "require_agent_runtime", lambda: _FakeRuntime())
 
     with language_context("en"):
         response = await messages_router.detach_session_run(
@@ -581,7 +604,7 @@ async def test_detach_session_run_route_delegates_to_chat_agent(monkeypatch: pyt
         )
 
     assert captured == {
-        "agent_type": messages_router.TaskAgentType.CHAT,
+        "agent_type": messages_run_control.TaskAgentType.CHAT,
         "agent_id": "session-1",
         "session_id": "session-1",
         "requested_by": "user",

@@ -6,8 +6,9 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 
+from ...agent.runtime.types import TaskAgentType
+from ...core.runtime_bindings import require_agent_runtime
 from ...i18n import t
-from .messages_common import legacy_messages_module
 from .messages_models import CancelSessionRunRequest, DetachSessionRunRequest
 
 message_run_control_router = APIRouter()
@@ -16,11 +17,10 @@ message_run_control_router = APIRouter()
 @message_run_control_router.post("/session/{session_id}/cancel-run", response_model=Dict[str, Any])
 async def cancel_session_run(session_id: str, request: CancelSessionRunRequest):
     """Explicitly cancel the active run for one chat session."""
-    legacy = legacy_messages_module()
     try:
-        runtime = legacy.require_agent_runtime()
+        runtime = require_agent_runtime()
         manager = runtime.get_task_agent_manager()
-        agent = await manager.ensure_agent(legacy.TaskAgentType.CHAT, session_id)
+        agent = await manager.ensure_agent(TaskAgentType.CHAT, session_id)
         cancel_handler = getattr(agent, "request_session_cancel", None)
         if cancel_handler is None:
             raise RuntimeError(t("chat.run.cancel.unsupported", fallback="Chat task agent does not support explicit session cancellation."))
@@ -57,11 +57,10 @@ async def cancel_session_run(session_id: str, request: CancelSessionRunRequest):
 @message_run_control_router.post("/session/{session_id}/detach-run", response_model=Dict[str, Any])
 async def detach_session_run(session_id: str, request: DetachSessionRunRequest):
     """Explicitly request that the active run detach into a background task."""
-    legacy = legacy_messages_module()
     try:
-        runtime = legacy.require_agent_runtime()
+        runtime = require_agent_runtime()
         manager = runtime.get_task_agent_manager()
-        agent = await manager.ensure_agent(legacy.TaskAgentType.CHAT, session_id)
+        agent = await manager.ensure_agent(TaskAgentType.CHAT, session_id)
         detach_handler = getattr(agent, "request_session_detach", None)
         if detach_handler is None:
             raise RuntimeError(t("chat.run.detach.unsupported", fallback="Chat task agent does not support explicit session detaching."))

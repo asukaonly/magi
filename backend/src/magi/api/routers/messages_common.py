@@ -2,17 +2,10 @@
 
 from __future__ import annotations
 
-from importlib import import_module
-from types import ModuleType
-
 from fastapi import HTTPException
 
-from ...chat import LocalChatAttachmentIngestionService
+from ...core.runtime_bindings import require_chat_attachment_ingestion_service
 from ...i18n import t
-
-
-def legacy_messages_module() -> ModuleType:
-    return import_module("magi.api.routers.messages")
 
 
 def require_session_id(session_id: str | None) -> str:
@@ -30,13 +23,12 @@ def get_default_chat_workspace_path() -> str | None:
     return normalized_workspace_path or None
 
 
-def get_chat_attachment_ingestion_service() -> LocalChatAttachmentIngestionService:
-    return LocalChatAttachmentIngestionService()
+def get_chat_attachment_ingestion_service():
+    return require_chat_attachment_ingestion_service()
 
 
 __all__ = [
     "get_chat_attachment_ingestion_service",
     "get_default_chat_workspace_path",
-    "legacy_messages_module",
     "require_session_id",
 ]

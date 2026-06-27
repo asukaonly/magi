@@ -1,6 +1,7 @@
 """Tests for the /api/commands router."""
 
-from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -63,23 +64,41 @@ def client(monkeypatch, tmp_path):
         whitelist_path=tmp_path / "missing.toml"
     )
 
-    # Stub chat store + permission gateway + notifier.
-    class _FakeStore:
+    # Stub chat transcript writer + permission gateway.
+    class _FakeTranscriptWriter:
         appended: list = []
 
-        async def append_message(self, record, **kwargs):
-            _FakeStore.appended.append(record)
+        async def append_command_invocation(self, **kwargs):
+            record = SimpleNamespace(
+                message_id=f"msg-{len(_FakeTranscriptWriter.appended) + 1}",
+                message_kind="command_invocation",
+                content_text=kwargs["invocation_text"] or f"/{kwargs['tool_name']}",
+                turn_id=kwargs["turn_id"],
+            )
+            _FakeTranscriptWriter.appended.append(record)
+            return record.message_id
 
-    from magi.commands import runner as runner_mod
-    monkeypatch.setattr(runner_mod, "get_chat_store", lambda: _FakeStore())
-    _FakeStore.appended = []
+        async def append_command_result(self, **kwargs):
+            record = SimpleNamespace(
+                message_id=f"msg-{len(_FakeTranscriptWriter.appended) + 1}",
+                message_kind="command_result",
+                content_text=kwargs["output_text"],
+                turn_id=kwargs["turn_id"],
+            )
+            _FakeTranscriptWriter.appended.append(record)
+            return record.message_id
 
-    monkeypatch.setattr(commands_module, "_resolve_notifier", lambda: None)
+    _FakeTranscriptWriter.appended = []
+    monkeypatch.setattr(
+        commands_module,
+        "require_chat_surface_write_service",
+        lambda: _FakeTranscriptWriter(),
+    )
     monkeypatch.setattr(commands_module, "_safe_gateway_provider", lambda: None)
 
     app = FastAPI()
     app.include_router(commands_router, prefix="/api/commands")
-    yield TestClient(app), _FakeStore
+    yield TestClient(app), _FakeTranscriptWriter
 
 
 def test_list_user_invocable_commands(client):
@@ -128,32 +147,3 @@ def test_run_command_rejects_unknown_tool(client):
         ToolErrorCode.PERMISSION_DENIED.value,
         ToolErrorCode.TOOL_NOT_FOUND.value,
     )
-
-
-def test_resolve_notifier_returns_callable_with_valid_store(monkeypatch):
-    """Regression: _resolve_notifier must build a real ChatRuntimeNotifier.
-
-    The notifier module relocated to magi.chat.task_agent.postprocess in P2
-    Task 2. The old import path under magi.agent.task_agents.handlers lives inside a
-    ``try/except Exception: return None`` block, so a stale path silently
-    disabled the notifier instead of raising. With a valid (non-``object``)
-    runtime_trace_store wired in, _resolve_notifier must return a callable.
-    """
-    from magi.api.routers import commands as commands_module
-    from magi.core import container as container_module
-
-    class _FakeStore:  # not the bare ``object`` sentinel the guard rejects
-        pass
-
-    class _FakeContainer:
-        runtime_trace_store = staticmethod(lambda: _FakeStore())
-
-    # _resolve_notifier imports get_container locally, so patch it at source.
-    monkeypatch.setattr(
-        container_module, "get_container", lambda: _FakeContainer()
-    )
-
-    notifier = commands_module._resolve_notifier()
-
-    assert notifier is not None
-    assert callable(notifier)

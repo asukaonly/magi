@@ -8,9 +8,8 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException
 
 from ... import i18n as core_i18n
-from ...core.runtime_bindings import get_chat_message_notifier
+from ...core.runtime_bindings import require_chat_surface_write_service
 from ...runtime_defaults import DEFAULT_USER_ID
-from .messages_common import legacy_messages_module
 from .messages_models import MessageLabelRequest
 
 message_mutations_router = APIRouter()
@@ -25,9 +24,7 @@ async def set_message_label(
     request: MessageLabelRequest,
 ):
     """Persist one compact label on an existing chat message."""
-    legacy = legacy_messages_module()
     try:
-        chat_store = legacy.get_chat_store()
         created_at_ms = int(request.created_at_ms or int(time.time() * 1000))
         label = {
             "kind": str(request.kind).strip(),
@@ -36,7 +33,8 @@ async def set_message_label(
             "source": str(request.source).strip(),
             "created_at_ms": created_at_ms,
         }
-        message = await chat_store.update_message_label(
+        updated = await require_chat_surface_write_service().set_message_label(
+            user_id=request.user_id,
             session_id=session_id,
             message_id=message_id,
             label=label,
@@ -44,17 +42,11 @@ async def set_message_label(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
-    if message is None:
+    if not updated:
         raise HTTPException(
             status_code=404,
             detail=core_i18n.t("chat.messages.not_found", fallback="Message not found"),
         )
-
-    await get_chat_message_notifier().broadcast_chat_message_upsert(
-        user_id=request.user_id,
-        session_id=session_id,
-        message_id=message_id,
-    )
 
     return {
         "success": True,
@@ -73,27 +65,20 @@ async def set_message_label(
 )
 async def delete_message(session_id: str, message_id: str, user_id: str = DEFAULT_USER_ID):
     """Soft-delete one chat message from the visible transcript."""
-    legacy = legacy_messages_module()
     try:
-        chat_store = legacy.get_chat_store()
-        message = await chat_store.hide_message(
+        deleted = await require_chat_surface_write_service().hide_message(
+            user_id=user_id,
             session_id=session_id,
             message_id=message_id,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
-    if message is None:
+    if not deleted:
         raise HTTPException(
             status_code=404,
             detail=core_i18n.t("chat.messages.not_found", fallback="Message not found"),
         )
-
-    await get_chat_message_notifier().broadcast_chat_message_hidden(
-        user_id=user_id,
-        session_id=session_id,
-        message_id=message_id,
-    )
 
     return {
         "success": True,

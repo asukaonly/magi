@@ -43,8 +43,8 @@ These rules are **CI-enforced**, not conventional. `backend/.importlinter` defin
 Outcome of the layering cleanup (ADRs 0001–0004):
 
 - **`plugin-isolation` baseline = 0** — capability tools are fully SDK-isolated (Framework A). Runtime-control tools (`agent_tool`, batch tools, plan/todo) live in host layers and are composition-root-registered, never in the plugin surface (ADR-0002).
-- **`layers` baseline: 115 → 20.** Retired: the `agent → chat` task-agent cluster (the chat-driver descent, ADR-0003/0004 P2), `agent → timeline`, `runtime_trace → events` (layer repositioned above events), `awareness → timeline` (subscribers inverted into timeline), the `tools ↔ skills` cycle (ordered + `ToolRegistryPort`), `chat.workspace` / `chat_trace` (lowered), the old `chat → channels` delivery-router reach-through (now injected as a channel-owned delivery dispatcher), and the wrong-direction tail (permission-shim repoint, plus `core→config` / `memory→api` / `skills→engine` / `plugins→tools/awareness` injected, and the `message_text` util lowered).
-- **Remaining ~15 edges are intentionally left** — mostly API router and command surfaces over `chat`. The high-churn ingress work now enters through chat-owned services: user-message persistence/attachment preparation/queueing live in `chat.ingress`, external channel session creation lives behind a chat-owned provisioner, and channel inbound attachments are stored by a chat-owned attachment service. The remaining surface→domain imports are a conscious carry, not unaddressed debt. Revisit only if a concrete need (e.g. a second front end) makes the coupling bite.
+- **`layers` baseline: 115 → 2.** Retired: the `agent → chat` task-agent cluster (the chat-driver descent, ADR-0003/0004 P2), `agent → timeline`, `runtime_trace → events` (layer repositioned above events), `awareness → timeline` (subscribers inverted into timeline), the `tools ↔ skills` cycle (ordered + `ToolRegistryPort`), `chat.workspace` / `chat_trace` (lowered), the old `chat → channels` delivery-router reach-through (now injected as a channel-owned delivery dispatcher), the API/messages surface-to-chat reach-through, the command transcript-write reach-through, and the wrong-direction tail (permission-shim repoint, plus `core→config` / `memory→api` / `skills→engine` / `plugins→tools/awareness` injected, and the `message_text` util lowered).
+- **Remaining 2 edges are intentionally left** — `api.routers.commands → commands` for the product command endpoint and `api.routers.memory.dependencies → chat` for the memory read-side facade. The high-churn ingress and transcript-write work now enters through chat-owned services: user-message persistence/attachment preparation/queueing live in `chat.ingress`, command/background/bootstrap transcript rows live behind `chat.surface_writes`, external channel session creation lives behind a chat-owned provisioner, and channel inbound attachments are stored by a chat-owned attachment service. Revisit the remaining carry only if a concrete need makes the coupling bite.
 
 When adding code, keep both contracts green. A new lower→upper import is a design smell — inject the dependency from the composition root, lower a shared contract/util, or register via the origin-agnostic registry instead.
 
@@ -347,7 +347,7 @@ Primary packages:
 - `chat/`
 - `tasks/`
 - `channels/`
-- `commands/` — slash-command handlers dispatched by the API surface (uses `chat`)
+- `commands/` — slash-command handlers dispatched by the API surface; transcript writes are delegated through the chat-owned surface write service
 - `outreach/` — proactive-messaging orchestration over `agent`/`chat`/`channels`; the top surface orchestrator (sits above the `api` line in the contract ordering)
 - `system_suggestions/` — API-facing suggestion generation (uses `llm`)
 - `notifications/` — API-facing notification helpers
@@ -360,6 +360,7 @@ Notes:
 - requests requiring the Python runtime are dispatched via IPC `api.forward` to FastAPI routers running as an in-memory ASGI app
 - `chat/` owns transcript truth (`chat.db`), attachment storage, and session workspace; it is not the memory layer
 - inbound user-message handling is chat-owned: API and channel surfaces should hand off to the active user-message dispatcher instead of assembling chat turns, attachments, and runtime queue commands themselves
+- API and command surfaces must not assemble chat transcript rows directly; command, background-task, label/delete, and bootstrap assistant rows go through the chat-owned surface write service
 - `chat/portrait/` owns persona-voiced portrait cards shown in the chat rail; it
   may consume neutral memory snippets but memory must not assemble chat/persona
   presentation

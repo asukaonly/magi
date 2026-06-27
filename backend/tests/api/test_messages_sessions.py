@@ -9,7 +9,7 @@ BACKEND_SRC = Path(__file__).resolve().parents[1] / "src"
 if str(BACKEND_SRC) not in sys.path:
     sys.path.insert(0, str(BACKEND_SRC))
 
-from magi.api.routers import messages
+from magi.api.routers import messages, messages_sessions
 from magi.chat import ChatStore
 from magi.chat.read_service import (
     ChatDisplayMessage,
@@ -1375,7 +1375,7 @@ def test_list_sessions_router_response(monkeypatch):
                 )
             ]
 
-    monkeypatch.setattr(messages, "get_chat_read_service", lambda: _FakeReadService())
+    monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: _FakeReadService())
 
     result = __import__("asyncio").run(messages.list_sessions(user_id="u1", limit=5))
     assert result["user_id"] == "u1"
@@ -1410,7 +1410,7 @@ def test_rename_session_router_response(monkeypatch):
             assert title == "Renamed"
             return ChatSessionRenameResult(session_id="s1", title="Renamed")
 
-    monkeypatch.setattr(messages, "get_chat_read_service", lambda: _FakeReadService())
+    monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: _FakeReadService())
 
     result = __import__("asyncio").run(
         messages.rename_session(
@@ -1430,7 +1430,7 @@ def test_delete_session_router_response(monkeypatch):
             assert session_id == "s1"
             return None
 
-    monkeypatch.setattr(messages, "get_chat_read_service", lambda: _FakeReadService())
+    monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: _FakeReadService())
 
     result = __import__("asyncio").run(messages.delete_session(session_id="s1", user_id="u1"))
 

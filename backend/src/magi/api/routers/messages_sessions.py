@@ -7,8 +7,9 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ...core.runtime_bindings import require_chat_read_service
 from ...runtime_defaults import DEFAULT_USER_ID
-from .messages_common import legacy_messages_module
+from .messages_common import get_default_chat_workspace_path
 from .messages_models import RenameSessionRequest, UpdateSessionWorkspaceRequest
 
 message_sessions_router = APIRouter()
@@ -17,10 +18,9 @@ message_sessions_router = APIRouter()
 @message_sessions_router.post("/session/new", response_model=Dict[str, Any])
 async def create_new_session(user_id: str = DEFAULT_USER_ID):
     """Create a new chat session row for the given user."""
-    legacy = legacy_messages_module()
     try:
-        read_service = legacy.get_chat_read_service()
-        workspace_path = legacy._get_default_chat_workspace_path()
+        read_service = require_chat_read_service()
+        workspace_path = get_default_chat_workspace_path()
         session_id = await read_service.acreate_new_session(user_id, workspace_path)
         return {
             "success": True,
@@ -40,9 +40,8 @@ async def create_new_session(user_id: str = DEFAULT_USER_ID):
 @message_sessions_router.patch("/session/{session_id}", response_model=Dict[str, Any])
 async def rename_session(session_id: str, request: RenameSessionRequest):
     """Rename a session and persist the title override."""
-    legacy = legacy_messages_module()
     try:
-        read_service = legacy.get_chat_read_service()
+        read_service = require_chat_read_service()
         session = await read_service.arename_session(request.user_id, session_id, request.title)
         return {
             "success": True,
@@ -58,9 +57,8 @@ async def rename_session(session_id: str, request: RenameSessionRequest):
 @message_sessions_router.patch("/session/{session_id}/workspace", response_model=Dict[str, Any])
 async def update_session_workspace(session_id: str, request: UpdateSessionWorkspaceRequest):
     """Update the persisted workspace path for a chat session."""
-    legacy = legacy_messages_module()
     try:
-        read_service = legacy.get_chat_read_service()
+        read_service = require_chat_read_service()
         session = await read_service.aupdate_session_workspace(
             request.user_id,
             session_id,
@@ -80,9 +78,8 @@ async def update_session_workspace(session_id: str, request: UpdateSessionWorksp
 @message_sessions_router.delete("/session/{session_id}", response_model=Dict[str, Any])
 async def delete_session(session_id: str, user_id: str = DEFAULT_USER_ID):
     """Delete one session and its related chat data."""
-    legacy = legacy_messages_module()
     try:
-        read_service = legacy.get_chat_read_service()
+        read_service = require_chat_read_service()
         await read_service.adelete_session(user_id, session_id)
         return {
             "success": True,
@@ -101,9 +98,8 @@ async def list_sessions(
     limit: int = Query(default=30, ge=1, le=200),
 ):
     """List recent chat sessions for the given user."""
-    legacy = legacy_messages_module()
     try:
-        read_service = legacy.get_chat_read_service()
+        read_service = require_chat_read_service()
         sessions = await read_service.alist_sessions(user_id=user_id, limit=limit)
         return {
             "user_id": user_id,

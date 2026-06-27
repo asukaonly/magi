@@ -59,6 +59,21 @@ def require_chat_portrait_service():
     return _require_binding("chat_portrait_service")
 
 
+def require_chat_read_service():
+    """Return the active chat read service binding."""
+    return _require_binding("chat_read_service")
+
+
+def require_chat_attachment_ingestion_service():
+    """Return the active chat attachment ingestion service binding."""
+    return _require_binding("chat_attachment_ingestion_service")
+
+
+def require_chat_surface_write_service():
+    """Return the active chat surface write service binding."""
+    return _require_binding("chat_surface_write_service")
+
+
 def get_chat_message_notifier():
     """Return the active chat message notifier, or a no-op fallback."""
     container = get_container()

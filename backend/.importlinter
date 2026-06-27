@@ -75,20 +75,8 @@ ignore_imports =
     # to magi.chat.task_agent.coordinator (P2 Task 6, chat-driver descent). The old
     # agent->channels delivery edge and its chat->channels relocation are retired;
     # chat now receives a channel-owned delivery dispatcher by injection.
-    magi.api.routers.commands -> magi.chat
-    magi.api.routers.commands -> magi.chat.provider
-    # _resolve_notifier imports the ChatRuntimeNotifier; its module RELOCATED
-    # from magi.agent.task_agents.chat.postprocess (P2 Task 2). The old edge was
-    # api->agent (downward, unbaselined); the new edge is api->chat cross-sibling
-    # like the commands->magi.chat edges above. Faithful relocation, not new debt.
-    magi.api.routers.commands -> magi.chat.task_agent.postprocess.notifications
     magi.api.routers.commands -> magi.commands
     magi.api.routers.memory.dependencies -> magi.chat
-    magi.api.routers.messages -> magi.chat
-    magi.api.routers.messages -> magi.chat.provider
-    magi.api.routers.messages_common -> magi.chat
-    magi.api.services.personality_bootstrap_messages -> magi.chat.contracts
-    magi.api.services.personality_bootstrap_messages -> magi.chat.provider
 
 [importlinter:contract:plugin-isolation]
 name = Plugin implementations depend on SDK only, never host layers

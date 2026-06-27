@@ -9,9 +9,11 @@ from fastapi import APIRouter, HTTPException
 from ...core.logger import get_logger
 from ... import i18n as core_i18n
 from ...mcp.attachment_resolver import resolve_attachment_resources
+from ...personality.active_persona import get_current_personality
+from ...personality.bootstrap_service import build_bootstrap_l2_priority_metadata
 from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE
 from ...utils.agent_logger import get_agent_logger
-from .messages_common import legacy_messages_module
+from ..services import dispatch_user_message, get_runtime_system_status
 from .messages_models import MessageResponse, UserMessageRequest
 
 logger = get_logger(__name__)
@@ -24,8 +26,7 @@ RUNTIME_NOT_READY = "RUNTIME_NOT_READY"
 
 async def _ensure_runtime_ready_for_user_message() -> MessageResponse | None:
     """Return a rejection payload when the runtime cannot consume queued messages yet."""
-    legacy = legacy_messages_module()
-    runtime_status = await legacy.get_runtime_system_status(None)
+    runtime_status = await get_runtime_system_status(None)
     if runtime_status.get("runtime_ready"):
         return None
 
@@ -64,7 +65,6 @@ async def _ensure_runtime_ready_for_user_message() -> MessageResponse | None:
 
 @message_dispatch_router.post("/send", response_model=MessageResponse)
 async def send_user_message(request: UserMessageRequest):
-    legacy = legacy_messages_module()
     try:
         runtime_not_ready_response = await _ensure_runtime_ready_for_user_message()
         if runtime_not_ready_response is not None:
@@ -78,17 +78,17 @@ async def send_user_message(request: UserMessageRequest):
 
         normalized_metadata = dict(request.metadata or {})
         normalized_metadata.update(
-            await legacy.build_bootstrap_l2_priority_metadata(
+            await build_bootstrap_l2_priority_metadata(
                 user_id=request.user_id,
                 session_id=request.session_id,
-                persona_name=legacy.get_current_personality(),
+                persona_name=get_current_personality(),
             )
         )
         normalized_reply_to_message_id = str(request.reply_to_message_id or "").strip() or None
         if normalized_reply_to_message_id is not None:
             normalized_metadata["reply_to_message_id"] = normalized_reply_to_message_id
 
-        outcome = await legacy.dispatch_user_message(
+        outcome = await dispatch_user_message(
             source="api",
             user_id=request.user_id,
             message=request.message,

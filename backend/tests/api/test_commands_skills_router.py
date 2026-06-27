@@ -1,8 +1,10 @@
 """Tests for /api/commands/skills, /api/commands/expand-skill,
 and /api/commands/run-skill-as-background."""
 
+import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -187,35 +189,63 @@ def _stub_manager(monkeypatch):
     return enqueued
 
 
-def _stub_chat_store(monkeypatch):
-    """Wire a fake ChatStore that records appended messages."""
+def _stub_chat_writer(monkeypatch):
+    """Wire a fake chat writer that records pending task messages."""
     appended: list = []
 
-    class _Store:
-        async def append_message(self, record, **kwargs):
-            # The runner calls append twice (placeholder + patched).
-            # Replace any prior copy of the same message_id so the test
-            # sees the final state, mirroring INSERT OR REPLACE in real SQL.
-            for i, existing in enumerate(appended):
-                if existing.message_id == record.message_id:
-                    appended[i] = record
-                    return
+    class _Writer:
+        async def create_background_task_pending_message(
+            self,
+            *,
+            user_id: str,
+            session_id: str,
+            title: str,
+            trigger_source: str,
+            skill_name: str,
+            invocation_text: str,
+        ) -> str:
+            message_id = f"msg-{len(appended) + 1}"
+            payload = {
+                "background_task_id": "",
+                "background_task_status": "pending",
+                "background_task_title": title,
+                "trigger_source": trigger_source,
+                "skill_name": skill_name,
+                "invocation_text": invocation_text,
+            }
+            record = SimpleNamespace(
+                message_id=message_id,
+                session_id=session_id,
+                user_id=user_id,
+                message_kind="background_task_pending",
+                payload_json=json.dumps(payload, ensure_ascii=False),
+            )
             appended.append(record)
+            return message_id
 
-        async def next_sequence_no(self, *, session_id: str) -> int:
-            return len(appended) + 1
+        async def attach_background_task_id(
+            self,
+            *,
+            user_id: str,
+            session_id: str,
+            message_id: str,
+            task_id: str,
+        ) -> None:
+            for record in appended:
+                if record.message_id == message_id:
+                    payload = json.loads(record.payload_json)
+                    payload["background_task_id"] = task_id
+                    record.payload_json = json.dumps(payload, ensure_ascii=False)
+                    return
 
-        async def bump_history_version(self, session_id: str) -> None:
-            return None
-
-    monkeypatch.setattr(commands_module, "get_chat_store", lambda: _Store())
+    monkeypatch.setattr(commands_module, "require_chat_surface_write_service", lambda: _Writer())
     return appended
 
 
 def test_run_skill_as_background_enqueues_task(client):
     c, monkeypatch = client
     enqueued = _stub_manager(monkeypatch)
-    appended = _stub_chat_store(monkeypatch)
+    appended = _stub_chat_writer(monkeypatch)
 
     r = c.post(
         "/api/commands/run-skill-as-background",
@@ -248,8 +278,7 @@ def test_run_skill_as_background_enqueues_task(client):
     pending = appended[0]
     assert pending.message_kind == "background_task_pending"
     assert pending.message_id == body["pending_message_id"]
-    import json as _json
-    payload = _json.loads(pending.payload_json)
+    payload = json.loads(pending.payload_json)
     assert payload["background_task_id"] == body["task_id"]
     assert payload["skill_name"] == "deep-scan"
 
@@ -257,7 +286,7 @@ def test_run_skill_as_background_enqueues_task(client):
 def test_run_skill_as_background_rejects_inline_skill(client):
     c, monkeypatch = client
     _stub_manager(monkeypatch)
-    _stub_chat_store(monkeypatch)
+    _stub_chat_writer(monkeypatch)
     r = c.post(
         "/api/commands/run-skill-as-background",
         json={"session_id": "s1", "skill_name": "pr-review"},
@@ -269,7 +298,7 @@ def test_run_skill_as_background_rejects_inline_skill(client):
 def test_run_skill_as_background_404_for_missing(client):
     c, monkeypatch = client
     _stub_manager(monkeypatch)
-    _stub_chat_store(monkeypatch)
+    _stub_chat_writer(monkeypatch)
     r = c.post(
         "/api/commands/run-skill-as-background",
         json={"session_id": "s1", "skill_name": "ghost"},
@@ -280,7 +309,7 @@ def test_run_skill_as_background_404_for_missing(client):
 def test_run_skill_as_background_403_for_non_invocable(client):
     c, monkeypatch = client
     _stub_manager(monkeypatch)
-    _stub_chat_store(monkeypatch)
+    _stub_chat_writer(monkeypatch)
     r = c.post(
         "/api/commands/run-skill-as-background",
         json={"session_id": "s1", "skill_name": "internal-only"},
@@ -290,7 +319,7 @@ def test_run_skill_as_background_403_for_non_invocable(client):
 
 def test_run_skill_as_background_503_when_manager_unavailable(client):
     c, monkeypatch = client
-    _stub_chat_store(monkeypatch)
+    _stub_chat_writer(monkeypatch)
 
     def _missing():
         raise RuntimeError("manager binding not initialized")

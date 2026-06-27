@@ -8,9 +8,11 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
+from ..services import get_chat_trace_read_service
+from ...core.runtime_bindings import require_chat_read_service
 from ...i18n import t
 from ...runtime_defaults import DEFAULT_USER_ID
-from .messages_common import legacy_messages_module
+from .messages_common import get_chat_attachment_ingestion_service, require_session_id
 
 message_content_router = APIRouter()
 
@@ -23,14 +25,13 @@ async def upload_chat_attachment(
     file: UploadFile = File(...),
 ):
     """Upload one desktop chat attachment into managed local storage."""
-    legacy = legacy_messages_module()
-    resolved_session_id = legacy._require_session_id(session_id)
-    resolved_turn_id = legacy._require_session_id(turn_id)
+    resolved_session_id = require_session_id(session_id)
+    resolved_turn_id = require_session_id(turn_id)
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail=t("chat.attachments.empty_file", fallback="Empty file is not allowed."))
 
-    service = legacy._get_chat_attachment_ingestion_service()
+    service = get_chat_attachment_ingestion_service()
     try:
         attachment_payload = service.ingest_attachment(
             session_id=resolved_session_id,
@@ -61,10 +62,9 @@ async def get_chat_attachment_content(
     user_id: str = Query(default=DEFAULT_USER_ID),
 ):
     """Serve one persisted chat attachment from managed local storage."""
-    legacy = legacy_messages_module()
-    resolved_session_id = legacy._require_session_id(session_id)
-    resolved_attachment_id = legacy._require_session_id(attachment_id)
-    read_service = legacy.get_chat_read_service()
+    resolved_session_id = require_session_id(session_id)
+    resolved_attachment_id = require_session_id(attachment_id)
+    read_service = require_chat_read_service()
     attachment = await read_service.aget_attachment_payload(
         user_id,
         resolved_session_id,
@@ -90,10 +90,9 @@ async def get_conversation_history(
     session_id: Optional[str] = Query(default=None, description="Session ID"),
 ):
     """Get conversation history."""
-    legacy = legacy_messages_module()
     try:
-        read_service = legacy.get_chat_read_service()
-        resolved_session_id = legacy._require_session_id(session_id)
+        read_service = require_chat_read_service()
+        resolved_session_id = require_session_id(session_id)
         history = await read_service.aget_display_history(user_id, resolved_session_id)
         session_summary = await read_service.aget_session_summary(user_id, resolved_session_id)
         messages = [msg.to_dict() for msg in history]
@@ -122,10 +121,9 @@ async def get_execution_trace(
     turn_id: str = Query(..., description="Turn ID for the target user message"),
 ):
     """Get structured execution trace for one chat turn."""
-    legacy = legacy_messages_module()
-    legacy.get_chat_read_service()
-    resolved_session_id = legacy._require_session_id(session_id)
-    trace_service = legacy.get_chat_trace_read_service()
+    require_chat_read_service()
+    resolved_session_id = require_session_id(session_id)
+    trace_service = get_chat_trace_read_service()
     snapshot = await trace_service.aget_trace_snapshot(
         user_id=user_id,
         session_id=resolved_session_id,
@@ -146,10 +144,9 @@ async def clear_conversation_history(
     session_id: Optional[str] = Query(default=None, description="Session ID"),
 ):
     """Clear conversation history."""
-    legacy = legacy_messages_module()
     try:
-        read_service = legacy.get_chat_read_service()
-        resolved_session_id = legacy._require_session_id(session_id)
+        read_service = require_chat_read_service()
+        resolved_session_id = require_session_id(session_id)
         await read_service.aclear_conversation_history(user_id, resolved_session_id)
 
         return {

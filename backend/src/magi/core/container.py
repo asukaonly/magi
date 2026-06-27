@@ -39,6 +39,18 @@ def _create_chat_read_service():
     return ChatReadService()
 
 
+def _create_chat_attachment_ingestion_service():
+    """Factory function for LocalChatAttachmentIngestionService."""
+    from ..chat.attachment_ingestion import LocalChatAttachmentIngestionService
+    return LocalChatAttachmentIngestionService()
+
+
+def _create_chat_surface_write_service():
+    """Factory function for ChatSurfaceWriteService."""
+    from ..chat.surface_writes import ChatSurfaceWriteService
+    return ChatSurfaceWriteService()
+
+
 def _create_chat_trace_read_service():
     """Factory function for ChatTraceReadService."""
     from ..runtime_trace.chat_trace.read_service import ChatTraceReadService
@@ -101,6 +113,12 @@ class Container(containers.DeclarativeContainer):
     # Container-owned read services and lightweight service providers.
     chat_read_service: providers.Singleton[ChatReadService] = providers.Singleton(
         _create_chat_read_service
+    )
+    chat_attachment_ingestion_service: providers.Singleton[Any] = providers.Singleton(
+        _create_chat_attachment_ingestion_service
+    )
+    chat_surface_write_service: providers.Singleton[Any] = providers.Singleton(
+        _create_chat_surface_write_service
     )
     chat_trace_read_service: providers.Singleton[ChatTraceReadService] = providers.Singleton(
         _create_chat_trace_read_service

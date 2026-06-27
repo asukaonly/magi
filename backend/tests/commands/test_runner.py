@@ -1,5 +1,6 @@
 """Tests for CommandRunner."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -72,13 +73,30 @@ def _build_registry(tools: list[Tool]) -> MagicMock:
 def _stub_chat_store(monkeypatch):
     appended: list = []
 
-    class _FakeStore:
-        async def append_message(self, record, **kwargs):
+    class _FakeTranscriptWriter:
+        async def append_command_invocation(self, **kwargs):
+            record = SimpleNamespace(
+                message_id=f"msg-{len(appended) + 1}",
+                message_kind="command_invocation",
+                content_text=kwargs["invocation_text"] or f"/{kwargs['tool_name']}",
+                turn_id=kwargs["turn_id"],
+            )
             appended.append(record)
+            return record.message_id
 
-    fake = _FakeStore()
+        async def append_command_result(self, **kwargs):
+            record = SimpleNamespace(
+                message_id=f"msg-{len(appended) + 1}",
+                message_kind="command_result",
+                content_text=kwargs["output_text"],
+                turn_id=kwargs["turn_id"],
+            )
+            appended.append(record)
+            return record.message_id
+
+    fake = _FakeTranscriptWriter()
     from magi.commands import runner as runner_mod
-    monkeypatch.setattr(runner_mod, "get_chat_store", lambda: fake)
+    monkeypatch.setattr(runner_mod, "require_chat_surface_write_service", lambda: fake)
     yield appended
 
 
@@ -288,22 +306,3 @@ async def test_dangerous_tool_allowed_by_gateway_runs(_stub_chat_store, resolver
     )
     assert result.success is True
     assert result.output_text == "wiped"
-
-
-@pytest.mark.asyncio
-async def test_notifier_invoked_for_each_message(_stub_chat_store, resolver):
-    registry = _build_registry([_EchoTool()])
-    seen: list[tuple[str, str, str]] = []
-
-    async def notifier(user_id, session_id, message_id):
-        seen.append((user_id, session_id, message_id))
-
-    runner = CommandRunner(registry=registry, resolver=resolver, notifier=notifier)
-    await runner.run_tool_command(
-        user_id="u1",
-        session_id="s1",
-        tool_name="echo",
-        arguments={"text": "hi"},
-        invocation_text="/echo text=hi",
-    )
-    assert len(seen) == 2

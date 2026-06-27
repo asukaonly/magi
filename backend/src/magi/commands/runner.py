@@ -20,7 +20,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 from magi_plugin_sdk.tools import (
     ToolErrorCode,
@@ -29,8 +29,7 @@ from magi_plugin_sdk.tools import (
 )
 
 from ..control.permission.contracts import ToolOrigin
-from ..chat.contracts import ChatMessageRecord
-from ..chat.provider import get_chat_store
+from ..core.runtime_bindings import require_chat_surface_write_service
 from ..tools.capabilities import build_tool_capabilities
 from ..tools.registry import ToolRegistry
 from .resolver import UserInvocableResolver, get_default_resolver
@@ -49,6 +48,38 @@ class CommandRunResult:
     execution_time_ms: int = 0
 
 
+class CommandTranscriptWriter(Protocol):
+    async def append_command_invocation(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        invocation_text: str,
+    ) -> str:
+        ...
+
+    async def append_command_result(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+        invocation_message_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        output_text: str,
+        success: bool,
+        error: str | None,
+        error_code: str | None,
+        execution_time_ms: int,
+        invocation_text: str | None = None,
+    ) -> str:
+        ...
+
+
 class CommandRunner:
     def __init__(
         self,
@@ -56,12 +87,12 @@ class CommandRunner:
         registry: ToolRegistry,
         resolver: UserInvocableResolver | None = None,
         permission_gateway_provider: Callable[[], Any] | None = None,
-        notifier: Callable[[str, str, str], Any] | None = None,
+        transcript_writer: CommandTranscriptWriter | None = None,
     ) -> None:
         self._registry = registry
         self._resolver = resolver or get_default_resolver()
         self._permission_gateway_provider = permission_gateway_provider
-        self._notifier = notifier
+        self._transcript_writer = transcript_writer
 
     async def run_tool_command(
         self,
@@ -98,7 +129,7 @@ class CommandRunner:
             )
 
         turn_id = f"cmd_{uuid.uuid4().hex[:16]}"
-        invocation_msg = await self._append_invocation_message(
+        invocation_message_id = await self._append_invocation_message(
             user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
@@ -120,7 +151,7 @@ class CommandRunner:
                 user_id=user_id,
                 session_id=session_id,
                 turn_id=turn_id,
-                invocation_message_id=invocation_msg.message_id,
+                invocation_message_id=invocation_message_id,
                 tool_name=tool_name,
                 arguments=arguments,
                 output_text=gateway_decision.reason or "Permission denied.",
@@ -144,7 +175,7 @@ class CommandRunner:
                 user_id=user_id,
                 session_id=session_id,
                 turn_id=turn_id,
-                invocation_message_id=invocation_msg.message_id,
+                invocation_message_id=invocation_message_id,
                 tool_name=tool_name,
                 arguments=arguments,
                 output_text=refusal,
@@ -179,7 +210,7 @@ class CommandRunner:
                 user_id=user_id,
                 session_id=session_id,
                 turn_id=turn_id,
-                invocation_message_id=invocation_msg.message_id,
+                invocation_message_id=invocation_message_id,
                 tool_name=tool_name,
                 arguments=arguments,
                 output_text=str(exc),
@@ -195,7 +226,7 @@ class CommandRunner:
             user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
-            invocation_message_id=invocation_msg.message_id,
+            invocation_message_id=invocation_message_id,
             tool_name=tool_name,
             arguments=arguments,
             output_text=output_text,
@@ -244,34 +275,15 @@ class CommandRunner:
         tool_name: str,
         arguments: dict[str, Any],
         invocation_text: str,
-    ) -> ChatMessageRecord:
-        store = get_chat_store()
-        now_ms = int(time.time() * 1000)
-        payload = {
-            "command": {
-                "tool_name": tool_name,
-                "arguments": arguments,
-            }
-        }
-        record = ChatMessageRecord(
-            message_id=f"msg_{uuid.uuid4().hex[:16]}",
+    ) -> str:
+        return await self._writer().append_command_invocation(
+            user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
-            user_id=user_id,
-            role="user",
-            message_kind="command_invocation",
-            content_text=invocation_text or f"/{tool_name}",
-            payload_json=json.dumps(payload, ensure_ascii=False),
-            is_final=True,
-            is_visible=True,
-            created_at_ms=now_ms,
-            sequence_no=1,
-            replaces_message_id=None,
-            replaced_by_message_id=None,
+            tool_name=tool_name,
+            arguments=arguments,
+            invocation_text=invocation_text,
         )
-        await store.append_message(record)
-        await self._notify(user_id, session_id, record.message_id)
-        return record
 
     async def _append_result_message(
         self,
@@ -287,41 +299,25 @@ class CommandRunner:
         error: str | None,
         error_code: str | None,
         execution_time_ms: int,
+        invocation_text: str | None = None,
     ) -> CommandRunResult:
-        store = get_chat_store()
-        now_ms = int(time.time() * 1000)
-        payload = {
-            "command_result": {
-                "tool_name": tool_name,
-                "arguments": arguments,
-                "success": success,
-                "error": error,
-                "error_code": error_code,
-                "execution_time_ms": execution_time_ms,
-                "invocation_message_id": invocation_message_id,
-            }
-        }
-        record = ChatMessageRecord(
-            message_id=f"msg_{uuid.uuid4().hex[:16]}",
+        message_id = await self._writer().append_command_result(
+            user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
-            user_id=user_id,
-            role="tool",
-            message_kind="command_result",
-            content_text=output_text,
-            payload_json=json.dumps(payload, ensure_ascii=False),
-            is_final=True,
-            is_visible=True,
-            created_at_ms=now_ms,
-            sequence_no=2,
-            replaces_message_id=None,
-            replaced_by_message_id=None,
+            invocation_message_id=invocation_message_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            output_text=output_text,
+            success=success,
+            error=error,
+            error_code=error_code,
+            execution_time_ms=execution_time_ms,
+            invocation_text=invocation_text,
         )
-        await store.append_message(record)
-        await self._notify(user_id, session_id, record.message_id)
         return CommandRunResult(
             success=success,
-            message_id=record.message_id,
+            message_id=message_id,
             invocation_message_id=invocation_message_id,
             output_text=output_text,
             error=error,
@@ -344,55 +340,25 @@ class CommandRunner:
         # because tool wasn't actually started). The frontend chip can still
         # show the attempted call from payload_json.
         turn_id = f"cmd_{uuid.uuid4().hex[:16]}"
-        store = get_chat_store()
-        now_ms = int(time.time() * 1000)
-        payload = {
-            "command_result": {
-                "tool_name": tool_name,
-                "arguments": arguments,
-                "success": False,
-                "error": error,
-                "error_code": error_code,
-                "execution_time_ms": 0,
-                "invocation_text": invocation_text,
-            }
-        }
-        record = ChatMessageRecord(
-            message_id=f"msg_{uuid.uuid4().hex[:16]}",
+        return await self._append_result_message(
+            user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
-            user_id=user_id,
-            role="tool",
-            message_kind="command_result",
-            content_text=error,
-            payload_json=json.dumps(payload, ensure_ascii=False),
-            is_final=True,
-            is_visible=True,
-            created_at_ms=now_ms,
-            sequence_no=1,
-            replaces_message_id=None,
-            replaced_by_message_id=None,
-        )
-        await store.append_message(record)
-        await self._notify(user_id, session_id, record.message_id)
-        return CommandRunResult(
-            success=False,
-            message_id=record.message_id,
             invocation_message_id="",
+            tool_name=tool_name,
+            arguments=arguments,
             output_text=error,
+            success=False,
             error=error,
             error_code=error_code,
+            execution_time_ms=0,
+            invocation_text=invocation_text,
         )
 
-    async def _notify(self, user_id: str, session_id: str, message_id: str) -> None:
-        if self._notifier is None:
-            return
-        try:
-            maybe = self._notifier(user_id, session_id, message_id)
-            if hasattr(maybe, "__await__"):
-                await maybe
-        except Exception:
-            logger.exception("command_runner: notifier raised")
+    def _writer(self) -> CommandTranscriptWriter:
+        if self._transcript_writer is None:
+            self._transcript_writer = require_chat_surface_write_service()
+        return self._transcript_writer
 
 
 def _extract_text(result: ToolResult) -> str:
