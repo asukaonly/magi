@@ -23,7 +23,7 @@ Timeline owns:
 
 Timeline does not own:
 
-- sensor scheduling or execution (L1/L9)
+- sensor scheduling or execution (L1/L10)
 - durable memory storage or recall (L7)
 - chat transcript truth (L14 `chat/`)
 
@@ -31,7 +31,7 @@ Timeline does not own:
 
 ```
 Sensor plugin
-  → SensorIngestionGateway (L9, publishes SensorEventEmitted)
+  → SensorIngestionGateway (L10, publishes SensorEventEmitted)
   → TimelineSubscriber
   → timeline-owned SensorEventEmitted projection
   → TimelineEvent (L13 read model)

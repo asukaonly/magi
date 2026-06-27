@@ -31,7 +31,7 @@ The final reply model should not receive a full menu of persona states and decid
 
 ## Ownership
 
-Persona runtime belongs to L8, the Personality Layer.
+Persona runtime belongs to L9, the Personality Layer.
 
 The Personality Layer owns:
 
@@ -42,7 +42,7 @@ The Personality Layer owns:
 - relationship layer evaluation
 - `PersonaTurnPlanner`, which converts persona config plus runtime signals into a per-turn behavior plan
 
-The Context Layer owns prompt-context assembly and rendering. It consumes the plan from L8; it does not classify register, activate triggers, or reinterpret relationship state.
+The Context Layer owns prompt-context assembly and rendering. It consumes the plan from L9; it does not classify register, activate triggers, or reinterpret relationship state.
 
 The Agent Runtime owns execution coordination. It provides task/runtime signals such as intent, selected tools, execution mode, conversation history, and current user message; it does not know persona-specific trigger semantics.
 
@@ -58,11 +58,11 @@ the owning stores before they affect future turns.
 flowchart TD
     U["User message"] --> R["Turn router / context decider"]
     R --> D["Intent, tools, thinking depth, turn profile"]
-    D --> P["PersonaTurnPlanner (L8)"]
+    D --> P["PersonaTurnPlanner (L9)"]
     C["Active persona config"] --> P
     S["Relationship + dynamic state"] --> P
     P --> T["PersonaTurnPlan"]
-    T --> A["ContextAssemblyService (L10)"]
+    T --> A["ContextAssemblyService (L11)"]
     M["Memory, profile, runtime, attachments, tools"] --> A
     A --> X["PromptContextRenderer"]
     X --> L["LLM call"]
@@ -478,7 +478,7 @@ The current code has these legacy surfaces that should be removed or rewritten d
 The replacement surfaces are:
 
 - `PersonaTurnPlanner` under `personality/`
-- `PersonaTurnPlan` as the L8-to-L10 contract
+- `PersonaTurnPlan` as the L9-to-L11 contract
 - `registers`, `quiet_hours`, `signature_triggers`, and layer `modifiers` in persona config
 - plan-based prompt rendering in `context/`
 - post-process state updates that affect future turns only

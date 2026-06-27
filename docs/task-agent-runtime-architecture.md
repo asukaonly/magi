@@ -298,7 +298,7 @@ Important rule: the runtime message bus is process-local to `runtime_worker`. It
 
 ## Agent Runtime
 
-The L11 runtime lives under `backend/src/magi/agent/`.
+The L12 runtime lives under `backend/src/magi/agent/`.
 
 Agent-owned scheduler targets are registered by `AgentScheduleRegistrationModule` after `runtime_scheduler` starts. The current supported target is `user_agent_task`; its handler converts the persisted schedule payload into a `BackgroundTaskSpec` and enqueues it through `BackgroundTaskManager` with `trigger_source=schedule`.
 
@@ -326,7 +326,7 @@ Current responsibilities:
 - build chat runtime context
 - delegate execution routing to the chat execution coordinator
 - own chat-specific session and postprocess services
-- delegate prompt-package assembly to the L10 context layer service
+- delegate prompt-package assembly to the L11 context layer service
 - render final user-facing answers
 
 The chat driver is still a task-agent implementation, but graph execution is not
@@ -370,7 +370,7 @@ the planner contract, persistence shape, and streaming restrictions.
 
 ### Interruption Dispositions
 
-When a user sends another message while a chat turn is already running, the `SessionRunCoordinator` classifies the interruption into one of four dispositions and routes it accordingly. The classifier lives in `backend/src/magi/agent/task_agents/chat/interruption_classifier.py` and combines rule-based keyword matching with an optional LLM fallback.
+When a user sends another message while a chat turn is already running, the `SessionRunCoordinator` classifies the interruption into one of four dispositions and routes it accordingly. The classifier lives in `backend/src/magi/chat/task_agent/interruption_classifier.py` and combines rule-based keyword matching with an optional LLM fallback.
 
 - `INTERRUPT`
   The new message contradicts or cancels the running turn (for example, "stop", "wait", "nevermind"). The active run is cancelled and a new root turn starts from scratch. The `ActiveRun` revision bumps and in-flight tool results are discarded.
@@ -687,7 +687,7 @@ reads ``current_detach_signal()`` and calls ``signal.request(...)``.
 Outside a bound context it returns ``error_code="detach_not_supported"``.
 
 Flow inside a chat turn
-([agent/task_agents/chat/handlers.py](../backend/src/magi/agent/task_agents/chat/handlers.py)):
+([agent/task_agents/handlers/handlers.py](../backend/src/magi/agent/task_agents/handlers/handlers.py)):
 
 1. ``FunctionCallingHandler.execute()`` builds a fresh ``DetachSignal``
    via ``_build_detach_signal()`` — only when a ``BackgroundLaunchService``
@@ -886,7 +886,7 @@ This replaced older ad hoc dictionary passing with explicit typed contracts.
 The most important contract families are:
 
 - execution contracts in `agent/task_agents/common/contracts.py`
-- runtime context and intent contracts in `agent/task_agents/chat/contracts.py` and `agent/task_agents/explore/contracts.py`
+- runtime context and intent contracts in `agent/task_agents/handlers/contracts.py` and `agent/task_agents/explore/contracts.py`
 - orchestration contracts in `agent/orchestration.py`
 - worker result contracts in `agent/orchestration.py`
 
@@ -1106,7 +1106,7 @@ For a large codebase exploration request, the path is:
 If you are modifying this part of the system, read these first:
 
 - [task_agent.py](../backend/src/magi/agent/runtime/task_agent.py)
-- [chat_task_agent.py](../backend/src/magi/agent/task_agents/chat_task_agent.py)
+- [chat_task_agent.py](../backend/src/magi/chat/task_agent/chat_task_agent.py)
 - [explore_task_agent.py](../backend/src/magi/agent/task_agents/explore_task_agent.py)
 - [task_orchestrator.py](../backend/src/magi/agent/task_orchestrator.py)
 - [orchestration.py](../backend/src/magi/agent/orchestration.py)
