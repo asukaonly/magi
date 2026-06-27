@@ -1,49 +1,47 @@
-"""Phase D Task 5: ChatExecutionCoordinator uses NodeSequenceRunner
+"""Phase D Task 5: TaskAgentExecutionEngine uses NodeSequenceRunner
 for user-message paths; profile=coding auto-appends ValidateNode."""
 from __future__ import annotations
 
 import inspect
 
+import pytest
 
-def test_coordinator_constructs_validate_node_in_init() -> None:
-    """ChatExecutionCoordinator.__init__ must construct a ValidateNode
-    and register it on the NodeRegistry."""
-    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
-    src = inspect.getsource(ChatExecutionCoordinator.__init__)
+def test_execution_engine_constructs_validate_node_in_init() -> None:
+    """TaskAgentExecutionEngine must construct a ValidateNode and register
+    it on the NodeRegistry."""
+    from magi.agent.run.execution_engine import TaskAgentExecutionEngine
+
+    src = inspect.getsource(TaskAgentExecutionEngine)
     assert "ValidateNode" in src, (
-        "ChatExecutionCoordinator.__init__ must construct a ValidateNode"
+        "TaskAgentExecutionEngine must construct a ValidateNode"
     )
 
 
-def test_coordinator_constructs_graph_builder_and_runner() -> None:
-    """ChatExecutionCoordinator.__init__ must construct a GraphBuilder
+def test_execution_engine_constructs_graph_builder_and_runner() -> None:
+    """TaskAgentExecutionEngine.__init__ must construct a GraphBuilder
     and a NodeSequenceRunner."""
-    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
+    from magi.agent.run.execution_engine import TaskAgentExecutionEngine
 
-    src = inspect.getsource(ChatExecutionCoordinator.__init__)
+    src = inspect.getsource(TaskAgentExecutionEngine.__init__)
     assert "GraphBuilder" in src
     assert "NodeSequenceRunner" in src
 
 
-def test_coordinator_execute_uses_node_sequence_runner() -> None:
-    """ChatExecutionCoordinator.execute must dispatch user-message
+def test_execution_engine_execute_uses_node_sequence_runner() -> None:
+    """TaskAgentExecutionEngine.execute must dispatch user-message
     paths through NodeSequenceRunner.run; single-node fallback for
     legacy single-Node paths is acceptable but the multi-node path
     must go through the runner."""
-    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
+    from magi.agent.run.execution_engine import TaskAgentExecutionEngine
 
-    src = inspect.getsource(ChatExecutionCoordinator.execute)
+    src = inspect.getsource(TaskAgentExecutionEngine.execute)
     assert "_node_sequence_runner" in src or "node_sequence_runner" in src or "_runner" in src, (
         "execute() must use the NodeSequenceRunner"
     )
     assert "build_node_sequence" in src or "_graph_builder" in src, (
         "execute() must build node sequence via GraphBuilder"
     )
-
-
-import pytest
-
 
 @pytest.mark.asyncio
 async def test_coding_profile_runs_tool_loop_then_validate_end_to_end() -> None:
@@ -52,7 +50,6 @@ async def test_coding_profile_runs_tool_loop_then_validate_end_to_end() -> None:
     and the final ExecutionResult carries both outputs."""
     from magi.agent.run.builder import GraphBuilder
     from magi.agent.run.nodes.plan_fanout import PlanFanoutNode
-    from magi.agent.run.nodes.protocol import NodeOutcome, NodeResult
     from magi.agent.run.nodes.reply import ReplyNode
     from magi.agent.run.nodes.tool_loop import ToolLoopNode
     from magi.agent.run.nodes.validate import ValidateNode
@@ -60,7 +57,6 @@ async def test_coding_profile_runs_tool_loop_then_validate_end_to_end() -> None:
     from magi.agent.run.runner import NodeSequenceRunner
     from magi.agent.task_agents.common.contracts import (
         ExecutionMode,
-        ExecutionResult,
         FunctionCallingExecutionResult,
     )
     from magi.tools.schema import ToolResult
@@ -227,15 +223,16 @@ async def test_non_coding_profile_runs_single_node_no_validate() -> None:
     assert validate_calls == []
 
 
-def test_coordinator_execute_uses_run_with_snapshot_when_session_run_id_available() -> None:
-    """Phase E: ChatExecutionCoordinator.execute calls
-    NodeSequenceRunner.run_with_snapshot when the request context
-    carries a session_run_id, and saves the returned snapshot to the
-    SessionRunStore."""
+def test_execution_engine_uses_run_with_snapshot_when_session_run_id_available() -> None:
+    """Phase E: TaskAgentExecutionEngine.execute calls
+    NodeSequenceRunner.run_with_snapshot and saves the returned snapshot."""
     import inspect
-    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
+    from magi.agent.run.execution_engine import TaskAgentExecutionEngine
 
-    src = inspect.getsource(ChatExecutionCoordinator.execute)
+    src = inspect.getsource(TaskAgentExecutionEngine.execute)
     assert "run_with_snapshot" in src, (
         "execute() must use run_with_snapshot to persist per-turn state"
+    )
+    assert "_save_snapshot" in src, (
+        "execute() must save the returned snapshot through its store seam"
     )

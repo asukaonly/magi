@@ -48,6 +48,23 @@ class _EmptyChannelRegistry:
         return None
 
 
+class _FakeExecutionOutcome:
+    def __init__(self, result, *, used_graph: bool = True) -> None:
+        self.result = result
+        self.used_graph = used_graph
+
+
+class _FakeExecutionEngine:
+    def __init__(self, result, *, used_graph: bool = True) -> None:
+        self.result = result
+        self.used_graph = used_graph
+        self.requests = []
+
+    async def execute(self, request):
+        self.requests.append(request)
+        return _FakeExecutionOutcome(self.result, used_graph=self.used_graph)
+
+
 def _build_real_tool_registry() -> ToolRegistry:
     registry = ToolRegistry()
     for tool_class in (GlobTool, GrepTool, FileReadTool):
@@ -1604,7 +1621,6 @@ async def test_execute_uses_user_prefs_provider_for_fanout_targets():
     (exclude_chat_sse=True). The user opted into chat_sse + telegram, but the
     chat_sse agent_response is produced later by the postprocess seam
     (deliver_final_chat_response), so execute() delivers ONLY to telegram."""
-    from magi.agent.run.snapshot import RunSnapshot
     from magi.agent.task_agents.common.contracts import (
         ExecutionRequest, ExecutionResult, ExecutionMode,
     )
@@ -1659,21 +1675,11 @@ async def test_execute_uses_user_prefs_provider_for_fanout_targets():
         ),
     )
 
-    # Mock the runner so execute() short-circuits with a fixed result.
+    # Stub the execution engine so execute() short-circuits with a fixed result.
     canned_result = ExecutionResult(
         mode=ExecutionMode.DIRECT_LLM, response_text="hello world",
     )
-
-    class _FakeRunner:
-        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
-            return canned_result, RunSnapshot(
-                run_id=run_id,
-                graph=tuple(spec.node_type for spec in node_specs),
-                cursor=len(node_specs),
-                node_states={},
-            )
-
-    coordinator._node_sequence_runner = _FakeRunner()
+    coordinator._execution_engine = _FakeExecutionEngine(canned_result)
 
     # Build a real-shaped request with route_decision so execute() takes the
     # node-sequence path.
@@ -1858,7 +1864,6 @@ async def test_deliver_final_chat_response_delivers_rich_content_to_chat_sse_onl
 async def test_execute_swallows_user_prefs_provider_errors_and_uses_default_target():
     """If the provider raises, execute() defaults to empty prefs and still
     fans out to chat_sse only (no crash)."""
-    from magi.agent.run.snapshot import RunSnapshot
     from magi.agent.task_agents.common.contracts import (
         ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
     )
@@ -1915,17 +1920,7 @@ async def test_execute_swallows_user_prefs_provider_errors_and_uses_default_targ
     canned_result = ExecutionResult(
         mode=ExecutionMode.DIRECT_LLM, response_text="fallback ok",
     )
-
-    class _FakeRunner:
-        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
-            return canned_result, RunSnapshot(
-                run_id=run_id,
-                graph=tuple(spec.node_type for spec in node_specs),
-                cursor=len(node_specs),
-                node_states={},
-            )
-
-    coordinator._node_sequence_runner = _FakeRunner()
+    coordinator._execution_engine = _FakeExecutionEngine(canned_result)
 
     route = RouteDecision(
         profile="chat", graph_shape="reply", complexity="simple",
@@ -1986,7 +1981,6 @@ async def test_execute_passes_runner_attachments_through_to_delivery_content():
     only passed text, so external channels (telegram/weixin) could never
     have known the agent wanted to attach images — even with downstream
     channel-side support, the data was lost at this layer."""
-    from magi.agent.run.snapshot import RunSnapshot
     from magi.agent.task_agents.common.contracts import (
         ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
     )
@@ -2067,17 +2061,7 @@ async def test_execute_passes_runner_attachments_through_to_delivery_content():
         response_text="here's what you asked for",
         attachments=[image_attachment, pdf_attachment],
     )
-
-    class _FakeRunner:
-        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
-            return canned_result, RunSnapshot(
-                run_id=run_id,
-                graph=tuple(spec.node_type for spec in node_specs),
-                cursor=len(node_specs),
-                node_states={},
-            )
-
-    coordinator._node_sequence_runner = _FakeRunner()
+    coordinator._execution_engine = _FakeExecutionEngine(canned_result)
 
     route = RouteDecision(
         profile="chat", graph_shape="reply", complexity="simple",
@@ -2140,7 +2124,6 @@ async def test_execute_passes_empty_attachments_when_runner_has_none():
     """When ExecutionResult.attachments is empty (the common case for
     text-only replies), DeliveryContent.attachments must be an empty
     tuple — not crash, not leak a None into channel.deliver."""
-    from magi.agent.run.snapshot import RunSnapshot
     from magi.agent.task_agents.common.contracts import (
         ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
     )
@@ -2189,15 +2172,7 @@ async def test_execute_passes_empty_attachments_when_runner_has_none():
         response_text="just words",
         # attachments defaults to [] via dataclass field factory
     )
-
-    class _FakeRunner:
-        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
-            return canned_result, RunSnapshot(
-                run_id=run_id,
-                graph=tuple(spec.node_type for spec in node_specs),
-                cursor=len(node_specs), node_states={},
-            )
-    coordinator._node_sequence_runner = _FakeRunner()
+    coordinator._execution_engine = _FakeExecutionEngine(canned_result)
 
     fact = FactRecord(
         agent_id="chat:u",
@@ -2241,7 +2216,6 @@ async def test_execute_routes_reply_back_to_origin_channel_from_run_trigger():
     inbound dispatch and outbound fanout. This test reproduces the bug
     end-to-end through ``coordinator.execute``.
     """
-    from magi.agent.run.snapshot import RunSnapshot
     from magi.agent.task_agents.common.contracts import (
         ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
     )
@@ -2303,17 +2277,7 @@ async def test_execute_routes_reply_back_to_origin_channel_from_run_trigger():
     canned_result = ExecutionResult(
         mode=ExecutionMode.DIRECT_LLM, response_text="reply for weixin",
     )
-
-    class _FakeRunner:
-        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
-            return canned_result, RunSnapshot(
-                run_id=run_id,
-                graph=tuple(spec.node_type for spec in node_specs),
-                cursor=len(node_specs),
-                node_states={},
-            )
-
-    coordinator._node_sequence_runner = _FakeRunner()
+    coordinator._execution_engine = _FakeExecutionEngine(canned_result)
 
     route = RouteDecision(
         profile="chat", graph_shape="reply", complexity="simple",
@@ -2389,7 +2353,6 @@ async def test_execute_context_user_prefs_wins_over_provider():
     the override path under test.
     """
     from types import SimpleNamespace
-    from magi.agent.run.snapshot import RunSnapshot
     from magi.agent.task_agents.common.contracts import (
         ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
     )
@@ -2450,17 +2413,7 @@ async def test_execute_context_user_prefs_wins_over_provider():
     canned_result = ExecutionResult(
         mode=ExecutionMode.DIRECT_LLM, response_text="override",
     )
-
-    class _FakeRunner:
-        async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
-            return canned_result, RunSnapshot(
-                run_id=run_id,
-                graph=tuple(spec.node_type for spec in node_specs),
-                cursor=len(node_specs),
-                node_states={},
-            )
-
-    coordinator._node_sequence_runner = _FakeRunner()
+    coordinator._execution_engine = _FakeExecutionEngine(canned_result)
 
     route = RouteDecision(
         profile="chat", graph_shape="reply", complexity="simple",

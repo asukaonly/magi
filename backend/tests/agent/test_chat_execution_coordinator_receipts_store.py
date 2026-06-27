@@ -6,7 +6,6 @@ from __future__ import annotations
 import pytest
 
 from magi.agent.runtime.contracts import FactRecord
-from magi.agent.run.snapshot import RunSnapshot
 from magi.agent.task_agents.handlers import (
     ChatRuntimeContext,
     ExecutionHandlerRegistry,
@@ -117,6 +116,23 @@ class _FakeContextDecider:
         return self._decision
 
 
+class _FakeExecutionOutcome:
+    def __init__(self, result: ExecutionResult, *, used_graph: bool = True) -> None:
+        self.result = result
+        self.used_graph = used_graph
+
+
+class _FakeExecutionEngine:
+    def __init__(self, result: ExecutionResult, *, used_graph: bool = True) -> None:
+        self.result = result
+        self.used_graph = used_graph
+        self.requests = []
+
+    async def execute(self, request):
+        self.requests.append(request)
+        return _FakeExecutionOutcome(self.result, used_graph=self.used_graph)
+
+
 def _build_context_with_run_id(*, user_id: str, session_id: str, run_id: str) -> ChatRuntimeContext:
     fact = FactRecord(
         agent_id=f"chat:{user_id}",
@@ -200,19 +216,7 @@ async def test_execute_writes_receipts_to_store_not_snapshot():
         mode=ExecutionMode.DIRECT_LLM,
         response_text="hello world",
     )
-
-    class _FakeRunner:
-        async def run_with_snapshot(
-            self, *, run_id, node_specs, request, resume_from,
-        ):
-            return canned_result, RunSnapshot(
-                run_id=run_id,
-                graph=tuple(spec.node_type for spec in node_specs),
-                cursor=len(node_specs),
-                node_states={},
-            )
-
-    coordinator._node_sequence_runner = _FakeRunner()
+    coordinator._execution_engine = _FakeExecutionEngine(canned_result)
 
     route = RouteDecision(
         profile="chat", graph_shape="reply", complexity="simple",

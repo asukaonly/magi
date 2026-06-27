@@ -43,14 +43,8 @@ from magi.agent.task_agents.handlers.contracts import (
     TurnUXPlan,
 )
 from magi_plugin_sdk.delivery import DeliveryContent
-from magi.agent.run.builder import GraphBuilder
+from magi.agent.run.execution_engine import TaskAgentExecutionEngine
 from magi.agent.run.ports import AttachmentResolverPort, NullAttachmentResolver
-from magi.agent.run.nodes.plan_fanout import PlanFanoutNode
-from magi.agent.run.nodes.reply import ReplyNode
-from magi.agent.run.nodes.tool_loop import ToolLoopNode
-from magi.agent.run.nodes.validate import ValidateNode
-from magi.agent.run.registry import NodeRegistry
-from magi.agent.run.runner import NodeSequenceRunner
 from magi.agent.task_agents.handlers.attachment_context import resolve_effective_turn_attachments
 from .delivery_dispatch import ChatDeliveryDispatchPort
 from .fact_classifier import ChatFactClassifier
@@ -146,6 +140,7 @@ class ChatExecutionCoordinator:
         delivery_dispatcher: ChatDeliveryDispatchPort | None = None,
         conversation_log: Any | None = None,
         attachment_resolver: AttachmentResolverPort | None = None,
+        execution_engine: TaskAgentExecutionEngine | None = None,
     ) -> None:
         self._context_decider = context_decider
         self._fact_classifier = fact_classifier
@@ -157,10 +152,8 @@ class ChatExecutionCoordinator:
         self._intent_trace_callback = intent_trace_callback
         self._tool_advisory_provider = tool_advisory_provider
         self._tool_selection_trace_callback = tool_selection_trace_callback
-        # Phase E: optional store for per-turn snapshot persistence.
-        # When supplied, execute() calls run_with_snapshot and persists the
-        # returned RunSnapshot so background-detached multi-node runs can
-        # resume from the in-progress node. None for legacy / test callers.
+        # Optional store handed to the agent execution engine for resumable
+        # multi-step turns. None for legacy / test callers.
         self._session_run_store = session_run_store
         self._delivery_dispatcher = delivery_dispatcher
         # Phase F Task 10: optional ConversationLog. When supplied,
@@ -181,30 +174,10 @@ class ChatExecutionCoordinator:
             else None
         )
         self._tool_advisory_reranker = ToolAdvisoryReranker()
-        # Phase C: parallel NodeRegistry for user-message paths keyed
-        # by RouteDecision.graph_shape. The legacy handler_registry
-        # remains responsible for non-route paths (ORCHESTRATION_UPDATE,
-        # EXPLORE_TASK_RENDER, FACT_ONLY).
-        self._node_registry = NodeRegistry()
-        _direct_llm = handler_registry._handlers.get(ExecutionMode.DIRECT_LLM)
-        _function_calling = handler_registry._handlers.get(ExecutionMode.FUNCTION_CALLING)
-        _orchestration_launch = handler_registry._handlers.get(ExecutionMode.ORCHESTRATION_LAUNCH)
-        if _direct_llm is not None:
-            self._node_registry.register(ReplyNode(direct_llm_handler=_direct_llm))
-        if _function_calling is not None:
-            self._node_registry.register(ToolLoopNode(function_calling_handler=_function_calling))
-        if _orchestration_launch is not None:
-            self._node_registry.register(
-                PlanFanoutNode(orchestration_launch_handler=_orchestration_launch)
-            )
-        # Phase D: ValidateNode runs verify tool after coding turns.
-        # GraphBuilder + NodeSequenceRunner drive multi-node graphs.
-        self._node_registry.register(
-            ValidateNode(tool_registry=tool_registry)
-        )
-        self._graph_builder = GraphBuilder()
-        self._node_sequence_runner = NodeSequenceRunner(
-            node_registry=self._node_registry,
+        self._execution_engine = execution_engine or TaskAgentExecutionEngine(
+            handler_registry=handler_registry,
+            tool_registry=tool_registry,
+            snapshot_store=session_run_store,
         )
 
     async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
@@ -444,16 +417,8 @@ class ChatExecutionCoordinator:
         return await handler.build_request(request)
 
     async def execute(self, request: ExecutionRequest):
-        # Phase D/E: build node sequence from RouteDecision (profile-aware:
-        # coding profile auto-appends ValidateNode). Run via the
-        # NodeSequenceRunner which handles single-node AND multi-node
-        # graphs uniformly. Non-route paths fall through to the legacy
-        # ExecutionHandlerRegistry.
-        # Phase E: use run_with_snapshot so per-node state is persisted for
-        # background-detached runs that need to resume from an in-progress node.
         route_decision = getattr(request.intent, "route_decision", None)
         if route_decision is not None:
-            node_specs = self._graph_builder.build_node_sequence(route_decision)
             session_id = getattr(getattr(request, "context", None), "session_id", "") or ""
             session_run_id = getattr(getattr(request, "context", None), "session_run_id", "") or ""
 
@@ -490,55 +455,18 @@ class ChatExecutionCoordinator:
                             exc_info=True,
                         )
 
-            # Look for a resume snapshot — populated when a background
-            # dispatcher rehydrates a detached run.
-            resume_from = None
-            if session_id and session_run_id and self._session_run_store is not None:
-                stored_snapshot = self._session_run_store.get_run_snapshot(session_id, session_run_id)
-                # Only resume from a partial snapshot. A completed snapshot
-                # (cursor >= len(node_specs)) means the prior run finished;
-                # using it would cause the runner's for-loop to be empty and
-                # return "(no output)". Clear it so the next turn runs fresh.
-                if stored_snapshot is not None and stored_snapshot.cursor < len(node_specs):
-                    resume_from = stored_snapshot
-                elif stored_snapshot is not None:
-                    # Completed snapshot from a prior turn — discard.
-                    self._session_run_store.clear_run_snapshot(session_id, session_run_id)
-
-            runner_result, snapshot = await self._node_sequence_runner.run_with_snapshot(
-                run_id=session_run_id or "",
-                node_specs=node_specs,
-                request=request,
-                resume_from=resume_from,
+        execution_outcome = await self._execution_engine.execute(request)
+        result = execution_outcome.result
+        if result is None:
+            return None
+        if execution_outcome.used_graph:
+            await self._fanout_to_origin_channels(
+                request,
+                response_text=result.response_text or "",
+                attachments=getattr(result, "attachments", ()) or (),
+                exclude_chat_sse=True,
             )
-
-            # Persist the new snapshot so subsequent detach paths can read it.
-            if session_id and session_run_id and self._session_run_store is not None:
-                self._session_run_store.save_run_snapshot(session_id, session_run_id, snapshot)
-
-            # Phase G: fan out the runner result to the user's configured +
-            # originating delivery channels (when wired).
-            if runner_result is not None:
-                # P3 Step 3: execute()-time fanout serves EXTERNAL channels only;
-                # the chat_sse agent_response is produced by the postprocess seam
-                # (deliver_final_chat_response) with the full rich payload.
-                await self._fanout_to_origin_channels(
-                    request,
-                    response_text=runner_result.response_text or "",
-                    attachments=runner_result.attachments or (),
-                    exclude_chat_sse=True,
-                )
-                return runner_result
-        # Legacy handler-registry path (ORCHESTRATION_UPDATE worker results,
-        # EXPLORE_TASK_RENDER, …). These also produce a final user-facing
-        # response, so they must ALSO fan out to the originating external
-        # channel — otherwise a WeChat/Telegram turn that got offloaded to a
-        # worker subagent only reaches the message bus (desktop) and the
-        # channel user hears nothing. Gated on a real, emit-worthy response so
-        # interim worker progress (skip_emit / empty text) never spams the channel.
-        handler = self._handler_registry.get(request.mode)
-        result = await handler.execute(request)
-        if getattr(result, "response_text", "") and not getattr(result, "skip_emit", False):
+        elif getattr(result, "response_text", "") and not getattr(result, "skip_emit", False):
             # P3 Step 3: external channels only (chat_sse rich agent_response
             # comes from the postprocess seam).
             await self._fanout_to_origin_channels(

@@ -64,3 +64,38 @@ def _chat_channel_imports() -> list[str]:
 
 def test_chat_layer_does_not_import_channels_layer() -> None:
     assert _chat_channel_imports() == []
+
+
+_CHAT_FORBIDDEN_AGENT_RUN_INTERNALS = {
+    "magi.agent.run.builder",
+    "magi.agent.run.nodes",
+    "magi.agent.run.registry",
+    "magi.agent.run.runner",
+    "magi.agent.run.spec",
+}
+
+
+def _chat_agent_run_internal_imports() -> list[str]:
+    violations: list[str] = []
+    for path in (_BACKEND_SRC / "magi" / "chat").rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if any(
+                        alias.name == module or alias.name.startswith(f"{module}.")
+                        for module in _CHAT_FORBIDDEN_AGENT_RUN_INTERNALS
+                    ):
+                        violations.append(f"{path.relative_to(_BACKEND_SRC)}:{node.lineno}")
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if any(
+                    module == forbidden or module.startswith(f"{forbidden}.")
+                    for forbidden in _CHAT_FORBIDDEN_AGENT_RUN_INTERNALS
+                ):
+                    violations.append(f"{path.relative_to(_BACKEND_SRC)}:{node.lineno}")
+    return sorted(violations)
+
+
+def test_chat_layer_does_not_import_agent_run_internals() -> None:
+    assert _chat_agent_run_internal_imports() == []

@@ -15,7 +15,6 @@ from __future__ import annotations
 import pytest
 
 from magi.agent.runtime.contracts import FactRecord
-from magi.agent.run.snapshot import RunSnapshot
 from magi.agent.task_agents.handlers import (
     ChatRuntimeContext,
     ExecutionHandlerRegistry,
@@ -94,26 +93,25 @@ class _FakeContextDecider:
         self.tool_registry = _FakeToolRegistry()
 
 
-class _FakeRunner:
-    """Returns a canned result + matching snapshot for any node_specs."""
+class _FakeExecutionOutcome:
+    def __init__(self, result: ExecutionResult, *, used_graph: bool = True) -> None:
+        self.result = result
+        self.used_graph = used_graph
+
+
+class _FakeExecutionEngine:
+    """Returns a canned graph-backed result for any request."""
 
     def __init__(self, response_text: str = "ok") -> None:
-        self._response = response_text
-        self.last_call = None
-
-    async def run_with_snapshot(self, *, run_id, node_specs, request, resume_from):
-        self.last_call = (run_id, node_specs, request, resume_from)
-        result = ExecutionResult(
+        self._result = ExecutionResult(
             mode=ExecutionMode.DIRECT_LLM,
-            response_text=self._response,
+            response_text=response_text,
         )
-        snap = RunSnapshot(
-            run_id=run_id,
-            graph=tuple(spec.node_type for spec in node_specs),
-            cursor=len(node_specs),
-            node_states={},
-        )
-        return result, snap
+        self.requests = []
+
+    async def execute(self, request):
+        self.requests.append(request)
+        return _FakeExecutionOutcome(self._result)
 
 
 def _build_context(
@@ -195,7 +193,7 @@ async def test_execute_records_consumed_message_ids() -> None:
     records the run as a consumer of those message_ids."""
     log = _RecordingLog(visible_ids=["m1", "m2", "m3"])
     coord = _build_coordinator(conversation_log=log)
-    coord._node_sequence_runner = _FakeRunner()
+    coord._execution_engine = _FakeExecutionEngine()
 
     ctx = _build_context(session_id="s1", run_id="run-1", revision=0)
     await coord.execute(_build_request(ctx))
@@ -215,7 +213,7 @@ async def test_execute_uses_context_revision_for_record_consumed() -> None:
     pre- vs post-interrupt consumption."""
     log = _RecordingLog(visible_ids=["m1"])
     coord = _build_coordinator(conversation_log=log)
-    coord._node_sequence_runner = _FakeRunner()
+    coord._execution_engine = _FakeExecutionEngine()
 
     ctx = _build_context(session_id="s1", run_id="run-1", revision=2)
     await coord.execute(_build_request(ctx))
@@ -229,7 +227,7 @@ async def test_execute_skips_record_consumed_with_no_log() -> None:
     """Backward compat: when conversation_log is None, execute must still
     drive the runner and return a result without crashing."""
     coord = _build_coordinator(conversation_log=None)
-    coord._node_sequence_runner = _FakeRunner()
+    coord._execution_engine = _FakeExecutionEngine()
 
     ctx = _build_context(session_id="s1", run_id="run-1")
     result = await coord.execute(_build_request(ctx))
@@ -241,7 +239,7 @@ async def test_execute_swallows_log_failure() -> None:
     """A failing log.list_visible_message_ids must not break the run."""
     log = _RaisingLog(visible_ids=[])
     coord = _build_coordinator(conversation_log=log)
-    coord._node_sequence_runner = _FakeRunner()
+    coord._execution_engine = _FakeExecutionEngine()
 
     ctx = _build_context(session_id="s1", run_id="run-1")
     # Should NOT raise. No record either (since lookup failed).
@@ -255,7 +253,7 @@ async def test_execute_skips_record_consumed_when_no_session_or_run_id() -> None
     """No session_id / run_id → can't record, just drive the runner."""
     log = _RecordingLog(visible_ids=["m1"])
     coord = _build_coordinator(conversation_log=log)
-    coord._node_sequence_runner = _FakeRunner()
+    coord._execution_engine = _FakeExecutionEngine()
 
     ctx = _build_context(session_id="", run_id="")
     await coord.execute(_build_request(ctx))
@@ -267,7 +265,7 @@ async def test_execute_skips_record_consumed_when_history_empty() -> None:
     """First-ever turn: nothing to consume, so no record is written."""
     log = _RecordingLog(visible_ids=[])
     coord = _build_coordinator(conversation_log=log)
-    coord._node_sequence_runner = _FakeRunner()
+    coord._execution_engine = _FakeExecutionEngine()
 
     ctx = _build_context(session_id="s1", run_id="run-1")
     await coord.execute(_build_request(ctx))

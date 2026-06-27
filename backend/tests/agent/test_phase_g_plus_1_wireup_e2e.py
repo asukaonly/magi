@@ -43,7 +43,6 @@ from magi.chat.task_agent.fact_classifier import (
     IncomingFactKind,
 )
 from magi.agent.runtime.contracts import FactRecord
-from magi.agent.run.snapshot import RunSnapshot
 from magi.agent.task_agents.common.contracts import (
     ExecutionRequest,
     ExecutionResult,
@@ -208,6 +207,23 @@ class _FakeContextDecider:
     async def decide(self, user_message: str, decision_context: object):
         self.last_decision_context = decision_context
         return self._decision
+
+
+class _FakeExecutionOutcome:
+    def __init__(self, result: ExecutionResult, *, used_graph: bool = True) -> None:
+        self.result = result
+        self.used_graph = used_graph
+
+
+class _FakeExecutionEngine:
+    def __init__(self, result: ExecutionResult, *, used_graph: bool = True) -> None:
+        self.result = result
+        self.used_graph = used_graph
+        self.requests = []
+
+    async def execute(self, request):
+        self.requests.append(request)
+        return _FakeExecutionOutcome(self.result, used_graph=self.used_graph)
 
 
 def _two_channel_prefs_provider():
@@ -392,25 +408,13 @@ async def test_execute_fanout_calls_deliver_on_both_channels() -> None:
         prefs_provider=_two_channel_prefs_provider(),
     )
 
-    # Stub the node-sequence runner so execute() short-circuits with a
+    # Stub the execution engine so execute() short-circuits with a
     # canned ExecutionResult — same pattern as Task 9's integration tests.
     canned_result = ExecutionResult(
         mode=ExecutionMode.DIRECT_LLM,
         response_text="hello world",
     )
-
-    class _FakeRunner:
-        async def run_with_snapshot(
-            self, *, run_id, node_specs, request, resume_from,
-        ):
-            return canned_result, RunSnapshot(
-                run_id=run_id,
-                graph=tuple(spec.node_type for spec in node_specs),
-                cursor=len(node_specs),
-                node_states={},
-            )
-
-    coordinator._node_sequence_runner = _FakeRunner()
+    coordinator._execution_engine = _FakeExecutionEngine(canned_result)
 
     route = RouteDecision(
         profile="chat",
@@ -491,18 +495,7 @@ async def test_streaming_chunks_then_final_fanout_reaches_both_channels() -> Non
         mode=ExecutionMode.DIRECT_LLM, response_text="hello world",
     )
 
-    class _FakeRunner:
-        async def run_with_snapshot(
-            self, *, run_id, node_specs, request, resume_from,
-        ):
-            return canned_result, RunSnapshot(
-                run_id=run_id,
-                graph=tuple(spec.node_type for spec in node_specs),
-                cursor=len(node_specs),
-                node_states={},
-            )
-
-    coordinator._node_sequence_runner = _FakeRunner()
+    coordinator._execution_engine = _FakeExecutionEngine(canned_result)
     route = RouteDecision(
         profile="chat", graph_shape="reply", complexity="simple",
         tools=[], reasoning="",

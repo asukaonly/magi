@@ -73,31 +73,29 @@ def test_graph_shapes_returns_registered_keys() -> None:
     assert set(registry.graph_shapes()) == {"reply", "tool_loop", "plan_fanout"}
 
 
-def test_chat_execution_coordinator_has_node_registry_attribute() -> None:
-    """ChatExecutionCoordinator must construct a NodeRegistry at init
-    and expose it as `_node_registry` (private; consumed only by
-    execute())."""
+def test_task_agent_execution_engine_has_node_registry_attribute() -> None:
+    """TaskAgentExecutionEngine must construct a NodeRegistry at init."""
     import inspect
 
-    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
+    from magi.agent.run.execution_engine import TaskAgentExecutionEngine
 
-    src = inspect.getsource(ChatExecutionCoordinator.__init__)
+    src = inspect.getsource(TaskAgentExecutionEngine.__init__)
     assert "NodeRegistry" in src, (
-        "ChatExecutionCoordinator.__init__ must construct a NodeRegistry"
+        "TaskAgentExecutionEngine.__init__ must construct a NodeRegistry"
     )
 
 
-def test_chat_execution_coordinator_execute_dispatches_via_node_registry() -> None:
-    """Phase D: ChatExecutionCoordinator.execute dispatches user-message
+def test_task_agent_execution_engine_dispatches_via_node_registry() -> None:
+    """Phase D: TaskAgentExecutionEngine.execute dispatches user-message
     paths through NodeSequenceRunner (which internally uses the NodeRegistry).
     Phase D replaced the direct NodeRegistry lookup with a runner-based
     pipeline that supports multi-node sequences (e.g., ToolLoop + Validate).
     The execute() source must reference the sequence runner."""
     import inspect
 
-    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
+    from magi.agent.run.execution_engine import TaskAgentExecutionEngine
 
-    src = inspect.getsource(ChatExecutionCoordinator.execute)
+    src = inspect.getsource(TaskAgentExecutionEngine.execute)
     # Phase D: NodeSequenceRunner drives dispatch; the runner holds the registry.
     assert "_node_sequence_runner" in src or "node_sequence_runner" in src, (
         "execute() must dispatch via the NodeSequenceRunner (Phase D)"

@@ -319,7 +319,7 @@ The base class is generic over runtime context, intent result, tool selection, e
 
 ### `ChatTaskAgent`
 
-Primary user-facing task agent in `agent/task_agents/chat_task_agent.py`.
+Primary user-facing task agent driver in `chat/task_agent/chat_task_agent.py`.
 
 Current responsibilities:
 
@@ -328,6 +328,12 @@ Current responsibilities:
 - own chat-specific session and postprocess services
 - delegate prompt-package assembly to the L10 context layer service
 - render final user-facing answers
+
+The chat driver is still a task-agent implementation, but graph execution is not
+chat-owned. `ChatExecutionCoordinator` prepares the chat request and delegates
+graph-backed execution to `agent/run/TaskAgentExecutionEngine`; graph building,
+node registration, node adapters, sequence running, and snapshot persistence stay
+behind that engine boundary.
 
 ### Conversation presentation planning
 
@@ -869,8 +875,9 @@ The general pattern is:
 
 1. a coordinator chooses an `ExecutionMode`
 2. it creates an `ExecutionRequest`
-3. a handler specializes that request into a mode-specific DTO
-4. the handler returns an `ExecutionResult`
+3. `TaskAgentExecutionEngine` either drives a graph-backed node sequence or falls back to the selected handler
+4. a handler specializes that request into a mode-specific DTO
+5. the handler returns an `ExecutionResult`
 
 This replaced older ad hoc dictionary passing with explicit typed contracts.
 
