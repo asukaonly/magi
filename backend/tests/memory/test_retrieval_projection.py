@@ -120,7 +120,7 @@ def test_project_historical_recall_emits_generic_entity_and_asset_refs() -> None
                 "timestamp": "2022-09-02T10:30:00Z",
                 "content": "West Lake sunrise",
                 "metadata_json": {
-                    "timeline": {
+                    "activity_snapshot": {
                         "source_type": "photo_library",
                         "source_item_id": "photo-1",
                         "title": "West Lake sunrise",

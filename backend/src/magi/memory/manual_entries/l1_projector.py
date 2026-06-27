@@ -18,6 +18,8 @@ from __future__ import annotations
 import time
 from typing import Any, Optional, Protocol
 
+from magi.events.sensor_activity_snapshot import ACTIVITY_SNAPSHOT_METADATA_KEY
+
 from ..event_contracts import (
     AuthorType,
     ContentType,
@@ -58,7 +60,7 @@ def _build_memory_event(entry: ManualEntry) -> MemoryEvent:
     — this is what positions it in the timeline view.
     """
     metadata: dict[str, Any] = {
-        "timeline": {
+        ACTIVITY_SNAPSHOT_METADATA_KEY: {
             "title": "你写下的",
             "source_type": "manual_entry",
             "summary": entry.body,

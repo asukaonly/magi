@@ -7,6 +7,8 @@ from typing import Any, Dict, Optional, Protocol, cast
 
 import aiosqlite
 
+from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+
 from ...event_contracts import (
     IngestTarget,
     MemoryDomain,
@@ -172,23 +174,23 @@ class L1EventRowMixin:
                 if isinstance(raw_metadata_json, dict)
                 else {}
             )
-        raw_timeline = metadata.get("timeline")
-        timeline: Dict[str, Any] = (
-            cast(Dict[str, Any], raw_timeline) if isinstance(raw_timeline, dict) else {}
-        )
-        if not timeline:
+        activity_snapshot = activity_snapshot_from_metadata(metadata)
+        if not activity_snapshot:
             return None
         return {
             "event_id": str(event["event_id"]),
-            "source_type": str(timeline.get("source_type") or event.get("source") or "memory"),
+            "source_type": str(activity_snapshot.get("source_type") or event.get("source") or "memory"),
             "source_item_id": (
-                timeline.get("source_item_id")
+                activity_snapshot.get("source_item_id")
                 or event.get("source_item_id")
                 or event.get("idempotency_key")
             ),
             "occurred_at": float(event.get("timestamp") or event.get("created_at") or 0.0),
             "title": str(
-                timeline.get("title") or event.get("content") or event.get("event_id") or "Event"
+                activity_snapshot.get("title")
+                or event.get("content")
+                or event.get("event_id")
+                or "Event"
             ),
-            "summary": str(timeline.get("summary") or event.get("content") or ""),
+            "summary": str(activity_snapshot.get("summary") or event.get("content") or ""),
         }

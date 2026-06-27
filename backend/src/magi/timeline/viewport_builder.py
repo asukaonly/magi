@@ -6,6 +6,8 @@ import json
 from collections import Counter, defaultdict
 from typing import Any
 
+from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+
 from .. import i18n as core_i18n
 from ..core.logger import get_logger
 from .cluster_builder import TimelineClusterBuilder
@@ -752,15 +754,22 @@ class TimelineViewportBuilder:
 
     def _to_raw_event(self, event: dict[str, Any], *, locale: str) -> dict[str, Any]:
         metadata = self._event_metadata(event)
-        timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
+        activity_snapshot = activity_snapshot_from_metadata(metadata)
         return {
             "event_id": str(event.get("event_id")),
             "timestamp": float(event.get("timestamp") or 0.0),
-            "title": str(timeline.get("title") or event.get("event_type") or event.get("event_id") or self._timeline_t("raw_event.title", locale, fallback="Event")),
-            "summary": str(timeline.get("summary") or event.get("content") or ""),
-            "source_type": str(timeline.get("source_type") or event.get("source") or "memory"),
+            "title": str(
+                activity_snapshot.get("title")
+                or event.get("event_type")
+                or event.get("event_id")
+                or self._timeline_t("raw_event.title", locale, fallback="Event")
+            ),
+            "summary": str(activity_snapshot.get("summary") or event.get("content") or ""),
+            "source_type": str(
+                activity_snapshot.get("source_type") or event.get("source") or "memory"
+            ),
             "source_item_id": str(
-                timeline.get("source_item_id")
+                activity_snapshot.get("source_item_id")
                 or event.get("source_item_id")
                 or event.get("idempotency_key")
                 or ""
@@ -769,8 +778,8 @@ class TimelineViewportBuilder:
 
     def _event_source_type(self, event: dict[str, Any]) -> str:
         metadata = self._event_metadata(event)
-        timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
-        return str(timeline.get("source_type") or event.get("source") or "memory")
+        activity_snapshot = activity_snapshot_from_metadata(metadata)
+        return str(activity_snapshot.get("source_type") or event.get("source") or "memory")
 
     def _filter_events(
         self,
@@ -810,15 +819,17 @@ class TimelineViewportBuilder:
     @staticmethod
     def _event_search_text(event: dict[str, Any]) -> str:
         metadata = TimelineViewportBuilder._event_metadata(event)
-        timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
+        activity_snapshot = activity_snapshot_from_metadata(metadata)
         parts: list[str] = [
             str(event.get("source") or ""),
             str(event.get("content") or ""),
-            str(timeline.get("title") or ""),
-            str(timeline.get("summary") or ""),
-            " ".join(str(tag) for tag in timeline.get("tags", []) if str(tag).strip()),
+            str(activity_snapshot.get("title") or ""),
+            str(activity_snapshot.get("summary") or ""),
+            " ".join(
+                str(tag) for tag in activity_snapshot.get("tags", []) if str(tag).strip()
+            ),
         ]
-        for entity in timeline.get("entities", []):
+        for entity in activity_snapshot.get("entities", []):
             if isinstance(entity, dict):
                 parts.extend([str(entity.get("label") or ""), str(entity.get("id") or "")])
         return " ".join(part for part in parts if part).lower()

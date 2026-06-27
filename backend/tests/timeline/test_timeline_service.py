@@ -48,7 +48,7 @@ async def test_get_context_bundle_resolves_episode_anchor() -> None:
                 "timestamp": 100.0,
                 "source": "chat",
                 "content": "Episode evidence",
-                "metadata": {"timeline": {"title": "Episode event", "summary": "Episode evidence summary."}},
+                "metadata": {"activity_snapshot": {"title": "Episode event", "summary": "Episode evidence summary."}},
             }
 
     class _FakeL2:

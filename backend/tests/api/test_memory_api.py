@@ -102,7 +102,7 @@ class _FakeL1Store:
                 importance_score=0.8,
                 level=20,
                 media_path=None,
-                metadata_json={"timeline": {"source_app": "Chrome", "title": "hello"}},
+                metadata_json={"activity_snapshot": {"source_app": "Chrome", "title": "hello"}},
                 embedding_status="ready",
                 embedding_profile_id="profile-a",
             )
@@ -1687,7 +1687,7 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
     assert body["items"][0]["retention_class"] == "compressible"
     assert body["items"][0]["id"] == 101
     assert body["items"][0]["idempotency_key"] == "chat:session-1:turn-1"
-    assert body["items"][0]["metadata_json"] == {"timeline": {"source_app": "Chrome", "title": "hello"}}
+    assert body["items"][0]["metadata_json"] == {"activity_snapshot": {"source_app": "Chrome", "title": "hello"}}
     assert body["items"][0]["embedding_status"] == "ready"
     assert body["items"][0]["embedding_profile_id"] == "profile-a"
     assert body["total"] == 12

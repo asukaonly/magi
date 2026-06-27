@@ -21,7 +21,7 @@ def _make_event(event_id: str, timestamp: float, tag: str = "activity") -> dict[
         "timestamp": timestamp,
         "source": "test",
         "content": f"Event {event_id}",
-        "metadata": {"timeline": {"tags": [tag], "entities": []}},
+        "metadata": {"activity_snapshot": {"tags": [tag], "entities": []}},
     }
 
 
@@ -137,7 +137,7 @@ class _FakeL1:
             "timestamp": 100.0,
             "source": "chat",
             "content": f"Content of {event_id}",
-            "metadata": {"timeline": {"title": f"Title {event_id}", "summary": f"Summary {event_id}"}},
+            "metadata": {"activity_snapshot": {"title": f"Title {event_id}", "summary": f"Summary {event_id}"}},
         }
 
 

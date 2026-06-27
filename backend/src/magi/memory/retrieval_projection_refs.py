@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+
 from .entity_display import display_name_for
 from .hybrid_retrieval.models import RetrievalPayload
 
@@ -149,13 +151,22 @@ def normalize_asset_ref(item: Any) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None
     metadata = item.get("metadata_json") if isinstance(item.get("metadata_json"), dict) else {}
-    timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
-    provenance = timeline.get("provenance") if isinstance(timeline.get("provenance"), dict) else {}
+    activity_snapshot = activity_snapshot_from_metadata(metadata)
+    provenance = (
+        activity_snapshot.get("provenance")
+        if isinstance(activity_snapshot.get("provenance"), dict)
+        else {}
+    )
 
-    source_type = str(timeline.get("source_type") or item.get("source") or "").strip()
-    source_item_id = str(timeline.get("source_item_id") or item.get("source_item_id") or item.get("idempotency_key") or "").strip()
+    source_type = str(activity_snapshot.get("source_type") or item.get("source") or "").strip()
+    source_item_id = str(
+        activity_snapshot.get("source_item_id")
+        or item.get("source_item_id")
+        or item.get("idempotency_key")
+        or ""
+    ).strip()
     asset_ref_id = str(
-        timeline.get("asset_ref_id")
+        activity_snapshot.get("asset_ref_id")
         or source_item_id
         or item.get("event_id")
         or ""
@@ -165,7 +176,7 @@ def normalize_asset_ref(item: Any) -> dict[str, Any] | None:
         return None
 
     kind = str(
-        timeline.get("kind")
+        activity_snapshot.get("kind")
         or provenance.get("kind")
         or item.get("content_type")
         or ("file" if media_path else "")
@@ -183,20 +194,24 @@ def normalize_asset_ref(item: Any) -> dict[str, Any] | None:
         "source_item_id": source_item_id or None,
         "original_name": str(
             provenance.get("filename")
-            or timeline.get("original_name")
-            or timeline.get("title")
+            or activity_snapshot.get("original_name")
+            or activity_snapshot.get("title")
             or ""
         ).strip() or None,
         "display_name": str(
-            timeline.get("title")
+            activity_snapshot.get("title")
             or provenance.get("filename")
             or item.get("content")
             or ""
         ).strip() or None,
-        "captured_at": provenance.get("captured_at") or timeline.get("captured_at") or item.get("timestamp"),
+        "captured_at": (
+            provenance.get("captured_at")
+            or activity_snapshot.get("captured_at")
+            or item.get("timestamp")
+        ),
         "occurred_at": item.get("timestamp") or item.get("created_at"),
     }
-    attributes = safe_asset_attributes(timeline, provenance)
+    attributes = safe_asset_attributes(activity_snapshot, provenance)
     if attributes:
         normalized["attributes"] = attributes
     return {key: value for key, value in normalized.items() if value is not None}

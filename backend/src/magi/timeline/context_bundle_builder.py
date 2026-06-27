@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+
 from .. import i18n as core_i18n
 
 
@@ -124,15 +126,22 @@ class TimelineContextBundleBuilder:
 
     def _to_event_preview(self, event: dict[str, Any]) -> dict[str, Any]:
         metadata = self._event_metadata(event)
-        timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
+        activity_snapshot = activity_snapshot_from_metadata(metadata)
         return {
             "event_id": str(event.get("event_id")),
             "timestamp": float(event.get("timestamp") or 0.0),
-            "title": str(timeline.get("title") or event.get("event_type") or event.get("event_id") or core_i18n.t("timeline.raw_event.title", fallback="Event")),
-            "summary": str(timeline.get("summary") or event.get("content") or ""),
-            "source_type": str(timeline.get("source_type") or event.get("source") or "memory"),
+            "title": str(
+                activity_snapshot.get("title")
+                or event.get("event_type")
+                or event.get("event_id")
+                or core_i18n.t("timeline.raw_event.title", fallback="Event")
+            ),
+            "summary": str(activity_snapshot.get("summary") or event.get("content") or ""),
+            "source_type": str(
+                activity_snapshot.get("source_type") or event.get("source") or "memory"
+            ),
             "source_item_id": str(
-                timeline.get("source_item_id")
+                activity_snapshot.get("source_item_id")
                 or event.get("source_item_id")
                 or event.get("idempotency_key")
                 or ""

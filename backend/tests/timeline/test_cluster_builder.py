@@ -13,7 +13,7 @@ async def test_cluster_builder_groups_adjacent_events_into_activity_blocks() -> 
             "source": "chat",
             "content": "Discussed refactoring the timeline page.",
             "metadata": {
-                "timeline": {
+                "activity_snapshot": {
                     "title": "Chat planning",
                     "summary": "Discussed the semantic zoom redesign.",
                     "tags": ["timeline", "planning"],
@@ -27,7 +27,7 @@ async def test_cluster_builder_groups_adjacent_events_into_activity_blocks() -> 
             "source": "manual_journal",
             "content": "Outlined the redesign structure.",
             "metadata": {
-                "timeline": {
+                "activity_snapshot": {
                     "title": "Journal note",
                     "summary": "Outlined semantic zoom structure.",
                     "tags": ["timeline", "notes"],
@@ -41,7 +41,7 @@ async def test_cluster_builder_groups_adjacent_events_into_activity_blocks() -> 
             "source": "chrome_history",
             "content": "Read unrelated article.",
             "metadata": {
-                "timeline": {
+                "activity_snapshot": {
                     "title": "Browser research",
                     "summary": "Looked at an article.",
                     "tags": ["research"],
@@ -70,21 +70,21 @@ async def test_cluster_builder_groups_events_at_month_scale() -> None:
             "timestamp": 1000.0,
             "source": "chat",
             "content": "Morning planning session.",
-            "metadata": {"timeline": {"tags": ["planning"], "entities": [{"label": "project"}]}},
+            "metadata": {"activity_snapshot": {"tags": ["planning"], "entities": [{"label": "project"}]}},
         },
         {
             "event_id": "evt-b",
             "timestamp": 2000.0,  # 16 min later, same theme
             "source": "chat",
             "content": "Continued planning.",
-            "metadata": {"timeline": {"tags": ["planning"], "entities": [{"label": "project"}]}},
+            "metadata": {"activity_snapshot": {"tags": ["planning"], "entities": [{"label": "project"}]}},
         },
         {
             "event_id": "evt-c",
             "timestamp": 20000.0,  # ~5h later, different theme
             "source": "chrome_history",
             "content": "Reading articles.",
-            "metadata": {"timeline": {"tags": ["reading"], "entities": [{"label": "browser"}]}},
+            "metadata": {"activity_snapshot": {"tags": ["reading"], "entities": [{"label": "browser"}]}},
         },
     ]
 
@@ -135,7 +135,7 @@ async def test_cluster_builder_surfaces_photo_asset_ref_from_transient_cluster()
                     "representative_photos": [
                         {"asset_local_id": "apple-photos:asset-1"}
                     ],
-                    "timeline": {"tags": ["photo_library"]},
+                    "activity_snapshot": {"tags": ["photo_library"]},
                 },
             }
         ],
@@ -158,7 +158,7 @@ async def test_cluster_builder_surfaces_photo_asset_ref_from_episode_events() ->
                     "representative_photos": [
                         {"asset_local_id": "apple-photos:asset-1"}
                     ],
-                    "timeline": {"tags": ["photo_library"]},
+                    "activity_snapshot": {"tags": ["photo_library"]},
                 },
             }
         ],
@@ -189,7 +189,7 @@ def _chrome_event(*, event_id: str, ts: float, domain: str) -> dict:
         "timestamp": ts,
         "source": "chrome_history",
         "metadata": {
-            "timeline": {
+            "activity_snapshot": {
                 # The shape the Chrome sensor actually writes today —
                 # source-name tag + the visited domain. cluster_builder
                 # must filter out the source-name and surface the domain.
@@ -277,7 +277,7 @@ async def test_cluster_builder_falls_back_to_episode_type_when_no_specific_tags(
     builder = TimelineClusterBuilder()
     events = [{
         "event_id": "e1", "timestamp": 110.0, "source": "chrome_history",
-        "metadata": {"timeline": {"tags": ["chrome_history"]}},  # no domain
+        "metadata": {"activity_snapshot": {"tags": ["chrome_history"]}},  # no domain
     }]
     clusters = builder.build(
         events,
@@ -301,7 +301,7 @@ async def test_cluster_builder_marks_source_derived_label_non_themeable() -> Non
     source_only = builder.build(
         [{
             "event_id": "c1", "timestamp": 100.0, "source": "chat_projector",
-            "metadata": {"timeline": {"tags": []}},
+            "metadata": {"activity_snapshot": {"tags": []}},
         }],
         scale="day",  # no episodes -> transient _build_cluster path
     )
@@ -311,7 +311,7 @@ async def test_cluster_builder_marks_source_derived_label_non_themeable() -> Non
     tagged = builder.build(
         [{
             "event_id": "t1", "timestamp": 100.0, "source": "chat",
-            "metadata": {"timeline": {"tags": ["planning"]}},
+            "metadata": {"activity_snapshot": {"tags": ["planning"]}},
         }],
         scale="day",
     )
@@ -326,7 +326,7 @@ async def test_cluster_builder_marks_placeholder_episode_label_non_themeable() -
     placeholder = builder.build(
         [{
             "event_id": "e1", "timestamp": 110.0, "source": "chrome_history",
-            "metadata": {"timeline": {"tags": ["chrome_history"]}},  # no domain
+            "metadata": {"activity_snapshot": {"tags": ["chrome_history"]}},  # no domain
         }],
         scale="day",
         episodes=[{

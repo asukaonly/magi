@@ -7,6 +7,8 @@ import inspect
 import logging
 from typing import Any
 
+from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+
 from .base import Plugin
 from .contracts import ExtractionProfileSpec, SummaryProfileSpec, TemporalSummaryFeatureBudget
 
@@ -232,8 +234,8 @@ class PluginProjectionMixin:
         for event in events:
             source_type = str(event.get("source") or "").strip()
             metadata = event.get("metadata_json") if isinstance(event.get("metadata_json"), dict) else {}
-            timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
-            source_type = str(timeline.get("source_type") or source_type).strip()
+            activity_snapshot = activity_snapshot_from_metadata(metadata)
+            source_type = str(activity_snapshot.get("source_type") or source_type).strip()
             if not source_type:
                 continue
             events_by_source.setdefault(source_type, []).append(event)

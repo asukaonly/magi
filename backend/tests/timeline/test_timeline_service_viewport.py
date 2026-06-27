@@ -18,7 +18,7 @@ class _FakeL1Store:
                 "source": "chrome_history",
                 "content": "Spent the night reading game guides while feeling low.",
                 "metadata": {
-                    "timeline": {
+                    "activity_snapshot": {
                         "title": "Game session",
                         "summary": "Played through a difficult section while feeling low.",
                         "tags": ["game", "recovery"],
@@ -32,7 +32,7 @@ class _FakeL1Store:
                 "source": "chat",
                 "content": "Discussed the redesign.",
                 "metadata": {
-                    "timeline": {
+                    "activity_snapshot": {
                         "title": "Chat planning",
                         "summary": "Discussed semantic zoom.",
                         "tags": ["coding", "timeline"],
@@ -55,7 +55,7 @@ class _FakeL1Store:
             "timestamp": 100.0,
             "source": "chat",
             "content": "Discussed the redesign.",
-            "metadata": {"timeline": {"title": "Chat planning", "summary": "Discussed semantic zoom."}},
+            "metadata": {"activity_snapshot": {"title": "Chat planning", "summary": "Discussed semantic zoom."}},
         }
 
 
@@ -261,7 +261,7 @@ async def test_timeline_service_reads_timeline_projection_from_metadata_json() -
                     "source": "calendar",
                     "content": "Interview",
                     "metadata_json": {
-                        "timeline": {
+                        "activity_snapshot": {
                             "title": "Interview (09:00-10:00)",
                             "summary": "Interview",
                             "source_type": "calendar",
@@ -300,7 +300,7 @@ async def test_timeline_service_uses_idempotency_key_as_source_item_fallback() -
                     "source": "calendar",
                     "content": "Interview",
                     "metadata_json": {
-                        "timeline": {
+                        "activity_snapshot": {
                             "title": "Interview (09:00-10:00)",
                             "summary": "Interview",
                             "source_type": "calendar",
@@ -335,7 +335,7 @@ async def test_timeline_service_returns_cover_candidates_and_auto_asset(tmp_path
                     "content": "Took a photo.",
                     "asset_ref": "photo-library://asset-a",
                     "metadata": {
-                        "timeline": {
+                        "activity_snapshot": {
                             "title": "Photo walk",
                             "summary": "A bright photo from the walk.",
                             "tags": ["photo"],
@@ -349,7 +349,7 @@ async def test_timeline_service_returns_cover_candidates_and_auto_asset(tmp_path
                     "content": "Took another photo.",
                     "asset_ref": "photo-library://asset-b",
                     "metadata": {
-                        "timeline": {
+                        "activity_snapshot": {
                             "title": "Desk photo",
                             "summary": "A later photo at the desk.",
                             "tags": ["desk"],
@@ -389,7 +389,7 @@ async def test_timeline_service_persists_selected_and_hidden_cover(tmp_path) -> 
                     "source": "photo_library",
                     "content": "Took a photo.",
                     "asset_ref": "photo-library://asset-a",
-                    "metadata": {"timeline": {"summary": "A bright photo.", "tags": ["photo"]}},
+                    "metadata": {"activity_snapshot": {"summary": "A bright photo.", "tags": ["photo"]}},
                 },
                 {
                     "event_id": "photo-b",
@@ -397,7 +397,7 @@ async def test_timeline_service_persists_selected_and_hidden_cover(tmp_path) -> 
                     "source": "photo_library",
                     "content": "Took another photo.",
                     "asset_ref": "photo-library://asset-b",
-                    "metadata": {"timeline": {"summary": "A later photo.", "tags": ["desk"]}},
+                    "metadata": {"activity_snapshot": {"summary": "A later photo.", "tags": ["desk"]}},
                 },
             ]
 

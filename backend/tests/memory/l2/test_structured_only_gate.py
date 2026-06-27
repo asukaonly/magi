@@ -15,7 +15,7 @@ class _Event:
 def test_allows_when_flag_absent():
     assert event_allows_llm_extraction(_Event({})) is True
     assert event_allows_llm_extraction(_Event(None)) is True
-    assert event_allows_llm_extraction(_Event({"timeline": {}})) is True
+    assert event_allows_llm_extraction(_Event({"activity_snapshot": {}})) is True
 
 
 def test_blocks_when_flag_false():

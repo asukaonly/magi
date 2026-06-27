@@ -12,6 +12,8 @@ from urllib.parse import urlparse
 
 import aiosqlite
 
+from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+
 from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
 from .embeddings.common import FACT_EVENTS_TABLE
@@ -516,10 +518,8 @@ def _iter_retrieval_terms(metadata: dict[str, Any]) -> Iterable[str]:
 
 
 def _provenance_from_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    timeline = metadata.get("timeline")
-    if not isinstance(timeline, dict):
-        return {}
-    provenance = timeline.get("provenance")
+    activity_snapshot = activity_snapshot_from_metadata(metadata)
+    provenance = activity_snapshot.get("provenance")
     return provenance if isinstance(provenance, dict) else {}
 
 

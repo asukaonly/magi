@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Mapping, Optional
+from typing import Any, Optional
 
 from magi.events.domain_payloads import SensorEventEmitted
 from magi.events.events import EventLevel
+from magi.events.sensor_activity_snapshot import (
+    ACTIVITY_SNAPSHOT_METADATA_KEY,
+    build_sensor_activity_snapshot,
+)
 from magi.memory.event_contracts import (
     IngestTarget,
     MemoryDomain,
@@ -30,8 +34,8 @@ def build_sensor_memory_event(
     projection = payload.projection_dict or {}
     policy_data = payload.policy_dict or {}
 
-    timeline_metadata = _build_sensor_timeline_metadata(payload, event_id=event_id)
-    summary = projection.get("summary") or timeline_metadata.get("summary") or ""
+    activity_snapshot = build_sensor_activity_snapshot(payload, event_id=event_id)
+    summary = projection.get("summary") or activity_snapshot.get("summary") or ""
     content = projection.get("content") or summary
 
     metadata_json: dict[str, Any] = dict(output.get("domain_payload") or {})
@@ -53,17 +57,17 @@ def build_sensor_memory_event(
         if bp.get("max_wait_seconds") is not None:
             metadata_json["l2_batch_max_wait_seconds"] = int(bp["max_wait_seconds"])
 
-    # De-duplicate when timeline summary and L1 content match. For compact /
-    # evidence-only presentations they intentionally differ: timeline.summary
-    # stays short while event.content keeps the full searchable text.
-    timeline_for_metadata = dict(timeline_metadata)
-    if timeline_for_metadata.get("summary") == content:
-        timeline_for_metadata.pop("summary", None)
-    metadata_json["timeline"] = timeline_for_metadata
-    if timeline_metadata.get("raw_payload_ref"):
-        metadata_json["raw_payload_ref"] = timeline_metadata["raw_payload_ref"]
-    if timeline_metadata.get("processing_status"):
-        metadata_json["processing_status"] = dict(timeline_metadata["processing_status"])
+    # De-duplicate when activity summary and L1 content match. For compact /
+    # evidence-only presentations they intentionally differ: activity snapshot
+    # summary stays short while event.content keeps the full searchable text.
+    activity_for_metadata = dict(activity_snapshot)
+    if activity_for_metadata.get("summary") == content:
+        activity_for_metadata.pop("summary", None)
+    metadata_json[ACTIVITY_SNAPSHOT_METADATA_KEY] = activity_for_metadata
+    if activity_snapshot.get("raw_payload_ref"):
+        metadata_json["raw_payload_ref"] = activity_snapshot["raw_payload_ref"]
+    if activity_snapshot.get("processing_status"):
+        metadata_json["processing_status"] = dict(activity_snapshot["processing_status"])
 
     entity_hints = metadata.get("entities") or []
     if entity_hints:
@@ -124,37 +128,3 @@ def build_sensor_memory_event(
         span_id=getattr(trace_context, "span_id", None) if trace_context else None,
         parent_span_id=getattr(trace_context, "parent_span_id", None) if trace_context else None,
     )
-
-
-def _build_sensor_timeline_metadata(
-    payload: SensorEventEmitted,
-    *,
-    event_id: str,
-) -> Mapping[str, Any]:
-    output = payload.output_dict or {}
-    metadata = payload.metadata_dict or {}
-    projection = payload.projection_dict or {}
-    extra_entities = metadata.get("entities") or []
-    extra_tags = metadata.get("tags") or []
-    domain_payload = output.get("domain_payload") or {}
-
-    return {
-        "event_id": event_id,
-        "source_type": output.get("source_type", ""),
-        "source_item_id": output.get("source_item_id", ""),
-        "occurred_at": float(output.get("occurred_at", 0.0)),
-        "captured_at": float(output.get("captured_at", 0.0)),
-        "title": projection.get("title", ""),
-        "summary": projection.get("summary", ""),
-        "retention_mode": domain_payload.get("retention_mode", "analyze_only"),
-        "raw_payload_ref": output.get("raw_payload_ref"),
-        "content_blocks": list(output.get("content_blocks", [])),
-        "entities": list(output.get("entities", [])) + list(extra_entities),
-        "tags": list(dict.fromkeys(list(output.get("tags", [])) + list(extra_tags))),
-        "privacy_labels": list(domain_payload.get("privacy_labels", [])),
-        "processing_status": {
-            "stored": True,
-            "analyzed": bool(metadata.get("relation_candidates") or metadata.get("fact_hints")),
-        },
-        "provenance": dict(output.get("provenance") or {}),
-    }

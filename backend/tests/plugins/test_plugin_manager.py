@@ -679,7 +679,7 @@ def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins()
                 "source": "chrome_history",
                 "content": "OpenAI docs",
                 "metadata_json": {
-                    "timeline": {
+                    "activity_snapshot": {
                         "provenance": {
                             "domain": "openai.com",
                             "merged_visit_count": 2,
@@ -692,7 +692,7 @@ def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins()
                 "source": "chrome_history",
                 "content": "GitHub issues",
                 "metadata_json": {
-                    "timeline": {
+                    "activity_snapshot": {
                         "provenance": {
                             "domain": "github.com",
                             "merged_visit_count": 1,
@@ -705,7 +705,7 @@ def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins()
                 "source": "chrome_history",
                 "content": "OpenAI pricing",
                 "metadata_json": {
-                    "timeline": {
+                    "activity_snapshot": {
                         "provenance": {
                             "domain": "openai.com",
                             "merged_visit_count": 1,

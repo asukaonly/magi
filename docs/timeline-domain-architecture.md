@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This document describes the timeline domain (L12) — a reactive read-model layer that projects sensor outputs into scale-aware temporal views for the frontend.
+This document describes the timeline domain (L13) — a reactive read-model layer that projects sensor outputs into scale-aware temporal views for the frontend.
 
 Read together with [Layered Agent Architecture](./layered-agent-architecture.md), [Unified Plugin Architecture](./plugin-extension-architecture.md), and [Memory System Design](./memory-system-design.md).
 
 ## Scope
 
-The timeline domain is a downstream consumer of sensor ingestion. It does not own ingestion, scheduling, or durable memory retention. Those responsibilities belong to `awareness/` (L9), `scheduler/` (L1), and `memory/` (L6) respectively.
+The timeline domain is a downstream consumer of sensor ingestion. It does not own ingestion, scheduling, or durable memory retention. Those responsibilities belong to `awareness/` (L10), `scheduler/` (L1), and `memory/` (L7) respectively.
 
 Timeline owns:
 
@@ -24,8 +24,8 @@ Timeline owns:
 Timeline does not own:
 
 - sensor scheduling or execution (L1/L9)
-- durable memory storage or recall (L6)
-- chat transcript truth (L13 `chat/`)
+- durable memory storage or recall (L7)
+- chat transcript truth (L14 `chat/`)
 
 ## Data Flow
 
@@ -34,7 +34,7 @@ Sensor plugin
   → SensorIngestionGateway (L9, publishes SensorEventEmitted)
   → TimelineSubscriber
   → timeline-owned SensorEventEmitted projection
-  → TimelineEvent (L12 read model)
+  → TimelineEvent (L13 read model)
   → TimelineService.upsert_event()
       ├─ TimelineInsightPipeline (relation → L2 graph)
       └─ Timeline read model persistence
@@ -70,10 +70,12 @@ The canonical timeline fact. Created by the host projection pipeline from `Senso
 - `raw_payload_ref` — reference to the original sensor payload
 - `processing_status`, `provenance` — metadata and audit trail
 
-`TimelineEvent` is L12-internal. Sensors produce `SensorOutput` truth (L9), the
+`TimelineEvent` is L13-internal. Sensors produce `SensorOutput` truth (L10), the
 host renders display text, and the timeline layer owns the final
 `SensorEventEmitted` → `TimelineEvent` projection. Awareness does not construct
-timeline read-model records.
+timeline read-model records. When timeline reads events that already live in
+memory, it uses the neutral `activity_snapshot` metadata block rather than a
+timeline-owned structure persisted by memory.
 
 The host projection layer also enforces each sensor output's
 `timeline_presentation` policy. Default `full` events keep the historical
@@ -309,17 +311,18 @@ surface.
 
 ## Dependency Rules
 
-Timeline (L12) may depend on:
+Timeline (L13) may depend on:
 
-- memory (L6) for L1 events, L2 assertions/episodes/edges, L3 summaries, L4 procedures
-- awareness (L9) for `SensorOutput` contracts (input only)
+- memory (L7) for L1 events, L2 assertions/episodes/edges, L3 summaries, L4 procedures
+- awareness (L10) for `SensorOutput` contracts (input only)
 - config (L2) for runtime settings
 - core (L1) for infrastructure
 
 Timeline must not depend on:
 
-- agent runtime (L11)
-- external services (L13)
-- transport (L14)
+- agent runtime (L12)
+- external services (L14)
+- transport (L15)
 
-Sensors (L9) must not depend on timeline. The ingestion gateway uses a handler callback to decouple the sensor → timeline flow.
+Sensors (L10) must not depend on timeline. Sensor ingestion publishes neutral
+events; timeline subscribers own the sensor → timeline read-model projection.

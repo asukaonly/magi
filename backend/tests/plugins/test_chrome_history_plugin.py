@@ -625,7 +625,7 @@ def test_chrome_history_plugin_builds_temporal_summary_features(
                 "source": "chrome_history",
                 "content": "OpenAI docs for tool calling",
                 "metadata_json": {
-                    "timeline": {
+                    "activity_snapshot": {
                         "provenance": {
                             "domain": "openai.com",
                             "canonical_url": "https://openai.com/docs/tool-calling",
@@ -639,7 +639,7 @@ def test_chrome_history_plugin_builds_temporal_summary_features(
                 "source": "chrome_history",
                 "content": "OpenAI docs pricing page",
                 "metadata_json": {
-                    "timeline": {
+                    "activity_snapshot": {
                         "provenance": {
                             "domain": "openai.com",
                             "canonical_url": "https://openai.com/pricing",
@@ -653,7 +653,7 @@ def test_chrome_history_plugin_builds_temporal_summary_features(
                 "source": "chrome_history",
                 "content": "GitHub repository issues",
                 "metadata_json": {
-                    "timeline": {
+                    "activity_snapshot": {
                         "provenance": {
                             "domain": "github.com",
                             "canonical_url": "https://github.com/openai/openai-python/issues",

@@ -47,7 +47,7 @@ async def _build_group_timeline_message(text: str, *, correlation_id: str, times
         importance_score=0.75,
         level=EventLevel.INFO.value,
         metadata_json={
-            "timeline": {
+            "activity_snapshot": {
                 "event_id": correlation_id,
                 "source_type": "group_chat",
                 "source_item_id": f"group_chat:{correlation_id}",

@@ -672,7 +672,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 level=EventLevel.INFO.value,
                 media_path="/tmp/day-note.md",
                 metadata_json={
-                    "timeline": event.to_dict(),
+                    "activity_snapshot": event.to_dict(),
                     "raw_payload_ref": "/tmp/day-note.md",
                     "processing_status": {"stored": True, "embedded": False},
                 },

@@ -846,7 +846,7 @@ async def test_l1_event_store_timeline_view_falls_back_to_idempotency_key(tmp_pa
             level=1,
             idempotency_key="app_usage:2026-03-27T10:00:00+08:00:com.apple.Safari",
             metadata_json={
-                "timeline": {
+                "activity_snapshot": {
                     "source_type": "active_app_usage",
                     "title": "Safari",
                     "summary": "10:00-11:00 Safari used for 38m.",

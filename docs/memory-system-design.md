@@ -1181,6 +1181,10 @@ Key integration points:
 - **State transitions**: The viewport builder extracts state transitions from superseded assertion chains, producing `{trait_name, old_value, new_value, changed_at}` records.
 - **Episode context bundles**: When an anchor has an `episode_id`, the context bundle builder loads member events from `episode_events` instead of scanning by `representative_event_ids`. Bundles include `user_label` and `user_note`.
 - **Viewport payload**: At `day`/`week` scales, the viewport includes `episodes`, `state_transitions`, `state_bands`, `clusters`, and `reflections`.
+- **Activity previews**: L1 metadata may carry an `activity_snapshot` block for
+  source title, summary, tags, entities, provenance, and asset references. This
+  is a neutral memory snapshot; timeline owns the final read-model payload and
+  should not require memory metadata to store a `timeline`-named structure.
 
 ---
 
@@ -1285,7 +1289,7 @@ Main implementation entry points:
 
 - [backend/src/magi/memory/integration.py](../backend/src/magi/memory/integration.py) — Runtime-facing memory integration boundary
 
-- [backend/src/magi/awareness/ingestion_gateway.py](../backend/src/magi/awareness/ingestion_gateway.py) — Sensor / plugin → memory projection entry point
+- [backend/src/magi/awareness/ingestion_gateway.py](../backend/src/magi/awareness/ingestion_gateway.py) — Sensor / plugin event publish entry point
 
 ---
 

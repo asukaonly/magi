@@ -73,7 +73,8 @@ def test_build_sensor_memory_event_can_store_full_content_with_compact_timeline_
     me = build_sensor_memory_event(payload, event_id="evt-evidence")
 
     assert me.content == f"Screenshot Timeline Screen Capture {full_evidence_text}"
-    assert me.metadata_json["timeline"]["summary"] == compact_summary
+    assert me.metadata_json["activity_snapshot"]["summary"] == compact_summary
+    assert "timeline" not in me.metadata_json
 
 
 def test_build_sensor_memory_event_threads_promotion_override() -> None:
@@ -88,11 +89,12 @@ def test_build_sensor_memory_event_threads_promotion_override() -> None:
     assert me.metadata_json["promotion_override"] == "force_full"
 
 
-def test_build_sensor_memory_event_metadata_carries_timeline_dict() -> None:
+def test_build_sensor_memory_event_metadata_carries_activity_snapshot() -> None:
     payload = make_sensor_event_payload()
     me = build_sensor_memory_event(payload, event_id="evt-1")
-    assert "timeline" in (me.metadata_json or {})
-    assert me.metadata_json["timeline"]["event_id"] == "evt-1"
+    assert "activity_snapshot" in (me.metadata_json or {})
+    assert "timeline" not in (me.metadata_json or {})
+    assert me.metadata_json["activity_snapshot"]["event_id"] == "evt-1"
     assert me.metadata_json["memory_owner_user_id"] == "user-1"
 
 

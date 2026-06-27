@@ -60,7 +60,8 @@ async def test_project_on_create_emits_l1_event_with_correct_shape():
     assert ev.timestamp == entry.event_at
     assert ev.idempotency_key.startswith("manual-entry:me-test-1:")
     # Metadata carries the structured manual-entry payload
-    assert ev.metadata_json["timeline"]["source_type"] == "manual_entry"
+    assert ev.metadata_json["activity_snapshot"]["source_type"] == "manual_entry"
+    assert "timeline" not in ev.metadata_json
     assert ev.metadata_json["manual_entry"]["entry_id"] == "me-test-1"
     assert ev.metadata_json["manual_entry"]["mood"] == "warm"
     assert ev.metadata_json["manual_entry"]["attachments"] == [

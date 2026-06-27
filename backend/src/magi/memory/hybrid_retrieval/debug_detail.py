@@ -12,6 +12,8 @@ import json
 import logging
 from typing import Any, Iterable
 
+from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+
 
 DETAIL_LIMIT = 120
 
@@ -140,8 +142,12 @@ def _metadata_summary(metadata_value: Any) -> dict[str, Any] | None:
     representative_photos = metadata.get("representative_photos")
     if not isinstance(representative_photos, list):
         representative_photos = []
-    timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
-    provenance = timeline.get("provenance") if isinstance(timeline.get("provenance"), dict) else {}
+    activity_snapshot = activity_snapshot_from_metadata(metadata)
+    provenance = (
+        activity_snapshot.get("provenance")
+        if isinstance(activity_snapshot.get("provenance"), dict)
+        else {}
+    )
     return _drop_empty({
         "plugin_id": metadata.get("plugin_id"),
         "sensor_id": metadata.get("sensor_id"),

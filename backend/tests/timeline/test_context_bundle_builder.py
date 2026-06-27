@@ -12,7 +12,7 @@ class _FakeL1Store:
                 "timestamp": 100.0,
                 "source": "chat",
                 "content": "Discussed the timeline redesign.",
-                "metadata": {"timeline": {"title": "Chat planning", "summary": "Discussed semantic zoom."}},
+                "metadata": {"activity_snapshot": {"title": "Chat planning", "summary": "Discussed semantic zoom."}},
             }
         return None
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
+from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+
 from ..media.adapters.photo_library import extract_photo_library_asset_ref
 
 
@@ -150,7 +152,7 @@ class TimelineClusterBuilder:
         ``episode_events`` is the subset of L1 events whose timestamps
         fall in this episode's window. Used to derive a meaningful label
         when the episode itself only has the default "activity"
-        placeholder — pulls metadata.timeline.tags off the events and
+        placeholder — pulls activity_snapshot.tags off the events and
         promotes the top specific tag (e.g. a Chrome cluster's domain).
         Pass None / [] to skip enrichment and fall through to the
         original episode_type fallback.
@@ -305,21 +307,25 @@ class TimelineClusterBuilder:
     def _resolve_summary(self, events: list[dict[str, Any]]) -> str:
         snippets: list[str] = []
         for event in events[:2]:
-            timeline = self._timeline_payload(event)
-            summary = str(timeline.get("summary") or event.get("content") or "").strip()
+            activity_snapshot = self._activity_snapshot(event)
+            summary = str(activity_snapshot.get("summary") or event.get("content") or "").strip()
             if summary:
                 snippets.append(summary)
         return " ".join(snippets).strip()
 
     def _extract_tags(self, event: dict[str, Any]) -> list[str]:
-        timeline = self._timeline_payload(event)
-        return [str(tag).strip().lower() for tag in timeline.get("tags", []) if str(tag).strip()]
+        activity_snapshot = self._activity_snapshot(event)
+        return [
+            str(tag).strip().lower()
+            for tag in activity_snapshot.get("tags", [])
+            if str(tag).strip()
+        ]
 
     def _derive_label_from_events(self, events: list[dict[str, Any]]) -> str:
         """Synthesize a short label from the events in a cluster.
 
         Used when the episode itself doesn't carry a meaningful label.
-        Counts metadata.timeline.tags across the events, drops the
+        Counts activity_snapshot.tags across the events, drops the
         generic source-name tags (which would duplicate the SourceGroup
         header), and surfaces the top 1–2 specific tags joined with '、'.
 
@@ -352,8 +358,8 @@ class TimelineClusterBuilder:
         return "、".join(top)
 
     def _extract_entity_labels(self, event: dict[str, Any]) -> list[str]:
-        timeline = self._timeline_payload(event)
-        entities = timeline.get("entities", [])
+        activity_snapshot = self._activity_snapshot(event)
+        entities = activity_snapshot.get("entities", [])
         labels: list[str] = []
         for entity in entities:
             if isinstance(entity, dict) and entity.get("label"):
@@ -361,10 +367,8 @@ class TimelineClusterBuilder:
         return labels
 
     @staticmethod
-    def _timeline_payload(event: dict[str, Any]) -> dict[str, Any]:
+    def _activity_snapshot(event: dict[str, Any]) -> dict[str, Any]:
         metadata = event.get("metadata")
         if isinstance(metadata, dict):
-            timeline = metadata.get("timeline")
-            if isinstance(timeline, dict):
-                return timeline
+            return dict(activity_snapshot_from_metadata(metadata))
         return {}

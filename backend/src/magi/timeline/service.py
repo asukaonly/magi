@@ -5,6 +5,8 @@ import mimetypes
 from typing import Any, Optional
 from urllib.parse import unquote
 
+from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+
 from ..media.adapters.photo_library import PHOTO_LIBRARY_SOURCE_FILTERS
 from .. import i18n as core_i18n
 from .contracts import TimelineEvent
@@ -516,29 +518,41 @@ class TimelineService:
     @staticmethod
     def _event_to_timeline_payload(event: dict) -> dict:
         metadata = TimelineService._event_metadata(event)
-        timeline = metadata.get("timeline", {}) if isinstance(metadata.get("timeline"), dict) else {}
+        activity_snapshot = activity_snapshot_from_metadata(metadata)
         occurred_at = float(event.get("timestamp") or event.get("created_at") or 0.0)
         return {
             "event_id": str(event["event_id"]),
-            "source_type": str(timeline.get("source_type") or event.get("source") or "memory"),
+            "source_type": str(
+                activity_snapshot.get("source_type") or event.get("source") or "memory"
+            ),
             "source_item_id": str(
-                timeline.get("source_item_id")
+                activity_snapshot.get("source_item_id")
                 or event.get("source_item_id")
                 or event.get("idempotency_key")
                 or ""
             ),
             "occurred_at": occurred_at,
             "captured_at": float(event.get("created_at") or occurred_at),
-            "title": str(timeline.get("title") or event.get("event_type") or core_i18n.t("timeline.raw_event.memory_title", fallback="Memory Event")),
-            "summary": str(timeline.get("summary") or event.get("content") or ""),
-            "retention_mode": str(timeline.get("retention_mode") or event.get("retention_class") or "compressible"),
-            "raw_payload_ref": timeline.get("raw_payload_ref") or metadata.get("raw_payload_ref"),
-            "content_blocks": timeline.get("content_blocks") or [{"kind": "text", "value": str(event.get("content") or "")}],
-            "entities": timeline.get("entities") or [],
-            "tags": timeline.get("tags") or [],
-            "privacy_labels": timeline.get("privacy_labels") or [],
-            "processing_status": timeline.get("processing_status") or {},
-            "provenance": timeline.get("provenance") or metadata,
+            "title": str(
+                activity_snapshot.get("title")
+                or event.get("event_type")
+                or core_i18n.t("timeline.raw_event.memory_title", fallback="Memory Event")
+            ),
+            "summary": str(activity_snapshot.get("summary") or event.get("content") or ""),
+            "retention_mode": str(
+                activity_snapshot.get("retention_mode")
+                or event.get("retention_class")
+                or "compressible"
+            ),
+            "raw_payload_ref": activity_snapshot.get("raw_payload_ref")
+            or metadata.get("raw_payload_ref"),
+            "content_blocks": activity_snapshot.get("content_blocks")
+            or [{"kind": "text", "value": str(event.get("content") or "")}],
+            "entities": activity_snapshot.get("entities") or [],
+            "tags": activity_snapshot.get("tags") or [],
+            "privacy_labels": activity_snapshot.get("privacy_labels") or [],
+            "processing_status": activity_snapshot.get("processing_status") or {},
+            "provenance": activity_snapshot.get("provenance") or metadata,
         }
 
     @staticmethod
