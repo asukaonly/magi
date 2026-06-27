@@ -247,6 +247,44 @@ async def test_response_rhythm_planner_rejects_three_groups_for_compact_cjk_answ
 
 
 @pytest.mark.asyncio
+async def test_response_rhythm_planner_rejects_more_than_three_groups(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rhythm_module,
+        "get_user_preference",
+        lambda key, default=None: True if key == "conversation_rhythm_enabled" else default,
+    )
+    prompt_service = _FakePromptService(
+        json.dumps(
+            {
+                "groups": [
+                    {"unit_ids": ["u1"], "intent": "acknowledge"},
+                    {"unit_ids": ["u2"], "intent": "answer"},
+                    {"unit_ids": ["u3"], "intent": "explain"},
+                    {"unit_ids": ["u4"], "intent": "next_step"},
+                ]
+            }
+        )
+    )
+    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
+
+    response = (
+        "第一段先说明这不是第二次回答，而是同一份回答的展示节奏，内容仍然来自原始结果。\n\n"
+        "第二段给出核心判断：拆分应该帮助阅读，而不是把一个完整判断切成碎片。\n\n"
+        "第三段说明边界：技术列表、命令、表格和代码块应该保留在一条消息里，方便复制和回看。\n\n"
+        "第四段补充下一步：如果要增强自然感，也应该控制在少量清晰气泡内，不要显得太碎。"
+    )
+
+    plan = await planner.plan(
+        user_message="自然节奏怎么展示？",
+        response_text=response,
+        execution_mode="direct_llm",
+        ux_plan={"assistant_surface_mode": "final_only"},
+    )
+
+    assert plan is None
+
+
+@pytest.mark.asyncio
 async def test_response_rhythm_planner_mode_off_disables_planning(monkeypatch) -> None:
     def fake_get_user_preference(key, default=None):  # type: ignore[no-untyped-def]
         if key == "conversation_rhythm_enabled":
@@ -471,11 +509,11 @@ def test_rhythm_profile_maps_level_to_bias_speed_maxgroups() -> None:
     bias_mid, speed_mid, max_mid = _rhythm_profile(0.6)
     assert max_mid == 3 and speed_mid < 1.0
     bias_hi, speed_hi, max_hi = _rhythm_profile(0.9)
-    assert max_hi == 5 and speed_hi < speed_mid
+    assert max_hi == 3 and speed_hi < speed_mid
     # thresholds are exclusive (<): exact boundary values fall into the higher band
     assert _rhythm_profile(0.20)[2] == 2
     assert _rhythm_profile(0.50)[2] == 3
-    assert _rhythm_profile(0.75)[2] == 5
+    assert _rhythm_profile(0.75)[2] == 3
 
 
 def test_build_system_prompt_uses_segmentation_bias_and_max_groups() -> None:
@@ -491,10 +529,10 @@ def test_build_system_prompt_uses_segmentation_bias_and_max_groups() -> None:
     assert "a single chat bubble" in p
     assert "爱用短句" in p
     p5 = ResponseRhythmPlanner._build_system_prompt(
-        segmentation_bias="- Prefer two or three short groups; up to five for a lively, bursty reply with distinct moves.",
-        max_groups=5,
+        segmentation_bias="- Prefer two or three short groups for a lively reply with distinct moves.",
+        max_groups=3,
     )
-    assert "at most 5 groups" in p5
+    assert "at most 3 groups" in p5
     assert "爱用短句" not in p5
 
 
@@ -514,6 +552,7 @@ def test_compute_delay_ms_scales_with_length_and_clamps() -> None:
             return 1.0
 
     rng = _FixedRng()
+    assert _FLOOR_MS == 1000
     # 极短 -> floor
     assert _compute_delay_ms("嗯", rng=rng) == _FLOOR_MS
     # 30 CJK 字 * 50ms = 1500ms(jitter=1.0)

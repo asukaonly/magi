@@ -805,6 +805,51 @@ async def test_outcome_writer_persists_segmented_chat_outcome(chat_store: ChatSt
 
 
 @pytest.mark.asyncio
+async def test_outcome_writer_uses_cumulative_segment_timestamps(chat_store: ChatStore) -> None:
+    writer = ChatOutcomeWriter(
+        chat_store=chat_store,
+        chat_projector=None,
+        trace_id_factory=lambda turn_id: f"trace:{turn_id}",
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="local_user",
+        turn_id="turn-rhythm-time",
+        message_text="explain rhythm",
+        created_at_ms=1710000000000,
+    )
+
+    await writer.persist_segmented_chat_outcome(
+        turn_id="turn-rhythm-time",
+        orchestration_id=None,
+        execution_mode="direct_llm",
+        ux_plan={"assistant_surface_mode": "final_only"},
+        response_plan=AssistantResponsePlan(
+            mode="multi_message",
+            aggregate_text="完整回答",
+            segments=[
+                AssistantResponseSegment(content="第一段", delay_ms=0, segment_index=0, source_unit_ids=["u1"]),
+                AssistantResponseSegment(content="第二段", delay_ms=1000, segment_index=1, source_unit_ids=["u2"]),
+                AssistantResponseSegment(content="第三段", delay_ms=1500, segment_index=2, source_unit_ids=["u3"]),
+            ],
+        ),
+        started_at_ms=1710000000000,
+        completed_at_ms=1710000000200,
+    )
+
+    messages = [
+        message
+        for message in await chat_store.list_messages(session_id="session-1")
+        if message.message_kind == "assistant_rhythm_segment"
+    ]
+    assert [message.created_at_ms for message in messages] == [
+        1710000000200,
+        1710000001200,
+        1710000002700,
+    ]
+
+
+@pytest.mark.asyncio
 async def test_handle_worker_result_persists_reply_anchor_to_original_message(
     chat_store: ChatStore,
 ) -> None:
@@ -2153,6 +2198,123 @@ async def test_handle_commits_final_chat_message_before_notification(
     assert payload["message_id"] == messages[-1].message_id
     assert payload["message_kind"] == "assistant_final"
     assert payload["persona_id"] == "persona-seven"
+
+
+@pytest.mark.asyncio
+async def test_handle_falls_back_to_final_message_when_segment_persistence_fails(
+    runtime_trace_store: RuntimeTraceStore,
+    chat_store: ChatStore,
+) -> None:
+    class _SegmentAppendFailsOnSecond:
+        def __init__(self, delegate: ChatStore) -> None:
+            self._delegate = delegate
+            self.segment_appends = 0
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._delegate, name)
+
+        async def append_message(self, record, attachment_payloads=None):  # type: ignore[no-untyped-def]
+            if record.message_kind == "assistant_rhythm_segment":
+                self.segment_appends += 1
+                if self.segment_appends == 2:
+                    raise RuntimeError("segment write failed")
+            return await self._delegate.append_message(
+                record,
+                attachment_payloads=attachment_payloads,
+            )
+
+    class _StaticRhythmPlanner:
+        async def plan(self, **_kwargs):  # type: ignore[no-untyped-def]
+            return AssistantResponsePlan(
+                mode="multi_message",
+                aggregate_text="first part second part",
+                segments=[
+                    AssistantResponseSegment(content="first part", delay_ms=0, segment_index=0, source_unit_ids=["u1"]),
+                    AssistantResponseSegment(content="second part", delay_ms=1000, segment_index=1, source_unit_ids=["u2"]),
+                ],
+            )
+
+    event_emitter = _FakeEventEmitter()
+    flaky_store = _SegmentAppendFailsOnSecond(chat_store)
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: event_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        chat_store=flaky_store,  # type: ignore[arg-type]
+        max_fact_memory=10,
+        response_rhythm_planner=_StaticRhythmPlanner(),
+        deliver_final_response=_chat_sse_seam(runtime_trace_store),
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:local_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "hello",
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": "turn-fallback",
+        },
+        agent_type="chat",
+        agent_instance_id="local_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="hello",
+            turn_id="turn-fallback",
+        ),
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="local_user",
+        turn_id="turn-fallback",
+        message_text="hello",
+        created_at_ms=1710000000000,
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="first part second part",
+        correlation_id="corr-1",
+        turn_id="turn-fallback",
+        ux_plan={"assistant_surface_mode": "final_only"},
+    )
+
+    await service.handle(context, result)
+
+    messages = await chat_store.list_messages(session_id="session-1")
+    visible_messages = [message for message in messages if message.is_visible]
+    assert [message.message_kind for message in visible_messages] == [
+        "user_text",
+        "assistant_final",
+    ]
+    assert visible_messages[-1].content_text == "first part second part"
+    hidden_segments = [
+        message
+        for message in messages
+        if message.message_kind == "assistant_rhythm_segment" and not message.is_visible
+    ]
+    assert len(hidden_segments) == 1
 
 
 @pytest.mark.asyncio

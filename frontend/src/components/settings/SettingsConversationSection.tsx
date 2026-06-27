@@ -38,8 +38,7 @@ export function SettingsConversationSection({
   );
   const rhythmMode = draftConfig.preferences.conversation_rhythm_mode ?? 'off';
   const conversationRhythmEnabled = Boolean(draftConfig.preferences.conversation_rhythm_enabled)
-    || rhythmMode === 'natural'
-    || rhythmMode === 'expressive';
+    && (rhythmMode === 'natural' || rhythmMode === 'expressive');
 
   const handlePickWorkspace = async () => {
     setPickingWorkspace(true);

@@ -304,22 +304,35 @@ class ChatPostProcessService:
         )
         segmented_messages = []
         if response_plan is not None:
-            segmented_messages = await self._persist_segmented_chat_outcome(
-                turn_id=turn_id,
-                response_plan=response_plan,
-                attachments=list(getattr(result, "attachments", []) or []),
-                message_payload=dict(getattr(result, "message_payload", {}) or {}),
-                started_at_ms=started_at_ms,
-                completed_at_ms=now_ms,
-                orchestration_id=result.orchestration_id,
-                execution_mode=self._normalize_mode(result.mode),
-                ux_plan=ux_plan,
-                run_id=context.session_run_id,
-                run_revision=context.session_run_revision,
-                run_disposition=context.session_run_disposition,
-                reply_to_message_id=reply_anchor_message_id,
-                persona_id=context.active_persona_id,
-            )
+            try:
+                segmented_messages = await self._persist_segmented_chat_outcome(
+                    turn_id=turn_id,
+                    response_plan=response_plan,
+                    attachments=list(getattr(result, "attachments", []) or []),
+                    message_payload=dict(getattr(result, "message_payload", {}) or {}),
+                    started_at_ms=started_at_ms,
+                    completed_at_ms=now_ms,
+                    orchestration_id=result.orchestration_id,
+                    execution_mode=self._normalize_mode(result.mode),
+                    ux_plan=ux_plan,
+                    run_id=context.session_run_id,
+                    run_revision=context.session_run_revision,
+                    run_disposition=context.session_run_disposition,
+                    reply_to_message_id=reply_anchor_message_id,
+                    persona_id=context.active_persona_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Segmented chat outcome persistence failed; falling back to final message: %s",
+                    exc,
+                )
+                await self._hide_persisted_rhythm_segments(
+                    session_id=context.session_id,
+                    turn_id=turn_id,
+                )
+                segmented_messages = []
+                response_plan = None
+                result.response_plan = None
             if not segmented_messages:
                 response_plan = None
                 result.response_plan = None
@@ -352,15 +365,91 @@ class ChatPostProcessService:
                 response_text=response_text,
                 created_at_ms=now_ms,
             )
-            await self._emit_segmented_agent_response_notifications(
-                context=context,
-                result=result,
-                turn_id=turn_id,
-                response_plan=response_plan,
-                messages=segmented_messages,
-                trace_summary=trace_summary,
-                trace_available=trace_available,
-            )
+            try:
+                await self._emit_segmented_agent_response_notifications(
+                    context=context,
+                    result=result,
+                    turn_id=turn_id,
+                    response_plan=response_plan,
+                    messages=segmented_messages,
+                    trace_summary=trace_summary,
+                    trace_available=trace_available,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Segmented chat response notification failed; falling back to final message: %s",
+                    exc,
+                )
+                await self._hide_persisted_rhythm_segments(
+                    session_id=context.session_id,
+                    turn_id=turn_id,
+                )
+                await self._persist_final_chat_outcome(
+                    turn_id=turn_id,
+                    response_text=response_text,
+                    attachments=list(getattr(result, "attachments", []) or []),
+                    message_payload=dict(getattr(result, "message_payload", {}) or {}),
+                    started_at_ms=started_at_ms,
+                    completed_at_ms=now_ms,
+                    orchestration_id=result.orchestration_id,
+                    execution_mode=self._normalize_mode(result.mode),
+                    ux_plan=ux_plan,
+                    run_id=context.session_run_id,
+                    run_revision=context.session_run_revision,
+                    run_disposition=context.session_run_disposition,
+                    reply_to_message_id=reply_anchor_message_id,
+                    persona_id=context.active_persona_id,
+                )
+                notification_message = await self._get_notification_chat_message(
+                    turn_id=turn_id,
+                    ux_plan=ux_plan,
+                )
+                await self._project_final_chat_message(
+                    context=context,
+                    final_message=(
+                        notification_message
+                        if notification_message
+                        and notification_message.message_kind == "assistant_final"
+                        else None
+                    ),
+                )
+                await self._deliver_agent_response(
+                    context=context,
+                    turn_id=turn_id,
+                    response_text=response_text,
+                    attachments=list(getattr(result, "attachments", []) or []),
+                    message_payload=dict(getattr(result, "message_payload", {}) or {}),
+                    orchestration_id=result.orchestration_id,
+                    trace_summary=trace_summary,
+                    trace_available=trace_available,
+                    ux_plan=result.ux_plan,
+                    message_id=(
+                        notification_message.message_id
+                        if notification_message is not None
+                        else None
+                    ),
+                    message_kind=(
+                        notification_message.message_kind
+                        if notification_message is not None
+                        else "assistant_final"
+                    ),
+                    persona_id=(
+                        notification_message.persona_id
+                        if notification_message is not None
+                        else context.active_persona_id
+                    ),
+                )
+                await event_emitter.emit_chat_response_event(
+                    user_id=context.user_id,
+                    session_id=context.session_id,
+                    response=response_text,
+                    correlation_id=correlation_id,
+                    turn_id=turn_id,
+                    orchestration_id=result.orchestration_id,
+                    trace_summary=trace_summary,
+                    trace_available=trace_available,
+                )
+                return ChatParseOutcome(True, history_stored, memory_updated, False)
             await event_emitter.emit_chat_response_event(
                 user_id=context.user_id,
                 session_id=context.session_id,
@@ -475,6 +564,31 @@ class ChatPostProcessService:
         )
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
+
+    async def _hide_persisted_rhythm_segments(
+        self,
+        *,
+        session_id: str | None,
+        turn_id: str | None,
+    ) -> None:
+        normalized_turn_id = str(turn_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        if self._chat_store is None or not normalized_turn_id or not normalized_session_id:
+            return
+        try:
+            messages = await self._chat_store.list_messages(session_id=normalized_session_id)
+            for message in messages:
+                if (
+                    message.turn_id == normalized_turn_id
+                    and message.message_kind == "assistant_rhythm_segment"
+                    and message.is_visible
+                ):
+                    await self._chat_store.hide_message(
+                        session_id=normalized_session_id,
+                        message_id=message.message_id,
+                    )
+        except Exception as exc:
+            logger.warning("Failed to hide persisted rhythm segments: %s", exc)
 
     async def _build_response_rhythm_plan(
         self,

@@ -47,6 +47,91 @@ export interface ChatTimelineMessage {
   payload?: Record<string, unknown> | null;
 }
 
+type RhythmSegmentMeta = {
+  segmentIndex: number;
+  segmentCount: number;
+};
+
+const getRhythmSegmentMeta = (message: ChatTimelineMessage): RhythmSegmentMeta | null => {
+  const rhythmPayload = message.payload?.rhythm;
+  if (!rhythmPayload || typeof rhythmPayload !== 'object') {
+    return null;
+  }
+  const rhythm = rhythmPayload as Record<string, unknown>;
+  const segmentIndex = Number(rhythm.segment_index ?? rhythm.segmentIndex);
+  const segmentCount = Number(rhythm.segment_count ?? rhythm.segmentCount);
+  if (
+    !Number.isInteger(segmentIndex)
+    || !Number.isInteger(segmentCount)
+    || segmentIndex < 0
+    || segmentCount < 1
+  ) {
+    return null;
+  }
+  return { segmentIndex, segmentCount };
+};
+
+export const buildSystemSuggestionTriggerText = (messages: ChatTimelineMessage[]): string => {
+  if (messages.length < 2) {
+    return '';
+  }
+  const lastMessage = messages[messages.length - 1];
+  if (!lastMessage || lastMessage.role !== 'assistant' || lastMessage.streaming) {
+    return '';
+  }
+
+  if (lastMessage.messageKind === 'assistant_rhythm_segment') {
+    const turnId = String(lastMessage.turnId || '').trim();
+    const lastMeta = getRhythmSegmentMeta(lastMessage);
+    if (!turnId || !lastMeta) {
+      return '';
+    }
+    const segments: ChatTimelineMessage[] = [];
+    let index = messages.length - 1;
+    while (index >= 0) {
+      const message = messages[index];
+      if (
+        !message
+        || message.role !== 'assistant'
+        || message.messageKind !== 'assistant_rhythm_segment'
+        || String(message.turnId || '').trim() !== turnId
+      ) {
+        break;
+      }
+      segments.unshift(message);
+      index -= 1;
+    }
+    if (segments.length !== lastMeta.segmentCount) {
+      return '';
+    }
+    const hasCompleteOrderedSegments = segments.every((message, segmentIndex) => {
+      const meta = getRhythmSegmentMeta(message);
+      return Boolean(meta && meta.segmentCount === lastMeta.segmentCount && meta.segmentIndex === segmentIndex);
+    });
+    if (!hasCompleteOrderedSegments) {
+      return '';
+    }
+    const userMessage = messages[index];
+    if (!userMessage || userMessage.role !== 'user') {
+      return '';
+    }
+    return `${userMessage.content}\n${segments.map((message) => message.content).join('\n')}`;
+  }
+
+  const lastTwo = messages.slice(-2);
+  if (lastTwo.length < 2) {
+    return '';
+  }
+  const [maybeUser, maybeAssistant] = lastTwo;
+  if (maybeUser.role !== 'user' || maybeAssistant.role !== 'assistant') {
+    return '';
+  }
+  if (maybeAssistant.streaming) {
+    return '';
+  }
+  return `${maybeUser.content}\n${maybeAssistant.content}`;
+};
+
 /**
  * Compact record of a memory finding the assistant pulled in to ground its
  * reply. Surfaced in the bubble's "called memories" row and the click-through
@@ -911,6 +996,22 @@ export const applyAgentResponse = (
         traceAvailable: traceAvailable || Boolean(message.traceAvailable),
       };
     });
+  }
+
+  if (hasRhythmSegments && messageKind === 'assistant_final' && turnId) {
+    const incoming = buildAssistantMessage(turnId);
+    let inserted = false;
+    const nextMessages = messages.flatMap((message) => {
+      if (message.turnId !== turnId || message.messageKind !== 'assistant_rhythm_segment') {
+        return [message];
+      }
+      if (inserted) {
+        return [];
+      }
+      inserted = true;
+      return [{ ...incoming, personaId: incoming.personaId ?? message.personaId ?? null }];
+    });
+    return inserted ? nextMessages : insertAfterTurnAnchor(messages, incoming, turnId);
   }
 
   if (!turnId) {

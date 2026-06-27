@@ -14,14 +14,14 @@ from magi.agent.task_agents.common import AssistantResponsePlan, AssistantRespon
 
 logger = get_logger(__name__)
 
-_MAX_SEGMENTS = 5
+_MAX_SEGMENTS = 3
 _MAX_UNITS = 12
 _MIN_CONTENT_CHARS = 120
 _MIN_CJK_CONTENT_CHARS = 48
 _MIN_UNITS_FOR_RHYTHM = 2
 _CJK_MS = 50
 _LATIN_MS = 10
-_FLOOR_MS = 500
+_FLOOR_MS = 1000
 _CEIL_MS = 4000
 _JITTER = 0.20
 _CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
@@ -87,9 +87,9 @@ def _rhythm_profile(rhythm_level: float) -> tuple[str, float, int]:
     if rhythm_level < 0.75:
         return ("- Prefer two groups; use three only for genuinely distinct moves.", 0.95, 3)
     return (
-        "- Prefer two or three short groups; up to five for a lively, bursty reply with distinct moves.",
+        "- Prefer two or three short groups for a lively reply with distinct moves.",
         0.8,
-        5,
+        3,
     )
 
 

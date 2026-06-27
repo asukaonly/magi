@@ -11,6 +11,7 @@ import {
 import {
   applyAgentResponse,
   applyTurnUxPlan,
+  buildSystemSuggestionTriggerText,
   createPendingTurn,
   type ChatTimelineMessage,
   flattenPlanningNodeForDisplay,
@@ -82,6 +83,96 @@ describe('chat trace state helpers', () => {
       'assistant_rhythm_segment',
     ]);
     expect(afterCanonicalEvent.map((message) => message.content)).toEqual(['先接住问题。', '再说明核心答案。']);
+  });
+
+  it('replaces rhythm segments with one final reply when a fallback final message arrives', () => {
+    const first = applyAgentResponse([], {
+      content: '先接住问题。',
+      timestamp: 1000,
+      messageId: 'msg-rhythm-1',
+      messageKind: 'assistant_rhythm_segment',
+      turnId: 'turn-rhythm',
+      payload: { rhythm: { segment_index: 0, segment_count: 2 } },
+    });
+    const second = applyAgentResponse(first, {
+      content: '再说明核心答案。',
+      timestamp: 1200,
+      messageId: 'msg-rhythm-2',
+      messageKind: 'assistant_rhythm_segment',
+      turnId: 'turn-rhythm',
+      payload: { rhythm: { segment_index: 1, segment_count: 2 } },
+    });
+
+    const afterFallback = applyAgentResponse(second, {
+      content: '先接住问题。\n再说明核心答案。',
+      timestamp: 1300,
+      messageId: 'msg-final',
+      messageKind: 'assistant_final',
+      turnId: 'turn-rhythm',
+    });
+
+    expect(afterFallback).toHaveLength(1);
+    expect(afterFallback[0].messageKind).toBe('assistant_final');
+    expect(afterFallback[0].messageId).toBe('msg-final');
+    expect(afterFallback[0].content).toBe('先接住问题。\n再说明核心答案。');
+  });
+
+  it('waits for every rhythm segment before building the system suggestion trigger', () => {
+    const userMessage: ChatTimelineMessage = {
+      id: 'user-rhythm',
+      role: 'user',
+      kind: 'user',
+      content: '这个功能怎么走？',
+      timestamp: 1000,
+      turnId: 'turn-rhythm',
+    };
+    const firstSegment: ChatTimelineMessage = {
+      id: 'msg-rhythm-1',
+      role: 'assistant',
+      kind: 'assistant',
+      content: '先正常生成完整回答。',
+      timestamp: 1100,
+      messageKind: 'assistant_rhythm_segment',
+      turnId: 'turn-rhythm',
+      payload: { rhythm: { segment_index: 0, segment_count: 2 } },
+    };
+    const secondSegment: ChatTimelineMessage = {
+      id: 'msg-rhythm-2',
+      role: 'assistant',
+      kind: 'assistant',
+      content: '再拆成几条自然气泡。',
+      timestamp: 2100,
+      messageKind: 'assistant_rhythm_segment',
+      turnId: 'turn-rhythm',
+      payload: { rhythm: { segment_index: 1, segment_count: 2 } },
+    };
+
+    expect(buildSystemSuggestionTriggerText([userMessage, firstSegment])).toBe('');
+    expect(buildSystemSuggestionTriggerText([userMessage, firstSegment, secondSegment])).toBe(
+      '这个功能怎么走？\n先正常生成完整回答。\n再拆成几条自然气泡。',
+    );
+  });
+
+  it('keeps the system suggestion trigger behavior for single final replies', () => {
+    expect(buildSystemSuggestionTriggerText([
+      {
+        id: 'user-final',
+        role: 'user',
+        kind: 'user',
+        content: '说下结果',
+        timestamp: 1000,
+        turnId: 'turn-final',
+      },
+      {
+        id: 'assistant-final',
+        role: 'assistant',
+        kind: 'assistant',
+        content: '已经完成。',
+        timestamp: 1200,
+        messageKind: 'assistant_final',
+        turnId: 'turn-final',
+      },
+    ])).toBe('说下结果\n已经完成。');
   });
 
   it('classifies control and runtime status surfaces explicitly', () => {

@@ -30,7 +30,7 @@ import { useChatComposerCommands } from '@/hooks/useChatComposerCommands';
 import { commandsApi, messagesApi, type CommandDescriptor, type SkillCommandDescriptor } from '@/api';
 import { DEFAULT_USER_ID } from '@/constants';
 import { toast } from 'sonner';
-import type { ChatTimelineMessage } from '@/domain/chat/state';
+import { buildSystemSuggestionTriggerText, type ChatTimelineMessage } from '@/domain/chat/state';
 
 const toPlainText = (content: string): string => String(content || '')
   .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[\w-]*\n?/g, '').replace(/```/g, ''))
@@ -308,14 +308,7 @@ export const ChatPage: React.FC = () => {
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // System suggestions: fire after each completed user→assistant turn.
-  const triggerText = useMemo(() => {
-    const lastTwo = messages.slice(-2);
-    if (lastTwo.length < 2) return '';
-    const [maybeUser, maybeAssistant] = lastTwo;
-    if (maybeUser.role !== 'user' || maybeAssistant.role !== 'assistant') return '';
-    if (maybeAssistant.streaming) return '';
-    return `${maybeUser.content}\n${maybeAssistant.content}`;
-  }, [messages]);
+  const triggerText = useMemo(() => buildSystemSuggestionTriggerText(messages), [messages]);
   const suggestionLocale: 'zh' | 'en' = (i18n.language === 'zh-CN' || i18n.language === 'zh') ? 'zh' : 'en';
   const { proposals: systemSuggestions, dismiss: dismissSystemSuggestion } = useSystemSuggestions({
     triggerText,

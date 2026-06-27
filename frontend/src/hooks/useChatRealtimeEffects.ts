@@ -10,6 +10,33 @@ type UseChatRealtimeEffectsOptions = {
   clearPendingResponseTurn: () => void;
 };
 
+const getRhythmPayload = (payload: any): Record<string, unknown> | null => {
+  const candidates = [
+    payload?.message_payload?.rhythm,
+    payload?.payload?.rhythm,
+    payload?.rhythm,
+  ];
+  const match = candidates.find((candidate) => candidate && typeof candidate === 'object');
+  return match ? match as Record<string, unknown> : null;
+};
+
+const isFinalResponseForPendingTurn = (payload: any): boolean => {
+  const messageKind = String(payload?.message_kind || '').trim();
+  if (messageKind !== 'assistant_rhythm_segment') {
+    return true;
+  }
+  const rhythm = getRhythmPayload(payload);
+  if (!rhythm) {
+    return true;
+  }
+  const segmentIndex = Number(rhythm.segment_index ?? rhythm.segmentIndex);
+  const segmentCount = Number(rhythm.segment_count ?? rhythm.segmentCount);
+  if (!Number.isInteger(segmentIndex) || !Number.isInteger(segmentCount) || segmentCount < 1) {
+    return true;
+  }
+  return segmentIndex >= segmentCount - 1;
+};
+
 export function useChatRealtimeEffects({
   allowInterjection,
   turnActive,
@@ -26,7 +53,7 @@ export function useChatRealtimeEffects({
       window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
     }
     refreshVisibleTrace(turnId);
-    if (turnActive && !allowInterjection) {
+    if (turnActive && !allowInterjection && isFinalResponseForPendingTurn(payload)) {
       clearPendingResponseTurn();
     }
   }, [allowInterjection, clearPendingResponseTurn, refreshVisibleTrace, turnActive]);

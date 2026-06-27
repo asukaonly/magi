@@ -1026,6 +1026,25 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('shows conversation rhythm off when the enabled flag is false', async () => {
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        preferences: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.preferences),
+          conversation_rhythm_enabled: false,
+          conversation_rhythm_mode: 'natural',
+        },
+      },
+    } as any);
+
+    render(<SettingsPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
+    const rhythmSwitch = await screen.findByRole('switch', { name: 'settings.fields.conversationRhythm' });
+    expect(rhythmSwitch).toHaveAttribute('data-state', 'unchecked');
+  });
+
   it('saves the automatic long-task background switch in conversation settings', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);

@@ -253,7 +253,10 @@ class ChatOutcomeWriter:
         sequence_no = await self._chat_store.next_sequence_no(session_id=existing_turn.session_id)
         total = len(response_plan.segments)
         records: list[ChatMessageRecord] = []
+        cumulative_delay_ms = 0
         for index, segment in enumerate(response_plan.segments):
+            if index > 0:
+                cumulative_delay_ms += max(0, int(segment.delay_ms or 0))
             segment_attachments = attachments if index == total - 1 else None
             segment_payload = self._build_segment_payload_json(
                 base_payload=message_payload,
@@ -277,7 +280,7 @@ class ChatOutcomeWriter:
                 payload_json=segment_payload,
                 is_final=True,
                 is_visible=True,
-                created_at_ms=completed_at_ms + max(0, int(segment.delay_ms or 0)),
+                created_at_ms=completed_at_ms + cumulative_delay_ms,
                 sequence_no=sequence_no + index,
                 replaces_message_id=None,
                 replaced_by_message_id=None,
