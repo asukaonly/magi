@@ -63,10 +63,9 @@ class RuntimeSystemContext:
 
 @dataclass
 class ToolCatalogContext:
-    """Module 5: Selected tool catalog from tool decision."""
+    """Module 5: Turn-level tool availability signal."""
 
     selected_tools: List[str] = field(default_factory=list)
-    tool_descriptions: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

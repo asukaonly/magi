@@ -130,8 +130,8 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(llm_params.prompt_context)
         system_prompt = llm_params.system_prompt
         self.assertIn("# System Definition", system_prompt)
-        self.assertIn("# Tool Information", system_prompt)
-        self.assertIn("weather", system_prompt)
+        self.assertIn("# Tool Use Guidance", system_prompt)
+        self.assertNotIn("weather", system_prompt)
         self.assertEqual(llm_params.mode, ExecutionMode.FUNCTION_CALLING)
 
     async def test_chat_task_agent_uses_core_scenario_from_pool(self):

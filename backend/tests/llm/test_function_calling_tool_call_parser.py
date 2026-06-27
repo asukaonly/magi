@@ -397,7 +397,7 @@ async def test_max_iterations_fallback_forces_plain_text_after_repeated_legacy_t
 
     result = await executor.execute_with_tools(
         turn=UserTurnInput(text="run tools", attachments=[], user_id=None, session_id=None),
-        system_prompt="sys\n# Tool Information\nuse tools",
+        system_prompt="sys\n# Tool Use Guidance\nuse tools",
         selected_tools=["bash", "agent", "grep"],
         user_id="u1",
         max_iterations=1,
@@ -406,7 +406,7 @@ async def test_max_iterations_fallback_forces_plain_text_after_repeated_legacy_t
     assert result.status == "completed"
     assert result.content == "final explanation"
     assert len(captured_calls) == 3
-    assert "Tool Information" not in captured_calls[0]["system_prompt"]
+    assert "Tool Use Guidance" not in captured_calls[0]["system_prompt"]
     assert "Do not emit tool calls" in captured_calls[0]["system_prompt"]
     assert captured_calls[2]["thinking_depth"] == ThinkingDepth.NONE
     assert "This is the final retry" in captured_calls[2]["messages"][-1]["content"]
@@ -535,9 +535,8 @@ def test_build_final_response_system_prompt_removes_tool_guidance() -> None:
     system_prompt = (
         "# System Information\n"
         "* Time: now\n"
-        "# Tool Information\n"
-        "## Selected Tools\n"
-        "* grep\n"
+        "# Tool Use Guidance\n"
+        "Use available tools when needed.\n"
         "Tool recovery rules:\n"
         "- use tools\n"
     )
@@ -546,7 +545,7 @@ def test_build_final_response_system_prompt_removes_tool_guidance() -> None:
         system_prompt, strict_plain_text=True
     )
 
-    assert "# Tool Information" not in final_prompt
+    assert "# Tool Use Guidance" not in final_prompt
     assert "Tool recovery rules" not in final_prompt
     assert "Tools are no longer available in this step." in final_prompt
     assert "Do not emit tool calls" in final_prompt
@@ -564,9 +563,8 @@ def test_build_final_response_system_prompt_prioritizes_memory_query_results() -
         "* Time: now\n"
         "# Memory Query Guidance\n"
         "Use `memory_query` before answering.\n"
-        "# Tool Information\n"
-        "## Selected Tools\n"
-        "* memory_query\n"
+        "# Tool Use Guidance\n"
+        "Use available tools when needed.\n"
     )
 
     final_prompt = executor._build_final_response_system_prompt(

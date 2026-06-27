@@ -54,18 +54,9 @@ class _FakeUnifiedMemory:
         self.l2 = _FakeL2Store()
 
 
-class _FakeToolRegistry:
-    def get_all_tools_info(self):
-        return [
-            {"name": "weather", "description": "Get weather details", "category": "builtin", "type": "tool"},
-            {"name": "web_search", "description": "Search web", "category": "builtin", "type": "tool"},
-        ]
-
-
 class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
     async def test_render_order_and_module_presence(self):
         assembler = PromptContextAssembler(
-            tool_registry=_FakeToolRegistry(),
             user_profile_service=UserProfileService(unified_memory=_FakeUnifiedMemory()),
         )
         renderer = PromptContextRenderer()
@@ -94,16 +85,16 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
         i2 = prompt.find("# Persona Runtime Plan")
         i3 = prompt.find("# Profile Memory")
         i4 = prompt.find("# System Information")
-        i5 = prompt.find("# Tool Information")
+        i5 = prompt.find("# Tool Use Guidance")
 
         self.assertTrue(i1 >= 0)
         # Cache-prefix order: stable identity/persona definition first, then
-        # turn-selected tool information before memory/runtime context.
+        # turn-level tool guidance before memory/runtime context.
         self.assertTrue(i2 > i1)
         self.assertTrue(i5 > i2)
         self.assertTrue(i3 > i5)
         self.assertTrue(i4 > i3)
-        self.assertIn("weather", prompt)
+        self.assertNotIn("weather", prompt)
         self.assertIn("* User Name: 哈基米", prompt)
         self.assertIn("* Preferred Address: 哈基米", prompt)
         self.assertIn("* Avoid Addressing As: 老师", prompt)
@@ -112,7 +103,6 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
 
     async def test_profile_emotion_mapping_uses_relationship_scores(self):
         assembler = PromptContextAssembler(
-            tool_registry=_FakeToolRegistry(),
             user_profile_service=UserProfileService(unified_memory=_FakeUnifiedMemory()),
         )
 

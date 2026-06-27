@@ -407,7 +407,9 @@ This keeps runtime fact assembly in the task agent while moving prompt-context o
 
 Persona behavior follows the same boundary: the task agent builds runtime facts, the Personality Layer plans persona behavior, and the Context Layer renders that plan. The final system prompt should receive the selected register, quiet-hour clamps, active triggers, relationship modifiers, and dynamic-state modulations, not the full raw persona rule library. The durable contract is documented in [Persona Runtime Architecture](./persona-runtime-architecture.md).
 
-Prompt caching follows the same ownership split. The cacheable system head contains stable identity and persona definition only. Router-selected tool information, per-turn persona steer, memory/profile context, runtime facts, attachments, and recent tool state are turn-scoped context and must stay below the cache boundary so changing the selected tools does not invalidate the stable persona prefix.
+Prompt caching follows the same ownership split. The cacheable system head contains stable identity and persona definition only. Per-turn tool-use guidance, persona steer, memory/profile context, runtime facts, attachments, and recent tool state are turn-scoped context and must stay below the cache boundary so changing the selected tools does not invalidate the stable persona prefix.
+
+The prompt text must not duplicate the provider-facing tool catalog. Concrete tool names, descriptions, parameter schemas, and tool-specific rules belong in the function-calling `tools` parameter owned by the execution/tool layer. The context layer may render only short cross-tool guidance such as when to verify with available tools or how to recover from failures.
 
 Current implicit-memory policy is intentionally conservative:
 

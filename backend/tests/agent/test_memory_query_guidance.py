@@ -1,6 +1,9 @@
-"""Verify the chat LLM's MEMORY_QUERY_GUIDANCE_BLOCK contains the
-do-not-paraphrase instruction so the LLM doesn't rewrite the user's
-question before calling memory_query (Phase 4)."""
+"""Verify memory-query guidance stays in the right layer.
+
+The memory_query tool schema owns tool-specific parameter rules such as
+passing the user's query verbatim and choosing query_mode. The chat prompt keeps
+only turn-level guidance about source-of-truth handling and tool ordering.
+"""
 
 from __future__ import annotations
 
@@ -9,50 +12,41 @@ from types import SimpleNamespace
 import pytest
 
 
-def test_guidance_block_forbids_paraphrasing():
-    from magi.agent.task_agents.handlers.handler_helpers import (
-        MEMORY_QUERY_GUIDANCE_BLOCK,
-    )
-    block = MEMORY_QUERY_GUIDANCE_BLOCK
-    # Must explicitly tell the LLM to pass the original query verbatim
-    assert "verbatim" in block.lower() or "do not paraphrase" in block.lower(), (
-        f"MEMORY_QUERY_GUIDANCE_BLOCK must explicitly forbid paraphrasing; got:\n{block}"
-    )
-    # Should teach the LLM to pick query_mode by answer-shape (not say "omit it")
-    block_lower = block.lower()
-    assert "cross_session" in block_lower or "enumerate" in block_lower, (
-        "MEMORY_QUERY_GUIDANCE_BLOCK must mention answer-shape guidance (e.g. cross_session)"
-    )
-    # Must NOT tell the LLM to omit query_mode as the default action
-    assert "omit it. the system auto-detects" not in block_lower, (
-        "MEMORY_QUERY_GUIDANCE_BLOCK must not say 'omit it' as the primary instruction"
-    )
+def test_memory_query_tool_schema_carries_query_contract():
+    from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+
+    schema = MemoryQueryTool().get_schema()
+    query_param = next(p for p in schema.parameters if p.name == "query")
+    query_mode_param = next(p for p in schema.parameters if p.name == "query_mode")
+
+    query_description = query_param.description.lower()
+    assert "verbatim" in query_description
+    assert "do not distill" in query_description
+
+    mode_description = query_mode_param.description.lower()
+    assert "shape of the answer" in mode_description
+    assert "cross_session" in mode_description
+    assert "current_state" in mode_description
 
 
-def test_guidance_block_instructs_to_pick_query_mode_by_answer_shape():
-    """P2-T3: guidance block must actively teach the LLM to choose query_mode
-    based on the shape of the expected answer, consistent with the tool
-    description — not tell it to omit the parameter by default."""
+def test_memory_query_turn_guidance_stays_turn_level():
     from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
     block = MEMORY_QUERY_GUIDANCE_BLOCK.lower()
-    # Must reference answer-shape modes
-    assert "cross_session" in block, "Must mention cross_session mode"
-    assert "current_state" in block, "Must mention current_state mode"
-    # Must not frame passing query_mode as rare / an override
-    assert "only pass query_mode when explicitly overriding" not in block
-    assert "only override" not in block
+    assert "source of truth" in block
+    assert "broader search" in block
+    assert "verbatim" not in block
+    assert "do not paraphrase" not in block
+    assert "query_mode" not in block
+    assert "cross_session" not in block
+    assert "current_state" not in block
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 follow-up (Fix #6): the guidance block MUST be attached whenever
-# memory_query is in the selected tools, regardless of how the upstream
-# router classified the turn (memory_route).  Originally Phase 4 only
-# attached the block when memory_route == "explicit_query", missing turns
-# where the selector pulled in memory_query through other routes (low
-# confidence routing, future route values, or any path that bypasses
-# apply_memory_guidance).
+# The short turn-level guidance block is attached whenever memory_query is in
+# the selected tools, regardless of how the upstream router classified the turn.
+# Tool-specific parameter details stay in the tool schema.
 # ---------------------------------------------------------------------------
 
 
@@ -122,8 +116,7 @@ def _build_handler():
 
 @pytest.mark.asyncio
 async def test_guidance_attached_when_memory_route_explicit_query():
-    """Baseline (Phase 4 T5): explicit_query route + memory_query in tools
-    must attach the guidance block."""
+    """explicit_query route + memory_query in tools attaches turn guidance."""
     from magi.agent.task_agents.handlers.contracts import IntentDecision
     from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
@@ -157,10 +150,7 @@ async def test_guidance_attached_when_memory_route_explicit_query():
 
 @pytest.mark.asyncio
 async def test_guidance_attached_when_memory_query_selected_but_route_is_none():
-    """Phase 4 follow-up (Fix #6): when the router classified the turn as
-    non-explicit (memory_route == 'none') but memory_query still ended up in
-    selected_tools, the chat LLM MUST still get the don't-paraphrase
-    guidance — otherwise the original paraphrase regression returns."""
+    """memory_query selected through any route still attaches turn guidance."""
     from magi.agent.task_agents.handlers.contracts import IntentDecision
     from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
@@ -190,8 +180,8 @@ async def test_guidance_attached_when_memory_query_selected_but_route_is_none():
         )
     )
     assert MEMORY_QUERY_GUIDANCE_BLOCK in request.system_prompt, (
-        "Guidance block must be attached whenever memory_query is in "
-        "selected_tools, regardless of memory_route classification."
+        "Turn guidance must be attached whenever memory_query is in selected_tools, "
+        "regardless of memory_route classification."
     )
 
 
@@ -230,35 +220,9 @@ async def test_guidance_not_attached_when_memory_query_not_selected():
     assert MEMORY_QUERY_GUIDANCE_BLOCK not in request.system_prompt
 
 
-def test_guidance_only_references_valid_query_modes():
-    """Guard: every backtick-quoted mode-like token in MEMORY_QUERY_GUIDANCE_BLOCK
-    must be a member of the real query_mode enum from the tool schema.
-    This test would have caught the exact_match → exact_fact regression."""
-    import re
-
+def test_turn_guidance_does_not_duplicate_query_mode_enum():
     from magi.agent.task_agents.handlers.handler_helpers import MEMORY_QUERY_GUIDANCE_BLOCK
-    from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
-    schema = MemoryQueryTool().get_schema()
-    qm_param = next(p for p in schema.parameters if p.name == "query_mode")
-    valid = set(qm_param.enum)
-
-    # Extract all backtick-quoted tokens
-    candidates = set(re.findall(r"`([a-z_]+)`", MEMORY_QUERY_GUIDANCE_BLOCK))
-
-    # Any token that contains an underscore (mode-name shape) and is NOT in
-    # valid and is NOT a known non-mode token is a suspect invalid mode reference.
-    non_mode_tokens = {"query_mode", "memory_query"}
-    suspects = {
-        c for c in candidates
-        if "_" in c and c not in valid and c not in non_mode_tokens
-    }
-    assert not suspects, (
-        f"MEMORY_QUERY_GUIDANCE_BLOCK references mode-like token(s) that are "
-        f"not in the real query_mode enum {sorted(valid)}: {suspects}"
-    )
-
-    # Sanity: at least the anchor modes that the guidance is expected to teach
-    # must be present
-    assert "cross_session" in candidates, "Guidance must mention cross_session mode"
-    assert "current_state" in candidates, "Guidance must mention current_state mode"
+    assert "query_mode" not in MEMORY_QUERY_GUIDANCE_BLOCK
+    assert "cross_session" not in MEMORY_QUERY_GUIDANCE_BLOCK
+    assert "current_state" not in MEMORY_QUERY_GUIDANCE_BLOCK

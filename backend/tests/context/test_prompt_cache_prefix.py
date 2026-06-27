@@ -5,12 +5,11 @@ between consecutive requests invalidates the cache from that point onward.
 These tests pin the prefix-stabilising guarantees for the system prompt:
 
 1. Static blocks (identity + persona definition) render BEFORE the per-turn
-   dynamic blocks (tool catalog, persona steer, memory, runtime/time) so the
+   dynamic blocks (tool-use guidance, persona steer, memory, runtime/time) so the
    largest stable chunk sits at the front of the prefix.
 2. The tool list — both the wire ``tools`` parameter and the in-prompt tool
-   catalog — serialises in a deterministic, name-sorted order, so an unchanged
-   tool SET produces byte-identical output even when the upstream selector
-   reranks it per turn.
+   guidance — does not duplicate tool names/descriptions in the prompt. The
+   wire ``tools`` parameter remains deterministic, name-sorted output.
 3. Changing the selected tool SET does not change the cacheable system head.
 """
 
@@ -71,7 +70,7 @@ def test_static_blocks_render_before_dynamic_blocks() -> None:
     prompt = PromptContextRenderer().render_system_prompt(_assembly_context(["alpha_tool"]))
 
     i_definition = prompt.index("# System Definition")
-    i_tools = prompt.index("# Tool Information")
+    i_tools = prompt.index("# Tool Use Guidance")
     i_persona = prompt.index("# Persona Runtime Plan")
     i_boundary = prompt.index(SYSTEM_PROMPT_CACHE_BOUNDARY)
     i_memory = prompt.index("# Memory Library")
@@ -97,7 +96,7 @@ def test_cache_boundary_sits_after_persona_identity_before_dynamic() -> None:
     assert SYSTEM_PROMPT_CACHE_BOUNDARY in prompt
     i_boundary = prompt.index(SYSTEM_PROMPT_CACHE_BOUNDARY)
     assert prompt.index("# Persona Runtime Plan") < i_boundary
-    assert i_boundary < prompt.index("# Tool Information")
+    assert i_boundary < prompt.index("# Tool Use Guidance")
     assert i_boundary < prompt.index("# Memory Library")
     assert i_boundary < prompt.index("# System Information")
 
@@ -112,8 +111,9 @@ def test_selected_tool_changes_do_not_change_cacheable_head() -> None:
     assert head_a == head_b
     assert "alpha_tool" not in head_a
     assert "beta_tool" not in head_b
-    assert "alpha_tool" in tail_a
-    assert "beta_tool" in tail_b
+    assert "alpha_tool" not in tail_a
+    assert "beta_tool" not in tail_b
+    assert prompt_a == prompt_b
 
 
 def test_profile_memory_prefers_prompt_summary_over_raw_preferences() -> None:
@@ -243,18 +243,15 @@ def test_build_tools_parameter_order_is_name_stable() -> None:
     assert out_a == out_b
 
 
-def test_tool_catalog_text_order_is_name_stable() -> None:
+def test_tool_guidance_omits_tool_names_and_catalog_descriptions() -> None:
     renderer = PromptContextRenderer()
-    catalog = ToolCatalogContext(
-        selected_tools=["zebra", "alpha"],
-        tool_descriptions=[
-            {"name": "zebra", "description": "z", "type": "tool"},
-            {"name": "alpha", "description": "a", "type": "tool"},
-        ],
-    )
+    catalog = ToolCatalogContext(selected_tools=["zebra", "alpha"])
 
     text = "\n".join(renderer._render_tool_catalog(catalog))
 
-    # Both the "Selected Tools" list and the "Tool Catalog" list are sorted.
-    assert text.index("* alpha") < text.index("* zebra")
-    assert text.index("**alpha**") < text.index("**zebra**")
+    assert "# Tool Use Guidance" in text
+    assert "Selected Tools" not in text
+    assert "Tool Catalog" not in text
+    assert "alpha" not in text
+    assert "zebra" not in text
+    assert "description" not in text

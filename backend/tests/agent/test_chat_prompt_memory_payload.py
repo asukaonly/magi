@@ -43,17 +43,9 @@ class _FakeUnifiedMemory:
         self.l2 = _FakeL2Store()
 
 
-class _FakeToolRegistry:
-    def get_all_tools_info(self):
-        return [
-            {"name": "weather", "description": "Get weather details", "category": "builtin", "type": "tool"},
-        ]
-
-
 class TestChatPromptMemoryPayload(unittest.IsolatedAsyncioTestCase):
     async def test_prompt_context_reads_l0_l2_l3_l4_payloads(self):
         assembler = PromptContextAssembler(
-            tool_registry=_FakeToolRegistry(),
             user_profile_service=UserProfileService(unified_memory=_FakeUnifiedMemory()),
         )
         renderer = PromptContextRenderer()

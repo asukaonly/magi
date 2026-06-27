@@ -53,13 +53,9 @@ class PromptContextRenderer:
         # Per-turn dynamic blocks — moved to the message tail by the bridge.
         lines.extend(self._render_persona_turn_steer(context.self_memory.persona_turn_plan))
         if include_tool_catalog:
-            # The "You MUST use the available tools" block frames the turn as
-            # a task to complete. In emotional / crisis registers that frame
-            # is actively wrong — pushing a model in those states toward
-            # tool execution makes it skip acknowledgement and jump to
-            # solutions. The tool catalog itself stays visible so the model
-            # can still call tools when genuinely needed; only the imperative
-            # framing is dropped.
+            # Tool definitions live in the provider tools parameter. Prompt text
+            # carries only turn-level strategy, and emotional / crisis registers
+            # get no task-execution framing at all.
             register = (
                 getattr(context.self_memory.persona_turn_plan, "register", None)
                 if context.self_memory.persona_turn_plan
@@ -415,58 +411,25 @@ class PromptContextRenderer:
         *,
         suppress_imperatives: bool = False,
     ) -> List[str]:
-        """Render tool catalog as markdown.
+        """Render short turn-level tool guidance.
 
-        ``suppress_imperatives`` controls whether the ``## Tool Usage
-        Instructions`` section ("you MUST use the available tools",
-        "NEVER give up and return plain text") is appended. We drop it
-        for emotional / crisis registers where task-execution framing
-        is the wrong register for the turn — the catalog itself stays
-        visible so tools remain callable when genuinely needed.
+        Real tool names, descriptions, and parameter schemas are already sent in
+        the provider ``tools`` parameter. Repeating them here creates a second
+        tool catalog, inflates the per-turn prompt tail, and can drift from the
+        provider-facing schema.
         """
-        lines = ["# Tool Information"]
+        selected = [tool for tool in tools.selected_tools or [] if str(tool).strip()]
+        if not selected or suppress_imperatives:
+            return []
 
-        # Sort by name so an unchanged tool SET serialises identically across
-        # turns even when the upstream selector reranks it (issue #97).
-        selected = sorted(tools.selected_tools or [])
-        lines.append("## Selected Tools")
-        if selected:
-            for tool in selected:
-                lines.append(f"* {tool}")
-        else:
-            lines.append("* (none selected)")
-        lines.append("")
-
-        descriptions = sorted(
-            tools.tool_descriptions or [],
-            key=lambda desc: str(desc.get("name", "")),
-        )
-        lines.append("## Tool Catalog")
-        if descriptions:
-            for desc in descriptions:
-                name = desc.get("name", "unknown")
-                desc_text = desc.get("description", "")
-                category = desc.get("category", "")
-                tool_type = desc.get("type", "tool")
-                lines.append(f"* **{name}** ({tool_type}): {desc_text}")
-                if category:
-                    lines[-1] += f" [Category: {category}]"
-        else:
-            lines.append("* (no tools available)")
-        lines.append("")
-
-        if selected and not suppress_imperatives:
-            lines.extend([
-                "## Tool Usage Instructions",
-                "* You MUST use the available tools to complete the user's task.",
-                "* If a tool fails, try alternative approaches using other tools or commands.",
-                "* NEVER give up and return plain text suggestions - always attempt tool calls.",
-                "* For bash commands: try different tools/flags if one fails (e.g., if `convert` not found, try `magick`, `sips`, or Python PIL).",
-                "* Continue calling tools until the task is fully completed or all options are exhausted.",
-                "",
-            ])
-
-        return lines
+        return [
+            "# Tool Use Guidance",
+            "* Use available tools when they are needed to verify facts, inspect files, or complete actions.",
+            "* Do not guess when a selected tool can check the answer.",
+            "* If a tool fails, adjust the approach or use another available tool before answering.",
+            "* If no tool is needed, answer directly.",
+            "",
+        ]
 
     def _render_active_attachments(self, attachments: List[Dict[str, Any]]) -> List[str]:
         if not attachments:

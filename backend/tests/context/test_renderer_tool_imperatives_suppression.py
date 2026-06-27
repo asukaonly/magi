@@ -1,13 +1,8 @@
-"""Register-conditional suppression of the 'You MUST use tools' block.
+"""Register-conditional rendering of tool-use prompt guidance.
 
-Today's case showed task-execution framing leaking into emotional turns:
-the renderer unconditionally appended "## Tool Usage Instructions" with
-"you MUST use the available tools to complete the user's task" whenever
-any tool was selected. In emotional / crisis registers that framing
-pushes the model into solve-the-problem mode and skips the acknowledgement
-the user actually needed. The tool catalog itself stays visible so the
-model can still call tools when they are genuinely useful; only the
-imperative framing gets dropped.
+The real tool names/descriptions live in the provider ``tools`` parameter.
+Prompt text should only carry short turn-level strategy, and emotional /
+crisis registers should not get task-execution framing.
 """
 
 from __future__ import annotations
@@ -81,13 +76,14 @@ async def test_task_register_keeps_tool_imperatives() -> None:
         user_message="帮我修这个 bug",
         tools=["edit_file"],
     )
-    assert "## Tool Usage Instructions" in prompt
-    assert "You MUST use the available tools" in prompt
-    assert "* edit_file" in prompt  # catalog still rendered
+    assert "# Tool Use Guidance" in prompt
+    assert "Use available tools" in prompt
+    assert "edit_file" not in prompt
+    assert "Tool Catalog" not in prompt
 
 
 @pytest.mark.asyncio
-async def test_emotional_register_drops_tool_imperatives_but_keeps_catalog() -> None:
+async def test_emotional_register_drops_tool_guidance() -> None:
     # Pin register via routing_hint — the keyword fallback would otherwise
     # see non-empty tools and force task. In production the LLM router
     # (ContextDecider) is what supplies the hint and overrides keywords.
@@ -98,15 +94,15 @@ async def test_emotional_register_drops_tool_imperatives_but_keeps_catalog() -> 
         tools=["web-search"],
         routing_hint=PersonaRoutingHint(register="emotional"),
     )
-    # Imperatives gone — model is not pushed into task-execution mode.
-    assert "## Tool Usage Instructions" not in prompt
-    assert "You MUST use the available tools" not in prompt
-    # Catalog still listed so the tool remains callable if genuinely needed.
-    assert "* web-search" in prompt
+    # Prompt guidance gone — tools remain callable through the tools parameter,
+    # but the system text does not push the model into task-execution mode.
+    assert "# Tool Use Guidance" not in prompt
+    assert "Use available tools" not in prompt
+    assert "web-search" not in prompt
 
 
 @pytest.mark.asyncio
-async def test_crisis_register_drops_tool_imperatives_but_keeps_catalog() -> None:
+async def test_crisis_register_drops_tool_guidance() -> None:
     prompt = await _render_with(
         scenario=Scenario.CHAT,
         task_category="chat",
@@ -114,8 +110,8 @@ async def test_crisis_register_drops_tool_imperatives_but_keeps_catalog() -> Non
         tools=["memory_query"],
         routing_hint=PersonaRoutingHint(register="crisis"),
     )
-    assert "## Tool Usage Instructions" not in prompt
-    assert "* memory_query" in prompt
+    assert "# Tool Use Guidance" not in prompt
+    assert "memory_query" not in prompt
 
 
 @pytest.mark.asyncio
@@ -129,7 +125,8 @@ async def test_casual_register_keeps_tool_imperatives() -> None:
         tools=["web-search"],
         routing_hint=PersonaRoutingHint(register="casual"),
     )
-    assert "## Tool Usage Instructions" in prompt
+    assert "# Tool Use Guidance" in prompt
+    assert "web-search" not in prompt
 
 
 @pytest.mark.asyncio
@@ -140,4 +137,4 @@ async def test_empty_tool_catalog_never_renders_imperatives() -> None:
         user_message="随便聊聊",
         tools=[],
     )
-    assert "## Tool Usage Instructions" not in prompt
+    assert "# Tool Use Guidance" not in prompt

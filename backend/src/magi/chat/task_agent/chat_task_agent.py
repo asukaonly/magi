@@ -145,7 +145,6 @@ class ChatTaskAgent(
             llm_pool=llm_pool,
         )
         self.prompt_context_assembler = PromptContextAssembler(
-            tool_registry=tool_registry,
             user_profile_service=UserProfileService(unified_memory=unified_memory),
         )
         self.prompt_context_renderer = PromptContextRenderer()

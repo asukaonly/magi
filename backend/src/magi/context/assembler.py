@@ -77,8 +77,7 @@ BOUNDARY_TEMPLATE = "\n".join(
 class PromptContextAssembler(PromptSelfMemoryMixin):
     """Builds reusable modular prompt contexts."""
 
-    def __init__(self, tool_registry=None, persona_journal_service=None, user_profile_service=None):
-        self.tool_registry = tool_registry
+    def __init__(self, persona_journal_service=None, user_profile_service=None):
         self.persona_journal_service: PersonaJournalService | None = persona_journal_service
         self.user_profile_service: UserProfileService | None = user_profile_service
 
@@ -168,32 +167,6 @@ class PromptContextAssembler(PromptSelfMemoryMixin):
         if isinstance(tool_result, dict):
             selected_tools = [str(tool) for tool in tool_result.get("tools", []) if tool]
 
-        descriptions: List[Dict[str, Any]] = []
-        if self.tool_registry is not None and selected_tools:
-            all_tools = self.tool_registry.get_all_tools_info()
-            lookup = {}
-            for item in all_tools:
-                name = str(item.get("name", ""))
-                if not name:
-                    continue
-                lookup[name] = item
-                lookup[f"/{name}"] = item
-
-            for selected in selected_tools:
-                matched = lookup.get(selected)
-                if matched is None:
-                    descriptions.append({"name": selected, "description": "unknown tool"})
-                    continue
-                descriptions.append(
-                    {
-                        "name": selected,
-                        "description": str(matched.get("description", "")),
-                        "category": str(matched.get("category", "")),
-                        "type": str(matched.get("type", "tool")),
-                    }
-                )
-
         return ToolCatalogContext(
             selected_tools=selected_tools,
-            tool_descriptions=descriptions,
         )

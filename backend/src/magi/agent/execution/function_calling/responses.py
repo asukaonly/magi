@@ -47,7 +47,11 @@ class FunctionCallingResponseMixin:
         strict_plain_text: bool = False,
     ) -> str:
         """Strip tool-oriented guidance and replace it with final-answer-only rules."""
-        prompt = re.split(r"\n# Tool Information\b", system_prompt, maxsplit=1)[0]
+        prompt = re.split(
+            r"(?:^|\n)# Tool (?:Information|Use Guidance)\b",
+            system_prompt,
+            maxsplit=1,
+        )[0]
         prompt = re.split(r"\nTool recovery rules:\n", prompt, maxsplit=1)[0].rstrip()
         rules = [
             "Final Response Rules:",

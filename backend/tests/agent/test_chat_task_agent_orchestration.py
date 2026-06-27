@@ -846,7 +846,7 @@ async def test_aggregate_orchestration_uses_analysis_prompt_without_tool_catalog
     assert "## Internal Evidence Dossier" not in llm_call["system_prompt"]
     assert "You must explicitly absorb the key findings, evidence, and trade-offs" in llm_call["system_prompt"]
     assert '"completed_subtasks"' not in llm_call["system_prompt"]
-    assert "# Tool Information" not in llm_call["system_prompt"]
+    assert "# Tool Use Guidance" not in llm_call["system_prompt"]
     assert llm_call["disable_thinking"] is False
     messages = llm_call["messages"]
     assert isinstance(messages, list)

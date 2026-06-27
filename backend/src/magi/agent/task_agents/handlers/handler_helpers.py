@@ -25,30 +25,8 @@ def build_attachment_preparation_guidance_block(selected_tools: list[str]) -> st
 MEMORY_QUERY_GUIDANCE_BLOCK = "\n".join(
     [
         "# Memory Query Guidance",
-        "You have access to structured long-term memory through `memory_query`. Use it when the user asks about:",
-        "- Personal facts, preferences, or relationships (\"what do I like\", \"who is X\")",
-        "- Historical events or activities (\"what did I do last week\", \"remember when\")",
-        "- Temporal state (\"how was my mood three months ago\", \"what was I reading in March\")",
-        "",
-        "**Critical**: pass the user's original question verbatim as the `query` parameter.",
-        "Do NOT paraphrase, rewrite, or replace the topic with a broader/related topic.",
-        "Examples of wrong paraphrasing to avoid:",
-        "- User: \"当时我怎么说的\" → WRONG: query=\"用户名字偏好设置\"  RIGHT: query=\"当时我怎么说的\"",
-        "- User: \"what did I tell you about my preferences\" → WRONG: query=\"user preference history\"",
-        "  RIGHT: query=\"what did I tell you about my preferences\"",
-        "",
-        "Choose `query_mode` by the **shape of the answer** the user expects:",
-        "- Enumerating multiple items across time → `cross_session`",
-        "- A single current value or latest status → `current_state`",
-        "- A story or sequence of events → `episode_recall`",
-        "- A remembered period, trip, project, or coherent life/work experience → `experience_recall`",
-        "- A single specific fact → `exact_fact`",
-        "If genuinely unsure, omit it and the system falls back to heuristic detection.",
-        "",
-        "Other tips:",
-        "- Include the subject entity when asking about a specific person or thing.",
-        "- Include time context if the question is about a specific period.",
-        "- Use `memory_query` before broader search tools — memory results ground later tool calls.",
+        "Use `memory_query` results as the source of truth for historical recall in this turn.",
+        "Prefer `memory_query` before broader search tools when the user asks about prior conversations, personal facts, preferences, or historical activity.",
     ]
 )
 
