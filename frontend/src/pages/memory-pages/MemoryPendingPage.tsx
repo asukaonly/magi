@@ -14,6 +14,7 @@ import {
   resolveConflict,
   type NotificationItem,
 } from '@/api/modules/notifications';
+import { getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_EMPTY_PANEL_CLASS,
@@ -23,7 +24,6 @@ import { isMemoryUpdateStory } from './storyFilters';
 type PendingAction = 'confirmed' | 'rejected';
 type ConflictAction = 'confirm' | 'reject';
 type PendingFilter = 'all' | 'memory' | 'experiences' | 'observations';
-type TranslationFn = (key: string, options?: Record<string, unknown>) => string;
 
 const MEMORY_REVIEW_BUTTON_CLASS = cn(
   MEMORY_ACTION_BUTTON_CLASS,
@@ -32,80 +32,6 @@ const MEMORY_REVIEW_BUTTON_CLASS = cn(
   'hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))]',
   'hover:shadow-[inset_0_0_0_1px_hsl(var(--memory-border)/0.78)]'
 );
-
-const assertionTitle = (assertion: L2Assertion): string => (
-  String(assertion.trait_name || assertion.assertion_id || '').trim()
-);
-
-const assertionBody = (assertion: L2Assertion): string => (
-  String(assertion.trait_value || '').trim()
-);
-
-const isInternalTraitName = (value: string): boolean => {
-  const text = value.trim();
-  if (!text) {
-    return false;
-  }
-  return (
-    text.startsWith('interest.') ||
-    /^[a-z0-9_-]+(\.[a-z0-9_-]+)+$/i.test(text)
-  );
-};
-
-const readableTraitName = (assertion: L2Assertion, displayedValue: string): string => {
-  const traitName = assertionTitle(assertion);
-  if (!traitName || traitName === displayedValue || traitName === assertion.assertion_id) {
-    return '';
-  }
-  return isInternalTraitName(traitName) ? '' : traitName;
-};
-
-const assertionDisplayValue = (assertion: L2Assertion, t: TranslationFn): string => {
-  const value = assertionBody(assertion);
-  if (value) {
-    return value;
-  }
-  const title = assertionTitle(assertion);
-  if (title && title !== assertion.assertion_id && !isInternalTraitName(title)) {
-    return title;
-  }
-  return t('memory.pending.assertions.unknownValue');
-};
-
-const readableConflictValue = (value: unknown): string => {
-  const text = String(value || '').trim();
-  return text && !isInternalTraitName(text) ? text : '';
-};
-
-const assertionCardCopy = (
-  assertion: L2Assertion,
-  t: TranslationFn,
-): { title: string; body: string } => {
-  const value = assertionDisplayValue(assertion, t);
-  const context = assertion.conflict_context;
-  const oldValue = readableConflictValue(context?.previous_value) || value;
-  const newValue = readableConflictValue(context?.current_value);
-  if (newValue && oldValue !== newValue) {
-    return {
-      title: t('memory.pending.assertions.conflictPairTitle', { oldValue, newValue }),
-      body: t('memory.pending.assertions.conflictPairBody', { oldValue, newValue }),
-    };
-  }
-  const state = String(assertion.validation_state || assertion.status || '').trim().toLowerCase();
-  if (state === 'contradicted') {
-    return {
-      title: t('memory.pending.assertions.uncertainTitle', { value }),
-      body: t('memory.pending.assertions.uncertainBody'),
-    };
-  }
-  const traitName = readableTraitName(assertion, value);
-  return {
-    title: t('memory.pending.assertions.tentativeTitle', { value }),
-    body: traitName
-      ? t('memory.pending.assertions.traitBody', { trait: traitName })
-      : t('memory.pending.assertions.tentativeBody'),
-  };
-};
 
 const storyTitle = (story: StoryItem, fallback: string): string => (
   String(story.title || '').trim() || fallback
@@ -305,7 +231,7 @@ export const MemoryPendingPage = () => {
             >
               {assertions.map((assertion) => {
                 const busy = actionId === `assertion:${assertion.assertion_id}`;
-                const copy = assertionCardCopy(assertion, t);
+                const copy = getPendingAssertionCopy(assertion, t);
                 return (
                   <PendingCard
                     key={assertion.assertion_id}

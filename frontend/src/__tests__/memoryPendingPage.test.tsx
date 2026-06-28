@@ -44,7 +44,7 @@ vi.mock('react-i18next', () => ({
         'memory.pending.meta.conflict': '偏好冲突',
         'memory.pending.meta.summary': '总结',
         'memory.pending.meta.experienceSeed': '经历线索',
-        'memory.pending.assertions.tentativeTitle': '我认为你可能关注「{{value}}」',
+        'memory.pending.assertions.tentativeTitle': '我整理出一个关于你的判断：「{{value}}」',
         'memory.pending.assertions.unknownValue': '这条记忆判断',
         'memory.pending.assertions.tentativeBody': '这个判断对吗？',
         'memory.pending.assertions.conflictTitle': '我发现「{{value}}」这个判断和新的证据有冲突',
@@ -54,6 +54,7 @@ vi.mock('react-i18next', () => ({
         'memory.pending.assertions.uncertainTitle': '我对「{{value}}」这个判断没把握',
         'memory.pending.assertions.uncertainBody': '证据还不够一致，但没有明确的相反判断。请确认它准不准。',
         'memory.pending.assertions.traitBody': '判断类型：{{trait}}',
+        'memory.pages.knowledge.readable.assertions.communication_address_preferred': '你希望我称呼你为“{{value}}”。',
         'memory.pending.conflictMeta': '和已确认记忆不一致',
         'memory.pending.evidenceCount': '{{count}} 条证据',
         'memory.pending.fragmentCount': '{{count}} 个片段',
@@ -260,7 +261,7 @@ describe('MemoryPendingPage', () => {
     expect(await screen.findByRole('heading', { name: '影响记忆' })).toBeInTheDocument();
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
     expect(screen.getByText('这些会直接影响 Magi 之后怎么理解你')).toBeInTheDocument();
-    expect(screen.getByText('我认为你可能关注「本地优先的记忆系统」')).toBeInTheDocument();
+    expect(screen.getByText('我整理出一个关于你的判断：「本地优先的记忆系统」')).toBeInTheDocument();
     expect(screen.getByText('判断类型：关注方向')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '总结复核' })).toBeInTheDocument();
     expect(screen.getByText('最近更关注记忆产品')).toBeInTheDocument();
@@ -344,6 +345,45 @@ describe('MemoryPendingPage', () => {
     expect(within(fallbackCard).getByText('我对「这条记忆判断」这个判断没把握')).toBeInTheDocument();
     expect(within(fallbackCard).getByText('证据还不够一致，但没有明确的相反判断。请确认它准不准。')).toBeInTheDocument();
     expect(fallbackCard.textContent).not.toContain('interest.frank_wang-7efea7');
+  });
+
+  it('renders communication assertions as address preferences instead of interests', async () => {
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({
+      pending_assertions: {
+        items: [
+          {
+            assertion_id: 'assert-address',
+            entity_id: 'user:self',
+            entity_type: 'user',
+            trait_family: 'communication_profile',
+            trait_name: 'communication.address.preferred',
+            trait_value: '子涵',
+            confidence_score: 0.52,
+            evidence_events: ['evt-1'],
+            validation_state: 'tentative',
+            volatility_index: 0.2,
+            source_domain: 'conversation',
+            inference_depth: 'semantic',
+            first_inferred_at: 1710000000,
+            last_validated_at: 1710000000,
+            user_feedback: null,
+            user_feedback_at: null,
+            status: 'tentative',
+          },
+        ],
+        total: 1,
+        limit: 25,
+        offset: 0,
+      },
+    } as never);
+
+    renderPage();
+
+    const card = await screen.findByTestId('pending-assertion-assert-address');
+    expect(within(card).getByText('你希望我称呼你为“子涵”。')).toBeInTheDocument();
+    expect(within(card).getByText('这个判断对吗？')).toBeInTheDocument();
+    expect(card.textContent).not.toContain('communication.address.preferred');
+    expect(card.textContent).not.toContain('关注「子涵」');
   });
 
   it('filters the confirmation lanes by decision type', async () => {

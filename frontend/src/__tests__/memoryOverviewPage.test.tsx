@@ -32,17 +32,30 @@ vi.mock('react-i18next', () => ({
         'memory.sources.chat_projector': 'Chat',
         'timeline.sources.chat': 'Chat',
         'memory.stories.categories.day': 'Daily summary',
+        'memory.pending.assertions.tentativeTitle': 'I found an about-you judgment: "{{value}}"',
+        'memory.pending.assertions.tentativeBody': 'Is this judgment right?',
+        'memory.pending.assertions.traitBody': 'Judgment type: {{trait}}',
+        'memory.pending.assertions.unknownValue': 'this memory judgment',
+        'memory.pending.assertions.conflictPairTitle': '"{{oldValue}}" and "{{newValue}}" do not agree',
+        'memory.pending.assertions.conflictPairBody': 'The older judgment was "{{oldValue}}". Newer evidence supports "{{newValue}}" more. Confirm whether the older judgment is still accurate.',
+        'memory.pending.assertions.uncertainTitle': 'I am not sure about "{{value}}"',
+        'memory.pending.assertions.uncertainBody': 'The evidence is not consistent enough. Confirm whether this is accurate.',
+        'memory.pages.knowledge.readable.assertions.communication_address_preferred': 'You want me to call you "{{value}}".',
       };
-      if (translations[key]) {
-        return translations[key];
-      }
+      let result = translations[key] ?? '';
       if (key === 'memory.overview.metricDelta.today') {
-        return `Today +${options?.value ?? 0}`;
+        result = `Today +${options?.value ?? 0}`;
+      } else if (!result && options && typeof options.count === 'number') {
+        result = `${key}:${options.count}`;
+      } else if (!result) {
+        result = key;
       }
-      if (options && typeof options.count === 'number') {
-        return `${key}:${options.count}`;
+      if (options) {
+        for (const [name, value] of Object.entries(options)) {
+          result = result.replace(`{{${name}}}`, String(value));
+        }
       }
-      return key;
+      return result;
     },
     i18n: { language: 'en' },
   }),
@@ -332,8 +345,9 @@ describe('MemoryOverviewPage', () => {
     expect(screen.queryByText('Screen Time')).not.toBeInTheDocument();
     expect(screen.queryByText('Safari History')).not.toBeInTheDocument();
     expect(screen.queryByText('chat_projector')).not.toBeInTheDocument();
-    expect(screen.getByText('favorite_language')).toBeInTheDocument();
-    expect(screen.getByText('Python')).toBeInTheDocument();
+    expect(screen.getByText('I found an about-you judgment: "Python"')).toBeInTheDocument();
+    expect(screen.getByText('Is this judgment right?')).toBeInTheDocument();
+    expect(screen.queryByText('favorite_language')).not.toBeInTheDocument();
     expect(screen.getByText('Sleep changed')).toBeInTheDocument();
     expect(screen.queryByText('Trend observed')).not.toBeInTheDocument();
     expect(screen.queryByText('Sustained interest: Codex and DeepSeek.')).not.toBeInTheDocument();
@@ -344,6 +358,45 @@ describe('MemoryOverviewPage', () => {
     expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 8 });
     expect(sensorsApi.getStatus).toHaveBeenCalled();
     expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 12, offset: 0 });
+  });
+
+  it('uses the same readable wording for pending address assertions as the review page', async () => {
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({
+      ...dashboardPayload,
+      pending_assertions: {
+        items: [
+          {
+            assertion_id: 'assert-address',
+            entity_id: 'user:self',
+            entity_type: 'user',
+            trait_family: 'communication_profile',
+            trait_name: 'communication.address.preferred',
+            trait_value: '子涵',
+            confidence_score: 0.52,
+            evidence_events: ['evt-1'],
+            validation_state: 'tentative',
+            volatility_index: 0.2,
+            source_domain: 'conversation',
+            inference_depth: 'semantic',
+            first_inferred_at: 1710000000,
+            last_validated_at: 1710000000,
+            user_feedback: null,
+            user_feedback_at: null,
+            status: 'tentative',
+          },
+        ],
+        total: 1,
+        limit: 8,
+        offset: 0,
+      },
+    } as any);
+
+    render(<MemoryOverviewPage />);
+
+    expect(await screen.findByText('You want me to call you "子涵".')).toBeInTheDocument();
+    expect(screen.getByText('Is this judgment right?')).toBeInTheDocument();
+    expect(screen.queryByText('communication.address.preferred')).not.toBeInTheDocument();
+    expect(screen.queryByText('I think you may care about "子涵"')).not.toBeInTheDocument();
   });
 
   it('hides the pending section when nothing needs review', async () => {
@@ -368,7 +421,7 @@ describe('MemoryOverviewPage', () => {
     const user = userEvent.setup();
     render(<MemoryOverviewPage />);
 
-    await screen.findByText('favorite_language');
+    await screen.findByText('I found an about-you judgment: "Python"');
     await user.click(screen.getByRole('button', { name: 'memory.overview.actions.confirmAssertion' }));
 
     expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledWith('assert-1', 'confirmed');

@@ -7,6 +7,7 @@ import { PluginIcon } from '@/components/plugins/PluginIcon';
 import { memoryApi, type L2Assertion, type MemoryDashboard, type MemorySourceCount } from '@/api/modules/memory';
 import { sensorsApi, type SensorSourceStatusItem, type SensorSourceStatusResponse } from '@/api/modules/sensors';
 import { memoryStoriesApi, type StoryItem } from '@/api/modules/memoryStories';
+import { getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
 import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
@@ -178,15 +179,18 @@ const buildPendingItems = (
   dismissedIds: Set<string>,
   t: OverviewTranslateFn,
 ): PendingOverviewItem[] => {
-  const assertionItems: PendingOverviewItem[] = (dashboard?.pending_assertions.items || []).map((assertion) => ({
-    kind: 'assertion',
-    id: `assertion:${assertion.assertion_id}`,
-    title: assertion.trait_name,
-    body: assertion.trait_value,
-    status: assertion.validation_state,
-    updatedAt: assertion.last_validated_at || assertion.first_inferred_at || 0,
-    payload: assertion,
-  }));
+  const assertionItems: PendingOverviewItem[] = (dashboard?.pending_assertions.items || []).map((assertion) => {
+    const copy = getPendingAssertionCopy(assertion, t);
+    return {
+      kind: 'assertion',
+      id: `assertion:${assertion.assertion_id}`,
+      title: copy.title,
+      body: copy.body,
+      status: assertion.validation_state,
+      updatedAt: assertion.last_validated_at || assertion.first_inferred_at || 0,
+      payload: assertion,
+    };
+  });
   const storyItems: PendingOverviewItem[] = stories
     .filter((story) => story.review_state === 'pending_confirmation' && isMemoryUpdateStory(story))
     .map((story) => ({

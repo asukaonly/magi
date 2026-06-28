@@ -2665,7 +2665,7 @@
         "experienceSeed": "Experience signal"
       },
       "assertions": {
-        "tentativeTitle": "I think you may care about \"{{value}}\"",
+        "tentativeTitle": "I found an about-you judgment: \"{{value}}\"",
         "unknownValue": "this memory judgment",
         "tentativeBody": "Is this judgment right?",
         "conflictTitle": "I found that \"{{value}}\" conflicts with newer evidence",
