@@ -139,7 +139,7 @@ class SkillInvocationCompleted:
 # Emitted by the control-actuator tools (enter/exit plan mode, todo_write,
 # ask_user_question). A chat-side subscriber consumes them and performs the
 # durable transcript persistence that previously lived in
-# ``magi.agent.control.chat_state_persister``. Each payload carries EXACTLY
+# ``magi.control.chat_state_persister``. Each payload carries EXACTLY
 # what the matching ``persist_*`` projector needs plus session/turn/user ids.
 # ---------------------------------------------------------------------------
 

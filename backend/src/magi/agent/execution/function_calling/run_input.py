@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from ....config.models import ThinkingDepth
 from ...cancel import CancelToken
-from ...run_control import DetachSignal, RunControl, SteerInbox
+from magi.control.run_control import DetachSignal, RunControl, SteerInbox
 from ...turn_input import UserTurnInput
 
 if TYPE_CHECKING:

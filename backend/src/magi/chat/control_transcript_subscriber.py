@@ -2,7 +2,7 @@
 
 Control-Plane Extraction Phase 1. The control-actuator tools (enter/exit plan
 mode, ``todo_write``, ``ask_user_question``) used to call ``persist_*`` helpers
-in ``magi.agent.control.chat_state_persister`` directly, which forced the
+in ``magi.control.chat_state_persister`` directly, which forced the
 control package to import chat/transport. That dependency is now inverted: the
 tools publish control state-change events on the L3 event bus (a legal downward
 edge), and this chat-side subscriber owns the transcript projection.

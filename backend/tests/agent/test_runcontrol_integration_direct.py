@@ -12,7 +12,7 @@ import inspect
 import pytest
 
 from magi.agent.cancel import EventCancelToken
-from magi.agent.run_control import (
+from magi.control.run_control import (
     RetractRequested,
     RetractSignal,
     RunControl,

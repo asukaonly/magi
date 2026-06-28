@@ -9,7 +9,7 @@ from magi.chat.task_agent.fact_classifier import ChatFactClassifier
 from magi.chat.task_agent.interruption_classifier import InterruptionDisposition
 from magi.chat.task_agent.postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
-from magi.agent.run_control import DetachSignal
+from magi.control.run_control import DetachSignal
 from magi.agent.task_agents.common import IncomingFactKind
 from magi.events.events import EventTypes
 

@@ -6,7 +6,7 @@ from threading import RLock
 from typing import TYPE_CHECKING
 
 from magi.memory.l0.working_memory import L0WorkingMemoryStore
-from magi.agent.run_control import RunControl
+from magi.control.run_control import RunControl
 from .run_store_conversion import SessionRunConversionMixin
 from .run_store_goals import SessionRunGoalMixin
 from .run_store_lifecycle import SessionRunLifecycleMixin

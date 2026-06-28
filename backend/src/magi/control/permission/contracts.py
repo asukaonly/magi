@@ -25,7 +25,7 @@ __all__ = [
 
 # RiskLevel is promoted to the SDK layer so plugin tools can depend on it
 # without importing host internals. This re-export preserves identity:
-#   from magi.agent.control.permission.contracts import RiskLevel
+#   from magi.control.permission.contracts import RiskLevel
 #   from magi_plugin_sdk.permissions import RiskLevel
 # both resolve to the SAME object.
 from magi_plugin_sdk.permissions import RiskLevel  # noqa: F401 (re-export)

@@ -20,7 +20,7 @@ class ControlSettingsManager:
 
     The manager exposes two callables — :meth:`settings_provider` and
     :meth:`session_override_provider` — that plug directly into
-    :class:`~magi.agent.control.permission.gateway.PermissionGateway`.
+    :class:`~magi.control.permission.gateway.PermissionGateway`.
     """
 
     def __init__(self, base: ControlSettings | None = None) -> None:

@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from magi.agent.run_control import null_run_control
+from magi.control.run_control import null_run_control
 from magi.chat.task_agent.run_store import SessionRunStore
 from magi.chat.task_agent.session_run_coordinator import (
     SessionRunCoordinator,

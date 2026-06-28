@@ -7,7 +7,7 @@ import inspect
 
 import pytest
 
-from magi.agent.run_control import (
+from magi.control.run_control import (
     RetractRequested,
     RunControl,
     null_run_control,

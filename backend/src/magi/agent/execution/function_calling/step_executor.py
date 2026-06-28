@@ -12,7 +12,7 @@ from ....config.models import ThinkingDepth
 from ....llm.cancellable_client import CancellationRaised, RetractRaised
 from ....llm.streaming_events import LLMStreamEvent, emit_stream_event
 from ...cancel import CancelToken, null_cancel_token
-from ...run_control import RunControl
+from magi.control.run_control import RunControl
 from .types import ToolCallResult
 
 if TYPE_CHECKING:

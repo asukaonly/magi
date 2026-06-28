@@ -21,14 +21,14 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from magi.agent.control.permission.contracts import (
+from magi.control.permission.contracts import (
     PermissionOutcome,
     ToolOrigin,
 )
 from magi.api.routers.control import control_router
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.bootstrap.control_plane import ControlPlaneModule
-from magi.agent.control.permission.provider import get_permission_gateway
+from magi.control.permission.provider import get_permission_gateway
 
 
 class _FakeRuntimePaths:

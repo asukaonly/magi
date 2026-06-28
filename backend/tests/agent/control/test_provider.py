@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from dependency_injector import providers
 
-from magi.agent.control.provider import (
+from magi.control.provider import (
     resolve_control_session_store,
     resolve_control_settings_manager,
 )

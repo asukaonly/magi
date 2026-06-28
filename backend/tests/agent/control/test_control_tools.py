@@ -12,8 +12,8 @@ import contextlib
 
 import pytest
 
-from magi.agent.control.common import InteractionBroker
-from magi.agent.control.session_store import ControlSessionStore
+from magi.control.common import InteractionBroker
+from magi.control.session_store import ControlSessionStore
 from magi.core.container import get_container
 from magi.events.events import EventTypes
 from magi.tools.builtin.ask_user_question_tool import AskUserQuestionTool

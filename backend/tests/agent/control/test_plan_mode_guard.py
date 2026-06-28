@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import pytest
 
-from magi.agent.control.common import InteractionBroker
-from magi.agent.control.permission.classifier import RiskClassifier
-from magi.agent.control.permission.contracts import (
+from magi.control.common import InteractionBroker
+from magi.control.permission.classifier import RiskClassifier
+from magi.control.permission.contracts import (
     PermissionOutcome,
     ToolOrigin,
 )
-from magi.agent.control.permission.gateway import PermissionGateway
-from magi.agent.control.permission.rules import PermissionRuleStore
-from magi.agent.control.session_store import ControlSessionStore
-from magi.agent.control.settings import ControlSettings, PermissionMode
+from magi.control.permission.gateway import PermissionGateway
+from magi.control.permission.rules import PermissionRuleStore
+from magi.control.session_store import ControlSessionStore
+from magi.control.settings import ControlSettings, PermissionMode
 
 
 async def _gateway_with_store() -> tuple[PermissionGateway, ControlSessionStore, PermissionRuleStore]:

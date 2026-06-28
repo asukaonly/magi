@@ -6,21 +6,21 @@ import asyncio
 
 import pytest
 
-from magi.agent.control.common.interaction_broker import (
+from magi.control.common.interaction_broker import (
     InteractionBroker,
     InteractionTimeoutError,
 )
-from magi.agent.control.permission.brokered_prompter import (
+from magi.control.permission.brokered_prompter import (
     BrokeredPermissionPrompter,
     PendingPermissionRegistry,
 )
-from magi.agent.control.permission.contracts import (
+from magi.control.permission.contracts import (
     PermissionRequest,
     PermissionScope,
     RiskLevel,
     ToolOrigin,
 )
-from magi.agent.control.permission.gateway import UserPromptResponse
+from magi.control.permission.gateway import UserPromptResponse
 
 
 def _request(request_id: str = "req-1", session_id: str | None = "sid-1") -> PermissionRequest:

@@ -53,7 +53,7 @@ class FunctionCallingPermissionMixin:
     ) -> Optional[ToolCallResult]:
         """Run the permission gateway; return a failure result if blocked."""
         try:
-            from ...control.permission import (
+            from magi.control.permission import (
                 PermissionOutcome,
                 ToolOrigin,
             )

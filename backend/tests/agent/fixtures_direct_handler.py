@@ -14,7 +14,7 @@ import asyncio
 from types import SimpleNamespace
 from typing import AsyncIterator, Callable, Iterable
 
-from magi.agent.run_control import RunControl
+from magi.control.run_control import RunControl
 from magi.agent.task_agents.handlers.contracts import (
     ChatRuntimeContext,
     IntentDecision,

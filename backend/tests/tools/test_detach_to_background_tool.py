@@ -11,7 +11,7 @@ from magi.agent.execution.function_calling import (
     ToolCall,
     ToolCallResult,
 )
-from magi.agent.run_control import (
+from magi.control.run_control import (
     DetachSignal,
     bind_detach_signal,
     current_detach_signal,
@@ -248,7 +248,7 @@ async def test_orchestrator_bind_makes_detach_tool_flip_signal_and_exit(
         tool_call = kwargs["tool_call"]
         # Build a context with the HostDetachPort backed by the live signal.
         # We use a thin _FakeDetachPort that reads the signal via bind_detach_signal.
-        from magi.agent.run_control import current_detach_signal as _cds
+        from magi.control.run_control import current_detach_signal as _cds
         from magi_plugin_sdk.capabilities import ToolCapabilities
 
         class _SignalBridgePort:
@@ -260,7 +260,7 @@ async def test_orchestrator_bind_makes_detach_tool_flip_signal_and_exit(
                 return bool(s and s.is_requested())
 
             def request(self, *, reason, requested_by="llm", note=""):
-                from magi.agent.run_control import DetachRequested
+                from magi.control.run_control import DetachRequested
                 s = _cds()
                 if s is not None:
                     s.request(DetachRequested(reason=reason, requested_by=requested_by, note=note))

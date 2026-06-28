@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from magi.agent.control.permission.kill_list import check_kill_list
+from magi.control.permission.kill_list import check_kill_list
 
 
 @pytest.mark.parametrize(

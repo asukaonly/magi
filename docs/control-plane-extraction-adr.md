@@ -13,7 +13,8 @@ The Framework A plugin-boundary work (move plugin implementations behind `magi_p
 
 We have been resolving most plugin→host inversions with **injected capability ports** (`ToolExecutionContext.capabilities`), and that is correct for genuine *capability* tools (file IO, bash, image generation, memory query — done in Phase 2 clusters A–H). But applying the port pattern to the **control** cluster would treat a symptom. A first-principles review (and a code probe) shows the control plane is **mislayered**, not merely "reached by tools."
 
-Facts established by inspection of `backend/src/magi/agent/control/` (19 files):
+Facts established by inspection of the original `backend/src/magi/agent/control/`
+package, now moved to `backend/src/magi/control/`:
 
 - Its external dependencies are almost entirely **L1 infrastructure**: `core` (logger, DI container, `sqlite_connection_async`), `runtime_trace`, `identity` — plus **L3 `events`** (it publishes control events). It does **not** depend on `agent` runtime internals, `llm`, `memory`, `plugins`, `tools`.
 - At the time of this ADR, the **only** file that reached *upward* was `chat_state_persister.py`, which imported `chat` (`ChatMessageRecord`, `get_chat_store`) and transport chat notification helpers. That debt was later retired by moving transcript projection into `chat` and keeping runtime notifications with their owning domains.
@@ -129,8 +130,8 @@ import-linter `layers` contract: insert `control` between `plugins` and `events`
 ## Action Items
 
 1. [ ] Update `layered-agent-architecture.md`: add **L4 Control Plane** (`magi.control`), renumber old L4–L14 → L5–L15, document the "everything depends down on control" rule and the chat-subscribes-to-control-events contract.
-2. [ ] Move `magi.agent.control/*` → `magi.control/*` (faithful, identity-preserving; host `magi.agent.control` left as thin re-export shims during migration, or all importers updated).
-3. [ ] Fold `magi.agent.run_control` (detach signal + `current_detach_signal`) into `magi.control`.
+2. [x] Move `magi.agent.control/*` → `magi.control/*`; all importers now use the canonical package and the temporary `magi.agent.control` shims are removed.
+3. [x] Fold `magi.agent.run_control` (detach signal + `current_detach_signal`) into `magi.control.run_control`; all importers now use the canonical module and the temporary shim is removed.
 4. [ ] Invert `chat_state_persister`: remove `chat`/`transport` imports from control; add a `chat`-side subscriber that renders plan/todo/ask state from control events. Verify produced transcript messages are identical (tests).
 5. [ ] Move `InteractionBroker` answer-delivery to a downward `transport → control` call; preserve timeout/`InteractionTimeoutError` semantics.
 6. [ ] Relocate runtime-actuator tools (`ask_user_question`, `plan_mode`, `todo_write`, `detach_to_background`) and `agent_tool` out of `magi.tools.builtin` into a first-party location (agent/control-adjacent); register them via the composition root so the L7 registry does not import upward. They then import `magi.control` / `magi.agent` directly.

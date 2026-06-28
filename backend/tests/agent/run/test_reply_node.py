@@ -25,7 +25,7 @@ async def test_reply_node_delegates_to_direct_handler_and_wraps_result() -> None
         build_direct_handler_with_simple_call,
         build_minimal_direct_request,
     )
-    from magi.agent.run_control import null_run_control
+    from magi.control.run_control import null_run_control
 
     handler, _ps, _calls = build_direct_handler_with_simple_call(response_text="hi from handler")
     node = ReplyNode(direct_llm_handler=handler)
@@ -43,7 +43,7 @@ async def test_reply_node_delegates_to_direct_handler_and_wraps_result() -> None
 @pytest.mark.asyncio
 async def test_reply_node_propagates_handler_exception_as_failed() -> None:
     from agent.fixtures_direct_handler import build_minimal_direct_request
-    from magi.agent.run_control import null_run_control
+    from magi.control.run_control import null_run_control
 
     class _RaisingHandler:
         async def execute(self, request):

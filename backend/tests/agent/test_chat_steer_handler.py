@@ -28,7 +28,7 @@ from magi.agent.execution.function_calling.step_executor import (
     FunctionCallingStepOutcome,
     FunctionCallingStepState,
 )
-from magi.agent.run_control import SteerInbox
+from magi.control.run_control import SteerInbox
 from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
 from magi.agent.task_agents.handlers.handlers import (
     ChatHandlerDependencies,

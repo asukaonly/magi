@@ -18,7 +18,7 @@ from magi.agent.execution.function_calling import (
     ExecutionOutcome,
     FunctionCallingOrchestrator,
 )
-from magi.agent.run_control import (
+from magi.control.run_control import (
     RetractRequested,
     RetractSignal,
     RunControl,

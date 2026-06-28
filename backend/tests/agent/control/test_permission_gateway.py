@@ -6,20 +6,20 @@ from typing import Any
 
 import pytest
 
-from magi.agent.control.common import InteractionBroker
-from magi.agent.control.permission.classifier import RiskClassifier
-from magi.agent.control.permission.contracts import (
+from magi.control.common import InteractionBroker
+from magi.control.permission.classifier import RiskClassifier
+from magi.control.permission.contracts import (
     PermissionOutcome,
     PermissionRule,
     PermissionScope,
     ToolOrigin,
 )
-from magi.agent.control.permission.gateway import (
+from magi.control.permission.gateway import (
     PermissionGateway,
     UserPromptResponse,
 )
-from magi.agent.control.permission.rules import PermissionRuleStore
-from magi.agent.control.settings import (
+from magi.control.permission.rules import PermissionRuleStore
+from magi.control.settings import (
     ControlSettings,
     PermissionMode,
     SessionControlOverride,
@@ -289,7 +289,7 @@ async def test_session_override_can_promote_to_off() -> None:
 async def test_timeout_denies() -> None:
     class _TimeoutPrompter:
         async def __call__(self, request, *, timeout_seconds):
-            from magi.agent.control.common import InteractionTimeoutError
+            from magi.control.common import InteractionTimeoutError
             raise InteractionTimeoutError(request.request_id, kind="permission")
 
     rules = PermissionRuleStore(db_path=None)

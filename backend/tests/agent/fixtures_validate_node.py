@@ -1,7 +1,7 @@
 """Fixtures for ValidateNode tests."""
 from __future__ import annotations
 
-from magi.agent.run_control import null_run_control
+from magi.control.run_control import null_run_control
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
 from magi.agent.task_agents.common.contracts import (

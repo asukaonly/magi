@@ -8,7 +8,7 @@ import uuid
 from typing import Any, Awaitable, Callable, Optional
 
 from .cancel import CancelToken, null_cancel_token
-from .run_control import RunControl, null_run_control
+from magi.control.run_control import RunControl, null_run_control
 from ..core.logger import get_logger
 from ..llm.cancellable_client import CancellationRaised, RetractRaised
 from ..agent.runtime.contracts import FactRecord

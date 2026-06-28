@@ -1,7 +1,7 @@
 """Fixtures for SessionRunCoordinator tests."""
 from __future__ import annotations
 
-from magi.agent.run_control import RunControl, null_run_control
+from magi.control.run_control import RunControl, null_run_control
 from magi.chat.task_agent.run_store import SessionRunStore
 from magi.chat.task_agent.session_run_coordinator import (
     SessionRunCoordinator,

@@ -3,15 +3,19 @@ def test_magi_control_importable():
     from magi.control.run_control import DetachRequested, current_detach_signal  # noqa: F401
 
 
-def test_old_paths_reexport_same_objects():
-    # Host shims at the old paths must yield the SAME objects (identity).
-    import magi.agent.control.provider as old_p
-    import magi.control.provider as new_p
-    assert old_p.resolve_control_session_store is new_p.resolve_control_session_store
-    import magi.agent.run_control as old_rc
-    import magi.control.run_control as new_rc
-    assert old_rc.current_detach_signal is new_rc.current_detach_signal
-    assert old_rc.DetachRequested is new_rc.DetachRequested
+def test_old_control_paths_are_removed():
+    import importlib
+
+    import pytest
+
+    for module_name in (
+        "magi.agent.control",
+        "magi.agent.control.provider",
+        "magi.agent.control.permission.contracts",
+        "magi.agent.run_control",
+    ):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(module_name)
 
 
 def test_cancel_shim_reexports_same_objects():

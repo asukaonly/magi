@@ -1,7 +1,7 @@
 """Golden parity test for ``ask_user_question`` — Phase 4 Task 1.
 
 Pins the *observable behavior* of the ask flow across the migration from
-direct ``magi.agent.control.*`` calls to the SDK ``InteractionPort``
+direct ``magi.control.*`` calls to the SDK ``InteractionPort``
 capability (``ctx.capabilities.interaction.ask(...)``).
 
 For each of the three resolution paths (answered / cancelled / timeout)

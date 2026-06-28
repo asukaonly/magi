@@ -7,14 +7,14 @@ from typing import Any
 
 import pytest
 
-from magi.agent.control.common import InteractionBroker
-from magi.agent.control.permission.classifier import RiskClassifier
-from magi.agent.control.permission.gateway import (
+from magi.control.common import InteractionBroker
+from magi.control.permission.classifier import RiskClassifier
+from magi.control.permission.gateway import (
     PermissionGateway,
     UserPromptResponse,
 )
-from magi.agent.control.permission.rules import PermissionRuleStore
-from magi.agent.control.settings import ControlSettings, PermissionMode
+from magi.control.permission.rules import PermissionRuleStore
+from magi.control.settings import ControlSettings, PermissionMode
 from magi.agent.execution.function_calling import (
     FunctionCallingOrchestrator,
     ToolCall,
@@ -190,7 +190,7 @@ async def test_worker_intent_tags_origin_as_subagent() -> None:
         execution_workspace=None,
     )
 
-    from magi.agent.control.permission import ToolOrigin
+    from magi.control.permission import ToolOrigin
 
     assert captured and captured[0].origin is ToolOrigin.SUBAGENT
 
@@ -250,7 +250,7 @@ async def test_session_rule_inherited_by_subagent_same_session() -> None:
     session bucket naturally covers them. This test nails that
     behaviour down so future refactors can't silently break it.
     """
-    from magi.agent.control.permission import PermissionRule, PermissionScope
+    from magi.control.permission import PermissionRule, PermissionScope
 
     captured: list = []
 

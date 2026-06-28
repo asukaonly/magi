@@ -9,7 +9,7 @@ Architectural distinction:
 - ``magi.events.MessageBusBackend`` — fan-out observation events
   (PostToolUse, SpanCompleted, ...). Subscribers run side effects, no
   return value is collected.
-- ``magi.agent.control.permission`` — user-facing tool authorization
+- ``magi.control.permission`` — user-facing tool authorization
   (kill list, cached rules, mode policy, interactive prompts).
 - ``magi.hooks`` (this package) — programmatic policy: registered handlers
   return ``HookDecision`` instances that can ``CONTINUE``, ``DENY`` or

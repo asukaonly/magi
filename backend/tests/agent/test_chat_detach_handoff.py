@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from magi.agent.background.contracts import BackgroundTaskTriggerSource
-from magi.agent.run_control import DetachSignal
+from magi.control.run_control import DetachSignal
 from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
 from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
 from magi.agent.task_agents.common import (
@@ -309,7 +309,7 @@ async def test_handoff_returns_none_on_launch_failure_so_surface_stays_honest() 
 def test_build_detached_chat_result_preserves_snapshot_and_messages() -> None:
     handler = _make_handler(launch_service=_RecordingLaunchService())
     signal = DetachSignal()
-    from magi.agent.run_control import DetachRequested
+    from magi.control.run_control import DetachRequested
 
     signal.request(DetachRequested(reason="deep_research", note="scanning"))
     step_state = SimpleNamespace(

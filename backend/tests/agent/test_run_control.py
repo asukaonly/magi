@@ -1,11 +1,11 @@
-"""Unit tests for :mod:`magi.agent.run_control` primitives."""
+"""Unit tests for :mod:`magi.control.run_control` primitives."""
 from __future__ import annotations
 
 import asyncio
 
 import pytest
 
-from magi.agent.run_control import (
+from magi.control.run_control import (
     DetachRequested,
     DetachSignal,
     OrchestratorSnapshot,

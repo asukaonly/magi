@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from magi.agent.control.permission.classifier import RiskClassifier
-from magi.agent.control.permission.contracts import RiskLevel
+from magi.control.permission.classifier import RiskClassifier
+from magi.control.permission.contracts import RiskLevel
 
 
 @pytest.fixture()

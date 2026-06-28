@@ -93,7 +93,7 @@ class ControlTranscriptSubscriberModule(LifecycleModule):
     Control-Plane Extraction Phase 1: the control-actuator tools publish
     control state-change events on the L3 bus; this chat-side subscriber owns
     the durable transcript projection (formerly in
-    ``magi.agent.control.chat_state_persister``). Depends on the chat store so
+    ``magi.control.chat_state_persister``). Depends on the chat store so
     ``get_chat_store()`` resolves inside the projector, and on the message bus
     so it can subscribe.
     """

@@ -1,7 +1,7 @@
 """Fixtures for TaskOrchestrator integration tests."""
 from __future__ import annotations
 
-from magi.agent.run_control import RunControl
+from magi.control.run_control import RunControl
 from magi.agent.task_orchestrator import TaskOrchestrator
 from magi.llm.cancellable_client import RetractRaised
 from magi.tools.registry import ToolRegistry

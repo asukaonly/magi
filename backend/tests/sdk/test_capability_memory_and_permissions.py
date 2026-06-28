@@ -150,7 +150,7 @@ def test_sdk_permissions_all():
 
 def test_host_risk_level_is_sdk_risk_level():
     """Host re-export identity: contracts.RiskLevel IS sdk.RiskLevel."""
-    from magi.agent.control.permission.contracts import RiskLevel as H
+    from magi.control.permission.contracts import RiskLevel as H
     from magi_plugin_sdk.permissions import RiskLevel as S
 
     assert H is S, (
@@ -161,7 +161,7 @@ def test_host_risk_level_is_sdk_risk_level():
 
 def test_host_classification_result_is_sdk_classification_result():
     """Host re-export identity: classifier_models.ClassificationResult IS sdk.ClassificationResult."""
-    from magi.agent.control.permission.classifier_models import ClassificationResult as H
+    from magi.control.permission.classifier_models import ClassificationResult as H
     from magi_plugin_sdk.permissions import ClassificationResult as S
 
     assert H is S, (
@@ -172,7 +172,7 @@ def test_host_classification_result_is_sdk_classification_result():
 
 def test_host_risk_signal_is_sdk_risk_signal():
     """Host re-export identity: classifier_models.RiskSignal IS sdk.RiskSignal."""
-    from magi.agent.control.permission.classifier_models import RiskSignal as H
+    from magi.control.permission.classifier_models import RiskSignal as H
     from magi_plugin_sdk.permissions import RiskSignal as S
 
     assert H is S, (

@@ -25,8 +25,8 @@ import contextlib
 
 import pytest
 
-from magi.agent.control.common import InteractionBroker
-from magi.agent.control.session_store import ControlSessionStore
+from magi.control.common import InteractionBroker
+from magi.control.session_store import ControlSessionStore
 from magi.bootstrap.tool_capabilities import _HostInteractionPort
 from magi.core.container import get_container
 from magi.control.common.ask_fanout import (

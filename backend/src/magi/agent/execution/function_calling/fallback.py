@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ....config.models import ThinkingDepth
 from ...cancel import CancelToken, null_cancel_token
-from ...run_control import RunControl
+from magi.control.run_control import RunControl
 from .step_executor import FunctionCallingStepState
 from .types import ExecutionOutcome, ToolCall, ToolCallResult
 

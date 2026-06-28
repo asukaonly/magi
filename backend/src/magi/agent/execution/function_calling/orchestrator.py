@@ -14,7 +14,7 @@ from ...cancel import CancelToken
 from ...message_utils import append_latest_user_message
 from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
 from ...turn_input import UserTurnInput
-from ...run_control import (
+from magi.control.run_control import (
     DetachSignal,
     OrchestratorSnapshot,
     RetractSignal,

@@ -17,7 +17,7 @@ import pytest
 
 from magi.agent.cancel import EventCancelToken
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator
-from magi.agent.run_control import (
+from magi.control.run_control import (
     RetractRequested,
     null_run_control,
 )

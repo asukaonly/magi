@@ -23,7 +23,7 @@ from ....llm.streaming_events import get_stream_sink
 from ....runtime_trace import enrich_event_context_with_turn_trace
 from ....utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 from ..context_compactor import ContextCompactor
-from ...run_control import RunControl
+from magi.control.run_control import RunControl
 from .types import ToolCall
 
 logger = logging.getLogger(__name__)

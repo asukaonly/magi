@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from magi.agent.control.common import (
+from magi.control.common import (
     InteractionBroker,
     InteractionClosedError,
     InteractionTimeoutError,

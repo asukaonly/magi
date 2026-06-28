@@ -1,8 +1,8 @@
 """Verify dangerous flag on MCP-wrapped tools flows into the existing
 permission risk classifier exactly as for built-in dangerous tools."""
 
-from magi.agent.control.permission.classifier import RiskClassifier
-from magi.agent.control.permission.contracts import RiskLevel
+from magi.control.permission.classifier import RiskClassifier
+from magi.control.permission.contracts import RiskLevel
 from magi.mcp.tool_adapter import build_adapter_class
 
 

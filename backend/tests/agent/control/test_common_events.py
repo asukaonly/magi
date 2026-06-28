@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from magi.agent.control.common import events as events_module
+from magi.control.common import events as events_module
 from magi.runtime_trace.contracts import RuntimeNotificationRecord
 
 

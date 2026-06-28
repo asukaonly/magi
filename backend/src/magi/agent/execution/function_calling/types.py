@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ...run_control import OrchestratorSnapshot
+    from magi.control.run_control import OrchestratorSnapshot
 
 
 @dataclass

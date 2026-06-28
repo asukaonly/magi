@@ -17,7 +17,7 @@ from typing import AsyncIterator
 
 import pytest
 
-from magi.agent.run_control import RunControl, null_run_control
+from magi.control.run_control import RunControl, null_run_control
 from magi.agent.task_agents.handlers.contracts import (
     ChatRuntimeContext,
     IntentDecision,

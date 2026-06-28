@@ -11,7 +11,7 @@ from uuid import uuid4
 from magi_plugin_sdk.run_trigger import RunTrigger
 
 from magi.core.logger import get_logger
-from magi.agent.run_control import RunControl
+from magi.control.run_control import RunControl
 from magi.agent.task_agents.handlers.run_contracts import AgentRun, ActiveRun, PendingTurn
 
 if TYPE_CHECKING:

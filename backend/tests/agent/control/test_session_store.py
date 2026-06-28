@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from magi.agent.control.session_store import (
+from magi.control.session_store import (
     ControlSessionStore,
     DEFAULT_PLAN_MODE_ALLOWED_TOOLS,
     TodoItem,

@@ -8,15 +8,15 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from magi.agent.control.common import InteractionBroker
-from magi.agent.control.permission.contracts import (
+from magi.control.common import InteractionBroker
+from magi.control.permission.contracts import (
     PermissionRule,
     PermissionScope,
 )
-from magi.agent.control.permission.rules import PermissionRuleStore
-from magi.agent.control.session_store import ControlSessionStore
-from magi.agent.control.settings import ControlSettings, PermissionMode
-from magi.agent.control.settings_manager import ControlSettingsManager
+from magi.control.permission.rules import PermissionRuleStore
+from magi.control.session_store import ControlSessionStore
+from magi.control.settings import ControlSettings, PermissionMode
+from magi.control.settings_manager import ControlSettingsManager
 from magi.api.routers import control as control_module
 from magi.api.routers.control import control_router
 from magi.runtime_trace import RuntimeNotificationRecord
@@ -364,10 +364,10 @@ def test_session_todos_fall_back_to_runtime_notifications(wiring, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_get_pending_permissions_filters_by_session(wiring, monkeypatch):
-    from magi.agent.control.permission.brokered_prompter import (
+    from magi.control.permission.brokered_prompter import (
         PendingPermissionRegistry,
     )
-    from magi.agent.control.permission.contracts import (
+    from magi.control.permission.contracts import (
         PermissionRequest,
         RiskLevel,
         ToolOrigin,

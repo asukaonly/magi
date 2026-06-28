@@ -241,7 +241,7 @@ async def test_dangerous_tool_blocked_by_gateway(_stub_chat_store, resolver):
 
     class _DenyingGateway:
         async def gate(self, **kwargs):
-            from magi.agent.control.permission.contracts import (
+            from magi.control.permission.contracts import (
                 PermissionDecision,
                 PermissionOutcome,
             )
@@ -280,7 +280,7 @@ async def test_dangerous_tool_allowed_by_gateway_runs(_stub_chat_store, resolver
 
     class _AllowingGateway:
         async def gate(self, **kwargs):
-            from magi.agent.control.permission.contracts import (
+            from magi.control.permission.contracts import (
                 PermissionDecision,
                 PermissionOutcome,
             )

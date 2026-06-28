@@ -82,7 +82,7 @@ class TaskOrchestrationTodosMixin:
             return
 
         try:
-            from .control.common.events import publish_control_todo_state_changed
+            from magi.control.common.events import publish_control_todo_state_changed
 
             await publish_control_todo_state_changed(
                 session_id=session_id,
@@ -95,7 +95,7 @@ class TaskOrchestrationTodosMixin:
             logger.debug("planner_todos.persist_failed", exc_info=True)
 
         try:
-            from .control.common.events import publish_control_event
+            from magi.control.common.events import publish_control_event
 
             await publish_control_event(
                 "control.todo.updated",

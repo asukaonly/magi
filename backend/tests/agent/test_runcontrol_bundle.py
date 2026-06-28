@@ -5,7 +5,7 @@ import asyncio
 
 import pytest
 
-from magi.agent.run_control import (
+from magi.control.run_control import (
     RetractRequested,
     RetractSignal,
 )
@@ -63,7 +63,7 @@ async def test_retract_signal_request_with_no_arg_uses_default_payload() -> None
     assert signal.payload.reason == "user_retract"
 
 
-from magi.agent.run_control import (  # noqa: E402
+from magi.control.run_control import (  # noqa: E402
     SuspendRequested,
     SuspendSignal,
 )
@@ -154,7 +154,7 @@ async def test_suspend_signal_clear_then_request_accepts_new_payload() -> None:
 
 
 from magi.agent.cancel import EventCancelToken, null_cancel_token  # noqa: E402
-from magi.agent.run_control import (  # noqa: E402
+from magi.control.run_control import (  # noqa: E402
     DetachSignal,
     RunControl,
     SteerInbox,

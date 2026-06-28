@@ -2,7 +2,7 @@
 
 Control-Plane Extraction Phase 1. The control-actuator tools used to write
 transcript rows by calling ``persist_*`` helpers in
-``magi.agent.control.chat_state_persister`` directly. That logic now lives in
+``magi.control.chat_state_persister`` directly. That logic now lives in
 the chat-side :class:`ControlTranscriptSubscriber`, driven by control
 state-change events on the L3 bus.
 

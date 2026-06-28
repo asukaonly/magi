@@ -6,26 +6,26 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.control.common import InteractionBroker
-from magi.agent.control.permission.contracts import (
+from magi.control.common import InteractionBroker
+from magi.control.permission.contracts import (
     PermissionOutcome,
     ToolOrigin,
 )
-from magi.agent.control.permission.gateway import PermissionGateway
-from magi.agent.control.permission.rules import PermissionRuleStore
-from magi.agent.control.session_store import ControlSessionStore
-from magi.agent.control.settings_manager import ControlSettingsManager
+from magi.control.permission.gateway import PermissionGateway
+from magi.control.permission.rules import PermissionRuleStore
+from magi.control.session_store import ControlSessionStore
+from magi.control.settings_manager import ControlSettingsManager
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.bootstrap.control_plane import ControlPlaneModule
 from magi.core.container import get_container
-from magi.agent.control.provider import (
+from magi.control.provider import (
     resolve_control_interaction_broker,
     resolve_control_session_store,
     resolve_control_settings_manager,
     resolve_pending_permission_registry,
     resolve_permission_rule_store,
 )
-from magi.agent.control.permission.provider import get_permission_gateway
+from magi.control.permission.provider import get_permission_gateway
 
 
 class _FakeRuntimePaths:
