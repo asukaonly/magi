@@ -218,15 +218,22 @@ verification work.
   tools layer through a unified discovery index over registered tools and
   skill metadata. Builtin tools, plugin-contributed tools, and MCP adapter
   tools enter this index through the shared tool registry; skills enter through
-  the registered skill metadata index. The builtin helper then applies
-  execution-context checks and L4 advisory reranking before returning the
-  bounded expansion payload. The helper may reuse a short-lived same-session
-  discovery result when the query, active registry, feature flags, permissions,
-  and current-tool set are unchanged. Its tool result includes compact
-  discovery metrics, such as candidate/recommendation counts by source and
-  whether a cache hit occurred, so runtime traces can be used to evaluate
-  recall quality and cache stability without moving discovery policy into the
-  routing layer.
+  the registered skill metadata index. Each candidate is normalized into a
+  compact search document made from its name, split name tokens, description,
+  category, source, tags, selected metadata, argument hints, examples, and
+  top-level parameter names/descriptions. The first-stage recall ranks these
+  documents with in-memory BM25 plus small capability-family boosts for broad
+  classes such as memory, photo, and attachment tasks; the query side may use
+  lightweight multilingual expansion, while candidate documents stay close to
+  their real schema text so descriptions are not inflated into unrelated
+  capabilities. The builtin helper then applies execution-context checks and L4
+  advisory reranking before returning the bounded expansion payload. The helper
+  may reuse a short-lived same-session discovery result when the query, active
+  registry, feature flags, permissions, and current-tool set are unchanged. Its
+  tool result includes compact discovery metrics, such as candidate/recommendation
+  counts by source and whether a cache hit occurred, so runtime traces can be
+  used to evaluate recall quality and cache stability without moving discovery
+  policy into the routing layer.
 
   ContextDecider stays a coarse, cheap classifier. It may emit `tool_need`
   as `none`, `direct`, or `discover`, but it does not formulate a
@@ -236,12 +243,13 @@ verification work.
   missing concrete capability. The query should describe one focused capability
   gap with the relevant domain/action/object and facts already known; it should
   not be the whole user request or a broad capability-browsing prompt.
-  `FunctionCallingHandler` then owns final tool exposure: it appends resident
-  runtime-control tools, conditionally exposes `agent`, and may reuse a recent
-  same-session tool superset for a short window when the current requested set
-  is a subset and the reuse is safe for the turn's write policy. This keeps
-  cache-friendly provider tool lists in the execution layer instead of pushing
-  cache policy into routing.
+  `TurnRouteResolver` then owns final per-turn route resolution. It derives the
+  dispatch shape from the coarse route, attachments, orchestration signal, and
+  final selected tools; it also builds the provider-facing tool surface by
+  appending resident runtime-control tools, conditionally exposing `agent`, and
+  applying same-session tool-superset reuse when it is safe for the turn's write
+  policy. `FunctionCallingHandler` consumes that resolved tool surface; it does
+  not reimplement those routing rules.
 
   Reply-target continuity in chat is intentionally compact but now carries more than plain text excerpts.
   When a user replies to an earlier assistant message, the runtime may include a sanitized structured payload summary from that replied-to message, such as managed attachment references, so follow-up turns can reuse concrete artifacts without re-exposing raw local file paths.
@@ -533,12 +541,14 @@ context-fit, and extracted strategy hints can promote or demote candidates;
 tools with an open breaker are skipped for the current turn instead of being
 re-added as likely next steps.
 
-Tool discovery ranks builtin tools and skills in one candidate list instead of
-always appending skills after tools. It also does lightweight multilingual
-query expansion for common capability words, so Chinese requests for calendar
-availability, weather, photo, web, code, and file tasks can still match English
-skill metadata. This remains a bounded recovery path, not a full capability
-browser.
+Tool discovery ranks builtin tools, plugin/MCP tools, and skills in one
+candidate list instead of always appending skills after tools. BM25 remains the
+baseline retrieval path because it works without an embedding model and is
+stable for names, descriptions, and parameter fields. Lightweight multilingual
+query expansion and capability-family boosts are only a recall aid for common
+cross-language gaps such as calendar availability, weather, photo, web, code,
+attachment, and memory tasks. This remains a bounded recovery path, not a full
+capability browser.
 
 ### `ExploreTaskAgent`
 
