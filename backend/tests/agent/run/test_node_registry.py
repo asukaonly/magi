@@ -105,24 +105,20 @@ def test_task_agent_execution_engine_dispatches_via_node_registry() -> None:
     )
 
 
-def test_chat_execution_coordinator_no_longer_builds_orchestration_plan() -> None:
-    """Phase C cleanup: ChatExecutionCoordinator stops constructing
-    OrchestrationPlan in match_intent."""
+def test_chat_execution_coordinator_builds_typed_orchestration_plan() -> None:
+    """ChatExecutionCoordinator derives the typed orchestration plan once."""
     import inspect
 
     from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator)
-    assert "_build_orchestration_plan_from_route" not in src, (
-        "_build_orchestration_plan_from_route is no longer needed"
-    )
+    assert "OrchestrationPlan.from_route_decision" in src
 
 
-def test_base_intent_decision_no_longer_has_orchestration_plan_field() -> None:
-    """The orchestration_plan field is removed from BaseIntentDecision;
-    consumers read route_decision instead."""
+def test_base_intent_decision_carries_typed_orchestration_plan() -> None:
+    """Intent decisions carry the route decision and its derived plan."""
     from magi.agent.task_agents.common.contracts import BaseIntentDecision
 
     field_names = {f.name for f in BaseIntentDecision.__dataclass_fields__.values()}
-    assert "orchestration_plan" not in field_names
+    assert "orchestration_plan" in field_names
     assert "route_decision" in field_names
