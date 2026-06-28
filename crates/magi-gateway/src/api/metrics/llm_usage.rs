@@ -71,6 +71,10 @@ fn empty_summary(days: i64) -> Value {
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "total_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cache_write_1h_tokens": 0,
+            "cache_hit_rate": 0.0,
             "avg_latency_ms": 0.0,
             "avg_ttft_ms": null,
             "total_cost_usd": 0.0,
@@ -89,6 +93,12 @@ const PROVIDER_BREAKDOWN_QUERY: &str = "SELECT provider, \
     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, \
     COALESCE(SUM(completion_tokens), 0) AS completion_tokens, \
     COALESCE(SUM(total_tokens), 0) AS total_tokens, \
+    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, \
+    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens, \
+    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens, \
+    CASE WHEN COALESCE(SUM(prompt_tokens), 0) > 0 \
+        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2) \
+        ELSE 0 END AS cache_hit_rate, \
     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms, \
     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms, \
     COALESCE(SUM(cost_usd), 0) AS cost_usd, \
@@ -103,6 +113,12 @@ const MODEL_BREAKDOWN_QUERY: &str = "SELECT provider, model, \
     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, \
     COALESCE(SUM(completion_tokens), 0) AS completion_tokens, \
     COALESCE(SUM(total_tokens), 0) AS total_tokens, \
+    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, \
+    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens, \
+    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens, \
+    CASE WHEN COALESCE(SUM(prompt_tokens), 0) > 0 \
+        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2) \
+        ELSE 0 END AS cache_hit_rate, \
     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms, \
     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms, \
     COALESCE(SUM(cost_usd), 0) AS cost_usd, \
@@ -117,6 +133,12 @@ const REQUEST_KIND_BREAKDOWN_QUERY: &str = "SELECT request_kind, \
     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, \
     COALESCE(SUM(completion_tokens), 0) AS completion_tokens, \
     COALESCE(SUM(total_tokens), 0) AS total_tokens, \
+    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, \
+    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens, \
+    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens, \
+    CASE WHEN COALESCE(SUM(prompt_tokens), 0) > 0 \
+        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2) \
+        ELSE 0 END AS cache_hit_rate, \
     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms, \
     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms, \
     COALESCE(SUM(cost_usd), 0) AS cost_usd, \
@@ -141,13 +163,19 @@ fn query_summary(days: i64, model_limit: i64) -> Value {
             COALESCE(SUM(prompt_tokens), 0), \
             COALESCE(SUM(completion_tokens), 0), \
             COALESCE(SUM(total_tokens), 0), \
+            COALESCE(SUM(cache_read_tokens), 0), \
+            COALESCE(SUM(cache_write_tokens), 0), \
+            COALESCE(SUM(cache_write_1h_tokens), 0), \
+            CASE WHEN COALESCE(SUM(prompt_tokens), 0) > 0 \
+                THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2) \
+                ELSE 0 END, \
             COALESCE(AVG(latency_ms), 0), \
             COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0), \
             COALESCE(SUM(cost_usd), 0) \
          FROM llm_usage WHERE created_at >= ?1",
         rusqlite::params![cutoff],
         |row| {
-            let avg_ttft: f64 = row.get(8)?;
+            let avg_ttft: f64 = row.get(12)?;
             Ok(json!({
                 "total_calls": row.get::<_, i64>(0)?,
                 "successful_calls": row.get::<_, i64>(1)?,
@@ -156,9 +184,13 @@ fn query_summary(days: i64, model_limit: i64) -> Value {
                 "prompt_tokens": row.get::<_, i64>(4)?,
                 "completion_tokens": row.get::<_, i64>(5)?,
                 "total_tokens": row.get::<_, i64>(6)?,
-                "avg_latency_ms": (row.get::<_, f64>(7)? * 100.0).round() / 100.0,
+                "cache_read_tokens": row.get::<_, i64>(7)?,
+                "cache_write_tokens": row.get::<_, i64>(8)?,
+                "cache_write_1h_tokens": row.get::<_, i64>(9)?,
+                "cache_hit_rate": (row.get::<_, f64>(10)? * 100.0).round() / 100.0,
+                "avg_latency_ms": (row.get::<_, f64>(11)? * 100.0).round() / 100.0,
                 "avg_ttft_ms": if avg_ttft > 0.0 { json!((avg_ttft * 100.0).round() / 100.0) } else { Value::Null },
-                "total_cost_usd": (row.get::<_, f64>(9)? * 10000.0).round() / 10000.0,
+                "total_cost_usd": (row.get::<_, f64>(13)? * 10000.0).round() / 10000.0,
             }))
         },
     ) {
@@ -239,16 +271,29 @@ fn query_grouped_usage(
         for (i, col) in label_cols.iter().enumerate() {
             obj.insert(col.to_string(), json!(row.get::<_, String>(i)?));
         }
-        let avg_ttft: f64 = row.get(n + 7)?;
+        let avg_ttft: f64 = row.get(n + 11)?;
         obj.insert("calls".into(), json!(row.get::<_, i64>(n)?));
         obj.insert("successful_calls".into(), json!(row.get::<_, i64>(n + 1)?));
         obj.insert("failed_calls".into(), json!(row.get::<_, i64>(n + 2)?));
         obj.insert("prompt_tokens".into(), json!(row.get::<_, i64>(n + 3)?));
         obj.insert("completion_tokens".into(), json!(row.get::<_, i64>(n + 4)?));
         obj.insert("total_tokens".into(), json!(row.get::<_, i64>(n + 5)?));
+        obj.insert("cache_read_tokens".into(), json!(row.get::<_, i64>(n + 6)?));
+        obj.insert(
+            "cache_write_tokens".into(),
+            json!(row.get::<_, i64>(n + 7)?),
+        );
+        obj.insert(
+            "cache_write_1h_tokens".into(),
+            json!(row.get::<_, i64>(n + 8)?),
+        );
+        obj.insert(
+            "cache_hit_rate".into(),
+            json!((row.get::<_, f64>(n + 9)? * 100.0).round() / 100.0),
+        );
         obj.insert(
             "avg_latency_ms".into(),
-            json!((row.get::<_, f64>(n + 6)? * 100.0).round() / 100.0),
+            json!((row.get::<_, f64>(n + 10)? * 100.0).round() / 100.0),
         );
         obj.insert(
             "avg_ttft_ms".into(),
@@ -260,9 +305,9 @@ fn query_grouped_usage(
         );
         obj.insert(
             "cost_usd".into(),
-            json!((row.get::<_, f64>(n + 8)? * 10000.0).round() / 10000.0),
+            json!((row.get::<_, f64>(n + 12)? * 10000.0).round() / 10000.0),
         );
-        let cost_currency: Option<String> = row.get(n + 9)?;
+        let cost_currency: Option<String> = row.get(n + 13)?;
         obj.insert("cost_currency".into(), json!(cost_currency));
         Ok(Value::Object(obj))
     })
@@ -284,6 +329,12 @@ fn query_timeseries(days: i64) -> Value {
             COALESCE(SUM(prompt_tokens), 0), \
             COALESCE(SUM(completion_tokens), 0), \
             COALESCE(SUM(total_tokens), 0), \
+            COALESCE(SUM(cache_read_tokens), 0), \
+            COALESCE(SUM(cache_write_tokens), 0), \
+            COALESCE(SUM(cache_write_1h_tokens), 0), \
+            CASE WHEN COALESCE(SUM(prompt_tokens), 0) > 0 \
+                THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2) \
+                ELSE 0 END, \
             COALESCE(SUM(cost_usd), 0) \
          FROM llm_usage WHERE created_at >= ?1 \
          GROUP BY day ORDER BY day ASC",
@@ -299,7 +350,11 @@ fn query_timeseries(days: i64) -> Value {
                 "prompt_tokens": row.get::<_, i64>(2)?,
                 "completion_tokens": row.get::<_, i64>(3)?,
                 "total_tokens": row.get::<_, i64>(4)?,
-                "cost_usd": (row.get::<_, f64>(5)? * 10000.0).round() / 10000.0,
+                "cache_read_tokens": row.get::<_, i64>(5)?,
+                "cache_write_tokens": row.get::<_, i64>(6)?,
+                "cache_write_1h_tokens": row.get::<_, i64>(7)?,
+                "cache_hit_rate": (row.get::<_, f64>(8)? * 100.0).round() / 100.0,
+                "cost_usd": (row.get::<_, f64>(9)? * 10000.0).round() / 10000.0,
             }))
         })
         .ok()
@@ -331,6 +386,9 @@ mod tests {
                 prompt_tokens INTEGER NOT NULL DEFAULT 0,
                 completion_tokens INTEGER NOT NULL DEFAULT 0,
                 total_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_write_1h_tokens INTEGER NOT NULL DEFAULT 0,
                 usage_available INTEGER NOT NULL DEFAULT 0,
                 latency_ms INTEGER NOT NULL DEFAULT 0,
                 ttft_ms INTEGER NOT NULL DEFAULT 0,
@@ -347,11 +405,12 @@ mod tests {
 
             INSERT INTO llm_usage (
                 request_id, provider, model, request_kind, prompt_tokens, completion_tokens,
-                total_tokens, usage_available, latency_ms, ttft_ms, cost_usd, cost_currency, success, created_at
+                total_tokens, cache_read_tokens, cache_write_tokens, cache_write_1h_tokens,
+                usage_available, latency_ms, ttft_ms, cost_usd, cost_currency, success, created_at
             ) VALUES
-                ('req-1', 'openai', 'gpt-4.1', 'chat', 100, 40, 140, 1, 1200, 300, 0.12, 'USD', 1, 1000),
-                ('req-2', 'openai', 'gpt-4.1', 'chat', 50, 10, 60, 1, 900, 250, 0.04, 'USD', 1, 1001),
-                ('req-3', 'anthropic', 'claude-3-7-sonnet', 'function_calling:tools', 80, 20, 100, 1, 1500, 0, 0.08, 'USD', 1, 1002);
+                ('req-1', 'openai', 'gpt-4.1', 'chat', 100, 40, 140, 80, 10, 0, 1, 1200, 300, 0.12, 'USD', 1, 1000),
+                ('req-2', 'openai', 'gpt-4.1', 'chat', 50, 10, 60, 20, 5, 0, 1, 900, 250, 0.04, 'USD', 1, 1001),
+                ('req-3', 'anthropic', 'claude-3-7-sonnet', 'function_calling:tools', 80, 20, 100, 10, 2, 1, 1, 1500, 0, 0.08, 'USD', 1, 1002);
             ",
         )
         .expect("create llm_usage test table");
@@ -385,6 +444,9 @@ mod tests {
         assert_eq!(providers[0]["provider"], "openai");
         assert_eq!(providers[0]["calls"], 2);
         assert_eq!(providers[0]["total_tokens"], 200);
+        assert_eq!(providers[0]["cache_read_tokens"], 100);
+        assert_eq!(providers[0]["cache_write_tokens"], 15);
+        assert_eq!(providers[0]["cache_hit_rate"], 66.67);
         assert_eq!(providers[0]["cost_currency"], "USD");
 
         assert_eq!(models.len(), 2);

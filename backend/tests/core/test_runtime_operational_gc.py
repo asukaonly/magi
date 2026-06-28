@@ -5,13 +5,14 @@ from pathlib import Path
 
 import aiosqlite
 import pytest
+from alembic import command
 
 from magi.config.models import LifecycleSettings
 from magi.core.runtime_operational_gc import RuntimeOperationalGC
 from magi.core.sqlite import sqlite_connection_async
+from magi.db.runner import MIGRATION_TARGETS, _build_config
 
 
-llm_usage_initial = import_module("magi.db.migrations.llm_usage.versions.0001_initial")
 message_queue_initial = import_module("magi.db.migrations.message_queue.versions.0001_initial")
 runtime_trace_initial = import_module("magi.db.migrations.runtime_trace.versions.0001_initial")
 runtime_trace_user_notifications = import_module(
@@ -36,6 +37,11 @@ async def _count_rows(db_path: Path, table_name: str, where: str = "1=1") -> int
 		cursor = await db.execute(f"SELECT COUNT(*) FROM {table_name} WHERE {where}")
 		row = await cursor.fetchone()
 	return int(row[0] or 0)
+
+
+def _install_llm_usage_schema(db_path: Path) -> None:
+	target = next(t for t in MIGRATION_TARGETS if t.name == "llm_usage")
+	command.upgrade(_build_config(target, db_path), "head")
 
 
 @pytest.mark.asyncio
@@ -151,20 +157,21 @@ async def test_llm_usage_gc_rolls_up_and_deletes_expired_raw_rows(tmp_path: Path
 	old_ts = 2_000_000.0 - (8 * 86400)
 	recent_ts = 2_000_000.0 - 60
 
+	_install_llm_usage_schema(db_path)
 	async with sqlite_connection_async(db_path) as db:
-		await db.executescript(llm_usage_initial.SCHEMA_SQL)
 		await db.executemany(
 			"""
 			INSERT INTO llm_usage (
 				request_id, provider, model, request_kind, prompt_tokens,
 				completion_tokens, total_tokens, usage_available, latency_ms,
-				ttft_ms, cost_usd, success, created_at
-			) VALUES (?, 'openai', 'gpt-test', 'chat', ?, ?, ?, 1, ?, ?, ?, 1, ?)
+				ttft_ms, cache_read_tokens, cache_write_tokens,
+				cache_write_1h_tokens, cost_usd, success, created_at
+			) VALUES (?, 'openai', 'gpt-test', 'chat', ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 1, ?)
 			""",
 			(
-				("old-1", 10, 20, 30, 100, 40, 0.01, old_ts),
-				("old-2", 5, 10, 15, 80, 30, 0.02, old_ts + 10),
-				("new-1", 1, 2, 3, 20, 10, 0.001, recent_ts),
+				("old-1", 10, 20, 30, 100, 40, 7, 3, 1, 0.01, old_ts),
+				("old-2", 5, 10, 15, 80, 30, 4, 2, 0, 0.02, old_ts + 10),
+				("new-1", 1, 2, 3, 20, 10, 1, 1, 0, 0.001, recent_ts),
 			),
 		)
 		await db.commit()
@@ -176,11 +183,17 @@ async def test_llm_usage_gc_rolls_up_and_deletes_expired_raw_rows(tmp_path: Path
 	assert await _count_rows(db_path, "llm_usage") == 1
 	async with sqlite_connection_async(db_path) as db:
 		db.row_factory = aiosqlite.Row
-		cursor = await db.execute("SELECT calls, total_tokens, cost_usd FROM llm_usage_rollups")
+		cursor = await db.execute(
+			"SELECT calls, total_tokens, cache_read_tokens, cache_write_tokens, "
+			"cache_write_1h_tokens, cost_usd FROM llm_usage_rollups"
+		)
 		row = await cursor.fetchone()
 	assert row is not None
 	assert int(row["calls"]) == 2
 	assert int(row["total_tokens"]) == 45
+	assert int(row["cache_read_tokens"]) == 11
+	assert int(row["cache_write_tokens"]) == 5
+	assert int(row["cache_write_1h_tokens"]) == 1
 	assert float(row["cost_usd"]) == pytest.approx(0.03)
 
 

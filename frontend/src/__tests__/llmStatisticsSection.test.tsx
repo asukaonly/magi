@@ -28,6 +28,9 @@ const summaryFixture = {
     prompt_tokens: 120000,
     completion_tokens: 54000,
     total_tokens: 174000,
+    cache_read_tokens: 75000,
+    cache_write_tokens: 18000,
+    cache_hit_rate: 62.5,
     avg_latency_ms: 1860,
     total_cost_usd: 12.45,
     cost_by_currency: [
@@ -37,27 +40,27 @@ const summaryFixture = {
     avg_ttft_ms: 620,
   },
   providers: [
-    { provider: 'openai', calls: 70, prompt_tokens: 70000, completion_tokens: 28000, total_tokens: 98000, cost_usd: 8.4, cost_currency: 'USD' },
-    { provider: 'anthropic', calls: 50, prompt_tokens: 50000, completion_tokens: 26000, total_tokens: 76000, cost_usd: 4.05, cost_currency: 'USD' },
+    { provider: 'openai', calls: 70, prompt_tokens: 70000, completion_tokens: 28000, total_tokens: 98000, cache_read_tokens: 50000, cache_write_tokens: 12000, cache_hit_rate: 71.43, cost_usd: 8.4, cost_currency: 'USD' },
+    { provider: 'anthropic', calls: 50, prompt_tokens: 50000, completion_tokens: 26000, total_tokens: 76000, cache_read_tokens: 25000, cache_write_tokens: 6000, cache_hit_rate: 50, cost_usd: 4.05, cost_currency: 'USD' },
   ],
   models: [
-    { provider: 'openai', model: 'gpt-5', calls: 60, prompt_tokens: 60000, completion_tokens: 24000, total_tokens: 84000, cost_usd: 7.1, cost_currency: 'USD', failed_calls: 2, avg_ttft_ms: 580 },
-    { provider: 'anthropic', model: 'claude-sonnet', calls: 50, prompt_tokens: 50000, completion_tokens: 22000, total_tokens: 72000, cost_usd: 3.8, cost_currency: 'USD', failed_calls: 1, avg_ttft_ms: 640 },
+    { provider: 'openai', model: 'gpt-5', calls: 60, prompt_tokens: 60000, completion_tokens: 24000, total_tokens: 84000, cache_read_tokens: 42000, cache_write_tokens: 10000, cache_hit_rate: 70, cost_usd: 7.1, cost_currency: 'USD', failed_calls: 2, avg_ttft_ms: 580 },
+    { provider: 'anthropic', model: 'claude-sonnet', calls: 50, prompt_tokens: 50000, completion_tokens: 22000, total_tokens: 72000, cache_read_tokens: 25000, cache_write_tokens: 6000, cache_hit_rate: 50, cost_usd: 3.8, cost_currency: 'USD', failed_calls: 1, avg_ttft_ms: 640 },
   ],
   request_kinds: [
-    { request_kind: 'task_agent:chat_direct', calls: 90, prompt_tokens: 90000, completion_tokens: 40000, total_tokens: 130000, cost_usd: 8.9, cost_currency: 'USD', failed_calls: 4, avg_latency_ms: 1200, avg_ttft_ms: 320 },
-    { request_kind: 'function_calling:worker_tools', calls: 12, prompt_tokens: 18000, completion_tokens: 3000, total_tokens: 21000, cost_usd: 1.1, cost_currency: 'USD', failed_calls: 1, avg_latency_ms: 1500 },
-    { request_kind: 'task_agent:failure_status', calls: 2, prompt_tokens: 1200, completion_tokens: 300, total_tokens: 1500, cost_usd: 0.05, cost_currency: 'USD', failed_calls: 0, avg_latency_ms: 900 },
-    { request_kind: 'memory:l2_phase1_extract', calls: 30, prompt_tokens: 30000, completion_tokens: 14000, total_tokens: 44000, cost_usd: 3.2, cost_currency: 'USD', failed_calls: 2, avg_latency_ms: 2400 },
+    { request_kind: 'task_agent:chat_direct', calls: 90, prompt_tokens: 90000, completion_tokens: 40000, total_tokens: 130000, cache_read_tokens: 60000, cache_write_tokens: 14000, cache_hit_rate: 66.67, cost_usd: 8.9, cost_currency: 'USD', failed_calls: 4, avg_latency_ms: 1200, avg_ttft_ms: 320 },
+    { request_kind: 'function_calling:worker_tools', calls: 12, prompt_tokens: 18000, completion_tokens: 3000, total_tokens: 21000, cache_read_tokens: 3000, cache_write_tokens: 1500, cache_hit_rate: 16.67, cost_usd: 1.1, cost_currency: 'USD', failed_calls: 1, avg_latency_ms: 1500 },
+    { request_kind: 'task_agent:failure_status', calls: 2, prompt_tokens: 1200, completion_tokens: 300, total_tokens: 1500, cache_read_tokens: 0, cache_write_tokens: 0, cache_hit_rate: 0, cost_usd: 0.05, cost_currency: 'USD', failed_calls: 0, avg_latency_ms: 900 },
+    { request_kind: 'memory:l2_phase1_extract', calls: 30, prompt_tokens: 30000, completion_tokens: 14000, total_tokens: 44000, cache_read_tokens: 12000, cache_write_tokens: 4000, cache_hit_rate: 40, cost_usd: 3.2, cost_currency: 'USD', failed_calls: 2, avg_latency_ms: 2400 },
   ],
 };
 
 const timeseriesFixture = {
   window_days: 7,
   points: [
-    { day: '03-18', calls: 16, prompt_tokens: 14000, completion_tokens: 6000, total_tokens: 20000, cost_usd: 1.4 },
-    { day: '03-19', calls: 18, prompt_tokens: 16000, completion_tokens: 7000, total_tokens: 23000, cost_usd: 1.7 },
-    { day: '03-20', calls: 15, prompt_tokens: 12000, completion_tokens: 5000, total_tokens: 17000, cost_usd: 1.2 },
+    { day: '03-18', calls: 16, prompt_tokens: 14000, completion_tokens: 6000, total_tokens: 20000, cache_read_tokens: 7000, cache_write_tokens: 2000, cache_hit_rate: 50, cost_usd: 1.4 },
+    { day: '03-19', calls: 18, prompt_tokens: 16000, completion_tokens: 7000, total_tokens: 23000, cache_read_tokens: 9000, cache_write_tokens: 3000, cache_hit_rate: 56.25, cost_usd: 1.7 },
+    { day: '03-20', calls: 15, prompt_tokens: 12000, completion_tokens: 5000, total_tokens: 17000, cache_read_tokens: 8000, cache_write_tokens: 2500, cache_hit_rate: 66.67, cost_usd: 1.2 },
   ],
 };
 
@@ -112,10 +115,13 @@ describe('LLMStatisticsSection', () => {
     expect(screen.getByText('settings.statistics.llm.table.columns.totalTokens')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.table.columns.promptTokens')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.table.columns.completionTokens')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.table.columns.cacheHitRate')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.table.columns.cacheReadTokens')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.table.columns.cost')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.table.columns.avgLatency')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.table.columns.avgTTFT')).toBeInTheDocument();
     expect(screen.getAllByText('gpt-5').length).toBeGreaterThan(0);
+    expect(screen.getByText('63%')).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.providers' }));
     expect(screen.getAllByText('openai').length).toBeGreaterThan(0);

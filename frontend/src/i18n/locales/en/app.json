@@ -1989,6 +1989,7 @@
         "totalCalls": "Total Calls",
         "avgLatency": "Avg Latency",
         "outputShare": "Output Share",
+        "cacheHitRate": "Cache Hit Rate",
         "prompt": "Prompt",
         "completion": "Completion",
         "successRate": "Success rate {{value}}%",
@@ -2024,6 +2025,8 @@
             "totalTokens": "Token Spend",
             "promptTokens": "Prompt Tokens",
             "completionTokens": "Completion Tokens",
+            "cacheHitRate": "Cache Hit",
+            "cacheReadTokens": "Cache Read",
             "cost": "Cost",
             "avgLatency": "Avg Latency",
             "avgTTFT": "Avg TTFT"

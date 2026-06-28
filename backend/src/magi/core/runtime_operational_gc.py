@@ -28,6 +28,9 @@ CREATE TABLE IF NOT EXISTS llm_usage_rollups (
     prompt_tokens INTEGER NOT NULL DEFAULT 0,
     completion_tokens INTEGER NOT NULL DEFAULT 0,
     total_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_1h_tokens INTEGER NOT NULL DEFAULT 0,
     cost_usd REAL NOT NULL DEFAULT 0,
     latency_ms_total INTEGER NOT NULL DEFAULT 0,
     ttft_ms_total INTEGER NOT NULL DEFAULT 0,
@@ -332,6 +335,7 @@ class RuntimeOperationalGC:
             INSERT INTO llm_usage_rollups (
                 granularity, bucket_start, provider, model, request_kind, success,
                 calls, calls_with_usage, prompt_tokens, completion_tokens, total_tokens,
+                cache_read_tokens, cache_write_tokens, cache_write_1h_tokens,
                 cost_usd, latency_ms_total, ttft_ms_total, ttft_ms_count, last_rolled_up_at
             )
             SELECT
@@ -346,6 +350,9 @@ class RuntimeOperationalGC:
                 COALESCE(SUM(prompt_tokens), 0),
                 COALESCE(SUM(completion_tokens), 0),
                 COALESCE(SUM(total_tokens), 0),
+                COALESCE(SUM(cache_read_tokens), 0),
+                COALESCE(SUM(cache_write_tokens), 0),
+                COALESCE(SUM(cache_write_1h_tokens), 0),
                 COALESCE(SUM(cost_usd), 0),
                 COALESCE(SUM(latency_ms), 0),
                 COALESCE(SUM(CASE WHEN ttft_ms > 0 THEN ttft_ms ELSE 0 END), 0),
@@ -361,6 +368,9 @@ class RuntimeOperationalGC:
                 prompt_tokens = llm_usage_rollups.prompt_tokens + excluded.prompt_tokens,
                 completion_tokens = llm_usage_rollups.completion_tokens + excluded.completion_tokens,
                 total_tokens = llm_usage_rollups.total_tokens + excluded.total_tokens,
+                cache_read_tokens = llm_usage_rollups.cache_read_tokens + excluded.cache_read_tokens,
+                cache_write_tokens = llm_usage_rollups.cache_write_tokens + excluded.cache_write_tokens,
+                cache_write_1h_tokens = llm_usage_rollups.cache_write_1h_tokens + excluded.cache_write_1h_tokens,
                 cost_usd = llm_usage_rollups.cost_usd + excluded.cost_usd,
                 latency_ms_total = llm_usage_rollups.latency_ms_total + excluded.latency_ms_total,
                 ttft_ms_total = llm_usage_rollups.ttft_ms_total + excluded.ttft_ms_total,

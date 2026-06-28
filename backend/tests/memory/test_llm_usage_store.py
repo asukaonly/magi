@@ -30,6 +30,9 @@ async def test_llm_usage_store_summarizes_prompt_and_completion_tokens(tmp_path:
             "prompt_tokens": 100,
             "completion_tokens": 40,
             "total_tokens": 140,
+            "cache_read_tokens": 80,
+            "cache_write_tokens": 10,
+            "cache_write_1h_tokens": 4,
             "usage_available": True,
             "latency_ms": 120,
             "success": True,
@@ -44,6 +47,8 @@ async def test_llm_usage_store_summarizes_prompt_and_completion_tokens(tmp_path:
             "prompt_tokens": 60,
             "completion_tokens": 30,
             "total_tokens": 90,
+            "cache_read_tokens": 20,
+            "cache_write_tokens": 5,
             "usage_available": True,
             "latency_ms": 180,
             "success": False,
@@ -60,10 +65,20 @@ async def test_llm_usage_store_summarizes_prompt_and_completion_tokens(tmp_path:
     assert summary["totals"]["prompt_tokens"] == 160
     assert summary["totals"]["completion_tokens"] == 70
     assert summary["totals"]["total_tokens"] == 230
+    assert summary["totals"]["cache_read_tokens"] == 100
+    assert summary["totals"]["cache_write_tokens"] == 15
+    assert summary["totals"]["cache_write_1h_tokens"] == 4
+    assert summary["totals"]["cache_hit_rate"] == 62.5
     # No pricing data for these models -> no per-currency cost, breakdown carries NULL currency.
     assert summary["totals"]["cost_by_currency"] == []
     assert summary["providers"][0]["cost_currency"] is None
     assert summary["providers"][0]["provider"] == "openai"
+    assert summary["providers"][0]["cache_read_tokens"] == 80
+    assert summary["providers"][0]["cache_write_tokens"] == 10
+    assert summary["providers"][0]["cache_hit_rate"] == 80.0
     assert len(timeseries) == 1
     assert timeseries[0]["prompt_tokens"] == 160
     assert timeseries[0]["completion_tokens"] == 70
+    assert timeseries[0]["cache_read_tokens"] == 100
+    assert timeseries[0]["cache_write_tokens"] == 15
+    assert timeseries[0]["cache_hit_rate"] == 62.5

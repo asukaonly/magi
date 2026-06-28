@@ -1,6 +1,5 @@
 """Phase 1 of D: LLMUsageSubscriber projects SpanCompleted(llm_call) → llm_usage."""
 from __future__ import annotations
-import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -63,6 +62,9 @@ async def test_records_llm_call_with_full_payload(fake_bus, fake_store):
             "prompt_tokens": 100,
             "completion_tokens": 50,
             "total_tokens": 150,
+            "cache_read_tokens": 70,
+            "cache_write_tokens": 12,
+            "cache_write_1h_tokens": 5,
             "usage_available": True,
             "session_id": "sess-1",
             "agent_id": "chat",
@@ -82,6 +84,9 @@ async def test_records_llm_call_with_full_payload(fake_bus, fake_store):
     assert written["prompt_tokens"] == 100
     assert written["completion_tokens"] == 50
     assert written["total_tokens"] == 150
+    assert written["cache_read_tokens"] == 70
+    assert written["cache_write_tokens"] == 12
+    assert written["cache_write_1h_tokens"] == 5
     assert written["usage_available"] is True
     assert written["latency_ms"] == 1500
     assert written["ttft_ms"] == 0       # not tracked today

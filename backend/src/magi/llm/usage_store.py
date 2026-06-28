@@ -49,6 +49,9 @@ class LLMUsageStore:
                     prompt_tokens,
                     completion_tokens,
                     total_tokens,
+                    cache_read_tokens,
+                    cache_write_tokens,
+                    cache_write_1h_tokens,
                     usage_available,
                     latency_ms,
                     ttft_ms,
@@ -61,7 +64,7 @@ class LLMUsageStore:
                     turn_id,
                     agent_id,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(payload.get("request_id") or ""),
@@ -71,6 +74,9 @@ class LLMUsageStore:
                     int(payload.get("prompt_tokens") or 0),
                     int(payload.get("completion_tokens") or 0),
                     int(payload.get("total_tokens") or 0),
+                    int(payload.get("cache_read_tokens") or 0),
+                    int(payload.get("cache_write_tokens") or 0),
+                    int(payload.get("cache_write_1h_tokens") or 0),
                     1 if payload.get("usage_available") else 0,
                     int(payload.get("latency_ms") or 0),
                     int(payload.get("ttft_ms") or 0),
@@ -106,6 +112,14 @@ class LLMUsageStore:
                     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                     COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
                     COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+                    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens,
+                    CASE
+                        WHEN COALESCE(SUM(prompt_tokens), 0) > 0
+                        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
+                        ELSE 0
+                    END AS cache_hit_rate,
                     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
                     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
                     COALESCE(SUM(cost_usd), 0) AS total_cost_usd
@@ -127,6 +141,14 @@ class LLMUsageStore:
                     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                     COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
                     COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+                    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens,
+                    CASE
+                        WHEN COALESCE(SUM(prompt_tokens), 0) > 0
+                        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
+                        ELSE 0
+                    END AS cache_hit_rate,
                     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
                     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
                     COALESCE(SUM(cost_usd), 0) AS cost_usd,
@@ -151,6 +173,14 @@ class LLMUsageStore:
                     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                     COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
                     COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+                    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens,
+                    CASE
+                        WHEN COALESCE(SUM(prompt_tokens), 0) > 0
+                        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
+                        ELSE 0
+                    END AS cache_hit_rate,
                     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
                     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
                     COALESCE(SUM(cost_usd), 0) AS cost_usd,
@@ -175,6 +205,14 @@ class LLMUsageStore:
                     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                     COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
                     COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+                    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens,
+                    CASE
+                        WHEN COALESCE(SUM(prompt_tokens), 0) > 0
+                        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
+                        ELSE 0
+                    END AS cache_hit_rate,
                     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
                     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
                     COALESCE(SUM(cost_usd), 0) AS cost_usd,
@@ -219,6 +257,10 @@ class LLMUsageStore:
                 "prompt_tokens": int(totals["prompt_tokens"] or 0),
                 "completion_tokens": int(totals["completion_tokens"] or 0),
                 "total_tokens": int(totals["total_tokens"] or 0),
+                "cache_read_tokens": int(totals["cache_read_tokens"] or 0),
+                "cache_write_tokens": int(totals["cache_write_tokens"] or 0),
+                "cache_write_1h_tokens": int(totals["cache_write_1h_tokens"] or 0),
+                "cache_hit_rate": round(float(totals["cache_hit_rate"] or 0), 2),
                 "avg_latency_ms": round(float(totals["avg_latency_ms"] or 0), 2),
                 "avg_ttft_ms": round(float(totals["avg_ttft_ms"] or 0), 2) if float(totals["avg_ttft_ms"] or 0) > 0 else None,
                 "total_cost_usd": round(float(totals["total_cost_usd"] or 0), 4),
@@ -243,6 +285,14 @@ class LLMUsageStore:
                     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                     COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
                     COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+                    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens,
+                    CASE
+                        WHEN COALESCE(SUM(prompt_tokens), 0) > 0
+                        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
+                        ELSE 0
+                    END AS cache_hit_rate,
                     COALESCE(SUM(cost_usd), 0) AS cost_usd
                 FROM llm_usage
                 WHERE created_at >= ?
@@ -260,6 +310,10 @@ class LLMUsageStore:
                 "prompt_tokens": int(row["prompt_tokens"] or 0),
                 "completion_tokens": int(row["completion_tokens"] or 0),
                 "total_tokens": int(row["total_tokens"] or 0),
+                "cache_read_tokens": int(row["cache_read_tokens"] or 0),
+                "cache_write_tokens": int(row["cache_write_tokens"] or 0),
+                "cache_write_1h_tokens": int(row["cache_write_1h_tokens"] or 0),
+                "cache_hit_rate": round(float(row["cache_hit_rate"] or 0), 2),
                 "cost_usd": round(float(row["cost_usd"] or 0), 4),
             }
             for row in rows

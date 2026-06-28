@@ -1988,6 +1988,7 @@
         "totalCalls": "总调用次数",
         "avgLatency": "平均耗时",
         "outputShare": "输出占比",
+        "cacheHitRate": "缓存命中率",
         "prompt": "输入",
         "completion": "输出",
         "successRate": "成功率 {{value}}%",
@@ -2023,6 +2024,8 @@
             "totalTokens": "Token 花费",
             "promptTokens": "输入 Token",
             "completionTokens": "输出 Token",
+            "cacheHitRate": "缓存命中",
+            "cacheReadTokens": "缓存读取",
             "cost": "成本",
             "avgLatency": "平均耗时",
             "avgTTFT": "平均 TTFT"

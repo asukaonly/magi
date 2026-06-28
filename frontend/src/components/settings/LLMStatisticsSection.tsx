@@ -302,6 +302,7 @@ const LLMStatisticsSectionInner: FC = () => {
         signalRibbon={(
           <>
             <SignalItem label={t('settings.usage.cards.totalTokens')} value={formatCompactNumber(totals.total_tokens)} />
+            <SignalItem label={t('settings.usage.cards.cacheHitRate')} value={formatPercent(totals.cache_hit_rate || 0)} />
             <SignalItem label={t('settings.statistics.shared.totalCost')} value={formatTotalCost(totals.cost_by_currency) || unavailableLabel} />
             <SignalItem label={t('settings.usage.cards.avgLatency')} value={formatLatency(totals.avg_latency_ms) || unavailableLabel} />
             <SignalItem label={t('settings.statistics.shared.avgTTFT')} value={formatLatency(totals.avg_ttft_ms) || unavailableLabel} />
@@ -376,6 +377,8 @@ const LLMStatisticsSectionInner: FC = () => {
                       <TableHeaderCell>{t('settings.statistics.llm.table.columns.totalTokens')}</TableHeaderCell>
                       <TableHeaderCell>{t('settings.statistics.llm.table.columns.promptTokens')}</TableHeaderCell>
                       <TableHeaderCell>{t('settings.statistics.llm.table.columns.completionTokens')}</TableHeaderCell>
+                      <TableHeaderCell>{t('settings.statistics.llm.table.columns.cacheHitRate')}</TableHeaderCell>
+                      <TableHeaderCell>{t('settings.statistics.llm.table.columns.cacheReadTokens')}</TableHeaderCell>
                       <TableHeaderCell>{t('settings.statistics.llm.table.columns.cost')}</TableHeaderCell>
                       <TableHeaderCell>{t('settings.statistics.llm.table.columns.avgLatency')}</TableHeaderCell>
                       <TableHeaderCell>{t('settings.statistics.llm.table.columns.avgTTFT')}</TableHeaderCell>
@@ -398,6 +401,8 @@ const LLMStatisticsSectionInner: FC = () => {
                         <TableCell>{formatInteger(item.total_tokens)}</TableCell>
                         <TableCell>{formatInteger(item.prompt_tokens)}</TableCell>
                         <TableCell>{formatInteger(item.completion_tokens)}</TableCell>
+                        <TableCell>{formatPercent(item.cache_hit_rate || 0)}</TableCell>
+                        <TableCell>{formatInteger(item.cache_read_tokens)}</TableCell>
                         <TableCell>{item.cost_currency == null ? unavailableLabel : (formatCurrency(item.cost_usd, item.cost_currency) || unavailableLabel)}</TableCell>
                         <TableCell>{formatLatency(item.avg_latency_ms) || unavailableLabel}</TableCell>
                         <TableCell>{formatLatency(item.avg_ttft_ms) || unavailableLabel}</TableCell>
