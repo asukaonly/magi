@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from magi_plugin_sdk.delivery import DeliveryContent
@@ -46,6 +47,29 @@ def _default_chat_read_service_factory() -> Any:
     from magi.chat import get_chat_read_service
 
     return get_chat_read_service()
+
+
+@dataclass(slots=True)
+class _PreparedChatPostprocess:
+    event_emitter: Any
+    latest_fact: FactRecord
+    ux_plan: dict[str, Any]
+    raw_response_text: str
+    response_text: str
+    user_message: str | None
+    correlation_id: str | None
+    turn_id: str | None
+    started_at_ms: int
+    response_plan: Any | None
+    rhythm_started_at_ms: int
+    rhythm_ended_at_ms: int
+    now_ms: int = 0
+    history_stored: bool = False
+    memory_updated: bool = False
+    trace_summary: dict[str, Any] | None = None
+    trace_available: bool = False
+    reply_anchor_message_id: str | None = None
+    segmented_messages: list[Any] = field(default_factory=list)
 
 
 class ChatPostProcessService:
@@ -155,51 +179,30 @@ class ChatPostProcessService:
     async def handle(
         self, context: ChatRuntimeContext, result: ExecutionResult
     ) -> ChatParseOutcome:
-        event_emitter = self._get_event_emitter()
-        latest_fact = context.latest_fact
-        if not isinstance(latest_fact, FactRecord):
-            return ChatParseOutcome(False, False, False, False)
-        if context.incoming_fact_kind not in {
-            IncomingFactKind.USER_MESSAGE,
-            IncomingFactKind.WORKER_UPDATE,
-            IncomingFactKind.EXPLORE_TASK_COMPLETED,
-        }:
-            return ChatParseOutcome(False, False, False, False)
-        ux_plan = result.ux_plan if isinstance(result.ux_plan, dict) else {}
+        prepared = await self._prepare_chat_postprocess(context, result)
+        if isinstance(prepared, ChatParseOutcome):
+            return prepared
 
-        if result.skip_emit:
-            if await self._complete_turn_without_visible_response(
-                context=context,
-                result=result,
-                latest_fact=latest_fact,
-                ux_plan=ux_plan,
-            ):
-                return ChatParseOutcome(False, False, False, False)
-            return ChatParseOutcome(False, False, False, False)
-        if event_emitter is None:
-            return ChatParseOutcome(False, False, False, False)
+        self._record_chat_history_and_memory(context, result, prepared)
+        prepared.now_ms = now_wall_ms()
+        await self._emit_chat_response_observability(context, result, prepared)
+        await self._prepare_chat_delivery_state(context, prepared)
+        await self._persist_chat_response_outcome(context, result, prepared)
+        await self._finalize_session_run(context)
+        self._schedule_transcript_summary_update(context)
+        return await self._deliver_chat_response_outcome(context, result, prepared)
 
-        raw_response_text = str(result.response_text or "").strip()
-        response_text = strip_segmentation_sentinel(raw_response_text)
-        if not response_text:
-            execution_outcome = (
-                result.execution_outcome
-                if isinstance(result, FunctionCallingExecutionResult)
-                else {}
-            )
-            if isinstance(execution_outcome, dict) and execution_outcome.get("status") == "failed":
-                failure_reason = str(execution_outcome.get("failure_reason") or "EXECUTION_ERROR")
-                response_text = f"Execution failed: {failure_reason}"
-                raw_response_text = response_text
-            elif (
-                isinstance(execution_outcome, dict)
-                and execution_outcome.get("status") == "detached"
-            ):
-                # A detached outcome reaches postprocess only when the
-                # background hand-off declined or failed. Surface that so
-                # the user does not silently lose the turn.
-                response_text = "Failed to move this task to the background."
-                raw_response_text = response_text
+    async def _prepare_chat_postprocess(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+    ) -> _PreparedChatPostprocess | ChatParseOutcome:
+        preflight = await self._preflight_chat_postprocess(context, result)
+        if isinstance(preflight, ChatParseOutcome):
+            return preflight
+        event_emitter, latest_fact, ux_plan = preflight
+
+        raw_response_text, response_text = self._resolve_visible_response_text(result)
         if not response_text:
             if await self._complete_turn_without_visible_response(
                 context=context,
@@ -214,6 +217,55 @@ class ChatPostProcessService:
             await self._finalize_session_run(context)
             return ChatParseOutcome(False, False, False, False)
 
+        return await self._build_prepared_chat_postprocess(
+            context=context,
+            result=result,
+            event_emitter=event_emitter,
+            latest_fact=latest_fact,
+            ux_plan=ux_plan,
+            raw_response_text=raw_response_text,
+            response_text=response_text,
+        )
+
+    async def _preflight_chat_postprocess(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+    ) -> tuple[Any, FactRecord, dict[str, Any]] | ChatParseOutcome:
+        event_emitter = self._get_event_emitter()
+        latest_fact = context.latest_fact
+        if not isinstance(latest_fact, FactRecord):
+            return ChatParseOutcome(False, False, False, False)
+        if context.incoming_fact_kind not in {
+            IncomingFactKind.USER_MESSAGE,
+            IncomingFactKind.WORKER_UPDATE,
+            IncomingFactKind.EXPLORE_TASK_COMPLETED,
+        }:
+            return ChatParseOutcome(False, False, False, False)
+        ux_plan = result.ux_plan if isinstance(result.ux_plan, dict) else {}
+        if result.skip_emit:
+            await self._complete_turn_without_visible_response(
+                context=context,
+                result=result,
+                latest_fact=latest_fact,
+                ux_plan=ux_plan,
+            )
+            return ChatParseOutcome(False, False, False, False)
+        if event_emitter is None:
+            return ChatParseOutcome(False, False, False, False)
+        return event_emitter, latest_fact, ux_plan
+
+    async def _build_prepared_chat_postprocess(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        event_emitter: Any,
+        latest_fact: FactRecord,
+        ux_plan: dict[str, Any],
+        raw_response_text: str,
+        response_text: str,
+    ) -> _PreparedChatPostprocess:
         correlation_id = result.correlation_id or latest_fact.correlation_id
         turn_id = result.turn_id or self._resolve_turn_id(
             context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {}
@@ -231,66 +283,123 @@ class ChatPostProcessService:
             response_text = str(response_plan.aggregate_text or response_text).strip() or response_text
             result.response_plan = response_plan
 
-        history_stored = False
-        user_message = result.root_user_message or context.latest_user_message
-        if latest_fact.event_type == EventTypes.USER_MESSAGE and user_message:
-            self._context_assembler.append_user_message(context.history_key, user_message)
-            history_stored = True
-        self._context_assembler.append_assistant_message(context.history_key, response_text)
-        history_stored = True
+        return _PreparedChatPostprocess(
+            event_emitter=event_emitter,
+            latest_fact=latest_fact,
+            ux_plan=ux_plan,
+            raw_response_text=raw_response_text,
+            response_text=response_text,
+            user_message=result.root_user_message or context.latest_user_message,
+            correlation_id=correlation_id,
+            turn_id=turn_id,
+            started_at_ms=started_at_ms,
+            response_plan=response_plan,
+            rhythm_started_at_ms=rhythm_started_at_ms,
+            rhythm_ended_at_ms=rhythm_ended_at_ms,
+        )
 
-        # Schedule memory/reflection updates as a background task so they do not
-        # delay AI_RESPONSE emission. These updates only affect future turns
-        # (persona emotion, relationship profile, milestones, task reflection)
-        # and the currently emitted response does not depend on them.
-        memory_updated = False
+    def _resolve_visible_response_text(self, result: ExecutionResult) -> tuple[str, str]:
+        raw_response_text = str(result.response_text or "").strip()
+        response_text = strip_segmentation_sentinel(raw_response_text)
+        if response_text:
+            return raw_response_text, response_text
+
+        execution_outcome = (
+            result.execution_outcome if isinstance(result, FunctionCallingExecutionResult) else {}
+        )
+        if isinstance(execution_outcome, dict) and execution_outcome.get("status") == "failed":
+            failure_reason = str(execution_outcome.get("failure_reason") or "EXECUTION_ERROR")
+            response_text = f"Execution failed: {failure_reason}"
+            return response_text, response_text
+        if isinstance(execution_outcome, dict) and execution_outcome.get("status") == "detached":
+            response_text = "Failed to move this task to the background."
+            return response_text, response_text
+        return raw_response_text, response_text
+
+    def _record_chat_history_and_memory(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+    ) -> None:
+        user_message = result.root_user_message or context.latest_user_message
+        if prepared.latest_fact.event_type == EventTypes.USER_MESSAGE and user_message:
+            self._context_assembler.append_user_message(context.history_key, user_message)
+            prepared.history_stored = True
+        self._context_assembler.append_assistant_message(
+            context.history_key,
+            prepared.response_text,
+        )
+        prepared.history_stored = True
+        prepared.user_message = user_message
         if user_message:
             self._schedule_background_memory_updates(
                 user_id=context.user_id,
                 user_message=user_message,
-                response_text=response_text,
+                response_text=prepared.response_text,
                 context=context,
                 result=result,
             )
-            memory_updated = True
+            prepared.memory_updated = True
 
-        now_ms = now_wall_ms()
-
+    async def _emit_chat_response_observability(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+    ) -> None:
         await self._emit_result_llm_trace(
             user_id=context.user_id,
             session_id=context.session_id,
-            turn_id=turn_id,
+            turn_id=prepared.turn_id,
             llm_trace=getattr(result, "llm_trace", {}),
-            started_at_ms=started_at_ms,
+            started_at_ms=prepared.started_at_ms,
             user_message=context.latest_user_message,
         )
-        if response_plan is not None:
+        if prepared.response_plan is not None:
             await self._emit_response_rhythm_trace(
                 user_id=context.user_id,
                 session_id=context.session_id,
-                turn_id=turn_id,
-                response_text=response_text,
-                response_plan=response_plan,
-                started_at_ms=rhythm_started_at_ms,
-                ended_at_ms=rhythm_ended_at_ms,
+                turn_id=prepared.turn_id,
+                response_text=prepared.response_text,
+                response_plan=prepared.response_plan,
+                started_at_ms=prepared.rhythm_started_at_ms,
+                ended_at_ms=prepared.rhythm_ended_at_ms,
                 mode=self._normalize_mode(result.mode),
                 user_message=context.latest_user_message,
             )
         await self._emit_response_trace(
             user_id=context.user_id,
             session_id=context.session_id,
-            turn_id=turn_id,
-            response_text=response_text,
-            started_at_ms=started_at_ms,
-            ended_at_ms=now_ms,
+            turn_id=prepared.turn_id,
+            response_text=prepared.response_text,
+            started_at_ms=prepared.started_at_ms,
+            ended_at_ms=prepared.now_ms,
             orchestration_id=result.orchestration_id,
             mode=self._normalize_mode(result.mode),
             user_message=context.latest_user_message,
         )
 
-        # Fetch trace summary before emitting the response event
-        trace_summary = None
-        trace_available = False
+    async def _prepare_chat_delivery_state(
+        self,
+        context: ChatRuntimeContext,
+        prepared: _PreparedChatPostprocess,
+    ) -> None:
+        prepared.trace_summary, prepared.trace_available = self._resolve_trace_summary(
+            context=context,
+            turn_id=prepared.turn_id,
+        )
+        prepared.reply_anchor_message_id = await self._resolve_result_reply_anchor_message_id(
+            context=context,
+            turn_id=prepared.turn_id,
+        )
+
+    def _resolve_trace_summary(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        turn_id: str | None,
+    ) -> tuple[dict[str, Any] | None, bool]:
         if self._trace_read_service and turn_id:
             try:
                 snapshot = self._trace_read_service.get_trace_snapshot(
@@ -299,182 +408,202 @@ class ChatPostProcessService:
                     turn_id=turn_id,
                 )
                 if isinstance(snapshot, dict):
-                    trace_summary = snapshot.get("summary")
-                    trace_available = bool(snapshot.get("summary", {}).get("trace_available"))
+                    summary = snapshot.get("summary")
+                    return summary, bool(snapshot.get("summary", {}).get("trace_available"))
             except Exception as exc:
                 logger.debug("Failed to fetch trace snapshot for AI_RESPONSE event: %s", exc)
+        return None, False
 
-        reply_anchor_message_id = await self._resolve_result_reply_anchor_message_id(
-            context=context,
-            turn_id=turn_id,
-        )
-        segmented_messages = []
-        if response_plan is not None:
-            try:
-                segmented_messages = await self._persist_segmented_chat_outcome(
-                    turn_id=turn_id,
-                    response_plan=response_plan,
-                    attachments=list(getattr(result, "attachments", []) or []),
-                    message_payload=dict(getattr(result, "message_payload", {}) or {}),
-                    started_at_ms=started_at_ms,
-                    completed_at_ms=now_ms,
-                    orchestration_id=result.orchestration_id,
-                    execution_mode=self._normalize_mode(result.mode),
-                    ux_plan=ux_plan,
-                    run_id=context.session_run_id,
-                    run_revision=context.session_run_revision,
-                    run_disposition=context.session_run_disposition,
-                    reply_to_message_id=reply_anchor_message_id,
-                    persona_id=context.active_persona_id,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Segmented chat outcome persistence failed; falling back to final message: %s",
-                    exc,
-                )
-                await self._hide_persisted_rhythm_segments(
-                    session_id=context.session_id,
-                    turn_id=turn_id,
-                )
-                segmented_messages = []
-                response_plan = None
-                result.response_plan = None
-            if not segmented_messages:
-                response_plan = None
-                result.response_plan = None
+    async def _persist_chat_response_outcome(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+    ) -> None:
+        if prepared.response_plan is not None:
+            await self._try_persist_segmented_response(context, result, prepared)
 
-        if response_plan is None:
-            await self._persist_final_chat_outcome(
-                turn_id=turn_id,
-                response_text=response_text,
+        if prepared.response_plan is None:
+            await self._persist_final_response_outcome(context, result, prepared)
+
+    async def _try_persist_segmented_response(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+    ) -> None:
+        try:
+            prepared.segmented_messages = await self._persist_segmented_chat_outcome(
+                turn_id=prepared.turn_id,
+                response_plan=prepared.response_plan,
                 attachments=list(getattr(result, "attachments", []) or []),
                 message_payload=dict(getattr(result, "message_payload", {}) or {}),
-                started_at_ms=started_at_ms,
-                completed_at_ms=now_ms,
+                started_at_ms=prepared.started_at_ms,
+                completed_at_ms=prepared.now_ms,
                 orchestration_id=result.orchestration_id,
                 execution_mode=self._normalize_mode(result.mode),
-                ux_plan=ux_plan,
+                ux_plan=prepared.ux_plan,
                 run_id=context.session_run_id,
                 run_revision=context.session_run_revision,
                 run_disposition=context.session_run_disposition,
-                reply_to_message_id=reply_anchor_message_id,
+                reply_to_message_id=prepared.reply_anchor_message_id,
                 persona_id=context.active_persona_id,
             )
-        await self._finalize_session_run(context)
-        self._schedule_transcript_summary_update(context)
-
-        if response_plan is not None:
-            await self._project_canonical_assistant_response(
-                context=context,
-                turn_id=turn_id,
-                message_id=segmented_messages[0].message_id if segmented_messages else None,
-                response_text=response_text,
-                created_at_ms=now_ms,
+        except Exception as exc:
+            logger.warning(
+                "Segmented chat outcome persistence failed; falling back to final message: %s",
+                exc,
             )
-            try:
-                await self._emit_segmented_agent_response_notifications(
-                    context=context,
-                    result=result,
-                    turn_id=turn_id,
-                    response_plan=response_plan,
-                    messages=segmented_messages,
-                    trace_summary=trace_summary,
-                    trace_available=trace_available,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Segmented chat response notification failed; falling back to final message: %s",
-                    exc,
-                )
-                await self._hide_persisted_rhythm_segments(
-                    session_id=context.session_id,
-                    turn_id=turn_id,
-                )
-                await self._persist_final_chat_outcome(
-                    turn_id=turn_id,
-                    response_text=response_text,
-                    attachments=list(getattr(result, "attachments", []) or []),
-                    message_payload=dict(getattr(result, "message_payload", {}) or {}),
-                    started_at_ms=started_at_ms,
-                    completed_at_ms=now_ms,
-                    orchestration_id=result.orchestration_id,
-                    execution_mode=self._normalize_mode(result.mode),
-                    ux_plan=ux_plan,
-                    run_id=context.session_run_id,
-                    run_revision=context.session_run_revision,
-                    run_disposition=context.session_run_disposition,
-                    reply_to_message_id=reply_anchor_message_id,
-                    persona_id=context.active_persona_id,
-                )
-                notification_message = await self._get_notification_chat_message(
-                    turn_id=turn_id,
-                    ux_plan=ux_plan,
-                )
-                await self._project_final_chat_message(
-                    context=context,
-                    final_message=(
-                        notification_message
-                        if notification_message
-                        and notification_message.message_kind == "assistant_final"
-                        else None
-                    ),
-                )
-                await self._deliver_agent_response(
-                    context=context,
-                    turn_id=turn_id,
-                    response_text=response_text,
-                    attachments=list(getattr(result, "attachments", []) or []),
-                    message_payload=dict(getattr(result, "message_payload", {}) or {}),
-                    orchestration_id=result.orchestration_id,
-                    trace_summary=trace_summary,
-                    trace_available=trace_available,
-                    ux_plan=result.ux_plan,
-                    message_id=(
-                        notification_message.message_id
-                        if notification_message is not None
-                        else None
-                    ),
-                    message_kind=(
-                        notification_message.message_kind
-                        if notification_message is not None
-                        else "assistant_final"
-                    ),
-                    persona_id=(
-                        notification_message.persona_id
-                        if notification_message is not None
-                        else context.active_persona_id
-                    ),
-                )
-                await event_emitter.emit_chat_response_event(
-                    user_id=context.user_id,
-                    session_id=context.session_id,
-                    response=response_text,
-                    correlation_id=correlation_id,
-                    turn_id=turn_id,
-                    orchestration_id=result.orchestration_id,
-                    trace_summary=trace_summary,
-                    trace_available=trace_available,
-                )
-                return ChatParseOutcome(True, history_stored, memory_updated, False)
-            await event_emitter.emit_chat_response_event(
-                user_id=context.user_id,
+            await self._hide_persisted_rhythm_segments(
                 session_id=context.session_id,
-                response=response_text,
-                correlation_id=correlation_id,
-                turn_id=turn_id,
-                orchestration_id=result.orchestration_id,
-                trace_summary=trace_summary,
-                trace_available=trace_available,
+                turn_id=prepared.turn_id,
             )
-            return ChatParseOutcome(True, history_stored, memory_updated, False)
+            prepared.segmented_messages = []
+            prepared.response_plan = None
+            result.response_plan = None
+        if not prepared.segmented_messages:
+            prepared.response_plan = None
+            result.response_plan = None
 
+    async def _persist_final_response_outcome(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+    ) -> None:
+        await self._persist_final_chat_outcome(
+            turn_id=prepared.turn_id,
+            response_text=prepared.response_text,
+            attachments=list(getattr(result, "attachments", []) or []),
+            message_payload=dict(getattr(result, "message_payload", {}) or {}),
+            started_at_ms=prepared.started_at_ms,
+            completed_at_ms=prepared.now_ms,
+            orchestration_id=result.orchestration_id,
+            execution_mode=self._normalize_mode(result.mode),
+            ux_plan=prepared.ux_plan,
+            run_id=context.session_run_id,
+            run_revision=context.session_run_revision,
+            run_disposition=context.session_run_disposition,
+            reply_to_message_id=prepared.reply_anchor_message_id,
+            persona_id=context.active_persona_id,
+        )
+
+    async def _deliver_chat_response_outcome(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+    ) -> ChatParseOutcome:
+        if prepared.response_plan is not None:
+            return await self._deliver_segmented_chat_response(context, result, prepared)
+        return await self._deliver_final_chat_response(context, result, prepared)
+
+    async def _deliver_segmented_chat_response(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+    ) -> ChatParseOutcome:
+        await self._project_segmented_chat_response(context, prepared)
+        try:
+            await self._deliver_segmented_notifications(context, result, prepared)
+        except Exception as exc:
+            logger.warning(
+                "Segmented chat response notification failed; falling back to final message: %s",
+                exc,
+            )
+            await self._fallback_segmented_response_to_final(context, result, prepared)
+            return await self._emit_chat_response_event(context, result, prepared)
+        return await self._emit_chat_response_event(context, result, prepared)
+
+    async def _project_segmented_chat_response(
+        self,
+        context: ChatRuntimeContext,
+        prepared: _PreparedChatPostprocess,
+    ) -> None:
+        await self._project_canonical_assistant_response(
+            context=context,
+            turn_id=prepared.turn_id,
+            message_id=(
+                prepared.segmented_messages[0].message_id if prepared.segmented_messages else None
+            ),
+            response_text=prepared.response_text,
+            created_at_ms=prepared.now_ms,
+        )
+
+    async def _deliver_segmented_notifications(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+    ) -> None:
+        await self._emit_segmented_agent_response_notifications(
+            context=context,
+            result=result,
+            turn_id=prepared.turn_id,
+            response_plan=prepared.response_plan,
+            messages=prepared.segmented_messages,
+            trace_summary=prepared.trace_summary,
+            trace_available=prepared.trace_available,
+        )
+
+    async def _fallback_segmented_response_to_final(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+    ) -> None:
+        await self._hide_persisted_rhythm_segments(
+            session_id=context.session_id,
+            turn_id=prepared.turn_id,
+        )
+        await self._persist_final_response_outcome(context, result, prepared)
         notification_message = await self._get_notification_chat_message(
-            turn_id=turn_id,
-            ux_plan=ux_plan,
+            turn_id=prepared.turn_id,
+            ux_plan=prepared.ux_plan,
+        )
+        await self._project_final_chat_message(
+            context=context,
+            final_message=(
+                notification_message
+                if notification_message and notification_message.message_kind == "assistant_final"
+                else None
+            ),
+        )
+        await self._deliver_agent_response(
+            context=context,
+            turn_id=prepared.turn_id,
+            response_text=prepared.response_text,
+            attachments=list(getattr(result, "attachments", []) or []),
+            message_payload=dict(getattr(result, "message_payload", {}) or {}),
+            orchestration_id=result.orchestration_id,
+            trace_summary=prepared.trace_summary,
+            trace_available=prepared.trace_available,
+            ux_plan=result.ux_plan,
+            message_id=notification_message.message_id if notification_message is not None else None,
+            message_kind=(
+                notification_message.message_kind if notification_message is not None else "assistant_final"
+            ),
+            persona_id=(
+                notification_message.persona_id
+                if notification_message is not None
+                else context.active_persona_id
+            ),
+        )
+
+    async def _deliver_final_chat_response(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+    ) -> ChatParseOutcome:
+        notification_message = await self._get_notification_chat_message(
+            turn_id=prepared.turn_id,
+            ux_plan=prepared.ux_plan,
         )
         delivery_plan = build_final_response_delivery_plan(
-            response_text=response_text,
-            ux_plan=ux_plan,
+            response_text=prepared.response_text,
+            ux_plan=prepared.ux_plan,
             notification_message=notification_message,
             fallback_persona_id=context.active_persona_id,
             resolve_reaction_text=self._resolve_reaction_notification_text,
@@ -491,47 +620,73 @@ class ChatPostProcessService:
             )
 
         if not getattr(result, "streamed", False):
-            # P3 Step 5: ChatSseChannel.deliver (via the seam) is the SOLE writer
-            # of the non-streamed agent_response, carrying the full rich payload.
-            # No-op when no chat_sse seam is wired.
-            await self._deliver_agent_response(
+            await self._deliver_non_streamed_final_response(
                 context=context,
-                turn_id=turn_id,
-                response_text=delivery_plan.response_text,
-                attachments=list(getattr(result, "attachments", []) or []),
-                message_payload=dict(getattr(result, "message_payload", {}) or {}),
-                orchestration_id=result.orchestration_id,
-                trace_summary=trace_summary,
-                trace_available=trace_available,
-                ux_plan=result.ux_plan,
-                message_id=delivery_plan.message_id,
-                message_kind=delivery_plan.message_kind,
-                persona_id=delivery_plan.persona_id,
+                result=result,
+                prepared=prepared,
+                delivery_plan=delivery_plan,
             )
         else:
-            # Streaming turns skip agent_response; emit a completion control event so the
-            # frontend knows the turn is done and can unlock the input.
-            await self.emit_execution_control_notification(
-                user_id=context.user_id,
-                session_id=context.session_id,
-                turn_id=turn_id,
-                run_id=context.session_run_id,
-                orchestration_id=result.orchestration_id,
-                state="completed",
-                can_cancel=False,
-            )
+            await self._emit_stream_completion(context, result, prepared)
 
-        await event_emitter.emit_chat_response_event(
+        return await self._emit_chat_response_event(context, result, prepared)
+
+    async def _deliver_non_streamed_final_response(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+        delivery_plan,
+    ) -> None:
+        await self._deliver_agent_response(
+            context=context,
+            turn_id=prepared.turn_id,
+            response_text=delivery_plan.response_text,
+            attachments=list(getattr(result, "attachments", []) or []),
+            message_payload=dict(getattr(result, "message_payload", {}) or {}),
+            orchestration_id=result.orchestration_id,
+            trace_summary=prepared.trace_summary,
+            trace_available=prepared.trace_available,
+            ux_plan=result.ux_plan,
+            message_id=delivery_plan.message_id,
+            message_kind=delivery_plan.message_kind,
+            persona_id=delivery_plan.persona_id,
+        )
+
+    async def _emit_stream_completion(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+    ) -> None:
+        await self.emit_execution_control_notification(
             user_id=context.user_id,
             session_id=context.session_id,
-            response=response_text,
-            correlation_id=correlation_id,
-            turn_id=turn_id,
+            turn_id=prepared.turn_id,
+            run_id=context.session_run_id,
             orchestration_id=result.orchestration_id,
-            trace_summary=trace_summary,
-            trace_available=trace_available,
+            state="completed",
+            can_cancel=False,
         )
-        return ChatParseOutcome(True, history_stored, memory_updated, False)
+
+    async def _emit_chat_response_event(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+    ) -> ChatParseOutcome:
+        await prepared.event_emitter.emit_chat_response_event(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            response=prepared.response_text,
+            correlation_id=prepared.correlation_id,
+            turn_id=prepared.turn_id,
+            orchestration_id=result.orchestration_id,
+            trace_summary=prepared.trace_summary,
+            trace_available=prepared.trace_available,
+        )
+        return ChatParseOutcome(True, prepared.history_stored, prepared.memory_updated, False)
 
     def _schedule_transcript_summary_update(self, context: ChatRuntimeContext) -> None:
         if self._transcript_summarizer is None:
