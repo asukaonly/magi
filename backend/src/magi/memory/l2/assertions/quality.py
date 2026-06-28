@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, SupportsInt
 
 
 PROFILE_FAMILIES = {
@@ -82,10 +82,11 @@ def _issue_codes(assertion: Mapping[str, Any]) -> list[str]:
 
 def _evidence_count(assertion: Mapping[str, Any]) -> int:
     raw_count = assertion.get("evidence_count")
-    try:
-        return int(raw_count)
-    except (TypeError, ValueError):
-        pass
+    if isinstance(raw_count, (str, bytes, bytearray, SupportsInt)):
+        try:
+            return int(raw_count)
+        except ValueError:
+            pass
     evidence_events = assertion.get("evidence_events") or assertion.get("evidence_event_ids")
     if isinstance(evidence_events, list):
         return len(evidence_events)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable, cast
+from typing import Iterable, SupportsFloat, SupportsInt, cast
 
 from ..ontology import coerce_unknown_entity_type
 
@@ -54,8 +54,20 @@ def _l2_setting(group: str, attr: str, default: object) -> object:
         return default
 
 
+def _coerce_l2_int(value: object) -> int:
+    if isinstance(value, (str, bytes, bytearray, SupportsInt)):
+        return int(value)
+    raise TypeError(f"Expected an int-compatible L2 setting, got {type(value).__name__}")
+
+
+def _coerce_l2_float(value: object) -> float:
+    if isinstance(value, (str, bytes, bytearray, SupportsFloat)):
+        return float(value)
+    raise TypeError(f"Expected a float-compatible L2 setting, got {type(value).__name__}")
+
+
 def _l2_limit(attr: str, default: int) -> int:
-    return int(_l2_setting("limits", attr, default))
+    return _coerce_l2_int(_l2_setting("limits", attr, default))
 
 
 def snapshot_history_limit() -> int:
@@ -75,12 +87,12 @@ def max_evidence_event_ids() -> int:
 
 def confidence_accumulation_cap() -> float:
     """Noisy-OR confidence ceiling for accumulated edge/facet evidence."""
-    return float(_l2_setting("confidence", "accumulation_cap", CONFIDENCE_ACCUMULATION_CAP))
+    return _coerce_l2_float(_l2_setting("confidence", "accumulation_cap", CONFIDENCE_ACCUMULATION_CAP))
 
 
 def single_event_confidence_cap() -> float:
     """Confidence ceiling for claims/assertions from a single-event extraction batch."""
-    return float(_l2_setting("confidence", "single_event_cap", SINGLE_EVENT_CONFIDENCE_CAP))
+    return _coerce_l2_float(_l2_setting("confidence", "single_event_cap", SINGLE_EVENT_CONFIDENCE_CAP))
 
 
 

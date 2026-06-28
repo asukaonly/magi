@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from typing import TYPE_CHECKING
 
@@ -202,7 +202,7 @@ class FunctionCallingStepExecutor:
                 "execution_agent_id": ctx.execution_agent_id,
             }
         )
-        return started_at_ms
+        return cast(int | None, started_at_ms)
 
     async def _call_llm_for_step(
         self,

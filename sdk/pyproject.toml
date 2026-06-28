@@ -29,3 +29,6 @@ Repository = "https://github.com/asukaonly/magi"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+magi_plugin_sdk = ["py.typed"]

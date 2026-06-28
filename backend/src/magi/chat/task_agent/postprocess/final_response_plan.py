@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,13 +17,17 @@ class FinalResponseDeliveryPlan:
     final_message: Any | None
 
 
+class ResolveReactionText(Protocol):
+    def __call__(self, ux_plan: dict[str, Any] | None, *, fallback: str) -> str: ...
+
+
 def build_final_response_delivery_plan(
     *,
     response_text: str,
     ux_plan: dict[str, Any] | None,
     notification_message: Any | None,
     fallback_persona_id: str | None,
-    resolve_reaction_text: Callable[[dict[str, Any] | None, str], str],
+    resolve_reaction_text: ResolveReactionText,
 ) -> FinalResponseDeliveryPlan:
     """Build the user-visible notification shape after chat outcome persistence."""
     if str((ux_plan or {}).get("assistant_surface_mode") or "").strip() == "reaction_only":

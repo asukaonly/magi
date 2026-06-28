@@ -1367,6 +1367,26 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/memory/forget/entity": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Forget Entity
+         * @description Cascade forget: invalidate all L2 records derived from an entity.
+         */
+        readonly post: operations["forget_entity_api_memory_forget_entity_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/memory/identity/links": {
         readonly parameters: {
             readonly query?: never;
@@ -1439,6 +1459,23 @@ export interface paths {
         readonly put?: never;
         readonly post?: never;
         readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l1/events/{event_id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        /** Delete L1 Event */
+        readonly delete: operations["delete_l1_event_api_memory_l1_events__event_id__delete"];
         readonly options?: never;
         readonly head?: never;
         readonly patch?: never;
@@ -1542,6 +1579,26 @@ export interface paths {
         readonly options?: never;
         readonly head?: never;
         readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/edges/{triple_id}/reject": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        /**
+         * Reject L2 Edge
+         * @description User-initiated rejection of a KG edge.
+         */
+        readonly patch: operations["reject_l2_edge_api_memory_l2_edges__triple_id__reject_patch"];
         readonly trace?: never;
     };
     readonly "/api/memory/l2/entities": {
@@ -4666,6 +4723,17 @@ export interface components {
             /** Title Hint */
             readonly title_hint?: string | null;
         };
+        /** ForgetEntityRequest */
+        readonly ForgetEntityRequest: {
+            /**
+             * Delete L1 Events
+             * @description Also soft-delete L1 events mentioning this entity
+             * @default false
+             */
+            readonly delete_l1_events: boolean;
+            /** Entity Id */
+            readonly entity_id: string;
+        };
         /** GraphConflictRuleBody */
         readonly GraphConflictRuleBody: {
             /**
@@ -7296,7 +7364,7 @@ export interface components {
          * @description Supported scheduler target families.
          * @enum {string}
          */
-        readonly ScheduledTargetType: "sensor_sync" | "memory_l1_maintenance" | "memory_l2_maintenance" | "memory_l2_consolidate" | "memory_l3_summary" | "memory_l3_maintenance" | "memory_l4_maintenance" | "user_agent_task" | "timeline_diary_narrative" | "timeline_standout_rescore" | "timeline_mood_aggregate" | "timeline_representative_asset" | "location_ipgeo_poll" | "location_wifi_poll" | "outreach_outbox_drain" | "memory_l2_derive";
+        readonly ScheduledTargetType: "sensor_sync" | "memory_l1_maintenance" | "memory_l2_maintenance" | "memory_l2_consolidate" | "memory_l3_summary" | "memory_l3_maintenance" | "memory_l4_maintenance" | "user_agent_task" | "timeline_diary_narrative" | "timeline_standout_rescore" | "timeline_mood_aggregate" | "timeline_representative_asset" | "location_ipgeo_poll" | "location_wifi_poll" | "outreach_outbox_drain" | "memory_l2_derive" | "runtime_operational_gc" | "background_task_retention";
         /** SeedPreviewResponse */
         readonly SeedPreviewResponse: {
             /** Data */
@@ -10733,6 +10801,39 @@ export interface operations {
             };
         };
     };
+    readonly forget_entity_api_memory_forget_entity_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["ForgetEntityRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     readonly list_memory_identity_links_api_memory_identity_links_get: {
         readonly parameters: {
             readonly query?: never;
@@ -10836,6 +10937,37 @@ export interface operations {
             };
             readonly header?: never;
             readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly delete_l1_event_api_memory_l1_events__event_id__delete: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly event_id: string;
+            };
             readonly cookie?: never;
         };
         readonly requestBody?: never;
@@ -10996,6 +11128,37 @@ export interface operations {
                 readonly "application/json": components["schemas"]["GraphConflictRuleBody"];
             };
         };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly reject_l2_edge_api_memory_l2_edges__triple_id__reject_patch: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly triple_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
         readonly responses: {
             /** @description Successful Response */
             readonly 200: {

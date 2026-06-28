@@ -19,8 +19,59 @@ logger = get_logger(__name__)
 
 class _DeliveryPostprocessHostProtocol(Protocol):
     _chat_store: Any
-    _deliver_final_response: Callable[..., Awaitable[list]] | None
+    _deliver_final_response: Callable[..., Awaitable[list[Any]]] | None
     _runtime_notifier: Any
+
+    async def _persist_final_response_outcome(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: Any,
+    ) -> None: ...
+
+    async def _get_notification_chat_message(
+        self,
+        *,
+        turn_id: str | None,
+        ux_plan: dict[str, Any] | None,
+    ) -> Any | None: ...
+
+    async def _project_final_chat_message(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        final_message: Any | None,
+    ) -> None: ...
+
+    async def _project_canonical_assistant_response(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        turn_id: str | None,
+        message_id: str | None,
+        response_text: str,
+        created_at_ms: int,
+    ) -> None: ...
+
+    def _resolve_reaction_notification_text(
+        self,
+        ux_plan: dict[str, Any] | None,
+        *,
+        fallback: str,
+    ) -> str: ...
+
+    async def emit_execution_control_notification(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+        run_id: str | None,
+        orchestration_id: str | None,
+        state: str,
+        can_cancel: bool,
+        label: str | None = None,
+    ) -> None: ...
 
 
 class _PreparedDeliveryStateProtocol(Protocol):
@@ -74,7 +125,8 @@ class ChatPostprocessDeliveryMixin:
         context: ChatRuntimeContext,
         prepared: _PreparedDeliveryStateProtocol,
     ) -> None:
-        await self._project_canonical_assistant_response(
+        host = cast(_DeliveryPostprocessHostProtocol, self)
+        await host._project_canonical_assistant_response(
             context=context,
             turn_id=prepared.turn_id,
             message_id=(
@@ -106,16 +158,17 @@ class ChatPostprocessDeliveryMixin:
         result: ExecutionResult,
         prepared: _PreparedDeliveryStateProtocol,
     ) -> None:
+        host = cast(_DeliveryPostprocessHostProtocol, self)
         await self._hide_persisted_rhythm_segments(
             session_id=context.session_id,
             turn_id=prepared.turn_id,
         )
-        await self._persist_final_response_outcome(context, result, prepared)
-        notification_message = await self._get_notification_chat_message(
+        await host._persist_final_response_outcome(context, result, prepared)
+        notification_message = await host._get_notification_chat_message(
             turn_id=prepared.turn_id,
             ux_plan=prepared.ux_plan,
         )
-        await self._project_final_chat_message(
+        await host._project_final_chat_message(
             context=context,
             final_message=(
                 notification_message
@@ -150,7 +203,8 @@ class ChatPostprocessDeliveryMixin:
         result: ExecutionResult,
         prepared: _PreparedDeliveryStateProtocol,
     ) -> ChatParseOutcome:
-        notification_message = await self._get_notification_chat_message(
+        host = cast(_DeliveryPostprocessHostProtocol, self)
+        notification_message = await host._get_notification_chat_message(
             turn_id=prepared.turn_id,
             ux_plan=prepared.ux_plan,
         )
@@ -159,13 +213,12 @@ class ChatPostprocessDeliveryMixin:
             ux_plan=prepared.ux_plan,
             notification_message=notification_message,
             fallback_persona_id=context.active_persona_id,
-            resolve_reaction_text=self._resolve_reaction_notification_text,
+            resolve_reaction_text=host._resolve_reaction_notification_text,
         )
-        await self._project_final_chat_message(
+        await host._project_final_chat_message(
             context=context,
             final_message=delivery_plan.final_message,
         )
-        host = cast(_DeliveryPostprocessHostProtocol, self)
         if getattr(result, "streamed", False) and delivery_plan.final_message is not None:
             await host._runtime_notifier.emit_chat_message_upsert(
                 user_id=context.user_id,
@@ -214,7 +267,8 @@ class ChatPostprocessDeliveryMixin:
         result: ExecutionResult,
         prepared: _PreparedDeliveryStateProtocol,
     ) -> None:
-        await self.emit_execution_control_notification(
+        host = cast(_DeliveryPostprocessHostProtocol, self)
+        await host.emit_execution_control_notification(
             user_id=context.user_id,
             session_id=context.session_id,
             turn_id=prepared.turn_id,

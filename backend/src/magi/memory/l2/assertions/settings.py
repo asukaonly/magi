@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..storage.utils import _l2_setting
+from ..storage.utils import _coerce_l2_float, _coerce_l2_int, _l2_setting
 
 CONFIDENCE_BASE = 0.3
 CONFIDENCE_SLOPE = 0.25
@@ -37,13 +37,13 @@ _FAMILY_TTL_SETTING: dict[str, tuple[str, float]] = {
 def assertion_float_setting(attr: str, default: float) -> float:
     """Read a float value from ``agent.memory.l2.assertion``."""
 
-    return float(_l2_setting("assertion", attr, default))
+    return _coerce_l2_float(_l2_setting("assertion", attr, default))
 
 
 def assertion_int_setting(attr: str, default: int) -> int:
     """Read an int value from ``agent.memory.l2.assertion``."""
 
-    return int(_l2_setting("assertion", attr, default))
+    return _coerce_l2_int(_l2_setting("assertion", attr, default))
 
 
 def momentary_ttl_seconds() -> float:
