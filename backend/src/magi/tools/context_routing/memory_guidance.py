@@ -118,6 +118,7 @@ def apply_memory_guidance(
     return dataclasses.replace(
         decision,
         tools=tools[:max_tools],
+        tool_need="direct",
         memory_route=guidance.route,
     )
 

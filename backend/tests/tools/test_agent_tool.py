@@ -43,7 +43,15 @@ class _FakeLLMAdapter:
 
 class _FakeToolRegistry:
     def list_tools(self):
-        return ["glob", "grep", "file_read", "bash", "web-search", "agent"]
+        return [
+            "glob",
+            "grep",
+            "file_read",
+            "bash",
+            "web-search",
+            "find-relevant-tools",
+            "agent",
+        ]
 
 
 class _FakeToolRegistryWithTodo:
@@ -518,7 +526,7 @@ async def test_agent_tool_explore_uses_structured_tools():
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
     selected_tools = tool._resolve_tools_for_type(tool.TYPE_EXPLORE)
-    assert selected_tools == ["glob", "grep", "file_read"]
+    assert selected_tools == ["glob", "grep", "file_read", "find-relevant-tools"]
     assert "bash" not in selected_tools
     assert tool.schema is not None
     assert tool.schema.timeout == 300

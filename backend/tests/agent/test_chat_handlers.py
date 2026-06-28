@@ -9,8 +9,10 @@ from magi.agent.cancel import NullCancelToken
 from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
 from magi.agent.task_agents.handlers.direct_handler import DirectLLMHandler
 from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
-from magi.agent.task_agents.common import DirectLLMRequest, ExecutionMode, IncomingFactKind, OrchestrationPlan, ToolSelection, UserMessagePayload
+from magi.agent.task_agents.handlers.tool_exposure_policy import ToolExposurePolicy
+from magi.agent.task_agents.common import DirectLLMRequest, ExecutionMode, IncomingFactKind, ToolSelection, UserMessagePayload
 from magi.i18n import language_context
+from magi.tools.context_routing import RouteDecision
 
 
 class _FakeContextService:
@@ -68,6 +70,21 @@ class _FakePromptService:
             if hasattr(callback_result, "__await__"):
                 await callback_result
         return "final answer"
+
+
+class _FakeToolRegistry:
+    def __init__(self, tools: list[str]) -> None:
+        self._tools = list(tools)
+
+    def list_tools(self, category=None):  # type: ignore[no-untyped-def]
+        if category == "control":
+            return []
+        return list(self._tools)
+
+
+class _FakeFunctionCallingOrchestrator:
+    def __init__(self, tools: list[str]) -> None:
+        self.tool_registry = _FakeToolRegistry(tools)
 
 
 @pytest.mark.asyncio
@@ -390,6 +407,101 @@ async def test_function_calling_handler_passes_stored_persona_id_into_context_se
     assert context_service.calls[0]["scenario"] == "chat"
     assert context_service.calls[0]["task_category"] == "chat"
     assert context_service.calls[0]["tools"] == ["glob"]
+
+
+@pytest.mark.asyncio
+async def test_function_calling_handler_reuses_recent_tool_superset() -> None:
+    now = 1000.0
+
+    def clock() -> float:
+        return now
+
+    def make_context(message: str, turn_id: str) -> ChatRuntimeContext:
+        return ChatRuntimeContext(
+            latest_fact=None,
+            recent_facts=[],
+            batch_facts=[],
+            agent_id="local_user",
+            agent_type="chat",
+            runtime_key="chat:local_user",
+            user_id="local_user",
+            session_id="session-cache",
+            history_key="local_user::session-cache",
+            history=[],
+            conversation_history=[],
+            active_orchestrations=[],
+            recent_tool_errors=[],
+            latest_user_message=message,
+            incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+            latest_payload=UserMessagePayload(
+                user_id="local_user",
+                session_id="session-cache",
+                content=message,
+                turn_id=turn_id,
+            ),
+        )
+
+    handler = FunctionCallingHandler(
+        SimpleNamespace(
+            context_service=_FakeContextService(),
+            prompt_service=_FakePromptService(),
+            function_calling_orchestrator=_FakeFunctionCallingOrchestrator(
+                ["weather", "web-search", "find-relevant-tools"]
+            ),
+            tool_exposure_policy=ToolExposurePolicy(ttl_seconds=300.0, clock=clock),
+        )
+    )
+
+    first = await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.FUNCTION_CALLING,
+            context=make_context("tokyo weather and web context", "turn-1"),
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.FUNCTION_CALLING,
+                reasoning="tool use",
+                memory_route="none",
+                route_decision=RouteDecision(
+                    profile="chat",
+                    graph_shape="tool_loop",
+                    complexity="simple",
+                    tool_need="direct",
+                    tools=["weather", "web-search"],
+                ),
+            ),
+            tool_selection=ToolSelection(
+                tools=["weather", "web-search"],
+                reasoning="weather",
+            ),
+        )
+    )
+    assert first.selected_tools == ["weather", "web-search", "find-relevant-tools"]
+
+    now = 1060.0
+    second = await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.FUNCTION_CALLING,
+            context=make_context("tokyo weather", "turn-2"),
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.FUNCTION_CALLING,
+                reasoning="tool use",
+                memory_route="none",
+                route_decision=RouteDecision(
+                    profile="chat",
+                    graph_shape="tool_loop",
+                    complexity="simple",
+                    tool_need="direct",
+                    tools=["weather"],
+                ),
+            ),
+            tool_selection=ToolSelection(tools=["weather"], reasoning="weather"),
+        )
+    )
+
+    assert second.selected_tools == ["weather", "web-search", "find-relevant-tools"]
 
 
 @pytest.mark.asyncio
@@ -948,4 +1060,3 @@ async def test_build_cancel_token_reflects_state_transitions_on_each_call() -> N
     assert await token.is_cancelled() is True
     coordinator.status = None
     assert await token.is_cancelled() is False
-

@@ -45,6 +45,7 @@ from .handler_helpers import (
     serialize_ux_plan as _serialize_ux_plan,
 )
 from .attachment_context import resolve_effective_turn_attachments
+from .tool_exposure_policy import default_tool_exposure_policy
 from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
 from ...task_orchestrator import TaskOrchestrator
 
@@ -195,6 +196,12 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
 
         _orchestrator = getattr(self._deps, "function_calling_orchestrator", None)
         _registry = getattr(_orchestrator, "tool_registry", None)
+        _registered_tools = None
+        if _registry is not None:
+            try:
+                _registered_tools = set(_registry.list_tools())
+            except Exception:
+                _registered_tools = None
         if _registry is not None:
             for _resident_tool in resolve_resident_system_tools(_registry):
                 if _resident_tool not in selected_tools:
@@ -209,9 +216,26 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             _registry is not None
             and getattr(_route, "needs_orchestration", "none") == "maybe"
             and "agent" not in selected_tools
-            and "agent" in set(_registry.list_tools())
+            and _registered_tools is not None
+            and "agent" in _registered_tools
         ):
             selected_tools.append("agent")
+        if _registry is not None:
+            _policy = getattr(
+                self._deps,
+                "tool_exposure_policy",
+                default_tool_exposure_policy,
+            )
+            if hasattr(_policy, "resolve"):
+                selected_tools = _policy.resolve(
+                    session_key=(
+                        f"{getattr(request.context, 'agent_id', '')}:"
+                        f"{getattr(request.context, 'session_id', '')}"
+                    ),
+                    requested_tools=selected_tools,
+                    registered_tools=_registered_tools,
+                    may_write=bool(getattr(_route, "may_write", False)),
+                )
         return FunctionCallingRequest(
             mode=request.mode,
             context=request.context,

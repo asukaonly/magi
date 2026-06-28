@@ -18,6 +18,7 @@ def test_route_decision_constructs_with_required_fields_only() -> None:
     assert decision.complexity == "simple"
     # Defaults
     assert decision.tools == []
+    assert decision.tool_need == "none"
     assert decision.may_write is False
     assert decision.reasoning == ""
     assert decision.thinking_depth == ThinkingDepth.NONE
@@ -30,6 +31,7 @@ def test_route_decision_construct_with_all_fields() -> None:
         graph_shape="plan_fanout",
         complexity="large",
         tools=["grep", "file_edit"],
+        tool_need="direct",
         may_write=True,
         reasoning="Major refactor needing decomposition.",
         thinking_depth=ThinkingDepth.HIGH,
@@ -42,6 +44,7 @@ def test_route_decision_construct_with_all_fields() -> None:
         ),
     )
     assert decision.tools == ["grep", "file_edit"]
+    assert decision.tool_need == "direct"
     assert decision.may_write is True
     assert decision.thinking_depth == ThinkingDepth.HIGH
     assert decision.memory_route == "recall"
@@ -85,6 +88,16 @@ def test_route_decision_rejects_invalid_graph_shape() -> None:
 def test_route_decision_rejects_invalid_complexity() -> None:
     with pytest.raises(ValueError, match="complexity"):
         RouteDecision(profile="chat", graph_shape="reply", complexity="impossible")
+
+
+def test_route_decision_rejects_invalid_tool_need() -> None:
+    with pytest.raises(ValueError, match="tool_need"):
+        RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
+            tool_need="everything",  # type: ignore[arg-type]
+        )
 
 
 def test_route_decision_accepts_all_profile_values() -> None:
@@ -185,6 +198,7 @@ def test_context_decider_system_prompt_mentions_route_decision_fields() -> None:
     prompt = CONTEXT_DECIDER_SYSTEM_PROMPT
     for field in (
         "profile",
+        "tool_need",
         "tools",
         "may_write",
         "needs_orchestration",

@@ -19,6 +19,7 @@ from .context_routing.route_decision import (
     GRAPH_SHAPE_VALUES,
     NEEDS_ORCHESTRATION_VALUES,
     PROFILE_VALUES,
+    TOOL_NEED_VALUES,
     PersonaRouting,
 )
 
@@ -93,7 +94,7 @@ class ContextDeciderResponseMixin:
         if not json_match:
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
         if not json_match:
-            logger.warning(f"[ContextDecider] No JSON object found in response")
+            logger.warning("[ContextDecider] No JSON object found in response")
             return _fallback_route_decision("No JSON in response")
 
         try:
@@ -106,11 +107,18 @@ class ContextDeciderResponseMixin:
             return _fallback_route_decision("Response is not a JSON object")
 
         try:
+            selected_tools = _safe_get_list_str(data, "tools")[: self.max_tools]
             return RouteDecision(
                 profile=_safe_get_literal(data, "profile", PROFILE_VALUES, "chat"),
                 graph_shape=_safe_get_literal(data, "graph_shape", GRAPH_SHAPE_VALUES, "reply"),
                 complexity=_safe_get_literal(data, "complexity", COMPLEXITY_VALUES, "simple"),
-                tools=_safe_get_list_str(data, "tools")[: self.max_tools],
+                tool_need=_safe_get_literal(
+                    data,
+                    "tool_need",
+                    TOOL_NEED_VALUES,
+                    "direct" if selected_tools else "none",
+                ),
+                tools=selected_tools,
                 may_write=_safe_get_bool(data, "may_write"),
                 reasoning=str(data.get("reasoning") or ""),
                 thinking_depth=_safe_get_thinking_depth(data),

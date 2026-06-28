@@ -216,6 +216,18 @@ verification work.
   tools to the current turn when the existing allowlist cannot complete the
   next grounded step.
 
+  ContextDecider stays a coarse, cheap classifier. It may emit `tool_need`
+  as `none`, `direct`, or `discover`, but it does not formulate a
+  `tool_query` or own the final provider tool surface. When `tool_need` is
+  `discover`, chat coordination starts a normal function-calling turn with
+  the resident `find-relevant-tools` entry so the main model can ask for the
+  missing concrete capability. `FunctionCallingHandler` then owns final tool
+  exposure: it appends resident runtime-control tools, conditionally exposes
+  `agent`, and may reuse a recent same-session tool superset for a short
+  window when the current requested set is a subset and the reuse is safe for
+  the turn's write policy. This keeps cache-friendly provider tool lists in
+  the execution layer instead of pushing cache policy into routing.
+
   Reply-target continuity in chat is intentionally compact but now carries more than plain text excerpts.
   When a user replies to an earlier assistant message, the runtime may include a sanitized structured payload summary from that replied-to message, such as managed attachment references, so follow-up turns can reuse concrete artifacts without re-exposing raw local file paths.
   Tool-driven chat turns may persist this reusable state through assistant message payloads. In particular, function-calling tools can return a sanitized `assistant_payload` with generic `asset_refs`, which later reply turns may see through reply context and hand back to source resolver tools before calling `prepare_chat_attachments`.
@@ -566,7 +578,8 @@ contract, assigned task, and observed tool results, not the full parent
 conversation snapshot.
 
 `CodeExplore` workers are workspace/codebase inspectors with a deliberately
-narrow tool profile (`glob`, `grep`, `file_read`). This leaf worker type is for
+narrow tool profile (`glob`, `grep`, `file_read`, plus `find-relevant-tools`
+when registered). This leaf worker type is for
 current repository, source-code, and local-file evidence only. `ExploreTaskAgent`
 is the higher-level codebase exploration orchestrator that can decompose a large
 repo request into multiple `CodeExplore` workers. Planning normalization must

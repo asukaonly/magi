@@ -8,6 +8,7 @@ the runtime derives or ignores are deliberately NOT requested:
   - ``orchestration_strategy`` — rebuilt downstream from ``profile`` /
     ``needs_orchestration`` via ``RouteDecision.to_legacy_strategy_dict``.
   - ``intent``      — ``profile`` IS the intent label (see coordinator).
+  - ``tool_query``  — the main model formulates discovery queries when needed.
 Asking the small model for those only dilutes attention and hurts JSON
 reliability. Few-shots all emit the single schema below, verbatim.
 """
@@ -21,6 +22,7 @@ Emit EXACTLY these fields — do not add, rename, or nest others:
 
 {
   "profile": "chat|research|explore|coding|media|system",
+  "tool_need": "none|direct|discover",
   "tools": ["<tool_name>", ...],
   "may_write": <boolean>,
   "needs_orchestration": "none|maybe|required",
@@ -43,6 +45,12 @@ Emit EXACTLY these fields — do not add, rename, or nest others:
 
 ### 3. Tool Routing Policy
 - Always choose from the available tools and skills only.
+- tool_need:
+  - "none": no tool-assisted execution is needed; tools must be [].
+  - "direct": you are confident the named tools in `tools` are the right small set.
+  - "discover": the turn needs tools, but the exact capability should be found
+    by the main model at runtime; keep `tools` empty unless one obvious anchor
+    tool is already certain.
 - Prefer skills when the request clearly matches a specialized workflow or domain capability.
 - Use raw file tools for simple text CRUD. For code changes, debugging, or repo investigation, prefer `agent` when available.
 - Use `CodeExplore` only for current workspace, repository, source-code, or local file evidence. Do not use it for travel, weather, restaurants, news, current events, web pages, or other external-world evidence.
@@ -125,45 +133,48 @@ single schema above. active_trigger_ids / quiet_hour_hints draw ONLY from the
 per-turn Persona Routing Menu, so they are empty here unless a menu is shown.
 
 User: "what's the weather in tokyo"
-JSON: {"profile": "chat", "tools": ["weather"], "may_write": false, "needs_orchestration": "none", "thinking_depth": "none", "memory_route": "none", "reasoning": "Real-time weather query; use the dedicated weather tool.", "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
+JSON: {"profile": "chat", "tool_need": "direct", "tools": ["weather"], "may_write": false, "needs_orchestration": "none", "thinking_depth": "none", "memory_route": "none", "reasoning": "Real-time weather query; use the dedicated weather tool.", "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
 
 User: "fix the race condition in backend/src/magi/agent/foo.py"
-JSON: {"profile": "coding", "tools": ["agent"], "may_write": true, "needs_orchestration": "none", "thinking_depth": "medium", "memory_route": "none", "reasoning": "Targeted code fix with debugging risk; prefer a coding worker over raw file CRUD.", "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
+JSON: {"profile": "coding", "tool_need": "direct", "tools": ["agent"], "may_write": true, "needs_orchestration": "none", "thinking_depth": "medium", "memory_route": "none", "reasoning": "Targeted code fix with debugging risk; prefer a coding worker over raw file CRUD.", "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
 
 User: "analyze this large repo and design a migration plan"
-JSON: {"profile": "explore", "tools": ["agent"], "may_write": false, "needs_orchestration": "required", "thinking_depth": "high", "memory_route": "none", "reasoning": "Large repo analysis should be decomposed into bounded workers.", "register": "analysis", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
+JSON: {"profile": "explore", "tool_need": "direct", "tools": ["agent"], "may_write": false, "needs_orchestration": "required", "thinking_depth": "high", "memory_route": "none", "reasoning": "Large repo analysis should be decomposed into bounded workers.", "register": "analysis", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
 
 User: "find the 10 most important Hangzhou news stories from the last 7 days and give me links"
-JSON: {"profile": "research", "tools": ["agent"], "may_write": false, "needs_orchestration": "required", "thinking_depth": "medium", "memory_route": "none", "reasoning": "A collection with time bounds and source links warrants worker decomposition.", "register": "analysis", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
+JSON: {"profile": "research", "tool_need": "direct", "tools": ["agent"], "may_write": false, "needs_orchestration": "required", "thinking_depth": "medium", "memory_route": "none", "reasoning": "A collection with time bounds and source links warrants worker decomposition.", "register": "analysis", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
 
 User: "I arrive at Hangzhou West Station at 8 and have dinner at 7; plan a low-walking itinerary including metro"
-JSON: {"profile": "research", "tools": ["web-search"], "may_write": false, "needs_orchestration": "none", "thinking_depth": "low", "memory_route": "none", "reasoning": "Bounded external planning with a few current-place checks; stay in direct tool calling.", "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
+JSON: {"profile": "research", "tool_need": "direct", "tools": ["web-search"], "may_write": false, "needs_orchestration": "none", "thinking_depth": "low", "memory_route": "none", "reasoning": "Bounded external planning with a few current-place checks; stay in direct tool calling.", "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
 
 User: "what kind of weather do I like"
-JSON: {"profile": "chat", "tools": ["memory_query"], "may_write": false, "needs_orchestration": "none", "thinking_depth": "none", "memory_route": "user_preferences", "reasoning": "Asking about a stored preference; consult memory.", "register": "casual", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
+JSON: {"profile": "chat", "tool_need": "direct", "tools": ["memory_query"], "may_write": false, "needs_orchestration": "none", "thinking_depth": "none", "memory_route": "user_preferences", "reasoning": "Asking about a stored preference; consult memory.", "register": "casual", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
 
 User: "send those photos from just now"
-JSON: {"profile": "media", "tools": ["photo_library_resolve_photo_refs", "prepare_chat_attachments"], "may_write": false, "needs_orchestration": "none", "thinking_depth": "low", "memory_route": "none", "reasoning": "User wants to send already identified assets; resolve them and prepare attachments.", "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
+JSON: {"profile": "media", "tool_need": "direct", "tools": ["photo_library_resolve_photo_refs", "prepare_chat_attachments"], "may_write": false, "needs_orchestration": "none", "thinking_depth": "low", "memory_route": "none", "reasoning": "User wants to send already identified assets; resolve them and prepare attachments.", "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
 
 User: "what tools did you just call, and what were the arguments and duration"
-JSON: {"profile": "system", "tools": ["trace_query"], "may_write": false, "needs_orchestration": "none", "thinking_depth": "low", "memory_route": "none", "reasoning": "User wants exact recent execution details; inspect the persisted trace.", "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
+JSON: {"profile": "system", "tool_need": "direct", "tools": ["trace_query"], "may_write": false, "needs_orchestration": "none", "thinking_depth": "low", "memory_route": "none", "reasoning": "User wants exact recent execution details; inspect the persisted trace.", "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
+
+User: "use the calendar MCP skill to check my next available slot"
+JSON: {"profile": "system", "tool_need": "discover", "tools": [], "may_write": false, "needs_orchestration": "none", "thinking_depth": "low", "memory_route": "none", "reasoning": "The turn needs a dynamically provided capability; let the main loop discover the exact tool.", "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
 
 Persona-routing examples (assume a Persona Routing Menu is present with triggers absurdity, hostility, domain_hotzone; quiet-hour condition "用户提出简单事实问题、代码调试、执行任务"):
 
 User: "晚饭吃啥比较省事"
-JSON: {"profile": "chat", "tools": [], "may_write": false, "needs_orchestration": "none", "thinking_depth": "none", "memory_route": "none", "reasoning": "Mundane open-ended chat; no persona trigger fires.", "register": "casual", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
+JSON: {"profile": "chat", "tool_need": "none", "tools": [], "may_write": false, "needs_orchestration": "none", "thinking_depth": "none", "memory_route": "none", "reasoning": "Mundane open-ended chat; no persona trigger fires.", "register": "casual", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
 
 User: "今天心情真的好差，什么都不想干"
-JSON: {"profile": "chat", "tools": [], "may_write": false, "needs_orchestration": "none", "thinking_depth": "none", "memory_route": "none", "reasoning": "User signals low mood; emotional register, no performance.", "register": "emotional", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
+JSON: {"profile": "chat", "tool_need": "none", "tools": [], "may_write": false, "needs_orchestration": "none", "thinking_depth": "none", "memory_route": "none", "reasoning": "User signals low mood; emotional register, no performance.", "register": "emotional", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": []}
 
 User: "我整了个特别离谱的活，你听完别笑"
-JSON: {"profile": "chat", "tools": [], "may_write": false, "needs_orchestration": "none", "thinking_depth": "none", "memory_route": "none", "reasoning": "User invites playful absurdity; activate the matching persona trigger.", "register": "casual", "active_trigger_ids": ["absurdity"], "situation_strength": "strong", "quiet_hour_hints": []}
+JSON: {"profile": "chat", "tool_need": "none", "tools": [], "may_write": false, "needs_orchestration": "none", "thinking_depth": "none", "memory_route": "none", "reasoning": "User invites playful absurdity; activate the matching persona trigger.", "register": "casual", "active_trigger_ids": ["absurdity"], "situation_strength": "strong", "quiet_hour_hints": []}
 
 User: "紧急，我密码泄露了，账号可能被盗"
-JSON: {"profile": "chat", "tools": [], "may_write": false, "needs_orchestration": "none", "thinking_depth": "low", "memory_route": "none", "reasoning": "Urgent account-security risk; crisis register suppresses performance.", "register": "crisis", "active_trigger_ids": ["crisis"], "situation_strength": "crisis", "quiet_hour_hints": []}
+JSON: {"profile": "chat", "tool_need": "none", "tools": [], "may_write": false, "needs_orchestration": "none", "thinking_depth": "low", "memory_route": "none", "reasoning": "Urgent account-security risk; crisis register suppresses performance.", "register": "crisis", "active_trigger_ids": ["crisis"], "situation_strength": "crisis", "quiet_hour_hints": []}
 
 User: "帮我修这个 Python 报错"
-JSON: {"profile": "coding", "tools": ["agent"], "may_write": true, "needs_orchestration": "none", "thinking_depth": "medium", "memory_route": "none", "reasoning": "Code fix; task register clamps persona intensity.", "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": ["用户提出简单事实问题、代码调试、执行任务"]}
+JSON: {"profile": "coding", "tool_need": "direct", "tools": ["agent"], "may_write": true, "needs_orchestration": "none", "thinking_depth": "medium", "memory_route": "none", "reasoning": "Code fix; task register clamps persona intensity.", "register": "task", "active_trigger_ids": [], "situation_strength": "ordinary", "quiet_hour_hints": ["用户提出简单事实问题、代码调试、执行任务"]}
 
 Respond with ONLY the JSON object.
 """

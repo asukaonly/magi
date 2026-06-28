@@ -1,8 +1,6 @@
 """Tests for ContextDecider returning RouteDecision."""
 from __future__ import annotations
 
-import pytest
-
 from magi.tools.context_routing import RouteDecision
 
 
@@ -29,6 +27,7 @@ def test_parse_response_returns_route_decision_for_valid_strict_json() -> None:
       "profile": "chat",
       "graph_shape": "reply",
       "complexity": "simple",
+      "tool_need": "none",
       "tools": [],
       "capabilities": [],
       "risky_tools": [],
@@ -51,7 +50,25 @@ def test_parse_response_returns_route_decision_for_valid_strict_json() -> None:
     assert isinstance(result, RouteDecision)
     assert result.profile == "chat"
     assert result.graph_shape == "reply"
+    assert result.tool_need == "none"
     assert result.reasoning == "Simple conversational request."
+
+
+def test_parse_response_preserves_tool_discovery_need() -> None:
+    host = _build_response_mixin_subject()
+    raw_json = """
+    {
+      "profile": "research",
+      "graph_shape": "reply",
+      "complexity": "simple",
+      "tool_need": "discover",
+      "tools": [],
+      "reasoning": "Needs a tool capability that the router should not choose exactly."
+    }
+    """
+    result = host._parse_response(raw_json)
+    assert result.tool_need == "discover"
+    assert result.tools == []
 
 
 def test_parse_response_returns_fallback_route_decision_for_empty_input() -> None:
@@ -139,3 +156,26 @@ def test_task_orchestrator_start_accepts_route_decision_kwarg() -> None:
 
     sig = inspect.signature(TaskOrchestrator.start_orchestration)
     assert "route_decision" in sig.parameters
+
+
+def test_memory_guidance_marks_added_memory_tool_as_direct_need() -> None:
+    from magi.tools.context_routing.memory_guidance import apply_memory_guidance
+
+    decision = RouteDecision(
+        profile="chat",
+        graph_shape="reply",
+        complexity="simple",
+        tool_need="none",
+        tools=[],
+    )
+
+    result = apply_memory_guidance(
+        user_message="你还记得我上次说了什么吗",
+        context={},
+        decision=decision,
+        available_tools=[{"name": "memory_query"}],
+        max_tools=5,
+    )
+
+    assert result.tools == ["memory_query"]
+    assert result.tool_need == "direct"

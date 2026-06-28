@@ -70,8 +70,14 @@ class WorkerAgentManager(
         "code": TYPE_CODING,
     }
 
-    _EXPLORE_TOOL_CANDIDATES = ["glob", "grep", "file_read"]
-    _PLAN_TOOL_CANDIDATES = ["glob", "grep", "file_read", "web-search"]
+    _EXPLORE_TOOL_CANDIDATES = ["glob", "grep", "file_read", "find-relevant-tools"]
+    _PLAN_TOOL_CANDIDATES = [
+        "glob",
+        "grep",
+        "file_read",
+        "web-search",
+        "find-relevant-tools",
+    ]
     _CODING_TOOL_CANDIDATES = [
         "file_read",
         "file_edit",
@@ -84,6 +90,7 @@ class WorkerAgentManager(
         "file_list",
         "file_info",
         "bash",
+        "find-relevant-tools",
     ]
 
     def __init__(self) -> None:

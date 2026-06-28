@@ -281,6 +281,14 @@ class ChatExecutionCoordinator:
         selected_tools = [] if has_image_attachments else list(decision.tools)
         if not has_image_attachments and force_direct_external:
             selected_tools = self._prefer_direct_external_tools(selected_tools)
+        if (
+            not has_image_attachments
+            and getattr(decision, "tool_need", "direct" if selected_tools else "none")
+            == "discover"
+        ):
+            registered = set(self._context_decider.tool_registry.list_tools())
+            if "find-relevant-tools" in registered and "find-relevant-tools" not in selected_tools:
+                selected_tools.append("find-relevant-tools")
         # Ensure fallback tools are always available when tool-assisted execution
         # is active.  The execution LLM is smarter than the routing LLM and can
         # decide on its own whether web-search is useful for the current task.

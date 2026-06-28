@@ -32,6 +32,7 @@ _CODING_REGISTRY_TOOLS = [
     "file_list",
     "file_info",
     "bash",
+    "find-relevant-tools",
     "todo_write",
     "agent",
     "memory_query",
@@ -83,6 +84,7 @@ def test_coding_tool_whitelist_filters_against_registry() -> None:
         "glob",
         "grep",
         "bash",
+        "find-relevant-tools",
     }
     assert expected_present.issubset(
         set(tools)

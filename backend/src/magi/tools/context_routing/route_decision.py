@@ -38,6 +38,7 @@ GRAPH_SHAPE_VALUES: frozenset[str] = frozenset(
 )
 COMPLEXITY_VALUES: frozenset[str] = frozenset({"simple", "medium", "large"})
 NEEDS_ORCHESTRATION_VALUES: frozenset[str] = frozenset({"none", "maybe", "required"})
+TOOL_NEED_VALUES: frozenset[str] = frozenset({"none", "direct", "discover"})
 
 
 @dataclass(slots=True, frozen=True)
@@ -68,6 +69,11 @@ class RouteDecision:
     complexity: Literal["simple", "medium", "large"]
 
     # === Tool routing ===
+    # none     = ordinary no-tool reply.
+    # direct   = the router selected concrete capability tools in ``tools``.
+    # discover = tool-assisted turn, but exact capability should be found by
+    #            the main model via the resident find-relevant-tools entry.
+    tool_need: Literal["none", "direct", "discover"] = "none"
     tools: list[str] = field(default_factory=list)
     may_write: bool = False
 
@@ -131,6 +137,11 @@ class RouteDecision:
                 f"RouteDecision.needs_orchestration must be one of "
                 f"{sorted(NEEDS_ORCHESTRATION_VALUES)}, got {self.needs_orchestration!r}"
             )
+        if self.tool_need not in TOOL_NEED_VALUES:
+            raise ValueError(
+                f"RouteDecision.tool_need must be one of {sorted(TOOL_NEED_VALUES)}, "
+                f"got {self.tool_need!r}"
+            )
 
     def to_legacy_strategy_dict(self) -> dict[str, Any]:
         """Adapter for the Phase B migration window.
@@ -164,4 +175,5 @@ __all__ = [
     "GRAPH_SHAPE_VALUES",
     "COMPLEXITY_VALUES",
     "NEEDS_ORCHESTRATION_VALUES",
+    "TOOL_NEED_VALUES",
 ]
