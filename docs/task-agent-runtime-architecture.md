@@ -368,6 +368,11 @@ multi-message presentation plan from that text. See
 [Conversation Rhythm Architecture](./conversation-rhythm-architecture.md) for
 the planner contract, persistence shape, and streaming restrictions.
 
+Chat post-processing also owns the final response delivery shape. It derives a
+small final-response plan after outcome persistence, then passes that plan to
+the injected delivery seam; `ChatTaskAgent` wires the seam at construction time
+and does not mutate post-processing internals after the coordinator is built.
+
 ### Interruption Dispositions
 
 When a user sends another message while a chat turn is already running, the `SessionRunCoordinator` classifies the interruption into one of four dispositions and routes it accordingly. The classifier lives in `backend/src/magi/chat/task_agent/interruption_classifier.py` and combines rule-based keyword matching with an optional LLM fallback.

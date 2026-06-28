@@ -3,7 +3,10 @@
 A delivery-dispatcher resolver injection point lets tests pass a stub without
 depending on the runtime container.
 """
+
 from __future__ import annotations
+
+import inspect
 
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 
@@ -23,6 +26,14 @@ def test_chat_task_agent_passes_delivery_dispatcher_to_coordinator() -> None:
 
     coord = agent._coordinator
     assert coord._delivery_dispatcher is stub
+    assert agent._postprocess_service._deliver_final_response is not None
+
+
+def test_chat_task_agent_wires_delivery_seam_without_private_mutation() -> None:
+    source = inspect.getsource(ChatTaskAgent.__init__)
+
+    assert "_postprocess_service._deliver_final_response" not in source
+    assert "deliver_final_response=" in source
 
 
 def test_chat_task_agent_handles_missing_runtime_container() -> None:
@@ -32,6 +43,7 @@ def test_chat_task_agent_handles_missing_runtime_container() -> None:
         delivery_dispatcher_resolver=lambda: None,
     )
     assert agent._coordinator._delivery_dispatcher is None
+    assert agent._postprocess_service._deliver_final_response is None
 
 
 def test_chat_task_agent_default_resolver_no_container_does_not_crash() -> None:
@@ -41,3 +53,4 @@ def test_chat_task_agent_default_resolver_no_container_does_not_crash() -> None:
     # In tests the runtime_bootstrap_context provider returns a bare ``object``
     # placeholder, so the helper must return None — not crash.
     assert agent._coordinator._delivery_dispatcher is None
+    assert agent._postprocess_service._deliver_final_response is None

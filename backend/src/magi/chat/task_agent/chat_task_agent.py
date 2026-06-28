@@ -265,6 +265,11 @@ class ChatTaskAgent(
             ),
             transcript_summarizer=self._transcript_summarizer,
             event_bus=self._resolve_message_bus(),
+            deliver_final_response=(
+                self._deliver_final_response_from_postprocess
+                if _delivery_dispatcher is not None
+                else None
+            ),
         )
         self.function_calling_orchestrator = FunctionCallingOrchestrator(
             llm_adapter=llm_adapter,
@@ -322,17 +327,6 @@ class ChatTaskAgent(
         # fanout. Handlers already constructed above retain ``self._deps``
         # by reference, so mutating the dataclass here updates them in place.
         handler_deps.coordinator = self._coordinator
-        # Phase G+1 convergence: when the channel registry is wired and chat_sse
-        # is registered, ChatSseChannel.deliver/deliver_chunk are the canonical
-        # writers of agent_response / agent_response_chunk rows. Wire the
-        # non-streamed agent_response delivery seam so postprocess routes the
-        # full rich payload through ChatSseChannel.deliver (P3 Step 3); the chunk
-        # path is already driven by ChatExecutionCoordinator.dispatch_stream_chunk
-        # (P3 Step 2).
-        if _delivery_dispatcher is not None:
-            self._postprocess_service._deliver_final_response = (
-                self._coordinator.deliver_final_chat_response
-            )
         self._last_batch_facts: list[FactRecord] = []
 
         # Keep this alias so existing read paths and tests see the same underlying store.
@@ -346,6 +340,13 @@ class ChatTaskAgent(
     def postprocess_service(self) -> ChatPostProcessService:
         """Expose the chat post-process service for external wiring."""
         return self._postprocess_service
+
+    async def _deliver_final_response_from_postprocess(self, context, *, content):
+        coordinator = getattr(self, "_coordinator", None)
+        deliver = getattr(coordinator, "deliver_final_chat_response", None)
+        if deliver is None:
+            return []
+        return await deliver(context, content=content)
 
     @staticmethod
     def _resolve_delivery_dispatcher() -> Any | None:

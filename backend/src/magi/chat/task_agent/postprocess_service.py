@@ -26,6 +26,7 @@ from magi.agent.task_agents.common import (
 from magi.agent.task_agents.handlers.contracts import ChatParseOutcome, ChatRuntimeContext
 from .context_assembler import ChatContextAssembler
 from .postprocess.components import ChatOutcomeWriter, ChatRuntimeNotifier
+from .postprocess.final_response_plan import build_final_response_delivery_plan
 from .postprocess.intent import ChatPostprocessIntentMixin
 from .postprocess.memory import ChatPostprocessMemoryMixin
 from .postprocess.outcomes import ChatPostprocessOutcomeMixin
@@ -466,36 +467,22 @@ class ChatPostProcessService:
             turn_id=turn_id,
             ux_plan=ux_plan,
         )
-        notification_message_id = (
-            notification_message.message_id if notification_message is not None else None
+        delivery_plan = build_final_response_delivery_plan(
+            response_text=response_text,
+            ux_plan=ux_plan,
+            notification_message=notification_message,
+            fallback_persona_id=context.active_persona_id,
+            resolve_reaction_text=self._resolve_reaction_notification_text,
         )
-        notification_message_kind = (
-            notification_message.message_kind if notification_message is not None else None
+        await self._project_final_chat_message(
+            context=context,
+            final_message=delivery_plan.final_message,
         )
-        notification_persona_id = (
-            notification_message.persona_id
-            if notification_message is not None
-            else context.active_persona_id
-        )
-        notification_response_text = response_text
-        if str((ux_plan or {}).get("assistant_surface_mode") or "").strip() == "reaction_only":
-            notification_response_text = self._resolve_reaction_notification_text(
-                ux_plan, fallback=response_text
-            )
-            notification_message_id = None
-            notification_message_kind = "assistant_reaction"
-            notification_persona_id = context.active_persona_id
-        final_message = (
-            notification_message
-            if notification_message and notification_message.message_kind == "assistant_final"
-            else None
-        )
-        await self._project_final_chat_message(context=context, final_message=final_message)
-        if getattr(result, "streamed", False) and final_message is not None:
+        if getattr(result, "streamed", False) and delivery_plan.final_message is not None:
             await self._runtime_notifier.emit_chat_message_upsert(
                 user_id=context.user_id,
                 session_id=context.session_id,
-                message_id=final_message.message_id,
+                message_id=delivery_plan.final_message.message_id,
             )
 
         if not getattr(result, "streamed", False):
@@ -505,16 +492,16 @@ class ChatPostProcessService:
             await self._deliver_agent_response(
                 context=context,
                 turn_id=turn_id,
-                response_text=notification_response_text,
+                response_text=delivery_plan.response_text,
                 attachments=list(getattr(result, "attachments", []) or []),
                 message_payload=dict(getattr(result, "message_payload", {}) or {}),
                 orchestration_id=result.orchestration_id,
                 trace_summary=trace_summary,
                 trace_available=trace_available,
                 ux_plan=result.ux_plan,
-                message_id=notification_message_id,
-                message_kind=notification_message_kind,
-                persona_id=notification_persona_id,
+                message_id=delivery_plan.message_id,
+                message_kind=delivery_plan.message_kind,
+                persona_id=delivery_plan.persona_id,
             )
         else:
             # Streaming turns skip agent_response; emit a completion control event so the
