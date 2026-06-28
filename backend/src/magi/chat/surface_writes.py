@@ -9,7 +9,11 @@ from typing import Any
 
 from ..core.logger import get_logger
 from ..core.runtime_bindings import get_chat_message_notifier
-from ..runtime_trace.contracts import RuntimeNotificationRecord
+from ..runtime_trace.notification_payloads import (
+    AGENT_RESPONSE,
+    agent_response_payload,
+    build_notification_record,
+)
 from ..runtime_trace.provider import resolve_runtime_trace_store
 from .contracts import ChatMessageRecord, ChatTurnRecord
 from .provider import get_chat_store
@@ -280,29 +284,32 @@ class ChatSurfaceWriteService:
     ) -> None:
         try:
             trace_store = resolve_runtime_trace_store()
-            await trace_store.append_notification(RuntimeNotificationRecord(
-                notification_id=0,
-                channel="agent_response",
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-                payload_json=json.dumps({
-                    "message_id": message_id,
-                    "message_kind": "assistant_final",
-                    "content": content,
-                    "author_type": "assistant",
-                    "content_type": "text",
-                    "timestamp": time.time(),
-                    "user_id": user_id,
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "orchestration_id": None,
-                    "trace_summary": None,
-                    "trace_available": False,
-                    "ux_plan": {},
-                }, ensure_ascii=False),
-                created_at_ms=created_at_ms,
-            ))
+            await trace_store.append_notification(
+                build_notification_record(
+                    channel=AGENT_RESPONSE,
+                    user_id=user_id,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    payload=agent_response_payload(
+                        user_id=user_id,
+                        session_id=session_id,
+                        content=content,
+                        extra_fields={
+                            "message_id": message_id,
+                            "message_kind": "assistant_final",
+                            "author_type": "assistant",
+                            "content_type": "text",
+                            "turn_id": turn_id,
+                            "orchestration_id": None,
+                            "trace_summary": None,
+                            "trace_available": False,
+                            "ux_plan": {},
+                        },
+                        include_none_extra_fields=True,
+                    ),
+                    created_at_ms=created_at_ms,
+                )
+            )
         except Exception as exc:
             logger.warning("Failed to emit bootstrap notification: %s", exc)
 

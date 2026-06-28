@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-import json
-
 from ..core.logger import get_logger
-from ..runtime_trace import RuntimeNotificationRecord
+from ..runtime_trace.notification_payloads import (
+    CHAT_MESSAGE_HIDDEN,
+    CHAT_MESSAGE_UPSERTED,
+    build_notification_record,
+    chat_message_hidden_payload,
+    chat_message_upsert_payload,
+)
 from ..runtime_trace.provider import resolve_runtime_trace_store
 from .read_service import get_chat_read_service
 
@@ -47,23 +51,20 @@ async def broadcast_chat_message_upsert(
     if message is None:
         return
 
-    payload_data = {
-        "user_id": normalized_user_id,
-        "session_id": normalized_session_id,
-        "message_id": normalized_message_id,
-        "message": message.to_dict(),
-        "session_summary": session_summary.to_dict() if session_summary is not None else None,
-    }
-
     try:
         store = resolve_runtime_trace_store()
         await store.append_notification(
-            RuntimeNotificationRecord(
-                notification_id=0,
-                channel="chat_message_upserted",
+            build_notification_record(
+                channel=CHAT_MESSAGE_UPSERTED,
                 user_id=normalized_user_id,
                 session_id=normalized_session_id,
-                payload_json=json.dumps(payload_data, default=str),
+                payload=chat_message_upsert_payload(
+                    user_id=normalized_user_id,
+                    session_id=normalized_session_id,
+                    message_id=normalized_message_id,
+                    message=message,
+                    session_summary=session_summary,
+                ),
             )
         )
     except Exception as exc:
@@ -98,22 +99,19 @@ async def broadcast_chat_message_hidden(
         )
         return
 
-    payload_data = {
-        "user_id": normalized_user_id,
-        "session_id": normalized_session_id,
-        "message_id": normalized_message_id,
-        "session_summary": session_summary.to_dict() if session_summary is not None else None,
-    }
-
     try:
         store = resolve_runtime_trace_store()
         await store.append_notification(
-            RuntimeNotificationRecord(
-                notification_id=0,
-                channel="chat_message_hidden",
+            build_notification_record(
+                channel=CHAT_MESSAGE_HIDDEN,
                 user_id=normalized_user_id,
                 session_id=normalized_session_id,
-                payload_json=json.dumps(payload_data, default=str),
+                payload=chat_message_hidden_payload(
+                    user_id=normalized_user_id,
+                    session_id=normalized_session_id,
+                    message_id=normalized_message_id,
+                    session_summary=session_summary,
+                ),
             )
         )
     except Exception as exc:

@@ -17,14 +17,20 @@ Phase I will deepen with multi-modal ContentBlock streaming.
 
 from __future__ import annotations
 
-import json
 import time
 from typing import Any, Awaitable, Callable
 
 from magi_plugin_sdk.channels import Channel, ChannelTarget, OutboundContent
 from magi_plugin_sdk.delivery import DeliveryChunk, DeliveryContent, DeliveryReceipt
 
-from ..runtime_trace import RuntimeNotificationRecord, RuntimeTraceStore
+from ..runtime_trace import RuntimeTraceStore
+from ..runtime_trace.notification_payloads import (
+    AGENT_RESPONSE,
+    AGENT_RESPONSE_CHUNK,
+    agent_response_chunk_payload,
+    agent_response_payload,
+    build_notification_record,
+)
 
 
 # Callable signature: (session_id, payload) -> external_message_id
@@ -120,39 +126,37 @@ class ChatSseChannel(Channel):
         """
         session_id = target.magi_session_id
         if self._trace_store is not None:
-            payload: dict[str, Any] = {
-                "user_id": target.magi_user_id,
-                "session_id": session_id,
-                "content": content.text,
-                "is_final": True,
-                "timestamp": time.time(),
-            }
-            if content.attachments:
-                payload["attachments"] = [dict(a) for a in content.attachments]
             # Phase G+1 convergence: carry the richer agent_response fields when
             # supplied (omitted when None → zero change for legacy callers).
-            for _key in (
-                "turn_id",
-                "message_id",
-                "message_kind",
-                "persona_id",
-                "trace_summary",
-                "ux_plan",
-                "message_payload",
-                "orchestration_id",
-            ):
-                _value = getattr(content, _key)
-                if _value is not None:
-                    payload[_key] = _value
+            extra_fields = {
+                key: getattr(content, key)
+                for key in (
+                    "turn_id",
+                    "message_id",
+                    "message_kind",
+                    "persona_id",
+                    "trace_summary",
+                    "ux_plan",
+                    "message_payload",
+                    "orchestration_id",
+                )
+            }
             if content.trace_available:
-                payload["trace_available"] = True
+                extra_fields["trace_available"] = True
             await self._trace_store.append_notification(
-                RuntimeNotificationRecord(
-                    notification_id=0,
-                    channel="agent_response",
+                build_notification_record(
+                    channel=AGENT_RESPONSE,
                     user_id=str(target.magi_user_id or ""),
                     session_id=session_id,
-                    payload_json=json.dumps(payload, ensure_ascii=False),
+                    payload=agent_response_payload(
+                        user_id=str(target.magi_user_id or ""),
+                        session_id=session_id,
+                        content=content.text,
+                        attachments=[dict(a) for a in content.attachments]
+                        if content.attachments
+                        else None,
+                        extra_fields=extra_fields,
+                    ),
                     created_at_ms=int(time.time() * 1000),
                 )
             )
@@ -202,32 +206,23 @@ class ChatSseChannel(Channel):
         # UI to look one-shot even though backend emitted 100+ chunks.
         turn_id = str(chunk.turn_id or "")
         if self._trace_store is not None:
-            payload: dict[str, Any] = {
-                "user_id": target.magi_user_id,
-                "session_id": session_id,
-                "turn_id": turn_id,
-                # Phase G+1 convergence: forward the full stream-event dict when
-                # the handler supplies one; otherwise keep the legacy
-                # text_delta shape so existing callers are unchanged.
-                "event": (
-                    chunk.event
-                    if chunk.event is not None
-                    else {"kind": "text_delta", "text": chunk.text}
-                ),
-                "is_final": bool(chunk.is_final),
-                "seq": int(chunk.seq),
-                "timestamp": time.time(),
-            }
-            if chunk.persona_id is not None:
-                payload["persona_id"] = chunk.persona_id
             await self._trace_store.append_notification(
-                RuntimeNotificationRecord(
-                    notification_id=0,
-                    channel="agent_response_chunk",
+                build_notification_record(
+                    channel=AGENT_RESPONSE_CHUNK,
                     user_id=str(target.magi_user_id or ""),
                     session_id=session_id,
                     turn_id=turn_id,
-                    payload_json=json.dumps(payload, ensure_ascii=False),
+                    payload=agent_response_chunk_payload(
+                        user_id=str(target.magi_user_id or ""),
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        event=chunk.event
+                        if chunk.event is not None
+                        else {"kind": "text_delta", "text": chunk.text},
+                        is_final=bool(chunk.is_final),
+                        seq=int(chunk.seq),
+                        persona_id=chunk.persona_id,
+                    ),
                     created_at_ms=int(time.time() * 1000),
                 )
             )
