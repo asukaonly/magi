@@ -93,6 +93,95 @@ INSERT INTO tom_trait_assertions(
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
+_ACTIVE_ASSERTION_SQL = """
+SELECT * FROM tom_trait_assertions
+WHERE entity_id = ? AND entity_type = ? AND trait_name = ? AND target_entity_id = ?
+  AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected', 'shadow')
+ORDER BY updated_at DESC
+LIMIT 1
+"""
+
+_UPDATE_VOLATILE_ASSERTION_SQL = """
+UPDATE tom_trait_assertions
+SET trait_value = ?, confidence_score = ?, evidence_events = ?,
+    validation_state = ?, status = ?, last_validated_at = ?,
+    first_inferred_at = ?,
+    target_entity_type = ?, target_scope = ?, temporal_scope = ?,
+    decay_policy = ?, decay_anchor_at = ?, context_ref_id = ?,
+    expires_at = ?, natural_summary = ?, updated_at = ?
+WHERE assertion_id = ?
+"""
+
+_SUPERSEDE_ASSERTION_SQL = """
+UPDATE tom_trait_assertions
+SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
+WHERE assertion_id = ?
+"""
+
+_UPDATE_SAME_VALUE_ASSERTION_SQL = """
+UPDATE tom_trait_assertions
+SET trait_value = ?, confidence_score = ?, evidence_events = ?,
+    validation_state = ?, status = ?,
+    last_validated_at = ?, first_inferred_at = ?,
+    target_entity_type = ?, target_scope = ?, temporal_scope = ?,
+    decay_policy = ?, decay_anchor_at = ?, context_ref_id = ?,
+    expires_at = ?, natural_summary = ?, updated_at = ?
+WHERE assertion_id = ?
+"""
+
+
+def _normalized_assertion_identity(
+    candidate: Dict[str, Any],
+    host: _AssertionHostProtocol,
+) -> Dict[str, Any]:
+    trait_name = str(candidate.get("trait_name", "")).strip()
+    normalized_entity_type = normalize_store_entity_type(candidate.get("entity_type")) or "other"
+    return {
+        "entity_type": normalized_entity_type,
+        "trait_family": str(candidate.get("trait_family", "")).strip().lower()
+        or host._derive_trait_family(trait_name),
+    }
+
+
+def _normalized_assertion_target(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    target_entity_type = normalize_store_entity_type(candidate.get("target_entity_type")) or ""
+    return {
+        "target_entity_type": target_entity_type,
+        "target_entity_id": (
+            normalize_store_entity_ref(candidate.get("target_entity_id"), target_entity_type)
+            or ""
+        ),
+        "target_scope": str(candidate.get("target_scope", "global")).strip() or "global",
+        "temporal_scope": str(candidate.get("temporal_scope", "session")).strip() or "session",
+    }
+
+
+def _normalized_assertion_context(
+    candidate: Dict[str, Any],
+    host: _AssertionHostProtocol,
+    normalized_candidate: Dict[str, Any],
+    *,
+    now: float,
+) -> Dict[str, Any]:
+    decay_anchor_at = float(
+        candidate.get("decay_anchor_at", candidate.get("last_validated_at", now)) or now
+    )
+    trait_name = str(candidate.get("trait_name", "")).strip()
+    return {
+        "decay_policy": host._optional_text(candidate.get("decay_policy")),
+        "decay_anchor_at": decay_anchor_at,
+        "context_ref_id": host._optional_text(candidate.get("context_ref_id")) or "",
+        "expires_at": host._coerce_expires_at(
+            candidate.get("expires_at"),
+            trait_family=normalized_candidate["trait_family"],
+            trait_name=trait_name,
+            target_entity_id=normalized_candidate["target_entity_id"],
+            anchor_at=decay_anchor_at,
+        ),
+        "memory_subdomain": str(candidate.get("memory_subdomain", "")).strip() or "",
+        "natural_summary": str(candidate.get("natural_summary", "") or "").strip()[:500],
+    }
+
 
 def normalize_assertion_candidate(
     candidate: Dict[str, Any],
@@ -101,48 +190,12 @@ def normalize_assertion_candidate(
     now: float,
 ) -> Dict[str, Any]:
     """Prepare an assertion candidate for durable L2 upsert decisions."""
-    normalized_entity_type = normalize_store_entity_type(candidate.get("entity_type")) or "other"
     normalized_candidate = dict(candidate)
-    normalized_candidate["entity_type"] = normalized_entity_type
-    normalized_candidate["trait_family"] = str(
-        candidate.get("trait_family", "")
-    ).strip().lower() or host._derive_trait_family(str(candidate.get("trait_name", "")).strip())
-    normalized_candidate["target_entity_type"] = (
-        normalize_store_entity_type(candidate.get("target_entity_type")) or ""
+    normalized_candidate.update(_normalized_assertion_identity(candidate, host))
+    normalized_candidate.update(_normalized_assertion_target(candidate))
+    normalized_candidate.update(
+        _normalized_assertion_context(candidate, host, normalized_candidate, now=now)
     )
-    normalized_candidate["target_entity_id"] = (
-        normalize_store_entity_ref(
-            candidate.get("target_entity_id"),
-            normalized_candidate["target_entity_type"],
-        )
-        or ""
-    )
-    normalized_candidate["target_scope"] = (
-        str(candidate.get("target_scope", "global")).strip() or "global"
-    )
-    normalized_candidate["temporal_scope"] = (
-        str(candidate.get("temporal_scope", "session")).strip() or "session"
-    )
-    normalized_candidate["decay_policy"] = host._optional_text(candidate.get("decay_policy"))
-    normalized_candidate["decay_anchor_at"] = float(
-        candidate.get("decay_anchor_at", candidate.get("last_validated_at", now)) or now
-    )
-    normalized_candidate["context_ref_id"] = (
-        host._optional_text(candidate.get("context_ref_id")) or ""
-    )
-    normalized_candidate["expires_at"] = host._coerce_expires_at(
-        candidate.get("expires_at"),
-        trait_family=normalized_candidate["trait_family"],
-        trait_name=str(candidate.get("trait_name", "")).strip(),
-        target_entity_id=normalized_candidate["target_entity_id"],
-        anchor_at=normalized_candidate["decay_anchor_at"],
-    )
-    normalized_candidate["memory_subdomain"] = (
-        str(candidate.get("memory_subdomain", "")).strip() or ""
-    )
-    normalized_candidate["natural_summary"] = str(
-        candidate.get("natural_summary", "") or ""
-    ).strip()[:500]
     normalized_candidate["evidence_events"] = normalize_event_ids(
         candidate.get("evidence_events") or []
     )
@@ -178,6 +231,12 @@ class AssertionMergeContext:
     @property
     def should_update_volatile_in_place(self) -> bool:
         return self.value_changed and self.existing_temporal_scope in ("session", "momentary")
+
+
+@dataclass(slots=True)
+class _AssertionWriteResult:
+    assertion_id: str
+    triggered_stable: bool = False
 
 
 def build_assertion_merge_context(
@@ -218,6 +277,130 @@ def build_assertion_merge_context(
     )
 
 
+def _assertion_insert_values(
+    *,
+    assertion_id: str,
+    candidate: Dict[str, Any],
+    trait_name: str,
+    trait_value: str,
+    confidence: float,
+    evidence_events: list[str],
+    validation_state: str,
+    first_inferred_at: float,
+    last_validated_at: float,
+    status: str,
+    now: float,
+) -> tuple[Any, ...]:
+    return (
+        assertion_id,
+        candidate["entity_id"],
+        candidate["entity_type"],
+        candidate["trait_family"],
+        trait_name,
+        trait_value,
+        confidence,
+        json.dumps(evidence_events, ensure_ascii=False),
+        float(candidate["volatility_index"]),
+        candidate["source_domain"],
+        candidate["inference_depth"],
+        validation_state,
+        first_inferred_at,
+        last_validated_at,
+        candidate["target_entity_id"],
+        candidate["target_entity_type"],
+        candidate["target_scope"],
+        candidate["temporal_scope"],
+        candidate["decay_policy"],
+        candidate["decay_anchor_at"],
+        candidate["context_ref_id"],
+        candidate["expires_at"],
+        status,
+        candidate["memory_subdomain"],
+        candidate["natural_summary"],
+        now,
+        now,
+    )
+
+
+def _existing_assertion_update_values(
+    *,
+    assertion_id: str,
+    candidate: Dict[str, Any],
+    merge_context: AssertionMergeContext,
+    validation_state: str,
+    confidence: float,
+    now: float,
+) -> tuple[Any, ...]:
+    return (
+        merge_context.next_value,
+        confidence,
+        json.dumps(merge_context.merged_evidence, ensure_ascii=False),
+        validation_state,
+        validation_state,
+        merge_context.last_validated_at,
+        merge_context.first_inferred_at,
+        candidate["target_entity_type"],
+        candidate["target_scope"],
+        candidate["temporal_scope"],
+        candidate["decay_policy"],
+        candidate["decay_anchor_at"],
+        candidate["context_ref_id"],
+        candidate["expires_at"],
+        candidate["natural_summary"],
+        now,
+        assertion_id,
+    )
+
+
+def _time_span_hours(first_inferred_at: float, last_validated_at: float) -> float:
+    return max(0.0, (last_validated_at - first_inferred_at) / 3600.0)
+
+
+def _initial_assertion_state(
+    candidate: Dict[str, Any],
+    *,
+    trait_name: str,
+) -> tuple[str, float]:
+    evidence_count = len(candidate["evidence_events"])
+    base_confidence = max(
+        float(candidate.get("confidence_score", 0.0) or 0.0),
+        compute_confidence(evidence_count),
+    )
+    validation_state, confidence, _ = derive_validation_state(
+        current_state=str(candidate.get("validation_state", "tentative") or "tentative"),
+        current_confidence=base_confidence,
+        evidence_count=evidence_count,
+        time_span_hours=0.0,
+        trait_name=trait_name,
+        user_feedback=None,
+    )
+    return validation_state, confidence
+
+
+def _merged_assertion_state(
+    *,
+    merge_context: AssertionMergeContext,
+    trait_name: str,
+    current_state: str,
+    current_confidence: float,
+    user_feedback: Any,
+) -> tuple[str, float]:
+    evidence_count = len(merge_context.merged_evidence)
+    base_confidence = compute_confidence(evidence_count)
+    validation_state, confidence, _ = derive_validation_state(
+        current_state=current_state,
+        current_confidence=max(base_confidence, current_confidence),
+        evidence_count=evidence_count,
+        time_span_hours=_time_span_hours(
+            merge_context.first_inferred_at,
+            merge_context.last_validated_at,
+        ),
+        trait_name=trait_name,
+        user_feedback=user_feedback,
+    )
+    return validation_state, confidence
+
+
 class L2StoreAssertionMixin:
     """Persist and update ToM assertion records."""
 
@@ -226,311 +409,82 @@ class L2StoreAssertionMixin:
         now = time.time()
         await host.initialize()
         normalized_candidate = normalize_assertion_candidate(candidate, host, now=now)
-
         trait_name = str(candidate.get("trait_name", "")).strip()
-        triggered_stable = False
 
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             try:
-                async with db.execute(
-                    """
-                    SELECT * FROM tom_trait_assertions
-                    WHERE entity_id = ? AND entity_type = ? AND trait_name = ? AND target_entity_id = ?
-                      AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected', 'shadow')
-                    ORDER BY updated_at DESC
-                    LIMIT 1
-                    """,
-                    (
-                        normalized_candidate["entity_id"],
-                        normalized_candidate["entity_type"],
-                        normalized_candidate["trait_name"],
-                        normalized_candidate["target_entity_id"],
-                    ),
-                ) as cursor:
-                    existing = await cursor.fetchone()
-
+                existing = await self._fetch_active_assertion(db, normalized_candidate)
                 if existing is None:
-                    assertion_id, validation_state, confidence = await self._insert_new_assertion(
+                    result = await self._insert_new_assertion(
                         db=db,
                         candidate=normalized_candidate,
                         trait_name=trait_name,
                         now=now,
                     )
-                    await db.commit()
-                    logger.debug(
-                        "L2 assertion upserted",
-                        assertion_id=assertion_id,
-                        entity_id=normalized_candidate["entity_id"],
-                        trait_name=trait_name,
-                        validation_state=validation_state,
-                        confidence=confidence,
-                        evidence_count=len(normalized_candidate["evidence_events"]),
-                        action="inserted",
-                    )
-                    triggered_stable = validation_state == "stable"
-                    result_id = assertion_id
                 else:
-                    merge_context = build_assertion_merge_context(
-                        existing,
-                        normalized_candidate,
+                    result = await self._merge_existing_assertion(
+                        db=db,
+                        existing=existing,
+                        candidate=normalized_candidate,
+                        trait_name=trait_name,
+                        now=now,
                     )
-                    existing_value = merge_context.existing_value
-                    next_value = merge_context.next_value
-                    merged_evidence = merge_context.merged_evidence
-                    first_inferred_at = merge_context.first_inferred_at
-                    last_validated_at = merge_context.last_validated_at
-                    if merge_context.inferred_conflicts_with_authoritative:
-                        # Inferred contradicts the user's own statement: never touch
-                        # the authoritative row. Persist as a 'shadow' sibling (the
-                        # active key stays owned by the authoritative assertion).
-                        shadow_id = f"assert_{uuid.uuid4().hex}"
-                        await db.execute(
-                            _INSERT_SQL,
-                            (
-                                shadow_id,
-                                normalized_candidate["entity_id"],
-                                normalized_candidate["entity_type"],
-                                normalized_candidate["trait_family"],
-                                trait_name,
-                                next_value,
-                                compute_confidence(len(normalized_candidate["evidence_events"])),
-                                json.dumps(
-                                    normalized_candidate["evidence_events"], ensure_ascii=False
-                                ),
-                                float(normalized_candidate["volatility_index"]),
-                                normalized_candidate["source_domain"],
-                                normalized_candidate["inference_depth"],
-                                "shadow",  # validation_state
-                                float(normalized_candidate["first_inferred_at"]),
-                                float(normalized_candidate["last_validated_at"]),
-                                normalized_candidate["target_entity_id"],
-                                normalized_candidate["target_entity_type"],
-                                normalized_candidate["target_scope"],
-                                normalized_candidate["temporal_scope"],
-                                normalized_candidate["decay_policy"],
-                                normalized_candidate["decay_anchor_at"],
-                                normalized_candidate["context_ref_id"],
-                                normalized_candidate["expires_at"],
-                                "shadow",  # status
-                                normalized_candidate["memory_subdomain"],
-                                normalized_candidate["natural_summary"],
-                                now,
-                                now,
-                            ),
-                        )
-                        await db.commit()
-                        logger.info(
-                            "L2 assertion shadowed (inferred vs authoritative conflict)",
-                            shadow_id=shadow_id,
-                            authoritative_id=str(existing["assertion_id"]),
-                            entity_id=normalized_candidate["entity_id"],
-                            trait_name=trait_name,
-                            authoritative_value=existing_value,
-                            inferred_value=next_value,
-                        )
-                        return shadow_id
-
-                    if merge_context.should_update_volatile_in_place:
-                        # In-place rewrite for volatile temporal traits.
-                        contradicted_ceiling = assertion_float_setting(
-                            "contradicted_confidence_ceiling",
-                            CONTRADICTED_CONFIDENCE_CEILING,
-                        )
-                        confidence = min(
-                            contradicted_ceiling,
-                            max(0.15, float(existing["confidence_score"]) * contradicted_ceiling),
-                        )
-                        validation_state = "contradicted"
-                        await db.execute(
-                            """
-                            UPDATE tom_trait_assertions
-                            SET trait_value = ?, confidence_score = ?, evidence_events = ?,
-                                validation_state = ?, status = ?, last_validated_at = ?,
-                                first_inferred_at = ?,
-                                target_entity_type = ?, target_scope = ?, temporal_scope = ?,
-                                decay_policy = ?, decay_anchor_at = ?, context_ref_id = ?,
-                                expires_at = ?, natural_summary = ?, updated_at = ?
-                            WHERE assertion_id = ?
-                            """,
-                            (
-                                next_value,
-                                confidence,
-                                json.dumps(merged_evidence, ensure_ascii=False),
-                                validation_state,
-                                validation_state,
-                                last_validated_at,
-                                first_inferred_at,
-                                normalized_candidate["target_entity_type"],
-                                normalized_candidate["target_scope"],
-                                normalized_candidate["temporal_scope"],
-                                normalized_candidate["decay_policy"],
-                                normalized_candidate["decay_anchor_at"],
-                                normalized_candidate["context_ref_id"],
-                                normalized_candidate["expires_at"],
-                                normalized_candidate["natural_summary"],
-                                now,
-                                str(existing["assertion_id"]),
-                            ),
-                        )
-                        await db.commit()
-                        result_id = str(existing["assertion_id"])
-                        logger.debug(
-                            "L2 assertion upserted",
-                            assertion_id=result_id,
-                            entity_id=normalized_candidate["entity_id"],
-                            trait_name=trait_name,
-                            validation_state=validation_state,
-                            confidence=confidence,
-                            evidence_count=len(merged_evidence),
-                            action="updated_in_place",
-                        )
-                    elif merge_context.value_changed:
-                        # Supersede: keep accumulated evidence on the new row so it
-                        # can mature instead of resetting to tentative.
-                        new_assertion_id = f"assert_{uuid.uuid4().hex}"
-                        await db.execute(
-                            """
-                            UPDATE tom_trait_assertions
-                            SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
-                            WHERE assertion_id = ?
-                            """,
-                            (new_assertion_id, now, now, str(existing["assertion_id"])),
-                        )
-                        evidence_count = len(merged_evidence)
-                        time_span_hours = max(0.0, (last_validated_at - first_inferred_at) / 3600.0)
-                        confidence = compute_confidence(evidence_count)
-                        validation_state, confidence, _ = derive_validation_state(
-                            current_state="tentative",
-                            current_confidence=confidence,
-                            evidence_count=evidence_count,
-                            time_span_hours=time_span_hours,
-                            trait_name=trait_name,
-                            user_feedback=None,
-                        )
-                        await db.execute(
-                            _INSERT_SQL,
-                            (
-                                new_assertion_id,
-                                normalized_candidate["entity_id"],
-                                normalized_candidate["entity_type"],
-                                normalized_candidate["trait_family"],
-                                trait_name,
-                                next_value,
-                                confidence,
-                                json.dumps(merged_evidence, ensure_ascii=False),
-                                float(normalized_candidate["volatility_index"]),
-                                normalized_candidate["source_domain"],
-                                normalized_candidate["inference_depth"],
-                                validation_state,
-                                first_inferred_at,
-                                last_validated_at,
-                                normalized_candidate["target_entity_id"],
-                                normalized_candidate["target_entity_type"],
-                                normalized_candidate["target_scope"],
-                                normalized_candidate["temporal_scope"],
-                                normalized_candidate["decay_policy"],
-                                normalized_candidate["decay_anchor_at"],
-                                normalized_candidate["context_ref_id"],
-                                normalized_candidate["expires_at"],
-                                validation_state,
-                                normalized_candidate["memory_subdomain"],
-                                normalized_candidate["natural_summary"],
-                                now,
-                                now,
-                            ),
-                        )
-                        await db.commit()
-                        result_id = new_assertion_id
-                        triggered_stable = validation_state == "stable"
-                        logger.info(
-                            "L2 assertion superseded",
-                            old_assertion_id=str(existing["assertion_id"]),
-                            new_assertion_id=new_assertion_id,
-                            entity_id=normalized_candidate["entity_id"],
-                            trait_name=trait_name,
-                            old_value=existing_value,
-                            new_value=next_value,
-                            evidence_count=evidence_count,
-                            validation_state=validation_state,
-                        )
-                    else:
-                        # Same value: accumulate evidence and recompute state.
-                        evidence_count = len(merged_evidence)
-                        time_span_hours = max(0.0, (last_validated_at - first_inferred_at) / 3600.0)
-                        confidence = compute_confidence(evidence_count)
-                        current_state = str(existing["validation_state"] or "tentative")
-                        validation_state, confidence, _ = derive_validation_state(
-                            current_state=current_state,
-                            current_confidence=max(confidence, float(existing["confidence_score"])),
-                            evidence_count=evidence_count,
-                            time_span_hours=time_span_hours,
-                            trait_name=trait_name,
-                            user_feedback=existing["user_feedback"],
-                        )
-                        await db.execute(
-                            """
-                            UPDATE tom_trait_assertions
-                            SET trait_value = ?, confidence_score = ?, evidence_events = ?,
-                                validation_state = ?, status = ?,
-                                last_validated_at = ?, first_inferred_at = ?,
-                                target_entity_type = ?, target_scope = ?, temporal_scope = ?,
-                                decay_policy = ?, decay_anchor_at = ?, context_ref_id = ?,
-                                expires_at = ?, natural_summary = ?, updated_at = ?
-                            WHERE assertion_id = ?
-                            """,
-                            (
-                                next_value,
-                                confidence,
-                                json.dumps(merged_evidence, ensure_ascii=False),
-                                validation_state,
-                                validation_state,
-                                last_validated_at,
-                                first_inferred_at,
-                                normalized_candidate["target_entity_type"],
-                                normalized_candidate["target_scope"],
-                                normalized_candidate["temporal_scope"],
-                                normalized_candidate["decay_policy"],
-                                normalized_candidate["decay_anchor_at"],
-                                normalized_candidate["context_ref_id"],
-                                normalized_candidate["expires_at"],
-                                normalized_candidate["natural_summary"],
-                                now,
-                                str(existing["assertion_id"]),
-                            ),
-                        )
-                        await db.commit()
-                        result_id = str(existing["assertion_id"])
-                        triggered_stable = validation_state == "stable"
-                        logger.debug(
-                            "L2 assertion upserted",
-                            assertion_id=result_id,
-                            entity_id=normalized_candidate["entity_id"],
-                            trait_name=trait_name,
-                            validation_state=validation_state,
-                            confidence=confidence,
-                            evidence_count=evidence_count,
-                            action="updated",
-                        )
+                await db.commit()
             except Exception:
                 await db.rollback()
                 raise
 
-        if triggered_stable:
-            try:
-                await host.refresh_entity_snapshot(
-                    entity_id=normalized_candidate["entity_id"],
-                    entity_type=normalized_candidate["entity_type"],
-                )
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning(
-                    "L2 snapshot refresh after stable assertion failed",
-                    entity_id=normalized_candidate["entity_id"],
-                    trait_name=trait_name,
-                    error=str(exc),
-                )
-        return result_id
+        await self._refresh_snapshot_after_stable(
+            host=host,
+            candidate=normalized_candidate,
+            trait_name=trait_name,
+            result=result,
+        )
+        return result.assertion_id
+
+    async def _fetch_active_assertion(
+        self,
+        db: aiosqlite.Connection,
+        candidate: Dict[str, Any],
+    ) -> Any | None:
+        async with db.execute(
+            _ACTIVE_ASSERTION_SQL,
+            (
+                candidate["entity_id"],
+                candidate["entity_type"],
+                candidate["trait_name"],
+                candidate["target_entity_id"],
+            ),
+        ) as cursor:
+            return await cursor.fetchone()
+
+    async def _merge_existing_assertion(
+        self,
+        *,
+        db: aiosqlite.Connection,
+        existing: Any,
+        candidate: Dict[str, Any],
+        trait_name: str,
+        now: float,
+    ) -> _AssertionWriteResult:
+        merge_context = build_assertion_merge_context(existing, candidate)
+        if merge_context.inferred_conflicts_with_authoritative:
+            return await self._shadow_authoritative_conflict(
+                db, existing, candidate, trait_name, merge_context, now
+            )
+        if merge_context.should_update_volatile_in_place:
+            return await self._update_volatile_assertion_in_place(
+                db, existing, candidate, trait_name, merge_context, now
+            )
+        if merge_context.value_changed:
+            return await self._supersede_assertion(
+                db, existing, candidate, trait_name, merge_context, now
+            )
+        return await self._merge_same_value_assertion(
+            db, existing, candidate, trait_name, merge_context, now
+        )
 
     async def _insert_new_assertion(
         self,
@@ -539,53 +493,276 @@ class L2StoreAssertionMixin:
         candidate: Dict[str, Any],
         trait_name: str,
         now: float,
-    ) -> tuple[str, str, float]:
+    ) -> _AssertionWriteResult:
         """Insert a brand-new assertion row using the shared state machine."""
         evidence_count = len(candidate["evidence_events"])
-        time_span_hours = 0.0  # single observation, no span
-        base_confidence = max(
-            float(candidate.get("confidence_score", 0.0) or 0.0),
-            compute_confidence(evidence_count),
-        )
-        validation_state, confidence, _ = derive_validation_state(
-            current_state=str(candidate.get("validation_state", "tentative") or "tentative"),
-            current_confidence=base_confidence,
-            evidence_count=evidence_count,
-            time_span_hours=time_span_hours,
-            trait_name=trait_name,
-            user_feedback=None,
-        )
+        validation_state, confidence = _initial_assertion_state(candidate, trait_name=trait_name)
         assertion_id = f"assert_{uuid.uuid4().hex}"
         await db.execute(
             _INSERT_SQL,
-            (
-                assertion_id,
-                candidate["entity_id"],
-                candidate["entity_type"],
-                candidate["trait_family"],
-                trait_name,
-                _canonicalize_trait_value(candidate["trait_value"]),
-                confidence,
-                json.dumps(candidate["evidence_events"], ensure_ascii=False),
-                float(candidate["volatility_index"]),
-                candidate["source_domain"],
-                candidate["inference_depth"],
-                validation_state,
-                float(candidate["first_inferred_at"]),
-                float(candidate["last_validated_at"]),
-                candidate["target_entity_id"],
-                candidate["target_entity_type"],
-                candidate["target_scope"],
-                candidate["temporal_scope"],
-                candidate["decay_policy"],
-                candidate["decay_anchor_at"],
-                candidate["context_ref_id"],
-                candidate["expires_at"],
-                validation_state,
-                candidate["memory_subdomain"],
-                candidate["natural_summary"],
-                now,
-                now,
+            _assertion_insert_values(
+                assertion_id=assertion_id,
+                candidate=candidate,
+                trait_name=trait_name,
+                trait_value=_canonicalize_trait_value(candidate["trait_value"]),
+                confidence=confidence,
+                evidence_events=candidate["evidence_events"],
+                validation_state=validation_state,
+                first_inferred_at=float(candidate["first_inferred_at"]),
+                last_validated_at=float(candidate["last_validated_at"]),
+                status=validation_state,
+                now=now,
             ),
         )
-        return assertion_id, validation_state, confidence
+        logger.debug(
+            "L2 assertion upserted",
+            assertion_id=assertion_id,
+            entity_id=candidate["entity_id"],
+            trait_name=trait_name,
+            validation_state=validation_state,
+            confidence=confidence,
+            evidence_count=evidence_count,
+            action="inserted",
+        )
+        return _AssertionWriteResult(
+            assertion_id=assertion_id,
+            triggered_stable=validation_state == "stable",
+        )
+
+    async def _shadow_authoritative_conflict(
+        self,
+        db: aiosqlite.Connection,
+        existing: Any,
+        candidate: Dict[str, Any],
+        trait_name: str,
+        merge_context: AssertionMergeContext,
+        now: float,
+    ) -> _AssertionWriteResult:
+        shadow_id = f"assert_{uuid.uuid4().hex}"
+        await db.execute(
+            _INSERT_SQL,
+            _assertion_insert_values(
+                assertion_id=shadow_id,
+                candidate=candidate,
+                trait_name=trait_name,
+                trait_value=merge_context.next_value,
+                confidence=compute_confidence(len(candidate["evidence_events"])),
+                evidence_events=candidate["evidence_events"],
+                validation_state="shadow",
+                first_inferred_at=float(candidate["first_inferred_at"]),
+                last_validated_at=float(candidate["last_validated_at"]),
+                status="shadow",
+                now=now,
+            ),
+        )
+        logger.info(
+            "L2 assertion shadowed (inferred vs authoritative conflict)",
+            shadow_id=shadow_id,
+            authoritative_id=str(existing["assertion_id"]),
+            entity_id=candidate["entity_id"],
+            trait_name=trait_name,
+            authoritative_value=merge_context.existing_value,
+            inferred_value=merge_context.next_value,
+        )
+        return _AssertionWriteResult(assertion_id=shadow_id)
+
+    async def _update_volatile_assertion_in_place(
+        self,
+        db: aiosqlite.Connection,
+        existing: Any,
+        candidate: Dict[str, Any],
+        trait_name: str,
+        merge_context: AssertionMergeContext,
+        now: float,
+    ) -> _AssertionWriteResult:
+        contradicted_ceiling = assertion_float_setting(
+            "contradicted_confidence_ceiling",
+            CONTRADICTED_CONFIDENCE_CEILING,
+        )
+        confidence = min(
+            contradicted_ceiling,
+            max(0.15, float(existing["confidence_score"]) * contradicted_ceiling),
+        )
+        return await self._update_existing_assertion(
+            db=db,
+            existing=existing,
+            candidate=candidate,
+            trait_name=trait_name,
+            merge_context=merge_context,
+            validation_state="contradicted",
+            confidence=confidence,
+            action="updated_in_place",
+            now=now,
+        )
+
+    async def _supersede_assertion(
+        self,
+        db: aiosqlite.Connection,
+        existing: Any,
+        candidate: Dict[str, Any],
+        trait_name: str,
+        merge_context: AssertionMergeContext,
+        now: float,
+    ) -> _AssertionWriteResult:
+        new_assertion_id = f"assert_{uuid.uuid4().hex}"
+        validation_state, confidence = _merged_assertion_state(
+            merge_context=merge_context,
+            trait_name=trait_name,
+            current_state="tentative",
+            current_confidence=0.0,
+            user_feedback=None,
+        )
+        await db.execute(
+            _SUPERSEDE_ASSERTION_SQL,
+            (new_assertion_id, now, now, str(existing["assertion_id"])),
+        )
+        await self._insert_superseding_assertion(
+            db=db,
+            assertion_id=new_assertion_id,
+            candidate=candidate,
+            trait_name=trait_name,
+            merge_context=merge_context,
+            validation_state=validation_state,
+            confidence=confidence,
+            now=now,
+        )
+        logger.info(
+            "L2 assertion superseded",
+            old_assertion_id=str(existing["assertion_id"]),
+            new_assertion_id=new_assertion_id,
+            entity_id=candidate["entity_id"],
+            trait_name=trait_name,
+            old_value=merge_context.existing_value,
+            new_value=merge_context.next_value,
+            evidence_count=len(merge_context.merged_evidence),
+            validation_state=validation_state,
+        )
+        return _AssertionWriteResult(
+            assertion_id=new_assertion_id,
+            triggered_stable=validation_state == "stable",
+        )
+
+    async def _insert_superseding_assertion(
+        self,
+        *,
+        db: aiosqlite.Connection,
+        assertion_id: str,
+        candidate: Dict[str, Any],
+        trait_name: str,
+        merge_context: AssertionMergeContext,
+        validation_state: str,
+        confidence: float,
+        now: float,
+    ) -> None:
+        await db.execute(
+            _INSERT_SQL,
+            _assertion_insert_values(
+                assertion_id=assertion_id,
+                candidate=candidate,
+                trait_name=trait_name,
+                trait_value=merge_context.next_value,
+                confidence=confidence,
+                evidence_events=merge_context.merged_evidence,
+                validation_state=validation_state,
+                first_inferred_at=merge_context.first_inferred_at,
+                last_validated_at=merge_context.last_validated_at,
+                status=validation_state,
+                now=now,
+            ),
+        )
+
+    async def _merge_same_value_assertion(
+        self,
+        db: aiosqlite.Connection,
+        existing: Any,
+        candidate: Dict[str, Any],
+        trait_name: str,
+        merge_context: AssertionMergeContext,
+        now: float,
+    ) -> _AssertionWriteResult:
+        validation_state, confidence = _merged_assertion_state(
+            merge_context=merge_context,
+            trait_name=trait_name,
+            current_state=str(existing["validation_state"] or "tentative"),
+            current_confidence=float(existing["confidence_score"]),
+            user_feedback=existing["user_feedback"],
+        )
+        return await self._update_existing_assertion(
+            db=db,
+            existing=existing,
+            candidate=candidate,
+            trait_name=trait_name,
+            merge_context=merge_context,
+            validation_state=validation_state,
+            confidence=confidence,
+            action="updated",
+            now=now,
+        )
+
+    async def _update_existing_assertion(
+        self,
+        *,
+        db: aiosqlite.Connection,
+        existing: Any,
+        candidate: Dict[str, Any],
+        trait_name: str,
+        merge_context: AssertionMergeContext,
+        validation_state: str,
+        confidence: float,
+        action: str,
+        now: float,
+    ) -> _AssertionWriteResult:
+        sql = (
+            _UPDATE_VOLATILE_ASSERTION_SQL
+            if action == "updated_in_place"
+            else _UPDATE_SAME_VALUE_ASSERTION_SQL
+        )
+        assertion_id = str(existing["assertion_id"])
+        await db.execute(
+            sql,
+            _existing_assertion_update_values(
+                assertion_id=assertion_id,
+                candidate=candidate,
+                merge_context=merge_context,
+                validation_state=validation_state,
+                confidence=confidence,
+                now=now,
+            ),
+        )
+        logger.debug(
+            "L2 assertion upserted",
+            assertion_id=assertion_id,
+            entity_id=candidate["entity_id"],
+            trait_name=trait_name,
+            validation_state=validation_state,
+            confidence=confidence,
+            evidence_count=len(merge_context.merged_evidence),
+            action=action,
+        )
+        return _AssertionWriteResult(
+            assertion_id=assertion_id,
+            triggered_stable=validation_state == "stable",
+        )
+
+    async def _refresh_snapshot_after_stable(
+        self,
+        *,
+        host: _AssertionHostProtocol,
+        candidate: Dict[str, Any],
+        trait_name: str,
+        result: _AssertionWriteResult,
+    ) -> None:
+        if not result.triggered_stable:
+            return
+        try:
+            await host.refresh_entity_snapshot(
+                entity_id=candidate["entity_id"],
+                entity_type=candidate["entity_type"],
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "L2 snapshot refresh after stable assertion failed",
+                entity_id=candidate["entity_id"],
+                trait_name=trait_name,
+                error=str(exc),
+            )
