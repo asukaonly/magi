@@ -146,6 +146,8 @@ Notes:
 - the control plane is shared substrate: tools (L8) actuate it, the agent runtime (L12) reads/drives it, and chat/transport (L14/L15) observe and feed it — so it lives low, depended on downward by all of them
 - it depends only on L1 infrastructure and L3 events; it must NOT import upward (no `chat`, `transport`, `agent`, `tools`, `llm`, `memory`)
 - transcript rendering of control state is the CHAT layer's job: `chat` subscribes to control events and writes state messages itself (downward); the control plane does not reach into `chat`/`transport`
+- ask-user lifecycle is the CONTROL layer's job: `ControlAskService` opens asks, waits on `InteractionBroker`, handles timeout/cancel/answer, and emits control events. The composition root's SDK `InteractionPort` adapter only delegates to that service.
+- external ask delivery is the CHANNEL layer's job: channels subscribe to `CONTROL_ASK_REQUESTED` and fan out pending asks to the origin channel; control does not call channel delivery directly.
 - interaction answers flow downward: `transport` delivers user answers into the control interaction registry (`transport → control`)
 - `run_control` (detach signal / `current_detach_signal`) belongs here, not in the agent runtime
 - the four "actuator tools" split by species (ADR-0002): `ask_user` + `detach` are shareable capabilities exposed to ALL tools (incl. plugins) as SDK ports on `ToolExecutionContext` (`InteractionPort`/`DetachPort`), so they stay capability tools in `tools/builtin`; `plan_mode` + `todo_write` are host runtime-control tools in `control/tools/`; `agent_tool` (spawn sub-agent) is a runtime-control tool in the agent layer (`agent/runtime_tools/`, L12). The host runtime-control tools are closed and NOT plugin-contributable.

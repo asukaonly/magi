@@ -120,6 +120,18 @@ def test_bootstrap_and_agent_exports_do_not_keep_chat_runtime_aliases() -> None:
     assert "from ...bootstrap import initialize_chat_agent" not in config_router
 
 
+def test_tool_capabilities_interaction_port_delegates_to_control_service() -> None:
+    source = (BACKEND_SRC / "bootstrap/tool_capabilities.py").read_text(encoding="utf-8")
+
+    assert "ControlAskService" in source
+    assert "ControlAskRequest" in source
+    assert "open_ask(" not in source
+    assert "close_ask(" not in source
+    assert "publish_control_ask_requested" not in source
+    assert "publish_control_ask_answered" not in source
+    assert "get_ask_fanout_callback" not in source
+
+
 def test_agent_execution_package_uses_function_calling_orchestrator_name() -> None:
     execution_init = (BACKEND_SRC / "agent/execution/__init__.py").read_text(encoding="utf-8")
     function_calling_source = (BACKEND_SRC / "agent/execution/function_calling/__init__.py").read_text(encoding="utf-8")

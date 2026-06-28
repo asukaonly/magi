@@ -2,21 +2,14 @@
 
 Lives in bootstrap/ (outside the numbered layer stack) because it wires
 adapters over services from many layers — that is composition, not domain
-logic. Per-cluster adapters are added in later tasks; until then the bundle
-is empty (all ports None).
+logic. Each adapter stays thin and delegates lifecycle-heavy behavior back to
+the owning layer.
 """
 from __future__ import annotations
 
-import asyncio
-import uuid
-from contextlib import suppress
 from typing import Any
 
 from magi_plugin_sdk.capabilities import AskOutcome, ToolCapabilities
-
-from magi.core.logger import get_logger
-
-logger = get_logger(__name__)
 
 _capabilities: ToolCapabilities | None = None
 
@@ -208,20 +201,7 @@ class _HostDetachPort:
 
 
 class _HostInteractionPort:
-    """Adapter implementing the ask-user capability over the control plane.
-
-    Owns the *entire* ask orchestration that previously lived inline in
-    ``ask_user_question_tool``: opening the ask in the control session store,
-    emitting the Phase-1 transcript events (``publish_control_ask_requested`` /
-    ``publish_control_ask_answered``), the background suspend/resume transitions
-    (driven by the caller-supplied :class:`BackgroundPort`), the broker wait
-    with cancellation race, all three resolution paths (answer / cancel /
-    timeout) including the re-emit of the closed ask, and the
-    ``publish_control_event`` UI notifications. Returns an :class:`AskOutcome`.
-
-    All host imports are lazy (inside ``ask``) so this adapter never causes a
-    top-level import of control internals from bootstrap.
-    """
+    """Adapter implementing the SDK ask-user capability over the control plane."""
 
     async def ask(
         self,
@@ -238,298 +218,28 @@ class _HostInteractionPort:
         background_port: Any = None,
         cancellation: Any = None,
     ) -> AskOutcome:
-        from magi.control.common import InteractionTimeoutError
-        from magi.control.common.events import (
-            publish_control_ask_answered,
-            publish_control_ask_requested,
-        )
-        from magi.control.provider import (
-            resolve_control_interaction_broker,
-            resolve_control_session_store,
-        )
+        from magi.control.ask_service import ControlAskRequest, ControlAskService
 
-        sid = session_id
-        is_background = bool(background)
-        bg_task_id = background_task_id or None
-        manager = background_port if bg_task_id is not None else None
-        timeout_value = (
-            float(timeout_seconds) if timeout_seconds is not None else None
-        )
-
-        store = resolve_control_session_store()
-        broker = resolve_control_interaction_broker()
-
-        request_id = uuid.uuid4().hex
-        answer_task = asyncio.create_task(
-            broker.wait(
-                interaction_id=request_id,
-                kind="ask",
-                timeout_seconds=timeout_value,
-            ),
-            name=f"ask-user-question-{request_id}",
-        )
-        cancel_task: asyncio.Task[None] | None = None
-        if cancellation is not None:
-            cancel_task = asyncio.create_task(
-                cancellation.wait(),
-                name=f"ask-user-question-cancel-{request_id}",
-            )
-        # Let the waiter enter the broker before the ask becomes externally visible.
-        await asyncio.sleep(0)
-        if cancellation is not None and await cancellation.is_cancelled():
-            answer_task.cancel()
-            if cancel_task is not None:
-                cancel_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await answer_task
-            if cancel_task is not None:
-                with suppress(asyncio.CancelledError):
-                    await cancel_task
-            return AskOutcome(
-                answered=False,
-                answer=None,
-                resolution="cancelled",
-                timed_out=False,
-            )
-
-        try:
-            ask = await store.open_ask(
-                sid,
+        outcome = await ControlAskService.from_runtime().ask(
+            ControlAskRequest(
+                session_id=session_id,
+                user_id=user_id,
+                turn_id=turn_id,
                 question=question,
                 options=options,
                 allow_free_text=allow_free_text,
-                timeout_seconds=timeout_value,
-                request_id=request_id,
+                timeout_seconds=timeout_seconds,
+                background=background,
+                background_task_id=background_task_id,
+                background_port=background_port,
+                cancellation=cancellation,
             )
-        except Exception:
-            answer_task.cancel()
-            if cancel_task is not None:
-                cancel_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await answer_task
-            if cancel_task is not None:
-                with suppress(asyncio.CancelledError):
-                    await cancel_task
-            raise
-
-        try:
-            await publish_control_ask_requested(
-                session_id=sid,
-                user_id=user_id,
-                turn_id=turn_id,
-                ask=ask,
-                background=is_background,
-            )
-        except Exception:
-            logger.debug("ask_user_question.persist_request_failed", exc_info=True)
-
-        logger.info(
-            "ask_user_question.opened",
-            session_id=sid,
-            request_id=ask.request_id,
-            background=is_background,
-            bg_task_id=bg_task_id,
         )
-        if bg_task_id is not None and manager is not None:
-            try:
-                await manager.suspend_waiting_user(
-                    bg_task_id, reason="awaiting_user_answer"
-                )
-            except Exception:  # pragma: no cover - defensive
-                logger.debug(
-                    "ask_user_question.manager_suspend_failed",
-                    exc_info=True,
-                )
-        try:
-            from magi.control.common.events import publish_control_event
-
-            await publish_control_event(
-                "control.ask.requested",
-                {
-                    "request_id": ask.request_id,
-                    "session_id": sid,
-                    "question": question,
-                    "options": list(options or []),
-                    "allow_free_text": allow_free_text,
-                    "timeout_seconds": timeout_value,
-                    "created_at_ms": int(ask.asked_at * 1000),
-                    "expires_at_ms": int(ask.expires_at * 1000) if ask.expires_at else None,
-                    "background": is_background,
-                },
-                session_id=sid,
-                turn_id=turn_id,
-            )
-            if is_background:
-                await publish_control_event(
-                    "control.background.suspended",
-                    {
-                        "session_id": sid,
-                        "request_id": ask.request_id,
-                        "reason": "awaiting_user_answer",
-                        "timeout_seconds": timeout_value,
-                    },
-                    session_id=sid,
-                    turn_id=turn_id,
-                )
-        except Exception:  # pragma: no cover - defensive
-            logger.debug("ask_user_question.event_failed", exc_info=True)
-
-        # Lightweight external-channel egress (no-op on desktop-only sessions).
-        # A channel-originated turn's question otherwise never reaches the
-        # channel the user is chatting from — only the desktop gets the chips +
-        # transcript card. Fire it after the ask is open and the desktop events
-        # are emitted; a failure here must never block or fail the ask. The
-        # inbound answer round-trips via chat ingress (a text reply
-        # on the session resolves the broker), so this is egress-only.
-        try:
-            from magi.control.common.ask_fanout import get_ask_fanout_callback
-
-            _channel_fanout = get_ask_fanout_callback()
-            if _channel_fanout is not None:
-                await _channel_fanout(
-                    session_id=sid,
-                    user_id=user_id,
-                    request_id=ask.request_id,
-                    question=question,
-                    options=list(options or []),
-                    expires_at_ms=(
-                        int(ask.expires_at * 1000) if ask.expires_at else None
-                    ),
-                )
-        except Exception:  # pragma: no cover - defensive
-            logger.debug("ask_user_question.channel_fanout_failed", exc_info=True)
-
-        pending_tasks: set[asyncio.Task[Any]] = {answer_task}
-        if cancel_task is not None:
-            pending_tasks.add(cancel_task)
-
-        try:
-            done, pending = await asyncio.wait(
-                pending_tasks,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if (
-                cancel_task is not None
-                and cancel_task in done
-                and await cancellation.is_cancelled()
-            ):
-                answer_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await answer_task
-                closed_ask = await store.close_ask(sid, answer=None, resolution="cancelled")
-                if closed_ask is not None:
-                    try:
-                        await publish_control_ask_requested(
-                            session_id=sid,
-                            user_id=user_id,
-                            turn_id=turn_id,
-                            ask=closed_ask,
-                            background=is_background,
-                        )
-                    except Exception:
-                        logger.debug("ask_user_question.persist_cancelled_failed", exc_info=True)
-                if bg_task_id is not None and manager is not None:
-                    try:
-                        await manager.resume_from_wait(bg_task_id)
-                    except Exception:  # pragma: no cover - defensive
-                        logger.debug(
-                            "ask_user_question.manager_resume_failed",
-                            exc_info=True,
-                        )
-                logger.info(
-                    "ask_user_question.cancelled",
-                    session_id=sid,
-                    request_id=ask.request_id,
-                    reason=getattr(cancellation, "reason", None),
-                )
-                return AskOutcome(
-                    answered=False,
-                    answer=None,
-                    resolution="cancelled",
-                    timed_out=False,
-                )
-            for task in pending:
-                task.cancel()
-            for task in pending:
-                with suppress(asyncio.CancelledError):
-                    await task
-            answer = await answer_task
-        except InteractionTimeoutError:
-            closed_ask = await store.close_ask(sid, answer=None, resolution="timeout")
-            if closed_ask is not None:
-                try:
-                    await publish_control_ask_requested(
-                        session_id=sid,
-                        user_id=user_id,
-                        turn_id=turn_id,
-                        ask=closed_ask,
-                        background=is_background,
-                    )
-                except Exception:
-                    logger.debug("ask_user_question.persist_timeout_failed", exc_info=True)
-            if bg_task_id is not None and manager is not None:
-                try:
-                    await manager.resume_from_wait(bg_task_id)
-                except Exception:  # pragma: no cover - defensive
-                    logger.debug(
-                        "ask_user_question.manager_resume_failed",
-                        exc_info=True,
-                    )
-            return AskOutcome(
-                answered=False,
-                answer=None,
-                resolution="timeout",
-                timed_out=True,
-            )
-
-        answer_text = str(answer) if answer is not None else ""
-        closed_ask = await store.close_ask(sid, answer=answer_text, resolution="user")
-        if closed_ask is not None:
-            try:
-                await publish_control_ask_answered(
-                    session_id=sid,
-                    user_id=user_id,
-                    turn_id=turn_id,
-                    ask=closed_ask,
-                    answer=answer_text,
-                    background=is_background,
-                )
-            except Exception:
-                logger.debug("ask_user_question.persist_response_failed", exc_info=True)
-        if bg_task_id is not None and manager is not None:
-            try:
-                await manager.resume_from_wait(bg_task_id)
-            except Exception:  # pragma: no cover - defensive
-                logger.debug(
-                    "ask_user_question.manager_resume_failed",
-                    exc_info=True,
-                )
-        logger.info(
-            "ask_user_question.answered",
-            session_id=sid,
-            request_id=ask.request_id,
-            length=len(answer_text),
-        )
-        if is_background:
-            try:
-                from magi.control.common.events import publish_control_event
-
-                await publish_control_event(
-                    "control.background.resumed",
-                    {
-                        "session_id": sid,
-                        "request_id": ask.request_id,
-                    },
-                    session_id=sid,
-                    turn_id=turn_id,
-                )
-            except Exception:  # pragma: no cover - defensive
-                logger.debug("ask_user_question.resume_event_failed", exc_info=True)
         return AskOutcome(
-            answered=True,
-            answer=answer_text,
-            resolution="user",
-            timed_out=False,
+            answered=outcome.answered,
+            answer=outcome.answer,
+            resolution=outcome.resolution,
+            timed_out=outcome.timed_out,
         )
 
 

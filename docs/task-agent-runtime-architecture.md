@@ -779,8 +779,17 @@ Those status rows use replacement semantics within the same turn so the
 chat transcript keeps the latest control state without accumulating
 stale intermediate copies after reloads or reconnects.
 
+The ``ask_user_question`` tool is a thin SDK capability shell. The
+composition-root ``InteractionPort`` adapter delegates to
+``control.ask_service.ControlAskService``; that control-layer service owns
+opening the ask, waiting on the ``InteractionBroker``, timeout/cancel
+handling, background suspend/resume, and control-event publication. External
+channels do not sit inside that ask lifecycle. ``ChannelsModule`` starts an
+``AskFanoutSubscriber`` that listens for pending ``CONTROL_ASK_REQUESTED``
+events and delivers the question to the session's origin channel.
+
 Event channels (all published via
-[`publish_control_event`](../backend/src/magi/bootstrap/control_plane.py)):
+[`publish_control_event`](../backend/src/magi/control/common/events.py)):
 
 - ``control.permission.requested`` — emitted by the permission prompter
   when a gated tool call waits for a user decision. Payload carries

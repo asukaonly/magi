@@ -51,6 +51,7 @@ class ChannelsModule(LifecycleModule):
         self._receipts_store = None
         self._chat_delivery_dispatcher = None
         self._binding_settings_store = None
+        self._ask_fanout_subscriber = None
 
     async def init(self) -> None:
         self._context.channels.module = self
@@ -143,12 +144,10 @@ class ChannelsModule(LifecycleModule):
         await binding_settings_store.initialize()
         self._binding_settings_store = binding_settings_store
 
-        # Phase H+2: pull the control-plane prompter / registry / broker
-        # so the dispatcher can short-circuit /approve|/deny slash
-        # commands AND so the prompter can fanout permission prompts
-        # to external channels (closures below). Defensive None checks
-        # because partial bootstraps (some tests) may skip the
-        # control_plane dependency.
+        # Pull the control-plane prompter / registry / broker so the dispatcher
+        # can short-circuit /approve|/deny slash commands and the channel layer
+        # can wire external control egress. Defensive None checks because
+        # partial bootstraps (some tests) may skip the control_plane dependency.
         cp_module = getattr(self._context.control_plane, "module", None)
         cp_wiring = getattr(cp_module, "wiring", None) if cp_module else None
         message_dispatcher = ChannelMessageDispatcher(
@@ -207,8 +206,7 @@ class ChannelsModule(LifecycleModule):
             receipts_store=self._receipts_store,
         )
 
-        # Phase H+2: close the late-binding loop for control fanout.
-        # Three hooks established by CF-5/6/8 get wired here:
+        # Close the late-binding loop for control fanout:
         #   1) prompter.bind_fanout_callback — outbound side; fans
         #      out the permission prompt to every channel that opted
         #      in (supports_control_requests=True) via
@@ -217,7 +215,10 @@ class ChannelsModule(LifecycleModule):
         #      binding settings store + the origin resolver (which
         #      walks session_mapper.lookup_by_session to get
         #      channel_type + external_user_id from the session).
-        #   3) message_dispatcher already wired above with broker +
+        #   3) AskFanoutSubscriber — outbound ask-user questions;
+        #      subscribes to control events and sends pending asks to the
+        #      originating external channel.
+        #   4) message_dispatcher already wired above with broker +
         #      pending_permissions so /approve|/deny short-circuits.
         # Defensive: cp_wiring may be None in test bootstraps that
         # skip control_plane — every hook silently no-ops in that
@@ -245,8 +246,7 @@ class ChannelsModule(LifecycleModule):
         binding_settings_store,
         cp_wiring,
     ) -> None:
-        """Hook up CF-5 (prompter fanout) + CF-8 (gateway auto-approve)
-        late bindings now that channel registry + session_mapper exist.
+        """Hook up external control egress late bindings.
 
         Kept as a small helper so ``_start_channels`` stays readable
         and the closure surface is explicit. Defensive throughout —
@@ -350,43 +350,23 @@ class ChannelsModule(LifecycleModule):
                 ),
             )
 
-            # === ask fanout (lightweight external egress) ===
-            # A channel-originated turn can pause mid-execution to ask the user
-            # a question. Desktop gets quick-reply chips + a transcript card;
-            # external channels had NO ask egress at all, so the channel user
-            # could neither see the question nor answer it (the turn blocked
-            # until timeout). Bind a callback that delivers the question as a
-            # plain-text message to the channel the session is bound to. The
-            # inbound answer already routes back via
-            # chat.ingress._resolve_pending_ask_response (a text
-            # reply on the session resolves the broker), so no inbound code is
-            # needed here.
-            from ..control.common.ask_fanout import (
-                bind_ask_fanout_callback,
-                deliver_ask_to_channel,
+            # === ask fanout (control-event driven external egress) ===
+            # Control owns the ask lifecycle and emits CONTROL_ASK_REQUESTED.
+            # Channels subscribe and deliver pending asks to the origin channel.
+            from .ask_fanout import AskFanoutSubscriber
+
+            event_bus = require_initialized(
+                self._context.message_bus.message_bus,
+                "message bus",
             )
-
-            async def _ask_fanout_callback(
-                *,
-                session_id: str,
-                user_id: str | None,
-                request_id: str,
-                question: str,
-                options: list[str],
-                expires_at_ms: int | None,
-            ) -> None:
-                await deliver_ask_to_channel(
-                    session_id=session_id,
-                    user_id=user_id,
-                    question=question,
-                    options=options,
-                    session_mapper=session_mapper,
-                    delivery_router=delivery_router,
-                    default_user_id=DEFAULT_USER_ID,
-                )
-
-            bind_ask_fanout_callback(_ask_fanout_callback)
-            logger.info("Channels module: ask fanout wired")
+            self._ask_fanout_subscriber = AskFanoutSubscriber(
+                event_bus=event_bus,
+                session_mapper=session_mapper,
+                delivery_router=delivery_router,
+                default_user_id=DEFAULT_USER_ID,
+            )
+            await self._ask_fanout_subscriber.start()
+            logger.info("Channels module: ask fanout subscriber started")
         except Exception:
             # Bind failures must not abort channels init — the desktop
             # approval path stays working, fanout / auto-approve just
@@ -396,6 +376,9 @@ class ChannelsModule(LifecycleModule):
             )
 
     async def _stop_channels(self) -> None:
+        if self._ask_fanout_subscriber is not None:
+            await self._ask_fanout_subscriber.stop()
+            self._ask_fanout_subscriber = None
         if self._registry is not None:
             await self._registry.stop_all()
         self._registry = None

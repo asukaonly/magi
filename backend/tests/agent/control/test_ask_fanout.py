@@ -1,4 +1,4 @@
-"""Ask→channel egress (lightweight external fanout).
+"""Ask→channel egress (control-event driven external fanout).
 
 Pins the contract introduced to fix the bug where a question raised mid-turn
 (``ask_user_question``) during a channel-originated run never reached the
@@ -11,8 +11,8 @@ got nothing.
 * ``format_ask_for_channel`` — question + numbered options + a reply hint.
 * ``deliver_ask_to_channel`` — resolve the session's origin channel and deliver
   (no-op for desktop-only sessions).
-* ``_HostInteractionPort.ask`` invokes the bound fanout callback exactly once
-  when the ask opens, and still works when no callback is bound.
+* ``AskFanoutSubscriber`` listens for ``CONTROL_ASK_REQUESTED`` and fans out
+  only the newly-opened pending ask.
 
 The inbound answer round-trip is NOT tested here — it already works via
 ``chat.ingress._resolve_pending_ask_response`` (a text reply on the
@@ -20,23 +20,16 @@ session resolves the broker before any new turn starts).
 """
 from __future__ import annotations
 
-import asyncio
-import contextlib
-
 import pytest
 
-from magi.control.common import InteractionBroker
-from magi.control.session_store import ControlSessionStore
-from magi.bootstrap.tool_capabilities import _HostInteractionPort
-from magi.core.container import get_container
-from magi.control.common.ask_fanout import (
-    bind_ask_fanout_callback,
+from magi.channels.ask_fanout import (
+    AskFanoutSubscriber,
     build_ask_fanout_targets,
     deliver_ask_to_channel,
     format_ask_for_channel,
-    get_ask_fanout_callback,
-    reset_ask_fanout_callback,
 )
+from magi.events.domain_payloads import AskSnapshot, ControlAskRequested
+from magi.events.events import Event, EventTypes
 
 
 # --- pure: target resolution ------------------------------------------------
@@ -155,90 +148,88 @@ async def test_deliver_ask_to_channel_noop_for_desktop_only_session() -> None:
     assert router.calls == []
 
 
-# --- integration: ask port invokes the fanout callback on open -------------
-
-@contextlib.contextmanager
-def _override(**bindings):
-    container = get_container()
-    providers = {k: getattr(container, k) for k in bindings}
-    for key, value in bindings.items():
-        providers[key].override(value)
-    try:
-        yield container
-    finally:
-        for key in bindings:
-            providers[key].reset_override()
+# --- integration: event subscriber fans out open ask events -----------------
 
 
-@pytest.fixture(autouse=True)
-def _clear_binding():
-    reset_ask_fanout_callback()
-    yield
-    reset_ask_fanout_callback()
+class _FakeBus:
+    def __init__(self) -> None:
+        self.subscriptions: list[tuple[str, object]] = []
+        self.unsubscribed: list[str] = []
+
+    async def subscribe(self, event_type, handler):
+        self.subscriptions.append((event_type, handler))
+        return f"sub-{len(self.subscriptions)}"
+
+    async def unsubscribe(self, sub_id):
+        self.unsubscribed.append(sub_id)
+        return True
 
 
-async def _answer_when_open(store, broker, session_id, answer="取消任务") -> None:
-    for _ in range(50):
-        ask = store.ask_state(session_id)
-        if ask is not None:
-            await broker.resolve(
-                interaction_id=ask.request_id, kind="ask", response=answer,
-            )
-            return
-        await asyncio.sleep(0.01)
-
-
-@pytest.mark.asyncio
-async def test_ask_invokes_fanout_callback_on_open() -> None:
-    store = ControlSessionStore()
-    broker = InteractionBroker()
-    calls: list[dict] = []
-
-    async def _record(**kwargs):
-        calls.append(kwargs)
-
-    bind_ask_fanout_callback(_record)
-
-    with _override(control_session_store=store, control_interaction_broker=broker):
-        port = _HostInteractionPort()
-        answerer = asyncio.create_task(_answer_when_open(store, broker, "sid-ask"))
-        outcome = await port.ask(
-            session_id="sid-ask",
+def _ask_event(*, status: str = "pending") -> Event:
+    return Event(
+        type=EventTypes.CONTROL_ASK_REQUESTED,
+        data=ControlAskRequested(
+            session_id="sess-1",
             user_id="local_user",
             turn_id="turn-1",
-            question="目录不存在,怎么办?",
-            options=["提供正确路径", "取消任务"],
-            allow_free_text=True,
-            timeout_seconds=5,
-        )
-        await answerer
-
-    assert outcome.answered is True
-    assert len(calls) == 1
-    assert calls[0]["session_id"] == "sid-ask"
-    assert calls[0]["question"] == "目录不存在,怎么办?"
-    assert calls[0]["options"] == ["提供正确路径", "取消任务"]
-    assert calls[0].get("request_id")
+            ask=AskSnapshot(
+                request_id="ask-1",
+                question="目录不存在,怎么办?",
+                options=("提供正确路径", "取消任务"),
+                allow_free_text=True,
+                asked_at=1.0,
+                timeout_seconds=30,
+                expires_at=31.0,
+                answered_at=None,
+                answer=None,
+                resolution=None,
+                status=status,
+            ),
+            background=False,
+        ),
+    )
 
 
 @pytest.mark.asyncio
-async def test_ask_without_bound_callback_does_not_raise() -> None:
-    """Desktop-only deployments (no channels module bound) — ask still works."""
-    store = ControlSessionStore()
-    broker = InteractionBroker()
-    assert get_ask_fanout_callback() is None  # cleared by autouse fixture
+async def test_ask_fanout_subscriber_delivers_pending_ask_event() -> None:
+    bus = _FakeBus()
+    router = _FakeRouter()
+    subscriber = AskFanoutSubscriber(
+        event_bus=bus,
+        session_mapper=_mapper_returning("weixin"),
+        delivery_router=router,
+        default_user_id="local_user",
+    )
 
-    with _override(control_session_store=store, control_interaction_broker=broker):
-        port = _HostInteractionPort()
-        answerer = asyncio.create_task(_answer_when_open(store, broker, "sid-x", "ok"))
-        outcome = await port.ask(
-            session_id="sid-x",
-            user_id="local_user",
-            turn_id="t",
-            question="Q?",
-            options=[],
-            allow_free_text=True,
-            timeout_seconds=5,
-        )
-        await answerer
-    assert outcome.answered is True
+    await subscriber.start()
+    assert [event_type for event_type, _ in bus.subscriptions] == [
+        EventTypes.CONTROL_ASK_REQUESTED
+    ]
+
+    handler = bus.subscriptions[0][1]
+    await handler(_ask_event())
+    await subscriber.drain()
+
+    assert len(router.calls) == 1
+    content, targets = router.calls[0]
+    assert [target.channel_type for target in targets] == ["weixin"]
+    assert "目录不存在,怎么办?" in content.text
+
+
+@pytest.mark.asyncio
+async def test_ask_fanout_subscriber_ignores_closed_ask_event() -> None:
+    bus = _FakeBus()
+    router = _FakeRouter()
+    subscriber = AskFanoutSubscriber(
+        event_bus=bus,
+        session_mapper=_mapper_returning("weixin"),
+        delivery_router=router,
+        default_user_id="local_user",
+    )
+
+    await subscriber.start()
+    handler = bus.subscriptions[0][1]
+    await handler(_ask_event(status="timeout"))
+    await subscriber.drain()
+
+    assert router.calls == []
