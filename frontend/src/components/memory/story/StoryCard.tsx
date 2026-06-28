@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Archive, ChevronRight } from 'lucide-react';
 import type { StoryItem, StoryReviewState } from '@/api/modules/memoryStories';
 import { Button } from '@/components/ui/button';
+import { MarkdownBlock } from '@/components/ui/markdown-block';
 import { cn } from '@/lib/utils';
 
 interface StoryCardProps {
@@ -85,17 +86,36 @@ export const StoryCard = ({ story, onArchive, onOpenDetail }: StoryCardProps) =>
       </div>
 
       <div className="min-w-0">
-        <button
-          type="button"
-          onClick={onOpenDetail}
-          className="block text-left text-base font-semibold leading-7 text-[hsl(var(--memory-title))] transition-colors hover:text-[hsl(var(--memory-accent))]"
-        >
-          {primaryText}
-        </button>
+        {story.title ? (
+          <button
+            type="button"
+            onClick={onOpenDetail}
+            className="block text-left text-base font-semibold leading-7 text-[hsl(var(--memory-title))] transition-colors hover:text-[hsl(var(--memory-accent))]"
+          >
+            {primaryText}
+          </button>
+        ) : (
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={onOpenDetail}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onOpenDetail();
+              }
+            }}
+            className="cursor-pointer text-left transition-colors hover:text-[hsl(var(--memory-accent))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.3)]"
+          >
+            <MarkdownBlock className="text-base font-semibold leading-7 text-[hsl(var(--memory-title))] [&_h1]:mb-2 [&_h1]:border-0 [&_h1]:pb-0 [&_h1]:text-base [&_h2]:mb-2 [&_h2]:mt-2 [&_h2]:text-base [&_h2]:normal-case [&_h2]:tracking-normal [&_h2]:text-[hsl(var(--memory-title))] [&_li]:text-base [&_p]:text-base [&_p]:leading-7">
+              {primaryText}
+            </MarkdownBlock>
+          </div>
+        )}
         {secondaryText ? (
-          <p className="mt-1.5 text-sm leading-6 text-[hsl(var(--memory-body))]">
+          <MarkdownBlock className="mt-1.5 text-sm leading-6 text-[hsl(var(--memory-body))]">
             {secondaryText}
-          </p>
+          </MarkdownBlock>
         ) : null}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {evidenceLabel ? (

@@ -137,6 +137,31 @@ describe('MemoryStoryPage', () => {
     expect(screen.queryByTestId('memory-stories-section-periodic')).not.toBeInTheDocument();
   });
 
+  it('renders markdown in the featured summary body', async () => {
+    vi.mocked(memoryStoriesApi.list).mockResolvedValue({
+      items: [
+        makeStory('week-md', {
+          summary_type: 'temporal',
+          summary_category: 'week',
+          content: '## 要点\n本周 **magi** 工作推进。\n\n- 修复 CI\n- 梳理人格逻辑',
+          period_end: 1700300000,
+          updated_at: 1700300000,
+          evidence_event_count: 4,
+        }) as never,
+      ],
+      total: 1, limit: 30, offset: 0,
+    });
+
+    renderPage();
+
+    const featured = await screen.findByTestId('memory-stories-featured');
+    expect(featured.querySelector('h2')).toHaveTextContent('要点');
+    expect(featured.querySelector('strong')).toHaveTextContent('magi');
+    expect(featured.querySelectorAll('li')).toHaveLength(2);
+    expect(featured.textContent).not.toContain('## 要点');
+    expect(featured.textContent).not.toContain('**magi**');
+  });
+
   it('keeps the filter bar simple and filters visible summaries', async () => {
     vi.mocked(memoryStoriesApi.list).mockResolvedValue({
       items: [

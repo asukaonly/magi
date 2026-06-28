@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { MarkdownBlock } from '@/components/ui/markdown-block';
 
 interface StoryDetailRailProps {
   story: StoryItem | null;
@@ -87,7 +88,9 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
         </DialogHeader>
 
         <div className="max-h-[calc(min(760px,100vh-64px)-96px)] space-y-4 overflow-y-auto px-6 py-4 text-sm leading-6 text-[hsl(var(--memory-body))]">
-        <p>{story.content}</p>
+        <MarkdownBlock className="text-sm leading-6 text-[hsl(var(--memory-body))]">
+          {story.content}
+        </MarkdownBlock>
 
         <div>
           <div className="text-xs font-medium text-[hsl(var(--memory-muted))]">

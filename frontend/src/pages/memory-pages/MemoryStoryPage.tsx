@@ -5,6 +5,7 @@ import StoryCard from '@/components/memory/story/StoryCard';
 import StoryDetailRail from '@/components/memory/story/StoryDetailRail';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS } from './MemoryPageFrame';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { MarkdownBlock } from '@/components/ui/markdown-block';
 import { isSummaryInsightStory } from './storyFilters';
 import { cn } from '@/lib/utils';
 
@@ -219,17 +220,26 @@ export const MemoryStoryPage = () => {
                     <div className="mb-2 inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
                       {t('memory.stories.heroLabel')}
                     </div>
-                    <button
-                      type="button"
+                    <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setDetailStory(featuredStory)}
-                      className="line-clamp-6 block text-left text-base font-semibold leading-7 text-[hsl(var(--memory-title))] transition-colors hover:text-[hsl(var(--memory-accent))]"
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setDetailStory(featuredStory);
+                        }
+                      }}
+                      className="cursor-pointer text-left transition-colors hover:text-[hsl(var(--memory-accent))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.3)]"
                     >
-                      {storyPrimaryText(featuredStory)}
-                    </button>
+                      <MarkdownBlock className="text-base font-semibold leading-7 text-[hsl(var(--memory-title))] [&_h1]:mb-3 [&_h1]:border-0 [&_h1]:pb-0 [&_h1]:text-lg [&_h2]:mb-2 [&_h2]:mt-3 [&_h2]:text-base [&_h2]:normal-case [&_h2]:tracking-normal [&_h2]:text-[hsl(var(--memory-title))] [&_li]:text-base [&_p]:text-base [&_p]:leading-7">
+                        {storyPrimaryText(featuredStory)}
+                      </MarkdownBlock>
+                    </div>
                     {storySecondaryText(featuredStory) ? (
-                      <p className="mt-2 line-clamp-3 text-sm leading-6 text-[hsl(var(--memory-body))]">
+                      <MarkdownBlock className="mt-2 text-sm leading-6 text-[hsl(var(--memory-body))]">
                         {storySecondaryText(featuredStory)}
-                      </p>
+                      </MarkdownBlock>
                     ) : null}
                     <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
                       {formatStoryDate(featuredStory, i18n.language) ? <span>{formatStoryDate(featuredStory, i18n.language)}</span> : null}
