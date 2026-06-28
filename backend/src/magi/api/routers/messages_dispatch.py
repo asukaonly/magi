@@ -68,99 +68,135 @@ async def send_user_message(request: UserMessageRequest):
     try:
         runtime_not_ready_response = await _ensure_runtime_ready_for_user_message()
         if runtime_not_ready_response is not None:
-            agent_logger.warning(
-                "Message dispatch rejected before queueing | User: %s | code: %s | startup_state: %s",
-                request.user_id,
-                RUNTIME_NOT_READY,
-                runtime_not_ready_response.data.get("startup_state") if runtime_not_ready_response.data else None,
-            )
+            _log_runtime_not_ready(request, runtime_not_ready_response)
             return runtime_not_ready_response
 
-        normalized_metadata = dict(request.metadata or {})
-        normalized_metadata.update(
-            await build_bootstrap_l2_priority_metadata(
-                user_id=request.user_id,
-                session_id=request.session_id,
-                persona_name=get_current_personality(),
-            )
-        )
-        normalized_reply_to_message_id = str(request.reply_to_message_id or "").strip() or None
-        if normalized_reply_to_message_id is not None:
-            normalized_metadata["reply_to_message_id"] = normalized_reply_to_message_id
-
-        outcome = await dispatch_user_message(
-            source="api",
-            user_id=request.user_id,
-            message=request.message,
-            session_id=request.session_id,
-            attachments=await resolve_attachment_resources(
-                list(request.attachments or [])
-            ),
-            reply_to_message_id=normalized_reply_to_message_id,
-            workspace_path=request.workspace_path,
-            client_turn_id=request.client_turn_id,
-            metadata=normalized_metadata,
-            runtime_namespace=str(normalized_metadata.get("runtime_namespace") or DEFAULT_RUNTIME_NAMESPACE),
-        )
+        outcome = await _dispatch_api_user_message(request)
         if not outcome.success:
-            agent_logger.warning(
-                f"Message dispatch rejected | User: {request.user_id} | code: {outcome.error_code}"
-            )
-            return MessageResponse(
-                success=False,
-                message=outcome.error_message or core_i18n.t("chat.dispatch.failed_to_queue", fallback="Failed to queue message"),
-                data={
-                    "user_id": request.user_id,
-                    "session_id": outcome.session_id,
-                    "error": outcome.error_message,
-                    "error_code": outcome.error_code,
-                },
-            )
+            return _dispatch_rejected_response(request, outcome)
 
         if outcome.handled_as == "ask_response":
-            return MessageResponse(
-                success=True,
-                message=core_i18n.t("chat.dispatch.ask_response_recorded", fallback="Answer recorded"),
-                data={
-                    "user_id": request.user_id,
-                    "session_id": outcome.session_id,
-                    "handled_as": outcome.handled_as,
-                    "ask_request_id": outcome.ask_request_id,
-                    "message_length": len(request.message),
-                    "timestamp": time.time(),
-                },
-            )
+            return _ask_response_recorded_response(request, outcome)
 
-        logger.info(
-            "Message from %s queued for runtime processing | Queue size: %s",
-            request.user_id,
-            outcome.queue_size if outcome.queue_size is not None else "unknown",
-        )
-
-        agent_logger.info(
-            "Message received | User: %s | Content: '%s%s' | Length: %s",
-            request.user_id,
-            request.message[:50],
-            "..." if len(request.message) > 50 else "",
-            len(request.message),
-        )
-
-        return MessageResponse(
-            success=True,
-            message=core_i18n.t("chat.dispatch.queued", fallback="Message queued for processing"),
-            data={
-                "user_id": request.user_id,
-                "session_id": outcome.session_id,
-                "turn_id": outcome.turn_id,
-                "message_length": len(request.message),
-                "attachment_count": len(request.attachments or []),
-                "timestamp": time.time(),
-            }
-        )
+        _log_queued_message(request, outcome)
+        return _queued_message_response(request, outcome)
     except Exception as e:
         logger.error(f"Failed to queue message: {e}")
         agent_logger.error(f"Queue failed | User: {request.user_id} | error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _log_runtime_not_ready(
+    request: UserMessageRequest,
+    response: MessageResponse,
+) -> None:
+    agent_logger.warning(
+        "Message dispatch rejected before queueing | User: %s | code: %s | startup_state: %s",
+        request.user_id,
+        RUNTIME_NOT_READY,
+        response.data.get("startup_state") if response.data else None,
+    )
+
+
+async def _dispatch_api_user_message(request: UserMessageRequest):
+    metadata, reply_to_message_id = await _prepare_api_dispatch_metadata(request)
+    return await dispatch_user_message(
+        source="api",
+        user_id=request.user_id,
+        message=request.message,
+        session_id=request.session_id,
+        attachments=await resolve_attachment_resources(list(request.attachments or [])),
+        reply_to_message_id=reply_to_message_id,
+        workspace_path=request.workspace_path,
+        client_turn_id=request.client_turn_id,
+        metadata=metadata,
+        runtime_namespace=str(metadata.get("runtime_namespace") or DEFAULT_RUNTIME_NAMESPACE),
+    )
+
+
+async def _prepare_api_dispatch_metadata(
+    request: UserMessageRequest,
+) -> tuple[dict[str, object], str | None]:
+    metadata = dict(request.metadata or {})
+    metadata.update(
+        await build_bootstrap_l2_priority_metadata(
+            user_id=request.user_id,
+            session_id=request.session_id,
+            persona_name=get_current_personality(),
+        )
+    )
+    reply_to_message_id = str(request.reply_to_message_id or "").strip() or None
+    if reply_to_message_id is not None:
+        metadata["reply_to_message_id"] = reply_to_message_id
+    return metadata, reply_to_message_id
+
+
+def _dispatch_rejected_response(
+    request: UserMessageRequest,
+    outcome,
+) -> MessageResponse:
+    agent_logger.warning(
+        f"Message dispatch rejected | User: {request.user_id} | code: {outcome.error_code}"
+    )
+    return MessageResponse(
+        success=False,
+        message=outcome.error_message
+        or core_i18n.t("chat.dispatch.failed_to_queue", fallback="Failed to queue message"),
+        data={
+            "user_id": request.user_id,
+            "session_id": outcome.session_id,
+            "error": outcome.error_message,
+            "error_code": outcome.error_code,
+        },
+    )
+
+
+def _ask_response_recorded_response(
+    request: UserMessageRequest,
+    outcome,
+) -> MessageResponse:
+    return MessageResponse(
+        success=True,
+        message=core_i18n.t("chat.dispatch.ask_response_recorded", fallback="Answer recorded"),
+        data={
+            "user_id": request.user_id,
+            "session_id": outcome.session_id,
+            "handled_as": outcome.handled_as,
+            "ask_request_id": outcome.ask_request_id,
+            "message_length": len(request.message),
+            "timestamp": time.time(),
+        },
+    )
+
+
+def _log_queued_message(request: UserMessageRequest, outcome) -> None:
+    logger.info(
+        "Message from %s queued for runtime processing | Queue size: %s",
+        request.user_id,
+        outcome.queue_size if outcome.queue_size is not None else "unknown",
+    )
+    agent_logger.info(
+        "Message received | User: %s | Content: '%s%s' | Length: %s",
+        request.user_id,
+        request.message[:50],
+        "..." if len(request.message) > 50 else "",
+        len(request.message),
+    )
+
+
+def _queued_message_response(request: UserMessageRequest, outcome) -> MessageResponse:
+    return MessageResponse(
+        success=True,
+        message=core_i18n.t("chat.dispatch.queued", fallback="Message queued for processing"),
+        data={
+            "user_id": request.user_id,
+            "session_id": outcome.session_id,
+            "turn_id": outcome.turn_id,
+            "message_length": len(request.message),
+            "attachment_count": len(request.attachments or []),
+            "timestamp": time.time(),
+        },
+    )
 
 
 __all__ = ["RUNTIME_NOT_READY", "message_dispatch_router", "send_user_message", "_ensure_runtime_ready_for_user_message"]

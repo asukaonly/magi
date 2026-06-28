@@ -60,55 +60,22 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
         metadata: dict[str, object] | None = None,
         runtime_namespace: str | None = None,
     ) -> ChannelMessageDispatchOutcome:
-        # Phase H+2: try the slash-command short-circuit first.
-        if (
-            self._permission_registry is not None
-            and self._interaction_broker is not None
-        ):
-            control_outcome = await try_handle_control_command(
-                message=message,
-                session_id=session_id,
-                registry=self._permission_registry,  # type: ignore[arg-type]
-                broker=self._interaction_broker,  # type: ignore[arg-type]
-            )
-            if control_outcome.handled:
-                return _control_command_outcome(
-                    user_id=user_id,
-                    session_id=session_id,
-                    ack_message=control_outcome.ack_message,
-                )
+        command_outcome = await self._try_handle_channel_command(
+            user_id=user_id,
+            session_id=session_id,
+            message=message,
+        )
+        if command_outcome is not None:
+            return command_outcome
 
-        # New-session command short-circuit (channels layer): reset the
-        # session→channel binding so the NEXT message starts a fresh session.
-        # No LLM turn; the ack is surfaced to the user via the channel.
-        if self._session_mapper is not None:
-            session_outcome = await try_handle_session_command(
-                message=message,
-                session_id=session_id,
-                session_mapper=self._session_mapper,
-            )
-            if session_outcome.handled:
-                return _control_command_outcome(
-                    user_id=user_id,
-                    session_id=session_id,
-                    ack_message=session_outcome.ack_message,
-                )
+        message_dispatcher, dispatcher_error = self._resolve_message_dispatcher(
+            user_id=user_id,
+            session_id=session_id,
+        )
+        if dispatcher_error is not None:
+            return dispatcher_error
 
-        try:
-            dispatch_user_message = self._message_dispatcher or require_user_message_dispatcher()
-        except RuntimeError as exc:
-            return ChannelMessageDispatchOutcome(
-                success=False,
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=None,
-                message_id=None,
-                error_code=MESSAGE_DISPATCHER_NOT_INITIALIZED,
-                error_message=str(exc),
-                queue_size=None,
-            )
-
-        outcome = await dispatch_user_message(
+        outcome = await message_dispatcher(
             source=source,
             user_id=user_id,
             message=message,
@@ -120,16 +87,92 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
             metadata=metadata,
             runtime_namespace=runtime_namespace,
         )
-        return ChannelMessageDispatchOutcome(
-            success=outcome.success,
-            user_id=outcome.user_id,
-            session_id=outcome.session_id,
-            turn_id=outcome.turn_id,
-            message_id=outcome.message_id,
-            error_code=outcome.error_code,
-            error_message=outcome.error_message,
-            queue_size=outcome.queue_size,
+        return _channel_dispatch_outcome(outcome)
+
+    async def _try_handle_channel_command(
+        self,
+        *,
+        user_id: str,
+        session_id: str | None,
+        message: str,
+    ) -> ChannelMessageDispatchOutcome | None:
+        control_outcome = await self._try_handle_permission_command(message, session_id)
+        if control_outcome is not None:
+            return _control_command_outcome(
+                user_id=user_id,
+                session_id=session_id,
+                ack_message=control_outcome,
+            )
+        session_outcome = await self._try_handle_session_command(message, session_id)
+        if session_outcome is None:
+            return None
+        return _control_command_outcome(
+            user_id=user_id,
+            session_id=session_id,
+            ack_message=session_outcome,
         )
+
+    async def _try_handle_permission_command(
+        self,
+        message: str,
+        session_id: str | None,
+    ) -> str | None:
+        if self._permission_registry is None or self._interaction_broker is None:
+            return None
+        outcome = await try_handle_control_command(
+            message=message,
+            session_id=session_id,
+            registry=self._permission_registry,  # type: ignore[arg-type]
+            broker=self._interaction_broker,  # type: ignore[arg-type]
+        )
+        return outcome.ack_message if outcome.handled else None
+
+    async def _try_handle_session_command(
+        self,
+        message: str,
+        session_id: str | None,
+    ) -> str | None:
+        if self._session_mapper is None:
+            return None
+        outcome = await try_handle_session_command(
+            message=message,
+            session_id=session_id,
+            session_mapper=self._session_mapper,
+        )
+        return outcome.ack_message if outcome.handled else None
+
+    def _resolve_message_dispatcher(
+        self,
+        *,
+        user_id: str,
+        session_id: str | None,
+    ) -> tuple[object | None, ChannelMessageDispatchOutcome | None]:
+        try:
+            return self._message_dispatcher or require_user_message_dispatcher(), None
+        except RuntimeError as exc:
+            return None, ChannelMessageDispatchOutcome(
+                success=False,
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=None,
+                message_id=None,
+                error_code=MESSAGE_DISPATCHER_NOT_INITIALIZED,
+                error_message=str(exc),
+                queue_size=None,
+            )
+
+
+def _channel_dispatch_outcome(outcome: object) -> ChannelMessageDispatchOutcome:
+    return ChannelMessageDispatchOutcome(
+        success=outcome.success,
+        user_id=outcome.user_id,
+        session_id=outcome.session_id,
+        turn_id=outcome.turn_id,
+        message_id=outcome.message_id,
+        error_code=outcome.error_code,
+        error_message=outcome.error_message,
+        queue_size=outcome.queue_size,
+    )
 
 
 def _control_command_outcome(
