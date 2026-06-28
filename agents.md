@@ -33,20 +33,15 @@ This document defines mandatory implementation and delivery rules for coding age
 
 ## 1) Source Of Truth
 
-Before changing architecture, core flows, product behavior, or module boundaries, align with the active documentation in `docs/`:
+Before changing architecture, core flows, product behavior, or module boundaries,
+start with `docs/README.md`. It is the authoritative index for root-level
+documentation:
+- Core source-of-truth docs are mandatory first checks for broad changes.
+- Scoped architecture references are durable docs for the named subsystem.
+- Architecture records preserve lasting decisions and migration rationale.
 
-- `docs/README.md`
-- `docs/project-overview.md`
-- `docs/product-configuration-guide.md`
-- `docs/layered-agent-architecture.md`
-- `docs/task-agent-runtime-architecture.md`
-- `docs/timeline-domain-architecture.md`
-- `docs/memory-system-design.md`
-- `docs/plugin-extension-architecture.md`
-- `docs/plugin-development-guide.md`
-- `docs/backlog.md`
-
-Only these root-level `docs/*.md` files are repository documentation source-of-truth.
+Only root-level `docs/*.md` files listed in `docs/README.md` should be treated
+as repository documentation source-of-truth or durable architecture records.
 
 Temporary material rules:
 - Put local scratch plans, implementation checklists, and design spikes under `docs/dev/`.
