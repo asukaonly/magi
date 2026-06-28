@@ -3,36 +3,15 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any, Dict
 
-from ..recommender import ToolRecommender
+from ..discovery_index import ToolDiscoveryIndex
 from ..tool_advisory_reranker import ToolAdvisoryReranker
 from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
 from ..registry import tool_registry
 
 
 logger = logging.getLogger(__name__)
-
-
-_DISCOVERY_SYNONYMS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("日程", ("calendar", "schedule")),
-    ("日历", ("calendar", "schedule")),
-    ("会议", ("meeting", "calendar")),
-    ("空档", ("availability", "free", "busy", "slot")),
-    ("空闲", ("availability", "free", "busy", "slot")),
-    ("档期", ("availability", "schedule", "slot")),
-    ("可用时间", ("availability", "free", "busy", "slot")),
-    ("安排", ("schedule", "planning")),
-    ("照片", ("photo", "image", "picture")),
-    ("图片", ("image", "photo", "picture")),
-    ("天气", ("weather", "forecast")),
-    ("网页", ("web", "fetch", "browser")),
-    ("搜索", ("search", "web")),
-    ("代码", ("code", "file", "grep")),
-    ("文件", ("file", "read", "write")),
-)
-_TOKEN_RE = re.compile(r"[a-z0-9]+|[\u4e00-\u9fff]+", re.IGNORECASE)
 
 
 class FindRelevantToolsTool(Tool):
@@ -116,27 +95,31 @@ class FindRelevantToolsTool(Tool):
         limit = 1 if limit < 1 else 2 if limit > 2 else limit
 
         registry = self._get_registry()
-        recommender = ToolRecommender(registry)
-        tool_recommendations = self._recommend_tools(
-            recommender=recommender,
-            registry=registry,
-            query=query,
-            context=context,
-            current_tools=current_tools,
-            candidate_limit=max(limit * self._TOOL_CANDIDATE_MULTIPLIER, self._MIN_TOOL_CANDIDATES),
+        candidate_limit = max(
+            limit * self._TOOL_CANDIDATE_MULTIPLIER,
+            self._MIN_TOOL_CANDIDATES,
         )
+        discovery_index = ToolDiscoveryIndex.from_registry(
+            registry,
+            enabled_features=context.enabled_features,
+        )
+        indexed_recommendations = discovery_index.search(
+            query=query,
+            limit=candidate_limit,
+            current_tools=current_tools,
+            excluded_names=self._EXCLUDED_TOOL_NAMES,
+        )
+        tool_recommendations = [
+            item for item in indexed_recommendations if item.get("type") == "tool"
+        ]
         tool_recommendations = await self._rerank_tool_recommendations(
             recommendations=tool_recommendations,
             query=query,
             context=context,
         )
-        skill_recommendations = self._recommend_skills(
-            registry=registry,
-            query=query,
-            current_tools=current_tools,
-            limit=max(limit * self._TOOL_CANDIDATE_MULTIPLIER, self._MIN_TOOL_CANDIDATES),
-            existing_names={str(item.get("name") or "") for item in tool_recommendations},
-        )
+        skill_recommendations = [
+            item for item in indexed_recommendations if item.get("type") == "skill"
+        ]
 
         recommendations = self._rank_recommendations(
             [*tool_recommendations, *skill_recommendations]
@@ -161,45 +144,6 @@ class FindRelevantToolsTool(Tool):
                 "tool_expansion": expansion_payload,
             },
         )
-
-    def _recommend_tools(
-        self,
-        *,
-        recommender: ToolRecommender,
-        registry: Any,
-        query: str,
-        context: ToolExecutionContext,
-        current_tools: list[str],
-        candidate_limit: int,
-    ) -> list[dict[str, Any]]:
-        candidate_tools = [
-            name
-            for name in registry.list_tools(enabled_features=context.enabled_features)
-            if name not in current_tools and name not in self._EXCLUDED_TOOL_NAMES
-        ]
-        if not candidate_tools:
-            return []
-        raw = recommender.recommend_tools(
-            intent=query,
-            context=context,
-            top_k=candidate_limit,
-            candidate_tools=candidate_tools,
-        )
-        recommendations: list[dict[str, Any]] = []
-        for item in raw:
-            name = str(item.get("tool") or "").strip()
-            if not name:
-                continue
-            recommendations.append(
-                {
-                    "name": name,
-                    "type": "tool",
-                    "reason": str(item.get("reason") or "").strip(),
-                    "score": float(item.get("score") or 0.0),
-                    "category": str(item.get("category") or ""),
-                }
-            )
-        return recommendations
 
     async def _rerank_tool_recommendations(
         self,
@@ -231,70 +175,6 @@ class FindRelevantToolsTool(Tool):
             advisories=list(advisory_rows),
         )
 
-    def _recommend_skills(
-        self,
-        *,
-        registry: Any,
-        query: str,
-        current_tools: list[str],
-        limit: int,
-        existing_names: set[str],
-    ) -> list[dict[str, Any]]:
-        query_lower = query.lower()
-        query_tokens = set(self._tokenize_discovery_text(query))
-        scored: list[tuple[float, dict[str, Any]]] = []
-        for skill_name in registry.get_skill_names():
-            if skill_name in current_tools or skill_name in existing_names:
-                continue
-            metadata = registry.get_skill_metadata(skill_name)
-            if metadata is None:
-                continue
-            description = str(metadata.description or "")
-            haystack = " ".join(
-                [
-                    skill_name,
-                    description,
-                    str(metadata.argument_hint or ""),
-                    " ".join(str(tag) for tag in (metadata.tags or [])),
-                ]
-            )
-            haystack_lower = self._expand_discovery_text(haystack).lower()
-            haystack_tokens = set(self._tokenize_discovery_text(haystack))
-            score = 0.0
-            if skill_name.lower() in query_lower:
-                score += 0.6
-            skill_name_tokens = set(self._tokenize_discovery_text(skill_name))
-            if skill_name_tokens and skill_name_tokens.issubset(query_tokens):
-                score += 0.45
-            overlap = query_tokens & haystack_tokens
-            score += min(len(overlap), 6) * 0.12
-            category = str(metadata.category or "").strip().lower()
-            if category and category in query_tokens:
-                score += 0.2
-            for tag in metadata.tags or []:
-                tag_tokens = set(self._tokenize_discovery_text(str(tag)))
-                if tag_tokens and tag_tokens & query_tokens:
-                    score += 0.08
-            for token in query_tokens:
-                if len(token) > 2 and token in haystack_lower:
-                    score += 0.03
-            if score <= 0:
-                continue
-            scored.append(
-                (
-                    score,
-                    {
-                        "name": skill_name,
-                        "type": "skill",
-                        "reason": description or "Skill description matched the requested capability.",
-                        "score": round(score, 3),
-                        "category": str(metadata.category or "skill"),
-                    },
-                )
-            )
-        scored.sort(key=lambda item: item[0], reverse=True)
-        return [item for _, item in scored[:limit]]
-
     @staticmethod
     def _rank_recommendations(recommendations: list[dict[str, Any]]) -> list[dict[str, Any]]:
         indexed: list[tuple[float, int, dict[str, Any]]] = []
@@ -302,27 +182,6 @@ class FindRelevantToolsTool(Tool):
             indexed.append((float(item.get("score") or 0.0), index, item))
         indexed.sort(key=lambda row: (-row[0], row[1]))
         return [item for _, _, item in indexed]
-
-    @staticmethod
-    def _expand_discovery_text(text: str) -> str:
-        lowered = str(text or "").lower()
-        aliases: list[str] = []
-        for marker, expansions in _DISCOVERY_SYNONYMS:
-            if marker in lowered:
-                aliases.extend(expansions)
-        if not aliases:
-            return lowered
-        return " ".join([lowered, *aliases])
-
-    @classmethod
-    def _tokenize_discovery_text(cls, text: str) -> list[str]:
-        expanded = cls._expand_discovery_text(text)
-        tokens: list[str] = []
-        for match in _TOKEN_RE.findall(expanded):
-            token = match.lower().strip()
-            if len(token) > 1:
-                tokens.append(token)
-        return tokens
 
     @staticmethod
     def _normalize_current_tools(raw_value: Any) -> list[str]:
