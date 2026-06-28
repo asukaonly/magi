@@ -42,6 +42,7 @@ class TemporalOutputParsingMixin:
             raise ValueError("Temporal LLM output requires non-empty content")
         output = TemporalSummaryLLMOutput(
             content=content,
+            essence_prose=self._normalize_essence_prose(payload.get("essence_prose")),
             key_topics=[str(item).strip() for item in payload.get("key_topics", []) if str(item).strip()],
             key_entities=[
                 item
@@ -67,6 +68,8 @@ class TemporalOutputParsingMixin:
             "sentiment_summary": output.sentiment_summary,
             "change_and_pattern": output.change_and_pattern,
         }
+        if output.essence_prose:
+            summary_overrides["essence_prose"] = output.essence_prose
         if output.importance_aggregate is not None:
             summary_overrides["importance_aggregate"] = output.importance_aggregate
         return candidate, summary_overrides
@@ -89,6 +92,7 @@ class TemporalOutputParsingMixin:
                 raise ValueError("Temporal structure content must match accepted content")
         output = TemporalSummaryLLMOutput(
             content=content,
+            essence_prose=self._normalize_essence_prose(payload.get("essence_prose")),
             key_topics=[str(item).strip() for item in payload.get("key_topics", []) if str(item).strip()],
             key_entities=[
                 item
@@ -108,9 +112,17 @@ class TemporalOutputParsingMixin:
             "sentiment_summary": output.sentiment_summary,
             "change_and_pattern": output.change_and_pattern,
         }
+        if output.essence_prose:
+            summary_overrides["essence_prose"] = output.essence_prose
         if output.importance_aggregate is not None:
             summary_overrides["importance_aggregate"] = output.importance_aggregate
         return summary_overrides
+
+    def _normalize_essence_prose(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     def _normalize_importance_aggregate(self, value: Any) -> float | None:
         if value is None:

@@ -236,6 +236,7 @@ def _row_to_story_item(row: dict[str, Any]) -> dict[str, Any]:
         "summary_category": row.get("summary_category"),
         "title": title or _derive_title(row),
         "content": content,
+        "essence_prose": row.get("essence_prose") or None,
         "period_start": row.get("period_start"),
         "period_end": row.get("period_end"),
         "updated_at": row.get("updated_at"),

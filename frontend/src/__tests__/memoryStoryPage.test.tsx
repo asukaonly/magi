@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -28,7 +28,7 @@ vi.mock('react-i18next', () => ({
         'memory.stories.pagination.loadMore': '加载更早总结',
         'memory.stories.pagination.loading': '正在加载…',
         'memory.stories.pagination.end': '已经看到当前加载的全部总结',
-        'memory.stories.stats.highlights': '近期重点',
+        'memory.stories.stats.highlights': '观察复盘',
         'memory.stories.stats.periodic': '时段总结',
         'memory.stories.stats.observations': '长期观察',
         'memory.stories.meta.insight': '观察',
@@ -162,6 +162,37 @@ describe('MemoryStoryPage', () => {
     expect(featured.textContent).not.toContain('**magi**');
   });
 
+  it('uses essence prose on cards while keeping full content in detail', async () => {
+    vi.mocked(memoryStoriesApi.list).mockResolvedValue({
+      items: [
+        {
+          ...makeStory('week-essence', {
+            summary_type: 'temporal',
+            summary_category: 'week',
+            content: '## 要点\n本周完整总结保留时间线和未闭合事项。\n\n## 时间线\n- 调整 L3 生成\n- 验证总结页展示',
+            period_end: 1700400000,
+            updated_at: 1700400000,
+            evidence_event_count: 7,
+          }),
+          essence_prose: '本周主要调整 L3 总结，让首页更好读。',
+        },
+      ] as never,
+      total: 1, limit: 30, offset: 0,
+    });
+
+    renderPage();
+
+    const featured = await screen.findByTestId('memory-stories-featured');
+    expect(featured).toHaveTextContent('本周主要调整 L3 总结，让首页更好读。');
+    expect(featured).not.toHaveTextContent('未闭合事项');
+
+    await userEvent.click(within(featured).getByText('本周主要调整 L3 总结，让首页更好读。'));
+
+    const detail = await screen.findByTestId('story-detail-rail');
+    expect(detail).toHaveTextContent('本周完整总结保留时间线和未闭合事项。');
+    expect(detail).toHaveTextContent('调整 L3 生成');
+  });
+
   it('keeps the filter bar simple and filters visible summaries', async () => {
     vi.mocked(memoryStoriesApi.list).mockResolvedValue({
       items: [
@@ -192,7 +223,7 @@ describe('MemoryStoryPage', () => {
     const user = userEvent.setup();
 
     expect(await screen.findByRole('button', { name: '全部' })).toBeInTheDocument();
-    expect(screen.getByTestId('memory-stories-stats')).toHaveTextContent('近期重点');
+    expect(screen.getByTestId('memory-stories-stats')).toHaveTextContent('观察复盘');
     expect(screen.getByTestId('memory-stories-stats')).toHaveTextContent('时段总结');
     expect(screen.getByTestId('memory-stories-stats')).toHaveTextContent('长期观察');
     expect(screen.getByRole('button', { name: '时段总结' })).toBeInTheDocument();

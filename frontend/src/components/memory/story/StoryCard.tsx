@@ -60,8 +60,9 @@ const formatStoryDate = (story: StoryItem, locale: string): string => {
 export const StoryCard = ({ story, onArchive, onOpenDetail }: StoryCardProps) => {
   const { t, i18n } = useTranslation('app');
   const categoryLabel = t(`memory.stories.categories.${story.summary_category}`, { defaultValue: story.summary_category });
-  const primaryText = story.title || story.content;
-  const secondaryText = story.title ? story.content : '';
+  const essenceText = String(story.essence_prose || '').trim();
+  const primaryText = story.title || essenceText || story.content;
+  const secondaryText = story.title ? (essenceText || story.content) : '';
   const dateLabel = formatStoryDate(story, i18n.language);
   const evidenceLabel = story.evidence_event_count > 0
     ? t('memory.stories.evidenceChip', { count: story.evidence_event_count })

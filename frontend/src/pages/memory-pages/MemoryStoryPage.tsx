@@ -59,10 +59,20 @@ const matchesFilter = (story: StoryItem, filter: StoryFilter): boolean => {
   }
 };
 
-const storyPrimaryText = (story: StoryItem): string => story.title || story.content;
+const storyEssenceText = (story: StoryItem): string => (
+  String(story.essence_prose || '').trim()
+);
 
-const storySecondaryText = (story: StoryItem): string => (
-  story.title ? story.content : ''
+const storyPreviewText = (story: StoryItem): string => (
+  storyEssenceText(story) || story.title || story.content
+);
+
+const storyDetailLeadText = (story: StoryItem): string => (
+  story.title ? (storyEssenceText(story) || story.content) : ''
+);
+
+const storyCategoryLabelKey = (story: StoryItem): string => (
+  `memory.stories.categories.${story.summary_category}`
 );
 
 export const MemoryStoryPage = () => {
@@ -218,7 +228,7 @@ export const MemoryStoryPage = () => {
                     className="rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.72)] px-4 py-4"
                   >
                     <div className="mb-2 inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
-                      {t('memory.stories.heroLabel')}
+                      {t(storyCategoryLabelKey(featuredStory), { defaultValue: featuredStory.summary_category })}
                     </div>
                     <div
                       role="button"
@@ -233,12 +243,12 @@ export const MemoryStoryPage = () => {
                       className="cursor-pointer text-left transition-colors hover:text-[hsl(var(--memory-accent))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.3)]"
                     >
                       <MarkdownBlock className="text-base font-semibold leading-7 text-[hsl(var(--memory-title))] [&_h1]:mb-3 [&_h1]:border-0 [&_h1]:pb-0 [&_h1]:text-lg [&_h2]:mb-2 [&_h2]:mt-3 [&_h2]:text-base [&_h2]:normal-case [&_h2]:tracking-normal [&_h2]:text-[hsl(var(--memory-title))] [&_li]:text-base [&_p]:text-base [&_p]:leading-7">
-                        {storyPrimaryText(featuredStory)}
+                        {storyPreviewText(featuredStory)}
                       </MarkdownBlock>
                     </div>
-                    {storySecondaryText(featuredStory) ? (
+                    {storyDetailLeadText(featuredStory) ? (
                       <MarkdownBlock className="mt-2 text-sm leading-6 text-[hsl(var(--memory-body))]">
-                        {storySecondaryText(featuredStory)}
+                        {storyDetailLeadText(featuredStory)}
                       </MarkdownBlock>
                     ) : null}
                     <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">

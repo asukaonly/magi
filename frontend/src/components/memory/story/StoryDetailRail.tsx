@@ -64,6 +64,7 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
   if (!story) return null;
 
   const period = story.period_end ? new Date(story.period_end * 1000).toLocaleString(i18n.language) : '';
+  const detailTitle = story.title || String(story.essence_prose || '').trim() || story.content.slice(0, 80);
 
   return (
     <Dialog open={Boolean(story)} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -79,7 +80,7 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
             {period ? ` · ${period}` : ''}
             </DialogDescription>
             <DialogTitle className="mt-1 text-left text-lg font-semibold leading-7 text-[hsl(var(--memory-title))]">
-              {story.title || story.content.slice(0, 80)}
+              {detailTitle}
             </DialogTitle>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('memory.stories.detailRail.close')}>

@@ -58,6 +58,7 @@ def test_proposed_insights_float_to_top(app_factory):
         "summary_type": "temporal",
         "summary_category": "week",
         "content": "本周以阅读为主",
+        "essence_prose": "本周重点是阅读。",
         "period_end": 200.0,
         "updated_at": 200.0,
         "review_state": "neutral",
@@ -71,6 +72,7 @@ def test_proposed_insights_float_to_top(app_factory):
     assert [item["summary_id"] for item in body["items"]] == ["ins-1", "tmp-1"]
     assert body["items"][0]["review_state"] == "pending_confirmation"
     assert body["items"][0]["evidence_event_count"] == 8
+    assert body["items"][1]["essence_prose"] == "本周重点是阅读。"
 
 
 def test_pagination_limits_results(app_factory):

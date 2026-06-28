@@ -15,6 +15,7 @@ export interface StoryItem {
   summary_category: StorySummaryCategory;
   title: string;
   content: string;
+  essence_prose?: string | null;
   period_start: number | null;
   period_end: number | null;
   updated_at: number;

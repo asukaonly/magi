@@ -147,6 +147,7 @@ class TemporalSummaryLLMOutput:
     """Structured LLM output for temporal summary rewriting."""
 
     content: str
+    essence_prose: str | None = None
     key_topics: list[str] = field(default_factory=list)
     key_entities: list[dict[str, object]] = field(default_factory=list)
     sentiment_summary: dict[str, object] | None = None

@@ -190,7 +190,7 @@ def _target_language_instruction() -> str:
     target = _target_language_label()
     return (
         f"- The target language is {target}.\n"
-        f"- Write every user-facing generated field in {target}: content, key_topics, "
+        f"- Write every user-facing generated field in {target}: content, essence_prose, key_topics, "
         "sentiment_summary natural-language strings, and change_and_pattern strings.\n"
         "- This language rule is mandatory even when evidence, rule_hints, or plugin_summary_features are written in another language.\n"
         "- Preserve event ids, entity ids, URLs, file paths, source names, product names, song titles, and quoted user text as evidence presents them."
@@ -642,7 +642,10 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
                 raise ValueError("Temporal LLM output does not match target language zh-CN")
 
     def _user_facing_strings(self, output: TemporalSummaryLLMOutput) -> list[str]:
-        strings = [output.content, *output.key_topics]
+        strings = [output.content]
+        if output.essence_prose:
+            strings.append(output.essence_prose)
+        strings.extend(output.key_topics)
         if isinstance(output.sentiment_summary, dict):
             strings.extend(str(value) for value in output.sentiment_summary.values() if isinstance(value, str))
         if isinstance(output.change_and_pattern, dict):
@@ -744,6 +747,7 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
             "Extraction Task / 提取结构化字段:\n"
             "- Extract optional structured fields from the same evidence and accepted summary.\n"
             "- Do not rewrite the accepted summary.\n"
+            "- Write `essence_prose` as a short card preview: 1-2 natural sentences, grounded in the accepted summary and evidence, with no section headings.\n"
             "- Return one JSON object only.\n"
             "- `content` is optional here; when present it must exactly match the accepted summary.\n"
             "- Use empty lists or nulls when a field has no support; never fabricate metrics.\n\n"
@@ -759,7 +763,8 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
             f"{self._render_temporal_context_prompt(pack)}\n"
             "Output Requirements:\n"
             "- Return one JSON object only.\n"
-            "- The `content` field MUST be Markdown using `##` section headings (no top-level `#`). Section bodies should be tight bullet lists or short paragraphs; omit a section entirely when no evidence supports it.\n"
+            "- The `content` field must be user-facing Markdown (no top-level `#`). Prefer a short natural recap plus only the sections or bullets that help clarity; omit unsupported sections entirely.\n"
+            "- The `essence_prose` field must be a short card preview: 1-2 natural sentences with no headings or bullets.\n"
             "- `change_and_pattern.headline` is REQUIRED and must mirror the headline section's one-line summary in `content`.\n"
             "- Keep `content` and `change_and_pattern` consistent: every concrete anchor in content should also appear in the appropriate structured array.\n"
             "- Preserve concrete names and short phrases that improve future retrieval.\n"

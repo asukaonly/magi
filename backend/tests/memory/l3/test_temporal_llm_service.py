@@ -342,6 +342,43 @@ async def test_generate_temporal_candidate_ignores_structure_rewrite(
 
 
 @pytest.mark.asyncio
+async def test_generate_temporal_candidate_keeps_essence_from_structure_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="week",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="本周主要修复 Magi 总结页"),
+            TemporalEvidenceItem(event_id="evt-2", event_type="AIResponse", content="详情保留完整 Markdown"),
+        ],
+    )
+
+    async def _prose_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
+        return "## 要点\n本周主要修复 Magi 总结页，让首页更好读，详情继续保留完整内容。"
+
+    async def _structure_call(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
+        assert prose_content.startswith("## 要点")
+        return {
+            "essence_prose": "本周主要修复 Magi 总结页，让首页更好读。",
+            "key_topics": ["总结页"],
+        }
+
+    monkeypatch.setattr(service, "_call_temporal_prose_model", _prose_call)
+    monkeypatch.setattr(service, "_call_temporal_structure_model", _structure_call)
+
+    result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
+
+    assert result.used_fallback is False
+    assert result.summary_overrides["essence_prose"] == "本周主要修复 Magi 总结页，让首页更好读。"
+    assert result.summary_overrides["key_topics"] == ["总结页"]
+
+
+@pytest.mark.asyncio
 async def test_generate_temporal_candidate_falls_back_on_language_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
     service = TemporalSummaryLLMService()
     pack = TemporalEvidencePack(
