@@ -39,6 +39,7 @@ from magi.agent.task_agents.handlers.attachment_context import resolve_effective
 from .delivery_dispatch import ChatDeliveryDispatchPort
 from .fact_classifier import ChatFactClassifier
 from .rhythm import strip_segmentation_sentinel
+from .run_placement_service import ChatBackgroundLaunchRequest, ChatRunPlacementService
 from .tool_selection_service import ChatToolSelectionService, ToolAdvisoryProvider
 from .turn_ux_planner import TurnUXPlanner
 
@@ -115,6 +116,7 @@ class ChatExecutionCoordinator:
         conversation_log: Any | None = None,
         attachment_resolver: AttachmentResolverPort | None = None,
         execution_engine: TaskAgentExecutionEngine | None = None,
+        run_placement_service: ChatRunPlacementService | None = None,
     ) -> None:
         self._context_decider = context_decider
         self._fact_classifier = fact_classifier
@@ -142,6 +144,7 @@ class ChatExecutionCoordinator:
         )
         self._turn_route_resolver = TurnRouteResolver()
         self._turn_ux_planner = TurnUXPlanner()
+        self._run_placement_service = run_placement_service or ChatRunPlacementService()
         self._execution_engine = execution_engine or TaskAgentExecutionEngine(
             handler_registry=handler_registry,
             tool_registry=tool_registry,
@@ -321,6 +324,11 @@ class ChatExecutionCoordinator:
             intent=intent,
             tool_selection=tool_selection,
         )
+        background_request = await (
+            self._run_placement_service.maybe_prepare_background_launch(request)
+        )
+        if background_request is not None:
+            return background_request
         handler = self._handler_registry.get(intent.execution_mode)
         return await handler.build_request(request)
 
@@ -362,6 +370,13 @@ class ChatExecutionCoordinator:
                             "ConversationLog.record_consumed failed",
                             exc_info=True,
                         )
+
+        if isinstance(request, ChatBackgroundLaunchRequest):
+            background_result = await self._run_placement_service.launch_background(request)
+            if background_result is not None:
+                return background_result
+            handler = self._handler_registry.get(request.mode)
+            request = await handler.build_request(request)
 
         execution_outcome = await self._execution_engine.execute(request)
         result = execution_outcome.result

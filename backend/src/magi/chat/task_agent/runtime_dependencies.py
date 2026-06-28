@@ -32,6 +32,7 @@ from magi.chat.task_agent.planning_service import ChatPlanningService
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 from magi.chat.task_agent.prompt_service import ChatPromptService
 from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+from magi.chat.task_agent.run_placement_service import ChatRunPlacementService
 from magi.chat.task_agent.run_store import SessionRunStore
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.chat.task_agent.transcript_summarizer import ChatTranscriptSummarizer
@@ -271,7 +272,6 @@ def build_chat_task_agent_runtime_parts(
         get_task_agent_manager=callbacks.get_task_agent_manager,
         attachment_resolver=attachment_resolver,
         session_run_coordinator=session_run_coordinator,
-        background_dispatcher=config.background_dispatcher,
         background_launch_service=config.background_launch_service,
         persist_turn_supersessions=callbacks.persist_turn_supersessions,
     )
@@ -296,6 +296,11 @@ def build_chat_task_agent_runtime_parts(
         delivery_dispatcher=delivery_dispatcher,
         conversation_log=conversation_log,
         attachment_resolver=attachment_resolver,
+        run_placement_service=ChatRunPlacementService(
+            background_dispatcher=config.background_dispatcher,
+            background_launch_service=config.background_launch_service,
+            session_run_coordinator=session_run_coordinator,
+        ),
     )
     handler_deps.coordinator = coordinator
 

@@ -1,4 +1,4 @@
-"""Tests for the background-task dispatch branch in FunctionCallingHandler."""
+"""Tests for early background placement in the chat turn pipeline."""
 
 from __future__ import annotations
 
@@ -14,26 +14,23 @@ from magi.agent.background.dispatcher import (
     BackgroundDecisionSource,
     BackgroundDisposition,
 )
-from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
-from magi.chat.task_agent.fact_classifier import IncomingFactKind
-from magi.agent.task_agents.handlers.handlers import (
-    ChatHandlerDependencies,
-    FunctionCallingHandler,
-)
+from magi.agent.runtime.contracts import FactRecord
 from magi.agent.task_agents.common.contracts import (
     ExecutionMode,
+    ExecutionRequest,
     ExecutionResult,
-    FunctionCallingRequest,
-    OrchestrationPlan,
     ToolSelection,
     UserMessagePayload,
 )
-from magi.agent.turn_input import UserTurnInput
-
-
-# ----------------------------------------------------------------------
-# Fakes
-# ----------------------------------------------------------------------
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
+from magi.agent.task_agents.handlers.handlers import ChatHandlerDependencies, FunctionCallingHandler
+from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
+from magi.chat.task_agent.fact_classifier import ChatFactClassifier, IncomingFactKind
+from magi.chat.task_agent.run_placement_service import (
+    ChatBackgroundLaunchRequest,
+    ChatRunPlacementService,
+)
+from magi.agent.task_agents.handlers import ExecutionHandlerRegistry
 
 
 class _FakeDispatcher:
@@ -42,9 +39,7 @@ class _FakeDispatcher:
         self._exc = exc
         self.calls: list[BackgroundDecisionContext] = []
 
-    async def classify(
-        self, context: BackgroundDecisionContext
-    ) -> BackgroundDecision:
+    async def classify(self, context: BackgroundDecisionContext) -> BackgroundDecision:
         self.calls.append(context)
         if self._exc is not None:
             raise self._exc
@@ -53,15 +48,22 @@ class _FakeDispatcher:
 
 class _FakeLaunchService:
     def __init__(
-        self, result: ExecutionResult, exc: BaseException | None = None
+        self,
+        result: ExecutionResult | None = None,
+        exc: BaseException | None = None,
     ) -> None:
-        self._result = result
+        self._result = result or ExecutionResult(
+            mode=ExecutionMode.FUNCTION_CALLING,
+            response_text="Started background task...",
+            orchestration_id="bg_123",
+            turn_id="turn-1",
+        )
         self._exc = exc
         self.calls: list[dict[str, Any]] = []
 
     async def enqueue_from_request(
         self,
-        request: FunctionCallingRequest,
+        request: ExecutionRequest,
         *,
         trigger_source: BackgroundTaskTriggerSource,
         trigger: Any | None = None,
@@ -74,38 +76,37 @@ class _FakeLaunchService:
         return self._result
 
 
-class _FakeOrchestrator:
+class _FakeContextDecider:
+    tool_registry = SimpleNamespace(list_tools=lambda: [])
+
+
+class _CountingHandler:
+    mode = ExecutionMode.FUNCTION_CALLING
+
     def __init__(self) -> None:
-        self.calls = 0
+        self.build_calls = 0
 
-    async def execute_with_tools(self, **kwargs: Any) -> Any:
-        self.calls += 1
+    async def build_request(self, request: ExecutionRequest) -> ExecutionRequest:
+        self.build_calls += 1
+        return request
 
-        class _Outcome:
-            status = "completed"
-            content = "foreground reply"
-
-            def to_dict(self) -> dict[str, Any]:
-                return {"status": self.status, "content": self.content}
-
-        return _Outcome()
+    async def execute(self, request: ExecutionRequest) -> ExecutionResult:
+        return ExecutionResult(mode=request.mode, response_text="foreground")
 
 
-# ----------------------------------------------------------------------
-# Fixtures
-# ----------------------------------------------------------------------
-
-
-def _make_request(*, user_message: str = "summarise the PRs", tools: list[str] | None = None
-) -> FunctionCallingRequest:
+def _make_context(*, user_message: str = "summarise the PRs") -> ChatRuntimeContext:
     payload = UserMessagePayload(
         user_id="u1",
         session_id="s1",
         content=user_message,
         turn_id="turn-1",
     )
-    context = ChatRuntimeContext(
-        latest_fact=None,
+    return ChatRuntimeContext(
+        latest_fact=FactRecord(
+            agent_id="chat:u1",
+            event_type="user_message",
+            payload=payload.to_dict(),
+        ),
         recent_facts=[],
         batch_facts=[],
         agent_id="chat:u1",
@@ -121,99 +122,68 @@ def _make_request(*, user_message: str = "summarise the PRs", tools: list[str] |
         conversation_history=[],
         active_orchestrations=[],
     )
-    intent = IntentDecision(
+
+
+def _make_intent() -> IntentDecision:
+    return IntentDecision(
         intent="chat",
         difficulty="normal",
         execution_mode=ExecutionMode.FUNCTION_CALLING,
         reasoning="",
     )
-    return FunctionCallingRequest(
+
+
+def _make_request(
+    *,
+    user_message: str = "summarise the PRs",
+    tools: list[str] | None = None,
+) -> ExecutionRequest:
+    return ExecutionRequest(
         mode=ExecutionMode.FUNCTION_CALLING,
-        context=context,
-        intent=intent,
+        context=_make_context(user_message=user_message),
+        intent=_make_intent(),
         tool_selection=ToolSelection(tools=list(tools or []), reasoning=""),
-        prompt_context=SimpleNamespace(runtime_system=SimpleNamespace(cwd="/")),
-        system_prompt="system prompt",
-        selected_tools=list(tools or []),
     )
 
 
-def _make_handler(
+def _enabled_service(
     *,
     dispatcher: Any | None = None,
     launch_service: Any | None = None,
-    orchestrator: Any | None = None,
     session_run_coordinator: Any | None = None,
-) -> FunctionCallingHandler:
-    deps = ChatHandlerDependencies(
-        context_service=SimpleNamespace(),
-        prompt_service=SimpleNamespace(),
-        planning_service=SimpleNamespace(),
-        function_calling_orchestrator=orchestrator or _FakeOrchestrator(),
-        task_orchestrator=SimpleNamespace(),
-        context_assembler=SimpleNamespace(),
-        agent_id="chat:u1",
-        get_task_agent_manager=lambda: None,
-        session_run_coordinator=session_run_coordinator,
+) -> ChatRunPlacementService:
+    service = ChatRunPlacementService(
         background_dispatcher=dispatcher,
         background_launch_service=launch_service,
+        session_run_coordinator=session_run_coordinator,
     )
-    return FunctionCallingHandler(deps)
-
-
-# ----------------------------------------------------------------------
-# Dispatcher branch
-# ----------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _enable_auto_background_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "magi.agent.task_agents.handlers.runtime_control._auto_background_dispatch_enabled",
-        lambda: True,
-    )
+    service._auto_background_dispatch_enabled = lambda: True  # type: ignore[method-assign]
+    return service
 
 
 @pytest.mark.asyncio
-async def test_background_branch_returns_launch_service_result_on_background_verdict() -> None:
-    ack = ExecutionResult(
-        mode=ExecutionMode.FUNCTION_CALLING,
-        response_text="Started background task...",
-        orchestration_id="bg_123",
-        turn_id="turn-1",
-    )
+async def test_run_placement_returns_background_request_on_background_verdict() -> None:
     dispatcher = _FakeDispatcher(
         BackgroundDecision(
             disposition=BackgroundDisposition.BACKGROUND,
             source=BackgroundDecisionSource.RULE,
         )
     )
-    launch = _FakeLaunchService(ack)
-    orchestrator = _FakeOrchestrator()
-    handler = _make_handler(
-        dispatcher=dispatcher, launch_service=launch, orchestrator=orchestrator
+    service = _enabled_service(dispatcher=dispatcher, launch_service=_FakeLaunchService())
+
+    request = await service.maybe_prepare_background_launch(
+        _make_request(user_message="跑完告诉我", tools=["deep_research"])
     )
-    request = _make_request(user_message="跑完告诉我", tools=["deep_research"])
 
-    result = await handler._maybe_dispatch_to_background(request)
-
-    assert result is ack
-    assert orchestrator.calls == 0  # foreground orchestrator never invoked
-    assert len(launch.calls) == 1
-    assert launch.calls[0]["trigger_source"] is BackgroundTaskTriggerSource.RULE
-    # No coordinator wired → no run trigger to forward.
-    assert launch.calls[0]["trigger"] is None
-    # Dispatcher received the user text and selected tools.
+    assert isinstance(request, ChatBackgroundLaunchRequest)
+    assert request.trigger_source is BackgroundTaskTriggerSource.RULE
+    assert request.trigger is None
     assert dispatcher.calls[0].user_text == "跑完告诉我"
     assert dispatcher.calls[0].selected_tools == ["deep_research"]
 
 
 @pytest.mark.asyncio
-async def test_background_branch_forwards_run_trigger_keeping_decision_source() -> None:
-    """Auto-dispatch hands the active run's RunTrigger to the background spec for
-    origin-channel provenance, while keeping the decision-derived trigger_source
-    (RULE here) — it does NOT override it with from_trigger's USER, because the
-    dispatch *decision* is more informative than the run origin on this path."""
+async def test_run_placement_forwards_run_trigger_keeping_decision_source() -> None:
     from magi_plugin_sdk.run_trigger import RunTrigger
 
     run_trigger = RunTrigger(
@@ -224,33 +194,28 @@ async def test_background_branch_forwards_run_trigger_keeping_decision_source() 
     )
     active_run = SimpleNamespace(trigger=run_trigger)
     coordinator = SimpleNamespace(get_active_run=lambda session_id: active_run)
-
     dispatcher = _FakeDispatcher(
         BackgroundDecision(
             disposition=BackgroundDisposition.BACKGROUND,
             source=BackgroundDecisionSource.RULE,
         )
     )
-    ack = ExecutionResult(mode=ExecutionMode.FUNCTION_CALLING, orchestration_id="bg_x")
-    launch = _FakeLaunchService(ack)
-    handler = _make_handler(
+    service = _enabled_service(
         dispatcher=dispatcher,
-        launch_service=launch,
+        launch_service=_FakeLaunchService(),
         session_run_coordinator=coordinator,
     )
 
-    result = await handler._maybe_dispatch_to_background(_make_request())
+    request = await service.maybe_prepare_background_launch(_make_request())
 
-    assert result is ack
-    call = launch.calls[0]
-    assert call["trigger"] is run_trigger
-    assert call["trigger"].source_channel == "weixin"
-    # Decision-derived source is preserved, NOT replaced by from_trigger(USER).
-    assert call["trigger_source"] is BackgroundTaskTriggerSource.RULE
+    assert isinstance(request, ChatBackgroundLaunchRequest)
+    assert request.trigger is run_trigger
+    assert request.trigger.source_channel == "weixin"
+    assert request.trigger_source is BackgroundTaskTriggerSource.RULE
 
 
 @pytest.mark.asyncio
-async def test_background_branch_maps_decision_source_to_trigger_source() -> None:
+async def test_run_placement_maps_decision_source_to_trigger_source() -> None:
     mappings = [
         (BackgroundDecisionSource.PLANNER, BackgroundTaskTriggerSource.PLANNER),
         (BackgroundDecisionSource.RULE, BackgroundTaskTriggerSource.RULE),
@@ -260,90 +225,68 @@ async def test_background_branch_maps_decision_source_to_trigger_source() -> Non
     for source, expected in mappings:
         dispatcher = _FakeDispatcher(
             BackgroundDecision(
-                disposition=BackgroundDisposition.BACKGROUND, source=source
+                disposition=BackgroundDisposition.BACKGROUND,
+                source=source,
             )
         )
-        ack = ExecutionResult(mode=ExecutionMode.FUNCTION_CALLING, orchestration_id="bg_x")
-        launch = _FakeLaunchService(ack)
-        handler = _make_handler(dispatcher=dispatcher, launch_service=launch)
+        service = _enabled_service(dispatcher=dispatcher, launch_service=_FakeLaunchService())
 
-        result = await handler._maybe_dispatch_to_background(_make_request())
+        request = await service.maybe_prepare_background_launch(_make_request())
 
-        assert result is ack
-        assert launch.calls[0]["trigger_source"] is expected
+        assert isinstance(request, ChatBackgroundLaunchRequest)
+        assert request.trigger_source is expected
 
 
 @pytest.mark.asyncio
-async def test_background_branch_returns_none_on_foreground_verdict() -> None:
+async def test_run_placement_returns_none_on_foreground_verdict() -> None:
     dispatcher = _FakeDispatcher(
         BackgroundDecision(
             disposition=BackgroundDisposition.FOREGROUND,
             source=BackgroundDecisionSource.RULE,
         )
     )
-    launch = _FakeLaunchService(
-        ExecutionResult(mode=ExecutionMode.FUNCTION_CALLING, orchestration_id="bg_x")
-    )
-    handler = _make_handler(dispatcher=dispatcher, launch_service=launch)
+    launch = _FakeLaunchService()
+    service = _enabled_service(dispatcher=dispatcher, launch_service=launch)
 
-    result = await handler._maybe_dispatch_to_background(_make_request())
+    request = await service.maybe_prepare_background_launch(_make_request())
 
-    assert result is None
+    assert request is None
     assert launch.calls == []
 
 
 @pytest.mark.asyncio
-async def test_background_branch_returns_none_when_dispatcher_not_wired() -> None:
-    handler = _make_handler(dispatcher=None, launch_service=None)
-
-    result = await handler._maybe_dispatch_to_background(_make_request())
-
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_background_branch_skips_when_auto_dispatch_disabled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "magi.agent.task_agents.handlers.runtime_control._auto_background_dispatch_enabled",
-        lambda: False,
-    )
+async def test_run_placement_skips_when_auto_dispatch_disabled() -> None:
     dispatcher = _FakeDispatcher(
         BackgroundDecision(
             disposition=BackgroundDisposition.BACKGROUND,
             source=BackgroundDecisionSource.RULE,
         )
     )
-    launch = _FakeLaunchService(
-        ExecutionResult(mode=ExecutionMode.FUNCTION_CALLING, orchestration_id="bg_x")
+    launch = _FakeLaunchService()
+    service = ChatRunPlacementService(
+        background_dispatcher=dispatcher,
+        background_launch_service=launch,
     )
-    handler = _make_handler(dispatcher=dispatcher, launch_service=launch)
+    service._auto_background_dispatch_enabled = lambda: False  # type: ignore[method-assign]
 
-    result = await handler._maybe_dispatch_to_background(_make_request())
+    request = await service.maybe_prepare_background_launch(_make_request())
 
-    assert result is None
+    assert request is None
     assert dispatcher.calls == []
     assert launch.calls == []
 
 
 @pytest.mark.asyncio
-async def test_background_branch_returns_none_when_launch_service_not_wired() -> None:
-    dispatcher = _FakeDispatcher(
-        BackgroundDecision(
-            disposition=BackgroundDisposition.BACKGROUND,
-            source=BackgroundDecisionSource.RULE,
-        )
-    )
-    handler = _make_handler(dispatcher=dispatcher, launch_service=None)
+async def test_run_placement_returns_none_when_services_not_wired() -> None:
+    service = _enabled_service(dispatcher=None, launch_service=None)
 
-    result = await handler._maybe_dispatch_to_background(_make_request())
+    request = await service.maybe_prepare_background_launch(_make_request())
 
-    assert result is None
+    assert request is None
 
 
 @pytest.mark.asyncio
-async def test_background_branch_degrades_on_dispatcher_exception() -> None:
+async def test_run_placement_degrades_on_dispatcher_exception() -> None:
     dispatcher = _FakeDispatcher(
         BackgroundDecision(
             disposition=BackgroundDisposition.BACKGROUND,
@@ -351,31 +294,128 @@ async def test_background_branch_degrades_on_dispatcher_exception() -> None:
         ),
         exc=RuntimeError("dispatcher boom"),
     )
-    launch = _FakeLaunchService(
-        ExecutionResult(mode=ExecutionMode.FUNCTION_CALLING, orchestration_id="bg_x")
-    )
-    handler = _make_handler(dispatcher=dispatcher, launch_service=launch)
+    launch = _FakeLaunchService()
+    service = _enabled_service(dispatcher=dispatcher, launch_service=launch)
 
-    result = await handler._maybe_dispatch_to_background(_make_request())
+    request = await service.maybe_prepare_background_launch(_make_request())
 
-    assert result is None
+    assert request is None
     assert launch.calls == []
 
 
 @pytest.mark.asyncio
-async def test_background_branch_degrades_on_launch_exception() -> None:
+async def test_run_placement_launches_background_request() -> None:
+    ack = ExecutionResult(mode=ExecutionMode.FUNCTION_CALLING, orchestration_id="bg_x")
+    launch = _FakeLaunchService(result=ack)
+    service = _enabled_service(launch_service=launch)
+    request = ChatBackgroundLaunchRequest(
+        mode=ExecutionMode.FUNCTION_CALLING,
+        context=_make_context(),
+        intent=_make_intent(),
+        tool_selection=ToolSelection(tools=["deep_research"]),
+        trigger_source=BackgroundTaskTriggerSource.CLASSIFIER,
+    )
+
+    result = await service.launch_background(request)
+
+    assert result is ack
+    assert launch.calls[0]["trigger_source"] is BackgroundTaskTriggerSource.CLASSIFIER
+
+
+@pytest.mark.asyncio
+async def test_run_placement_launch_degrades_on_launch_exception() -> None:
+    launch = _FakeLaunchService(exc=RuntimeError("manager not started"))
+    service = _enabled_service(launch_service=launch)
+    request = ChatBackgroundLaunchRequest(
+        mode=ExecutionMode.FUNCTION_CALLING,
+        context=_make_context(),
+        intent=_make_intent(),
+        tool_selection=ToolSelection(tools=["deep_research"]),
+    )
+
+    result = await service.launch_background(request)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_coordinator_places_background_before_handler_build() -> None:
     dispatcher = _FakeDispatcher(
         BackgroundDecision(
             disposition=BackgroundDisposition.BACKGROUND,
             source=BackgroundDecisionSource.RULE,
         )
     )
-    launch = _FakeLaunchService(
-        ExecutionResult(mode=ExecutionMode.FUNCTION_CALLING, orchestration_id="bg_x"),
-        exc=RuntimeError("manager not started"),
+    launch = _FakeLaunchService()
+    placement = _enabled_service(dispatcher=dispatcher, launch_service=launch)
+    handler = _CountingHandler()
+    registry = ExecutionHandlerRegistry()
+    registry.register(handler)
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=registry,
+        run_placement_service=placement,
     )
-    handler = _make_handler(dispatcher=dispatcher, launch_service=launch)
 
-    result = await handler._maybe_dispatch_to_background(_make_request())
+    request = await coordinator.assemble_request(
+        _make_context(user_message="跑完告诉我"),
+        _make_intent(),
+        ToolSelection(tools=["deep_research"], reasoning=""),
+    )
 
-    assert result is None
+    assert isinstance(request, ChatBackgroundLaunchRequest)
+    assert handler.build_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_coordinator_launch_failure_falls_back_to_handler_build() -> None:
+    dispatcher = _FakeDispatcher(
+        BackgroundDecision(
+            disposition=BackgroundDisposition.BACKGROUND,
+            source=BackgroundDecisionSource.RULE,
+        )
+    )
+    placement = _enabled_service(
+        dispatcher=dispatcher,
+        launch_service=_FakeLaunchService(exc=RuntimeError("manager not started")),
+    )
+    handler = _CountingHandler()
+    registry = ExecutionHandlerRegistry()
+    registry.register(handler)
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=registry,
+        run_placement_service=placement,
+        execution_engine=SimpleNamespace(
+            execute=lambda request: _fake_execution_outcome(request),
+        ),
+    )
+    request = await coordinator.assemble_request(
+        _make_context(user_message="跑完告诉我"),
+        _make_intent(),
+        ToolSelection(tools=["deep_research"], reasoning=""),
+    )
+
+    result = await coordinator.execute(request)
+
+    assert handler.build_calls == 1
+    assert result.response_text == "foreground"
+
+
+async def _fake_execution_outcome(request: ExecutionRequest) -> Any:
+    return SimpleNamespace(
+        result=ExecutionResult(mode=request.mode, response_text="foreground"),
+        used_graph=False,
+    )
+
+
+def test_function_calling_handler_no_longer_auto_dispatches_background() -> None:
+    source = FunctionCallingHandler.execute.__code__.co_names
+
+    assert "_maybe_dispatch_to_background" not in source
+
+
+def test_handler_dependencies_no_longer_carry_background_dispatcher() -> None:
+    assert "background_dispatcher" not in ChatHandlerDependencies.__dataclass_fields__

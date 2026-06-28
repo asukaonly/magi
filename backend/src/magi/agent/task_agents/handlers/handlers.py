@@ -7,9 +7,6 @@ from typing import Any, Awaitable, Callable, Optional
 
 from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
 from ....core.logger import get_logger
-from ....agent.background.dispatcher import (
-    BackgroundDispatcher,
-)
 from ....agent.background.launch import BackgroundLaunchService
 from magi.control.run_control import (
     DetachSignal,
@@ -79,7 +76,6 @@ class ChatHandlerDependencies:
         default_factory=NullAttachmentResolver
     )
     session_run_coordinator: Any | None = None
-    background_dispatcher: BackgroundDispatcher | None = None
     background_launch_service: BackgroundLaunchService | None = None
     persist_turn_supersessions: Callable[[list[Any], int], Awaitable[None]] | None = (
         None
@@ -216,9 +212,6 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         )
 
     async def execute(self, request: FunctionCallingRequest) -> ExecutionResult:
-        background_result = await self._maybe_dispatch_to_background(request)
-        if background_result is not None:
-            return background_result
         execution_workspace = _resolve_execution_workspace(request)
         streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
         turn_id = getattr(request.context.latest_payload, "turn_id", None)

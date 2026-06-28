@@ -6,10 +6,6 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ....agent.background.contracts import BackgroundTaskTriggerSource
-from ....agent.background.dispatcher import (
-    BackgroundDecisionContext,
-    BackgroundDecisionSource,
-)
 from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
 from magi.control.run_control import (
     DetachSignal,
@@ -17,7 +13,6 @@ from magi.control.run_control import (
     SteerInbox,
     SteerMessage,
 )
-from ....config.loader import get_config
 from ....core.logger import get_logger
 from ..common import ExecutionResult, FunctionCallingExecutionResult, FunctionCallingRequest
 from .handler_helpers import serialize_ux_plan as _serialize_ux_plan
@@ -26,28 +21,6 @@ if TYPE_CHECKING:
     from magi_plugin_sdk.run_trigger import RunTrigger
 
 logger = get_logger(__name__)
-
-
-def _auto_background_dispatch_enabled() -> bool:
-    """Return whether chat turns may be auto-routed to background."""
-    try:
-        return bool(get_config().agent.background_tasks.auto_detect_long_task)
-    except Exception as exc:  # noqa: BLE001 - config failure should keep the turn foreground
-        logger.warning(
-            "background auto-dispatch config unavailable; staying on foreground | error=%s",
-            exc,
-        )
-        return False
-
-
-_BACKGROUND_TRIGGER_SOURCE_BY_DECISION: dict[
-    BackgroundDecisionSource, BackgroundTaskTriggerSource
-] = {
-    BackgroundDecisionSource.PLANNER: BackgroundTaskTriggerSource.PLANNER,
-    BackgroundDecisionSource.RULE: BackgroundTaskTriggerSource.RULE,
-    BackgroundDecisionSource.LLM: BackgroundTaskTriggerSource.CLASSIFIER,
-    BackgroundDecisionSource.FALLBACK: BackgroundTaskTriggerSource.RULE,
-}
 
 
 class FunctionCallingRuntimeControlMixin:
@@ -93,55 +66,6 @@ class FunctionCallingRuntimeControlMixin:
             turn_id=current_turn_id,
             ux_plan=_serialize_ux_plan(request.intent),
         )
-
-    async def _maybe_dispatch_to_background(
-        self, request: FunctionCallingRequest
-    ) -> ExecutionResult | None:
-        """Delegate to the background runtime when the dispatcher agrees."""
-        if not _auto_background_dispatch_enabled():
-            return None
-        dispatcher = self._deps.background_dispatcher
-        launch_service = self._deps.background_launch_service
-        if dispatcher is None or launch_service is None:
-            return None
-        try:
-            decision = await dispatcher.classify(
-                BackgroundDecisionContext(
-                    user_text=request.context.latest_user_message or "",
-                    selected_tools=list(request.selected_tools),
-                )
-            )
-        except Exception as exc:  # noqa: BLE001 - degrade safe to foreground
-            logger.warning(
-                "background dispatcher failed; staying on foreground | user_id=%s error=%s",
-                request.context.user_id,
-                exc,
-            )
-            return None
-        if not decision.is_background:
-            return None
-        trigger_source = _BACKGROUND_TRIGGER_SOURCE_BY_DECISION.get(
-            decision.source, BackgroundTaskTriggerSource.RULE
-        )
-        # ADR-0004 P3: forward the run's RunTrigger for origin-channel provenance
-        # (so an auto-dispatched task can be delivered back to its source), but
-        # keep the decision-derived trigger_source — the dispatch decision
-        # (planner / classifier / rule) is more informative here than the coarse
-        # bucket derived from the trigger.
-        run_trigger = self._resolve_run_trigger(
-            str(getattr(request.context, "session_id", "") or "").strip()
-        )
-        try:
-            return await launch_service.enqueue_from_request(
-                request, trigger_source=trigger_source, trigger=run_trigger
-            )
-        except Exception as exc:  # noqa: BLE001 - degrade safe to foreground
-            logger.warning(
-                "background launch failed; falling back to foreground | user_id=%s error=%s",
-                request.context.user_id,
-                exc,
-            )
-            return None
 
     def _build_detach_signal(self, *, session_id: str = "") -> DetachSignal | None:
         """Return a fresh detach signal for this turn, or ``None``."""

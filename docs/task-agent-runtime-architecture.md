@@ -383,7 +383,11 @@ behind that engine boundary.
 per-turn policy. Chat-facing presentation decisions live in
 `chat/task_agent/turn_ux_planner.py`, while runtime tool hints, recommendation
 ordering, and procedural-memory tool reranking live in
-`chat/task_agent/tool_selection_service.py`.
+`chat/task_agent/tool_selection_service.py`. Foreground/background placement
+lives in `chat/task_agent/run_placement_service.py`: after tools are selected
+but before handler request construction, the chat driver may turn an automatic
+long-task decision into a background launch request. If launch fails, the
+coordinator builds the normal foreground request and continues safely.
 
 ### Conversation presentation planning
 
@@ -713,10 +717,13 @@ Configuration lives under `agent.background_tasks` in
 ``default_task_timeout_seconds``, ``history_retention_days``. When
 ``enabled`` is ``false`` the lifecycle leaves the dispatcher and launch
 service unwired so the runtime still boots. ``auto_detect_long_task``
-defaults to ``false``; when disabled, the chat runtime skips the
-planner/rule/LLM automatic dispatch chain while keeping manual
-detach-to-background available as long as the background subsystem is
-enabled.
+defaults to ``false``; when disabled, `ChatRunPlacementService` skips the
+planner/rule/LLM automatic placement chain while keeping manual
+detach-to-background available as long as the background subsystem is enabled.
+Automatic placement runs after chat tool selection and before
+`FunctionCallingHandler.build_request()`, so long-task classification does not
+need the full prompt package and no longer lives in the function-calling
+execution path.
 
 REST surface: the `/api/background-tasks` router
 ([api/routers/background_tasks.py](../backend/src/magi/api/routers/background_tasks.py))
