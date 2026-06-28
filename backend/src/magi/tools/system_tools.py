@@ -8,9 +8,9 @@ LLM's tool loop instead of being routed.
 Consequences:
 * The router (``ContextDecider``) excludes them from its prompt — it only
   filters capability tools, so it does not waste budget reasoning about them.
-* They are appended to the main LLM's tool list at execution-assembly time
-  (``FunctionCallingHandler.build_request``), AFTER the execution shape is
-  derived — so they never turn a tool-less ``reply`` into a ``tool_loop``.
+* They are appended to the main LLM's tool list by ``TurnRouteResolver`` after
+  the execution shape is derived — so they never turn a tool-less ``reply`` into
+  a ``tool_loop``.
 * The model can therefore always switch its own state mid-loop (enter plan
   mode, ask the user, detach to background) without depending on the router
   having pre-selected the control tool.

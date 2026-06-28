@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import inspect
 import os
 import platform
@@ -12,6 +11,7 @@ from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Dict, List
 
 from magi.agent.message_utils import build_recent_messages
+from magi.agent.orchestration_plan import OrchestrationPlan
 from magi.config.models import ThinkingDepth
 from magi.core.logger import get_logger
 from magi.llm.streaming_events import LLMStreamEvent
@@ -26,15 +26,14 @@ from magi.tools.schema import ToolExecutionContext
 from magi.tools.tool_advisory_reranker import ToolAdvisoryReranker
 from magi.tools.tool_hint_resolver import ToolHintResolver
 from magi.tools.capabilities import build_tool_capabilities
-from magi.chat.task_agent.execution_shape import derive_execution_shape
 from magi.agent.task_agents.common import (
     ExecutionMode,
     ExecutionHandlerRegistry,
     ExecutionRequest,
     IncomingFactKind,
-    OrchestrationPlan,
     ToolSelection,
 )
+from magi.agent.task_agents.handlers.turn_route_resolver import TurnRouteResolver
 from magi.agent.task_agents.handlers.contracts import (
     AssistantSurfaceMode,
     ChatRuntimeContext,
@@ -76,10 +75,6 @@ def _build_persona_routing_hint(decision: Any) -> PersonaRoutingHint | None:
     )
 
 
-# Tools the execution LLM always has access to when tool-calling is active,
-# regardless of what the Context Decider selected.  This avoids the routing
-# LLM becoming a single point of failure for tool availability.
-_FALLBACK_TOOLS = ["web-search", "find-relevant-tools"]
 _CODE_OR_LOCAL_REQUEST_HINTS = (
     "code",
     "codebase",
@@ -175,6 +170,7 @@ class ChatExecutionCoordinator:
             if tool_registry is not None and callable(getattr(tool_registry, "get_tool", None))
             else None
         )
+        self._turn_route_resolver = TurnRouteResolver()
         self._tool_advisory_reranker = ToolAdvisoryReranker()
         self._execution_engine = execution_engine or TaskAgentExecutionEngine(
             handler_registry=handler_registry,
@@ -281,64 +277,30 @@ class ChatExecutionCoordinator:
             isinstance(item, dict) and str(item.get("kind") or "").strip() == "image"
             for item in effective_attachments
         )
-        selected_tools = [] if has_image_attachments else list(decision.tools)
-        if not has_image_attachments and force_direct_external:
-            selected_tools = self._prefer_direct_external_tools(selected_tools)
-        if (
-            not has_image_attachments
-            and getattr(decision, "tool_need", "direct" if selected_tools else "none")
-            == "discover"
-        ):
-            registered = set(self._context_decider.tool_registry.list_tools())
-            if "find-relevant-tools" in registered and "find-relevant-tools" not in selected_tools:
-                selected_tools.append("find-relevant-tools")
-        # Ensure fallback tools are always available when tool-assisted execution
-        # is active.  The execution LLM is smarter than the routing LLM and can
-        # decide on its own whether web-search is useful for the current task.
+        registered_tools = set(self._context_decider.tool_registry.list_tools())
+        route_resolution = self._turn_route_resolver.resolve_intent_route(
+            user_message=context.latest_user_message,
+            route_decision=decision,
+            registered_tools=registered_tools,
+            effective_attachments=effective_attachments,
+            force_direct_external=force_direct_external,
+        )
+        selected_tools = list(route_resolution.selected_tools)
         if selected_tools:
-            registered = set(self._context_decider.tool_registry.list_tools())
-            for ft in _FALLBACK_TOOLS:
-                if ft not in selected_tools and ft in registered:
-                    selected_tools.append(ft)
             selected_tools = await self._rerank_selected_tools(
                 task_context=context.latest_user_message,
                 tool_names=selected_tools,
             )
+            route_resolution = self._turn_route_resolver.finalize_intent_route(
+                route_decision=decision,
+                selected_tools=selected_tools,
+                has_image_attachments=has_image_attachments,
+                force_direct_external=force_direct_external,
+            )
 
-        # === Single source of truth for the per-turn dispatch (ADR-0005) ===
-        # The execution shape is DERIVED from semantic signals, never an
-        # independent LLM field that could contradict the tool list. This is
-        # what makes "the router selected a tool but it got dropped" impossible:
-        # a turn that selected tools derives to tool_loop, full stop.
-        #
-        # P3: the router emits a three-state needs_orchestration. A bounded
-        # external request (force_direct_external) demotes a "required" fanout
-        # down to a plain tool loop ("none"); "maybe" is preserved so the model
-        # can self-escalate in-loop via the injected `agent` tool.
-        orchestration = decision.needs_orchestration
-        # Backward-compat: a decision that only set graph_shape="plan_fanout"
-        # (older callers / direct construction that predate needs_orchestration)
-        # maps to "required".
-        if orchestration == "none" and decision.graph_shape == "plan_fanout":
-            orchestration = "required"
-        if force_direct_external and orchestration == "required":
-            orchestration = "none"
-        effective_graph_shape = derive_execution_shape(
-            has_image_attachments=has_image_attachments,
-            orchestration=orchestration,
-            has_tools=bool(selected_tools),
-        )
-
-        if effective_graph_shape != decision.graph_shape:
-            decision = dataclasses.replace(decision, graph_shape=effective_graph_shape)
-        orchestration_plan = OrchestrationPlan.from_route_decision(decision)
-
-        if effective_graph_shape == "plan_fanout":
-            execution_mode = ExecutionMode.ORCHESTRATION_LAUNCH
-        elif effective_graph_shape == "tool_loop":
-            execution_mode = ExecutionMode.FUNCTION_CALLING
-        else:  # "reply"
-            execution_mode = ExecutionMode.DIRECT_LLM
+        decision = route_resolution.route_decision
+        execution_mode = route_resolution.execution_mode
+        orchestration_plan = route_resolution.orchestration_plan
         persona_routing_hint = _build_persona_routing_hint(decision)
         intent_decision = IntentDecision(
             intent=decision.profile,  # RouteDecision uses profile as the intent label
@@ -602,19 +564,6 @@ class ChatExecutionCoordinator:
         if any(hint in user_lower for hint in _CODE_OR_LOCAL_REQUEST_HINTS):
             return False
         return not should_decompose_external_request(user_message)
-
-    def _prefer_direct_external_tools(self, selected_tools: list[str]) -> list[str]:
-        registered = set(self._context_decider.tool_registry.list_tools())
-        direct_tools = [tool for tool in selected_tools if tool != "agent"]
-        if "web-search" in registered and "web-search" not in direct_tools:
-            direct_tools.append("web-search")
-        if (
-            "web-fetch" in selected_tools
-            and "web-fetch" in registered
-            and "web-fetch" not in direct_tools
-        ):
-            direct_tools.append("web-fetch")
-        return direct_tools
 
     def _resolve_runtime_task_hint(
         self,
