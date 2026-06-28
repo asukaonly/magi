@@ -356,6 +356,15 @@ Current responsibilities:
 - delegate prompt-package assembly to the L11 context layer service
 - render final user-facing answers
 
+Runtime collaborator construction for the chat driver lives in
+`chat/task_agent/runtime_dependencies.py`. `ChatTaskAgent` receives the built
+parts and runs the turn pipeline; it should not directly instantiate the
+coordinator, prompt/planning/postprocess services, handler registry, or
+function-calling orchestrator. Bootstrap still injects the top-level
+`create_chat_agent_factory` plus runtime adapters such as delivery, conversation
+log, and message bus accessors, while chat-domain assembly stays inside the chat
+domain.
+
 The chat driver is still a task-agent implementation, but graph execution is not
 chat-owned. `ChatExecutionCoordinator` prepares the chat request and delegates
 graph-backed execution to `agent/run/TaskAgentExecutionEngine`; graph building,
@@ -858,6 +867,11 @@ Frontend composition:
 - ``SessionControlRail`` is mounted inside the chat page and hosts
   ``PlanCard`` + ``TodoPanel``. The rail self-hides when there is no
   active plan and no todos so the chat surface stays clean.
+- Chat realtime event policy is projected in ``domain/chat/realtime``.
+  ``useChatRealtimeEffects`` should subscribe to realtime messages and execute
+  the returned effect plan only; rhythm-segment completion, session-sync
+  decisions, and pending-turn unlock rules belong to the chat-domain projector,
+  not the React subscription hook.
 - ``ControlSettingsPanel`` lives under the settings Control Plane tab
   and surfaces permission rules plus background-task controls.
 

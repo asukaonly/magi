@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from magi.agent.orchestration import get_orchestration_store
 from magi.agent.cancel import SessionRunCancelToken
 from magi.control.run_control import null_run_control
-from magi.agent.task_orchestrator import TaskOrchestrator
 from magi.agent.trace import now_wall_ms
 from magi.chat import ChatProjector, ChatReadService, ChatStore
 from magi.config import get_config, get_user_preference
@@ -15,47 +13,20 @@ from magi.core.logger import get_logger
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
 from magi.agent.runtime.types import TaskAgentType
-from magi.context import (
-    ContextAssemblyService,
-    ContextRetrievalService,
-    PromptContextAssembler,
-    PromptContextRenderer,
-)
-from magi.context.user_profile_service import UserProfileService
-from magi.tools.context_decider import ContextDecider
 from magi.tools.registry import tool_registry
 from magi.runtime_trace import RuntimeTraceStore
 from magi.utils.runtime import get_runtime_paths
-from magi.agent.execution.function_calling import FunctionCallingOrchestrator
-from magi.agent.run.ports import LazyAttachmentResolver
 from magi.llm.streaming_events import stream_scope
-from .interruption_classifier import InterruptionClassifier
 from magi.agent.task_agents.handlers import (
     IntentDecision,
     ChatRuntimeContext,
-    ExecutionHandlerRegistry,
     ExecutionRequest,
     ExecutionResult,
     ToolSelection,
 )
-from .coordinator import ChatExecutionCoordinator
-from .fact_classifier import ChatFactClassifier
-from .prompt_service import ChatPromptService
-from .session_run_coordinator import SessionRunCoordinator
-from .run_store import SessionRunStore
-from magi.chat.task_agent.context_assembler import ChatContextAssembler
-from magi.chat.task_agent.planning_service import ChatPlanningService
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
-from magi.agent.task_agents.handlers.direct_handler import DirectLLMHandler
-from magi.agent.task_agents.handlers.explore_render import ExploreRenderHandler
-from magi.agent.task_agents.handlers.handlers import (
-    ChatHandlerDependencies,
-    FunctionCallingHandler,
-    build_common_handler_dependencies,
-)
 from magi.chat.task_agent.reply_context import ChatReplyContextMixin
 from .rhythm import (
-    ResponseRhythmPlanner,
     is_conversation_rhythm_enabled,
 )
 from magi.chat.task_agent.session_control import ChatSessionControlMixin
@@ -63,20 +34,13 @@ from .streaming import (
     ChatStreamingMixin,
     format_llm_error as _format_llm_error,
 )
-from magi.chat.task_agent.transcript_summarizer import ChatTranscriptSummarizer
-from magi.agent.task_agents.common import (
-    FactOnlyHandler,
-    OrchestrationLaunchHandler,
-    OrchestrationUpdateHandler,
+from .runtime_dependencies import (
+    ChatTaskAgentRuntimeCallbacks,
+    ChatTaskAgentRuntimeConfig,
+    build_chat_task_agent_runtime_parts,
 )
 
 logger = get_logger(__name__)
-
-
-def _default_chat_read_service_factory() -> ChatReadService:
-    from magi.chat import get_chat_read_service
-
-    return get_chat_read_service()
 
 
 class ChatTaskAgent(
@@ -115,20 +79,9 @@ class ChatTaskAgent(
         control_session_store_provider: Callable[[], Any] | None = None,
         delivery_dispatcher_resolver: Callable[[], Any] | None = None,
         conversation_log_resolver: Callable[[], Any] | None = None,
+        message_bus: Any | None = None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
-        # Resolver returning the channel-owned delivery dispatcher (or None
-        # when channels are not configured yet). Tests inject a callable to
-        # bypass the runtime container.
-        self._delivery_dispatcher_resolver = (
-            delivery_dispatcher_resolver or self._resolve_delivery_dispatcher
-        )
-        # Phase F: resolver returning the live ConversationLog (or None
-        # pre-bootstrap / in tests). Threaded into ChatContextAssembler so
-        # the typed event-sourced history API can be consumed in Task 8.
-        self._conversation_log_resolver = (
-            conversation_log_resolver or self._resolve_conversation_log
-        )
         self.llm = llm_adapter
         self._llm_pool = llm_pool
         self.memory = memory
@@ -136,195 +89,65 @@ class ChatTaskAgent(
         self.memory_integration = memory_integration
         self._chat_store = chat_store
         self._runtime_trace_store = runtime_trace_store
-        self._chat_read_service_factory = (
-            chat_read_service_factory or _default_chat_read_service_factory
-        )
-        self.context_decider = ContextDecider(
-            tool_registry=tool_registry,
-            llm_adapter=llm_adapter,
-            llm_pool=llm_pool,
-        )
-        self.prompt_context_assembler = PromptContextAssembler(
-            user_profile_service=UserProfileService(unified_memory=unified_memory),
-        )
-        self.prompt_context_renderer = PromptContextRenderer()
-        self._chat_read_service = self._chat_read_service_factory()
-        # Chat-backed attachment resolver injected into the engine (orchestrator,
-        # handlers, coordinator). Delegates to ``chat_read_service_factory``
-        # lazily per resolve, preserving the prior lazy-singleton semantics of
-        # calling ``get_chat_read_service()`` at message-build time.
-        self._attachment_resolver = LazyAttachmentResolver(
-            self._chat_read_service_factory
-        )
-        self._context_retrieval_service = ContextRetrievalService(
-            unified_memory=unified_memory,
-            retrieval_service=hybrid_retrieval_service,
-        )
-        self._context_service = ContextAssemblyService(
-            agent_id=self.agent_id,
-            agent_type=str(
-                self.agent_type.value
-                if hasattr(self.agent_type, "value")
-                else self.agent_type
+        runtime_parts = build_chat_task_agent_runtime_parts(
+            ChatTaskAgentRuntimeConfig(
+                agent_id=self.agent_id,
+                runtime_key=self.runtime_key,
+                llm_adapter=llm_adapter,
+                llm_pool=llm_pool,
+                memory=memory,
+                unified_memory=unified_memory,
+                hybrid_retrieval_service=hybrid_retrieval_service,
+                history_cache_max_sessions=history_cache_max_sessions,
+                history_fetch_limit=history_fetch_limit,
+                skill_runner=skill_runner,
+                runtime_trace_store=runtime_trace_store,
+                chat_store=chat_store,
+                chat_projector=chat_projector,
+                chat_read_service_factory=chat_read_service_factory,
+                background_dispatcher=background_dispatcher,
+                background_launch_service=background_launch_service,
+                permission_gateway_provider=permission_gateway_provider,
+                control_session_store_provider=control_session_store_provider,
+                delivery_dispatcher_resolver=delivery_dispatcher_resolver,
+                conversation_log_resolver=conversation_log_resolver,
+                message_bus=message_bus,
             ),
-            prompt_context_assembler=self.prompt_context_assembler,
-            prompt_context_renderer=self.prompt_context_renderer,
-            retrieval_memory_provider=self._context_retrieval_service.build_retrieved_memory_payload,
-            memory=memory,
-            session_workspace_provider=self._resolve_session_workspace_path,
-        )
-
-        runtime_paths = get_runtime_paths()
-        self._context_assembler = ChatContextAssembler(
-            l1_db_path=runtime_paths.l1_memory_db_path,
-            history_cache_max_sessions=history_cache_max_sessions,
-            history_fetch_limit=history_fetch_limit,
-            chat_store=chat_store,
-            chat_read_service_factory=self._chat_read_service_factory,
-            scenario_llm_pool=llm_pool,
-            llm_adapter=llm_adapter,
-        )
-        self._fact_classifier = ChatFactClassifier()
-        self._prompt_service = ChatPromptService(
-            llm_adapter=llm_adapter,
-            llm_pool=llm_pool,
-        )
-        self._interruption_classifier = InterruptionClassifier(
-            llm_adapter=llm_adapter,
-            llm_pool=llm_pool,
-        )
-        _delivery_dispatcher = self._delivery_dispatcher_resolver()
-        self._session_run_coordinator = SessionRunCoordinator(
-            run_store=SessionRunStore(
-                l0_store=(unified_memory.l0 if unified_memory is not None else None),
-            ),
-            interruption_classifier=self._interruption_classifier,
-            delivery_dispatcher=_delivery_dispatcher,
-            conversation_log=self._conversation_log_resolver(),
-        )
-        self._planning_service = ChatPlanningService(
-            agent_id=self.agent_id,
-            runtime_key=self.runtime_key,
-            context_service=self._context_service,
-            prompt_service=self._prompt_service,
-            context_assembler=self._context_assembler,
-            tool_registry=tool_registry,
-            parent_task_agent_type=TaskAgentType.CHAT.value,
-        )
-        self._orchestration_store = get_orchestration_store()
-        self._task_orchestrator = TaskOrchestrator(
-            runtime_key=self.runtime_key,
-            tool_registry=tool_registry,
-            plan_subtasks=self._planning_service.generate_subtask_plan,
-            aggregate_orchestration=self._planning_service.aggregate_orchestration,
-            register_user_message=self._context_assembler.append_user_message,
-            parent_task_agent_type=TaskAgentType.CHAT.value,
-            session_workspace_provider=self._resolve_session_workspace_path,
-            control_session_store_provider=control_session_store_provider,
-        )
-        # Initialize trace read service for enriching AI_RESPONSE events
-        from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
-
-        try:
-            trace_read_service = ChatTraceReadService()
-        except Exception:
-            trace_read_service = None
-        self._transcript_summarizer = ChatTranscriptSummarizer(
-            chat_store=chat_store,
-            scenario_llm_pool=llm_pool,
-            llm_adapter=llm_adapter,
-        )
-
-        self._postprocess_service = ChatPostProcessService(
-            agent_id=self.agent_id,
-            context_assembler=self._context_assembler,
-            get_event_emitter=lambda: self._event_emitter,
-            get_task_agent_manager=lambda: self._task_agent_manager,
-            get_sensor_hub=lambda: self._sensor_hub,
-            memory=memory,
-            unified_memory=unified_memory,
-            max_fact_memory=self._max_fact_memory,
-            trace_read_service=trace_read_service,
-            runtime_trace_store=runtime_trace_store,
-            chat_store=chat_store,
-            chat_projector=chat_projector,
-            chat_read_service_factory=self._chat_read_service_factory,
-            complete_session_run=lambda session_id, run_id, revision: self._session_run_coordinator.complete_run(
-                session_id=session_id,
-                run_id=run_id,
-                revision=revision,
-            ),
-            resolve_session_run_status=lambda session_id, run_id, revision: self._session_run_coordinator.get_run_status(
-                session_id=session_id,
-                run_id=run_id,
-                revision=revision,
-            ),
-            drain_deferred_turns=self._drain_deferred_turns,
-            response_rhythm_planner=ResponseRhythmPlanner(),
-            transcript_summarizer=self._transcript_summarizer,
-            event_bus=self._resolve_message_bus(),
-            deliver_final_response=(
-                self._deliver_final_response_from_postprocess
-                if _delivery_dispatcher is not None
-                else None
+            ChatTaskAgentRuntimeCallbacks(
+                get_event_emitter=lambda: self._event_emitter,
+                get_task_agent_manager=lambda: self._task_agent_manager,
+                get_sensor_hub=lambda: self._sensor_hub,
+                max_fact_memory=self._max_fact_memory,
+                drain_deferred_turns=self._drain_deferred_turns,
+                deliver_final_response=self._deliver_final_response_from_postprocess,
+                tool_advisory_provider=self._get_tool_advisory,
+                session_workspace_provider=self._resolve_session_workspace_path,
+                persist_turn_supersessions=self._persist_turn_supersessions_from_handler,
             ),
         )
-        self.function_calling_orchestrator = FunctionCallingOrchestrator(
-            llm_adapter=llm_adapter,
-            llm_pool=llm_pool,
-            tool_registry=tool_registry,
-            skill_runner=skill_runner,
-            tool_result_callback=self._postprocess_service.record_tool_interaction,
-            loop_event_callback=self._postprocess_service.record_tool_loop_fact,
-            runtime_trace_store=runtime_trace_store,
-            scenario_llm_pool=llm_pool,
-            permission_gateway_provider=permission_gateway_provider,
-            attachment_resolver=self._attachment_resolver,
+        self._chat_read_service_factory = runtime_parts.chat_read_service_factory
+        self.context_decider = runtime_parts.context_decider
+        self.prompt_context_assembler = runtime_parts.prompt_context_assembler
+        self.prompt_context_renderer = runtime_parts.prompt_context_renderer
+        self._chat_read_service = runtime_parts.chat_read_service
+        self._attachment_resolver = runtime_parts.attachment_resolver
+        self._context_retrieval_service = runtime_parts.context_retrieval_service
+        self._context_service = runtime_parts.context_service
+        self._context_assembler = runtime_parts.context_assembler
+        self._fact_classifier = runtime_parts.fact_classifier
+        self._prompt_service = runtime_parts.prompt_service
+        self._interruption_classifier = runtime_parts.interruption_classifier
+        self._session_run_coordinator = runtime_parts.session_run_coordinator
+        self._planning_service = runtime_parts.planning_service
+        self._orchestration_store = runtime_parts.orchestration_store
+        self._task_orchestrator = runtime_parts.task_orchestrator
+        self._transcript_summarizer = runtime_parts.transcript_summarizer
+        self._postprocess_service = runtime_parts.postprocess_service
+        self.function_calling_orchestrator = (
+            runtime_parts.function_calling_orchestrator
         )
-        handler_deps = ChatHandlerDependencies(
-            context_service=self._context_service,
-            prompt_service=self._prompt_service,
-            planning_service=self._planning_service,
-            function_calling_orchestrator=self.function_calling_orchestrator,
-            task_orchestrator=self._task_orchestrator,
-            context_assembler=self._context_assembler,
-            agent_id=self.agent_id,
-            get_task_agent_manager=lambda: self._task_agent_manager,
-            attachment_resolver=self._attachment_resolver,
-            session_run_coordinator=self._session_run_coordinator,
-            background_dispatcher=background_dispatcher,
-            background_launch_service=background_launch_service,
-            persist_turn_supersessions=self._persist_turn_supersessions_from_handler,
-        )
-        self._handler_registry = ExecutionHandlerRegistry()
-        common_handler_deps = build_common_handler_dependencies(handler_deps)
-        for handler in (
-            FactOnlyHandler(common_handler_deps),
-            DirectLLMHandler(handler_deps),
-            FunctionCallingHandler(handler_deps),
-            OrchestrationLaunchHandler(common_handler_deps),
-            OrchestrationUpdateHandler(common_handler_deps),
-            ExploreRenderHandler(handler_deps),
-        ):
-            self._handler_registry.register(handler)
-        _conversation_log = self._conversation_log_resolver()
-        self._coordinator = ChatExecutionCoordinator(
-            context_decider=self.context_decider,
-            fact_classifier=self._fact_classifier,
-            handler_registry=self._handler_registry,
-            intent_trace_callback=self._postprocess_service.record_intent_resolution,
-            tool_advisory_provider=self._get_tool_advisory,
-            tool_selection_trace_callback=self._postprocess_service.record_tool_selection,
-            delivery_dispatcher=_delivery_dispatcher,
-            conversation_log=_conversation_log,
-            attachment_resolver=self._attachment_resolver,
-        )
-        # Phase G+1: back-fill the coordinator on the shared handler
-        # dependencies so DirectLLMHandler.execute() can route text_delta
-        # chunks via coordinator.dispatch_stream_chunk for multi-channel
-        # fanout. Handlers already constructed above retain ``self._deps``
-        # by reference, so mutating the dataclass here updates them in place.
-        handler_deps.coordinator = self._coordinator
+        self._handler_registry = runtime_parts.handler_registry
+        self._coordinator = runtime_parts.coordinator
         self._last_batch_facts: list[FactRecord] = []
 
         # Keep this alias so existing read paths and tests see the same underlying store.
@@ -345,54 +168,6 @@ class ChatTaskAgent(
         if deliver is None:
             return []
         return await deliver(context, content=content)
-
-    @staticmethod
-    def _resolve_delivery_dispatcher() -> Any | None:
-        """Pull the channel-owned chat delivery dispatcher from the container.
-
-        Returns ``None`` when the container is not initialized, channels are
-        intentionally off, or the channels module has not finished starting.
-        """
-        try:
-            from magi.core.container import get_container
-
-            context = get_container().runtime_bootstrap_context()
-        except Exception:
-            return None
-        # ``runtime_bootstrap_context`` is overridden during bootstrap with a
-        # real ``RuntimeBootstrapContext``. Before that, the provider returns
-        # a bare ``object()`` placeholder that has no ``channels`` attribute.
-        channels_state = getattr(context, "channels", None)
-        if channels_state is None:
-            return None
-        module = getattr(channels_state, "module", None)
-        if module is None:
-            return None
-        return getattr(module, "_chat_delivery_dispatcher", None)
-
-    @staticmethod
-    def _resolve_conversation_log() -> Any | None:
-        """Pull the live ConversationLog out of the runtime container.
-
-        Mirrors :meth:`_resolve_delivery_dispatcher`. Returns ``None`` pre-
-        bootstrap, in tests where the container provider returns a bare
-        ``object()`` placeholder, or when the chat lifecycle module hasn't
-        wired a log yet. ChatContextAssembler falls back to legacy paths in
-        that case.
-        """
-        try:
-            from magi.core.container import get_container
-
-            context = get_container().runtime_bootstrap_context()
-        except Exception:
-            return None
-        chat_state = getattr(context, "chat", None)
-        if chat_state is None:
-            return None
-        module = getattr(chat_state, "module", None)
-        if module is None:
-            return None
-        return getattr(module, "_conversation_log", None)
 
     async def _persist_turn_supersessions_from_handler(
         self,
@@ -417,18 +192,6 @@ class ChatTaskAgent(
             user_id, session_id
         )
         return summary.workspace_path if summary is not None else None
-
-    @staticmethod
-    def _resolve_message_bus() -> Any | None:
-        try:
-            from magi.core.container import get_container
-
-            bus = get_container().message_bus()
-        except Exception:
-            return None
-        if bus is None or type(bus).__name__ == "object":
-            return None
-        return bus if hasattr(bus, "publish") else None
 
     async def _get_tool_advisory(
         self,

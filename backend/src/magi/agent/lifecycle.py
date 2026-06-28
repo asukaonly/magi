@@ -69,6 +69,7 @@ class AgentRuntimeModule(LifecycleModule):
         runtime_trace_store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
         chat_store = require_initialized(self._context.chat.store, "chat store")
         chat_projector = require_initialized(self._context.chat.projector, "chat projector")
+        message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
         sensor_hub = require_initialized(self._context.agent_runtime.sensor_hub, "sensor hub")
         event_emitter = require_initialized(self._context.agent_runtime.event_emitter, "event emitter")
         plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
@@ -115,6 +116,17 @@ class AgentRuntimeModule(LifecycleModule):
                 background_launch_service=background_wiring.launch_service if bg_settings.enabled else None,
                 permission_gateway_provider=get_permission_gateway,
                 control_session_store_provider=resolve_control_session_store,
+                delivery_dispatcher_resolver=lambda: getattr(
+                    getattr(self._context.channels, "module", None),
+                    "_chat_delivery_dispatcher",
+                    None,
+                ),
+                conversation_log_resolver=lambda: getattr(
+                    getattr(self._context.chat, "module", None),
+                    "_conversation_log",
+                    None,
+                ),
+                message_bus=message_bus,
             ),
             create_default_agent=create_default_agent_factory(
                 llm_adapter=llm_adapter,
@@ -150,7 +162,7 @@ class AgentRuntimeModule(LifecycleModule):
                 llm_adapter=llm_adapter,
                 tool_registry_instance=tool_registry,
                 task_agent_manager=task_agent_manager,
-                message_bus=require_initialized(self._context.message_bus.message_bus, "message bus"),
+                message_bus=message_bus,
                 runtime_trace_store=runtime_trace_store,
                 scenario_llm_pool=llm_pool,
                 permission_gateway_provider=get_permission_gateway,

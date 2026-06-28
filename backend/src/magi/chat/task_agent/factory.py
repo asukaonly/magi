@@ -32,6 +32,9 @@ def create_chat_agent_factory(
     background_launch_service: Any | None = None,
     permission_gateway_provider: Callable[[], Any] | None = None,
     control_session_store_provider: Callable[[], Any] | None = None,
+    delivery_dispatcher_resolver: Callable[[], Any] | None = None,
+    conversation_log_resolver: Callable[[], Any] | None = None,
+    message_bus: Any | None = None,
 ) -> Callable[[str], ChatTaskAgent]:
     """Return a factory callable that creates ChatTaskAgent instances."""
 
@@ -55,6 +58,9 @@ def create_chat_agent_factory(
             background_launch_service=background_launch_service,
             permission_gateway_provider=permission_gateway_provider,
             control_session_store_provider=control_session_store_provider,
+            delivery_dispatcher_resolver=delivery_dispatcher_resolver,
+            conversation_log_resolver=conversation_log_resolver,
+            message_bus=message_bus,
         )
 
     return _create

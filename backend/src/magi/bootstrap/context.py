@@ -94,9 +94,8 @@ class ChatBootstrapState:
     projector: ChatProjector | None = None
     channel_session_provisioner: Any | None = None
     channel_attachment_store: Any | None = None
-    # Phase F: ChatStoreModule sets ``module`` to itself so resolvers
-    # (ChatTaskAgent._resolve_conversation_log) can pull the live
-    # ConversationLog instance off the lifecycle module.
+    # Phase F: ChatStoreModule sets ``module`` to itself so lifecycle
+    # assembly can pass the live ConversationLog into chat runtime wiring.
     module: Any | None = None
 
 

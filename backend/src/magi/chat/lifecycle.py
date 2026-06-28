@@ -24,9 +24,8 @@ class ChatStoreModule(LifecycleModule):
         )
         self._context = context
         # Phase F: lifecycle-owned conversation log + its consumed-events
-        # store. Initialized in ``init()`` so resolvers in ChatTaskAgent
-        # can pull the live instance off the module via the runtime
-        # bootstrap context.
+        # store. Initialized in ``init()`` so lifecycle assembly can pass
+        # the live instance into chat runtime wiring.
         self._consumed_events_store: ChatRunConsumedEventsStore | None = None
         self._conversation_log: ConversationLog | None = None
 
@@ -43,8 +42,8 @@ class ChatStoreModule(LifecycleModule):
             runtime_paths=runtime_paths,
         )
         # Phase F: build the ConversationLog alongside the ChatStore so
-        # downstream consumers (ChatTaskAgent → ChatContextAssembler) can
-        # reach it through ``ctx.chat.module._conversation_log``. The
+        # downstream consumers can reach it through lifecycle-injected
+        # chat runtime wiring. The
         # consumed-events store shares the chat DB file because the
         # chat-domain Alembic migration owns the
         # ``chat_run_consumed_events`` table.
