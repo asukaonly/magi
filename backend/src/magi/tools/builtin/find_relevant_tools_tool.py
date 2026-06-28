@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+import re
+from typing import Any, Dict
 
 from ..recommender import ToolRecommender
 from ..tool_advisory_reranker import ToolAdvisoryReranker
@@ -12,6 +13,26 @@ from ..registry import tool_registry
 
 
 logger = logging.getLogger(__name__)
+
+
+_DISCOVERY_SYNONYMS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("日程", ("calendar", "schedule")),
+    ("日历", ("calendar", "schedule")),
+    ("会议", ("meeting", "calendar")),
+    ("空档", ("availability", "free", "busy", "slot")),
+    ("空闲", ("availability", "free", "busy", "slot")),
+    ("档期", ("availability", "schedule", "slot")),
+    ("可用时间", ("availability", "free", "busy", "slot")),
+    ("安排", ("schedule", "planning")),
+    ("照片", ("photo", "image", "picture")),
+    ("图片", ("image", "photo", "picture")),
+    ("天气", ("weather", "forecast")),
+    ("网页", ("web", "fetch", "browser")),
+    ("搜索", ("search", "web")),
+    ("代码", ("code", "file", "grep")),
+    ("文件", ("file", "read", "write")),
+)
+_TOKEN_RE = re.compile(r"[a-z0-9]+|[\u4e00-\u9fff]+", re.IGNORECASE)
 
 
 class FindRelevantToolsTool(Tool):
@@ -96,7 +117,6 @@ class FindRelevantToolsTool(Tool):
 
         registry = self._get_registry()
         recommender = ToolRecommender(registry)
-        recommendations: List[Dict[str, Any]] = []
         tool_recommendations = self._recommend_tools(
             recommender=recommender,
             registry=registry,
@@ -110,18 +130,17 @@ class FindRelevantToolsTool(Tool):
             query=query,
             context=context,
         )
-        recommendations.extend(tool_recommendations)
-        recommendations.extend(
-            self._recommend_skills(
-                registry=registry,
-                query=query,
-                current_tools=current_tools,
-                limit=limit,
-                existing_names={str(item.get("name") or "") for item in recommendations},
-            )
+        skill_recommendations = self._recommend_skills(
+            registry=registry,
+            query=query,
+            current_tools=current_tools,
+            limit=max(limit * self._TOOL_CANDIDATE_MULTIPLIER, self._MIN_TOOL_CANDIDATES),
+            existing_names={str(item.get("name") or "") for item in tool_recommendations},
         )
 
-        recommendations = recommendations[:limit]
+        recommendations = self._rank_recommendations(
+            [*tool_recommendations, *skill_recommendations]
+        )[:limit]
         recommended_names = [str(item.get("name") or "").strip() for item in recommendations if str(item.get("name") or "").strip()]
         expansion_payload = {
             "append_tools": recommended_names,
@@ -222,7 +241,7 @@ class FindRelevantToolsTool(Tool):
         existing_names: set[str],
     ) -> list[dict[str, Any]]:
         query_lower = query.lower()
-        tokens = {token for token in query_lower.replace("/", " ").replace("_", " ").split() if len(token) > 1}
+        query_tokens = set(self._tokenize_discovery_text(query))
         scored: list[tuple[float, dict[str, Any]]] = []
         for skill_name in registry.get_skill_names():
             if skill_name in current_tools or skill_name in existing_names:
@@ -238,13 +257,27 @@ class FindRelevantToolsTool(Tool):
                     str(metadata.argument_hint or ""),
                     " ".join(str(tag) for tag in (metadata.tags or [])),
                 ]
-            ).lower()
+            )
+            haystack_lower = self._expand_discovery_text(haystack).lower()
+            haystack_tokens = set(self._tokenize_discovery_text(haystack))
             score = 0.0
             if skill_name.lower() in query_lower:
                 score += 0.6
-            for token in tokens:
-                if token in haystack:
-                    score += 0.1
+            skill_name_tokens = set(self._tokenize_discovery_text(skill_name))
+            if skill_name_tokens and skill_name_tokens.issubset(query_tokens):
+                score += 0.45
+            overlap = query_tokens & haystack_tokens
+            score += min(len(overlap), 6) * 0.12
+            category = str(metadata.category or "").strip().lower()
+            if category and category in query_tokens:
+                score += 0.2
+            for tag in metadata.tags or []:
+                tag_tokens = set(self._tokenize_discovery_text(str(tag)))
+                if tag_tokens and tag_tokens & query_tokens:
+                    score += 0.08
+            for token in query_tokens:
+                if len(token) > 2 and token in haystack_lower:
+                    score += 0.03
             if score <= 0:
                 continue
             scored.append(
@@ -261,6 +294,35 @@ class FindRelevantToolsTool(Tool):
             )
         scored.sort(key=lambda item: item[0], reverse=True)
         return [item for _, item in scored[:limit]]
+
+    @staticmethod
+    def _rank_recommendations(recommendations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        indexed: list[tuple[float, int, dict[str, Any]]] = []
+        for index, item in enumerate(recommendations):
+            indexed.append((float(item.get("score") or 0.0), index, item))
+        indexed.sort(key=lambda row: (-row[0], row[1]))
+        return [item for _, _, item in indexed]
+
+    @staticmethod
+    def _expand_discovery_text(text: str) -> str:
+        lowered = str(text or "").lower()
+        aliases: list[str] = []
+        for marker, expansions in _DISCOVERY_SYNONYMS:
+            if marker in lowered:
+                aliases.extend(expansions)
+        if not aliases:
+            return lowered
+        return " ".join([lowered, *aliases])
+
+    @classmethod
+    def _tokenize_discovery_text(cls, text: str) -> list[str]:
+        expanded = cls._expand_discovery_text(text)
+        tokens: list[str] = []
+        for match in _TOKEN_RE.findall(expanded):
+            token = match.lower().strip()
+            if len(token) > 1:
+                tokens.append(token)
+        return tokens
 
     @staticmethod
     def _normalize_current_tools(raw_value: Any) -> list[str]:

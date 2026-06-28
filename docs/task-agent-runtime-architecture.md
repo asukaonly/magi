@@ -509,6 +509,13 @@ context-fit, and extracted strategy hints can promote or demote candidates;
 tools with an open breaker are skipped for the current turn instead of being
 re-added as likely next steps.
 
+Tool discovery ranks builtin tools and skills in one candidate list instead of
+always appending skills after tools. It also does lightweight multilingual
+query expansion for common capability words, so Chinese requests for calendar
+availability, weather, photo, web, code, and file tasks can still match English
+skill metadata. This remains a bounded recovery path, not a full capability
+browser.
+
 ### `ExploreTaskAgent`
 
 Specialized task agent in `agent/task_agents/explore_task_agent.py`.

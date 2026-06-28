@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 
@@ -51,6 +49,93 @@ class TestFindRelevantToolsTool:
         assert result.success is True
         assert result.data["recommended_tools"] == ["weather"]
         assert result.data["tool_expansion"]["append_tools"] == ["weather"]
+
+    @pytest.mark.asyncio
+    async def test_tool_discovers_english_calendar_skill_from_chinese_query(self, tmp_path) -> None:
+        from magi.skills.schema import SkillMetadata
+        from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
+        from magi.tools.registry import ToolRegistry
+
+        registry = ToolRegistry()
+        registry.register(FindRelevantToolsTool)
+        registry.register_skill_index(
+            {
+                "calendar-availability": SkillMetadata(
+                    name="calendar-availability",
+                    description="Find calendar availability, free busy slots, meetings, and schedules.",
+                    directory=tmp_path,
+                    category="calendar",
+                    tags=["calendar", "availability", "schedule"],
+                )
+            }
+        )
+        tool = registry.get_tool("find-relevant-tools")
+
+        assert tool is not None
+        result = await tool.execute(
+            {
+                "query": "帮我找能看日程空档和会议安排的能力",
+                "current_tools": [],
+                "limit": 1,
+            },
+            _make_context_with_memory_query(memory_query_port=None),
+        )
+
+        assert result.success is True
+        assert result.data["recommended_tools"] == ["calendar-availability"]
+        assert result.data["recommendations"][0]["type"] == "skill"
+
+    @pytest.mark.asyncio
+    async def test_tool_ranks_matching_skill_ahead_of_generic_tool(self, monkeypatch, tmp_path) -> None:
+        from magi.skills.schema import SkillMetadata
+        from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
+        from magi.tools.builtin.web_search_tool import WebSearchTool
+        from magi.tools.recommender import ToolRecommender
+        from magi.tools.registry import ToolRegistry
+
+        registry = ToolRegistry()
+        registry.register(FindRelevantToolsTool)
+        registry.register(WebSearchTool)
+        registry.register_skill_index(
+            {
+                "calendar-availability": SkillMetadata(
+                    name="calendar-availability",
+                    description="Find calendar availability, free busy slots, meetings, and schedules.",
+                    directory=tmp_path,
+                    category="calendar",
+                    tags=["calendar", "availability", "schedule"],
+                )
+            }
+        )
+        tool = registry.get_tool("find-relevant-tools")
+
+        assert tool is not None
+
+        def _fake_recommend_tools(self, *, intent, context, top_k, candidate_tools):
+            _ = (self, intent, context, top_k, candidate_tools)
+            return [
+                {
+                    "tool": "web-search",
+                    "reason": "generic search fallback",
+                    "score": 0.2,
+                    "category": "web",
+                }
+            ]
+
+        monkeypatch.setattr(ToolRecommender, "recommend_tools", _fake_recommend_tools)
+
+        result = await tool.execute(
+            {
+                "query": "calendar availability and free busy slots",
+                "current_tools": [],
+                "limit": 1,
+            },
+            _make_context_with_memory_query(memory_query_port=None),
+        )
+
+        assert result.success is True
+        assert result.data["recommended_tools"] == ["calendar-availability"]
+        assert result.data["recommendations"][0]["type"] == "skill"
 
     @pytest.mark.asyncio
     async def test_tool_reranks_candidates_using_l4_advisory(self, monkeypatch) -> None:
