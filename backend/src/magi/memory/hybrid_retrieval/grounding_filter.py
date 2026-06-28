@@ -49,15 +49,26 @@ Design contract:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import re
 import time
 from typing import Any
 
-from magi.memory.dialogue_transcripts import extract_dialogue_speaker
-
 from .debug_detail import event_records, log_detail, relationship_records
+from .grounding_filter_owner import (
+    apply_named_person_owner_prefilter as _apply_named_person_owner_prefilter,
+)
+from .grounding_filter_prompt import (
+    CONTENT_CAP_CHARS,  # noqa: F401 - compatibility export
+    SYSTEM_PROMPT as _SYSTEM_PROMPT,
+    build_l2_prompt_payload as _build_l2_prompt_payload,  # noqa: F401
+    build_prompt_payload as _build_prompt_payload,  # noqa: F401
+    build_unified_prompt_payload as _build_unified_prompt_payload,
+    parse_keep_response as _parse_keep_response,
+)
+from .grounding_filter_trace import (
+    compat_l2_trace as _compat_l2_trace,
+    degraded_trace as _degraded_trace,
+)
 from .models import RetrievalPayload, RetrievalQuery
 
 logger = logging.getLogger(__name__)
@@ -75,96 +86,6 @@ MIN_CANDIDATES_TO_FILTER = 2
 # never had a real chance of being scored by the answer LLM anyway.
 # Applied PER TYPE before building the unified candidate list.
 SKIP_THRESHOLD_MAX = 60
-
-# Per-candidate content cap. The grounding LLM MUST see the same
-# textual content as the answer LLM downstream — otherwise it can
-# silently drop a candidate whose key signal lives past the cap, and
-# the user gets "I couldn't find anything" for a record that was
-# actually retrieved. An earlier version of this filter capped at 80
-# chars which caused exactly that failure mode on real OCR content
-# (the "猫熬我" passage starts ~200 chars into the screenshot text).
-#
-# The cap here is a safety net against pathological inputs only
-# (e.g. a single L1 row with 100KB of OCR text would explode the
-# prompt). Set well above the 95th percentile of real fact_events.content
-# lengths so it's effectively "give the LLM everything" in normal use.
-CONTENT_CAP_CHARS = 4000
-
-
-_SYSTEM_PROMPT = """\
-You are a relevance filter for a personal memory retrieval system.
-
-You receive (1) a user's natural-language query and (2) a numbered list
-of candidate items. Items are one of two types:
-  - type "event"        — a memory event (browsing, screenshot OCR, chat…)
-  - type "relationship" — a knowledge-graph relationship statement
-
-Your job is to keep ONLY the candidates that genuinely help answer THAT
-query. Drop unrelated noise, regardless of item type.
-
-Reply with a single JSON object:
-
-  {"keep": [<idx>, <idx>, ...], "why": "<one short sentence>"}
-
-Rules:
-  - `keep` is a list of integers — the 1-based indices of candidates to
-    keep, in original order.
-  - Be strict but not destructive: if you genuinely can't tell, KEEP it.
-    The answer LLM downstream can re-read; bias toward recall over
-    precision.
-  - Reply in the same language as the query (Chinese in / Chinese out).
-  - `why` is a one-sentence rationale; the user may see it as a UI hint.
-  - Output ONLY the JSON object. No prose before or after.
-  - If a query asks about a named person, keep a candidate only when it
-    is about that same named person, directly mentions that person, or
-    clearly supports answering about that person's situation. Do not keep
-    a candidate merely because another participant has a similar fact.
-    For dialogue events, check the `speaker` field and quoted first-person
-    statements: "Melanie said, I bought shoes" is about Melanie, not
-    Caroline.
-
-Two worked examples (notice each rationale stays in the source
-language, and unrelated-but-superficially-matching candidates are
-dropped):
-
-Example 1 — Chinese query, mixed events + relationships:
-Input:
-{"query": "我同事的老板是谁",
- "candidates": [
-   {"idx": 1, "type": "relationship", "predicate": "REPORTS_TO",
-    "statement": "用户的同事 王明 向 陈总 汇报"},
-   {"idx": 2, "type": "relationship", "predicate": "LIKES",
-    "statement": "用户喜欢听周杰伦的歌"},
-   {"idx": 3, "type": "event", "source": "chat_projector",
-    "when": "2026-05-28 09:00",
-    "content": "讨论了 K8s 集群规划"},
-   {"idx": 4, "type": "relationship", "predicate": "USES",
-    "statement": "用户使用 yacd 管理代理规则"}
- ]}
-Output:
-{"keep": [1], "why": "只有 1 描述了同事的汇报关系（即老板关系），2/3/4 均与查询无关。"}
-
-Example 2 — English query, events only:
-Input:
-{"query": "what was that Tailscale config page I had open yesterday",
- "candidates": [
-   {"idx": 1, "type": "event", "source": "chrome_history",
-    "when": "2026-05-27 22:14",
-    "content": "Chrome browse Tailscale - Subnet routers and traffic relay nodes"},
-   {"idx": 2, "type": "event", "source": "chrome_history",
-    "when": "2026-05-27 22:18",
-    "content": "Chrome browse Hacker News - Show HN: a side project"},
-   {"idx": 3, "type": "event", "source": "screenshot_timeline",
-    "when": "2026-05-27 22:15",
-    "content": "Screenshot Timeline Screen Capture Chrome - Tailscale admin console MagicDNS settings page"},
-   {"idx": 4, "type": "event", "source": "chat_projector",
-    "when": "2026-05-27 23:01",
-    "content": "讨论了 K8s 集群规划"}
- ]}
-Output:
-{"keep": [1, 3], "why": "1 and 3 are both Tailscale pages from yesterday; 2 is HN and 4 is K8s chat."}
-"""
-
 
 class GroundingFilter:
     """Apply an LLM-as-listwise-filter to RetrievalPayload.l1_events
@@ -225,7 +146,6 @@ class GroundingFilter:
             return payload
 
         query = str(request.query or "").strip()
-
         events = payload.l1_events or []
         rels = payload.l2_relationships or []
         sliced_events = events[:SKIP_THRESHOLD_MAX]
@@ -233,114 +153,220 @@ class GroundingFilter:
         total = len(sliced_events) + len(sliced_rels)
 
         if total < MIN_CANDIDATES_TO_FILTER:
-            # Write the same skip trace on both keys so downstream
-            # readers that check either key behave consistently.
-            skip_trace = {
-                "applied": False,
-                "skipped_reason": "trivial_count",
-                "input_count": total,
-            }
-            payload.trace["grounding_filter"] = skip_trace
-            payload.trace["grounding_filter_l2"] = dict(skip_trace)
-            logger.debug(
-                "Grounding filter skipped | query=%r reason=%s input_count=%d",
-                query,
-                skip_trace["skipped_reason"],
-                total,
+            self._write_skip_trace(
+                payload, query=query, reason="trivial_count", input_count=total
             )
             return payload
 
         if not query:
-            skip_trace = {
-                "applied": False,
-                "skipped_reason": "empty_query",
-                "input_count": total,
-            }
-            payload.trace["grounding_filter"] = skip_trace
-            payload.trace["grounding_filter_l2"] = dict(skip_trace)
-            logger.debug(
-                "Grounding filter skipped | query=%r reason=%s input_count=%d",
-                query,
-                skip_trace["skipped_reason"],
-                total,
+            self._write_skip_trace(
+                payload, query=query, reason="empty_query", input_count=total
             )
             return payload
 
         owner_screen = _apply_named_person_owner_prefilter(query, sliced_events, sliced_rels)
-        if owner_screen["dropped_events"] or owner_screen["dropped_relationships"]:
-            sliced_events = owner_screen["events"]
-            sliced_rels = owner_screen["relationships"]
-            payload.l1_events = sliced_events
-            payload.l2_relationships = sliced_rels
-            total_after_owner_screen = len(sliced_events) + len(sliced_rels)
-            if total_after_owner_screen < MIN_CANDIDATES_TO_FILTER:
-                if total_after_owner_screen == 0:
-                    success_trace: dict[str, Any] = {
-                        "applied": True,
-                        "input_count": total,
-                        "input_events": len(events),
-                        "input_relationships": len(rels),
-                        "kept_events": 0,
-                        "kept_relationships": 0,
-                        "kept_count": 0,
-                        "elapsed_ms": 0.0,
-                        "why": "Named-person dialogue ownership prefilter removed mismatched evidence.",
-                        "all_dropped": True,
-                        "owner_prefilter_dropped_events": owner_screen["dropped_events"],
-                        "owner_prefilter_dropped_relationships": owner_screen[
-                            "dropped_relationships"
-                        ],
-                    }
-                    payload.trace["grounding_filter"] = success_trace
-                    payload.trace["grounding_filter_l2"] = {
-                        "applied": True,
-                        "input_count": len(rels),
-                        "kept_count": 0,
-                        "all_dropped": True,
-                    }
-                    logger.debug(
-                        "Grounding filter applied | query=%r input_events=%d "
-                        "input_relationships=%d kept_events=0 kept_relationships=0 "
-                        "why=%r all_dropped=True",
-                        query,
-                        len(events),
-                        len(rels),
-                        success_trace.get("why"),
-                    )
-                    return payload
-
-                skip_trace = {
-                    "applied": False,
-                    "skipped_reason": "trivial_count_after_owner_prefilter",
-                    "input_count": total,
-                    "kept_count": total_after_owner_screen,
-                    "owner_prefilter_dropped_events": owner_screen["dropped_events"],
-                    "owner_prefilter_dropped_relationships": owner_screen[
-                        "dropped_relationships"
-                    ],
-                }
-                payload.trace["grounding_filter"] = skip_trace
-                payload.trace["grounding_filter_l2"] = {
-                    "applied": False,
-                    "skipped_reason": "trivial_count_after_owner_prefilter",
-                    "input_count": len(rels),
-                    "kept_count": len(sliced_rels),
-                    "owner_prefilter_dropped_relationships": owner_screen[
-                        "dropped_relationships"
-                    ],
-                }
-                logger.debug(
-                    "Grounding filter skipped | query=%r reason=%s input_count=%d "
-                    "kept_count=%d",
-                    query,
-                    skip_trace["skipped_reason"],
-                    total,
-                    total_after_owner_screen,
-                )
-                return payload
-            total = total_after_owner_screen
+        sliced_events, sliced_rels, total, owner_completed = self._apply_owner_screen(
+            payload=payload,
+            query=query,
+            events=events,
+            rels=rels,
+            sliced_events=sliced_events,
+            sliced_rels=sliced_rels,
+            owner_screen=owner_screen,
+            original_total=total,
+        )
+        if owner_completed:
+            return payload
 
         prompt_payload = _build_unified_prompt_payload(query, sliced_events, sliced_rels)
+        self._log_input_detail(
+            query=query,
+            events=events,
+            rels=rels,
+            sliced_events=sliced_events,
+            sliced_rels=sliced_rels,
+            prompt_payload=prompt_payload,
+        )
+        raw, elapsed_ms = await self._call_grounding_llm(
+            payload=payload,
+            prompt_payload=prompt_payload,
+            total=total,
+        )
+        if raw is None:
+            return payload
+
+        return self._apply_llm_response(
+            payload=payload,
+            query=query,
+            events=events,
+            rels=rels,
+            sliced_events=sliced_events,
+            sliced_rels=sliced_rels,
+            total=total,
+            raw=raw,
+            elapsed_ms=elapsed_ms,
+            owner_screen=owner_screen,
+        )
+
+    def _write_skip_trace(
+        self,
+        payload: RetrievalPayload,
+        *,
+        query: str,
+        reason: str,
+        input_count: int,
+    ) -> None:
+        skip_trace = {
+            "applied": False,
+            "skipped_reason": reason,
+            "input_count": input_count,
+        }
+        payload.trace["grounding_filter"] = skip_trace
+        payload.trace["grounding_filter_l2"] = dict(skip_trace)
+        logger.debug(
+            "Grounding filter skipped | query=%r reason=%s input_count=%d",
+            query,
+            reason,
+            input_count,
+        )
+
+    def _apply_owner_screen(
+        self,
+        *,
+        payload: RetrievalPayload,
+        query: str,
+        events: list[dict[str, Any]],
+        rels: list[dict[str, Any]],
+        sliced_events: list[dict[str, Any]],
+        sliced_rels: list[dict[str, Any]],
+        owner_screen: dict[str, Any],
+        original_total: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, bool]:
+        if not owner_screen["dropped_events"] and not owner_screen["dropped_relationships"]:
+            return sliced_events, sliced_rels, original_total, False
+
+        sliced_events = owner_screen["events"]
+        sliced_rels = owner_screen["relationships"]
+        payload.l1_events = sliced_events
+        payload.l2_relationships = sliced_rels
+        total_after_owner_screen = len(sliced_events) + len(sliced_rels)
+        if total_after_owner_screen >= MIN_CANDIDATES_TO_FILTER:
+            return sliced_events, sliced_rels, total_after_owner_screen, False
+
+        if total_after_owner_screen == 0:
+            self._write_owner_all_dropped_trace(
+                payload=payload,
+                query=query,
+                events=events,
+                rels=rels,
+                owner_screen=owner_screen,
+                original_total=original_total,
+            )
+            return sliced_events, sliced_rels, total_after_owner_screen, True
+
+        self._write_owner_trivial_skip_trace(
+            payload=payload,
+            query=query,
+            rels=rels,
+            sliced_rels=sliced_rels,
+            owner_screen=owner_screen,
+            original_total=original_total,
+            kept_count=total_after_owner_screen,
+        )
+        return sliced_events, sliced_rels, total_after_owner_screen, True
+
+    def _write_owner_all_dropped_trace(
+        self,
+        *,
+        payload: RetrievalPayload,
+        query: str,
+        events: list[dict[str, Any]],
+        rels: list[dict[str, Any]],
+        owner_screen: dict[str, Any],
+        original_total: int,
+    ) -> None:
+        success_trace: dict[str, Any] = {
+            "applied": True,
+            "input_count": original_total,
+            "input_events": len(events),
+            "input_relationships": len(rels),
+            "kept_events": 0,
+            "kept_relationships": 0,
+            "kept_count": 0,
+            "elapsed_ms": 0.0,
+            "why": "Named-person dialogue ownership prefilter removed mismatched evidence.",
+            "all_dropped": True,
+            "owner_prefilter_dropped_events": owner_screen["dropped_events"],
+            "owner_prefilter_dropped_relationships": owner_screen[
+                "dropped_relationships"
+            ],
+        }
+        payload.trace["grounding_filter"] = success_trace
+        payload.trace["grounding_filter_l2"] = {
+            "applied": True,
+            "input_count": len(rels),
+            "kept_count": 0,
+            "all_dropped": True,
+        }
+        logger.debug(
+            "Grounding filter applied | query=%r input_events=%d "
+            "input_relationships=%d kept_events=0 kept_relationships=0 "
+            "why=%r all_dropped=True",
+            query,
+            len(events),
+            len(rels),
+            success_trace.get("why"),
+        )
+
+    def _write_owner_trivial_skip_trace(
+        self,
+        *,
+        payload: RetrievalPayload,
+        query: str,
+        rels: list[dict[str, Any]],
+        sliced_rels: list[dict[str, Any]],
+        owner_screen: dict[str, Any],
+        original_total: int,
+        kept_count: int,
+    ) -> None:
+        skip_trace = {
+            "applied": False,
+            "skipped_reason": "trivial_count_after_owner_prefilter",
+            "input_count": original_total,
+            "kept_count": kept_count,
+            "owner_prefilter_dropped_events": owner_screen["dropped_events"],
+            "owner_prefilter_dropped_relationships": owner_screen[
+                "dropped_relationships"
+            ],
+        }
+        payload.trace["grounding_filter"] = skip_trace
+        payload.trace["grounding_filter_l2"] = {
+            "applied": False,
+            "skipped_reason": "trivial_count_after_owner_prefilter",
+            "input_count": len(rels),
+            "kept_count": len(sliced_rels),
+            "owner_prefilter_dropped_relationships": owner_screen[
+                "dropped_relationships"
+            ],
+        }
+        logger.debug(
+            "Grounding filter skipped | query=%r reason=%s input_count=%d kept_count=%d",
+            query,
+            skip_trace["skipped_reason"],
+            original_total,
+            kept_count,
+        )
+
+    def _log_input_detail(
+        self,
+        *,
+        query: str,
+        events: list[dict[str, Any]],
+        rels: list[dict[str, Any]],
+        sliced_events: list[dict[str, Any]],
+        sliced_rels: list[dict[str, Any]],
+        prompt_payload: str,
+    ) -> None:
         log_detail(
             logger,
             "GROUNDING FILTER INPUT DETAIL",
@@ -355,6 +381,14 @@ class GroundingFilter:
                 "prompt_payload": prompt_payload,
             },
         )
+
+    async def _call_grounding_llm(
+        self,
+        *,
+        payload: RetrievalPayload,
+        prompt_payload: str,
+        total: int,
+    ) -> tuple[Any | None, float]:
         t0 = time.monotonic()
         try:
             raw = await asyncio.wait_for(
@@ -371,28 +405,53 @@ class GroundingFilter:
                         "agent_id": "memory:hybrid_retrieval",
                     },
                 ),
-                timeout=self._timeout + 0.5,  # outer wait_for as belt+braces
+                timeout=self._timeout + 0.5,
             )
+            return raw, (time.monotonic() - t0) * 1000
         except asyncio.TimeoutError:
             elapsed_ms = (time.monotonic() - t0) * 1000
-            deg = _degraded_trace(total, reason="llm_timeout", elapsed_ms=elapsed_ms)
-            payload.trace["grounding_filter"] = deg
-            payload.trace["grounding_filter_l2"] = _compat_l2_trace(deg)
+            self._write_degraded_trace(
+                payload, total=total, reason="llm_timeout", elapsed_ms=elapsed_ms
+            )
             logger.info("Grounding filter timed out; passing raw payload through.")
-            return payload
+            return None, elapsed_ms
         except Exception as exc:  # noqa: BLE001
             elapsed_ms = (time.monotonic() - t0) * 1000
-            deg = _degraded_trace(
-                total,
+            self._write_degraded_trace(
+                payload,
+                total=total,
                 reason=f"llm_exception:{type(exc).__name__}",
                 elapsed_ms=elapsed_ms,
             )
-            payload.trace["grounding_filter"] = deg
-            payload.trace["grounding_filter_l2"] = _compat_l2_trace(deg)
             logger.warning("Grounding filter failed; passing raw payload through.", exc_info=True)
-            return payload
+            return None, elapsed_ms
 
-        elapsed_ms = (time.monotonic() - t0) * 1000
+    def _write_degraded_trace(
+        self,
+        payload: RetrievalPayload,
+        *,
+        total: int,
+        reason: str,
+        elapsed_ms: float,
+    ) -> None:
+        deg = _degraded_trace(total, reason=reason, elapsed_ms=elapsed_ms)
+        payload.trace["grounding_filter"] = deg
+        payload.trace["grounding_filter_l2"] = _compat_l2_trace(deg)
+
+    def _apply_llm_response(
+        self,
+        *,
+        payload: RetrievalPayload,
+        query: str,
+        events: list[dict[str, Any]],
+        rels: list[dict[str, Any]],
+        sliced_events: list[dict[str, Any]],
+        sliced_rels: list[dict[str, Any]],
+        total: int,
+        raw: Any,
+        elapsed_ms: float,
+        owner_screen: dict[str, Any],
+    ) -> RetrievalPayload:
         kept_indices, why = _parse_keep_response(raw)
         log_detail(
             logger,
@@ -406,9 +465,9 @@ class GroundingFilter:
             },
         )
         if kept_indices is None:
-            deg = _degraded_trace(total, reason="bad_response_shape", elapsed_ms=elapsed_ms)
-            payload.trace["grounding_filter"] = deg
-            payload.trace["grounding_filter_l2"] = _compat_l2_trace(deg)
+            self._write_degraded_trace(
+                payload, total=total, reason="bad_response_shape", elapsed_ms=elapsed_ms
+            )
             logger.info("Grounding filter response unparseable; passing raw payload through.")
             return payload
 
@@ -428,63 +487,123 @@ class GroundingFilter:
                 # LLM explicitly returned an empty keep set — a VALID
                 # "none of these are relevant" verdict. Trust it and
                 # clear BOTH lists.
-                payload.l1_events = []
-                payload.l2_relationships = []
-                success_trace: dict[str, Any] = {
-                    "applied": True,
-                    "input_count": total,
-                    "input_events": len(events),
-                    "input_relationships": len(rels),
-                    "kept_events": 0,
-                    "kept_relationships": 0,
-                    "kept_count": 0,
-                    "elapsed_ms": round(elapsed_ms, 1),
-                    "why": why or None,
-                    "all_dropped": True,
-                }
-                payload.trace["grounding_filter"] = success_trace
-                payload.trace["grounding_filter_l2"] = {
-                    "applied": True,
-                    "input_count": len(rels),
-                    "kept_count": 0,
-                    "all_dropped": True,
-                }
-                log_detail(
-                    logger,
-                    "GROUNDING FILTER OUTPUT DETAIL",
-                    {
-                        "query": query,
-                        "kept_indices": [],
-                        "dropped_event_ids": [
-                            str(item.get("event_id") or "") for item in sliced_events
-                        ],
-                        "dropped_relationship_ids": [
-                            str(item.get("triple_id") or item.get("id") or "")
-                            for item in sliced_rels
-                        ],
-                        "why": why or None,
-                        "trace": success_trace,
-                    },
-                )
-                logger.info(
-                    "Grounding filter applied | query=%r input_events=%d "
-                    "input_relationships=%d kept_events=0 kept_relationships=0 "
-                    "why=%r all_dropped=True",
-                    query,
-                    len(events),
-                    len(rels),
-                    why or None,
+                self._apply_empty_keep_result(
+                    payload=payload,
+                    query=query,
+                    events=events,
+                    rels=rels,
+                    sliced_events=sliced_events,
+                    sliced_rels=sliced_rels,
+                    total=total,
+                    why=why,
+                    elapsed_ms=elapsed_ms,
                 )
                 return payload
 
             # kept_indices was non-empty but every index was out of range
             # (LLM hallucinated indices). Treat as degraded.
-            deg = _degraded_trace(total, reason="no_valid_indices", elapsed_ms=elapsed_ms)
-            payload.trace["grounding_filter"] = deg
-            payload.trace["grounding_filter_l2"] = _compat_l2_trace(deg)
+            self._write_degraded_trace(
+                payload, total=total, reason="no_valid_indices", elapsed_ms=elapsed_ms
+            )
             return payload
 
-        # At least one valid index: apply the filter.
+        self._apply_valid_keep_result(
+            payload=payload,
+            query=query,
+            events=events,
+            rels=rels,
+            sliced_events=sliced_events,
+            sliced_rels=sliced_rels,
+            total=total,
+            kept_indices=kept_indices,
+            valid_ev_indices=valid_ev_indices,
+            valid_rel_indices=valid_rel_indices,
+            n_ev=n_ev,
+            why=why,
+            elapsed_ms=elapsed_ms,
+            owner_screen=owner_screen,
+        )
+        return payload
+
+    def _apply_empty_keep_result(
+        self,
+        *,
+        payload: RetrievalPayload,
+        query: str,
+        events: list[dict[str, Any]],
+        rels: list[dict[str, Any]],
+        sliced_events: list[dict[str, Any]],
+        sliced_rels: list[dict[str, Any]],
+        total: int,
+        why: str | None,
+        elapsed_ms: float,
+    ) -> None:
+        payload.l1_events = []
+        payload.l2_relationships = []
+        success_trace: dict[str, Any] = {
+            "applied": True,
+            "input_count": total,
+            "input_events": len(events),
+            "input_relationships": len(rels),
+            "kept_events": 0,
+            "kept_relationships": 0,
+            "kept_count": 0,
+            "elapsed_ms": round(elapsed_ms, 1),
+            "why": why or None,
+            "all_dropped": True,
+        }
+        payload.trace["grounding_filter"] = success_trace
+        payload.trace["grounding_filter_l2"] = {
+            "applied": True,
+            "input_count": len(rels),
+            "kept_count": 0,
+            "all_dropped": True,
+        }
+        log_detail(
+            logger,
+            "GROUNDING FILTER OUTPUT DETAIL",
+            {
+                "query": query,
+                "kept_indices": [],
+                "dropped_event_ids": [
+                    str(item.get("event_id") or "") for item in sliced_events
+                ],
+                "dropped_relationship_ids": [
+                    str(item.get("triple_id") or item.get("id") or "")
+                    for item in sliced_rels
+                ],
+                "why": why or None,
+                "trace": success_trace,
+            },
+        )
+        logger.info(
+            "Grounding filter applied | query=%r input_events=%d "
+            "input_relationships=%d kept_events=0 kept_relationships=0 "
+            "why=%r all_dropped=True",
+            query,
+            len(events),
+            len(rels),
+            why or None,
+        )
+
+    def _apply_valid_keep_result(
+        self,
+        *,
+        payload: RetrievalPayload,
+        query: str,
+        events: list[dict[str, Any]],
+        rels: list[dict[str, Any]],
+        sliced_events: list[dict[str, Any]],
+        sliced_rels: list[dict[str, Any]],
+        total: int,
+        kept_indices: list[int],
+        valid_ev_indices: list[int],
+        valid_rel_indices: list[int],
+        n_ev: int,
+        why: str | None,
+        elapsed_ms: float,
+        owner_screen: dict[str, Any],
+    ) -> None:
         kept_events = [sliced_events[i - 1] for i in valid_ev_indices]
         kept_rels = [sliced_rels[i - n_ev - 1] for i in valid_rel_indices]
 
@@ -548,298 +667,6 @@ class GroundingFilter:
             len(kept_rels),
             why or None,
         )
-        return payload
-
-
-# ---------- helpers ----------
-
-
-def _apply_named_person_owner_prefilter(
-    query: str,
-    events: list[dict[str, Any]],
-    rels: list[dict[str, Any]],
-) -> dict[str, Any]:
-    query_named_people = _extract_query_named_people(query)
-    if len(query_named_people) != 1:
-        return {
-            "events": events,
-            "relationships": rels,
-            "dropped_events": 0,
-            "dropped_relationships": 0,
-        }
-
-    target_name = query_named_people[0]
-    kept_events = [
-        event for event in events if not _is_wrong_speaker_dialogue_event(event, target_name)
-    ]
-    kept_rels = [
-        rel for rel in rels if not _is_wrong_subject_relationship(rel, target_name)
-    ]
-    return {
-        "events": kept_events,
-        "relationships": kept_rels,
-        "dropped_events": len(events) - len(kept_events),
-        "dropped_relationships": len(rels) - len(kept_rels),
-    }
-
-
-def _is_wrong_speaker_dialogue_event(event: dict[str, Any], target_name: str) -> bool:
-    content = str(event.get("content") or "")
-    speaker = extract_dialogue_speaker(content)
-    if not speaker:
-        return False
-    if _same_person_name(speaker, target_name):
-        return False
-    if _mentions_person_name(content, target_name):
-        return False
-    return True
-
-
-def _is_wrong_subject_relationship(rel: dict[str, Any], target_name: str) -> bool:
-    target_id = _person_entity_id_for_name(target_name)
-    fields = [
-        str(rel.get("subject_id") or ""),
-        str(rel.get("subject_name") or ""),
-        str(rel.get("object_id") or ""),
-        str(rel.get("object_name") or ""),
-        str(rel.get("natural_summary") or ""),
-        str(rel.get("evidence_text") or ""),
-    ]
-    if any(_mentions_person_name(field, target_name) for field in fields):
-        return False
-
-    subject_id = str(rel.get("subject_id") or "").strip().casefold()
-    subject_type = str(rel.get("subject_type") or "").strip().casefold()
-    subject_name = str(rel.get("subject_name") or "").strip()
-    subject_is_person = subject_id.startswith("person:") or subject_type == "person"
-    if not subject_is_person:
-        return False
-    if target_id and subject_id == target_id:
-        return False
-    if subject_id.startswith("person:") and target_id and subject_id != target_id:
-        return True
-    if subject_name and not _same_person_name(subject_name, target_name):
-        return True
-    return False
-
-
-def _same_person_name(left: str, right: str) -> bool:
-    return _normalize_person_name(left) == _normalize_person_name(right)
-
-
-def _mentions_person_name(text: str, name: str) -> bool:
-    normalized_name = _normalize_person_name(name)
-    if not normalized_name:
-        return False
-    pattern = rf"\b{re.escape(normalized_name)}(?:'s)?\b"
-    return bool(re.search(pattern, str(text or "").casefold()))
-
-
-def _person_entity_id_for_name(name: str) -> str | None:
-    normalized = _normalize_person_name(name)
-    if not normalized:
-        return None
-    slug = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
-    return f"person:{slug}" if slug else None
-
-
-def _normalize_person_name(name: str) -> str:
-    return " ".join(str(name or "").strip().casefold().split())
-
-
-def _build_unified_prompt_payload(
-    query: str,
-    events: list[dict[str, Any]],
-    rels: list[dict[str, Any]],
-) -> str:
-    """Build the user-message JSON for the unified grounding filter.
-
-    Events occupy global indices 1 .. len(events); relationships follow
-    at len(events)+1 .. len(events)+len(rels). Each candidate carries a
-    ``type`` field so the LLM can apply type-appropriate reasoning.
-    """
-    candidates: list[dict[str, Any]] = []
-    query_named_people = _extract_query_named_people(query)
-    for i, event in enumerate(events, start=1):
-        content = str(event.get("content") or "")
-        if len(content) > CONTENT_CAP_CHARS:
-            content = content[:CONTENT_CAP_CHARS].rstrip() + "…[truncated]"
-        when_ts = event.get("timestamp") or event.get("occurred_at")
-        candidate = {
-            "idx": i,
-            "type": "event",
-            "source": str(event.get("source") or "unknown"),
-            "when": _format_when(when_ts),
-            "content": content,
-        }
-        speaker = extract_dialogue_speaker(content)
-        if speaker:
-            candidate["speaker"] = speaker
-        candidates.append(candidate)
-
-    offset = len(events)
-    for j, rel in enumerate(rels, start=1):
-        natural = str(rel.get("natural_summary") or "").strip()
-        if not natural:
-            subj = rel.get("subject_name") or rel.get("subject_id") or ""
-            pred = rel.get("predicate") or ""
-            obj = rel.get("object_name") or rel.get("object_id") or ""
-            natural = f"{subj} --{pred}--> {obj}"
-        if len(natural) > CONTENT_CAP_CHARS:
-            natural = natural[:CONTENT_CAP_CHARS].rstrip() + "…[truncated]"
-        candidate = {
-            "idx": offset + j,
-            "type": "relationship",
-            "predicate": str(rel.get("predicate") or ""),
-            "statement": natural,
-        }
-        for key in ("subject_id", "subject_name", "object_id", "object_name"):
-            value = str(rel.get(key) or "").strip()
-            if value:
-                candidate[key] = value
-        candidates.append(candidate)
-
-    body: dict[str, Any] = {"query": query}
-    if query_named_people:
-        body["query_named_people"] = query_named_people
-    body["candidates"] = candidates
-    return json.dumps(body, ensure_ascii=False)
-
-
-# Keep the old prompt-builder helpers around so any callers that import
-# them directly (e.g. tests that unit-test prompt shape) don't break.
-def _build_prompt_payload(query: str, events: list[dict[str, Any]]) -> str:
-    """Build a prompt payload for L1 events only (kept for backward compat / tests)."""
-    return _build_unified_prompt_payload(query, events, [])
-
-
-def _build_l2_prompt_payload(query: str, rels: list[dict[str, Any]]) -> str:
-    """Build a prompt payload for L2 relationships only (kept for backward compat / tests)."""
-    return _build_unified_prompt_payload(query, [], rels)
-
-
-def _format_when(ts: Any) -> str | None:
-    if not isinstance(ts, (int, float)):
-        return None
-    try:
-        import datetime as _dt
-        return _dt.datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M")
-    except (OSError, OverflowError, ValueError):
-        return None
-
-
-def _extract_query_named_people(query: str) -> list[str]:
-    text = str(query or "")
-    if not text:
-        return []
-    stopwords = {
-        "A",
-        "An",
-        "Are",
-        "Can",
-        "Did",
-        "Do",
-        "Does",
-        "Has",
-        "Have",
-        "How",
-        "I",
-        "In",
-        "Is",
-        "On",
-        "The",
-        "What",
-        "When",
-        "Where",
-        "Which",
-        "Who",
-        "Why",
-    }
-    names: list[str] = []
-    seen: set[str] = set()
-    for match in re.finditer(r"\b([A-Z][a-z]+)(?:'s)?\b", text):
-        name = match.group(1)
-        if name in stopwords:
-            continue
-        key = name.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        names.append(name)
-    return names
-
-
-def _parse_keep_response(raw: Any) -> tuple[list[int] | None, str | None]:
-    """Extract (keep_indices, why) from the LLM's JSON response.
-
-    Returns (None, None) on any parse failure; caller treats that as
-    degraded-pass-through. Tolerant of common LLM output shapes:
-      - the raw text may be JSON, or JSON wrapped in prose
-      - integers may arrive as strings ("3" instead of 3)
-    """
-    text = raw if isinstance(raw, str) else (raw.get("content") if isinstance(raw, dict) else None)
-    if not text or not isinstance(text, str):
-        return None, None
-    text = text.strip()
-
-    start = text.find("{")
-    if start == -1:
-        return None, None
-    parsed: Any = None
-    search_from = len(text)
-    while search_from > start:
-        end = text.rfind("}", start, search_from)
-        if end == -1:
-            break
-        try:
-            candidate = json.loads(text[start: end + 1])
-            if isinstance(candidate, dict):
-                parsed = candidate
-                break
-        except json.JSONDecodeError:
-            pass
-        search_from = end
-    if parsed is None:
-        return None, None
-
-    raw_keep = parsed.get("keep")
-    if not isinstance(raw_keep, list):
-        return None, None
-    keep: list[int] = []
-    for item in raw_keep:
-        if isinstance(item, bool):
-            # bool is a subclass of int in Python; skip explicitly.
-            continue
-        if isinstance(item, int):
-            keep.append(item)
-        elif isinstance(item, str):
-            stripped = item.strip()
-            if stripped.isdigit():
-                keep.append(int(stripped))
-    why = parsed.get("why")
-    why_text = str(why).strip() if isinstance(why, str) else None
-    return keep, why_text
-
-
-def _degraded_trace(input_count: int, *, reason: str, elapsed_ms: float) -> dict[str, Any]:
-    return {
-        "applied": False,
-        "degraded_reason": reason,
-        "input_count": input_count,
-        "elapsed_ms": round(elapsed_ms, 1),
-    }
-
-
-def _compat_l2_trace(main_trace: dict[str, Any]) -> dict[str, Any]:
-    """Build a minimal grounding_filter_l2 alias from the main degraded trace."""
-    result: dict[str, Any] = {"applied": False}
-    if "input_count" in main_trace:
-        result["input_count"] = main_trace["input_count"]
-    if "degraded_reason" in main_trace:
-        result["degraded_reason"] = main_trace["degraded_reason"]
-    if "elapsed_ms" in main_trace:
-        result["elapsed_ms"] = main_trace["elapsed_ms"]
-    return result
 
 
 __all__ = ["GroundingFilter", "MIN_CANDIDATES_TO_FILTER", "SKIP_THRESHOLD_MAX"]
