@@ -33,6 +33,7 @@ class ToolDiscoveryCandidate:
 
     name: str
     kind: str
+    source: str
     description: str
     category: str = ""
     tags: tuple[str, ...] = ()
@@ -79,6 +80,11 @@ class ToolDiscoveryIndex:
                 ToolDiscoveryCandidate(
                     name=str(info.get("name") or tool_name),
                     kind="tool",
+                    source=_infer_tool_source(
+                        name=str(info.get("name") or tool_name),
+                        category=str(info.get("category") or ""),
+                        metadata=dict(info.get("metadata") or {}),
+                    ),
                     description=str(info.get("description") or ""),
                     category=str(info.get("category") or ""),
                     tags=tuple(str(tag) for tag in (info.get("tags") or [])),
@@ -94,6 +100,7 @@ class ToolDiscoveryIndex:
                 ToolDiscoveryCandidate(
                     name=skill_name,
                     kind="skill",
+                    source="skill",
                     description=str(metadata.description or ""),
                     category=str(metadata.category or "skill"),
                     tags=tuple(str(tag) for tag in (metadata.tags or [])),
@@ -133,6 +140,7 @@ class ToolDiscoveryIndex:
             {
                 "name": candidate.name,
                 "type": candidate.kind,
+                "source": candidate.source,
                 "reason": candidate.description
                 or f"{candidate.kind.title()} metadata matched the requested capability.",
                 "score": round(score, 3),
@@ -235,6 +243,17 @@ def tokenize_discovery_text(text: str) -> list[str]:
         if len(token) > 1:
             tokens.append(token)
     return tokens
+
+
+def _infer_tool_source(*, name: str, category: str, metadata: dict[str, Any]) -> str:
+    normalized_category = str(category or "").strip().lower()
+    if normalized_category == "mcp" or str(name or "").startswith("mcp__"):
+        return "mcp"
+    if metadata.get("mcp_server_id"):
+        return "mcp"
+    if normalized_category == "external":
+        return "external"
+    return "builtin"
 
 
 __all__ = [
