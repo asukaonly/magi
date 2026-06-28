@@ -5,10 +5,9 @@ from __future__ import annotations
 import inspect
 import os
 import platform
-import random
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Any, Awaitable, Callable, Dict, List
+from typing import Any, Awaitable, Callable
 
 from magi.agent.message_utils import build_recent_messages
 from magi.agent.orchestration_plan import OrchestrationPlan
@@ -20,12 +19,7 @@ from magi.personality.persona_routing_brief import build_persona_routing_brief
 from magi.personality.turn_planner import PersonaRoutingHint
 from magi.tools.context_decider import ContextDecider
 from magi.tools.context_decider_context import ContextDeciderContext
-from magi.tools.context_routing import RouteDecision, should_decompose_external_request
-from magi.tools.recommender import ToolRecommender
-from magi.tools.schema import ToolExecutionContext
-from magi.tools.tool_advisory_reranker import ToolAdvisoryReranker
-from magi.tools.tool_hint_resolver import ToolHintResolver
-from magi.tools.capabilities import build_tool_capabilities
+from magi.tools.context_routing import should_decompose_external_request
 from magi.agent.task_agents.common import (
     ExecutionMode,
     ExecutionHandlerRegistry,
@@ -35,12 +29,8 @@ from magi.agent.task_agents.common import (
 )
 from magi.agent.task_agents.handlers.turn_route_resolver import TurnRouteResolver
 from magi.agent.task_agents.handlers.contracts import (
-    AssistantSurfaceMode,
     ChatRuntimeContext,
     IntentDecision,
-    ThinkingIndicatorMode,
-    TraceDisplayMode,
-    TurnUXPlan,
 )
 from magi_plugin_sdk.delivery import DeliveryContent
 from magi.agent.run.execution_engine import TaskAgentExecutionEngine
@@ -49,6 +39,8 @@ from magi.agent.task_agents.handlers.attachment_context import resolve_effective
 from .delivery_dispatch import ChatDeliveryDispatchPort
 from .fact_classifier import ChatFactClassifier
 from .rhythm import strip_segmentation_sentinel
+from .tool_selection_service import ChatToolSelectionService, ToolAdvisoryProvider
+from .turn_ux_planner import TurnUXPlanner
 
 logger = get_logger(__name__)
 
@@ -101,9 +93,6 @@ _CODE_OR_LOCAL_REQUEST_HINTS = (
 )
 
 IntentTraceCallback = Callable[[ChatRuntimeContext, IntentDecision], Awaitable[None] | None]
-ToolAdvisoryProvider = Callable[
-    [str | None, list[str] | None, int], Awaitable[List[Dict[str, Any]]]
-]
 ToolSelectionTraceCallback = Callable[
     [ChatRuntimeContext, IntentDecision, ToolSelection], Awaitable[None] | None
 ]
@@ -111,18 +100,6 @@ ToolSelectionTraceCallback = Callable[
 
 class ChatExecutionCoordinator:
     """Coordinates intent routing, request building, and handler dispatch."""
-
-    _REACTION_ONLY_ACKS = {
-        "嗯",
-        "嗯嗯",
-        "恩",
-        "哦",
-        "ok",
-        "okay",
-        "好的",
-        "收到",
-        "明白",
-    }
 
     def __init__(
         self,
@@ -147,7 +124,6 @@ class ChatExecutionCoordinator:
         self._attachment_resolver = attachment_resolver or NullAttachmentResolver()
         self._handler_registry = handler_registry
         self._intent_trace_callback = intent_trace_callback
-        self._tool_advisory_provider = tool_advisory_provider
         self._tool_selection_trace_callback = tool_selection_trace_callback
         # Optional store handed to the agent execution engine for resumable
         # multi-step turns. None for legacy / test callers.
@@ -160,18 +136,12 @@ class ChatExecutionCoordinator:
         # legacy callers / tests — recording is silently skipped.
         self._conversation_log = conversation_log
         tool_registry = getattr(context_decider, "tool_registry", None)
-        self._tool_hint_resolver = (
-            ToolHintResolver(tool_registry)
-            if tool_registry is not None and callable(getattr(tool_registry, "get_tool", None))
-            else None
-        )
-        self._tool_recommender = (
-            ToolRecommender(tool_registry)
-            if tool_registry is not None and callable(getattr(tool_registry, "get_tool", None))
-            else None
+        self._tool_selection_service = ChatToolSelectionService(
+            tool_registry=tool_registry,
+            tool_advisory_provider=tool_advisory_provider,
         )
         self._turn_route_resolver = TurnRouteResolver()
-        self._tool_advisory_reranker = ToolAdvisoryReranker()
+        self._turn_ux_planner = TurnUXPlanner()
         self._execution_engine = execution_engine or TaskAgentExecutionEngine(
             handler_registry=handler_registry,
             tool_registry=tool_registry,
@@ -191,7 +161,7 @@ class ChatExecutionCoordinator:
                 difficulty="normal",
                 execution_mode=ExecutionMode.ORCHESTRATION_UPDATE,
                 reasoning="Worker events must update orchestration state before any final response is emitted.",
-                ux_plan=self._build_turn_ux_plan(
+                ux_plan=self._turn_ux_planner.build(
                     user_message=context.latest_user_message,
                     execution_mode=ExecutionMode.ORCHESTRATION_UPDATE,
                     tools=[],
@@ -204,7 +174,7 @@ class ChatExecutionCoordinator:
                 difficulty="normal",
                 execution_mode=ExecutionMode.EXPLORE_TASK_RENDER,
                 reasoning="ExploreTaskAgent produced a Markdown dossier that must be rendered back to the user.",
-                ux_plan=self._build_turn_ux_plan(
+                ux_plan=self._turn_ux_planner.build(
                     user_message=context.latest_user_message,
                     execution_mode=ExecutionMode.EXPLORE_TASK_RENDER,
                     tools=[],
@@ -217,7 +187,7 @@ class ChatExecutionCoordinator:
                 difficulty="normal",
                 execution_mode=ExecutionMode.FACT_ONLY,
                 reasoning="Non-user fact does not require immediate LLM response.",
-                ux_plan=self._build_turn_ux_plan(
+                ux_plan=self._turn_ux_planner.build(
                     user_message=context.latest_user_message,
                     execution_mode=ExecutionMode.FACT_ONLY,
                     tools=[],
@@ -247,21 +217,10 @@ class ChatExecutionCoordinator:
             persona_routing_brief=build_persona_routing_brief(get_current_personality_config()),
         )
 
-        # Inject L4 procedural-memory advisory if provider is available.
-        prompt_advisories: list[dict[str, Any]] = []
-        if self._tool_advisory_provider is not None:
-            try:
-                prompt_advisories = await self._tool_advisory_provider(
-                    context.latest_user_message,
-                    None,
-                    6,
-                )
-            except Exception as exc:
-                logger.debug("Failed to fetch tool advisory: %s", exc)
-                prompt_advisories = []
-        decision_context.tool_advisory = self._tool_advisory_reranker.compress_for_prompt(
-            advisories=prompt_advisories,
-            limit=3,
+        decision_context.tool_advisory = await (
+            self._tool_selection_service.build_prompt_tool_advisory(
+                user_message=context.latest_user_message,
+            )
         )
 
         decision = await self._context_decider.decide(context.latest_user_message, decision_context)
@@ -287,7 +246,7 @@ class ChatExecutionCoordinator:
         )
         selected_tools = list(route_resolution.selected_tools)
         if selected_tools:
-            selected_tools = await self._rerank_selected_tools(
+            selected_tools = await self._tool_selection_service.rerank_selected_tools(
                 task_context=context.latest_user_message,
                 tool_names=selected_tools,
             )
@@ -310,7 +269,7 @@ class ChatExecutionCoordinator:
                 else "normal"
             ),
             execution_mode=execution_mode,
-            ux_plan=self._build_turn_ux_plan(
+            ux_plan=self._turn_ux_planner.build(
                 user_message=context.latest_user_message,
                 execution_mode=execution_mode,
                 tools=selected_tools,
@@ -321,7 +280,7 @@ class ChatExecutionCoordinator:
             thinking_depth=decision.thinking_depth,
             reasoning=str(decision.reasoning),
             memory_route=str(getattr(decision, "memory_route", "none") or "none"),
-            task_hint=self._resolve_runtime_task_hint(
+            task_hint=self._tool_selection_service.resolve_runtime_task_hint(
                 user_message=context.latest_user_message,
                 selected_tools=selected_tools,
                 execution_mode=execution_mode,
@@ -339,37 +298,11 @@ class ChatExecutionCoordinator:
     async def match_tools(
         self, context: ChatRuntimeContext, intent: IntentDecision
     ) -> ToolSelection:
-        if intent.execution_mode in {
-            ExecutionMode.ORCHESTRATION_LAUNCH,
-            ExecutionMode.ORCHESTRATION_UPDATE,
-            ExecutionMode.FACT_ONLY,
-            ExecutionMode.EXPLORE_TASK_RENDER,
-        }:
-            return ToolSelection(
-                tools=[], reasoning=intent.reasoning, task_hint=dict(intent.task_hint or {})
-            )
-
-        recommendations = self._recommend_runtime_tools(context=context, intent=intent)
-        if recommendations:
-            recommendations = await self._rerank_runtime_recommendations(
-                task_context=context.latest_user_message,
-                recommendations=recommendations,
-            )
-        recommended_names = [
-            str(item.get("tool") or "").strip()
-            for item in recommendations
-            if str(item.get("tool") or "").strip()
-        ]
-        ordered_tools = recommended_names + [
-            tool for tool in intent.tools if tool not in recommended_names
-        ]
-        tool_selection = ToolSelection(
-            tools=ordered_tools,
-            reasoning=intent.reasoning,
-            task_hint=dict(intent.task_hint or {}),
-            recommended_tools=recommendations,
+        tool_selection = await self._tool_selection_service.select_tools(
+            context=context,
+            intent=intent,
         )
-        intent.recommended_tools = list(recommendations)
+        intent.recommended_tools = list(tool_selection.recommended_tools)
         if self._tool_selection_trace_callback is not None:
             callback_result = self._tool_selection_trace_callback(context, intent, tool_selection)
             if inspect.isawaitable(callback_result):
@@ -564,226 +497,3 @@ class ChatExecutionCoordinator:
         if any(hint in user_lower for hint in _CODE_OR_LOCAL_REQUEST_HINTS):
             return False
         return not should_decompose_external_request(user_message)
-
-    def _resolve_runtime_task_hint(
-        self,
-        *,
-        user_message: str,
-        selected_tools: list[str],
-        execution_mode: ExecutionMode,
-    ) -> dict[str, Any]:
-        if self._tool_hint_resolver is None or not selected_tools:
-            return {}
-        request_profile = (
-            "research"
-            if any(tool in {"web-search", "web-fetch"} for tool in selected_tools)
-            else None
-        )
-        scope_hints: list[str] = []
-        if any(
-            marker in user_message
-            for marker in ["~/", "/", "\\", "src/", "backend/", "frontend/", "docs/"]
-        ):
-            scope_hints.append("The request references an explicit path or subdirectory.")
-        if execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH:
-            scope_hints.append("The request will be decomposed into orchestration work.")
-        return self._tool_hint_resolver.resolve(
-            user_message=user_message,
-            available_tools=list(selected_tools),
-            request_profile=request_profile,
-            scope_hints=scope_hints,
-        )
-
-    def _recommend_runtime_tools(
-        self, *, context: ChatRuntimeContext, intent: IntentDecision
-    ) -> list[dict[str, Any]]:
-        if self._tool_recommender is None or not intent.tools:
-            return []
-        try:
-            execution_context = ToolExecutionContext(
-                agent_id=context.agent_id,
-                workspace=str(getattr(context.latest_payload, "workspace_path", "") or "."),
-                permissions=["authenticated", "dangerous_tools"],
-                env_vars={"session_id": context.session_id, "user_id": context.user_id},
-                capabilities=build_tool_capabilities(),
-            )
-            return self._tool_recommender.recommend_tools(
-                intent=context.latest_user_message,
-                context=execution_context,
-                top_k=len(intent.tools),
-                task_hint=intent.task_hint,
-                candidate_tools=list(intent.tools),
-            )
-        except Exception as exc:
-            logger.debug(
-                "Runtime tool recommendation failed, falling back to router order: %s", exc
-            )
-            return []
-
-    async def _rerank_selected_tools(
-        self,
-        *,
-        task_context: str,
-        tool_names: list[str],
-    ) -> list[str]:
-        if self._tool_advisory_provider is None or not tool_names:
-            return tool_names
-        try:
-            advisories = await self._tool_advisory_provider(
-                task_context,
-                list(tool_names),
-                len(tool_names),
-            )
-        except Exception as exc:
-            logger.debug("Failed to fetch targeted tool advisory: %s", exc)
-            return tool_names
-        return self._tool_advisory_reranker.rerank_tool_names(
-            tool_names=tool_names,
-            advisories=advisories,
-        )
-
-    async def _rerank_runtime_recommendations(
-        self,
-        *,
-        task_context: str,
-        recommendations: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        if self._tool_advisory_provider is None or not recommendations:
-            return recommendations
-        tool_names = [
-            str(item.get("tool") or item.get("name") or "").strip()
-            for item in recommendations
-            if str(item.get("tool") or item.get("name") or "").strip()
-        ]
-        if not tool_names:
-            return recommendations
-        try:
-            advisories = await self._tool_advisory_provider(
-                task_context,
-                tool_names,
-                len(tool_names),
-            )
-        except Exception as exc:
-            logger.debug("Failed to fetch runtime recommendation advisory: %s", exc)
-            return recommendations
-        return self._tool_advisory_reranker.rerank_recommendations(
-            recommendations=recommendations,
-            advisories=advisories,
-        )
-
-    def _build_turn_ux_plan(
-        self,
-        *,
-        user_message: str,
-        execution_mode: ExecutionMode,
-        tools: list[str],
-        route_decision: RouteDecision | None = None,
-    ) -> TurnUXPlan:
-        normalized_message = str(user_message or "").strip().lower()
-        if execution_mode == ExecutionMode.FACT_ONLY:
-            return TurnUXPlan(
-                assistant_surface_mode=AssistantSurfaceMode.NONE,
-                thinking_indicator=ThinkingIndicatorMode.HIDDEN,
-                trace_display_mode=TraceDisplayMode.NONE,
-            )
-        if execution_mode == ExecutionMode.DIRECT_LLM:
-            if normalized_message in self._REACTION_ONLY_ACKS:
-                return TurnUXPlan(
-                    assistant_surface_mode=AssistantSurfaceMode.REACTION_ONLY,
-                    thinking_indicator=ThinkingIndicatorMode.HIDDEN,
-                    trace_display_mode=TraceDisplayMode.NONE,
-                    reaction_style="acknowledge",
-                )
-            return TurnUXPlan(
-                assistant_surface_mode=AssistantSurfaceMode.FINAL_ONLY,
-                thinking_indicator=ThinkingIndicatorMode.HIDDEN,
-                trace_display_mode=TraceDisplayMode.COLLAPSIBLE,
-            )
-        if execution_mode == ExecutionMode.FUNCTION_CALLING:
-            return TurnUXPlan(
-                assistant_surface_mode=AssistantSurfaceMode.FINAL_ONLY,
-                thinking_indicator=ThinkingIndicatorMode.HIDDEN,
-                trace_display_mode=TraceDisplayMode.PROMINENT,
-                allow_trace_collapse=bool(tools),
-            )
-        if execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH:
-            is_explore = bool(
-                route_decision is not None
-                and route_decision.profile == "explore"
-                and route_decision.graph_shape == "plan_fanout"
-            )
-            interim_text = self._resolve_interim_text(
-                mode_key="explore_task" if is_explore else "orchestration_launch",
-                user_message=user_message,
-            )
-            return TurnUXPlan(
-                assistant_surface_mode=AssistantSurfaceMode.INTERIM_THEN_FINAL,
-                thinking_indicator=ThinkingIndicatorMode.SUBTLE,
-                trace_display_mode=TraceDisplayMode.PROMINENT,
-                allow_trace_collapse=True,
-                interim_text=interim_text,
-            )
-        if execution_mode in {
-            ExecutionMode.ORCHESTRATION_UPDATE,
-            ExecutionMode.EXPLORE_TASK_RENDER,
-        }:
-            return TurnUXPlan(
-                assistant_surface_mode=AssistantSurfaceMode.FINAL_ONLY,
-                thinking_indicator=ThinkingIndicatorMode.HIDDEN,
-                trace_display_mode=TraceDisplayMode.PROMINENT,
-                allow_trace_collapse=True,
-            )
-        return TurnUXPlan()
-
-    # -- interim-text resolution -------------------------------------------------
-
-    _INTERIM_FALLBACK_LINES: Dict[str, Dict[str, List[str]]] = {
-        "zh": {
-            "orchestration_launch": ["让我仔细想想再回复你。"],
-            "explore_task": ["我去仔细看一下，稍后把结果给你。"],
-        },
-        "en": {
-            "orchestration_launch": ["Let me think this through and check for you."],
-            "explore_task": ["Let me inspect this in detail and I will come back with the result."],
-        },
-    }
-
-    @staticmethod
-    def _detect_message_language(message: str) -> str:
-        """Return ``"zh"`` if the message contains CJK, otherwise ``"en"``."""
-        for ch in message or "":
-            # CJK Unified Ideographs block; sufficient for mandarin-leaning UX.
-            if "\u4e00" <= ch <= "\u9fff":
-                return "zh"
-        return "en"
-
-    def _resolve_interim_text(self, *, mode_key: str, user_message: str) -> str:
-        """Pick the interim placeholder line for the active persona.
-
-        Resolution order:
-
-        1. ``interim_lines[mode_key]`` on the active ``PersonalityConfig``.
-        2. ``interim_lines[mode_key]`` defaults for the user's message
-           language (zh / en).
-        3. Generic English fallback (never empty).
-
-        When a key maps to multiple candidate lines one is chosen at random
-        so the bubble does not feel copy-pasted across turns.
-        """
-        persona_config = None
-        try:
-            persona_config = get_current_personality_config()
-        except Exception:  # pragma: no cover - defensive, persona cache should never raise
-            persona_config = None
-        persona_lines: List[str] = []
-        if persona_config is not None:
-            persona_lines = list(getattr(persona_config, "interim_lines", {}).get(mode_key, []))
-        if persona_lines:
-            return random.choice(persona_lines)
-        lang = self._detect_message_language(user_message)
-        fallback = self._INTERIM_FALLBACK_LINES.get(lang, {}).get(mode_key)
-        if fallback:
-            return random.choice(fallback)
-        # Ultimate safety net: English orchestration_launch line. Keeps the
-        # UI contract that interim_text is always a non-empty string.
-        return self._INTERIM_FALLBACK_LINES["en"]["orchestration_launch"][0]

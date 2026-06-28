@@ -379,6 +379,12 @@ graph-backed execution to `agent/run/TaskAgentExecutionEngine`; graph building,
 node registration, node adapters, sequence running, and snapshot persistence stay
 behind that engine boundary.
 
+`ChatExecutionCoordinator` remains the sequence coordinator, not the owner of every
+per-turn policy. Chat-facing presentation decisions live in
+`chat/task_agent/turn_ux_planner.py`, while runtime tool hints, recommendation
+ordering, and procedural-memory tool reranking live in
+`chat/task_agent/tool_selection_service.py`.
+
 ### Conversation presentation planning
 
 Intent routing now also produces a chat-facing presentation decision for each turn.
