@@ -426,7 +426,10 @@ the segmentation contract, persistence shape, and streaming restrictions.
 
 Chat post-processing also owns the final response delivery shape. It derives a
 small final-response plan after outcome persistence, then passes that plan to
-the injected delivery seam; `ChatTaskAgent` wires the seam at construction time
+the injected delivery seam. Delivery branching for single-message, streamed, and
+conversation-rhythm responses lives in `chat/task_agent/postprocess/delivery.py`,
+so new chat-surface delivery behavior should not be added to the post-process
+service coordinator itself. `ChatTaskAgent` wires the seam at construction time
 and does not mutate post-processing internals after the coordinator is built.
 
 ### Interruption Dispositions
