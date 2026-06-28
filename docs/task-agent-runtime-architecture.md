@@ -220,7 +220,13 @@ verification work.
   tools enter this index through the shared tool registry; skills enter through
   the registered skill metadata index. The builtin helper then applies
   execution-context checks and L4 advisory reranking before returning the
-  bounded expansion payload.
+  bounded expansion payload. The helper may reuse a short-lived same-session
+  discovery result when the query, active registry, feature flags, permissions,
+  and current-tool set are unchanged. Its tool result includes compact
+  discovery metrics, such as candidate/recommendation counts by source and
+  whether a cache hit occurred, so runtime traces can be used to evaluate
+  recall quality and cache stability without moving discovery policy into the
+  routing layer.
 
   ContextDecider stays a coarse, cheap classifier. It may emit `tool_need`
   as `none`, `direct`, or `discover`, but it does not formulate a

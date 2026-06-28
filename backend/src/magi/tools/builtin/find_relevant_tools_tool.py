@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import logging
+import time
 from typing import Any, Dict
 
 from ..discovery_index import ToolDiscoveryIndex
@@ -21,9 +23,12 @@ class FindRelevantToolsTool(Tool):
     _EXCLUDED_TOOL_NAMES = {"find-relevant-tools", "get-capabilities", "todo_write"}
     _TOOL_CANDIDATE_MULTIPLIER = 3
     _MIN_TOOL_CANDIDATES = 4
+    _DISCOVERY_CACHE_TTL_SECONDS = 300.0
+    _DISCOVERY_CACHE_MAX_ENTRIES = 64
 
     def __init__(self) -> None:
         self._advisory_reranker = ToolAdvisoryReranker()
+        self._discovery_cache: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
         super().__init__()
 
     def _init_schema(self) -> None:
@@ -100,6 +105,17 @@ class FindRelevantToolsTool(Tool):
             limit * self._TOOL_CANDIDATE_MULTIPLIER,
             self._MIN_TOOL_CANDIDATES,
         )
+        cache_key = self._build_cache_key(
+            registry=registry,
+            query=query,
+            current_tools=current_tools,
+            limit=limit,
+            context=context,
+        )
+        cached_payload = self._get_cached_payload(cache_key)
+        if cached_payload is not None:
+            return ToolResult(success=True, data=cached_payload)
+
         discovery_index = ToolDiscoveryIndex.from_registry(
             registry,
             enabled_features=context.enabled_features,
@@ -113,6 +129,7 @@ class FindRelevantToolsTool(Tool):
         tool_recommendations = [
             item for item in indexed_recommendations if item.get("type") == "tool"
         ]
+        raw_tool_count = len(tool_recommendations)
         tool_recommendations = self._filter_allowed_tool_recommendations(
             recommendations=tool_recommendations,
             registry=registry,
@@ -140,15 +157,24 @@ class FindRelevantToolsTool(Tool):
                 else "No additional tools were confidently recommended."
             ),
         }
+        discovery_metrics = self._build_discovery_metrics(
+            cache_hit=False,
+            indexed_recommendations=indexed_recommendations,
+            recommendations=recommendations,
+            filtered_tool_count=raw_tool_count - len(tool_recommendations),
+        )
+        payload = {
+            "query": query,
+            "recommendations": recommendations,
+            "recommended_tools": recommended_names,
+            "tool_expansion": expansion_payload,
+            "discovery_metrics": discovery_metrics,
+        }
+        self._store_cached_payload(cache_key, payload)
 
         return ToolResult(
             success=True,
-            data={
-                "query": query,
-                "recommendations": recommendations,
-                "recommended_tools": recommended_names,
-                "tool_expansion": expansion_payload,
-            },
+            data=payload,
         )
 
     def _filter_allowed_tool_recommendations(
@@ -223,6 +249,91 @@ class FindRelevantToolsTool(Tool):
                 normalized.append(name)
         return normalized
 
+    def _build_cache_key(
+        self,
+        *,
+        registry: Any,
+        query: str,
+        current_tools: list[str],
+        limit: int,
+        context: ToolExecutionContext,
+    ) -> tuple[Any, ...]:
+        return (
+            self._discovery_scope(context),
+            " ".join(str(query or "").lower().split()),
+            tuple(sorted(current_tools)),
+            int(limit),
+            tuple(sorted(str(item) for item in (context.permissions or []))),
+            tuple(sorted(str(item) for item in (context.enabled_features or []))),
+            self._registry_signature(registry, context=context),
+        )
+
+    def _get_cached_payload(self, cache_key: tuple[Any, ...]) -> dict[str, Any] | None:
+        cached = self._discovery_cache.get(cache_key)
+        if cached is None:
+            return None
+        cached_at, payload = cached
+        now = time.monotonic()
+        age_seconds = now - cached_at
+        if age_seconds > self._DISCOVERY_CACHE_TTL_SECONDS:
+            self._discovery_cache.pop(cache_key, None)
+            return None
+        data = copy.deepcopy(payload)
+        metrics = data.get("discovery_metrics")
+        if isinstance(metrics, dict):
+            metrics["cache_hit"] = True
+            metrics["cache_age_ms"] = int(age_seconds * 1000)
+        return data
+
+    def _store_cached_payload(self, cache_key: tuple[Any, ...], payload: dict[str, Any]) -> None:
+        if len(self._discovery_cache) >= self._DISCOVERY_CACHE_MAX_ENTRIES:
+            oldest_key = min(
+                self._discovery_cache,
+                key=lambda key: self._discovery_cache[key][0],
+            )
+            self._discovery_cache.pop(oldest_key, None)
+        self._discovery_cache[cache_key] = (time.monotonic(), copy.deepcopy(payload))
+
+    @staticmethod
+    def _discovery_scope(context: ToolExecutionContext) -> str:
+        env_vars = context.env_vars or {}
+        for key in ("session_id", "task_id", "turn_id"):
+            value = str(env_vars.get(key) or "").strip()
+            if value:
+                return f"{key}:{value}"
+        if context.task_id:
+            return f"task_id:{context.task_id}"
+        return f"agent_id:{context.agent_id}"
+
+    @staticmethod
+    def _registry_signature(registry: Any, *, context: ToolExecutionContext) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        try:
+            tool_names = tuple(sorted(str(name) for name in registry.list_tools(enabled_features=context.enabled_features)))
+        except TypeError:
+            tool_names = tuple(sorted(str(name) for name in registry.list_tools()))
+        skill_names = tuple(sorted(str(name) for name in registry.get_skill_names()))
+        return tool_names, skill_names
+
+    @staticmethod
+    def _build_discovery_metrics(
+        *,
+        cache_hit: bool,
+        indexed_recommendations: list[dict[str, Any]],
+        recommendations: list[dict[str, Any]],
+        filtered_tool_count: int,
+    ) -> dict[str, Any]:
+        return {
+            "cache_hit": cache_hit,
+            "cache_age_ms": 0,
+            "candidate_count": len(indexed_recommendations),
+            "candidate_source_counts": _count_by_field(indexed_recommendations, "source"),
+            "candidate_type_counts": _count_by_field(indexed_recommendations, "type"),
+            "recommended_count": len(recommendations),
+            "recommended_source_counts": _count_by_field(recommendations, "source"),
+            "recommended_type_counts": _count_by_field(recommendations, "type"),
+            "filtered_tool_count": max(0, int(filtered_tool_count)),
+        }
+
     def _get_registry(self) -> Any:
         bound = getattr(self, "_tool_registry_ref", None)
         return bound if bound is not None else tool_registry
@@ -234,6 +345,14 @@ class FindRelevantToolsTool(Tool):
             if mq is not None:
                 return mq.get_l4_store()
         return None
+
+
+def _count_by_field(items: list[dict[str, Any]], field_name: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        value = str(item.get(field_name) or "unknown").strip() or "unknown"
+        counts[value] = counts.get(value, 0) + 1
+    return counts
 
 
 __all__ = ["FindRelevantToolsTool"]

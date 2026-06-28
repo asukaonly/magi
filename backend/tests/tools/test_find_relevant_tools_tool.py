@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 
-def _make_context_with_memory_query(memory_query_port=None):
+def _make_context_with_memory_query(memory_query_port=None, *, env_vars=None):
     """Build a ToolExecutionContext with an injected memory_query port."""
     from magi.tools.schema import ToolExecutionContext
     from magi_plugin_sdk.capabilities import ToolCapabilities
@@ -14,6 +14,7 @@ def _make_context_with_memory_query(memory_query_port=None):
     return ToolExecutionContext(
         agent_id="test-agent",
         permissions=["authenticated"],
+        env_vars=dict(env_vars or {}),
         capabilities=caps,
     )
 
@@ -267,6 +268,142 @@ class TestFindRelevantToolsTool:
         assert result.success is True
         assert result.data["recommended_tools"] == ["mcp__calendar__list_events"]
         assert result.data["recommendations"][0]["source"] == "mcp"
+
+    @pytest.mark.asyncio
+    async def test_tool_discovery_reports_metrics(self, tmp_path) -> None:
+        from magi.skills.schema import SkillMetadata
+        from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
+        from magi.tools.builtin.weather_tool import WeatherTool
+        from magi.tools.registry import ToolRegistry
+
+        registry = ToolRegistry()
+        registry.register(FindRelevantToolsTool)
+        registry.register(WeatherTool)
+        registry.register_skill_index(
+            {
+                "calendar-availability": SkillMetadata(
+                    name="calendar-availability",
+                    description="Find calendar availability, free busy slots, meetings, and schedules.",
+                    directory=tmp_path,
+                    category="calendar",
+                    tags=["calendar", "availability", "schedule"],
+                )
+            }
+        )
+        tool = registry.get_tool("find-relevant-tools")
+
+        assert tool is not None
+        result = await tool.execute(
+            {
+                "query": "帮我看日程空档，也可能要天气",
+                "current_tools": [],
+                "limit": 2,
+            },
+            _make_context_with_memory_query(
+                memory_query_port=None,
+                env_vars={"session_id": "session-a"},
+            ),
+        )
+
+        metrics = result.data["discovery_metrics"]
+        assert metrics["cache_hit"] is False
+        assert metrics["candidate_count"] >= 2
+        assert metrics["candidate_source_counts"]["builtin"] >= 1
+        assert metrics["candidate_source_counts"]["skill"] >= 1
+        assert metrics["recommended_count"] == len(result.data["recommendations"])
+        assert set(metrics["recommended_source_counts"]) <= {"builtin", "skill"}
+
+    @pytest.mark.asyncio
+    async def test_tool_discovery_reuses_same_session_cache(self, monkeypatch) -> None:
+        from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
+        from magi.tools.builtin.weather_tool import WeatherTool
+        from magi.tools.discovery_index import ToolDiscoveryIndex
+        from magi.tools.registry import ToolRegistry
+
+        registry = ToolRegistry()
+        registry.register(FindRelevantToolsTool)
+        registry.register(WeatherTool)
+        tool = registry.get_tool("find-relevant-tools")
+        assert tool is not None
+
+        call_count = 0
+        original_search = ToolDiscoveryIndex.search
+
+        def _counting_search(self, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return original_search(self, **kwargs)
+
+        monkeypatch.setattr(ToolDiscoveryIndex, "search", _counting_search)
+        ctx = _make_context_with_memory_query(
+            memory_query_port=None,
+            env_vars={"session_id": "session-cache"},
+        )
+        params = {
+            "query": "weather forecast for a city",
+            "current_tools": [],
+            "limit": 1,
+        }
+
+        first = await tool.execute(params, ctx)
+        second = await tool.execute(params, ctx)
+
+        assert first.data["recommended_tools"] == ["weather"]
+        assert second.data["recommended_tools"] == ["weather"]
+        assert first.data["discovery_metrics"]["cache_hit"] is False
+        assert second.data["discovery_metrics"]["cache_hit"] is True
+        assert call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_tool_discovery_cache_invalidates_when_registry_changes(self, monkeypatch, tmp_path) -> None:
+        from magi.skills.schema import SkillMetadata
+        from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
+        from magi.tools.builtin.weather_tool import WeatherTool
+        from magi.tools.discovery_index import ToolDiscoveryIndex
+        from magi.tools.registry import ToolRegistry
+
+        registry = ToolRegistry()
+        registry.register(FindRelevantToolsTool)
+        registry.register(WeatherTool)
+        tool = registry.get_tool("find-relevant-tools")
+        assert tool is not None
+
+        call_count = 0
+        original_search = ToolDiscoveryIndex.search
+
+        def _counting_search(self, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return original_search(self, **kwargs)
+
+        monkeypatch.setattr(ToolDiscoveryIndex, "search", _counting_search)
+        ctx = _make_context_with_memory_query(
+            memory_query_port=None,
+            env_vars={"session_id": "session-registry-change"},
+        )
+        params = {
+            "query": "weather forecast",
+            "current_tools": [],
+            "limit": 1,
+        }
+
+        first = await tool.execute(params, ctx)
+        registry.register_skill_index(
+            {
+                "weather-planning": SkillMetadata(
+                    name="weather-planning",
+                    description="Plan around weather and forecast constraints.",
+                    directory=tmp_path,
+                    category="planning",
+                    tags=["weather", "forecast"],
+                )
+            }
+        )
+        second = await tool.execute(params, ctx)
+
+        assert first.data["discovery_metrics"]["cache_hit"] is False
+        assert second.data["discovery_metrics"]["cache_hit"] is False
+        assert call_count == 2
 
     @pytest.mark.asyncio
     async def test_get_l4_store_uses_memory_query_port(self) -> None:
