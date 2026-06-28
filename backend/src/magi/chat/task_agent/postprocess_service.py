@@ -99,21 +99,67 @@ class ChatPostProcessService:
         event_bus: Any | None = None,
         deliver_final_response: Callable[..., Awaitable[list]] | None = None,
     ) -> None:
+        self._wire_core_dependencies(
+            agent_id=agent_id,
+            context_assembler=context_assembler,
+            get_event_emitter=get_event_emitter,
+            get_task_agent_manager=get_task_agent_manager,
+            get_sensor_hub=get_sensor_hub,
+            memory=memory,
+            unified_memory=unified_memory,
+            max_fact_memory=max_fact_memory,
+        )
+        self._wire_output_components(
+            trace_read_service=trace_read_service,
+            runtime_trace_store=runtime_trace_store,
+            chat_store=chat_store,
+            chat_projector=chat_projector,
+            chat_read_service_factory=chat_read_service_factory,
+            event_bus=event_bus,
+        )
+        self._wire_session_runtime(
+            complete_session_run=complete_session_run,
+            resolve_session_run_status=resolve_session_run_status,
+            drain_deferred_turns=drain_deferred_turns,
+            response_rhythm_planner=response_rhythm_planner,
+            transcript_summarizer=transcript_summarizer,
+        )
+        self._wire_delivery(deliver_final_response)
+
+    def _wire_core_dependencies(
+        self,
+        *,
+        agent_id: str,
+        context_assembler: ChatContextAssembler,
+        get_event_emitter: Callable[[], Any],
+        get_task_agent_manager: Callable[[], Any | None],
+        get_sensor_hub: Callable[[], Any | None],
+        memory: Any,
+        unified_memory: Any,
+        max_fact_memory: int,
+    ) -> None:
         self._agent_id = agent_id
         self._context_assembler = context_assembler
-        # Per-session recent-tool-call view, aliased onto the service so
-        # ChatPostprocessToolEventMixin can call ``host._tool_state_view.record``
-        # without going through ChatContextAssembler as a middleman. Parallels
-        # the alias on ChatTaskAgent.
         self._tool_state_view = context_assembler.tool_state_view
         self._get_event_emitter = get_event_emitter
         self._get_task_agent_manager = get_task_agent_manager
         self._get_sensor_hub = get_sensor_hub
         self._memory = memory
         self._unified_memory = unified_memory
-        self._chat_store = chat_store
         self._local_fact_memory: list[FactRecord] = []
         self._max_fact_memory = max_fact_memory
+
+    def _wire_output_components(
+        self,
+        *,
+        trace_read_service: "ChatTraceReadService | None",
+        runtime_trace_store: RuntimeTraceStore | None,
+        chat_store: ChatStore | None,
+        chat_projector: ChatProjector | None,
+        chat_read_service_factory: Callable[[], Any] | None,
+        event_bus: Any | None,
+    ) -> None:
+        self._chat_store = chat_store
         self._trace_read_service = trace_read_service
         self._chat_read_service_factory = (
             chat_read_service_factory or _default_chat_read_service_factory
@@ -131,19 +177,27 @@ class ChatPostProcessService:
             chat_read_service_factory=self._chat_read_service_factory,
         )
         self._started_turn_traces: set[str] = set()
+
+    def _wire_session_runtime(
+        self,
+        *,
+        complete_session_run: Callable[[str, str, int], Any] | None,
+        resolve_session_run_status: Callable[[str, str, int], Any] | None,
+        drain_deferred_turns: Callable[[str], Any] | None,
+        response_rhythm_planner: Any | None,
+        transcript_summarizer: Any | None,
+    ) -> None:
         self._complete_session_run = complete_session_run
         self._resolve_session_run_status = resolve_session_run_status
         self._drain_deferred_turns = drain_deferred_turns
         self._response_rhythm_planner = response_rhythm_planner
         self._transcript_summarizer = transcript_summarizer
-        # P3: the agent_response (plain non-streamed + each conversation-rhythm
-        # segment) is delivered via ChatSseChannel.deliver through this seam
-        # (coordinator.deliver_final_chat_response), carrying the full rich
-        # DeliveryContent. ``None`` → no chat_sse seam wired, so no agent_response
-        # row is written (production always wires it when chat_sse is registered).
+
+    def _wire_delivery(
+        self,
+        deliver_final_response: Callable[..., Awaitable[list]] | None,
+    ) -> None:
         self._deliver_final_response = deliver_final_response
-        # Track in-flight background memory-update tasks so they are not
-        # garbage collected mid-flight. Entries remove themselves on done.
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def __getattr__(self, name: str) -> Any:
