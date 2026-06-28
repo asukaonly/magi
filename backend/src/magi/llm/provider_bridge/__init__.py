@@ -188,6 +188,12 @@ class LLMProviderBridge:
         cache boundary.
         """
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
+        event_context = self._operations._with_cache_observation(
+            event_context,
+            system_prompt=system_prompt,
+            tools=[],
+            cache_whole_system=cache_system,
+        )
         started_at = time.time()
         try:
             provider_response = await self._operations._run_with_concurrency_limit(
@@ -251,6 +257,11 @@ class LLMProviderBridge:
         Unified tool-calling chat call.
         """
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
+        event_context = self._operations._with_cache_observation(
+            event_context,
+            system_prompt=system_prompt,
+            tools=tools,
+        )
         started_at = time.time()
         try:
             if getattr(self.llm, "_client", None) is None and not self._operations.is_anthropic():
@@ -330,6 +341,11 @@ class LLMProviderBridge:
         response.
         """
         depth = _coerce_thinking_depth(thinking_depth, None)
+        event_context = self._operations._with_cache_observation(
+            event_context,
+            system_prompt=system_prompt,
+            tools=tools,
+        )
         started_at = time.time()
         try:
             result = await self._operations._run_with_concurrency_limit(

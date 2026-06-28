@@ -73,6 +73,7 @@ from .models import (
     PersonalitySettings,
     PluginSettings,
     PluginsSettings,
+    LLMCacheObservabilitySettings,
     LifecycleSettings,
 )
 from .llm_registry import (
@@ -158,5 +159,6 @@ __all__ = [
     "PersonalitySettings",
     "PluginSettings",
     "PluginsSettings",
+    "LLMCacheObservabilitySettings",
     "LifecycleSettings",
 ]

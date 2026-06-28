@@ -45,12 +45,18 @@ class ProviderBridgeChatStreamingMixin:
     ) -> AsyncIterator[LLMStreamEvent]:
         """Streaming variant of chat_response()."""
         host = cast(ProviderBridgeStreamingHostProtocol, self)
+        event_context = host._with_cache_observation(
+            event_context,
+            system_prompt=system_prompt,
+            tools=[],
+        )
         messages = host._inject_turn_context(messages, system_prompt)
         event_context = enrich_event_context_with_turn_trace(event_context)
         depth = thinking_depth if thinking_depth is not None else ThinkingDepth.MEDIUM
         started_at = time.time()
         usage_data: Any = None
         usage_payload: dict[str, int] | None = None
+        usage_for_trace: Any = None
         response_preview_parts: list[str] = []
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
@@ -100,6 +106,7 @@ class ProviderBridgeChatStreamingMixin:
                     message = getattr(event, "message", None)
                     if message is not None:
                         usage_data = getattr(message, "usage", usage_data)
+            usage_for_trace = host._extract_anthropic_stream_usage(stream, usage_data)
             usage_payload = host._anthropic_usage_to_wire(usage_data)
             if usage_payload is not None:
                 usage_event = LLMStreamEvent(kind="usage", usage=usage_payload)
@@ -169,6 +176,7 @@ class ProviderBridgeChatStreamingMixin:
                     event_payload = LLMStreamEvent(kind="text_delta", text=tail_visible)
                     await emit_stream_event(event_payload)
                     yield event_payload
+                usage_for_trace = host._extract_openai_stream_usage(usage_data)
                 usage_payload = host._openai_usage_to_wire(usage_data)
                 if usage_payload is not None:
                     usage_event = LLMStreamEvent(kind="usage", usage=usage_payload)
@@ -207,7 +215,7 @@ class ProviderBridgeChatStreamingMixin:
         await host._emit_usage_event(
             success=True,
             latency_ms=int((time.time() - started_at) * 1000),
-            usage=usage_payload,
+            usage=usage_for_trace or usage_payload,
             event_context=event_context,
         )
         done_event = LLMStreamEvent(kind="done")

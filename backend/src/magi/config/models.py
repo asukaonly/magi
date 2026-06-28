@@ -655,12 +655,24 @@ class RuntimeTraceLifecycleSettings(BaseModel):
     user_notifications_retention_days: int = Field(default=30, ge=1)
 
 
+class LLMCacheObservabilitySettings(BaseModel):
+    """Lightweight prompt-cache diagnostics policy."""
+
+    enabled: bool = Field(default=True)
+    retention_days: int = Field(default=30, ge=1)
+    max_rows: int = Field(default=50_000, ge=1)
+    store_tool_names: bool = Field(default=True)
+
+
 class LLMUsageLifecycleSettings(BaseModel):
-    """Retention and rollup policy for LLM usage rows."""
+    """Retention, rollup, and diagnostics policy for LLM usage rows."""
 
     raw_retention_days: int = Field(default=7, ge=1)
     rollup_retention_days: int = Field(default=180, ge=1)
     rollup_granularity: str = Field(default="day")
+    cache_observability: LLMCacheObservabilitySettings = Field(
+        default_factory=LLMCacheObservabilitySettings
+    )
 
 
 class MessageQueueCompletedLifecycleSettings(BaseModel):

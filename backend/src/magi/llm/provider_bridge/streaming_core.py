@@ -114,10 +114,26 @@ class ProviderBridgeStreamingHostProtocol(Protocol):
     ) -> dict[str, Any]:
         ...
 
+    def _with_cache_observation(
+        self,
+        event_context: dict[str, Any] | None,
+        *,
+        system_prompt: str,
+        tools: list[dict[str, Any]] | None,
+        cache_whole_system: bool = False,
+    ) -> dict[str, Any] | None:
+        ...
+
     def _anthropic_usage_to_wire(self, usage_data: Any) -> dict[str, int] | None:
         ...
 
     def _openai_usage_to_wire(self, usage_data: Any) -> dict[str, int] | None:
+        ...
+
+    def _extract_anthropic_stream_usage(self, stream: Any, usage_data: Any) -> Any:
+        ...
+
+    def _extract_openai_stream_usage(self, usage_data: Any) -> Any:
         ...
 
     async def _emit_usage_event(

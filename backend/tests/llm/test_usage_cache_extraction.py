@@ -42,6 +42,7 @@ def test_openai_usage_captures_cache_read_and_reasoning() -> None:
     assert usage.reasoning_tokens == 50
     # OpenAI-compat has no cache-write count.
     assert usage.cache_write_tokens == 0
+    assert usage.cache_fields_seen is True
 
 
 def test_openai_usage_without_details_does_not_crash() -> None:
@@ -60,6 +61,7 @@ def test_openai_usage_without_details_does_not_crash() -> None:
     assert usage.cache_read_tokens == 0
     assert usage.reasoning_tokens == 0
     assert usage.cache_write_tokens == 0
+    assert usage.cache_fields_seen is False
 
 
 def test_openai_usage_returns_none_when_absent() -> None:
@@ -84,6 +86,7 @@ def test_openai_usage_captures_deepseek_top_level_cache_hit() -> None:
     assert usage is not None
     assert usage.cache_read_tokens == 800
     assert usage.cache_write_tokens == 0
+    assert usage.cache_fields_seen is True
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +110,7 @@ def test_openai_stream_usage_captures_cache_read_and_reasoning() -> None:
     assert usage.cache_read_tokens == 800
     assert usage.reasoning_tokens == 50
     assert usage.cache_write_tokens == 0
+    assert usage.cache_fields_seen is True
 
 
 def test_openai_stream_usage_without_details_does_not_crash() -> None:
@@ -121,6 +125,7 @@ def test_openai_stream_usage_without_details_does_not_crash() -> None:
     assert usage is not None
     assert usage.cache_read_tokens == 0
     assert usage.reasoning_tokens == 0
+    assert usage.cache_fields_seen is False
 
 
 def test_openai_stream_usage_captures_deepseek_top_level_cache_hit() -> None:
@@ -137,6 +142,7 @@ def test_openai_stream_usage_captures_deepseek_top_level_cache_hit() -> None:
     assert usage is not None
     assert usage.cache_read_tokens == 800
     assert usage.cache_write_tokens == 0
+    assert usage.cache_fields_seen is True
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +171,7 @@ def test_anthropic_usage_folds_cache_into_prompt_tokens() -> None:
     assert usage.completion_tokens == 200
     assert usage.total_tokens == 3000
     assert usage.reasoning_tokens == 0
+    assert usage.cache_fields_seen is True
 
 
 def test_anthropic_usage_without_cache_fields() -> None:
@@ -177,6 +184,7 @@ def test_anthropic_usage_without_cache_fields() -> None:
     assert usage.cache_read_tokens == 0
     assert usage.cache_write_tokens == 0
     assert usage.total_tokens == 140
+    assert usage.cache_fields_seen is False
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +211,7 @@ def test_anthropic_stream_fallback_captures_cache_tokens() -> None:
     assert usage.cache_write_tokens == 500
     assert usage.prompt_tokens == 2800
     assert usage.total_tokens == 3000
+    assert usage.cache_fields_seen is True
 
 
 def test_anthropic_stream_final_message_delegates_to_non_stream_extractor() -> None:
@@ -223,6 +232,7 @@ def test_anthropic_stream_final_message_delegates_to_non_stream_extractor() -> N
     assert usage.cache_read_tokens == 2000
     assert usage.cache_write_tokens == 500
     assert usage.prompt_tokens == 2800
+    assert usage.cache_fields_seen is True
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +289,7 @@ def test_openai_usage_captures_dashscope_explicit_cache_creation() -> None:
     assert usage is not None
     assert usage.cache_write_tokens == 900
     assert usage.cache_read_tokens == 0
+    assert usage.cache_fields_seen is True
 
 
 def test_openai_stream_usage_captures_dashscope_explicit_cache_creation() -> None:
@@ -293,6 +304,7 @@ def test_openai_stream_usage_captures_dashscope_explicit_cache_creation() -> Non
 
     assert usage is not None
     assert usage.cache_write_tokens == 900
+    assert usage.cache_fields_seen is True
 
 
 # ---------------------------------------------------------------------------

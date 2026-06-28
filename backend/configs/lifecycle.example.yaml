@@ -14,6 +14,11 @@ lifecycle:
     raw_retention_days: 7
     rollup_retention_days: 180
     rollup_granularity: day
+    cache_observability:
+      enabled: true
+      retention_days: 30
+      max_rows: 50000
+      store_tool_names: true
 
   message_queue:
     completed:

@@ -182,6 +182,48 @@ class RuntimeOperationalGC:
                 "DELETE FROM llm_usage WHERE created_at < ?",
                 (cutoff,),
             )
+            cache_observations_deleted = 0
+            cache_observations_trimmed = 0
+            if await self._table_exists(db, "llm_cache_observations"):
+                cache_observability = getattr(settings, "cache_observability", None)
+                if cache_observability is not None and not bool(
+                    getattr(cache_observability, "enabled", True)
+                ):
+                    cache_observations_deleted = await self._delete_rows(
+                        db,
+                        "DELETE FROM llm_cache_observations",
+                        (),
+                    )
+                else:
+                    retention_days = int(
+                        getattr(cache_observability, "retention_days", 30)
+                        if cache_observability is not None
+                        else 30
+                    )
+                    max_rows = int(
+                        getattr(cache_observability, "max_rows", 50_000)
+                        if cache_observability is not None
+                        else 50_000
+                    )
+                    observation_cutoff = self._cutoff_seconds(retention_days)
+                    cache_observations_deleted = await self._delete_rows(
+                        db,
+                        "DELETE FROM llm_cache_observations WHERE created_at < ?",
+                        (observation_cutoff,),
+                    )
+                    cache_observations_trimmed = await self._delete_rows(
+                        db,
+                        """
+                        DELETE FROM llm_cache_observations
+                        WHERE id IN (
+                            SELECT id
+                            FROM llm_cache_observations
+                            ORDER BY created_at DESC, id DESC
+                            LIMIT -1 OFFSET ?
+                        )
+                        """,
+                        (max_rows,),
+                    )
             rollups_deleted = await self._delete_rows(
                 db,
                 "DELETE FROM llm_usage_rollups WHERE granularity = ? AND bucket_start < ?",
@@ -193,6 +235,8 @@ class RuntimeOperationalGC:
             "llm_usage_rows_rolled_up": rolled_up,
             "llm_usage_raw_deleted": deleted,
             "llm_usage_rollups_deleted": rollups_deleted,
+            "llm_cache_observations_deleted": cache_observations_deleted,
+            "llm_cache_observations_trimmed": cache_observations_trimmed,
         }
 
     async def cleanup_message_queue(self) -> dict[str, int]:

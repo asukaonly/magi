@@ -212,6 +212,7 @@ Current product expectations:
 - model metadata can include provider-published cost values; chat models use input/output token pricing, embedding models use input token pricing, and image generation models use per-image pricing when the provider bills successful generations by count
 - fixed-fee coding plans should not inherit pay-as-you-go token rates unless the provider publishes plan-specific token pricing; usage accounting may retain the plan source metadata while leaving calculated cost empty
 - usage accounting should prefer explicit provider-reported cost when present, then fall back to registry chat model pricing for USD-denominated token usage
+- prompt-cache diagnostics should be lightweight and privacy-safe: they may record provider cache token counters, stable hashes, sizes, selected strategy, and bounded tool names for troubleshooting, but must not persist raw prompts, tool schemas, message bodies, or tool outputs
 - users can review the active model capability profile during onboarding and later in settings
 - first-run LLM setup should show whether the selected provider or provider plan includes a vector model; plan-level gaps should explain that the current billing plan does not include vector search support, while chat still works and memory recall is keyword-only until configured
 - the post-onboarding first-context prompt should surface a one-time vector-model setup reminder before recommending data-source plugins when embeddings are missing
@@ -351,7 +352,7 @@ Current storage implementation notes:
 - `agent.memory.db_path` is persisted for forward compatibility, but the current Settings UI hides it until runtime directory switching and migration are implemented; active memory still uses `data/memory/`.
 - `message_queue.db` is reserved for runtime command persistence, not long-term L1 memory.
 - `chat.db` is the product-domain source of truth for chat sessions, turn state, and visible transcript rows.
-- `~/.magi/config/lifecycle.yaml` owns local data lifecycle policy for runtime telemetry, LLM usage rollups, command queue history, scheduler history, sensor fingerprints, chat asset GC, and ephemeral job TTLs; it is copied from `backend/configs/lifecycle.example.yaml` on first run.
+- `~/.magi/config/lifecycle.yaml` owns local data lifecycle policy for runtime telemetry, LLM usage rollups, LLM prompt-cache diagnostics, command queue history, scheduler history, sensor fingerprints, chat asset GC, and ephemeral job TTLs; it is copied from `backend/configs/lifecycle.example.yaml` on first run.
 - L1 is stored in `data/memory/l1_events.db`.
 - `data/memory/l1_events.db` is now a lossy canonical projection target for `user_text` and `assistant_final` only; it is not the transcript source of truth.
 - when history behavior is `archive`, aged-out hot-path events are copied into the configured archive directory as `YYYY-MM-DD.db` before being removed from the active L1 projection; the default archive directory is `data/memory/archive/`.
@@ -367,6 +368,7 @@ Current storage implementation notes:
 - If that local provider path is unavailable and a managed/external local reranker model file is configured, retrieval may fall back to direct `llama-cli` execution against that local model file.
 - If neither the local provider path nor the local CLI path is available, retrieval falls back to heuristic reranking.
 - `llm_usage.db` lives under `~/.magi/runtime/`.
+- `llm_usage.db` may include bounded prompt-cache diagnostic rows controlled by `lifecycle.llm_usage.cache_observability`; disabling that setting removes those rows during lifecycle cleanup.
 - `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery; raw trace data defaults to a 7-day retention window.
 - managed chat attachment and derived text files live under `~/.magi/data/resources/chat/` and are removed when their chat session/history is cleared; periodic orphan sweeps remove old session asset directories that no longer have active chat rows.
 - runtime logs are governed by size-based `RotatingFileHandler` limits, not lifecycle row retention.

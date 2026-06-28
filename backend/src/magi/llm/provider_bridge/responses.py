@@ -49,6 +49,22 @@ def _openai_cache_write_tokens(usage: Any) -> int:
     return _nested_int(usage, "prompt_tokens_details", "cache_creation_input_tokens")
 
 
+def _openai_cache_fields_seen(usage: Any) -> bool:
+    details = getattr(usage, "prompt_tokens_details", None)
+    if details is not None and (
+        hasattr(details, "cached_tokens")
+        or hasattr(details, "cache_creation_input_tokens")
+    ):
+        return True
+    return hasattr(usage, "prompt_cache_hit_tokens") or hasattr(usage, "prompt_cache_miss_tokens")
+
+
+def _anthropic_cache_fields_seen(usage: Any) -> bool:
+    if hasattr(usage, "cache_read_input_tokens") or hasattr(usage, "cache_creation_input_tokens"):
+        return True
+    return getattr(usage, "cache_creation", None) is not None
+
+
 class ProviderBridgeResponseMixin:
     """Normalize provider responses, content blocks, metadata, and usage events."""
 
@@ -105,6 +121,7 @@ class ProviderBridgeResponseMixin:
             cache_read_tokens=cache_read_tokens,
             cache_write_tokens=cache_write_tokens,
             cache_write_1h_tokens=cache_write_1h_tokens,
+            cache_fields_seen=_anthropic_cache_fields_seen(usage_data),
         )
 
     @staticmethod
@@ -120,6 +137,7 @@ class ProviderBridgeResponseMixin:
             ),
             cache_read_tokens=_openai_cache_read_tokens(usage_data),
             cache_write_tokens=_openai_cache_write_tokens(usage_data),
+            cache_fields_seen=_openai_cache_fields_seen(usage_data),
         )
 
     def _convert_messages_to_anthropic(
@@ -389,6 +407,7 @@ class ProviderBridgeResponseMixin:
             reasoning_tokens=_nested_int(usage, "completion_tokens_details", "reasoning_tokens"),
             cache_read_tokens=_openai_cache_read_tokens(usage),
             cache_write_tokens=_openai_cache_write_tokens(usage),
+            cache_fields_seen=_openai_cache_fields_seen(usage),
         )
 
     @staticmethod
@@ -412,6 +431,7 @@ class ProviderBridgeResponseMixin:
             cache_read_tokens=cache_read_tokens,
             cache_write_tokens=cache_write_tokens,
             cache_write_1h_tokens=cache_write_1h_tokens,
+            cache_fields_seen=_anthropic_cache_fields_seen(usage),
         )
 
     def _attach_trace_metrics(
@@ -435,6 +455,7 @@ class ProviderBridgeResponseMixin:
             "cache_read_tokens": int(usage.cache_read_tokens if usage else 0),
             "cache_write_tokens": int(usage.cache_write_tokens if usage else 0),
             "cache_write_1h_tokens": int(usage.cache_write_1h_tokens if usage else 0),
+            "cache_fields_seen": bool(usage.cache_fields_seen if usage else False),
             "thinking_enabled": thinking_depth != ThinkingDepth.NONE,
             "thinking_depth": thinking_depth.value,
             "duration_ms": int(latency_ms),
@@ -486,6 +507,10 @@ class ProviderBridgeResponseMixin:
         cache_read_tokens = self._usage_int(usage, "cache_read_tokens")
         cache_write_tokens = self._usage_int(usage, "cache_write_tokens")
         cache_write_1h_tokens = self._usage_int(usage, "cache_write_1h_tokens")
+        cache_fields_seen = (
+            bool(usage.get("cache_fields_seen")) if isinstance(usage, dict)
+            else bool(getattr(usage, "cache_fields_seen", False))
+        )
         request_preview = (
             str(context.get("request_preview") or context.get("input_preview") or "").strip()
             or None
@@ -539,6 +564,8 @@ class ProviderBridgeResponseMixin:
                     "cache_read_tokens": cache_read_tokens,
                     "cache_write_tokens": cache_write_tokens,
                     "cache_write_1h_tokens": cache_write_1h_tokens,
+                    "cache_fields_seen": cache_fields_seen,
+                    "cache_observation": context.get("cache_observation"),
                     "usage_available": usage is not None,
                     "request_preview": request_preview,
                     "response_preview": response_preview,

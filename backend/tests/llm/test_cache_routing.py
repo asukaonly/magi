@@ -13,6 +13,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import pytest
 
 from magi.config.models import ModelVendor
+from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import LLMProviderBridge
 from magi.llm.provider_bridge.cache_routing import (
@@ -122,6 +123,25 @@ def _bridge(vendor: ModelVendor) -> tuple[LLMProviderBridge, _RecordingCompletio
     bridge.is_anthropic = lambda: False  # type: ignore[method-assign]
     bridge._operations._resolve_model_vendor = lambda: vendor  # type: ignore[method-assign]
     return bridge, completions
+
+
+def test_bridge_builds_cache_observation_context() -> None:
+    bridge, _ = _bridge(ModelVendor.OPENAI)
+
+    context = bridge._operations._with_cache_observation(
+        {"session_id": "sess-cache"},
+        system_prompt=f"stable\n{SYSTEM_PROMPT_CACHE_BOUNDARY}\ndynamic tail",
+        tools=[{"type": "function", "function": {"name": "weather", "description": "raw"}}],
+        cache_whole_system=False,
+    )
+
+    observation = context["cache_observation"]
+    assert observation["cache_strategy"] == "prompt_cache_key"
+    assert observation["cache_eligible"] is True
+    assert observation["tool_names"] == ["weather"]
+    assert observation["system_head_hash"]
+    assert "dynamic tail" not in str(observation)
+    assert "raw" not in str(observation)
 
 
 @pytest.mark.asyncio

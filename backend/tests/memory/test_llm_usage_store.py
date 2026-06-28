@@ -82,3 +82,73 @@ async def test_llm_usage_store_summarizes_prompt_and_completion_tokens(tmp_path:
     assert timeseries[0]["cache_read_tokens"] == 100
     assert timeseries[0]["cache_write_tokens"] == 15
     assert timeseries[0]["cache_hit_rate"] == 62.5
+
+
+@pytest.mark.asyncio
+async def test_llm_usage_store_records_cache_observation_diagnostics(tmp_path: Path) -> None:
+    db_path = tmp_path / "llm_usage.db"
+    _install_llm_usage_schema(db_path)
+    store = LLMUsageStore(db_path=db_path)
+
+    await store.record_cache_observation(
+        {
+            "request_id": "req-1",
+            "provider": "openai",
+            "model": "gpt-5",
+            "request_kind": "function_calling:chat_tools",
+            "session_id": "s1",
+            "turn_id": "t1",
+            "agent_id": "chat",
+            "cache_strategy": "prompt_cache_key",
+            "cache_eligible": True,
+            "system_head_hash": "system-hash",
+            "system_head_chars": 1000,
+            "turn_context_hash": "tail-a",
+            "turn_context_chars": 200,
+            "tools_hash": "tools-a",
+            "tool_count": 2,
+            "tool_names": ["weather", "web-search"],
+            "cache_fields_seen": True,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 120,
+            "cache_write_1h_tokens": 0,
+            "created_at": 1000.0,
+        }
+    )
+    await store.record_cache_observation(
+        {
+            "request_id": "req-2",
+            "provider": "openai",
+            "model": "gpt-5",
+            "request_kind": "function_calling:chat_tools",
+            "session_id": "s1",
+            "turn_id": "t2",
+            "agent_id": "chat",
+            "cache_strategy": "prompt_cache_key",
+            "cache_eligible": True,
+            "system_head_hash": "system-hash",
+            "system_head_chars": 1000,
+            "turn_context_hash": "tail-b",
+            "turn_context_chars": 250,
+            "tools_hash": "tools-b",
+            "tool_count": 3,
+            "tool_names": ["file_read", "grep", "find-relevant-tools"],
+            "cache_fields_seen": True,
+            "cache_read_tokens": 700,
+            "cache_write_tokens": 0,
+            "cache_write_1h_tokens": 0,
+            "created_at": 1010.0,
+        }
+    )
+
+    rows = await store.list_cache_observations(days=36500)
+
+    assert len(rows) == 2
+    latest = rows[0]
+    assert latest["request_id"] == "req-2"
+    assert latest["system_head_reused"] is True
+    assert latest["tools_reused"] is False
+    assert latest["predicted_miss_reasons"] == ["tools_changed"]
+    assert latest["tool_names"] == ["file_read", "grep", "find-relevant-tools"]
+    assert latest["cache_read_tokens"] == 700
+    assert "Persona Turn Steer" not in str(latest)

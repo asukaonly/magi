@@ -7,6 +7,7 @@ from typing import Any, Awaitable, Callable, Dict, TypeVar, cast
 
 from ..anthropic import AnthropicAdapter
 from ..base import LLMAdapter
+from ..cache_observability import build_cache_observation
 from .cache_routing import (
     cache_routing_request_kwargs,
     routing_key_from_event_context,
@@ -315,6 +316,36 @@ class ProviderBridgeOptionsMixin:
         for field, value in extras.items():
             kwargs[field] = {**(kwargs.get(field) or {}), **value}
         return kwargs
+
+    def _with_cache_observation(
+        self,
+        event_context: Dict[str, Any] | None,
+        *,
+        system_prompt: str,
+        tools: list[dict[str, Any]] | None,
+        cache_whole_system: bool = False,
+    ) -> Dict[str, Any] | None:
+        """Attach sanitized prompt-cache diagnostics to the event context."""
+        config = get_config()
+        lifecycle = getattr(config, "lifecycle", None)
+        llm_usage = getattr(lifecycle, "llm_usage", None)
+        settings = getattr(llm_usage, "cache_observability", None)
+        if settings is not None and not bool(getattr(settings, "enabled", True)):
+            return event_context
+
+        context: Dict[str, Any] = dict(event_context or {})
+        store_tool_names = True
+        if settings is not None:
+            store_tool_names = bool(getattr(settings, "store_tool_names", True))
+        context["cache_observation"] = build_cache_observation(
+            system_prompt=system_prompt,
+            tools=tools,
+            vendor=self._marker_vendor(),
+            event_context=context,
+            cache_whole_system=cache_whole_system,
+            store_tool_names=store_tool_names,
+        )
+        return context
 
     def _build_concurrency_key(self, request_family: str) -> str:
         base_url = getattr(self.llm, "base_url", None)

@@ -1115,6 +1115,7 @@ Two rules matter here:
 - function-calling LLM usage labels distinguish chat-level tool decisions from worker tool decisions with separate request kinds, so usage dashboards can explain which loop consumed tokens
 - function-calling turns group each bounded loop as an `iteration` span; LLM decisions and semantic tool calls inside that loop must be children of the iteration, and low-level `tool_invocation` spans should sit under their semantic `tool_call`
 - response rhythm segmentation emits a `rhythm_processing` span when the final answer is split into multiple natural-language segments
+- prompt-cache diagnostics flow with LLM usage events into `llm_usage.db`; they keep only provider cache counters, stable hashes, sizes, strategy labels, and bounded tool-name metadata so operators can compare cache stability without storing raw prompts or tool payloads
 - user-facing input/output details in trace UI must remain bounded previews, not raw full prompts, transcripts, or tool payloads
 - business runtime code should call the runtime trace writer facade for live span/detail updates instead of calling store `upsert_*` methods directly
 - derived tool execution statistics must read from `runtime_trace.trace_tools`, not from procedural memory counters

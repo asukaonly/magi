@@ -127,5 +127,23 @@ class LLMUsageSubscriber:
                 "created_at": float(payload.started_at_ms) / 1000.0,
             }
             await self._store.record_call(usage_payload)
+            cache_observation = attrs.get("cache_observation")
+            if isinstance(cache_observation, dict) and cache_observation:
+                observation_payload = {
+                    **cache_observation,
+                    "request_id": usage_payload["request_id"],
+                    "provider": usage_payload["provider"],
+                    "model": usage_payload["model"],
+                    "request_kind": usage_payload["request_kind"],
+                    "session_id": usage_payload["session_id"],
+                    "turn_id": usage_payload["turn_id"],
+                    "agent_id": usage_payload["agent_id"],
+                    "cache_fields_seen": bool(attrs.get("cache_fields_seen", False)),
+                    "cache_read_tokens": usage_payload["cache_read_tokens"],
+                    "cache_write_tokens": usage_payload["cache_write_tokens"],
+                    "cache_write_1h_tokens": usage_payload["cache_write_1h_tokens"],
+                    "created_at": usage_payload["created_at"],
+                }
+                await self._store.record_cache_observation(observation_payload)
         except Exception:
             logger.exception("llm_usage projection failed: span=%s", payload.span_id)

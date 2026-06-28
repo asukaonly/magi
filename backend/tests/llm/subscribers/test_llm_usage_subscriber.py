@@ -38,6 +38,7 @@ def fake_bus():
 def fake_store():
     s = MagicMock()
     s.record_call = AsyncMock()
+    s.record_cache_observation = AsyncMock()
     return s
 
 
@@ -98,6 +99,56 @@ async def test_records_llm_call_with_full_payload(fake_bus, fake_store):
     assert written["session_id"] == "sess-1"
     assert written["turn_id"] == "turn-1"
     assert written["agent_id"] == "chat"
+    assert written["created_at"] == 1700000000.0
+
+
+@pytest.mark.asyncio
+async def test_records_cache_observation_when_span_contains_diagnostics(fake_bus, fake_store):
+    sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
+    await sub.start()
+    payload = _payload(
+        attrs={
+            "request_id": "req-cache",
+            "provider": "openai",
+            "model": "gpt-5",
+            "request_kind": "function_calling:chat_tools",
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "cache_read_tokens": 70,
+            "cache_write_tokens": 5,
+            "cache_write_1h_tokens": 0,
+            "cache_fields_seen": True,
+            "session_id": "sess-1",
+            "agent_id": "chat",
+            "cache_observation": {
+                "cache_strategy": "prompt_cache_key",
+                "cache_eligible": True,
+                "system_head_hash": "head",
+                "system_head_chars": 1000,
+                "turn_context_hash": "tail",
+                "turn_context_chars": 200,
+                "tools_hash": "tools",
+                "tool_count": 2,
+                "tool_names": ["weather", "web-search"],
+            },
+        },
+        turn_id="turn-1",
+    )
+
+    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
+    await sub.drain()
+
+    fake_store.record_cache_observation.assert_awaited_once()
+    written = fake_store.record_cache_observation.await_args.args[0]
+    assert written["request_id"] == "req-cache"
+    assert written["provider"] == "openai"
+    assert written["model"] == "gpt-5"
+    assert written["request_kind"] == "function_calling:chat_tools"
+    assert written["cache_strategy"] == "prompt_cache_key"
+    assert written["system_head_hash"] == "head"
+    assert written["tool_names"] == ["weather", "web-search"]
+    assert written["cache_fields_seen"] is True
+    assert written["cache_read_tokens"] == 70
     assert written["created_at"] == 1700000000.0
 
 

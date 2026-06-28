@@ -328,7 +328,15 @@ def test_loader_creates_lifecycle_split_file_and_loads_policy(tmp_path: Path, mo
 
     assert lifecycle_file.exists()
     assert lifecycle_data["lifecycle"]["runtime_trace"]["raw_retention_days"] == 7
+    assert lifecycle_data["lifecycle"]["llm_usage"]["cache_observability"] == {
+        "enabled": True,
+        "retention_days": 30,
+        "max_rows": 50000,
+        "store_tool_names": True,
+    }
     assert config.lifecycle.runtime_trace.raw_retention_days == 7
+    assert config.lifecycle.llm_usage.cache_observability.enabled is True
+    assert config.lifecycle.llm_usage.cache_observability.max_rows == 50_000
     assert config.lifecycle.message_queue.completed.raw_retention_hours == 24
     assert config.lifecycle.scheduler.executions.failed_retention_days == 60
 

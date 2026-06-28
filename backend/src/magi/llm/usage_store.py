@@ -1,6 +1,7 @@
 """Persistence and aggregation for LLM usage metrics."""
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -94,6 +95,126 @@ class LLMUsageStore:
                 ),
             )
             await db.commit()
+
+    async def record_cache_observation(self, payload: dict[str, Any]) -> None:
+        """Persist lightweight prompt-cache diagnostics for one LLM call."""
+        await self.initialize()
+        created_at = float(payload.get("created_at") or time.time())
+        provider = str(payload.get("provider") or "unknown")
+        model = str(payload.get("model") or "unknown")
+        request_kind = str(payload.get("request_kind") or "unknown")
+        session_id = payload.get("session_id")
+        system_head_hash = str(payload.get("system_head_hash") or "")
+        tools_hash = str(payload.get("tools_hash") or "")
+
+        async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
+            db.row_factory = aiosqlite.Row
+            previous = await self._fetch_previous_cache_observation(
+                db,
+                provider=provider,
+                model=model,
+                request_kind=request_kind,
+                session_id=session_id,
+                created_at=created_at,
+            )
+            system_head_reused: bool | None = None
+            tools_reused: bool | None = None
+            miss_reasons: list[str] = []
+            if previous is None:
+                miss_reasons.append("first_observed_call")
+            else:
+                system_head_reused = str(previous["system_head_hash"] or "") == system_head_hash
+                tools_reused = str(previous["tools_hash"] or "") == tools_hash
+                if not system_head_reused:
+                    miss_reasons.append("system_head_changed")
+                if not tools_reused:
+                    miss_reasons.append("tools_changed")
+                if not miss_reasons:
+                    miss_reasons.append("prefix_stable")
+            if not bool(payload.get("cache_eligible")):
+                miss_reasons = ["cache_not_eligible"]
+
+            await db.execute(
+                """
+                INSERT INTO llm_cache_observations (
+                    request_id,
+                    provider,
+                    model,
+                    request_kind,
+                    session_id,
+                    turn_id,
+                    agent_id,
+                    cache_strategy,
+                    cache_eligible,
+                    system_head_hash,
+                    system_head_chars,
+                    turn_context_hash,
+                    turn_context_chars,
+                    tools_hash,
+                    tool_count,
+                    tool_names_json,
+                    system_head_reused,
+                    tools_reused,
+                    predicted_miss_reasons_json,
+                    cache_fields_seen,
+                    cache_read_tokens,
+                    cache_write_tokens,
+                    cache_write_1h_tokens,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(payload.get("request_id") or ""),
+                    provider,
+                    model,
+                    request_kind,
+                    session_id,
+                    payload.get("turn_id"),
+                    payload.get("agent_id"),
+                    str(payload.get("cache_strategy") or "none"),
+                    1 if payload.get("cache_eligible") else 0,
+                    system_head_hash,
+                    int(payload.get("system_head_chars") or 0),
+                    str(payload.get("turn_context_hash") or ""),
+                    int(payload.get("turn_context_chars") or 0),
+                    tools_hash,
+                    int(payload.get("tool_count") or 0),
+                    json.dumps(list(payload.get("tool_names") or []), ensure_ascii=False),
+                    self._bool_to_nullable_int(system_head_reused),
+                    self._bool_to_nullable_int(tools_reused),
+                    json.dumps(miss_reasons, ensure_ascii=False),
+                    1 if payload.get("cache_fields_seen") else 0,
+                    int(payload.get("cache_read_tokens") or 0),
+                    int(payload.get("cache_write_tokens") or 0),
+                    int(payload.get("cache_write_1h_tokens") or 0),
+                    created_at,
+                ),
+            )
+            await db.commit()
+
+    async def list_cache_observations(
+        self,
+        *,
+        days: int = 7,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return recent prompt-cache diagnostic rows."""
+        cutoff = time.time() - (days * 86400)
+        await self.initialize()
+        async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                """
+                SELECT *
+                FROM llm_cache_observations
+                WHERE created_at >= ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (cutoff, max(1, int(limit))),
+            )
+            rows = await cursor.fetchall()
+        return [self._cache_observation_row_to_dict(row) for row in rows]
 
     async def get_summary(self, days: int = 7, model_limit: int = 8) -> dict[str, Any]:
         """Return aggregate LLM usage metrics for the requested window."""
@@ -328,6 +449,67 @@ class LLMUsageStore:
         cursor = await db.execute(query, params)
         rows = await cursor.fetchall()
         return [{key: row[key] for key in row.keys()} for row in rows]
+
+    async def _fetch_previous_cache_observation(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        provider: str,
+        model: str,
+        request_kind: str,
+        session_id: Any,
+        created_at: float,
+    ) -> aiosqlite.Row | None:
+        if not session_id:
+            return None
+        cursor = await db.execute(
+            """
+            SELECT system_head_hash, tools_hash
+            FROM llm_cache_observations
+            WHERE session_id = ?
+              AND provider = ?
+              AND model = ?
+              AND request_kind = ?
+              AND created_at <= ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (session_id, provider, model, request_kind, created_at),
+        )
+        return await cursor.fetchone()
+
+    @staticmethod
+    def _bool_to_nullable_int(value: bool | None) -> int | None:
+        if value is None:
+            return None
+        return 1 if value else 0
+
+    @classmethod
+    def _cache_observation_row_to_dict(cls, row: aiosqlite.Row) -> dict[str, Any]:
+        data = {key: row[key] for key in row.keys()}
+        data["cache_eligible"] = bool(data.get("cache_eligible"))
+        data["cache_fields_seen"] = bool(data.get("cache_fields_seen"))
+        data["system_head_reused"] = cls._nullable_int_to_bool(data.get("system_head_reused"))
+        data["tools_reused"] = cls._nullable_int_to_bool(data.get("tools_reused"))
+        data["tool_names"] = cls._loads_json_list(data.pop("tool_names_json", "[]"))
+        data["predicted_miss_reasons"] = cls._loads_json_list(
+            data.pop("predicted_miss_reasons_json", "[]")
+        )
+        return data
+
+    @staticmethod
+    def _nullable_int_to_bool(value: Any) -> bool | None:
+        if value is None:
+            return None
+        return bool(value)
+
+    @staticmethod
+    def _loads_json_list(value: Any) -> list[Any]:
+        try:
+            parsed = json.loads(str(value or "[]"))
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
 
 
 def get_llm_usage_store() -> LLMUsageStore:

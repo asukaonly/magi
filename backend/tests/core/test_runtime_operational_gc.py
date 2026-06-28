@@ -198,6 +198,57 @@ async def test_llm_usage_gc_rolls_up_and_deletes_expired_raw_rows(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_llm_usage_gc_prunes_cache_observations_by_retention_and_max_rows(tmp_path: Path) -> None:
+	lifecycle = LifecycleSettings(
+		llm_usage={
+			"cache_observability": {
+				"enabled": True,
+				"retention_days": 30,
+				"max_rows": 2,
+			}
+		}
+	)
+	gc = _gc(tmp_path, lifecycle=lifecycle)
+	db_path = gc.runtime_paths.llm_usage_db_path
+	old_ts = 2_000_000.0 - (31 * 86400)
+	recent_a = 2_000_000.0 - 300
+	recent_b = 2_000_000.0 - 200
+	recent_c = 2_000_000.0 - 100
+
+	_install_llm_usage_schema(db_path)
+	async with sqlite_connection_async(db_path) as db:
+		await db.executemany(
+			"""
+			INSERT INTO llm_cache_observations (
+				request_id, provider, model, request_kind, session_id,
+				cache_strategy, cache_eligible, system_head_hash, tools_hash,
+				created_at
+			) VALUES (?, 'openai', 'gpt-test', 'chat', 's1',
+				'prompt_cache_key', 1, 'head', ?, ?)
+			""",
+			(
+				("old", "tools-old", old_ts),
+				("recent-a", "tools-a", recent_a),
+				("recent-b", "tools-b", recent_b),
+				("recent-c", "tools-c", recent_c),
+			),
+		)
+		await db.commit()
+
+	result = await gc.cleanup_llm_usage()
+
+	assert result["llm_cache_observations_deleted"] == 1
+	assert result["llm_cache_observations_trimmed"] == 1
+	assert await _count_rows(db_path, "llm_cache_observations") == 2
+	async with sqlite_connection_async(db_path) as db:
+		cursor = await db.execute(
+			"SELECT request_id FROM llm_cache_observations ORDER BY created_at ASC"
+		)
+		rows = await cursor.fetchall()
+	assert [row[0] for row in rows] == ["recent-b", "recent-c"]
+
+
+@pytest.mark.asyncio
 async def test_message_queue_gc_rolls_up_completed_and_preserves_active_rows(tmp_path: Path) -> None:
 	gc = _gc(tmp_path)
 	db_path = gc.runtime_paths.message_queue_db_path
