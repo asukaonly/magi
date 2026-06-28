@@ -36,7 +36,7 @@ class FindRelevantToolsTool(Tool):
             name="find-relevant-tools",
             description=(
                 "Find up to two additional tools or skills that are relevant to the current unmet subtask. "
-                "Use this when the current tool set cannot complete the next step, not for broad capability browsing."
+                "Use this when the current tool set cannot complete the next grounded step, not for broad capability browsing."
             ),
             category="system",
             version="1.0.0",
@@ -46,7 +46,8 @@ class FindRelevantToolsTool(Tool):
                     name="query",
                     type=ParameterType.STRING,
                     description=(
-                        "Describe the missing capability or next subtask. Include concrete facts discovered so far when relevant."
+                        "Describe one focused missing capability, including the domain/action/object and concrete facts "
+                        "discovered so far. Do not pass the whole user request."
                     ),
                     required=True,
                 ),
@@ -70,7 +71,7 @@ class FindRelevantToolsTool(Tool):
             examples=[
                 {
                     "input": {
-                        "query": "I already recovered that the trip was in Hangzhou on 2025-05-01, and now I need the historical weather.",
+                        "query": "Need historical weather for Hangzhou on 2025-05-01 after recovering the trip date from memory.",
                         "current_tools": ["memory_query"],
                         "limit": 1,
                     },

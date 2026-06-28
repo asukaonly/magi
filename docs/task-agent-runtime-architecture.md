@@ -233,12 +233,15 @@ verification work.
   `tool_query` or own the final provider tool surface. When `tool_need` is
   `discover`, chat coordination starts a normal function-calling turn with
   the resident `find-relevant-tools` entry so the main model can ask for the
-  missing concrete capability. `FunctionCallingHandler` then owns final tool
-  exposure: it appends resident runtime-control tools, conditionally exposes
-  `agent`, and may reuse a recent same-session tool superset for a short
-  window when the current requested set is a subset and the reuse is safe for
-  the turn's write policy. This keeps cache-friendly provider tool lists in
-  the execution layer instead of pushing cache policy into routing.
+  missing concrete capability. The query should describe one focused capability
+  gap with the relevant domain/action/object and facts already known; it should
+  not be the whole user request or a broad capability-browsing prompt.
+  `FunctionCallingHandler` then owns final tool exposure: it appends resident
+  runtime-control tools, conditionally exposes `agent`, and may reuse a recent
+  same-session tool superset for a short window when the current requested set
+  is a subset and the reuse is safe for the turn's write policy. This keeps
+  cache-friendly provider tool lists in the execution layer instead of pushing
+  cache policy into routing.
 
   Reply-target continuity in chat is intentionally compact but now carries more than plain text excerpts.
   When a user replies to an earlier assistant message, the runtime may include a sanitized structured payload summary from that replied-to message, such as managed attachment references, so follow-up turns can reuse concrete artifacts without re-exposing raw local file paths.

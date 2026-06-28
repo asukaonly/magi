@@ -32,9 +32,17 @@ class FunctionCallingResponseMixin:
             "- If grep is blocked or too broad, switch to scoped glob plus file_read before trying again.\n"
             "- If a tool result has retryable=false, terminal=true, or error code PROVIDER_CHALLENGE, NO_PROVIDERS_CONFIGURED, or PROVIDER_NOT_CONFIGURED, do not call that same tool again in the current turn.\n"
             "- Prefer an alternative tool or narrower scope over repeating the failed call unchanged."
-            "\n- If the current tool set is missing a needed capability for the next step, call find-relevant-tools with the missing subtask and the tools you already have.\n"
-            "- Use find-relevant-tools only for concrete capability gaps, not for broad browsing.\n"
-            "- After a successful find-relevant-tools call, newly recommended tools may become available in the next step."
+            "\n\nTool discovery rules:\n"
+            "- Call find-relevant-tools only when the current tool set is missing a needed "
+            "capability for the next grounded step.\n"
+            "- Query for one focused capability gap at a time; include the domain/action/object "
+            "and concrete facts already known, such as time, place, source, path, entity, "
+            "or output format.\n"
+            "- Do not pass the whole user request, vague phrases, or broad capability-browsing "
+            "prompts as the query.\n"
+            "- Always pass current_tools with the tools already available in this turn.\n"
+            "- After a successful find-relevant-tools call, use newly recommended tools only "
+            "if they directly close that gap."
         )
         if guidance.strip() in system_prompt:
             return system_prompt
