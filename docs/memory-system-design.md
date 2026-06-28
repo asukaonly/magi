@@ -501,7 +501,8 @@ Batch policy:
 - The `runtime_worker` registers `memory_l2_maintenance` as a periodic task for offline entity catalog / knowledge graph maintenance, including ghost references, mergeable types, orphan entities, assertion reconciliation, edge embedding refresh, predicate consolidation, and promotion-counter pruning.
 - The `runtime_worker` registers `memory_l2_consolidate` as a separate periodic task for episode promotion/merge/invalidations, experience promotion, and missing episodic/experience summary generation.
 - The `runtime_worker` registers `memory_l3_maintenance` as a periodic task for L3 summary retention cleanup.
-- `MaintenanceDaemon` remains a runtime housekeeping loop for non-layer cleanup such as L0 session expiry/checkpointing, runtime operational garbage collection, and chat asset garbage collection; it does not own L1/L3 retention cleanup.
+- The `runtime_worker` registers `runtime_operational_gc` as a periodic task for non-layer cleanup such as L0 session expiry/checkpointing, runtime operational garbage collection, and chat asset garbage collection.
+- `MaintenanceDaemon` remains only for lightweight process-local checks such as health checks and log-size warnings; it does not own data-retention cleanup.
 - Manual `/l2/episodes/reconsolidate` uses the same scheduler target lock as `memory_l2_consolidate`; if consolidation is already running, the endpoint returns HTTP 409 instead of competing with scheduled episode consolidation.
 
 Extraction flow:

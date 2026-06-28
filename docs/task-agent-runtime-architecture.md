@@ -103,9 +103,10 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 31. `runtime_l3_maintenance_scheduler`
 32. `runtime_l4_maintenance_scheduler`
 33. `runtime_timeline_schedulers`
-34. `runtime_other_dependencies`
-35. `runtime_channels`
-36. `runtime_outreach`
+34. `runtime_operational_gc_scheduler`
+35. `runtime_other_dependencies`
+36. `runtime_channels`
+37. `runtime_outreach`
 
 Important rule: bootstrap order is dependency order, not ownership order. For example, the scheduler engine is infrastructure even though it is started after timeline services that will register schedules into it.
 
@@ -679,10 +680,9 @@ Key components:
 - `BackgroundTaskExecutor` ([executor.py](../backend/src/magi/agent/background/executor.py))
   — wraps a single attempt: transitions, cancellation plumbing, and
   persisted ``BackgroundTaskEvent`` entries.
-- `BackgroundTaskRetentionGC` ([retention.py](../backend/src/magi/agent/background/retention.py))
-  — periodic purge driven by ``agent.background_tasks.history_retention_days``.
-  Runs one sweep at startup and then hourly; disabled when
-  ``history_retention_days <= 0``.
+- `BackgroundTaskRetentionScheduleContrib` ([retention.py](../backend/src/magi/agent/background/retention.py))
+  — registers the scheduler-owned hourly purge driven by
+  ``agent.background_tasks.history_retention_days``.
 
 Lifecycle (orchestrated by
 [agent/lifecycle.py](../backend/src/magi/agent/lifecycle.py)):
@@ -706,9 +706,11 @@ Lifecycle (orchestrated by
      notification channel. The Rust gateway relays that channel onto
      the Tauri event stream the frontend Tasks page subscribes to.
 3. `manager.start()` runs restart recovery, rehydrates any ``pending``
-   rows, and spawns the dispatcher loop. ``retention_gc.start()`` is
-   invoked right after, so the first purge sees the just-recovered
-   rows as ordinary terminal entries.
+   rows, and spawns the dispatcher loop.
+4. `runtime_agent_schedule_registration` registers both user-agent
+   schedules and the ``background_task_retention`` cleanup schedule, so
+   retention executions are visible through the same scheduler execution
+   ledger as other periodic runtime work.
 
 Configuration lives under `agent.background_tasks` in
 [config.example.yaml](../backend/configs/config.example.yaml):

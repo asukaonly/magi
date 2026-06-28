@@ -196,6 +196,7 @@ class AgentRuntimeBootstrapState:
     agent_runtime: AgentRuntime | None = None
     task_agent_manager: TaskAgentManager | None = None
     background_task_manager: Any = None
+    background_task_retention_schedule: Any = None
 
 
 @dataclass

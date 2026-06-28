@@ -10,7 +10,7 @@ from .context import RuntimeBootstrapContext
 from .exports import RuntimeExportsModule
 from .control_plane import ControlPlaneModule
 from .lifecycle import LifecycleModule
-from .maintenance import OtherDependenciesModule
+from .maintenance import OtherDependenciesModule, RuntimeOperationalGCScheduleRegistrationModule
 from .runtime_tools import RuntimeFirstPartyToolsModule
 
 from ..core.logger import get_logger
@@ -275,6 +275,7 @@ def _build_exports_and_maintenance_modules(context: RuntimeBootstrapContext) -> 
         L3MaintenanceScheduleRegistrationModule(context),
         L4MaintenanceScheduleRegistrationModule(context),
         TimelineSchedulersModule(context),  # NEW
+        RuntimeOperationalGCScheduleRegistrationModule(context),
         OtherDependenciesModule(context),
         ChannelsModule(context),
         OutreachModule(context),

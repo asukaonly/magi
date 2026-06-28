@@ -48,7 +48,7 @@ from .memory_isolation import (
     tag_fact,
 )
 from .notifications import broadcast_background_task_state_changed
-from .retention import BackgroundTaskRetentionGC
+from .retention import BackgroundTaskRetentionScheduleContrib
 from .store import BackgroundTaskStore
 
 __all__ = [
@@ -67,7 +67,7 @@ __all__ = [
     "BackgroundTaskExecutor",
     "BackgroundTaskListener",
     "BackgroundTaskManager",
-    "BackgroundTaskRetentionGC",
+    "BackgroundTaskRetentionScheduleContrib",
     "BackgroundTaskRunFn",
     "BackgroundTaskRunResult",
     "BackgroundTaskSpec",

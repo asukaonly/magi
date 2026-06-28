@@ -1,7 +1,7 @@
 """Bootstrap wiring for the background-task runtime.
 
 This helper composes the persistence store, manager, dispatcher, launch
-service, and retention GC into a single bundle that
+service, and retention schedule contributor into a single bundle that
 :mod:`magi.agent.lifecycle` wires into ``AgentRuntimeModule``. Keeping the
 plumbing here means the lifecycle module stays a thin assembly site.
 """
@@ -15,7 +15,7 @@ from ..agent.background import (
     BackgroundDispatcher,
     BackgroundLaunchService,
     BackgroundTaskManager,
-    BackgroundTaskRetentionGC,
+    BackgroundTaskRetentionScheduleContrib,
     BackgroundTaskStore,
     build_background_run_fn,
 )
@@ -36,7 +36,7 @@ class BackgroundTaskWiring:
     manager: BackgroundTaskManager
     dispatcher: BackgroundDispatcher
     launch_service: BackgroundLaunchService
-    retention_gc: BackgroundTaskRetentionGC
+    retention_schedule: BackgroundTaskRetentionScheduleContrib
 
 
 def build_background_task_wiring(
@@ -47,7 +47,6 @@ def build_background_task_wiring(
     skill_runner: Any,
     runtime_trace_store: Any,
     max_concurrent: int = 2,
-    history_retention_days: float = 0.0,
     permission_gateway_provider: Callable[[], Any] | None = None,
 ) -> BackgroundTaskWiring:
     """Construct the background-task components in their dependency order.
@@ -80,16 +79,15 @@ def build_background_task_wiring(
         llm_pool=llm_pool,
     )
     launch_service = BackgroundLaunchService(manager=manager)
-    retention_gc = BackgroundTaskRetentionGC(
+    retention_schedule = BackgroundTaskRetentionScheduleContrib(
         store=store,
-        retention_days=history_retention_days,
     )
     return BackgroundTaskWiring(
         store=store,
         manager=manager,
         dispatcher=dispatcher,
         launch_service=launch_service,
-        retention_gc=retention_gc,
+        retention_schedule=retention_schedule,
     )
 
 

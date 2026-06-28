@@ -84,11 +84,13 @@ class AgentRuntimeModule(LifecycleModule):
             skill_runner=self._context.skills.skill_runner,
             runtime_trace_store=runtime_trace_store,
             max_concurrent=bg_settings.max_concurrent,
-            history_retention_days=bg_settings.history_retention_days,
             permission_gateway_provider=get_permission_gateway,
         )
         self._background_wiring = background_wiring
         self._context.agent_runtime.background_task_manager = background_wiring.manager
+        self._context.agent_runtime.background_task_retention_schedule = (
+            background_wiring.retention_schedule
+        )
 
         # Batch orchestrator (W2): drive manifest jobs via the same manager —
         # each finished background run fires this listener, which continues the
@@ -179,8 +181,6 @@ class AgentRuntimeModule(LifecycleModule):
         if resumed:
             logger.info("batch jobs resumed after restart", count=resumed)
 
-        await background_wiring.retention_gc.start()
-
         logger.info(
             "AgentRuntime started (L11)",
             background_tasks_enabled=bg_settings.enabled,
@@ -190,10 +190,10 @@ class AgentRuntimeModule(LifecycleModule):
 
     async def shutdown(self) -> None:
         if self._background_wiring is not None:
-            await self._background_wiring.retention_gc.stop()
             await self._background_wiring.manager.stop()
             self._background_wiring = None
             self._context.agent_runtime.background_task_manager = None
+            self._context.agent_runtime.background_task_retention_schedule = None
         if self._context.agent_runtime.agent_runtime is not None:
             await self._context.agent_runtime.agent_runtime.stop()
             self._context.agent_runtime.agent_runtime = None
@@ -210,6 +210,7 @@ class AgentScheduleRegistrationModule(LifecycleModule):
         )
         self._context = context
         self._contrib: UserAgentTaskScheduleContributor | None = None
+        self._background_retention_contrib = None
 
     async def init(self) -> None:
         scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
@@ -217,11 +218,25 @@ class AgentScheduleRegistrationModule(LifecycleModule):
             self._context.agent_runtime.background_task_manager,
             "background task manager",
         )
+        background_task_retention_schedule = require_initialized(
+            self._context.agent_runtime.background_task_retention_schedule,
+            "background task retention schedule",
+        )
         self._contrib = UserAgentTaskScheduleContributor(background_task_manager)
         await self._contrib.register_schedules(scheduler_service)
-        logger.info("Agent schedule handler registered")
+        self._background_retention_contrib = background_task_retention_schedule
+        await self._background_retention_contrib.register_schedules(scheduler_service)
+        logger.info("Agent schedules registered")
 
     async def shutdown(self) -> None:
         if self._contrib is not None and self._context.scheduler.scheduler_service is not None:
             await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
+        if (
+            self._background_retention_contrib is not None
+            and self._context.scheduler.scheduler_service is not None
+        ):
+            await self._background_retention_contrib.unregister_schedules(
+                self._context.scheduler.scheduler_service
+            )
         self._contrib = None
+        self._background_retention_contrib = None

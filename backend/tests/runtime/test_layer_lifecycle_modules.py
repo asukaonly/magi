@@ -91,6 +91,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_l3_maintenance_scheduler",
         "runtime_l4_maintenance_scheduler",
         "runtime_timeline_schedulers",
+        "runtime_operational_gc_scheduler",
         "runtime_other_dependencies",
         "runtime_channels",
         "runtime_outreach",

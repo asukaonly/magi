@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from magi.agent.background import BackgroundTaskStore
+from magi.agent.background import BackgroundTaskRetentionScheduleContrib, BackgroundTaskStore
 from magi.bootstrap.background_tasks import build_background_task_wiring
 
 
@@ -27,3 +27,4 @@ def test_build_background_task_wiring_composes_components(tmp_path: Path) -> Non
     assert wiring.manager is not None
     assert wiring.dispatcher is not None
     assert wiring.launch_service is not None
+    assert isinstance(wiring.retention_schedule, BackgroundTaskRetentionScheduleContrib)

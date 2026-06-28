@@ -11,9 +11,131 @@ from .context import RuntimeBootstrapContext, require_initialized
 from ..core.maintenance import MaintenanceConfig, MaintenanceDaemon, set_maintenance_daemon
 from ..core.runtime_operational_gc import RuntimeOperationalGC
 from ..core.logger import get_logger
+from ..scheduler.contracts import (
+    ScheduledExecutionContext,
+    ScheduledExecutionResult,
+    ScheduledTargetType,
+)
+from ..scheduler.service import SchedulerService
 from ..utils.runtime import get_runtime_paths
 
 logger = get_logger(__name__)
+
+SCHEDULE_ID_RUNTIME_OPERATIONAL_GC = "runtime-operational-gc:global"
+TARGET_KEY_RUNTIME_OPERATIONAL_GC = "runtime_operational_gc"
+
+
+class RuntimeOperationalGCScheduleContrib:
+    """Register runtime operational cleanup with the persistent scheduler."""
+
+    def __init__(
+        self,
+        *,
+        unified_memory,
+        get_config_func=get_config,
+        runtime_paths_provider=get_runtime_paths,
+    ) -> None:
+        self._unified_memory = unified_memory
+        self._get_config = get_config_func
+        self._runtime_paths_provider = runtime_paths_provider
+
+    async def register_schedules(self, scheduler: SchedulerService) -> None:
+        scheduler.register_handler(
+            ScheduledTargetType.RUNTIME_OPERATIONAL_GC,
+            self.handle,
+        )
+        config = self._get_config()
+        maintenance = config.agent.maintenance
+        if not maintenance.enabled:
+            await scheduler.unschedule(
+                SCHEDULE_ID_RUNTIME_OPERATIONAL_GC,
+                target_type=ScheduledTargetType.RUNTIME_OPERATIONAL_GC,
+                target_key=TARGET_KEY_RUNTIME_OPERATIONAL_GC,
+            )
+            return
+        await scheduler.schedule_interval(
+            schedule_id=SCHEDULE_ID_RUNTIME_OPERATIONAL_GC,
+            target_type=ScheduledTargetType.RUNTIME_OPERATIONAL_GC,
+            target_key=TARGET_KEY_RUNTIME_OPERATIONAL_GC,
+            seconds=float(maintenance.interval_seconds),
+            target_payload={},
+        )
+
+    async def unregister_schedules(self, scheduler: SchedulerService) -> None:
+        await scheduler.unschedule(
+            SCHEDULE_ID_RUNTIME_OPERATIONAL_GC,
+            target_type=ScheduledTargetType.RUNTIME_OPERATIONAL_GC,
+            target_key=TARGET_KEY_RUNTIME_OPERATIONAL_GC,
+        )
+
+    async def handle(
+        self,
+        context: ScheduledExecutionContext,
+    ) -> ScheduledExecutionResult:
+        _ = context
+        try:
+            current_config = self._get_config()
+            runtime_paths = self._runtime_paths_provider()
+            results = await self._unified_memory.cleanup_runtime_data()
+            runtime_gc = RuntimeOperationalGC(
+                lifecycle=current_config.lifecycle,
+                runtime_paths=runtime_paths,
+            )
+            results.update(await runtime_gc.run())
+            if current_config.lifecycle.chat_assets.delete_on_clear_memory:
+                chat_asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
+                results.update(
+                    await asyncio.to_thread(
+                        chat_asset_gc.sweep_orphan_session_assets,
+                        orphan_grace_hours=(
+                            current_config.lifecycle.chat_assets.orphan_grace_hours
+                        ),
+                    )
+                )
+        except Exception as exc:
+            logger.warning("runtime operational gc failed", error=str(exc), exc_info=True)
+            return ScheduledExecutionResult(
+                success=False,
+                message="runtime_operational_gc_failed",
+                stats={"error": str(exc)},
+            )
+        return ScheduledExecutionResult(
+            success=True,
+            message="runtime_operational_gc_ok",
+            stats=results,
+        )
+
+
+class RuntimeOperationalGCScheduleRegistrationModule(LifecycleModule):
+    """Register runtime operational cleanup as a scheduler-owned task."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_operational_gc_scheduler",
+            dependencies=("runtime_scheduler", "runtime_configuration", "runtime_memory"),
+        )
+        self._context = context
+        self._contrib: RuntimeOperationalGCScheduleContrib | None = None
+
+    async def init(self) -> None:
+        scheduler_service = require_initialized(
+            self._context.scheduler.scheduler_service,
+            "scheduler service",
+        )
+        unified_memory = require_initialized(
+            self._context.memory.unified_memory,
+            "unified memory",
+        )
+        self._contrib = RuntimeOperationalGCScheduleContrib(
+            unified_memory=unified_memory,
+        )
+        await self._contrib.register_schedules(scheduler_service)
+        logger.info("Runtime operational GC schedule registered")
+
+    async def shutdown(self) -> None:
+        if self._contrib is not None and self._context.scheduler.scheduler_service is not None:
+            await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
+        self._contrib = None
 
 
 class OtherDependenciesModule(LifecycleModule):
@@ -28,25 +150,6 @@ class OtherDependenciesModule(LifecycleModule):
 
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "runtime config")
-        unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
-
-        async def _run_maintenance() -> dict[str, int]:
-            current_config = get_config()
-            results = await unified_memory.cleanup_runtime_data()
-            runtime_gc = RuntimeOperationalGC(
-                lifecycle=current_config.lifecycle,
-                runtime_paths=get_runtime_paths(),
-            )
-            results.update(await runtime_gc.run())
-            if current_config.lifecycle.chat_assets.delete_on_clear_memory:
-                chat_asset_gc = ChatAssetGC(runtime_paths=get_runtime_paths())
-                results.update(
-                    await asyncio.to_thread(
-                        chat_asset_gc.sweep_orphan_session_assets,
-                        orphan_grace_hours=current_config.lifecycle.chat_assets.orphan_grace_hours,
-                    )
-                )
-            return results
 
         maintenance_config = MaintenanceConfig(
             enabled=config.agent.maintenance.enabled,
@@ -56,7 +159,6 @@ class OtherDependenciesModule(LifecycleModule):
         )
         self._context.maintenance.maintenance_daemon = MaintenanceDaemon(
             config=maintenance_config,
-            maintenance_callback=_run_maintenance,
         )
         await self._context.maintenance.maintenance_daemon.start()
         set_maintenance_daemon(self._context.maintenance.maintenance_daemon)
