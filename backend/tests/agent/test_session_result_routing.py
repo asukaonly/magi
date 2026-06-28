@@ -380,7 +380,9 @@ async def test_chat_planning_service_mixed_evidence_prompt_preserves_external_le
     plan = await service.generate_subtask_plan(
         user_message="详细对比一下 magi 和 Hindsight 的 memory architecture",
         history=[],
-        orchestration_plan={"mode": "decompose", "default_leaf_type": "CodeExplore", "allow_parallel": True},
+        orchestration_plan=OrchestrationPlan(
+            mode="decompose", default_leaf_type="CodeExplore", allow_parallel=True
+        ),
         user_id="user-1",
         session_id="session-1",
         workspace_root="/tmp/magi",
@@ -429,11 +431,9 @@ async def test_chat_planning_service_routes_local_travel_subtasks_to_general_wor
     plan = await service.generate_subtask_plan(
         user_message="我不怎么运动，帮我安排明天杭州一天行程，包括地铁和晚餐商圈",
         history=[],
-        orchestration_plan={
-            "mode": "decompose",
-            "default_leaf_type": "CodeExplore",
-            "allow_parallel": True,
-        },
+        orchestration_plan=OrchestrationPlan(
+            mode="decompose", default_leaf_type="CodeExplore", allow_parallel=True
+        ),
         user_id="user-1",
         session_id="session-1",
         workspace_root="/tmp/magi",
@@ -598,7 +598,6 @@ async def test_function_calling_agent_tool_treats_blank_session_id_as_missing() 
         intent="planning",
         execution_agent_id="chat:user-1",
         execution_workspace="/tmp",
-        orchestration_strategy=None,
     )
 
     assert result.success is True

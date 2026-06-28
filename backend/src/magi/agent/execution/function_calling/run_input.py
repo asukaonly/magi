@@ -68,7 +68,6 @@ class EngineRunInput:
     intent: str = "unknown"
     execution_agent_id: str = "chat_agent"
     execution_workspace: Optional[str] = None
-    orchestration_strategy: Optional[Dict[str, Any]] = None
     llm_timeout_seconds: Optional[float] = None
     final_response_json_mode: bool = False
     thinking_depth: ThinkingDepth | None = None

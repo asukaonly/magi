@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from magi.config.models import ThinkingDepth
+from magi.agent.orchestration_plan import OrchestrationPlan
 from magi.tools.context_routing.route_decision import PersonaRouting, RouteDecision
 
 
@@ -122,51 +123,40 @@ def test_route_decision_is_importable_from_context_routing_package() -> None:
     assert RouteDecision.__name__ == "RouteDecision"
 
 
-def test_legacy_strategy_dict_for_plan_fanout_coding() -> None:
-    """Adapter: graph_shape=plan_fanout with profile=coding maps to
-    mode=decompose, default_leaf_type=Coding."""
-    from magi.tools.context_routing import RouteDecision
-
+def test_orchestration_plan_for_plan_fanout_coding() -> None:
     decision = RouteDecision(
         profile="coding", graph_shape="plan_fanout", complexity="large", may_write=True,
     )
-    legacy = decision.to_legacy_strategy_dict()
-    assert legacy["mode"] == "decompose"
-    assert legacy["default_leaf_type"] == "Coding"
-    assert legacy["allow_parallel"] is True
+    plan = OrchestrationPlan.from_route_decision(decision)
+    assert plan.mode == "decompose"
+    assert plan.default_leaf_type == "Coding"
+    assert plan.allow_parallel is True
 
 
-def test_legacy_strategy_dict_for_reply_chat() -> None:
-    """Adapter: graph_shape=reply with profile=chat maps to mode=direct,
-    default_leaf_type=general-purpose, allow_parallel=False."""
-    from magi.tools.context_routing import RouteDecision
-
+def test_orchestration_plan_for_reply_chat() -> None:
     decision = RouteDecision(profile="chat", graph_shape="reply", complexity="simple")
-    legacy = decision.to_legacy_strategy_dict()
-    assert legacy["mode"] == "direct"
-    assert legacy["default_leaf_type"] == "general-purpose"
-    assert legacy["allow_parallel"] is False
+    plan = OrchestrationPlan.from_route_decision(decision)
+    assert plan.mode == "direct"
+    assert plan.default_leaf_type == "general-purpose"
+    assert plan.allow_parallel is False
 
 
-def test_legacy_strategy_dict_for_explore() -> None:
-    from magi.tools.context_routing import RouteDecision
-
+def test_orchestration_plan_for_explore() -> None:
     decision = RouteDecision(
         profile="explore", graph_shape="plan_fanout", complexity="medium",
     )
-    legacy = decision.to_legacy_strategy_dict()
-    assert legacy["mode"] == "decompose"
-    assert legacy["default_leaf_type"] == "CodeExplore"
-    assert legacy["allow_parallel"] is True
+    plan = OrchestrationPlan.from_route_decision(decision)
+    assert plan.mode == "decompose"
+    assert plan.default_leaf_type == "CodeExplore"
+    assert plan.allow_parallel is True
 
 
 def test_orchestration_module_no_longer_exposes_keyword_normalization() -> None:
-    """Task B.11: the keyword-based orchestration_strategy normalization is
-    deleted. After this commit, only the RouteDecision adapter is used."""
+    """Keyword-based orchestration normalization is deleted."""
     import importlib
     module = importlib.import_module("magi.tools.context_routing.orchestration")
     assert not hasattr(module, "default_orchestration_strategy"), (
-        "default_orchestration_strategy must be deleted; use RouteDecision.to_legacy_strategy_dict()"
+        "default_orchestration_strategy must be deleted; use OrchestrationPlan"
     )
     assert not hasattr(module, "normalize_orchestration_strategy"), (
         "normalize_orchestration_strategy must be deleted; RouteDecision schema validates strictly"

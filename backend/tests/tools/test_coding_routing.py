@@ -2,7 +2,7 @@
 
 Phase B.11: Tests for keyword-based normalization (default_orchestration_strategy,
 normalize_orchestration_strategy) have been deleted — those helpers are removed.
-Routing coverage now lives in test_route_decision.py via RouteDecision.to_legacy_strategy_dict().
+Routing coverage now lives in test_route_decision.py via OrchestrationPlan.
 Tests for guardrail helpers (should_decompose_external_request) and system prompt
 content are retained here.
 """

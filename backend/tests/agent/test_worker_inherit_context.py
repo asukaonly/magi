@@ -97,7 +97,6 @@ class TestNormalizeAgentLaunchArguments:
         ]
         result = orch._normalize_agent_launch_arguments(
             arguments={"subagent_type": "CodeExplore", "inherit_context": False},
-            orchestration_strategy=None,
         )
         assert "parent_context_summary" not in result
         assert "inherit_context" not in result
@@ -110,7 +109,6 @@ class TestNormalizeAgentLaunchArguments:
         ]
         result = orch._normalize_agent_launch_arguments(
             arguments={"subagent_type": "CodeExplore", "inherit_context": True},
-            orchestration_strategy=None,
         )
         assert "parent_context_summary" in result
         assert "auth module" in result["parent_context_summary"]
@@ -122,7 +120,6 @@ class TestNormalizeAgentLaunchArguments:
         orch._current_messages = [{"role": "user", "content": "hi"}]
         result = orch._normalize_agent_launch_arguments(
             arguments={"subagent_type": "CodeExplore"},
-            orchestration_strategy=None,
         )
         assert "parent_context_summary" not in result
 
@@ -131,7 +128,6 @@ class TestNormalizeAgentLaunchArguments:
         orch._current_messages = []
         result = orch._normalize_agent_launch_arguments(
             arguments={"subagent_type": "CodeExplore", "inherit_context": True},
-            orchestration_strategy=None,
         )
         # Empty messages → no summary injected
         assert "parent_context_summary" not in result

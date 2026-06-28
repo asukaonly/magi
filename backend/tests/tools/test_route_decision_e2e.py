@@ -6,18 +6,18 @@ from __future__ import annotations
 import pytest
 
 from magi.config.models import ThinkingDepth
+from magi.agent.orchestration_plan import OrchestrationPlan
 from magi.tools.context_routing import PersonaRouting, RouteDecision
 
 
-def test_route_decision_to_legacy_strategy_for_each_graph_shape() -> None:
+def test_route_decision_to_orchestration_plan_for_each_graph_shape() -> None:
     for shape, expected_mode in (
         ("reply", "direct"),
         ("tool_loop", "direct"),
         ("plan_fanout", "decompose"),
     ):
         d = RouteDecision(profile="chat", graph_shape=shape, complexity="simple")
-        legacy = d.to_legacy_strategy_dict()
-        assert legacy["mode"] == expected_mode
+        assert OrchestrationPlan.from_route_decision(d).mode == expected_mode
 
 
 def test_route_decision_preserves_thinking_depth() -> None:
@@ -33,19 +33,19 @@ def test_route_decision_default_leaf_type_for_coding_profile() -> None:
         profile="coding", graph_shape="plan_fanout", complexity="large",
         may_write=True,
     )
-    assert d.to_legacy_strategy_dict()["default_leaf_type"] == "Coding"
+    assert OrchestrationPlan.from_route_decision(d).default_leaf_type == "Coding"
 
 
 def test_route_decision_default_leaf_type_for_explore_profile() -> None:
     d = RouteDecision(
         profile="explore", graph_shape="plan_fanout", complexity="medium",
     )
-    assert d.to_legacy_strategy_dict()["default_leaf_type"] == "CodeExplore"
+    assert OrchestrationPlan.from_route_decision(d).default_leaf_type == "CodeExplore"
 
 
 def test_route_decision_default_leaf_type_for_chat_profile() -> None:
     d = RouteDecision(profile="chat", graph_shape="reply", complexity="simple")
-    assert d.to_legacy_strategy_dict()["default_leaf_type"] == "general-purpose"
+    assert OrchestrationPlan.from_route_decision(d).default_leaf_type == "general-purpose"
 
 
 def test_route_decision_immutable_post_construction() -> None:

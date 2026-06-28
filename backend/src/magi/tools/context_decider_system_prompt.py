@@ -3,11 +3,11 @@
 ADR-0005: this router runs on a SMALL model, so the output schema is kept to
 EXACTLY the fields the parser consumes (``context_decider_response.py``). Fields
 the runtime derives or ignores are deliberately NOT requested:
-  - ``graph_shape`` — derived by ``derive_execution_shape`` and overwritten.
-  - ``complexity``  — never read by routing.
-  - ``orchestration_strategy`` — rebuilt downstream from ``profile`` /
-    ``needs_orchestration`` via ``RouteDecision.to_legacy_strategy_dict``.
-  - ``intent``      — ``profile`` IS the intent label (see coordinator).
+	  - ``graph_shape`` — derived by ``derive_execution_shape`` and overwritten.
+	  - ``complexity``  — never read by routing.
+	  - the old orchestration strategy object — replaced downstream by a typed
+	    plan derived from ``RouteDecision``.
+	  - ``intent``      — ``profile`` IS the intent label (see coordinator).
   - ``tool_query``  — the main model formulates discovery queries when needed.
 Asking the small model for those only dilutes attention and hurts JSON
 reliability. Few-shots all emit the single schema below, verbatim.

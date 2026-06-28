@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ....config.models import ThinkingDepth
 from ...cancel import CancelToken, null_cancel_token
@@ -13,6 +13,9 @@ from .step_executor import FunctionCallingStepState
 from .types import ExecutionOutcome, ToolCall, ToolCallResult
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from ....tools.context_routing import RouteDecision
 
 
 class _FallbackPostprocessorProtocol(Protocol):
@@ -83,12 +86,12 @@ class _FallbackHostProtocol(Protocol):
         intent: str,
         execution_agent_id: str,
         execution_workspace: str | None,
-        orchestration_strategy: dict[str, Any] | None,
         session_run_id: str | None = None,
         session_run_revision: int = 0,
         user_message: str | None = None,
         iteration: int | None = None,
         recent_messages: list[dict[str, Any]] | None = None,
+        route_decision: "RouteDecision | None" = None,
     ) -> ToolCallResult: ...
 
     def _append_message(self, messages: list[dict[str, Any]], message: dict[str, Any]) -> None: ...
@@ -120,11 +123,11 @@ class FunctionCallingFallbackMixin:
         intent: str,
         execution_agent_id: str,
         execution_workspace: str | None,
-        orchestration_strategy: dict[str, Any] | None,
         llm_timeout_seconds: float | None,
         final_response_json_mode: bool,
         cancel_token: CancelToken | None = None,
         control: RunControl | None = None,
+        route_decision: "RouteDecision | None" = None,
     ) -> ExecutionOutcome:
         """Run the legacy no-tools fallback once the bounded step loop stops."""
         host = cast(_FallbackHostProtocol, self)
@@ -205,10 +208,10 @@ class FunctionCallingFallbackMixin:
                     intent=intent,
                     execution_agent_id=execution_agent_id,
                     execution_workspace=execution_workspace,
-                    orchestration_strategy=orchestration_strategy,
                     user_message=None,
                     iteration=state.iteration,
                     recent_messages=state.messages,
+                    route_decision=route_decision,
                 )
                 if not result.success:
                     state.tool_failures.append(

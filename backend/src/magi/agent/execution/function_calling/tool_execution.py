@@ -141,7 +141,6 @@ class _FunctionCallingToolExecutionHostProtocol(Protocol):
     def _normalize_agent_launch_arguments(
         self,
         arguments: dict[str, Any],
-        orchestration_strategy: dict[str, Any] | None,
         route_decision: "RouteDecision | None" = None,
     ) -> dict[str, Any]: ...
 
@@ -179,7 +178,6 @@ class FunctionCallingToolExecutionMixin:
         intent: str,
         execution_agent_id: str,
         execution_workspace: str | None,
-        orchestration_strategy: dict[str, Any] | None,
         session_run_id: str | None = None,
         session_run_revision: int = 0,
         user_message: str | None = None,
@@ -309,7 +307,6 @@ class FunctionCallingToolExecutionMixin:
             if tool_name == "agent":
                 arguments = host._normalize_agent_launch_arguments(
                     arguments=arguments,
-                    orchestration_strategy=orchestration_strategy,
                     route_decision=route_decision,
                 )
 

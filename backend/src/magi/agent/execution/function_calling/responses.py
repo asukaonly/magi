@@ -304,7 +304,6 @@ class FunctionCallingResponseMixin:
     def _normalize_agent_launch_arguments(
         self,
         arguments: dict[str, Any],
-        orchestration_strategy: dict[str, Any] | None,
         route_decision: RouteDecision | None = None,
     ) -> dict[str, Any]:
         normalized = dict(arguments)
@@ -324,8 +323,6 @@ class FunctionCallingResponseMixin:
                 preferred_type = "CodeExplore"
             else:
                 preferred_type = "general-purpose"
-        elif isinstance(orchestration_strategy, dict):
-            preferred_type = str(orchestration_strategy.get("default_leaf_type", "")).strip()
         else:
             preferred_type = ""
 

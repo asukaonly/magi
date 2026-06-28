@@ -15,12 +15,12 @@ Design notes
 
 * P3 (ADR-0005) added the three-state ``needs_orchestration``.
 
-* Persona-routing fields are grouped under a nested ``persona``
-  (:class:`PersonaRouting`) sub-object so persona routing can be split out
-  of the router later without touching the rest of RouteDecision. Flat
-  ``@property`` accessors (``register`` etc.) are kept as a transition shim so
-  existing readers keep working; they can be dropped once persona routing is
-  fully extracted.
+    * Persona-routing fields are grouped under a nested ``persona``
+      (:class:`PersonaRouting`) sub-object so persona routing can be split out
+      of the router later without touching the rest of RouteDecision. Flat
+      ``@property`` accessors (``register`` etc.) are kept as a transition shim so
+      existing readers keep working; they can be dropped once persona routing is
+      fully extracted.
 """
 from __future__ import annotations
 
@@ -143,29 +143,27 @@ class RouteDecision:
                 f"got {self.tool_need!r}"
             )
 
-    def to_legacy_strategy_dict(self) -> dict[str, Any]:
-        """Adapter for the Phase B migration window.
-
-        Consumers reading the legacy ``orchestration_strategy: dict``
-        (mode / planner / default_leaf_type / allow_parallel) can call
-        this method to get a compatible view.
-        """
+    @property
+    def orchestration_mode(self) -> Literal["direct", "decompose"]:
         if self.graph_shape == "plan_fanout":
-            mode = "decompose"
-        else:
-            mode = "direct"
+            return "decompose"
+        return "direct"
+
+    @property
+    def orchestration_planner(self) -> str:
+        return "task_agent"
+
+    @property
+    def default_leaf_type(self) -> str:
         if self.profile == "coding" or self.may_write:
-            default_leaf_type = "Coding"
-        elif self.profile == "explore":
-            default_leaf_type = "CodeExplore"
-        else:
-            default_leaf_type = "general-purpose"
-        return {
-            "mode": mode,
-            "planner": "task_agent",
-            "default_leaf_type": default_leaf_type,
-            "allow_parallel": mode == "decompose",
-        }
+            return "Coding"
+        if self.profile == "explore":
+            return "CodeExplore"
+        return "general-purpose"
+
+    @property
+    def allow_parallel(self) -> bool:
+        return self.orchestration_mode == "decompose"
 
 
 __all__ = [

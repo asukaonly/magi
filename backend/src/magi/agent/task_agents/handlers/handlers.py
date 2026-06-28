@@ -319,11 +319,6 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                     intent=request.intent.intent,
                     execution_agent_id=request.context.runtime_key,
                     execution_workspace=execution_workspace,
-                    orchestration_strategy=(
-                        request.intent.route_decision.to_legacy_strategy_dict()
-                        if request.intent.route_decision is not None
-                        else None
-                    ),
                     control=control,
                     route_decision=route_decision,
                 )
@@ -457,12 +452,8 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                     intent=request.intent.intent,
                     execution_agent_id=request.context.runtime_key,
                     execution_workspace=execution_workspace,
-                    orchestration_strategy=(
-                        request.intent.route_decision.to_legacy_strategy_dict()
-                        if request.intent.route_decision is not None
-                        else None
-                    ),
                     cancel_token=cancel_token,
+                    route_decision=request.intent.route_decision,
                 )
                 if step_outcome.status == "completed":
                     execution_outcome = {
@@ -626,15 +617,11 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                 intent=request.intent.intent,
                 execution_agent_id=request.context.runtime_key,
                 execution_workspace=execution_workspace,
-                orchestration_strategy=(
-                    request.intent.route_decision.to_legacy_strategy_dict()
-                    if request.intent.route_decision is not None
-                    else None
-                ),
                 llm_timeout_seconds=None,
                 final_response_json_mode=False,
                 cancel_token=cancel_token,
                 control=_fallback_control,
+                route_decision=request.intent.route_decision,
             )
         return FunctionCallingExecutionResult(
             mode=request.mode,

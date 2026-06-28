@@ -110,11 +110,11 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
         )
 
     async def execute(self, request: OrchestrationLaunchRequest) -> ExecutionResult:
-        route_decision = getattr(request.intent, "route_decision", None)
-        if route_decision is None:
+        orchestration_plan = getattr(request.intent, "orchestration_plan", None)
+        if orchestration_plan is None:
             return ExecutionResult(
                 mode=request.mode,
-                response_text="Failed to generate orchestration strategy for this request.",
+                response_text="Failed to generate orchestration plan for this request.",
                 ux_plan=_serialize_ux_plan(request),
             )
         if self._deps.start_specialized_orchestration is not None:
@@ -137,11 +137,6 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
         _ctx_control = request.context.control if hasattr(request.context, "control") else None
         control = _ctx_control if _ctx_control is not None else null_run_control()
         control.cancel_token = cancel_token
-        strategy_dict = (
-            route_decision.to_legacy_strategy_dict()
-            if route_decision is not None
-            else None
-        )
         raw_result = await self._deps.task_orchestrator.start_orchestration(
             user_id=request.context.user_id,
             session_id=request.context.session_id,
@@ -152,14 +147,13 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             history=request.context.history,
             history_key=request.context.history_key,
             correlation_id=request.correlation_id,
-            orchestration_strategy=strategy_dict,
+            orchestration_plan=orchestration_plan,
             persona_id=getattr(request.context, "active_persona_id", None),
             # cancel_token= kept for call-site backward compat; ignored by
             # start_orchestration when control= is supplied (the handler has
             # already overlaid the cancel token onto control.cancel_token above).
             cancel_token=cancel_token,
             control=control,
-            route_decision=route_decision,
         )
         return ExecutionResult(
             mode=request.mode,

@@ -10,7 +10,6 @@ from typing import Any, Awaitable, Callable, Optional
 from .cancel import CancelToken, null_cancel_token
 from .run_control import RunControl, null_run_control
 from ..core.logger import get_logger
-from ..tools.context_routing import RouteDecision
 from ..llm.cancellable_client import CancellationRaised, RetractRaised
 from ..agent.runtime.contracts import FactRecord
 from ..events.events import Event, EventTypes
@@ -31,11 +30,12 @@ from .orchestration import (
 from .task_orchestration_todos import TaskOrchestrationTodosMixin
 from .task_orchestration_workers import TaskOrchestrationWorkerMixin
 from .task_orchestration_workspace import TaskOrchestrationWorkspaceMixin
+from .orchestration_plan import OrchestrationPlan
 
 logger = get_logger(__name__)
 
 WorkerPlanCallback = Callable[
-    [str, list[dict[str, Any]], dict[str, Any], str, str, str | None, int],
+    [str, list[dict[str, Any]], OrchestrationPlan, str, str, str | None, int],
     Awaitable[SubtaskPlan],
 ]
 AggregateCallback = Callable[[TaskOrchestrationState], Awaitable[str]]
@@ -268,11 +268,10 @@ class TaskOrchestrator(
         history: list[dict[str, Any]],
         history_key: str,
         correlation_id: Optional[str] = None,
-        orchestration_strategy: dict[str, Any],
+        orchestration_plan: OrchestrationPlan,
         persona_id: str | None = None,
         cancel_token: CancelToken | None = None,
         control: RunControl | None = None,
-        route_decision: RouteDecision | None = None,
     ) -> OrchestrationExecutionResult:
         # Resolve the RunControl bundle.  If the caller supplies both
         # cancel_token (legacy path) and control (new path), control wins
@@ -282,11 +281,6 @@ class TaskOrchestrator(
             if cancel_token is not None:
                 control.cancel_token = cancel_token
         resolved_cancel_token = control.cancel_token
-
-        # Prefer the typed RouteDecision over the legacy dict during the
-        # Phase B migration window.
-        if route_decision is not None:
-            orchestration_strategy = route_decision.to_legacy_strategy_dict()
 
         def _cancelled_result() -> OrchestrationExecutionResult:
             return OrchestrationExecutionResult(
@@ -311,7 +305,7 @@ class TaskOrchestrator(
                 planning_operation=self._plan_subtasks(
                     user_message,
                     history,
-                    orchestration_strategy,
+                    orchestration_plan,
                     user_id,
                     session_id,
                     run_id,
@@ -398,12 +392,12 @@ class TaskOrchestrator(
             root_user_message=user_message,
             turn_id=turn_id,
             planner=str(
-                orchestration_strategy.get("planner", "task_agent") or "task_agent"
+                orchestration_plan.planner or "task_agent"
             ),
             workspace_root=workspace_root,
             status="running",
             retry_budget=DEFAULT_WORKER_RETRY_BUDGET,
-            allow_parallel=bool(orchestration_strategy.get("allow_parallel", True)),
+            allow_parallel=bool(orchestration_plan.allow_parallel),
             created_at=now,
             updated_at=now,
             correlation_id=correlation_id,

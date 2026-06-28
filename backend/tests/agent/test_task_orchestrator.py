@@ -10,6 +10,7 @@ from magi.agent.cancel import EventCancelToken
 from magi.agent.runtime.contracts import FactRecord
 import magi.agent.task_orchestrator as task_orchestrator_module
 import magi.agent.task_orchestration_workers as task_orchestration_workers_module
+from magi.agent.orchestration_plan import OrchestrationPlan
 from magi.agent.task_orchestrator import TaskOrchestrator
 from magi.agent.orchestration import SubtaskDefinition, TaskOrchestrationState
 from magi.tools.registry import ToolRegistry
@@ -377,7 +378,7 @@ async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch:
         history=[],
         history_key="user-1::session-1",
         correlation_id=None,
-        orchestration_strategy={"planner": "task_agent", "allow_parallel": True},
+        orchestration_plan=OrchestrationPlan(planner="task_agent", allow_parallel=True),
         persona_id="persona-orchestration",
     )
 
@@ -444,7 +445,7 @@ async def test_start_orchestration_discards_plan_when_cancelled_during_planning(
         history=[],
         history_key="user-1::session-1",
         correlation_id=None,
-        orchestration_strategy={"planner": "task_agent", "allow_parallel": True},
+        orchestration_plan=OrchestrationPlan(planner="task_agent", allow_parallel=True),
         cancel_token=cancel_token,
     )
 
@@ -507,7 +508,7 @@ async def test_start_orchestration_cancels_inflight_planner_task(
             history=[],
             history_key="user-1::session-1",
             correlation_id=None,
-            orchestration_strategy={"planner": "task_agent", "allow_parallel": True},
+            orchestration_plan=OrchestrationPlan(planner="task_agent", allow_parallel=True),
             cancel_token=cancel_token,
         )
     )

@@ -32,6 +32,7 @@ from magi.agent.task_agents.common import (
     ExecutionHandlerRegistry,
     ExecutionRequest,
     IncomingFactKind,
+    OrchestrationPlan,
     ToolSelection,
 )
 from magi.agent.task_agents.handlers.contracts import (
@@ -268,9 +269,10 @@ class ChatExecutionCoordinator:
         )
 
         decision = await self._context_decider.decide(context.latest_user_message, decision_context)
+        proposed_plan = OrchestrationPlan.from_route_decision(decision)
         force_direct_external = self._should_force_direct_external_plan(
             user_message=context.latest_user_message,
-            strategy=decision.to_legacy_strategy_dict(),
+            orchestration_plan=proposed_plan,
         )
         effective_attachments = resolve_effective_turn_attachments(
             context, resolver=self._attachment_resolver
@@ -329,6 +331,7 @@ class ChatExecutionCoordinator:
 
         if effective_graph_shape != decision.graph_shape:
             decision = dataclasses.replace(decision, graph_shape=effective_graph_shape)
+        orchestration_plan = OrchestrationPlan.from_route_decision(decision)
 
         if effective_graph_shape == "plan_fanout":
             execution_mode = ExecutionMode.ORCHESTRATION_LAUNCH
@@ -363,6 +366,7 @@ class ChatExecutionCoordinator:
             ),
             persona_routing_hint=persona_routing_hint,
             route_decision=decision,
+            orchestration_plan=orchestration_plan,
         )
         if self._intent_trace_callback is not None:
             callback_result = self._intent_trace_callback(context, intent_decision)
@@ -588,13 +592,11 @@ class ChatExecutionCoordinator:
     def _should_force_direct_external_plan(
         *,
         user_message: str,
-        strategy: dict[str, Any] | None,
+        orchestration_plan: OrchestrationPlan,
     ) -> bool:
-        if not isinstance(strategy, dict):
+        if orchestration_plan.mode != "decompose":
             return False
-        if str(strategy.get("mode") or "").strip() != "decompose":
-            return False
-        if str(strategy.get("default_leaf_type") or "").strip() != "general-purpose":
+        if orchestration_plan.default_leaf_type != "general-purpose":
             return False
         user_lower = str(user_message or "").lower()
         if any(hint in user_lower for hint in _CODE_OR_LOCAL_REQUEST_HINTS):

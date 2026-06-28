@@ -29,7 +29,7 @@ class ExplorePlanningService:
         self,
         user_message: str,
         history: list[dict[str, Any]],
-        orchestration_plan: OrchestrationPlan | dict[str, Any],
+        orchestration_plan: OrchestrationPlan,
         user_id: str,
         session_id: str,
         run_id: str | None = None,
@@ -37,13 +37,6 @@ class ExplorePlanningService:
         workspace_root: str | None = None,
     ) -> SubtaskPlan:
         _ = (user_id, session_id, run_id, run_revision, workspace_root)
-        if isinstance(orchestration_plan, dict):
-            orchestration_plan = OrchestrationPlan(
-                mode=str(orchestration_plan.get("mode", "decompose") or "decompose"),
-                planner=str(orchestration_plan.get("planner", "task_agent") or "task_agent"),
-                default_leaf_type="CodeExplore",
-                allow_parallel=bool(orchestration_plan.get("allow_parallel", True)),
-            )
         raw_plan = await self._plan_with_task_agent(
             user_message=user_message,
             history=history,

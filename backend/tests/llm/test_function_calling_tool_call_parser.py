@@ -16,6 +16,7 @@ from magi.agent.execution.function_calling import (
     ToolCallResult,
 )
 from magi.config.models import ThinkingDepth
+from magi.tools.context_routing import RouteDecision
 from magi.tools.schema import ToolResult
 from magi.agent.turn_input import UserTurnInput
 
@@ -834,12 +835,11 @@ async def test_agent_launch_uses_orchestration_default_leaf_type() -> None:
         intent="planning",
         execution_agent_id="chat_agent",
         execution_workspace="/tmp",
-        orchestration_strategy={
-            "mode": "decompose",
-            "planner": "task_agent",
-            "default_leaf_type": "CodeExplore",
-            "allow_parallel": True,
-        },
+        route_decision=RouteDecision(
+            profile="explore",
+            graph_shape="plan_fanout",
+            complexity="medium",
+        ),
     )
 
     assert result.success is True
@@ -1062,7 +1062,6 @@ async def test_worker_origin_cannot_execute_todo_write() -> None:
         intent="worker_coding",
         execution_agent_id="worker_123",
         execution_workspace="/tmp",
-        orchestration_strategy=None,
     )
 
     assert result.success is False

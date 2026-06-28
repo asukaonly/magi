@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from magi.agent.orchestration import OrchestrationStore, SubtaskDefinition, TaskOrchestrationState, WorkerResult
+from magi.agent.orchestration_plan import OrchestrationPlan
 from magi.agent.task_agents.common import ExecutionMode, ExecutionResult
 from magi.agent.task_agents.explore_task_agent import ExploreTaskAgent, EXPLORE_TASK_COMPLETED
 from magi.config.models import LLMScenario
@@ -38,7 +39,9 @@ async def test_explore_task_agent_repo_plan_falls_back_to_canonical_when_planner
     plan = await agent._planning_service.generate_subtask_plan(
         user_message="看下~/code/magi下的代码，分析下代码架构",
         history=[],
-        orchestration_plan={"mode": "decompose", "default_leaf_type": "CodeExplore", "allow_parallel": True},
+        orchestration_plan=OrchestrationPlan(
+            mode="decompose", default_leaf_type="CodeExplore", allow_parallel=True
+        ),
         user_id="u-chat",
         session_id="s-chat",
     )
@@ -101,7 +104,9 @@ async def test_explore_planning_service_prefers_llm_plan_for_scoped_request() ->
     plan = await service.generate_subtask_plan(
         user_message="看下 backend/src/magi/agent 的代码结构和任务编排",
         history=[],
-        orchestration_plan={"mode": "decompose", "default_leaf_type": "CodeExplore", "allow_parallel": True},
+        orchestration_plan=OrchestrationPlan(
+            mode="decompose", default_leaf_type="CodeExplore", allow_parallel=True
+        ),
         user_id="u-chat",
         session_id="s-chat",
     )
@@ -137,7 +142,9 @@ async def test_explore_planning_service_uses_scope_fallback_for_backend_request(
     plan = await service.generate_subtask_plan(
         user_message="分析 backend/src/magi/agent 里的任务编排实现",
         history=[],
-        orchestration_plan={"mode": "decompose", "default_leaf_type": "CodeExplore", "allow_parallel": True},
+        orchestration_plan=OrchestrationPlan(
+            mode="decompose", default_leaf_type="CodeExplore", allow_parallel=True
+        ),
         user_id="u-chat",
         session_id="s-chat",
     )

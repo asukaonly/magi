@@ -65,20 +65,13 @@ class ChatPlanningService(ChatPlanningPromptMixin):
         self,
         user_message: str,
         history: list[dict[str, Any]],
-        orchestration_plan: OrchestrationPlan | dict[str, Any],
+        orchestration_plan: OrchestrationPlan,
         user_id: str,
         session_id: str,
         run_id: str | None = None,
         run_revision: int = 0,
         workspace_root: str | None = None,
     ) -> SubtaskPlan:
-        if isinstance(orchestration_plan, dict):
-            orchestration_plan = OrchestrationPlan(
-                mode=str(orchestration_plan.get("mode", "direct") or "direct"),
-                planner=str(orchestration_plan.get("planner", "task_agent") or "task_agent"),
-                default_leaf_type=str(orchestration_plan.get("default_leaf_type", "CodeExplore") or "CodeExplore"),
-                allow_parallel=bool(orchestration_plan.get("allow_parallel", True)),
-            )
         request_profile = self._classify_request_profile(
             user_message=user_message,
             default_leaf_type=orchestration_plan.default_leaf_type,

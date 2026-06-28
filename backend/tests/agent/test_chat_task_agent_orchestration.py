@@ -684,6 +684,11 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
                 graph_shape="plan_fanout",
                 complexity="large",
             ),
+            orchestration_plan=OrchestrationPlan(
+                mode="decompose",
+                default_leaf_type="general-purpose",
+                allow_parallel=True,
+            ),
         ),
         tool_selection=ToolSelection(),
     )
@@ -976,6 +981,11 @@ async def test_chat_task_agent_routes_large_explore_to_explore_task_agent(monkey
                 profile="explore",
                 graph_shape="plan_fanout",
                 complexity="large",
+            ),
+            orchestration_plan=OrchestrationPlan(
+                mode="decompose",
+                default_leaf_type="CodeExplore",
+                allow_parallel=True,
             ),
         ),
         tool_selection=ToolSelection(),

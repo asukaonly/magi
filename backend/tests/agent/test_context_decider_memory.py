@@ -97,8 +97,7 @@ class TestContextDeciderMemoryGuidance:
             _ = kwargs
             return SimpleNamespace(
                 content=(
-                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"history question",'
-                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"history question"}'
                 ),
                 metadata={},
             )
@@ -175,8 +174,7 @@ class TestContextDeciderMemoryGuidance:
             _ = kwargs
             return SimpleNamespace(
                 content=(
-                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"history question",'
-                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"history question"}'
                 ),
                 metadata={},
             )
@@ -214,8 +212,7 @@ class TestContextDeciderMemoryGuidance:
             _ = kwargs
             return SimpleNamespace(
                 content=(
-                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"preference question",'
-                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"preference question"}'
                 ),
                 metadata={},
             )
@@ -253,8 +250,7 @@ class TestContextDeciderMemoryGuidance:
             _ = kwargs
             return SimpleNamespace(
                 content=(
-                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"profile question",'
-                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"profile question"}'
                 ),
                 metadata={},
             )
@@ -292,8 +288,7 @@ class TestContextDeciderMemoryGuidance:
             _ = kwargs
             return SimpleNamespace(
                 content=(
-                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"relationship question",'
-                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"relationship question"}'
                 ),
                 metadata={},
             )
@@ -334,8 +329,7 @@ class TestContextDeciderMemoryGuidance:
             _ = kwargs
             return SimpleNamespace(
                 content=(
-                    '{"intent":"chat","tools":["memory_query"],"deep_thinking":false,"reasoning":"photo recall",'
-                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                    '{"intent":"chat","tools":["memory_query"],"deep_thinking":false,"reasoning":"photo recall"}'
                 ),
                 metadata={},
             )

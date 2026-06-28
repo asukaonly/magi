@@ -1,13 +1,8 @@
-"""Orchestration strategy helpers (Phase B: most contents removed).
+"""Removed orchestration strategy helper module.
 
-The keyword-based normalization that previously lived here is replaced
-by ``RouteDecision`` strict validation and the
-``RouteDecision.to_legacy_strategy_dict()`` adapter.
-
-This module is intentionally near-empty during the Phase B migration
-window so that any remaining import attempts fail loudly. The file is
-fully deleted in Phase C once we are confident no internal
-or external code path still references it.
+Routing now derives a typed agent orchestration plan from ``RouteDecision``.
+This module stays empty so any attempt to use the old keyword-normalization
+API fails loudly.
 """
 from __future__ import annotations
 

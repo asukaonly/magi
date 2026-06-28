@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any, Optional, TypeAlias
 
 from ....agent.runtime.contracts import FactRecord
+from ...orchestration_plan import OrchestrationPlan
 from ....config.models import ThinkingDepth
 from ....tools.context_routing import RouteDecision
 from ...orchestration import WorkerResult
@@ -30,25 +31,6 @@ class ExecutionMode(str, Enum):
     ORCHESTRATION_LAUNCH = "orchestration_launch"
     ORCHESTRATION_UPDATE = "orchestration_update"
     EXPLORE_TASK_RENDER = "explore_task_render"
-
-
-@dataclass(slots=True)
-class OrchestrationPlan:
-    """Structured orchestration plan chosen by intent routing."""
-
-    mode: str = "direct"
-    planner: str = "task_agent"
-    default_leaf_type: str = "CodeExplore"
-    allow_parallel: bool = True
-    route_to_explore_task_agent: bool = False
-
-    def to_strategy_dict(self) -> dict[str, Any]:
-        return {
-            "mode": self.mode,
-            "planner": self.planner,
-            "default_leaf_type": self.default_leaf_type,
-            "allow_parallel": self.allow_parallel,
-        }
 
 
 @dataclass(slots=True)
@@ -340,6 +322,7 @@ class BaseIntentDecision:
     execution_mode: ExecutionMode
     reasoning: str = ""
     route_decision: RouteDecision | None = None
+    orchestration_plan: OrchestrationPlan | None = None
 
 
 @dataclass(slots=True)

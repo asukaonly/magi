@@ -121,16 +121,14 @@ def test_parse_response_preserves_persona_fields() -> None:
     assert result.active_trigger_ids == ("work_mode", "deep_focus")
 
 
-def test_orchestration_launch_handler_reads_route_decision_from_intent() -> None:
-    """OrchestrationLaunchHandler.execute must read RouteDecision off
-    request.intent.route_decision and pass to start_orchestration so the
-    typed schema flows end-to-end."""
+def test_orchestration_launch_handler_reads_orchestration_plan_from_intent() -> None:
+    """OrchestrationLaunchHandler consumes the typed plan attached to intent."""
     import inspect
     from magi.agent.task_agents.common.handlers import OrchestrationLaunchHandler
 
     src = inspect.getsource(OrchestrationLaunchHandler.execute)
-    assert "route_decision" in src, (
-        "OrchestrationLaunchHandler.execute must read intent.route_decision"
+    assert "orchestration_plan" in src, (
+        "OrchestrationLaunchHandler.execute must read intent.orchestration_plan"
     )
 
 
@@ -146,16 +144,16 @@ def test_chat_coordinator_match_intent_signature_returns_intent_decision_from_ro
     src = inspect.getsource(ChatExecutionCoordinator.match_intent)
     assert "decision.graph_shape" in src or "decision.profile" in src, (
         "match_intent must consume RouteDecision fields directly, not "
-        "the legacy orchestration_strategy dict"
+        "the old orchestration strategy dict"
     )
 
 
-def test_task_orchestrator_start_accepts_route_decision_kwarg() -> None:
+def test_task_orchestrator_start_accepts_typed_orchestration_plan() -> None:
     import inspect
     from magi.agent.task_orchestrator import TaskOrchestrator
 
     sig = inspect.signature(TaskOrchestrator.start_orchestration)
-    assert "route_decision" in sig.parameters
+    assert "orchestration_plan" in sig.parameters
 
 
 def test_memory_guidance_marks_added_memory_tool_as_direct_need() -> None:

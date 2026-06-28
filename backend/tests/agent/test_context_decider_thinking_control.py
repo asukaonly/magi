@@ -98,7 +98,7 @@ async def test_context_decider_always_disables_thinking() -> None:
     async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
         seen.update(kwargs)
         return SimpleNamespace(
-            content='{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}',
+            content='{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok"}',
             metadata={},
         )
 
@@ -126,7 +126,7 @@ async def test_context_decider_requests_context_scenario_from_pool(monkeypatch: 
         async def chat_response(self, **kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs
             return SimpleNamespace(
-                content='{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}',
+                content='{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok"}',
                 metadata={},
             )
 
@@ -146,7 +146,7 @@ async def test_context_decider_ignores_context_toggle_and_keeps_disable_thinking
     async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
         seen.update(kwargs)
         return SimpleNamespace(
-            content='{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}',
+            content='{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok"}',
             metadata={},
         )
 

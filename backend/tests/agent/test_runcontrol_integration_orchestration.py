@@ -5,6 +5,7 @@ import inspect
 
 import pytest
 
+from magi.agent.orchestration_plan import OrchestrationPlan
 from magi.agent.run_control import (
     RetractRequested,
     RetractSignal,
@@ -74,27 +75,24 @@ async def test_plan_callback_aborts_on_retract() -> None:
         history_key="hk",
         turn_id=None,
         correlation_id=None,
-        orchestration_strategy={
-            "mode": "decompose",
-            "planner": "task_agent",
-            "default_leaf_type": "general-purpose",
-            "allow_parallel": False,
-        },
+        orchestration_plan=OrchestrationPlan(
+            mode="decompose",
+            planner="task_agent",
+            default_leaf_type="general-purpose",
+            allow_parallel=False,
+        ),
         control=control,
     )
 
     assert result.retracted is True
 
 
-def test_orchestration_launch_handler_no_longer_uses_orchestration_plan_to_strategy_dict() -> None:
-    """Phase C cleanup: OrchestrationLaunchHandler.execute reads
-    request.intent.route_decision directly to derive
-    orchestration_strategy, dropping the OrchestrationPlan adapter."""
+def test_orchestration_launch_handler_uses_typed_orchestration_plan() -> None:
+    """OrchestrationLaunchHandler consumes the typed plan on the intent."""
     import inspect
 
     from magi.agent.task_agents.common.handlers import OrchestrationLaunchHandler
 
     src = inspect.getsource(OrchestrationLaunchHandler)
-    assert "orchestration_plan.to_strategy_dict()" not in src, (
-        "OrchestrationLaunchHandler must consume route_decision directly"
-    )
+    assert "orchestration_plan" in src
+    assert "to_strategy_dict" not in src

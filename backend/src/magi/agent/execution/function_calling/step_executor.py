@@ -77,7 +77,6 @@ class _StepExecutionContext:
     intent: str
     execution_agent_id: str
     execution_workspace: str | None
-    orchestration_strategy: dict[str, Any] | None
     route_decision: "RouteDecision | None"
 
 
@@ -110,7 +109,6 @@ class FunctionCallingStepExecutor:
         intent: str,
         execution_agent_id: str,
         execution_workspace: str | None = None,
-        orchestration_strategy: dict[str, Any] | None = None,
         llm_timeout_seconds: float | None = None,
         cancel_token: CancelToken | None = None,
         control: RunControl | None = None,
@@ -128,7 +126,6 @@ class FunctionCallingStepExecutor:
             intent=intent,
             execution_agent_id=execution_agent_id,
             execution_workspace=execution_workspace,
-            orchestration_strategy=orchestration_strategy,
             route_decision=route_decision,
         )
         return await self._execute_step_with_context(
@@ -577,7 +574,6 @@ class FunctionCallingStepExecutor:
             execution_agent_id=ctx.execution_agent_id,
             iteration=iteration,
             execution_workspace=ctx.execution_workspace,
-            orchestration_strategy=ctx.orchestration_strategy,
             cancel_token=cancel_token,
             recent_messages=state.messages,
             route_decision=ctx.route_decision,

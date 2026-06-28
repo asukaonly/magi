@@ -209,7 +209,6 @@ async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkey
         turn_id="turn-1",
         intent="repo_analysis",
         execution_agent_id="chat:s-chat",
-        orchestration_strategy=None,
     )
 
     assert outcome.status == "continue"
@@ -289,7 +288,6 @@ async def test_step_executor_serializes_tool_messages_without_ascii_escaping(mon
         turn_id="turn-zh",
         intent="chat",
         execution_agent_id="chat:s-chat",
-        orchestration_strategy=None,
     )
 
     assert outcome.status == "continue"
@@ -381,7 +379,6 @@ async def test_step_executor_appends_tools_recommended_by_find_relevant_tools(mo
         turn_id="turn-expand",
         intent="chat",
         execution_agent_id="chat:s-chat",
-        orchestration_strategy=None,
     )
 
     assert outcome.status == "continue"
@@ -458,7 +455,6 @@ async def test_step_executor_collects_chat_attachments_from_tool_results(monkeyp
         turn_id="turn-attach",
         intent="chat",
         execution_agent_id="chat:s-chat",
-        orchestration_strategy=None,
     )
 
     assert outcome.status == "continue"
@@ -532,7 +528,6 @@ async def test_step_executor_skips_attachment_grounding_when_disabled(monkeypatc
         turn_id="turn-attach",
         intent="chat",
         execution_agent_id="chat:s-chat",
-        orchestration_strategy=None,
     )
 
     assert outcome.status == "continue"
@@ -610,7 +605,6 @@ async def test_step_executor_collects_assistant_message_payload_from_tool_result
         turn_id="turn-payload",
         intent="chat",
         execution_agent_id="chat:s-chat",
-        orchestration_strategy=None,
     )
 
     assert outcome.status == "continue"
@@ -696,7 +690,6 @@ async def test_step_executor_collects_historical_recall_asset_refs_into_message_
         turn_id="turn-memory-payload",
         intent="chat",
         execution_agent_id="chat:s-chat",
-        orchestration_strategy=None,
     )
 
     assert outcome.status == "continue"
@@ -778,7 +771,6 @@ async def test_step_executor_returns_control_after_one_step_until_called_again(m
         turn_id="turn-1",
         intent="repo_analysis",
         execution_agent_id="chat:s-chat",
-        orchestration_strategy=None,
     )
     second_outcome = await orchestrator.step_executor.execute_step(
         state=step_state,
@@ -788,7 +780,6 @@ async def test_step_executor_returns_control_after_one_step_until_called_again(m
         turn_id="turn-1",
         intent="repo_analysis",
         execution_agent_id="chat:s-chat",
-        orchestration_strategy=None,
     )
 
     assert first_outcome.status == "continue"

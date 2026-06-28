@@ -96,7 +96,6 @@ def test_headless_leaves_chat_fields_inert() -> None:
     assert run_input.session_summary is None
     assert run_input.session_origin is None
     assert run_input.reply_context is None
-    assert run_input.orchestration_strategy is None
     assert run_input.control is None
     assert run_input.steer_inbox is None
     assert run_input.detach_signal is None

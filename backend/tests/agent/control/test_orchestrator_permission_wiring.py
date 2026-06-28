@@ -85,7 +85,6 @@ async def test_gateway_allows_low_risk_and_registry_runs() -> None:
         intent="chat",
         execution_agent_id="a",
         execution_workspace=None,
-        orchestration_strategy=None,
     )
 
     assert result.success is True
@@ -106,7 +105,6 @@ async def test_gateway_blocks_kill_listed_and_returns_tool_error() -> None:
         intent="chat",
         execution_agent_id="a",
         execution_workspace=None,
-        orchestration_strategy=None,
     )
 
     assert result.success is False
@@ -135,7 +133,6 @@ async def test_gateway_user_denial_surfaces_reason_to_llm() -> None:
         intent="chat",
         execution_agent_id="a",
         execution_workspace=None,
-        orchestration_strategy=None,
     )
 
     assert result.success is False
@@ -160,7 +157,6 @@ async def test_gateway_off_mode_passes_dangerous_npm_install() -> None:
         intent="chat",
         execution_agent_id="a",
         execution_workspace=None,
-        orchestration_strategy=None,
     )
 
     assert result.success is True
@@ -192,7 +188,6 @@ async def test_worker_intent_tags_origin_as_subagent() -> None:
         intent="worker_explore",
         execution_agent_id="a",
         execution_workspace=None,
-        orchestration_strategy=None,
     )
 
     from magi.agent.control.permission import ToolOrigin
@@ -213,7 +208,6 @@ async def test_orchestrator_without_gateway_behaves_as_before() -> None:
         intent="chat",
         execution_agent_id="a",
         execution_workspace=None,
-        orchestration_strategy=None,
     )
 
     # Gateway off → the registry ran (dev hasn't opted in yet).
@@ -239,7 +233,6 @@ async def test_gateway_provider_blocks_when_constructor_gateway_absent() -> None
         intent="chat",
         execution_agent_id="a",
         execution_workspace=None,
-        orchestration_strategy=None,
     )
 
     assert result.success is False
@@ -299,7 +292,6 @@ async def test_session_rule_inherited_by_subagent_same_session() -> None:
         intent="worker_explore",  # subagent intent
         execution_agent_id="a",
         execution_workspace=None,
-        orchestration_strategy=None,
     )
 
     assert result.success is True
