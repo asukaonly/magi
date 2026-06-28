@@ -1,31 +1,23 @@
-"""Conversation rhythm planning for chat responses."""
+"""Conversation rhythm segmentation for chat responses."""
 
 from __future__ import annotations
 
-import json
 import random
 import re
 from dataclasses import dataclass
 from typing import Any
 
 from magi.config import get_user_preference
-from magi.core.logger import get_logger
 from magi.agent.task_agents.common import AssistantResponsePlan, AssistantResponseSegment, RhythmPersonaSignal
 
-logger = get_logger(__name__)
-
-_MAX_SEGMENTS = 3
-_MAX_UNITS = 12
-_MIN_CONTENT_CHARS = 120
-_MIN_CJK_CONTENT_CHARS = 48
-_MIN_UNITS_FOR_RHYTHM = 2
+_MAX_SEGMENTS = 6
 _CJK_MS = 50
 _LATIN_MS = 10
 _FLOOR_MS = 1000
 _CEIL_MS = 4000
 _JITTER = 0.20
 _CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
-_MARKDOWN_LIST_LINE_RE = re.compile(r"(?m)^\s{0,3}(?:[-*+]\s+|\d+[.)]\s+)")
+SEGMENT_SENTINEL = "‖"
 _LIST_ITEM_RE = re.compile(r"(?m)^\s*(?:[-*+]\s+|\d+[.)、]\s+|[一二三四五六七八九十]+[、.]\s*)")
 _TABLE_ROW_RE = re.compile(r"(?m)^\s*\|[^\n|]+(?:\|[^\n|]+)+\|\s*$")
 _CONFIG_LINE_RE = re.compile(r"(?m)^\s{0,4}[A-Za-z_][\w.-]*:\s+\S+")
@@ -59,6 +51,26 @@ def _compute_delay_ms(
     return int(max(_FLOOR_MS, min(value, _CEIL_MS)))
 
 
+def split_on_sentinel(text: str) -> list[str]:
+    """Split a core-LLM reply on the internal bubble boundary marker."""
+    return [part.strip() for part in str(text or "").split(SEGMENT_SENTINEL) if part.strip()]
+
+
+def strip_segmentation_sentinel(text: str) -> str:
+    """Remove residual bubble markers before text reaches history or channels."""
+    raw_text = str(text or "")
+    if SEGMENT_SENTINEL not in raw_text:
+        return raw_text
+    parts = split_on_sentinel(raw_text)
+    if not parts:
+        return ""
+    newline_joined = "\n".join(parts)
+    if _detect_content_features(response_text=newline_joined).has_protected_structure:
+        return newline_joined.strip()
+    collapsed = " ".join(parts)
+    return re.sub(r"[ \t]{2,}", " ", collapsed).strip()
+
+
 def _rhythm_level(persona: "RhythmPersonaSignal | None") -> float:
     """Combine scene intensity and persona chattiness into a 0–1 pacing level.
 
@@ -87,9 +99,9 @@ def _rhythm_profile(rhythm_level: float) -> tuple[str, float, int]:
     if rhythm_level < 0.75:
         return ("- Prefer two groups; use three only for genuinely distinct moves.", 0.95, 3)
     return (
-        "- Prefer two or three short groups for a lively reply with distinct moves.",
+        "- Prefer a lively reply with distinct short-message moves; allow up to six when the persona and moment support it.",
         0.8,
-        3,
+        6,
     )
 
 
@@ -110,12 +122,6 @@ def is_conversation_rhythm_enabled() -> bool:
 
 
 @dataclass(slots=True)
-class _RhythmUnit:
-    unit_id: str
-    text: str
-
-
-@dataclass(slots=True)
 class _ContentFeatures:
     has_code_block: bool
     has_table: bool
@@ -133,70 +139,58 @@ class _ContentFeatures:
         return self.list_item_count >= 3
 
 
+def _detect_content_features(*, response_text: str) -> _ContentFeatures:
+    config_line_count = len(_CONFIG_LINE_RE.findall(response_text))
+    table_row_count = len(_TABLE_ROW_RE.findall(response_text))
+    return _ContentFeatures(
+        has_code_block="```" in response_text,
+        has_table=table_row_count >= 2,
+        has_command_block=bool(_COMMAND_LINE_RE.search(response_text)),
+        has_config_block=config_line_count >= 2,
+        has_stack_trace=bool(_STACK_TRACE_RE.search(response_text)),
+        list_item_count=len(_LIST_ITEM_RE.findall(response_text)),
+    )
+
+
 class ResponseRhythmPlanner:
     """Build an internal multi-message presentation plan from final text."""
-
-    def __init__(self, *, prompt_service: Any) -> None:
-        self._prompt_service = prompt_service
 
     async def plan(
         self,
         *,
-        user_message: str,
         response_text: str,
-        execution_mode: str | None,
-        ux_plan: dict[str, Any] | None,
-        streamed: bool = False,
         persona: RhythmPersonaSignal | None = None,
+        streamed: bool = False,
+        ux_plan: dict[str, Any] | None = None,
     ) -> AssistantResponsePlan | None:
-        rhythm_level = _rhythm_level(persona)
-        segmentation_bias, speed_factor, max_groups = _rhythm_profile(rhythm_level)
-        persona_voice = persona.sentence_style if persona is not None else ""
         if streamed or not self._is_enabled():
             return None
         if str((ux_plan or {}).get("assistant_surface_mode") or "final_only").strip() in {"none", "reaction_only"}:
             return None
-        normalized_response = str(response_text or "").strip()
-        if len(normalized_response) < self._min_content_chars(normalized_response):
+        parts = split_on_sentinel(response_text)
+        if len(parts) < 2 or len(parts) > _MAX_SEGMENTS:
             return None
-        content_features = self._detect_content_features(
-            response_text=normalized_response,
-        )
-        if content_features.has_protected_structure:
+        if _detect_content_features(response_text="\n".join(parts)).has_protected_structure:
             return None
-        units = self._split_units(normalized_response)
-        if len(units) < _MIN_UNITS_FOR_RHYTHM or len(units) > _MAX_UNITS:
-            return None
-        try:
-            raw_plan = await self._prompt_service.call_llm(
-                system_prompt=self._build_system_prompt(
-                    segmentation_bias=segmentation_bias, max_groups=max_groups, sentence_style=persona_voice
-                ),
-                messages=[
-                    {
-                        "role": "user",
-                        "content": self._build_user_payload(
-                            user_message=user_message,
-                            response_text=normalized_response,
-                            execution_mode=execution_mode,
-                            units=units,
-                            content_features=content_features,
-                        ),
-                    }
-                ],
-                disable_thinking=True,
-                json_mode=True,
-                timeout_seconds=8.0,
-                event_context={
-                    "request_kind": "task_agent:chat_rhythm",
-                    "agent_id": "chat_rhythm",
-                },
+
+        rhythm_level = _rhythm_level(persona)
+        _, speed_factor, _ = _rhythm_profile(rhythm_level)
+        segments: list[AssistantResponseSegment] = []
+        for index, content in enumerate(parts):
+            delay_ms = 0 if index == 0 else _compute_delay_ms(content, speed_factor=speed_factor)
+            segments.append(
+                AssistantResponseSegment(
+                    content=content,
+                    intent="answer",
+                    delay_ms=delay_ms,
+                    segment_index=index,
+                    source_unit_ids=[f"s{index + 1}"],
+                )
             )
-        except Exception as exc:
-            logger.debug("Conversation rhythm planner call failed", error=str(exc))
-            return None
-        return self._parse_plan(
-            raw_plan, units=units, aggregate_text=normalized_response, speed_factor=speed_factor
+        return AssistantResponsePlan(
+            mode="multi_message",
+            aggregate_text="\n".join(parts),
+            segments=segments,
         )
 
     @staticmethod
@@ -204,182 +198,13 @@ class ResponseRhythmPlanner:
         return is_conversation_rhythm_enabled()
 
     @staticmethod
-    def _min_content_chars(response_text: str) -> int:
-        return _MIN_CJK_CONTENT_CHARS if _CJK_RE.search(response_text) else _MIN_CONTENT_CHARS
-
-    @staticmethod
-    def _split_units(response_text: str) -> list[_RhythmUnit]:
-        if "```" in response_text:
-            return []
-        if _MARKDOWN_LIST_LINE_RE.search(response_text):
-            return []
-        paragraphs = [part.strip() for part in re.split(r"\n\s*\n+", response_text) if part.strip()]
-        if len(paragraphs) < 2:
-            paragraphs = [part.strip() for part in re.split(r"\n+", response_text) if part.strip()]
-        if len(paragraphs) < 2:
-            paragraphs = [
-                part.strip()
-                for part in re.split(r"(?<=[。！？])\s*|(?<=[.!?])\s+", response_text)
-                if part.strip()
-            ]
-        units: list[_RhythmUnit] = []
-        for index, text in enumerate(paragraphs, start=1):
-            if not text:
-                continue
-            units.append(_RhythmUnit(unit_id=f"u{index}", text=text))
-        return units
-
-    @staticmethod
     def _detect_content_features(*, response_text: str) -> _ContentFeatures:
-        config_line_count = len(_CONFIG_LINE_RE.findall(response_text))
-        table_row_count = len(_TABLE_ROW_RE.findall(response_text))
-        return _ContentFeatures(
-            has_code_block="```" in response_text,
-            has_table=table_row_count >= 2,
-            has_command_block=bool(_COMMAND_LINE_RE.search(response_text)),
-            has_config_block=config_line_count >= 2,
-            has_stack_trace=bool(_STACK_TRACE_RE.search(response_text)),
-            list_item_count=len(_LIST_ITEM_RE.findall(response_text)),
-        )
-
-    @staticmethod
-    def _build_system_prompt(*, segmentation_bias: str, max_groups: int, sentence_style: str = "") -> str:
-        stripped_style = sentence_style.strip()
-        bias_lines = [segmentation_bias]
-        if stripped_style:
-            bias_lines.append(
-                f"- This persona's speaking voice: {stripped_style}. "
-                "Let it inform whether and where to split, without changing wording."
-            )
-        bias_block = "\n".join(bias_lines)
-        bubble_phrase = "a single chat bubble" if max_groups == 1 else f"one to {max_groups} chat bubbles"
-        group_word = "group" if max_groups == 1 else "groups"
-        return f"""You are an internal chat presentation planner.
-
-You do not answer the user. You only decide how to display an already finished assistant answer as {bubble_phrase}.
-
-Rules:
-- Output valid JSON only.
-- Do not rewrite, summarize, translate, add, or remove user-visible content.
-- Use only the provided unit ids.
-- Cover every unit exactly once, in the original order.
-- Use at most {max_groups} {group_word}.
-{bias_block}
-- Use one group when the answer is short, terse, transactional, or splitting would hurt meaning.
-- Technical explanations, architecture notes, implementation plans, API/protocol/configuration details, debugging analysis, and source-code-related answers should usually be one group. If a technical answer is conversational enough to split, keep the technical body intact.
-- Never add fake hesitation, filler, or dramatic pauses; every group must carry useful content.
-
-Schema:
-{{
-  "groups": [
-    {{"unit_ids": ["u1"], "intent": "acknowledge|answer|explain|tradeoff|next_step|afterthought"}}
-  ]
-}}
-""".strip()
-
-    @staticmethod
-    def _build_user_payload(
-        *,
-        user_message: str,
-        response_text: str,
-        execution_mode: str | None,
-        units: list[_RhythmUnit],
-        content_features: _ContentFeatures,
-    ) -> str:
-        payload = {
-            "user_message": str(user_message or ""),
-            "execution_mode": execution_mode,
-            "canonical_answer": response_text,
-            "content_features": {
-                "protected_structure": content_features.has_protected_structure,
-                "has_table": content_features.has_table,
-                "has_command_block": content_features.has_command_block,
-                "has_config_block": content_features.has_config_block,
-                "has_stack_trace": content_features.has_stack_trace,
-                "list_item_count": content_features.list_item_count,
-            },
-            "units": [{"id": unit.unit_id, "text": unit.text} for unit in units],
-        }
-        return json.dumps(payload, ensure_ascii=False)
-
-    def _parse_plan(
-        self,
-        raw_plan: str,
-        *,
-        units: list[_RhythmUnit],
-        aggregate_text: str,
-        speed_factor: float = 1.0,
-    ) -> AssistantResponsePlan | None:
-        try:
-            parsed = json.loads(str(raw_plan or "").strip())
-        except json.JSONDecodeError:
-            logger.debug("Conversation rhythm planner returned invalid JSON")
-            return None
-        if not isinstance(parsed, dict):
-            return None
-        groups = parsed.get("groups")
-        if not isinstance(groups, list) or not groups:
-            return None
-        # max_groups from _rhythm_profile is a soft, prompt-level bias; the hard
-        # ceiling is _MAX_SEGMENTS. Low-pacing turns stay single-bubble via the
-        # prompt ("exactly one group") plus the len(segments) < 2 guard below.
-        if len(groups) > _MAX_SEGMENTS:
-            return None
-        if len(groups) >= 3 and len(aggregate_text) < self._min_segments_chars(len(groups), aggregate_text):
-            return None
-
-        unit_lookup = {unit.unit_id: unit for unit in units}
-        expected_ids = [unit.unit_id for unit in units]
-        flattened_ids: list[str] = []
-        segments: list[AssistantResponseSegment] = []
-        for index, group in enumerate(groups):
-            if not isinstance(group, dict):
-                return None
-            raw_unit_ids = group.get("unit_ids")
-            if not isinstance(raw_unit_ids, list) or not raw_unit_ids:
-                return None
-            unit_ids = [str(unit_id).strip() for unit_id in raw_unit_ids if str(unit_id).strip()]
-            if not unit_ids or any(unit_id not in unit_lookup for unit_id in unit_ids):
-                return None
-            flattened_ids.extend(unit_ids)
-            content = self._join_group_content([unit_lookup[unit_id] for unit_id in unit_ids])
-            if not content:
-                return None
-            delay_ms = 0 if index == 0 else _compute_delay_ms(content, speed_factor=speed_factor)
-            intent = self._normalize_intent(group.get("intent"))
-            segments.append(
-                AssistantResponseSegment(
-                    content=content,
-                    intent=intent,
-                    delay_ms=delay_ms,
-                    segment_index=index,
-                    source_unit_ids=unit_ids,
-                )
-            )
-        if flattened_ids != expected_ids:
-            return None
-        if len(segments) < 2:
-            return None
-        return AssistantResponsePlan(
-            mode="multi_message",
-            aggregate_text=aggregate_text,
-            segments=segments,
-        )
-
-    @staticmethod
-    def _min_segments_chars(group_count: int, response_text: str) -> int:
-        base = 120 if _CJK_RE.search(response_text) else 260
-        return base * max(1, group_count - 2)
-
-    @staticmethod
-    def _normalize_intent(value: Any) -> str:
-        intent = str(value or "answer").strip().lower()
-        allowed = {"acknowledge", "answer", "explain", "tradeoff", "next_step", "afterthought"}
-        return intent if intent in allowed else "answer"
-
-    @staticmethod
-    def _join_group_content(units: list[_RhythmUnit]) -> str:
-        return "\n".join(unit.text.strip() for unit in units if unit.text.strip()).strip()
+        return _detect_content_features(response_text=response_text)
 
 
-__all__ = ["ResponseRhythmPlanner", "is_conversation_rhythm_enabled"]
+__all__ = [
+    "ResponseRhythmPlanner",
+    "is_conversation_rhythm_enabled",
+    "split_on_sentinel",
+    "strip_segmentation_sentinel",
+]

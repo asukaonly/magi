@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 
 import pytest
@@ -8,397 +7,138 @@ import pytest
 from magi.chat.task_agent import rhythm as rhythm_module
 from magi.chat.task_agent.rhythm import (
     ResponseRhythmPlanner,
-    _compute_delay_ms,
-    _FLOOR_MS,
     _CEIL_MS,
+    _FLOOR_MS,
+    _compute_delay_ms,
 )
 
 
-class _FakePromptService:
-    def __init__(self, response: str) -> None:
-        self.response = response
-        self.calls: list[dict] = []
+def _enable_rhythm(monkeypatch, *, on: bool = True) -> None:
+    def fake_get_user_preference(key, default=None):  # type: ignore[no-untyped-def]
+        if key == "conversation_rhythm_enabled":
+            return on
+        if key == "conversation_rhythm_mode":
+            return "natural" if on else "off"
+        return default
 
-    async def call_llm(self, **kwargs):  # type: ignore[no-untyped-def]
-        self.calls.append(kwargs)
-        return self.response
+    monkeypatch.setattr(rhythm_module, "get_user_preference", fake_get_user_preference)
+
+
+def test_split_on_sentinel_basic() -> None:
+    split_on_sentinel = rhythm_module.split_on_sentinel
+
+    assert split_on_sentinel("a‖b‖c") == ["a", "b", "c"]
+    assert split_on_sentinel("  a ‖  b  ") == ["a", "b"]
+    assert split_on_sentinel("a‖‖b") == ["a", "b"]
+    assert split_on_sentinel("solo") == ["solo"]
+    assert split_on_sentinel("‖a‖") == ["a"]
+
+
+def test_strip_segmentation_sentinel_removes_plain_residue() -> None:
+    strip_segmentation_sentinel = rhythm_module.strip_segmentation_sentinel
+
+    assert strip_segmentation_sentinel("a‖b‖c") == "a b c"
+    assert strip_segmentation_sentinel("no marks") == "no marks"
+    assert "‖" not in strip_segmentation_sentinel("x‖y")
+
+
+def test_strip_segmentation_sentinel_preserves_protected_layout() -> None:
+    strip_segmentation_sentinel = rhythm_module.strip_segmentation_sentinel
+    text = "推荐这几个：‖- 选项一‖- 选项二‖- 选项三"
+
+    assert strip_segmentation_sentinel(text) == (
+        "推荐这几个：\n- 选项一\n- 选项二\n- 选项三"
+    )
 
 
 @pytest.mark.asyncio
-async def test_response_rhythm_planner_groups_existing_units(monkeypatch) -> None:
-    monkeypatch.setattr(
-        rhythm_module,
-        "get_user_preference",
-        lambda key, default=None: True if key == "conversation_rhythm_enabled" else default,
-    )
-    prompt_service = _FakePromptService(
-        json.dumps(
-            {
-                "groups": [
-                    {"unit_ids": ["u1"], "intent": "acknowledge", "delay_ms": 0},
-                    {"unit_ids": ["u2"], "intent": "answer", "delay_ms": 600},
-                    {"unit_ids": ["u3"], "intent": "next_step", "delay_ms": 900},
-                ]
-            }
-        )
-    )
-    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
-
-    response = (
-        "第一段先接住你的感受：这件事确实会让人有点不踏实，因为你已经投入了不少心力。"
-        "先别急着把它判断成失败，我们可以先把眼前最重要的部分理清楚。\n\n"
-        "第二段给出核心判断：现在最值得做的是把目标缩小到一个能完成的小动作。"
-        "只要这个动作完成了，后面的选择就会更清楚，也不会一直被同一个问题拖住。\n\n"
-        "第三段给出下一步：今天先留出一小段安静时间，把要处理的事情写成一句话。"
-        "然后只选其中最容易开始的一项做十分钟，先让事情重新动起来。"
-    )
+async def test_response_rhythm_planner_splits_on_sentinel(monkeypatch) -> None:
+    _enable_rhythm(monkeypatch)
+    planner = ResponseRhythmPlanner()
 
     plan = await planner.plan(
-        user_message="我现在有点乱，应该怎么开始？",
-        response_text=response,
-        execution_mode="direct_llm",
-        ux_plan={"assistant_surface_mode": "final_only"},
+        response_text="看番？行啊。‖不过现在的番剧不少。‖你最近在看哪部？",
+        persona=None,
     )
 
     assert plan is not None
     assert plan.mode == "multi_message"
+    assert plan.aggregate_text == "看番？行啊。\n不过现在的番剧不少。\n你最近在看哪部？"
     assert [segment.content for segment in plan.segments] == [
-        "第一段先接住你的感受：这件事确实会让人有点不踏实，因为你已经投入了不少心力。先别急着把它判断成失败，我们可以先把眼前最重要的部分理清楚。",
-        "第二段给出核心判断：现在最值得做的是把目标缩小到一个能完成的小动作。只要这个动作完成了，后面的选择就会更清楚，也不会一直被同一个问题拖住。",
-        "第三段给出下一步：今天先留出一小段安静时间，把要处理的事情写成一句话。然后只选其中最容易开始的一项做十分钟，先让事情重新动起来。",
+        "看番？行啊。",
+        "不过现在的番剧不少。",
+        "你最近在看哪部？",
     ]
-    assert [segment.intent for segment in plan.segments] == ["acknowledge", "answer", "next_step"]
+    assert [segment.segment_index for segment in plan.segments] == [0, 1, 2]
     assert plan.segments[0].delay_ms == 0
-    assert all(_FLOOR_MS <= s.delay_ms <= _CEIL_MS for s in plan.segments[1:])
-    assert prompt_service.calls[0]["json_mode"] is True
+    assert all(_FLOOR_MS <= segment.delay_ms <= _CEIL_MS for segment in plan.segments[1:])
 
 
 @pytest.mark.asyncio
-async def test_response_rhythm_planner_preserves_structured_technical_lists(monkeypatch) -> None:
-    monkeypatch.setattr(
-        rhythm_module,
-        "get_user_preference",
-        lambda key, default=None: True if key == "conversation_rhythm_enabled" else default,
-    )
-    prompt_service = _FakePromptService('{"groups": []}')
-    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
+async def test_response_rhythm_planner_allows_six_persona_segments(monkeypatch) -> None:
+    _enable_rhythm(monkeypatch)
+    planner = ResponseRhythmPlanner()
 
-    response = (
-        "这份文档主要说明了 MCP 服务器的几个核心机制。\n\n"
-        "1. 条件性工具注册：服务器会根据客户端能力动态注册工具，而不是启动时全部加载。\n\n"
-        "2. 资源订阅管理：服务器维护映射表，追踪哪些 Session 订阅了哪些资源 URI。\n\n"
-        "3. 会话级资源：工具可以把临时结果注册为资源，供客户端按需读取。\n\n"
-        "4. 模拟日志：服务器可以推送不同级别的日志，用来测试客户端处理能力。\n\n"
-        "简而言之，它展示了动态能力协商、实时数据推送和调试日志。"
-    )
-
-    plan = await planner.plan(
-        user_message="这段 MCP 技术文档在讲什么机制？",
-        response_text=response,
-        execution_mode="direct_llm",
-        ux_plan={"assistant_surface_mode": "final_only"},
-    )
-
-    assert plan is None
-    assert prompt_service.calls == []
-
-
-@pytest.mark.asyncio
-async def test_response_rhythm_planner_uses_prompt_for_unstructured_technical_answer(monkeypatch) -> None:
-    monkeypatch.setattr(
-        rhythm_module,
-        "get_user_preference",
-        lambda key, default=None: True if key == "conversation_rhythm_enabled" else default,
-    )
-    prompt_service = _FakePromptService(
-        json.dumps(
-            {
-                "groups": [
-                    {"unit_ids": ["u1", "u2", "u3"], "intent": "answer", "delay_ms": 0},
-                ]
-            }
-        )
-    )
-    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
-
-    response = (
-        "这套 MCP 服务器的核心是能力协商：客户端握手后，服务器根据能力决定哪些工具可以注册。\n\n"
-        "资源订阅会按 Session 和 URI 维护映射，所以同一个资源更新时可以只推送给相关客户端。\n\n"
-        "如果要继续优化，重点应该放在订阅生命周期和错误日志上，避免断连后留下无效状态。"
-    )
-
-    plan = await planner.plan(
-        user_message="这个 MCP server 的机制怎么理解？",
-        response_text=response,
-        execution_mode="direct_llm",
-        ux_plan={"assistant_surface_mode": "final_only"},
-    )
-
-    assert plan is None
-    assert len(prompt_service.calls) == 1
-    assert "Technical explanations" in prompt_service.calls[0]["system_prompt"]
-    payload = json.loads(prompt_service.calls[0]["messages"][0]["content"])
-    assert payload["content_features"] == {
-        "protected_structure": False,
-        "has_table": False,
-        "has_command_block": False,
-        "has_config_block": False,
-        "has_stack_trace": False,
-        "list_item_count": 0,
-    }
-
-
-@pytest.mark.asyncio
-async def test_response_rhythm_planner_splits_short_cjk_sentence_units(monkeypatch) -> None:
-    monkeypatch.setattr(
-        rhythm_module,
-        "get_user_preference",
-        lambda key, default=None: True if key == "conversation_rhythm_enabled" else default,
-    )
-    prompt_service = _FakePromptService(
-        json.dumps(
-            {
-                "groups": [
-                    {"unit_ids": ["u1"], "intent": "answer", "delay_ms": 0},
-                    {"unit_ids": ["u2", "u3"], "intent": "explain", "delay_ms": 500},
-                ]
-            }
-        )
-    )
-    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
-
-    response = (
-        "先别把节奏规划当成第二个回答模型。"
-        "主模型正常说完，保留原来的判断。"
-        "然后只把自然断句拆成两三条气泡，让它像聊天而不是报告。"
-    )
-
-    plan = await planner.plan(
-        user_message="这个怎么触发？",
-        response_text=response,
-        execution_mode="direct_llm",
-        ux_plan={"assistant_surface_mode": "final_only"},
-    )
+    plan = await planner.plan(response_text="一‖二‖三‖四‖五‖六", persona=None)
 
     assert plan is not None
-    assert [segment.content for segment in plan.segments] == [
-        "先别把节奏规划当成第二个回答模型。",
-        "主模型正常说完，保留原来的判断。\n然后只把自然断句拆成两三条气泡，让它像聊天而不是报告。",
-    ]
-    assert plan.segments[0].delay_ms == 0
-    assert _FLOOR_MS <= plan.segments[1].delay_ms <= _CEIL_MS
-    payload = json.loads(prompt_service.calls[0]["messages"][0]["content"])
-    assert [unit["text"] for unit in payload["units"]] == [
-        "先别把节奏规划当成第二个回答模型。",
-        "主模型正常说完，保留原来的判断。",
-        "然后只把自然断句拆成两三条气泡，让它像聊天而不是报告。",
-    ]
+    assert len(plan.segments) == 6
 
 
 @pytest.mark.asyncio
-async def test_response_rhythm_planner_keeps_short_latin_reply_single_message(monkeypatch) -> None:
-    monkeypatch.setattr(
-        rhythm_module,
-        "get_user_preference",
-        lambda key, default=None: True if key == "conversation_rhythm_enabled" else default,
-    )
-    prompt_service = _FakePromptService('{"groups": []}')
-    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
+async def test_response_rhythm_planner_rejects_more_than_six_segments(monkeypatch) -> None:
+    _enable_rhythm(monkeypatch)
+    planner = ResponseRhythmPlanner()
 
-    plan = await planner.plan(
-        user_message="How does it trigger?",
-        response_text="It triggers only when the answer has multiple useful units. Short replies stay as one bubble.",
-        execution_mode="direct_llm",
-        ux_plan={"assistant_surface_mode": "final_only"},
-    )
-
-    assert plan is None
-    assert prompt_service.calls == []
-
-
-@pytest.mark.asyncio
-async def test_response_rhythm_planner_rejects_three_groups_for_compact_cjk_answer(monkeypatch) -> None:
-    monkeypatch.setattr(
-        rhythm_module,
-        "get_user_preference",
-        lambda key, default=None: True if key == "conversation_rhythm_enabled" else default,
-    )
-    prompt_service = _FakePromptService(
-        json.dumps(
-            {
-                "groups": [
-                    {"unit_ids": ["u1"], "intent": "answer", "delay_ms": 0},
-                    {"unit_ids": ["u2"], "intent": "explain", "delay_ms": 1000},
-                    {"unit_ids": ["u3"], "intent": "afterthought", "delay_ms": 1200},
-                ]
-            }
-        )
-    )
-    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
-
-    plan = await planner.plan(
-        user_message="这是周笑话吗？",
-        response_text="想多了。这是数学笑话。在二进制世界里，0和1就是全部真理。没有性别，只有电平高低。这个误读比这段代码更吵。",
-        execution_mode="direct_llm",
-        ux_plan={"assistant_surface_mode": "final_only"},
-    )
+    plan = await planner.plan(response_text="一‖二‖三‖四‖五‖六‖七", persona=None)
 
     assert plan is None
 
 
 @pytest.mark.asyncio
-async def test_response_rhythm_planner_rejects_more_than_three_groups(monkeypatch) -> None:
-    monkeypatch.setattr(
-        rhythm_module,
-        "get_user_preference",
-        lambda key, default=None: True if key == "conversation_rhythm_enabled" else default,
-    )
-    prompt_service = _FakePromptService(
-        json.dumps(
-            {
-                "groups": [
-                    {"unit_ids": ["u1"], "intent": "acknowledge"},
-                    {"unit_ids": ["u2"], "intent": "answer"},
-                    {"unit_ids": ["u3"], "intent": "explain"},
-                    {"unit_ids": ["u4"], "intent": "next_step"},
-                ]
-            }
-        )
-    )
-    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
+async def test_response_rhythm_planner_falls_back_for_protected_structure(monkeypatch) -> None:
+    _enable_rhythm(monkeypatch)
+    planner = ResponseRhythmPlanner()
 
-    response = (
-        "第一段先说明这不是第二次回答，而是同一份回答的展示节奏，内容仍然来自原始结果。\n\n"
-        "第二段给出核心判断：拆分应该帮助阅读，而不是把一个完整判断切成碎片。\n\n"
-        "第三段说明边界：技术列表、命令、表格和代码块应该保留在一条消息里，方便复制和回看。\n\n"
-        "第四段补充下一步：如果要增强自然感，也应该控制在少量清晰气泡内，不要显得太碎。"
-    )
-
-    plan = await planner.plan(
-        user_message="自然节奏怎么展示？",
-        response_text=response,
-        execution_mode="direct_llm",
-        ux_plan={"assistant_surface_mode": "final_only"},
-    )
+    text = "推荐这几个：‖- 选项一‖- 选项二‖- 选项三"
+    plan = await planner.plan(response_text=text, persona=None)
 
     assert plan is None
 
 
 @pytest.mark.asyncio
 async def test_response_rhythm_planner_mode_off_disables_planning(monkeypatch) -> None:
-    def fake_get_user_preference(key, default=None):  # type: ignore[no-untyped-def]
-        if key == "conversation_rhythm_enabled":
-            return True
-        if key == "conversation_rhythm_mode":
-            return "off"
-        return default
+    _enable_rhythm(monkeypatch, on=False)
+    planner = ResponseRhythmPlanner()
 
-    monkeypatch.setattr(rhythm_module, "get_user_preference", fake_get_user_preference)
-    prompt_service = _FakePromptService('{"groups": []}')
-    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
-
-    plan = await planner.plan(
-        user_message="拆一下",
-        response_text=(
-            "第一段足够长，用来确认关闭模式会跳过规划。"
-            "第二段也足够长，用来确认即使 enabled 字段为真，mode=off 仍然优先。"
-        ),
-        execution_mode="direct_llm",
-        ux_plan={"assistant_surface_mode": "final_only"},
-    )
-
-    assert plan is None
-    assert prompt_service.calls == []
-
-
-@pytest.mark.asyncio
-async def test_response_rhythm_planner_rejects_content_drift(monkeypatch) -> None:
-    monkeypatch.setattr(
-        rhythm_module,
-        "get_user_preference",
-        lambda key, default=None: True if key == "conversation_rhythm_enabled" else default,
-    )
-    prompt_service = _FakePromptService(
-        json.dumps(
-            {
-                "groups": [
-                    {"unit_ids": ["u1"], "intent": "answer", "delay_ms": 0},
-                    {"unit_ids": ["u3"], "intent": "answer", "delay_ms": 500},
-                ]
-            }
-        )
-    )
-    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
-
-    plan = await planner.plan(
-        user_message="拆一下",
-        response_text=(
-            "第一段足够长，用来说明原始回答中的第一块内容应该完整保留，不能被规划模型改写。"
-            "这段文本只是测试单元，不代表真实用户可见内容。\n\n"
-            "第二段也足够长，用来说明规划模型如果引用不存在的单元，就必须被后端校验拒绝。"
-            "这样可以防止模型漂移或者凭空创造新的展示内容。"
-        ),
-        execution_mode="direct_llm",
-        ux_plan={"assistant_surface_mode": "final_only"},
-    )
+    plan = await planner.plan(response_text="第一段‖第二段", persona=None)
 
     assert plan is None
 
 
 @pytest.mark.asyncio
 async def test_response_rhythm_planner_skips_streamed_turns(monkeypatch) -> None:
-    monkeypatch.setattr(
-        rhythm_module,
-        "get_user_preference",
-        lambda key, default=None: True if key == "conversation_rhythm_enabled" else default,
-    )
-    prompt_service = _FakePromptService('{"groups": []}')
-    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
+    _enable_rhythm(monkeypatch)
+    planner = ResponseRhythmPlanner()
 
-    plan = await planner.plan(
-        user_message="拆一下",
-        response_text=(
-            "第一段足够长，用来确认 streamed turn 不会进入节奏规划。"
-            "这可以避免 JSON 规划内容和用户可见 token stream 混在一起。\n\n"
-            "第二段足够长，用来确认即使偏好开启，只要本轮已经流式输出，也会保留原来的单气泡路径。"
-            "这个限制让首版行为更稳。"
-        ),
-        execution_mode="direct_llm",
-        ux_plan={"assistant_surface_mode": "final_only"},
-        streamed=True,
-    )
+    plan = await planner.plan(response_text="第一段‖第二段", persona=None, streamed=True)
 
     assert plan is None
-    assert prompt_service.calls == []
 
 
 @pytest.mark.asyncio
-async def test_response_rhythm_planner_keeps_markdown_lists_in_one_message(monkeypatch) -> None:
-    monkeypatch.setattr(
-        rhythm_module,
-        "get_user_preference",
-        lambda key, default=None: True if key == "conversation_rhythm_enabled" else default,
-    )
-    prompt_service = _FakePromptService('{"groups": []}')
-    planner = ResponseRhythmPlanner(prompt_service=prompt_service)
+@pytest.mark.parametrize("surface_mode", ["none", "reaction_only"])
+async def test_response_rhythm_planner_skips_non_visible_surfaces(monkeypatch, surface_mode) -> None:
+    _enable_rhythm(monkeypatch)
+    planner = ResponseRhythmPlanner()
 
     plan = await planner.plan(
-        user_message="你知道我最喜欢看什么吗",
-        response_text=(
-            "根据记忆，你最近最关注的内容比较杂，主要集中在以下几个领域：\n\n"
-            "1. AI 与技术前沿：\n"
-            "- Role-Playing Chatbots（角色扮演聊天机器人）及其性能指标能力。\n"
-            "- AI Agents（智能体）的开发、分类与 Benchmark。\n\n"
-            "2. 硬核 / 极客话题：\n"
-            "- 路由器 CPU 性能天梯榜。\n"
-            "- Token 中转站的盈利模式和内幕。"
-        ),
-        execution_mode="direct_llm",
-        ux_plan={"assistant_surface_mode": "final_only"},
+        response_text="第一段‖第二段",
+        persona=None,
+        ux_plan={"assistant_surface_mode": surface_mode},
     )
 
     assert plan is None
-    assert prompt_service.calls == []
 
 
 def test_extract_persona_rhythm_from_prompt_context() -> None:
@@ -420,7 +160,6 @@ def test_extract_persona_rhythm_from_prompt_context() -> None:
     assert _extract_persona_rhythm(SimpleNamespace()) is None
     assert _extract_persona_rhythm(SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=None))) is None
 
-    # persona_intensity == 0 (crisis/suppression) must be preserved, not coerced to 1
     crisis_plan = SimpleNamespace(register="crisis", persona_intensity=0, idiolect={})
     crisis_ctx = SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=crisis_plan))
     crisis_signal = _extract_persona_rhythm(crisis_ctx)
@@ -429,14 +168,13 @@ def test_extract_persona_rhythm_from_prompt_context() -> None:
     assert crisis_signal.register == "crisis"
     assert crisis_signal.sentence_style == ""
 
-    # chattiness is extracted from idiolect (Step 2)
     chat_plan = SimpleNamespace(
         register="chat", persona_intensity=2, idiolect={"sentence_style": "x", "chattiness": 0.8}
     )
     chat_ctx = SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=chat_plan))
     chat_signal = _extract_persona_rhythm(chat_ctx)
     assert chat_signal.chattiness == 0.8
-    # missing chattiness defaults to 0.5; out-of-range is clamped
+
     miss = _extract_persona_rhythm(
         SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=SimpleNamespace(
             register="chat", persona_intensity=1, idiolect={"sentence_style": ""})))
@@ -450,10 +188,10 @@ def test_extract_persona_rhythm_from_prompt_context() -> None:
 
 
 @pytest.mark.asyncio
-async def test_postprocess_forwards_persona_to_rhythm_planner() -> None:
+async def test_postprocess_forwards_persona_and_raw_response_to_rhythm_planner() -> None:
     from magi.agent.task_agents.common import (
-        ExecutionResult,
         ExecutionMode,
+        ExecutionResult,
         RhythmPersonaSignal,
     )
     from magi.chat.task_agent.postprocess_service import ChatPostProcessService
@@ -461,19 +199,19 @@ async def test_postprocess_forwards_persona_to_rhythm_planner() -> None:
     received: dict = {}
 
     class _RecordingPlanner:
-        async def plan(self, **kwargs):
+        async def plan(self, **kwargs):  # type: ignore[no-untyped-def]
             received.update(kwargs)
             return None
 
     from magi.chat.task_agent.postprocess.utils import normalize_mode
     service = object.__new__(ChatPostProcessService)
     service._response_rhythm_planner = _RecordingPlanner()
-    service._normalize_mode = normalize_mode  # bare instance lacks the _operations chain
+    service._normalize_mode = normalize_mode
 
     signal = RhythmPersonaSignal(register="chat", persona_intensity=2, sentence_style="爱用短句")
     result = ExecutionResult(
         mode=ExecutionMode.DIRECT_LLM,
-        response_text="x",
+        response_text="alpha‖beta",
         root_user_message="hi",
         persona_rhythm=signal,
     )
@@ -481,16 +219,18 @@ async def test_postprocess_forwards_persona_to_rhythm_planner() -> None:
     await service._build_response_rhythm_plan(
         context=SimpleNamespace(latest_user_message="hi"),
         result=result,
-        response_text="x",
+        response_text="alpha‖beta",
         ux_plan={},
     )
     assert received.get("persona") is signal
-
+    assert received.get("response_text") == "alpha‖beta"
+    assert "user_message" not in received
+    assert "execution_mode" not in received
 
 
 def test_rhythm_level_multiplies_scene_and_chattiness() -> None:
-    from magi.chat.task_agent.rhythm import _rhythm_level
     from magi.agent.task_agents.common import RhythmPersonaSignal
+    from magi.chat.task_agent.rhythm import _rhythm_level
 
     assert abs(_rhythm_level(None) - 0.25) < 1e-9
     crisis = RhythmPersonaSignal(register="crisis", persona_intensity=0, chattiness=0.9)
@@ -501,48 +241,18 @@ def test_rhythm_level_multiplies_scene_and_chattiness() -> None:
     assert abs(_rhythm_level(reserved) - 0.30) < 1e-9
 
 
-def test_rhythm_profile_maps_level_to_bias_speed_maxgroups() -> None:
+def test_rhythm_profile_maps_level_to_speed_and_max_segments() -> None:
     from magi.chat.task_agent.rhythm import _rhythm_profile
 
     bias_lo, speed_lo, max_lo = _rhythm_profile(0.1)
     assert "exactly one group" in bias_lo and max_lo == 1 and speed_lo > 1.0
-    bias_mid, speed_mid, max_mid = _rhythm_profile(0.6)
+    _bias_mid, speed_mid, max_mid = _rhythm_profile(0.6)
     assert max_mid == 3 and speed_mid < 1.0
-    bias_hi, speed_hi, max_hi = _rhythm_profile(0.9)
-    assert max_hi == 3 and speed_hi < speed_mid
-    # thresholds are exclusive (<): exact boundary values fall into the higher band
+    _bias_hi, speed_hi, max_hi = _rhythm_profile(0.9)
+    assert max_hi == 6 and speed_hi < speed_mid
     assert _rhythm_profile(0.20)[2] == 2
     assert _rhythm_profile(0.50)[2] == 3
-    assert _rhythm_profile(0.75)[2] == 3
-
-
-def test_build_system_prompt_uses_segmentation_bias_and_max_groups() -> None:
-    from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
-
-    p = ResponseRhythmPlanner._build_system_prompt(
-        segmentation_bias="- Use exactly one group; do not split.",
-        max_groups=1,
-        sentence_style="爱用短句",
-    )
-    assert "Use exactly one group" in p
-    assert "at most 1 group." in p
-    assert "a single chat bubble" in p
-    assert "爱用短句" in p
-    p5 = ResponseRhythmPlanner._build_system_prompt(
-        segmentation_bias="- Prefer two or three short groups for a lively reply with distinct moves.",
-        max_groups=3,
-    )
-    assert "at most 3 groups" in p5
-    assert "爱用短句" not in p5
-
-
-def test_min_segments_chars_scales_with_group_count() -> None:
-    from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
-
-    cjk = "字字字"
-    assert ResponseRhythmPlanner._min_segments_chars(3, cjk) == 120
-    assert ResponseRhythmPlanner._min_segments_chars(4, cjk) == 240
-    assert ResponseRhythmPlanner._min_segments_chars(5, cjk) == 360
+    assert _rhythm_profile(0.75)[2] == 6
 
 
 def test_compute_delay_ms_scales_with_length_and_clamps() -> None:
@@ -553,16 +263,11 @@ def test_compute_delay_ms_scales_with_length_and_clamps() -> None:
 
     rng = _FixedRng()
     assert _FLOOR_MS == 1000
-    # 极短 -> floor
     assert _compute_delay_ms("嗯", rng=rng) == _FLOOR_MS
-    # 30 CJK 字 * 50ms = 1500ms(jitter=1.0)
     mid = _compute_delay_ms("字" * 30, rng=rng)
     assert mid == 1500
-    # 极长 -> ceil
     assert _compute_delay_ms("字" * 1000, rng=rng) == _CEIL_MS
-    # 同字数下 latin 比 CJK 轻
     assert _compute_delay_ms("a" * 100, rng=rng) < _compute_delay_ms("字" * 100, rng=rng)
-    # speed_factor 单调
     slow = _compute_delay_ms("字" * 30, speed_factor=1.3, rng=rng)
     fast = _compute_delay_ms("字" * 30, speed_factor=0.8, rng=rng)
     assert fast < mid < slow

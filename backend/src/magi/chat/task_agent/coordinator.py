@@ -48,6 +48,7 @@ from magi.agent.run.ports import AttachmentResolverPort, NullAttachmentResolver
 from magi.agent.task_agents.handlers.attachment_context import resolve_effective_turn_attachments
 from .delivery_dispatch import ChatDeliveryDispatchPort
 from .fact_classifier import ChatFactClassifier
+from .rhythm import strip_segmentation_sentinel
 
 logger = get_logger(__name__)
 
@@ -516,6 +517,7 @@ class ChatExecutionCoordinator:
         """
         if self._delivery_dispatcher is None:
             return []
+        response_text = strip_segmentation_sentinel(response_text)
         return await self._delivery_dispatcher.deliver_final_response(
             request,
             response_text=response_text,

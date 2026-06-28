@@ -260,9 +260,7 @@ class ChatTaskAgent(
                 revision=revision,
             ),
             drain_deferred_turns=self._drain_deferred_turns,
-            response_rhythm_planner=ResponseRhythmPlanner(
-                prompt_service=self._prompt_service
-            ),
+            response_rhythm_planner=ResponseRhythmPlanner(),
             transcript_summarizer=self._transcript_summarizer,
             event_bus=self._resolve_message_bus(),
             deliver_final_response=(

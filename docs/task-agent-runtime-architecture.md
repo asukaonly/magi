@@ -375,10 +375,11 @@ Important rule: trace-entry visibility is a UX decision, not the storage boundar
 Conversation rhythm extends this presentation boundary after execution handlers
 produce a canonical answer. The core direct-LLM, function-calling, and
 orchestration-render handlers still return a single authoritative
-`ExecutionResult.response_text`; chat post-processing may then build a validated
-multi-message presentation plan from that text. See
+`ExecutionResult.response_text`; when enabled, the main reply may contain
+internal bubble-boundary markers that chat post-processing validates and turns
+into a multi-message presentation plan. See
 [Conversation Rhythm Architecture](./conversation-rhythm-architecture.md) for
-the planner contract, persistence shape, and streaming restrictions.
+the segmentation contract, persistence shape, and streaming restrictions.
 
 Chat post-processing also owns the final response delivery shape. It derives a
 small final-response plan after outcome persistence, then passes that plan to
@@ -1045,7 +1046,7 @@ Two rules matter here:
 - `DIRECT_LLM` turns carry explicit trace context into provider calls so the main model call is attached under the turn root and contributes token metrics
 - function-calling LLM usage labels distinguish chat-level tool decisions from worker tool decisions with separate request kinds, so usage dashboards can explain which loop consumed tokens
 - function-calling turns group each bounded loop as an `iteration` span; LLM decisions and semantic tool calls inside that loop must be children of the iteration, and low-level `tool_invocation` spans should sit under their semantic `tool_call`
-- response rhythm planning emits a `rhythm_processing` span when the final answer is split into multiple natural-language segments
+- response rhythm segmentation emits a `rhythm_processing` span when the final answer is split into multiple natural-language segments
 - user-facing input/output details in trace UI must remain bounded previews, not raw full prompts, transcripts, or tool payloads
 - business runtime code should call the runtime trace writer facade for live span/detail updates instead of calling store `upsert_*` methods directly
 - derived tool execution statistics must read from `runtime_trace.trace_tools`, not from procedural memory counters

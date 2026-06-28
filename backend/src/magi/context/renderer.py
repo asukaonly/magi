@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
+from ..config import get_user_preference
 from ..config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from ..personality.turn_planner import PersonaTurnPlan
 from .schema import (
@@ -15,6 +16,22 @@ from .schema import (
     RuntimeSystemContext,
     ToolCatalogContext,
 )
+
+
+def _conversation_rhythm_enabled() -> bool:
+    enabled = get_user_preference("conversation_rhythm_enabled", True)
+    mode = str(get_user_preference("conversation_rhythm_mode", "natural") or "natural").strip().lower()
+    if mode == "off":
+        return False
+    if isinstance(enabled, bool):
+        return enabled and mode in {"natural", "expressive"}
+    if isinstance(enabled, str):
+        normalized = enabled.strip().lower()
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        if normalized in {"1", "true", "yes", "on"}:
+            return mode in {"natural", "expressive"}
+    return mode in {"natural", "expressive"}
 
 
 class PromptContextRenderer:
@@ -40,14 +57,15 @@ class PromptContextRenderer:
         # rendered below the boundary so the bridge moves them into the
         # per-turn message tail (#100/P2a).
         lines.extend(self._render_persona_identity(context.self_memory.persona_turn_plan))
+        lines.extend(self._render_segmentation_protocol())
 
-        # Cache boundary: identity + persona definition above is the stable
-        # head; the per-turn blocks below (persona turn steer / selected tools /
-        # memory / profile / runtime+time / attachments) are moved OUT of the
-        # system prompt into the message stream by the provider bridge
-        # (#100/P2a), so the system head + conversation history stay a
-        # byte-stable, cacheable prefix. The marker is stripped before sending
-        # so it never reaches the model.
+        # Cache boundary: identity + persona definition + reply-segmentation
+        # protocol above is the stable head; the per-turn blocks below (persona
+        # turn steer / reply pacing / selected tools / memory / profile /
+        # runtime+time / attachments) are moved OUT of the system prompt into the
+        # message stream by the provider bridge (#100/P2a), so the system head +
+        # conversation history stay a byte-stable, cacheable prefix. The marker
+        # is stripped before sending so it never reaches the model.
         lines.append(SYSTEM_PROMPT_CACHE_BOUNDARY)
 
         # Per-turn dynamic blocks — moved to the message tail by the bridge.
@@ -126,6 +144,25 @@ class PromptContextRenderer:
 
         return lines
 
+    def _render_segmentation_protocol(self) -> List[str]:
+        if not _conversation_rhythm_enabled():
+            return []
+        return [
+            "# Reply Segmentation Protocol",
+            "[System Notice: When this turn allows it, you MAY deliver your finished reply "
+            "as several chat bubbles instead of one. Insert the marker ‖ between bubbles; "
+            "never place it at the start or end, and never use it twice in a row. Each "
+            "bubble must read as its own complete sent message. Keep code blocks, lists, "
+            "tables, commands, and structured or technical content inside a SINGLE bubble. "
+            "The marker is internal plumbing: never mention or explain it to the user.]",
+            "",
+            "Example (casual chat, three bubbles):",
+            "看番？行啊。‖不过现在的番剧挺多的。‖你最近在追哪部？",
+            "Example (casual chat, English, two bubbles):",
+            "Yeah, I can help with that.‖Give me one sec to pull it up.",
+            "",
+        ]
+
     def _render_persona_turn_steer(self, plan: PersonaTurnPlan | None) -> List[str]:
         """Render the per-turn persona steer (register / clamp / triggers /
         relationship layer / modulation / examples). PersonaTurnPlanner
@@ -183,6 +220,35 @@ class PromptContextRenderer:
                 lines.append(example)
                 lines.append("")
 
+        lines.extend(self._render_reply_pacing(plan))
+        return lines
+
+    def _render_reply_pacing(self, plan: PersonaTurnPlan) -> List[str]:
+        if not _conversation_rhythm_enabled():
+            return []
+        register = str(plan.register or "casual").strip().lower()
+        try:
+            chattiness = float(plan.idiolect.get("chattiness", 0.5))
+        except (TypeError, ValueError):
+            chattiness = 0.5
+        intensity = int(plan.persona_intensity or 0)
+        lines = ["## Reply Pacing"]
+        if register in {"task", "analysis", "crisis"} or intensity <= 0:
+            lines.append(
+                "* Send this reply as one message. Do not split it into multiple bubbles "
+                "(no ‖); keep focused, technical, or serious turns whole."
+            )
+        elif chattiness >= 0.6:
+            lines.append(
+                "* Text like a friend messaging: break this reply into 2-6 short bubbles "
+                "separated by ‖ when the moment has several distinct moves."
+            )
+        else:
+            lines.append(
+                "* Usually reply in one message; only split into bubbles (with ‖) when there "
+                "are genuinely two separate conversational moves."
+            )
+        lines.append("")
         return lines
 
     @staticmethod

@@ -129,3 +129,21 @@ async def test_orchestration_update_empty_text_does_not_fanout():
     await coord.execute(_request())
 
     assert not weixin.delivered
+
+
+@pytest.mark.asyncio
+async def test_fanout_strips_sentinel_before_external_channel_delivery():
+    weixin = _FakeChannel("weixin")
+    registry = _FakeChannelRegistry({"weixin": weixin, "chat_sse": _FakeChannel("chat_sse")})
+    result = ExecutionResult(
+        mode=ExecutionMode.ORCHESTRATION_UPDATE,
+        response_text="part one‖part two",
+        skip_emit=False,
+    )
+    coord = _coordinator(result, registry)
+
+    await coord.execute(_request(origin_channel="weixin"))
+
+    assert weixin.delivered, "no delivery reached the weixin channel"
+    assert weixin.delivered[0][1].text == "part one part two"
+    assert "‖" not in weixin.delivered[0][1].text

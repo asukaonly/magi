@@ -153,7 +153,7 @@ Current product expectations:
 - parsed text and PDF attachments should be injected into the chat prompt as active attachment context for the current turn
 - image attachments on vision-capable core models should be delivered as multimodal message blocks and routed through direct LLM execution
 - conversation preferences should allow users to decide whether the assistant may inspect prepared media attachments for grounded replies; media grounding must remain disabled unless the selected core model exposes vision capability
-- conversation rhythm may split one assistant turn into several natural chat bubbles when enabled; it takes precedence over streaming output for that turn, must remain presentation-only, preserve one canonical answer for memory and trace, and fall back to a single message when planning is unavailable or invalid
+- conversation rhythm may split one assistant turn into several natural chat bubbles when enabled; it takes precedence over streaming output for that turn, must remain presentation-only, preserve one canonical answer for memory and trace, and fall back to a single message when segmentation is unavailable or invalid
 
 ### Desktop Startup Diagnostics
 

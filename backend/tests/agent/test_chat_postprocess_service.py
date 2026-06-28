@@ -2318,6 +2318,72 @@ async def test_handle_falls_back_to_final_message_when_segment_persistence_fails
 
 
 @pytest.mark.asyncio
+async def test_handle_strips_sentinel_from_history_and_events() -> None:
+    event_emitter = _FakeEventEmitter()
+    context_assembler = _FakeContextAssembler()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=context_assembler,  # type: ignore[arg-type]
+        get_event_emitter=lambda: event_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:local_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "tell me something",
+            "user_id": "local_user",
+            "session_id": "session-sentinel",
+            "turn_id": "turn-sentinel",
+        },
+        agent_type="chat",
+        agent_instance_id="local_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-sentinel",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-sentinel",
+        history_key="local_user::session-sentinel",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="tell me something",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-sentinel",
+            content="tell me something",
+            turn_id="turn-sentinel",
+        ),
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="alpha‖beta",
+        correlation_id="corr-sentinel",
+        turn_id="turn-sentinel",
+    )
+
+    outcome = await service.handle(context, result)
+
+    assert outcome.emitted is True
+    assistant_entries = [entry for entry in context_assembler.history if entry["role"] == "assistant"]
+    assert len(assistant_entries) == 1
+    assert assistant_entries[0]["content"] == "alpha beta"
+    assert "‖" not in event_emitter.chat_response_events[0]["response"]
+    assert event_emitter.chat_response_events[0]["response"] == "alpha beta"
+
+
+@pytest.mark.asyncio
 async def test_handle_suppresses_final_response_when_session_run_is_cancelling(
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,

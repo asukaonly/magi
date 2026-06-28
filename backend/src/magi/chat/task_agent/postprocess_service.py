@@ -33,6 +33,7 @@ from .postprocess.outcomes import ChatPostprocessOutcomeMixin
 from .postprocess.session import ChatPostprocessSessionMixin
 from .postprocess.tool_events import ChatPostprocessToolEventMixin
 from .postprocess.trace import ChatPostprocessTraceMixin
+from .rhythm import strip_segmentation_sentinel
 from .session_run_decisions import TurnSupersession
 
 if TYPE_CHECKING:
@@ -178,7 +179,8 @@ class ChatPostProcessService:
         if event_emitter is None:
             return ChatParseOutcome(False, False, False, False)
 
-        response_text = str(result.response_text or "").strip()
+        raw_response_text = str(result.response_text or "").strip()
+        response_text = strip_segmentation_sentinel(raw_response_text)
         if not response_text:
             execution_outcome = (
                 result.execution_outcome
@@ -188,6 +190,7 @@ class ChatPostProcessService:
             if isinstance(execution_outcome, dict) and execution_outcome.get("status") == "failed":
                 failure_reason = str(execution_outcome.get("failure_reason") or "EXECUTION_ERROR")
                 response_text = f"Execution failed: {failure_reason}"
+                raw_response_text = response_text
             elif (
                 isinstance(execution_outcome, dict)
                 and execution_outcome.get("status") == "detached"
@@ -196,6 +199,7 @@ class ChatPostProcessService:
                 # background hand-off declined or failed. Surface that so
                 # the user does not silently lose the turn.
                 response_text = "Failed to move this task to the background."
+                raw_response_text = response_text
         if not response_text:
             if await self._complete_turn_without_visible_response(
                 context=context,
@@ -219,11 +223,12 @@ class ChatPostProcessService:
         response_plan = await self._build_response_rhythm_plan(
             context=context,
             result=result,
-            response_text=response_text,
+            response_text=raw_response_text,
             ux_plan=ux_plan,
         )
         rhythm_ended_at_ms = now_wall_ms()
         if response_plan is not None:
+            response_text = str(response_plan.aggregate_text or response_text).strip() or response_text
             result.response_plan = response_plan
 
         history_stored = False
@@ -589,12 +594,10 @@ class ChatPostProcessService:
             return None
         try:
             return await self._response_rhythm_planner.plan(
-                user_message=result.root_user_message or context.latest_user_message,
                 response_text=response_text,
-                execution_mode=self._normalize_mode(result.mode),
-                ux_plan=ux_plan,
                 streamed=bool(getattr(result, "streamed", False)),
                 persona=getattr(result, "persona_rhythm", None),
+                ux_plan=ux_plan,
             )
         except Exception as exc:
             logger.debug("Conversation rhythm planning failed", error=str(exc))
