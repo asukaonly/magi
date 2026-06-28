@@ -324,6 +324,12 @@ catalog. Non-Latin entity names keep their original script in catalog names and
 aliases; ASCII slugs are storage identifiers only and must not replace the
 source-language name in user-facing evidence.
 
+The extraction runtime keeps Phase 1 admission, batch preparation, and entity
+resolution separate from Phase 2 integration, candidate validation, conflict
+handling, and persistence. Shared handoff data lives in a small extraction
+contract module so either phase can evolve without importing implementation
+details from the other.
+
 `user_profile_projection` in `memory.db` is the product-facing read model for the
 local user profile. It is rebuilt from current L2 profile assertions, records
 field sources/conflicts, and derives deterministic fields such as `birth_year`
