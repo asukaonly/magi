@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
 from .....core.logger import get_logger
@@ -10,6 +11,7 @@ from ...models import (
     L2BatchEntityResolutionItem,
     L2EntityCandidate,
     L2EntityResolutionMention,
+    L2Phase1Entity,
     L2Phase1Result,
     ResolvedEntityMention,
 )
@@ -22,6 +24,33 @@ if TYPE_CHECKING:
     from ...llm_service import L2LLMService
 
 logger = get_logger(__name__)
+
+
+@dataclass(slots=True)
+class _PendingPhase1EntityResolution:
+    entity: L2Phase1Entity
+    mention_text: str
+    normalized_surface: str
+    entity_type: str | None
+    mention_confidence: float
+    resolved_entity_id: str | None = None
+    resolved_confidence: float | None = None
+    llm_mention_key: str | None = None
+
+    @property
+    def cache_key(self) -> tuple[str, str | None]:
+        return (self.mention_text.strip().casefold(), self.entity_type)
+
+    @property
+    def unresolved(self) -> bool:
+        return self.resolved_entity_id is None and self.resolved_confidence is None
+
+    def unresolved_mention_payload(self) -> dict[str, Any]:
+        return {
+            "mention_text": self.mention_text,
+            "canonical_name_hint": self.normalized_surface,
+            "alias_signals": self.entity.alias_signals,
+        }
 
 
 class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
@@ -55,278 +84,340 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         if self._entity_catalog is None:
             return []
 
-        # ── Pass 1: filter, alias-resolve, collect LLM candidates ──
-        # Each item: (entity, mention_text, normalized_surface, entity_type, confidence,
-        #             resolved_id, resolved_confidence, needs_llm)
-        pending: list[tuple[Any, ...]] = []
-        llm_batch_items: list[L2BatchEntityResolutionItem] = []
+        pending, llm_batch_items = await self._prepare_phase1_entity_resolution_plan(
+            event=event,
+            phase1_result=phase1_result,
+            allowed_entity_types=allowed_entity_types,
+            profile_signal_object_refs=profile_signal_object_refs,
+        )
+        llm_results = await self._resolve_phase1_entity_batch(llm_batch_items)
 
-        for entity in phase1_result.entities:
-            if not entity.surface:
-                continue
-            mention_text = entity.surface
-            normalized_surface = entity.normalized_name or mention_text
-            entity_type = self._normalize_entity_type(entity.entity_type)  # type: ignore[attr-defined]
-            if is_vague_entity_reference(mention_text) or is_vague_entity_reference(normalized_surface):
-                logger.debug(
-                    "L2 Phase 1 entity filtered as vague reference",
-                    mention_text=mention_text,
-                    normalized_surface=normalized_surface,
-                    entity_type=entity_type,
-                    event_id=event.event_id,
-                )
-                continue
-            normalized_profile_value = self._normalize_profile_signal_value(normalized_surface)  # type: ignore[attr-defined]
-            normalized_mention_value = self._normalize_profile_signal_value(mention_text)  # type: ignore[attr-defined]
-            if profile_signal_object_refs and (
-                normalized_profile_value in profile_signal_object_refs
-                or normalized_mention_value in profile_signal_object_refs
-            ):
-                logger.debug(
-                    "L2 Phase 1 entity filtered as profile signal value",
-                    mention_text=mention_text,
-                    entity_type=entity_type,
-                    event_id=event.event_id,
-                )
-                continue
-            if allowed_entity_types and entity_type not in allowed_entity_types:
-                logger.debug(
-                    "L2 Phase 1 entity filtered by profile",
-                    mention_text=mention_text,
-                    entity_type=entity_type,
-                    event_id=event.event_id,
-                )
-                continue
-            if not self._is_quality_entity_name(normalized_surface):
-                logger.debug(
-                    "L2 Phase 1 entity filtered by name quality",
-                    mention_text=mention_text,
-                    entity_type=entity_type,
-                    event_id=event.event_id,
-                )
-                continue
-            mention_confidence = entity.confidence
-
-            # If Phase 1 already resolved the entity to an existing ID, use it
-            if entity.resolved_id:
-                resolved_entity_id = await self._prefer_existing_same_name_entity(
-                    proposed_entity_id=entity.resolved_id,
-                    canonical_name=normalized_surface,
-                    entity_type=entity_type,
-                    mention_text=mention_text,
-                    confidence=mention_confidence,
-                )
-                pending.append(
-                    (
-                        entity,
-                        mention_text,
-                        normalized_surface,
-                        entity_type,
-                        mention_confidence,
-                        resolved_entity_id,
-                        entity.confidence,
-                        False,
-                    )
-                )
-                continue
-
-            # Check session-level memo cache
-            cache_key = (mention_text.strip().casefold(), entity_type)
-            cache = getattr(self, "_entity_resolution_cache", None)
-            if cache is not None and cache_key in cache:
-                cached_id, cached_conf = cache[cache_key]
-                logger.debug(
-                    "L2 entity resolution cache hit",
-                    mention_text=mention_text,
-                    entity_type=entity_type,
-                    cached_entity_id=cached_id,
-                )
-                pending.append(
-                    (
-                        entity,
-                        mention_text,
-                        normalized_surface,
-                        entity_type,
-                        mention_confidence,
-                        cached_id,
-                        cached_conf,
-                        False,
-                    )
-                )
-                continue
-
-            # Try alias resolution (fast DB lookup)
-            alias_result = await self._try_alias_resolution(mention_text, entity_type)
-            if alias_result is not None:
-                resolved_id, resolved_conf = alias_result
-                if cache is not None:
-                    cache[cache_key] = alias_result
-                pending.append(
-                    (
-                        entity,
-                        mention_text,
-                        normalized_surface,
-                        entity_type,
-                        mention_confidence,
-                        resolved_id,
-                        resolved_conf,
-                        False,
-                    )
-                )
-                continue
-
-            # Needs LLM resolution — collect candidates
-            if self._llm_service is not None and entity_type:
-                candidate_entities = await self._entity_catalog.find_resolution_candidates(
-                    mention_text,
-                    entity_type=entity_type,
-                    limit=20,
-                )
-                if candidate_entities:
-                    mention_key = f"{len(llm_batch_items)}"
-                    llm_batch_items.append(
-                        L2BatchEntityResolutionItem(
-                            mention_key=mention_key,
-                            mention=L2EntityResolutionMention(
-                                mention_text=mention_text,
-                                entity_type=entity_type,
-                                context_text=event.content,
-                            ),
-                            candidate_entities=[
-                                L2EntityCandidate.from_dict(item) for item in candidate_entities
-                            ],
-                        )
-                    )
-                    pending.append(
-                        (
-                            entity,
-                            mention_text,
-                            normalized_surface,
-                            entity_type,
-                            mention_confidence,
-                            None,
-                            None,
-                            True,
-                        )
-                    )
-                    continue
-
-            # No LLM needed (no candidates or no llm_service)
-            pending.append(
-                (
-                    entity,
-                    mention_text,
-                    normalized_surface,
-                    entity_type,
-                    mention_confidence,
-                    None,
-                    None,
-                    False,
-                )
-            )
-
-        # ── Batch LLM resolution ──
-        llm_results: dict[str, Any] = {}
-        if llm_batch_items and self._llm_service is not None:
-            llm_results = await self._llm_service.resolve_entities_batch(items=llm_batch_items)
-
-        # ── Pass 2: apply LLM results, finalize catalog, build output ──
         resolved_mentions: list[ResolvedEntityMention] = []
-        llm_item_idx = 0  # tracks which llm_batch_item corresponds to needs_llm entries
-        for (
-            entity,
-            mention_text,
-            normalized_surface,
-            entity_type,
-            mention_confidence,
-            resolved_entity_id,
-            resolved_confidence,
-            needs_llm,
-        ) in pending:
-            if needs_llm:
-                mention_key = f"{llm_item_idx}"
-                llm_item_idx += 1
-                llm_resolution = llm_results.get(mention_key)
-                if (
-                    llm_resolution is not None
-                    and llm_resolution.decision == "match"
-                    and llm_resolution.matched_entity_id
-                ):
-                    resolved_entity_id = str(llm_resolution.matched_entity_id)
-                    resolved_confidence = float(llm_resolution.confidence or mention_confidence)
-                else:
-                    # Fall through to same-name dedup / creation
-                    (
-                        resolved_entity_id,
-                        resolved_confidence,
-                    ) = await self._finalize_unresolved_entity(
-                        mention={
-                            "mention_text": mention_text,
-                            "canonical_name_hint": normalized_surface,
-                            "alias_signals": entity.alias_signals,
-                        },
-                        entity_type=entity_type,
-                        mention_text=mention_text,
-                        mention_confidence=mention_confidence,
-                    )
-                # Update cache
-                cache_key = (mention_text.strip().casefold(), entity_type)
-                cache = getattr(self, "_entity_resolution_cache", None)
-                if cache is not None:
-                    cache[cache_key] = (resolved_entity_id, resolved_confidence)
-            elif resolved_entity_id is None and resolved_confidence is None:
-                # Was not resolved by alias nor Phase 1 and didn't go through LLM
-                # (no candidates or no llm_service) — try same-name dedup / creation
-                resolved_entity_id, resolved_confidence = await self._finalize_unresolved_entity(
-                    mention={
-                        "mention_text": mention_text,
-                        "canonical_name_hint": normalized_surface,
-                        "alias_signals": entity.alias_signals,
-                    },
-                    entity_type=entity_type,
-                    mention_text=mention_text,
-                    mention_confidence=mention_confidence,
-                )
-                cache_key = (mention_text.strip().casefold(), entity_type)
-                cache = getattr(self, "_entity_resolution_cache", None)
-                if cache is not None:
-                    cache[cache_key] = (resolved_entity_id, resolved_confidence)
-
-            # Ensure the entity exists in the catalog before recording the mention (FK constraint)
-            if resolved_entity_id:
-                entity.resolved_id = resolved_entity_id
-                await self._entity_catalog.upsert_entity(
-                    canonical_name=normalized_surface,
-                    entity_type=entity_type,
-                    entity_id=resolved_entity_id,
-                )
-
-            mention_event_ids = self._resolve_entity_mention_event_ids(
-                mention_text=mention_text,
-                normalized_surface=normalized_surface,
-                evidence_events=evidence_events,
-                fallback_event_ids=evidence_event_ids,
-            )
-            await self._entity_catalog.record_mention(
-                mention_text=mention_text,
-                normalized_surface=normalized_surface,
-                entity_type=entity_type,
-                evidence_event_ids=mention_event_ids,
-                evidence_text=mention_text,
-                resolved_entity_id=resolved_entity_id,
-                confidence=resolved_confidence,
+        for pending_item in pending:
+            await self._finalize_phase1_entity_resolution(
+                pending_item,
+                llm_results=llm_results,
             )
             resolved_mentions.append(
-                ResolvedEntityMention(
-                    mention_text=mention_text,
-                    normalized_surface=normalized_surface,
-                    entity_type=entity_type,
-                    resolved_entity_id=resolved_entity_id,
-                    confidence=resolved_confidence,
-                    evidence_event_ids=mention_event_ids,
+                await self._record_phase1_entity_mention(
+                    pending_item,
+                    evidence_events=evidence_events,
+                    evidence_event_ids=evidence_event_ids,
                 )
             )
         return resolved_mentions
+
+    async def _prepare_phase1_entity_resolution_plan(
+        self,
+        *,
+        event: MemoryEvent,
+        phase1_result: L2Phase1Result,
+        allowed_entity_types: frozenset[str] | None,
+        profile_signal_object_refs: set[str] | None,
+    ) -> tuple[list[_PendingPhase1EntityResolution], list[L2BatchEntityResolutionItem]]:
+        pending: list[_PendingPhase1EntityResolution] = []
+        llm_batch_items: list[L2BatchEntityResolutionItem] = []
+        for entity in phase1_result.entities:
+            pending_item = self._build_phase1_entity_resolution_candidate(
+                entity=entity,
+                event=event,
+                allowed_entity_types=allowed_entity_types,
+                profile_signal_object_refs=profile_signal_object_refs,
+            )
+            if pending_item is None:
+                continue
+            await self._resolve_phase1_entity_candidate_locally(
+                pending_item,
+                event=event,
+                llm_batch_items=llm_batch_items,
+            )
+            pending.append(pending_item)
+        return pending, llm_batch_items
+
+    def _build_phase1_entity_resolution_candidate(
+        self,
+        *,
+        entity: L2Phase1Entity,
+        event: MemoryEvent,
+        allowed_entity_types: frozenset[str] | None,
+        profile_signal_object_refs: set[str] | None,
+    ) -> _PendingPhase1EntityResolution | None:
+        if not entity.surface:
+            return None
+        mention_text = entity.surface
+        normalized_surface = entity.normalized_name or mention_text
+        entity_type = self._normalize_entity_type(entity.entity_type)  # type: ignore[attr-defined]
+        if not self._phase1_entity_passes_filters(
+            mention_text=mention_text,
+            normalized_surface=normalized_surface,
+            entity_type=entity_type,
+            event=event,
+            allowed_entity_types=allowed_entity_types,
+            profile_signal_object_refs=profile_signal_object_refs,
+        ):
+            return None
+        return _PendingPhase1EntityResolution(
+            entity=entity,
+            mention_text=mention_text,
+            normalized_surface=normalized_surface,
+            entity_type=entity_type,
+            mention_confidence=entity.confidence,
+        )
+
+    def _phase1_entity_passes_filters(
+        self,
+        *,
+        mention_text: str,
+        normalized_surface: str,
+        entity_type: str | None,
+        event: MemoryEvent,
+        allowed_entity_types: frozenset[str] | None,
+        profile_signal_object_refs: set[str] | None,
+    ) -> bool:
+        if is_vague_entity_reference(mention_text) or is_vague_entity_reference(
+            normalized_surface
+        ):
+            logger.debug(
+                "L2 Phase 1 entity filtered as vague reference",
+                mention_text=mention_text,
+                normalized_surface=normalized_surface,
+                entity_type=entity_type,
+                event_id=event.event_id,
+            )
+            return False
+
+        normalized_profile_value = self._normalize_profile_signal_value(normalized_surface)  # type: ignore[attr-defined]
+        normalized_mention_value = self._normalize_profile_signal_value(mention_text)  # type: ignore[attr-defined]
+        if profile_signal_object_refs and (
+            normalized_profile_value in profile_signal_object_refs
+            or normalized_mention_value in profile_signal_object_refs
+        ):
+            logger.debug(
+                "L2 Phase 1 entity filtered as profile signal value",
+                mention_text=mention_text,
+                entity_type=entity_type,
+                event_id=event.event_id,
+            )
+            return False
+
+        if allowed_entity_types and entity_type not in allowed_entity_types:
+            logger.debug(
+                "L2 Phase 1 entity filtered by profile",
+                mention_text=mention_text,
+                entity_type=entity_type,
+                event_id=event.event_id,
+            )
+            return False
+
+        if not self._is_quality_entity_name(normalized_surface):
+            logger.debug(
+                "L2 Phase 1 entity filtered by name quality",
+                mention_text=mention_text,
+                entity_type=entity_type,
+                event_id=event.event_id,
+            )
+            return False
+
+        return True
+
+    async def _resolve_phase1_entity_candidate_locally(
+        self,
+        pending_item: _PendingPhase1EntityResolution,
+        *,
+        event: MemoryEvent,
+        llm_batch_items: list[L2BatchEntityResolutionItem],
+    ) -> None:
+        if pending_item.entity.resolved_id:
+            pending_item.resolved_entity_id = await self._prefer_existing_same_name_entity(
+                proposed_entity_id=pending_item.entity.resolved_id,
+                canonical_name=pending_item.normalized_surface,
+                entity_type=pending_item.entity_type,
+                mention_text=pending_item.mention_text,
+                confidence=pending_item.mention_confidence,
+            )
+            pending_item.resolved_confidence = pending_item.entity.confidence
+            return
+
+        cache = self._phase1_resolution_cache()
+        if cache is not None and pending_item.cache_key in cache:
+            cached_id, cached_confidence = cache[pending_item.cache_key]
+            logger.debug(
+                "L2 entity resolution cache hit",
+                mention_text=pending_item.mention_text,
+                entity_type=pending_item.entity_type,
+                cached_entity_id=cached_id,
+            )
+            pending_item.resolved_entity_id = cached_id
+            pending_item.resolved_confidence = cached_confidence
+            return
+
+        alias_result = await self._try_alias_resolution(
+            pending_item.mention_text,
+            pending_item.entity_type,
+        )
+        if alias_result is not None:
+            pending_item.resolved_entity_id, pending_item.resolved_confidence = alias_result
+            if cache is not None:
+                cache[pending_item.cache_key] = alias_result
+            return
+
+        await self._queue_phase1_entity_llm_resolution(
+            pending_item,
+            event=event,
+            llm_batch_items=llm_batch_items,
+        )
+
+    async def _queue_phase1_entity_llm_resolution(
+        self,
+        pending_item: _PendingPhase1EntityResolution,
+        *,
+        event: MemoryEvent,
+        llm_batch_items: list[L2BatchEntityResolutionItem],
+    ) -> None:
+        if self._llm_service is None or not pending_item.entity_type:
+            return
+
+        assert self._entity_catalog is not None
+        candidate_entities = await self._entity_catalog.find_resolution_candidates(
+            pending_item.mention_text,
+            entity_type=pending_item.entity_type,
+            limit=20,
+        )
+        if not candidate_entities:
+            return
+
+        mention_key = f"{len(llm_batch_items)}"
+        pending_item.llm_mention_key = mention_key
+        llm_batch_items.append(
+            L2BatchEntityResolutionItem(
+                mention_key=mention_key,
+                mention=L2EntityResolutionMention(
+                    mention_text=pending_item.mention_text,
+                    entity_type=pending_item.entity_type,
+                    context_text=event.content,
+                ),
+                candidate_entities=[
+                    L2EntityCandidate.from_dict(item) for item in candidate_entities
+                ],
+            )
+        )
+
+    async def _resolve_phase1_entity_batch(
+        self,
+        llm_batch_items: list[L2BatchEntityResolutionItem],
+    ) -> dict[str, Any]:
+        if not llm_batch_items or self._llm_service is None:
+            return {}
+        return await self._llm_service.resolve_entities_batch(items=llm_batch_items)
+
+    async def _finalize_phase1_entity_resolution(
+        self,
+        pending_item: _PendingPhase1EntityResolution,
+        *,
+        llm_results: dict[str, Any],
+    ) -> None:
+        if pending_item.llm_mention_key is not None:
+            await self._apply_phase1_llm_resolution(
+                pending_item,
+                llm_results=llm_results,
+            )
+            self._cache_phase1_resolution(pending_item)
+            return
+
+        if pending_item.unresolved:
+            await self._finalize_unresolved_phase1_entity(pending_item)
+            self._cache_phase1_resolution(pending_item)
+
+    async def _apply_phase1_llm_resolution(
+        self,
+        pending_item: _PendingPhase1EntityResolution,
+        *,
+        llm_results: dict[str, Any],
+    ) -> None:
+        llm_resolution = llm_results.get(pending_item.llm_mention_key)
+        if (
+            llm_resolution is not None
+            and llm_resolution.decision == "match"
+            and llm_resolution.matched_entity_id
+        ):
+            pending_item.resolved_entity_id = str(llm_resolution.matched_entity_id)
+            pending_item.resolved_confidence = float(
+                llm_resolution.confidence or pending_item.mention_confidence
+            )
+            return
+
+        await self._finalize_unresolved_phase1_entity(pending_item)
+
+    async def _finalize_unresolved_phase1_entity(
+        self,
+        pending_item: _PendingPhase1EntityResolution,
+    ) -> None:
+        (
+            pending_item.resolved_entity_id,
+            pending_item.resolved_confidence,
+        ) = await self._finalize_unresolved_entity(
+            mention=pending_item.unresolved_mention_payload(),
+            entity_type=pending_item.entity_type,
+            mention_text=pending_item.mention_text,
+            mention_confidence=pending_item.mention_confidence,
+        )
+
+    async def _record_phase1_entity_mention(
+        self,
+        pending_item: _PendingPhase1EntityResolution,
+        *,
+        evidence_events: list[MemoryEvent] | None,
+        evidence_event_ids: list[str],
+    ) -> ResolvedEntityMention:
+        assert self._entity_catalog is not None
+
+        if pending_item.resolved_entity_id:
+            pending_item.entity.resolved_id = pending_item.resolved_entity_id
+            await self._entity_catalog.upsert_entity(
+                canonical_name=pending_item.normalized_surface,
+                entity_type=pending_item.entity_type,
+                entity_id=pending_item.resolved_entity_id,
+            )
+
+        mention_event_ids = self._resolve_entity_mention_event_ids(
+            mention_text=pending_item.mention_text,
+            normalized_surface=pending_item.normalized_surface,
+            evidence_events=evidence_events,
+            fallback_event_ids=evidence_event_ids,
+        )
+        await self._entity_catalog.record_mention(
+            mention_text=pending_item.mention_text,
+            normalized_surface=pending_item.normalized_surface,
+            entity_type=pending_item.entity_type,
+            evidence_event_ids=mention_event_ids,
+            evidence_text=pending_item.mention_text,
+            resolved_entity_id=pending_item.resolved_entity_id,
+            confidence=pending_item.resolved_confidence,
+        )
+        return ResolvedEntityMention(
+            mention_text=pending_item.mention_text,
+            normalized_surface=pending_item.normalized_surface,
+            entity_type=pending_item.entity_type,
+            resolved_entity_id=pending_item.resolved_entity_id,
+            confidence=pending_item.resolved_confidence,
+            evidence_event_ids=mention_event_ids,
+        )
+
+    def _phase1_resolution_cache(
+        self,
+    ) -> dict[tuple[str, str | None], tuple[str | None, float | None]] | None:
+        return getattr(self, "_entity_resolution_cache", None)
+
+    def _cache_phase1_resolution(
+        self,
+        pending_item: _PendingPhase1EntityResolution,
+    ) -> None:
+        cache = self._phase1_resolution_cache()
+        if cache is not None:
+            cache[pending_item.cache_key] = (
+                pending_item.resolved_entity_id,
+                pending_item.resolved_confidence,
+            )
 
     def _resolve_entity_mention_event_ids(
         self,
