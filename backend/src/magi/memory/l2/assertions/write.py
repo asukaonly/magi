@@ -6,6 +6,7 @@ import ast
 import json
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Any, Dict, Protocol, cast
 
 import aiosqlite
@@ -56,14 +57,11 @@ def _canonicalize_trait_value(value: Any) -> str:
 class _AssertionHostProtocol(Protocol):
     db_path: str
 
-    async def initialize(self) -> None:
-        ...
+    async def initialize(self) -> None: ...
 
-    def _derive_trait_family(self, trait_name: str) -> str:
-        ...
+    def _derive_trait_family(self, trait_name: str) -> str: ...
 
-    def _optional_text(self, value: Any) -> str | None:
-        ...
+    def _optional_text(self, value: Any) -> str | None: ...
 
     def _coerce_expires_at(
         self,
@@ -73,16 +71,14 @@ class _AssertionHostProtocol(Protocol):
         trait_name: str,
         target_entity_id: str,
         anchor_at: float,
-    ) -> float | None:
-        ...
+    ) -> float | None: ...
 
     async def refresh_entity_snapshot(
         self,
         *,
         entity_id: str,
         entity_type: str | None = None,
-    ) -> Dict[str, Any] | None:
-        ...
+    ) -> Dict[str, Any] | None: ...
 
 
 _INSERT_SQL = """
@@ -98,6 +94,130 @@ INSERT INTO tom_trait_assertions(
 """
 
 
+def normalize_assertion_candidate(
+    candidate: Dict[str, Any],
+    host: _AssertionHostProtocol,
+    *,
+    now: float,
+) -> Dict[str, Any]:
+    """Prepare an assertion candidate for durable L2 upsert decisions."""
+    normalized_entity_type = normalize_store_entity_type(candidate.get("entity_type")) or "other"
+    normalized_candidate = dict(candidate)
+    normalized_candidate["entity_type"] = normalized_entity_type
+    normalized_candidate["trait_family"] = str(
+        candidate.get("trait_family", "")
+    ).strip().lower() or host._derive_trait_family(str(candidate.get("trait_name", "")).strip())
+    normalized_candidate["target_entity_type"] = (
+        normalize_store_entity_type(candidate.get("target_entity_type")) or ""
+    )
+    normalized_candidate["target_entity_id"] = (
+        normalize_store_entity_ref(
+            candidate.get("target_entity_id"),
+            normalized_candidate["target_entity_type"],
+        )
+        or ""
+    )
+    normalized_candidate["target_scope"] = (
+        str(candidate.get("target_scope", "global")).strip() or "global"
+    )
+    normalized_candidate["temporal_scope"] = (
+        str(candidate.get("temporal_scope", "session")).strip() or "session"
+    )
+    normalized_candidate["decay_policy"] = host._optional_text(candidate.get("decay_policy"))
+    normalized_candidate["decay_anchor_at"] = float(
+        candidate.get("decay_anchor_at", candidate.get("last_validated_at", now)) or now
+    )
+    normalized_candidate["context_ref_id"] = (
+        host._optional_text(candidate.get("context_ref_id")) or ""
+    )
+    normalized_candidate["expires_at"] = host._coerce_expires_at(
+        candidate.get("expires_at"),
+        trait_family=normalized_candidate["trait_family"],
+        trait_name=str(candidate.get("trait_name", "")).strip(),
+        target_entity_id=normalized_candidate["target_entity_id"],
+        anchor_at=normalized_candidate["decay_anchor_at"],
+    )
+    normalized_candidate["memory_subdomain"] = (
+        str(candidate.get("memory_subdomain", "")).strip() or ""
+    )
+    normalized_candidate["natural_summary"] = str(
+        candidate.get("natural_summary", "") or ""
+    ).strip()[:500]
+    normalized_candidate["evidence_events"] = normalize_event_ids(
+        candidate.get("evidence_events") or []
+    )
+    normalized_candidate["trait_value"] = _canonicalize_trait_value(candidate.get("trait_value"))
+    return normalized_candidate
+
+
+@dataclass(slots=True)
+class AssertionMergeContext:
+    """Computed comparison between an existing assertion and a new candidate."""
+
+    existing_value: str
+    next_value: str
+    existing_temporal_scope: str
+    merged_evidence: list[str]
+    first_inferred_at: float
+    last_validated_at: float
+    candidate_tier: str
+    existing_tier: str
+
+    @property
+    def value_changed(self) -> bool:
+        return self.existing_value != self.next_value
+
+    @property
+    def inferred_conflicts_with_authoritative(self) -> bool:
+        return (
+            self.candidate_tier == "inferred"
+            and self.existing_tier == "authoritative"
+            and self.value_changed
+        )
+
+    @property
+    def should_update_volatile_in_place(self) -> bool:
+        return self.value_changed and self.existing_temporal_scope in ("session", "momentary")
+
+
+def build_assertion_merge_context(
+    existing: Any,
+    normalized_candidate: Dict[str, Any],
+) -> AssertionMergeContext:
+    """Compare an existing assertion row with a normalized candidate."""
+    merged_evidence = sorted(
+        set(json.loads(existing["evidence_events"] or "[]")).union(
+            normalized_candidate["evidence_events"]
+        )
+    )
+    evidence_cap = max_evidence_event_ids()
+    if len(merged_evidence) > evidence_cap:
+        merged_evidence = merged_evidence[-evidence_cap:]
+
+    return AssertionMergeContext(
+        existing_value=_canonicalize_trait_value(existing["trait_value"]),
+        next_value=_canonicalize_trait_value(normalized_candidate["trait_value"]),
+        existing_temporal_scope=str(existing["temporal_scope"] or "session"),
+        merged_evidence=merged_evidence,
+        first_inferred_at=min(
+            float(existing["first_inferred_at"]),
+            float(normalized_candidate["first_inferred_at"]),
+        ),
+        last_validated_at=max(
+            float(existing["last_validated_at"]),
+            float(normalized_candidate["last_validated_at"]),
+        ),
+        candidate_tier=source_tier(
+            source_domain=normalized_candidate.get("source_domain"),
+            user_feedback=None,  # a fresh candidate carries no feedback yet
+        ),
+        existing_tier=source_tier(
+            source_domain=existing["source_domain"],
+            user_feedback=existing["user_feedback"],
+        ),
+    )
+
+
 class L2StoreAssertionMixin:
     """Persist and update ToM assertion records."""
 
@@ -105,47 +225,7 @@ class L2StoreAssertionMixin:
         host = cast(_AssertionHostProtocol, self)
         now = time.time()
         await host.initialize()
-        normalized_entity_type = normalize_store_entity_type(candidate.get("entity_type")) or "other"
-        normalized_candidate = dict(candidate)
-        normalized_candidate["entity_type"] = normalized_entity_type
-        normalized_candidate["trait_family"] = (
-            str(candidate.get("trait_family", "")).strip().lower()
-            or host._derive_trait_family(str(candidate.get("trait_name", "")).strip())
-        )
-        normalized_candidate["target_entity_type"] = (
-            normalize_store_entity_type(candidate.get("target_entity_type")) or ""
-        )
-        normalized_candidate["target_entity_id"] = (
-            normalize_store_entity_ref(
-                candidate.get("target_entity_id"),
-                normalized_candidate["target_entity_type"],
-            )
-            or ""
-        )
-        normalized_candidate["target_scope"] = str(candidate.get("target_scope", "global")).strip() or "global"
-        normalized_candidate["temporal_scope"] = str(candidate.get("temporal_scope", "session")).strip() or "session"
-        normalized_candidate["decay_policy"] = host._optional_text(candidate.get("decay_policy"))
-        normalized_candidate["decay_anchor_at"] = float(
-            candidate.get("decay_anchor_at", candidate.get("last_validated_at", now)) or now
-        )
-        normalized_candidate["context_ref_id"] = host._optional_text(candidate.get("context_ref_id")) or ""
-        normalized_candidate["expires_at"] = host._coerce_expires_at(
-            candidate.get("expires_at"),
-            trait_family=normalized_candidate["trait_family"],
-            trait_name=str(candidate.get("trait_name", "")).strip(),
-            target_entity_id=normalized_candidate["target_entity_id"],
-            anchor_at=normalized_candidate["decay_anchor_at"],
-        )
-        normalized_candidate["memory_subdomain"] = str(candidate.get("memory_subdomain", "")).strip() or ""
-        normalized_candidate["natural_summary"] = (
-            str(candidate.get("natural_summary", "") or "").strip()[:500]
-        )
-        normalized_candidate["evidence_events"] = normalize_event_ids(
-            candidate.get("evidence_events") or []
-        )
-        normalized_candidate["trait_value"] = _canonicalize_trait_value(
-            candidate.get("trait_value")
-        )
+        normalized_candidate = normalize_assertion_candidate(candidate, host, now=now)
 
         trait_name = str(candidate.get("trait_name", "")).strip()
         triggered_stable = False
@@ -192,40 +272,16 @@ class L2StoreAssertionMixin:
                     triggered_stable = validation_state == "stable"
                     result_id = assertion_id
                 else:
-                    existing_value = _canonicalize_trait_value(existing["trait_value"])
-                    next_value = _canonicalize_trait_value(normalized_candidate["trait_value"])
-                    existing_temporal_scope = str(existing["temporal_scope"] or "session")
-
-                    merged_evidence = sorted(
-                        set(json.loads(existing["evidence_events"] or "[]")).union(
-                            normalized_candidate["evidence_events"]
-                        )
+                    merge_context = build_assertion_merge_context(
+                        existing,
+                        normalized_candidate,
                     )
-                    evidence_cap = max_evidence_event_ids()
-                    if len(merged_evidence) > evidence_cap:
-                        merged_evidence = merged_evidence[-evidence_cap:]
-                    first_inferred_at = min(
-                        float(existing["first_inferred_at"]),
-                        float(normalized_candidate["first_inferred_at"]),
-                    )
-                    last_validated_at = max(
-                        float(existing["last_validated_at"]),
-                        float(normalized_candidate["last_validated_at"]),
-                    )
-
-                    candidate_tier = source_tier(
-                        source_domain=normalized_candidate.get("source_domain"),
-                        user_feedback=None,  # a fresh candidate carries no feedback yet
-                    )
-                    existing_tier = source_tier(
-                        source_domain=existing["source_domain"],
-                        user_feedback=existing["user_feedback"],
-                    )
-                    if (
-                        candidate_tier == "inferred"
-                        and existing_tier == "authoritative"
-                        and existing_value != next_value
-                    ):
+                    existing_value = merge_context.existing_value
+                    next_value = merge_context.next_value
+                    merged_evidence = merge_context.merged_evidence
+                    first_inferred_at = merge_context.first_inferred_at
+                    last_validated_at = merge_context.last_validated_at
+                    if merge_context.inferred_conflicts_with_authoritative:
                         # Inferred contradicts the user's own statement: never touch
                         # the authoritative row. Persist as a 'shadow' sibling (the
                         # active key stays owned by the authoritative assertion).
@@ -240,11 +296,13 @@ class L2StoreAssertionMixin:
                                 trait_name,
                                 next_value,
                                 compute_confidence(len(normalized_candidate["evidence_events"])),
-                                json.dumps(normalized_candidate["evidence_events"], ensure_ascii=False),
+                                json.dumps(
+                                    normalized_candidate["evidence_events"], ensure_ascii=False
+                                ),
                                 float(normalized_candidate["volatility_index"]),
                                 normalized_candidate["source_domain"],
                                 normalized_candidate["inference_depth"],
-                                "shadow",                                   # validation_state
+                                "shadow",  # validation_state
                                 float(normalized_candidate["first_inferred_at"]),
                                 float(normalized_candidate["last_validated_at"]),
                                 normalized_candidate["target_entity_id"],
@@ -255,7 +313,7 @@ class L2StoreAssertionMixin:
                                 normalized_candidate["decay_anchor_at"],
                                 normalized_candidate["context_ref_id"],
                                 normalized_candidate["expires_at"],
-                                "shadow",                                   # status
+                                "shadow",  # status
                                 normalized_candidate["memory_subdomain"],
                                 normalized_candidate["natural_summary"],
                                 now,
@@ -274,7 +332,7 @@ class L2StoreAssertionMixin:
                         )
                         return shadow_id
 
-                    if existing_value != next_value and existing_temporal_scope in ("session", "momentary"):
+                    if merge_context.should_update_volatile_in_place:
                         # In-place rewrite for volatile temporal traits.
                         contradicted_ceiling = assertion_float_setting(
                             "contradicted_confidence_ceiling",
@@ -328,7 +386,7 @@ class L2StoreAssertionMixin:
                             evidence_count=len(merged_evidence),
                             action="updated_in_place",
                         )
-                    elif existing_value != next_value:
+                    elif merge_context.value_changed:
                         # Supersede: keep accumulated evidence on the new row so it
                         # can mature instead of resetting to tentative.
                         new_assertion_id = f"assert_{uuid.uuid4().hex}"

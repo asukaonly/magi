@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from ....core.logger import get_logger
 from ...event_contracts import MemoryEvent
-from ...evidence import classify_event_evidence, resolve_l2_policy
+from ...evidence import (
+    EvidenceClassification,
+    PolicyDecision,
+    classify_event_evidence,
+    resolve_l2_policy,
+)
 from ..extraction_profiles import resolve_extraction_profile
 from ..storage.utils import normalize_event_ids
 from ..models import (
@@ -78,6 +84,95 @@ def resolve_window_texts(events: Any, pinned_by_id: dict[str, str]) -> list[str]
     ]
 
 
+@dataclass(slots=True)
+class L2ExtractionEventDecision:
+    """One event's evidence classification and L2 write policy."""
+
+    event: MemoryEvent
+    classification: EvidenceClassification
+    policy: PolicyDecision
+
+    @property
+    def is_write_eligible(self) -> bool:
+        return self.policy.allow_graph_write or self.policy.allow_assertion_write
+
+
+@dataclass(slots=True)
+class L2ExtractionPlan:
+    """Prepared event workset for a single L2 extraction batch."""
+
+    decisions: list[L2ExtractionEventDecision]
+    eligible_decisions: list[L2ExtractionEventDecision]
+    primary: L2ExtractionEventDecision | None
+    batch_event_ids: list[str]
+    skip_result: dict[str, Any] | None
+
+
+def _l2_extraction_skip_result(
+    *,
+    skip_reason: str,
+    evidence_class: str | None,
+) -> dict[str, Any]:
+    return {
+        "relation_count": 0,
+        "assertion_count": 0,
+        "touched_entity_ids": [],
+        "touched_place_ids": [],
+        "touched_topic_keys": [],
+        "skipped": True,
+        "skip_reason": skip_reason,
+        "evidence_class": evidence_class,
+        "contradiction_hint_count": 0,
+    }
+
+
+def build_l2_extraction_plan(stored_events: list[MemoryEvent]) -> L2ExtractionPlan:
+    """Classify a batch and select the write-eligible L2 extraction workset."""
+    if not stored_events:
+        return L2ExtractionPlan(
+            decisions=[],
+            eligible_decisions=[],
+            primary=None,
+            batch_event_ids=[],
+            skip_result=_l2_extraction_skip_result(
+                skip_reason="empty_batch",
+                evidence_class=None,
+            ),
+        )
+
+    decisions = [
+        L2ExtractionEventDecision(
+            event=event,
+            classification=(classification := classify_event_evidence(event)),
+            policy=resolve_l2_policy(classification),
+        )
+        for event in stored_events
+    ]
+    eligible_decisions = [decision for decision in decisions if decision.is_write_eligible]
+    if not eligible_decisions:
+        last_decision = decisions[-1]
+        return L2ExtractionPlan(
+            decisions=decisions,
+            eligible_decisions=[],
+            primary=None,
+            batch_event_ids=[],
+            skip_result=_l2_extraction_skip_result(
+                skip_reason=last_decision.policy.skip_reason or "no_eligible_events",
+                evidence_class=last_decision.classification.evidence_class,
+            ),
+        )
+
+    return L2ExtractionPlan(
+        decisions=decisions,
+        eligible_decisions=eligible_decisions,
+        primary=eligible_decisions[-1],
+        batch_event_ids=normalize_event_ids(
+            [decision.event.event_id for decision in eligible_decisions]
+        ),
+        skip_result=None,
+    )
+
+
 class L2PipelineExtractionMixin:
     """Run the end-to-end L2 Phase 1/Phase 2 extraction and persistence flow."""
 
@@ -112,22 +207,11 @@ class L2PipelineExtractionMixin:
             }
 
         stored_events = await self._load_batch_events(job)
-        if not stored_events:
-            return {
-                "relation_count": 0,
-                "assertion_count": 0,
-                "touched_entity_ids": [],
-                "touched_place_ids": [],
-                "touched_topic_keys": [],
-                "skipped": True,
-                "skip_reason": "empty_batch",
-                "evidence_class": None,
-                "contradiction_hint_count": 0,
-            }
-
-        eligible_events: list[tuple[MemoryEvent, Any, Any]] = []
-        for stored_event in stored_events:
-            classification = classify_event_evidence(stored_event)
+        extraction_plan = build_l2_extraction_plan(stored_events)
+        for decision in extraction_plan.decisions:
+            stored_event = decision.event
+            classification = decision.classification
+            policy = decision.policy
             self._increment_bucket(
                 self._stats.extract_by_evidence_class, classification.evidence_class
             )
@@ -140,7 +224,6 @@ class L2PipelineExtractionMixin:
                 originality_type=classification.originality_type,
                 source_event_ids=classification.source_event_ids,
             )
-            policy = resolve_l2_policy(classification)
             logger.debug(
                 "L2 policy resolved",
                 event_id=stored_event.event_id,
@@ -153,30 +236,27 @@ class L2PipelineExtractionMixin:
                 assertion_scope=policy.assertion_scope,
                 skip_reason=policy.skip_reason,
             )
-            if policy.allow_graph_write or policy.allow_assertion_write:
-                eligible_events.append((stored_event, classification, policy))
 
-        if not eligible_events:
-            classification = classify_event_evidence(stored_events[-1])
-            policy = resolve_l2_policy(classification)
-            if policy.skip_reason:
-                self._increment_bucket(self._stats.skip_by_reason, policy.skip_reason)
-            return {
-                "relation_count": 0,
-                "assertion_count": 0,
-                "touched_entity_ids": [],
-                "touched_place_ids": [],
-                "touched_topic_keys": [],
-                "skipped": True,
-                "skip_reason": policy.skip_reason or "no_eligible_events",
-                "evidence_class": classification.evidence_class,
-                "contradiction_hint_count": 0,
-            }
+        if extraction_plan.skip_result is not None:
+            skip_reason = str(extraction_plan.skip_result.get("skip_reason") or "")
+            if skip_reason:
+                self._increment_bucket(self._stats.skip_by_reason, skip_reason)
+            return extraction_plan.skip_result
 
-        stored_event, classification, policy = eligible_events[-1]
-        batch_event_ids = normalize_event_ids(
-            [item.event_id for item, _, _ in eligible_events]
-        )
+        primary_decision = extraction_plan.primary
+        if primary_decision is None:  # pragma: no cover - defensive guard
+            return _l2_extraction_skip_result(
+                skip_reason="no_eligible_events",
+                evidence_class=None,
+            )
+        stored_event = primary_decision.event
+        classification = primary_decision.classification
+        policy = primary_decision.policy
+        eligible_events = [
+            (decision.event, decision.classification, decision.policy)
+            for decision in extraction_plan.eligible_decisions
+        ]
+        batch_event_ids = extraction_plan.batch_event_ids
         if not policy.allow_graph_write and not policy.allow_assertion_write:
             if policy.skip_reason:
                 self._increment_bucket(self._stats.skip_by_reason, policy.skip_reason)
@@ -263,7 +343,9 @@ class L2PipelineExtractionMixin:
             candidates=direct_write_candidates,
         )
 
-        if not await resolve_llm_extraction(stored_event, getattr(self, "_promotion_counter", None)):
+        if not await resolve_llm_extraction(
+            stored_event, getattr(self, "_promotion_counter", None)
+        ):
             # Structured-only (P1 opt-out or P2 below-threshold): direct-writes done above; skip LLM.
             facet_candidates = self._build_structured_facet_candidates(
                 event=stored_event,
@@ -593,9 +675,9 @@ class L2PipelineExtractionMixin:
             facet_count=facet_count,
             assertion_count=assertion_count,
             contradiction_hint_count=len(contradiction_hints),
-            conflict_arbitration_decision=conflict_arbitration.decision
-            if conflict_arbitration is not None
-            else None,
+            conflict_arbitration_decision=(
+                conflict_arbitration.decision if conflict_arbitration is not None else None
+            ),
         )
 
         conflict_arbitration_decision = (
