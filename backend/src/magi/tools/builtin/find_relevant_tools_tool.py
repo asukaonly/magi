@@ -6,6 +6,7 @@ import logging
 from typing import Any, Dict
 
 from ..discovery_index import ToolDiscoveryIndex
+from ..recommender import ToolRecommender
 from ..tool_advisory_reranker import ToolAdvisoryReranker
 from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
 from ..registry import tool_registry
@@ -112,6 +113,11 @@ class FindRelevantToolsTool(Tool):
         tool_recommendations = [
             item for item in indexed_recommendations if item.get("type") == "tool"
         ]
+        tool_recommendations = self._filter_allowed_tool_recommendations(
+            recommendations=tool_recommendations,
+            registry=registry,
+            context=context,
+        )
         tool_recommendations = await self._rerank_tool_recommendations(
             recommendations=tool_recommendations,
             query=query,
@@ -144,6 +150,29 @@ class FindRelevantToolsTool(Tool):
                 "tool_expansion": expansion_payload,
             },
         )
+
+    def _filter_allowed_tool_recommendations(
+        self,
+        *,
+        recommendations: list[dict[str, Any]],
+        registry: Any,
+        context: ToolExecutionContext,
+    ) -> list[dict[str, Any]]:
+        if not recommendations:
+            return []
+
+        recommender = ToolRecommender(registry)
+        allowed: list[dict[str, Any]] = []
+        for item in recommendations:
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+            is_suitable, reason = recommender.evaluate_tool(name, context)
+            if is_suitable:
+                allowed.append(item)
+            else:
+                logger.debug("Filtered discovered tool %s: %s", name, reason)
+        return allowed
 
     async def _rerank_tool_recommendations(
         self,

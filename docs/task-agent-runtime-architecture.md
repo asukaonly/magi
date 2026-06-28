@@ -213,8 +213,11 @@ verification work.
   tool-discovery helper to recover from missing-capability situations.
   This helper is not a general capability browser. It is an execution-time
   recovery mechanism that can append a very small number of additional
-  tools to the current turn when the existing allowlist cannot complete the
-  next grounded step.
+  tools or skills to the current turn when the existing allowlist cannot
+  complete the next grounded step. Its first-stage recall is owned by the
+  tools layer through a unified discovery index over registered tools and
+  skill metadata. The builtin helper then applies execution-context checks
+  and L4 advisory reranking before returning the bounded expansion payload.
 
   ContextDecider stays a coarse, cheap classifier. It may emit `tool_need`
   as `none`, `direct`, or `discover`, but it does not formulate a

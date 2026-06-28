@@ -207,6 +207,30 @@ class TestFindRelevantToolsTool:
         assert "strong historical fit" in result.data["recommendations"][0]["reason"]
 
     @pytest.mark.asyncio
+    async def test_tool_discovery_filters_tools_not_allowed_by_context_permissions(self) -> None:
+        from magi.tools.builtin.bash_tool import BashTool
+        from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
+        from magi.tools.registry import ToolRegistry
+
+        registry = ToolRegistry()
+        registry.register(FindRelevantToolsTool)
+        registry.register(BashTool)
+        tool = registry.get_tool("find-relevant-tools")
+
+        assert tool is not None
+        result = await tool.execute(
+            {
+                "query": "run a shell command to inspect the local project",
+                "current_tools": [],
+                "limit": 1,
+            },
+            _make_context_with_memory_query(memory_query_port=None),
+        )
+
+        assert result.success is True
+        assert result.data["recommended_tools"] == []
+
+    @pytest.mark.asyncio
     async def test_get_l4_store_uses_memory_query_port(self) -> None:
         """_get_l4_store reads through ctx.capabilities.memory_query.get_l4_store()."""
         from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
