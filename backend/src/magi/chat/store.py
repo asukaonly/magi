@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 import uuid
 
 import aiosqlite
@@ -73,7 +74,59 @@ class ChatStore(
         """Create a user turn and its first transcript message transactionally."""
         await self.initialize()
         session_preview = str(message_text or "").strip()[:120]
-        message = ChatMessageRecord(
+        message = self._build_user_turn_message(
+            session_id=session_id,
+            user_id=user_id,
+            turn_id=turn_id,
+            message_text=message_text,
+            attachment_payloads=attachment_payloads,
+            created_at_ms=created_at_ms,
+            persona_id=persona_id,
+            reply_to_message_id=reply_to_message_id,
+        )
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+            db.row_factory = aiosqlite.Row
+            existing_session = await self._fetch_session_row(db, session_id=session_id)
+            await self._upsert_user_turn_session(
+                db,
+                existing_session=existing_session,
+                session_id=session_id,
+                user_id=user_id,
+                session_preview=session_preview,
+                created_at_ms=created_at_ms,
+            )
+            await self._insert_user_turn_row(
+                db,
+                session_id=session_id,
+                user_id=user_id,
+                turn_id=turn_id,
+                created_at_ms=created_at_ms,
+                run_id=run_id,
+                run_revision=run_revision,
+                run_disposition=run_disposition,
+            )
+            await self._insert_user_message_row(db, message)
+            await self._replace_message_attachments(
+                db,
+                message=message,
+                attachment_payloads=attachment_payloads,
+            )
+            await db.commit()
+        return message
+
+    def _build_user_turn_message(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        turn_id: str,
+        message_text: str,
+        attachment_payloads: list[dict[str, object]] | None,
+        created_at_ms: int,
+        persona_id: str | None,
+        reply_to_message_id: str | None,
+    ) -> ChatMessageRecord:
+        return ChatMessageRecord(
             message_id=f"msg_{uuid.uuid4().hex[:16]}",
             session_id=session_id,
             turn_id=turn_id,
@@ -91,132 +144,170 @@ class ChatStore(
             persona_id=str(persona_id or "").strip() or None,
             reply_to_message_id=str(reply_to_message_id or "").strip() or None,
         )
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            existing_session = await self._fetch_session_row(db, session_id=session_id)
-            next_message_count = int(existing_session["message_count"] or 0) + 1 if existing_session is not None else 1
-            await self._upsert_session_with_connection(
-                db,
-                ChatSessionRecord(
-                    session_id=session_id,
-                    user_id=user_id,
-                    title=str(existing_session["title"]) if existing_session is not None else "",
-                    title_overridden=bool(int(existing_session["title_overridden"] or 0)) if existing_session is not None else False,
-                    summary=str(existing_session["summary"] or "") if existing_session is not None else "",
-                    created_at_ms=int(existing_session["created_at_ms"]) if existing_session is not None else created_at_ms,
-                    updated_at_ms=created_at_ms,
-                    last_message_at_ms=created_at_ms,
-                    last_user_message_at_ms=created_at_ms,
-                    last_message_preview=session_preview,
-                    last_user_message_preview=session_preview,
-                    message_count=next_message_count,
-                    workspace_path=str(existing_session["workspace_path"]) if existing_session is not None and existing_session["workspace_path"] is not None else None,
-                    history_version=int(existing_session["history_version"] or 0) + 1 if existing_session is not None else 1,
-                    archived_at_ms=int(existing_session["archived_at_ms"]) if existing_session is not None and existing_session["archived_at_ms"] is not None else None,
-                    deleted_at_ms=int(existing_session["deleted_at_ms"]) if existing_session is not None and existing_session["deleted_at_ms"] is not None else None,
-                ),
-            )
-            await db.execute(
-                """
-                INSERT INTO chat_turns (
-                    turn_id,
-                    session_id,
-                    user_id,
-                    trace_id,
-                    orchestration_id,
-                    status,
-                    response_mode,
-                    execution_mode,
-                    ux_plan_json,
-                    created_at_ms,
-                    updated_at_ms,
-                    completed_at_ms,
-                    error_text,
-                    run_id,
-                    run_revision,
-                    run_disposition,
-                    response_anchor_turn_id,
-                    superseded_by_turn_id,
-                    supersession_reason
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(turn_id) DO NOTHING
-                """,
-                (
-                    turn_id,
-                    session_id,
-                    user_id,
-                    None,
-                    None,
-                    "queued",
-                    "final_only",
-                    None,
-                    "{}",
-                    created_at_ms,
-                    created_at_ms,
-                    None,
-                    None,
-                    run_id,
-                    run_revision,
-                    run_disposition,
-                    turn_id,
-                    None,
-                    None,
-                ),
-            )
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO chat_messages (
-                    message_id,
-                    session_id,
-                    turn_id,
-                    user_id,
-                    role,
-                    message_kind,
-                    content_text,
-                    payload_json,
-                    is_final,
-                    is_visible,
-                    created_at_ms,
-                    sequence_no,
-                    replaces_message_id,
-                    replaced_by_message_id,
-                    persona_id,
-                    reply_to_message_id,
-                    label_json
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    message.message_id,
-                    message.session_id,
-                    message.turn_id,
-                    message.user_id,
-                    message.role,
-                    message.message_kind,
-                    message.content_text,
-                    message.payload_json,
-                    1,
-                    1,
-                    message.created_at_ms,
-                    message.sequence_no,
-                    None,
-                    None,
-                    message.persona_id,
-                    message.reply_to_message_id,
-                    self._serialize_message_label(message.label),
-                ),
-            )
-            await self._replace_message_attachments(
-                db,
-                message=message,
-                attachment_payloads=attachment_payloads,
-            )
-            await db.commit()
-        return message
+
+    async def _upsert_user_turn_session(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        existing_session: Any,
+        session_id: str,
+        user_id: str,
+        session_preview: str,
+        created_at_ms: int,
+    ) -> None:
+        await self._upsert_session_with_connection(
+            db,
+            self._build_user_turn_session_record(
+                existing_session=existing_session,
+                session_id=session_id,
+                user_id=user_id,
+                session_preview=session_preview,
+                created_at_ms=created_at_ms,
+            ),
+        )
 
     @staticmethod
-    def _build_user_message_payload_json(attachment_payloads: list[dict[str, object]] | None) -> str:
+    def _build_user_turn_session_record(
+        *,
+        existing_session: Any,
+        session_id: str,
+        user_id: str,
+        session_preview: str,
+        created_at_ms: int,
+    ) -> ChatSessionRecord:
+        return ChatSessionRecord(
+            session_id=session_id,
+            user_id=user_id,
+            title=_row_text(existing_session, "title"),
+            title_overridden=_row_bool(existing_session, "title_overridden"),
+            summary=_row_text(existing_session, "summary"),
+            created_at_ms=_row_int(existing_session, "created_at_ms", created_at_ms),
+            updated_at_ms=created_at_ms,
+            last_message_at_ms=created_at_ms,
+            last_user_message_at_ms=created_at_ms,
+            last_message_preview=session_preview,
+            last_user_message_preview=session_preview,
+            message_count=_row_int(existing_session, "message_count", 0) + 1,
+            workspace_path=_row_optional_text(existing_session, "workspace_path"),
+            history_version=_row_int(existing_session, "history_version", 0) + 1,
+            archived_at_ms=_row_optional_int(existing_session, "archived_at_ms"),
+            deleted_at_ms=_row_optional_int(existing_session, "deleted_at_ms"),
+        )
+
+    @staticmethod
+    async def _insert_user_turn_row(
+        db: aiosqlite.Connection,
+        *,
+        session_id: str,
+        user_id: str,
+        turn_id: str,
+        created_at_ms: int,
+        run_id: str | None,
+        run_revision: int,
+        run_disposition: str | None,
+    ) -> None:
+        await db.execute(
+            """
+            INSERT INTO chat_turns (
+                turn_id,
+                session_id,
+                user_id,
+                trace_id,
+                orchestration_id,
+                status,
+                response_mode,
+                execution_mode,
+                ux_plan_json,
+                created_at_ms,
+                updated_at_ms,
+                completed_at_ms,
+                error_text,
+                run_id,
+                run_revision,
+                run_disposition,
+                response_anchor_turn_id,
+                superseded_by_turn_id,
+                supersession_reason
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(turn_id) DO NOTHING
+            """,
+            (
+                turn_id,
+                session_id,
+                user_id,
+                None,
+                None,
+                "queued",
+                "final_only",
+                None,
+                "{}",
+                created_at_ms,
+                created_at_ms,
+                None,
+                None,
+                run_id,
+                run_revision,
+                run_disposition,
+                turn_id,
+                None,
+                None,
+            ),
+        )
+
+    async def _insert_user_message_row(
+        self,
+        db: aiosqlite.Connection,
+        message: ChatMessageRecord,
+    ) -> None:
+        await db.execute(
+            """
+            INSERT OR REPLACE INTO chat_messages (
+                message_id,
+                session_id,
+                turn_id,
+                user_id,
+                role,
+                message_kind,
+                content_text,
+                payload_json,
+                is_final,
+                is_visible,
+                created_at_ms,
+                sequence_no,
+                replaces_message_id,
+                replaced_by_message_id,
+                persona_id,
+                reply_to_message_id,
+                label_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                message.message_id,
+                message.session_id,
+                message.turn_id,
+                message.user_id,
+                message.role,
+                message.message_kind,
+                message.content_text,
+                message.payload_json,
+                1,
+                1,
+                message.created_at_ms,
+                message.sequence_no,
+                None,
+                None,
+                message.persona_id,
+                message.reply_to_message_id,
+                self._serialize_message_label(message.label),
+            ),
+        )
+
+    @staticmethod
+    def _build_user_message_payload_json(
+        attachment_payloads: list[dict[str, object]] | None,
+    ) -> str:
         return build_user_message_payload_json(attachment_payloads)
 
     async def _fetchone(self, sql: str, params: tuple[object, ...]) -> aiosqlite.Row | None:
@@ -225,3 +316,33 @@ class ChatStore(
             db.row_factory = aiosqlite.Row
             cur = await db.execute(sql, params)
             return await cur.fetchone()
+
+
+def _row_text(row: Any, key: str) -> str:
+    if row is None:
+        return ""
+    return str(row[key] or "")
+
+
+def _row_bool(row: Any, key: str) -> bool:
+    if row is None:
+        return False
+    return bool(int(row[key] or 0))
+
+
+def _row_int(row: Any, key: str, default: int) -> int:
+    if row is None:
+        return default
+    return int(row[key] or default)
+
+
+def _row_optional_text(row: Any, key: str) -> str | None:
+    if row is None or row[key] is None:
+        return None
+    return str(row[key])
+
+
+def _row_optional_int(row: Any, key: str) -> int | None:
+    if row is None or row[key] is None:
+        return None
+    return int(row[key])
