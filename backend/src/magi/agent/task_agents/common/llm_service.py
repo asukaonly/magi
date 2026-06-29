@@ -1,8 +1,10 @@
 """Shared LLM invocation service for task agents."""
+
 from __future__ import annotations
 
 import time
 import uuid
+from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
@@ -21,10 +23,26 @@ logger = get_logger(__name__)
 LLMTraceCallback = Callable[[dict[str, object]], Awaitable[None] | None]
 
 
+@dataclass(slots=True)
+class _LLMRequestContext:
+    request_id: str
+    start_time: float
+    model_name: str
+    thinking_depth: ThinkingDepth | None
+    event_context: dict[str, Any]
+
+
 class TaskAgentLLMService:
     """Centralizes task-agent LLM calls and logging."""
 
-    def __init__(self, *, llm_adapter=None, llm_pool=None, scenario: LLMScenario = LLMScenario.CORE, logger_name: str) -> None:
+    def __init__(
+        self,
+        *,
+        llm_adapter=None,
+        llm_pool=None,
+        scenario: LLMScenario = LLMScenario.CORE,
+        logger_name: str,
+    ) -> None:
         self._llm = llm_adapter
         self._llm_pool = llm_pool
         self._scenario = scenario
@@ -70,88 +88,38 @@ class TaskAgentLLMService:
         event_context: dict[str, Any] | None = None,
         control: RunControl | None = None,
     ) -> str:
-        request_id = str(uuid.uuid4())[:8]
-        start_time = time.time()
-        llm = self._resolve_llm()
-        model_name = getattr(llm, "model_name", "unknown")
-        log_llm_request(
-            self._llm_logger,
-            request_id=request_id,
-            model=model_name,
+        request_context = self._begin_request(
             system_prompt=system_prompt,
             messages=messages,
-            cache_boundary=SYSTEM_PROMPT_CACHE_BOUNDARY,
+            thinking_depth=thinking_depth,
+            disable_thinking=disable_thinking,
+            event_context=event_context,
         )
-        depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         try:
-            if control is not None and self._cancellable_client is not None:
-                result = await self._cancellable_client.call(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    control=control,
-                    max_tokens=self._llm_max_tokens(),
-                    temperature=temperature,
-                    thinking_depth=depth,
-                    json_mode=json_mode,
-                    timeout_seconds=timeout_seconds,
-                    event_context=self._build_event_context(
-                        request_id=request_id,
-                        event_context=event_context,
-                    ),
-                )
-                provider_response = SimpleNamespace(content=result.content, metadata=result.metadata)
-            else:
-                provider_response = await self._provider_bridge.chat_response(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    max_tokens=self._llm_max_tokens(),
-                    temperature=temperature,
-                    thinking_depth=depth,
-                    json_mode=json_mode,
-                    timeout_seconds=timeout_seconds,
-                    event_context=self._build_event_context(
-                        request_id=request_id,
-                        event_context=event_context,
-                    ),
-                )
-            response = provider_response.content
-            duration_ms = int((time.time() - start_time) * 1000)
-            log_llm_response(
-                self._llm_logger,
-                request_id=request_id,
-                response=response,
-                success=True,
-                duration_ms=duration_ms,
-                provider_metadata=provider_response.metadata,
+            provider_response = await self._call_provider_response(
+                request_context=request_context,
+                system_prompt=system_prompt,
+                messages=messages,
+                temperature=temperature,
+                json_mode=json_mode,
+                timeout_seconds=timeout_seconds,
+                control=control,
             )
-            if not response.strip():
-                logger.warning(
-                    "Task-agent LLM returned empty content | request_id=%s model=%s disable_thinking=%s metadata=%s",
-                    request_id,
-                    model_name,
-                    disable_thinking,
-                    provider_response.metadata,
-                )
-            trace_metrics = dict((provider_response.metadata or {}).get("trace_metrics") or {})
-            if llm_trace_callback is not None and trace_metrics:
-                callback_result = llm_trace_callback(trace_metrics)
-                if hasattr(callback_result, "__await__"):
-                    await callback_result
+            response = provider_response.content
+            self._log_call_success(
+                request_context,
+                response=response,
+                provider_metadata=provider_response.metadata,
+                disable_thinking=disable_thinking,
+            )
+            await _emit_trace_metrics(llm_trace_callback, provider_response.metadata)
             return response
         except (CancellationRaised, RetractRaised):
             # Signal-driven aborts are not LLM failures; re-raise without
             # logging as failure to keep metrics clean.
             raise
         except Exception as exc:
-            duration_ms = int((time.time() - start_time) * 1000)
-            log_llm_response(
-                self._llm_logger,
-                request_id=request_id,
-                response="",
-                success=False,
-                error=str(exc),
-                duration_ms=duration_ms,
-            )
+            self._log_failure(request_context, exc)
             raise
 
     async def call_stream(
@@ -168,9 +136,49 @@ class TaskAgentLLMService:
         control: RunControl | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         """Streaming variant of call(). Yields LLMStreamEvent instances; the
-final response text is logged on completion. Accepts an optional
-``control: RunControl`` to enable cancel/retract via
-:class:`~magi.llm.cancellable_client.CancellableLLMClient`."""
+        final response text is logged on completion. Accepts an optional
+        ``control: RunControl`` to enable cancel/retract via
+        :class:`~magi.llm.cancellable_client.CancellableLLMClient`."""
+        request_context = self._begin_request(
+            system_prompt=system_prompt,
+            messages=messages,
+            thinking_depth=thinking_depth,
+            disable_thinking=disable_thinking,
+            event_context=event_context,
+        )
+        collected = ""
+        try:
+            stream_source = self._open_provider_stream(
+                request_context=request_context,
+                system_prompt=system_prompt,
+                messages=messages,
+                temperature=temperature,
+                json_mode=json_mode,
+                timeout_seconds=timeout_seconds,
+                control=control,
+            )
+            async for event in stream_source:
+                if event.kind == "text_delta" and event.text:
+                    collected += event.text
+                yield event
+            self._log_stream_success(request_context, response=collected)
+        except (CancellationRaised, RetractRaised):
+            # Signal-driven aborts are not LLM failures; re-raise without
+            # logging as failure to keep metrics clean.
+            raise
+        except Exception as exc:
+            self._log_failure(request_context, exc)
+            raise
+
+    def _begin_request(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, str]],
+        thinking_depth: ThinkingDepth | None,
+        disable_thinking: bool,
+        event_context: dict[str, Any] | None,
+    ) -> _LLMRequestContext:
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
         llm = self._resolve_llm()
@@ -183,68 +191,150 @@ final response text is logged on completion. Accepts an optional
             messages=messages,
             cache_boundary=SYSTEM_PROMPT_CACHE_BOUNDARY,
         )
-        depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
-        collected = ""
-        try:
-            if control is not None and self._cancellable_client is not None:
-                stream_source = self._cancellable_client.stream(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    control=control,
-                    max_tokens=self._llm_max_tokens(),
-                    temperature=temperature,
-                    thinking_depth=depth,
-                    json_mode=json_mode,
-                    timeout_seconds=timeout_seconds,
-                    event_context=self._build_event_context(
-                        request_id=request_id,
-                        event_context=event_context,
-                    ),
-                )
-            else:
-                stream_source = self._provider_bridge.chat_response_stream(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    max_tokens=self._llm_max_tokens(),
-                    temperature=temperature,
-                    thinking_depth=depth,
-                    json_mode=json_mode,
-                    timeout_seconds=timeout_seconds,
-                    event_context=self._build_event_context(
-                        request_id=request_id,
-                        event_context=event_context,
-                    ),
-                )
-            async for event in stream_source:
-                if event.kind == "text_delta" and event.text:
-                    collected += event.text
-                yield event
-            duration_ms = int((time.time() - start_time) * 1000)
-            log_llm_response(
-                self._llm_logger,
+        return _LLMRequestContext(
+            request_id=request_id,
+            start_time=start_time,
+            model_name=model_name,
+            thinking_depth=_coerce_thinking_depth(thinking_depth, disable_thinking),
+            event_context=self._build_event_context(
                 request_id=request_id,
-                response=collected,
-                success=True,
-                duration_ms=duration_ms,
+                event_context=event_context,
+            ),
+        )
+
+    async def _call_provider_response(
+        self,
+        *,
+        request_context: _LLMRequestContext,
+        system_prompt: str,
+        messages: list[dict[str, str]],
+        temperature: float,
+        json_mode: bool,
+        timeout_seconds: float | None,
+        control: RunControl | None,
+    ) -> Any:
+        if control is not None and self._cancellable_client is not None:
+            result = await self._cancellable_client.call(
+                system_prompt=system_prompt,
+                messages=messages,
+                control=control,
+                max_tokens=self._llm_max_tokens(),
+                temperature=temperature,
+                thinking_depth=request_context.thinking_depth,
+                json_mode=json_mode,
+                timeout_seconds=timeout_seconds,
+                event_context=request_context.event_context,
             )
-        except (CancellationRaised, RetractRaised):
-            # Signal-driven aborts are not LLM failures; re-raise without
-            # logging as failure to keep metrics clean.
-            raise
-        except Exception as exc:
-            duration_ms = int((time.time() - start_time) * 1000)
-            log_llm_response(
-                self._llm_logger,
-                request_id=request_id,
-                response="",
-                success=False,
-                error=str(exc),
-                duration_ms=duration_ms,
+            return SimpleNamespace(content=result.content, metadata=result.metadata)
+        return await self._provider_bridge.chat_response(
+            system_prompt=system_prompt,
+            messages=messages,
+            max_tokens=self._llm_max_tokens(),
+            temperature=temperature,
+            thinking_depth=request_context.thinking_depth,
+            json_mode=json_mode,
+            timeout_seconds=timeout_seconds,
+            event_context=request_context.event_context,
+        )
+
+    def _open_provider_stream(
+        self,
+        *,
+        request_context: _LLMRequestContext,
+        system_prompt: str,
+        messages: list[dict[str, str]],
+        temperature: float,
+        json_mode: bool,
+        timeout_seconds: float | None,
+        control: RunControl | None,
+    ) -> AsyncIterator[LLMStreamEvent]:
+        if control is not None and self._cancellable_client is not None:
+            return self._cancellable_client.stream(
+                system_prompt=system_prompt,
+                messages=messages,
+                control=control,
+                max_tokens=self._llm_max_tokens(),
+                temperature=temperature,
+                thinking_depth=request_context.thinking_depth,
+                json_mode=json_mode,
+                timeout_seconds=timeout_seconds,
+                event_context=request_context.event_context,
             )
-            raise
+        return self._provider_bridge.chat_response_stream(
+            system_prompt=system_prompt,
+            messages=messages,
+            max_tokens=self._llm_max_tokens(),
+            temperature=temperature,
+            thinking_depth=request_context.thinking_depth,
+            json_mode=json_mode,
+            timeout_seconds=timeout_seconds,
+            event_context=request_context.event_context,
+        )
+
+    def _log_call_success(
+        self,
+        request_context: _LLMRequestContext,
+        *,
+        response: str,
+        provider_metadata: dict[str, Any] | None,
+        disable_thinking: bool,
+    ) -> None:
+        duration_ms = int((time.time() - request_context.start_time) * 1000)
+        log_llm_response(
+            self._llm_logger,
+            request_id=request_context.request_id,
+            response=response,
+            success=True,
+            duration_ms=duration_ms,
+            provider_metadata=provider_metadata,
+        )
+        if not response.strip():
+            logger.warning(
+                "Task-agent LLM returned empty content | request_id=%s model=%s disable_thinking=%s metadata=%s",
+                request_context.request_id,
+                request_context.model_name,
+                disable_thinking,
+                provider_metadata,
+            )
+
+    def _log_stream_success(
+        self,
+        request_context: _LLMRequestContext,
+        *,
+        response: str,
+    ) -> None:
+        log_llm_response(
+            self._llm_logger,
+            request_id=request_context.request_id,
+            response=response,
+            success=True,
+            duration_ms=int((time.time() - request_context.start_time) * 1000),
+        )
+
+    def _log_failure(self, request_context: _LLMRequestContext, exc: Exception) -> None:
+        log_llm_response(
+            self._llm_logger,
+            request_id=request_context.request_id,
+            response="",
+            success=False,
+            error=str(exc),
+            duration_ms=int((time.time() - request_context.start_time) * 1000),
+        )
 
     def _llm_max_tokens(self) -> int:
         try:
             return int(get_config().llm.max_tokens)
         except Exception:
             return DEFAULT_MAX_TOKENS
+
+
+async def _emit_trace_metrics(
+    llm_trace_callback: LLMTraceCallback | None,
+    provider_metadata: dict[str, Any] | None,
+) -> None:
+    trace_metrics = dict((provider_metadata or {}).get("trace_metrics") or {})
+    if llm_trace_callback is None or not trace_metrics:
+        return
+    callback_result = llm_trace_callback(trace_metrics)
+    if hasattr(callback_result, "__await__"):
+        await callback_result
