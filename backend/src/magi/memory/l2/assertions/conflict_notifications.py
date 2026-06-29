@@ -24,6 +24,7 @@ Design decisions for v1:
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from ....core.logger import get_logger
@@ -47,6 +48,15 @@ _AUTHORITATIVE_EXCLUDED = frozenset(RETRIEVAL_EXCLUDED_STATUSES) | {
 _KIND = "suggestion"
 
 
+@dataclass(frozen=True)
+class _ShadowConflictFields:
+    trait_name: str
+    target_entity_id: str
+    inferred_value: str
+    shadow_id: str
+    entity_type: str
+
+
 async def _fetch_authoritative(
     db_path: str,
     *,
@@ -68,6 +78,7 @@ async def _fetch_authoritative(
     args: list[Any] = [entity_id, entity_type, trait_name, target_entity_id, *excluded]
     async with sqlite_connection_async(db_path) as db:
         import aiosqlite as _aiosqlite
+
         db.row_factory = _aiosqlite.Row
         async with db.execute(query, tuple(args)) as cursor:
             row = await cursor.fetchone()
@@ -118,75 +129,17 @@ async def materialize_shadow_conflict_notifications(
     notifications_emitted = 0
 
     for shadow in shadows:
-        trait_name: str = str(shadow.get("trait_name") or "")
-        target_entity_id: str = str(shadow.get("target_entity_id") or "")
-        inferred_value: str = str(shadow.get("trait_value") or "")
-        shadow_id: str = str(shadow.get("assertion_id") or "")
-
-        authoritative = await _fetch_authoritative(
-            store.db_path,
+        emitted = await _materialize_shadow_conflict_notification(
+            store=store,
+            notification_service=notification_service,
+            shadow=shadow,
+            user_id=user_id,
             entity_id=entity_id,
-            entity_type=str(shadow.get("entity_type") or entity_type),
-            trait_name=trait_name,
-            target_entity_id=target_entity_id,
+            entity_type=entity_type,
+            locale=locale,
         )
-        if authoritative is None:
-            # No surviving authoritative — skip v1 (nothing to confirm against).
-            logger.debug(
-                "shadow_conflict_notifications: no surviving authoritative; skipping",
-                shadow_id=shadow_id,
-                trait_name=trait_name,
-            )
-            continue
-
-        authoritative_id: str = str(authoritative.get("assertion_id") or "")
-        authoritative_value: str = str(authoritative.get("trait_value") or "")
-
-        dedupe_key = f"profile_conflict:{trait_name}:{target_entity_id}"
-
-        # Build user-facing title/body.
-        if str(locale).startswith("zh"):
-            title = f"偏好冲突：{trait_name}"
-            body = (
-                f"你最近常关注「{inferred_value}」，"
-                f"但你说过「{authoritative_value}」—— 要更新偏好吗？"
-            )
-        else:
-            title = f"Preference conflict: {trait_name}"
-            body = (
-                f"You recently showed interest in \"{inferred_value}\", "
-                f"but you previously stated \"{authoritative_value}\". "
-                "Would you like to update your preference?"
-            )
-
-        payload_json = json.dumps(
-            {
-                "conflict_type": "profile_conflict",
-                "shadow_id": shadow_id,
-                "authoritative_id": authoritative_id,
-                "trait_name": trait_name,
-                "authoritative_value": authoritative_value,
-                "inferred_value": inferred_value,
-                "entity_id": entity_id,
-            },
-            ensure_ascii=False,
-        )
-
-        # _materialize_one is sync (sqlite3); call it directly from this async
-        # context — it acquires its own thread-lock, which is fine for the
-        # maintenance scheduler (already off the hot request path).
-        notification_service._materialize_one(
-            user_id, dedupe_key, title, body, payload_json
-        )
-        notifications_emitted += 1
-
-        logger.info(
-            "shadow_conflict_notifications: notification emitted/bumped",
-            shadow_id=shadow_id,
-            authoritative_id=authoritative_id,
-            trait_name=trait_name,
-            dedupe_key=dedupe_key,
-        )
+        if emitted:
+            notifications_emitted += 1
 
     logger.info(
         "shadow_conflict_notifications: scan complete",
@@ -195,3 +148,114 @@ async def materialize_shadow_conflict_notifications(
         notifications_emitted=notifications_emitted,
     )
     return {"shadows_seen": shadows_seen, "notifications_emitted": notifications_emitted}
+
+
+async def _materialize_shadow_conflict_notification(
+    *,
+    store: Any,
+    notification_service: Any,
+    shadow: dict[str, Any],
+    user_id: str,
+    entity_id: str,
+    entity_type: str,
+    locale: str,
+) -> bool:
+    fields = _shadow_conflict_fields(shadow, default_entity_type=entity_type)
+    authoritative = await _fetch_authoritative(
+        store.db_path,
+        entity_id=entity_id,
+        entity_type=fields.entity_type,
+        trait_name=fields.trait_name,
+        target_entity_id=fields.target_entity_id,
+    )
+    if authoritative is None:
+        logger.debug(
+            "shadow_conflict_notifications: no surviving authoritative; skipping",
+            shadow_id=fields.shadow_id,
+            trait_name=fields.trait_name,
+        )
+        return False
+
+    authoritative_id = str(authoritative.get("assertion_id") or "")
+    authoritative_value = str(authoritative.get("trait_value") or "")
+    dedupe_key = _shadow_conflict_dedupe_key(fields)
+    title, body = _shadow_conflict_notification_text(
+        fields=fields,
+        authoritative_value=authoritative_value,
+        locale=locale,
+    )
+    payload_json = _shadow_conflict_payload_json(
+        fields=fields,
+        authoritative_id=authoritative_id,
+        authoritative_value=authoritative_value,
+        entity_id=entity_id,
+    )
+
+    notification_service._materialize_one(user_id, dedupe_key, title, body, payload_json)
+    logger.info(
+        "shadow_conflict_notifications: notification emitted/bumped",
+        shadow_id=fields.shadow_id,
+        authoritative_id=authoritative_id,
+        trait_name=fields.trait_name,
+        dedupe_key=dedupe_key,
+    )
+    return True
+
+
+def _shadow_conflict_fields(
+    shadow: dict[str, Any],
+    *,
+    default_entity_type: str,
+) -> _ShadowConflictFields:
+    return _ShadowConflictFields(
+        trait_name=str(shadow.get("trait_name") or ""),
+        target_entity_id=str(shadow.get("target_entity_id") or ""),
+        inferred_value=str(shadow.get("trait_value") or ""),
+        shadow_id=str(shadow.get("assertion_id") or ""),
+        entity_type=str(shadow.get("entity_type") or default_entity_type),
+    )
+
+
+def _shadow_conflict_dedupe_key(fields: _ShadowConflictFields) -> str:
+    return f"profile_conflict:{fields.trait_name}:{fields.target_entity_id}"
+
+
+def _shadow_conflict_notification_text(
+    *,
+    fields: _ShadowConflictFields,
+    authoritative_value: str,
+    locale: str,
+) -> tuple[str, str]:
+    if str(locale).startswith("zh"):
+        return (
+            f"偏好冲突：{fields.trait_name}",
+            f"你最近常关注「{fields.inferred_value}」，"
+            f"但你说过「{authoritative_value}」—— 要更新偏好吗？",
+        )
+    return (
+        f"Preference conflict: {fields.trait_name}",
+        f'You recently showed interest in "{fields.inferred_value}", '
+        f'but you previously stated "{authoritative_value}". '
+        "Would you like to update your preference?",
+    )
+
+
+def _shadow_conflict_payload_json(
+    *,
+    fields: _ShadowConflictFields,
+    authoritative_id: str,
+    authoritative_value: str,
+    entity_id: str,
+) -> str:
+    return json.dumps(
+        {
+            "conflict_type": "profile_conflict",
+            "shadow_id": fields.shadow_id,
+            "authoritative_id": authoritative_id,
+            "trait_name": fields.trait_name,
+            "authoritative_value": authoritative_value,
+            "inferred_value": fields.inferred_value,
+            "entity_id": entity_id,
+        },
+        ensure_ascii=False,
+    )
