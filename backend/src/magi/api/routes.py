@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Set
+from dataclasses import dataclass
+from typing import Any
 
 from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
-
 
 _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
     "tools": {
@@ -76,7 +77,6 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/manual-entries/{entry_id}/weather": {"DELETE"},
         "/manual-entries/assets": {"POST"},
     },
-
     "messages": {
         "/send": {"POST"},
         "/history": {"GET"},
@@ -275,7 +275,6 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/bindings": {"GET"},
         "/bindings/{channel_type}/{external_user_id}/auto-approve": {"PUT"},
     },
-
 }
 
 
@@ -300,14 +299,92 @@ def _iter_api_routes(router: APIRouter):
             yield from _iter_api_routes(nested)
 
 
-def _build_public_router(source_router: APIRouter, allowed_routes: Mapping[str, Set[str]]) -> APIRouter:
+@dataclass(frozen=True)
+class _RouterRegistrationSpec:
+    router_attr: str
+    allowlist_key: str
+    prefix: str
+    tag: str
+
+
+_ROUTER_REGISTRATION_SPECS: tuple[_RouterRegistrationSpec, ...] = (
+    _RouterRegistrationSpec("tools_router", "tools", "/api/tools", "Tools"),
+    _RouterRegistrationSpec("memory_router", "memory", "/api/memory", "Memory"),
+    _RouterRegistrationSpec("user_messages_router", "messages", "/api/messages", "Messages"),
+    _RouterRegistrationSpec("config_router", "config", "/api/config", "Config"),
+    _RouterRegistrationSpec("llm_router", "llm", "/api/llm", "LLM"),
+    _RouterRegistrationSpec(
+        "personality_config_router",
+        "personality_config",
+        "/api/personality",
+        "Personality Config",
+    ),
+    _RouterRegistrationSpec(
+        "personality_presets_router",
+        "personality_presets",
+        "/api/personalities",
+        "Personality Presets",
+    ),
+    _RouterRegistrationSpec("personas_router", "personas", "/api/personas", "Personas"),
+    _RouterRegistrationSpec("skills_router", "skills", "", "Skills"),
+    _RouterRegistrationSpec("hooks_router", "hooks", "", "Hooks"),
+    _RouterRegistrationSpec("sensors_router", "sensors", "/api/sensors", "Sensors"),
+    _RouterRegistrationSpec("timeline_router", "timeline", "/api/timeline", "Timeline"),
+    _RouterRegistrationSpec("plugins_router", "plugins", "/api/plugins", "Plugins"),
+    _RouterRegistrationSpec(
+        "local_embedding_router",
+        "local_embedding",
+        "/api/local-embedding",
+        "Local Embedding",
+    ),
+    _RouterRegistrationSpec(
+        "local_reranker_router",
+        "local_reranker",
+        "/api/local-reranker",
+        "Local Reranker",
+    ),
+    _RouterRegistrationSpec(
+        "background_tasks_router",
+        "background_tasks",
+        "/api/background-tasks",
+        "Background Tasks",
+    ),
+    _RouterRegistrationSpec("schedules_router", "schedules", "/api/schedules", "Schedules"),
+    _RouterRegistrationSpec("control_router", "control", "/api/control", "Control"),
+    _RouterRegistrationSpec("mcp_router", "mcp", "/api/mcp", "MCP"),
+    _RouterRegistrationSpec("commands_router", "commands", "/api/commands", "Commands"),
+    _RouterRegistrationSpec("code_agent_router", "code_agent", "/api/code_agent", "CodeAgent"),
+    _RouterRegistrationSpec("profile_router", "profile", "/api/profile", "Profile"),
+    _RouterRegistrationSpec("availability_router", "availability", "/api", "Availability"),
+    _RouterRegistrationSpec("chat_preview_router", "chat_preview", "/api", "Chat Preview"),
+    _RouterRegistrationSpec(
+        "system_suggestions_router",
+        "system_suggestions",
+        "/api",
+        "System Suggestions",
+    ),
+    _RouterRegistrationSpec("notifications_router", "notifications", "/api", "Notifications"),
+    _RouterRegistrationSpec(
+        "channels_bindings_router",
+        "channels_bindings",
+        "/api/channels",
+        "Channels",
+    ),
+)
+
+
+def _build_public_router(
+    source_router: APIRouter, allowed_routes: Mapping[str, Set[str]]
+) -> APIRouter:
     """Create a filtered router that only exposes approved product endpoints."""
     public_routes = []
     for route in _iter_api_routes(source_router):
         allowed_methods = allowed_routes.get(route.path)
         if not allowed_methods:
             continue
-        route_methods = {method for method in (route.methods or set()) if method not in {"HEAD", "OPTIONS"}}
+        route_methods = {
+            method for method in (route.methods or set()) if method not in {"HEAD", "OPTIONS"}
+        }
         if route_methods & set(allowed_methods):
             public_routes.append(route)
     return APIRouter(routes=public_routes)
@@ -315,166 +392,28 @@ def _build_public_router(source_router: APIRouter, allowed_routes: Mapping[str, 
 
 def register_api_routes(app: FastAPI) -> None:
     """Register all product-facing API routes."""
-    from .routers import (
-        tools_router,
-        memory_router,
-        user_messages_router,
-        config_router,
-        llm_router,
-        personality_config_router,
-        personality_presets_router,
-        personas_router,
-        skills_router,
-        hooks_router,
-        sensors_router,
-        timeline_router,
-        plugins_router,
-        local_embedding_router,
-        local_reranker_router,
-        background_tasks_router,
-        schedules_router,
-        control_router,
-        mcp_router,
-        commands_router,
-        code_agent_router,
-        profile_router,
-        availability_router,
-        chat_preview_router,
-        system_suggestions_router,
-        notifications_router,
-        channels_bindings_router,
+    router_module = _public_router_module()
+    for registration in _ROUTER_REGISTRATION_SPECS:
+        _include_public_router(app, registration, router_module)
+
+
+def _include_public_router(
+    app: FastAPI,
+    registration: _RouterRegistrationSpec,
+    router_module: Any,
+) -> None:
+    source_router = getattr(router_module, registration.router_attr)
+    app.include_router(
+        _build_public_router(
+            source_router,
+            _PUBLIC_ROUTE_METHODS[registration.allowlist_key],
+        ),
+        prefix=registration.prefix,
+        tags=[registration.tag],
     )
 
-    app.include_router(
-        _build_public_router(tools_router, _PUBLIC_ROUTE_METHODS["tools"]),
-        prefix="/api/tools",
-        tags=["Tools"],
-    )
-    app.include_router(
-        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]),
-        prefix="/api/memory",
-        tags=["Memory"],
-    )
-    app.include_router(
-        _build_public_router(user_messages_router, _PUBLIC_ROUTE_METHODS["messages"]),
-        prefix="/api/messages",
-        tags=["Messages"],
-    )
-    app.include_router(
-        _build_public_router(config_router, _PUBLIC_ROUTE_METHODS["config"]),
-        prefix="/api/config",
-        tags=["Config"],
-    )
-    app.include_router(
-        _build_public_router(llm_router, _PUBLIC_ROUTE_METHODS["llm"]),
-        prefix="/api/llm",
-        tags=["LLM"],
-    )
-    app.include_router(
-        _build_public_router(personality_config_router, _PUBLIC_ROUTE_METHODS["personality_config"]),
-        prefix="/api/personality",
-        tags=["Personality Config"],
-    )
-    app.include_router(
-        _build_public_router(personality_presets_router, _PUBLIC_ROUTE_METHODS["personality_presets"]),
-        prefix="/api/personalities",
-        tags=["Personality Presets"],
-    )
-    app.include_router(
-        _build_public_router(personas_router, _PUBLIC_ROUTE_METHODS["personas"]),
-        prefix="/api/personas",
-        tags=["Personas"],
-    )
-    app.include_router(
-        _build_public_router(skills_router, _PUBLIC_ROUTE_METHODS["skills"]),
-        tags=["Skills"],
-    )
-    app.include_router(
-        _build_public_router(hooks_router, _PUBLIC_ROUTE_METHODS["hooks"]),
-        tags=["Hooks"],
-    )
-    app.include_router(
-        _build_public_router(sensors_router, _PUBLIC_ROUTE_METHODS["sensors"]),
-        prefix="/api/sensors",
-        tags=["Sensors"],
-    )
-    app.include_router(
-        _build_public_router(timeline_router, _PUBLIC_ROUTE_METHODS["timeline"]),
-        prefix="/api/timeline",
-        tags=["Timeline"],
-    )
-    app.include_router(
-        _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]),
-        prefix="/api/plugins",
-        tags=["Plugins"],
-    )
-    app.include_router(
-        _build_public_router(local_embedding_router, _PUBLIC_ROUTE_METHODS["local_embedding"]),
-        prefix="/api/local-embedding",
-        tags=["Local Embedding"],
-    )
-    app.include_router(
-        _build_public_router(local_reranker_router, _PUBLIC_ROUTE_METHODS["local_reranker"]),
-        prefix="/api/local-reranker",
-        tags=["Local Reranker"],
-    )
-    app.include_router(
-        _build_public_router(background_tasks_router, _PUBLIC_ROUTE_METHODS["background_tasks"]),
-        prefix="/api/background-tasks",
-        tags=["Background Tasks"],
-    )
-    app.include_router(
-        _build_public_router(schedules_router, _PUBLIC_ROUTE_METHODS["schedules"]),
-        prefix="/api/schedules",
-        tags=["Schedules"],
-    )
-    app.include_router(
-        _build_public_router(control_router, _PUBLIC_ROUTE_METHODS["control"]),
-        prefix="/api/control",
-        tags=["Control"],
-    )
-    app.include_router(
-        _build_public_router(mcp_router, _PUBLIC_ROUTE_METHODS["mcp"]),
-        prefix="/api/mcp",
-        tags=["MCP"],
-    )
-    app.include_router(
-        _build_public_router(commands_router, _PUBLIC_ROUTE_METHODS["commands"]),
-        prefix="/api/commands",
-        tags=["Commands"],
-    )
-    app.include_router(
-        _build_public_router(code_agent_router, _PUBLIC_ROUTE_METHODS["code_agent"]),
-        prefix="/api/code_agent",
-        tags=["CodeAgent"],
-    )
-    app.include_router(
-        _build_public_router(profile_router, _PUBLIC_ROUTE_METHODS["profile"]),
-        prefix="/api/profile",
-        tags=["Profile"],
-    )
-    app.include_router(
-        _build_public_router(availability_router, _PUBLIC_ROUTE_METHODS["availability"]),
-        prefix="/api",
-        tags=["Availability"],
-    )
-    app.include_router(
-        _build_public_router(chat_preview_router, _PUBLIC_ROUTE_METHODS["chat_preview"]),
-        prefix="/api",
-        tags=["Chat Preview"],
-    )
-    app.include_router(
-        _build_public_router(system_suggestions_router, _PUBLIC_ROUTE_METHODS["system_suggestions"]),
-        prefix="/api",
-        tags=["System Suggestions"],
-    )
-    app.include_router(
-        _build_public_router(notifications_router, _PUBLIC_ROUTE_METHODS["notifications"]),
-        prefix="/api",
-        tags=["Notifications"],
-    )
-    app.include_router(
-        _build_public_router(channels_bindings_router, _PUBLIC_ROUTE_METHODS["channels_bindings"]),
-        prefix="/api/channels",
-        tags=["Channels"],
-    )
+
+def _public_router_module() -> Any:
+    from . import routers
+
+    return routers
