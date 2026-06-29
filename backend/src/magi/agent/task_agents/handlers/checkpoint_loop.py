@@ -29,6 +29,13 @@ class _LoopCursor:
     step_state: Any
 
 
+@dataclass(slots=True)
+class _LoopIterationResult:
+    terminal_result: FunctionCallingExecutionResult | None = None
+    continue_loop: bool = False
+    stop_for_fallback: bool = False
+
+
 class FunctionCallingCheckpointLoop:
     """Run the checkpoint-aware function-calling loop for one chat turn."""
 
@@ -62,68 +69,19 @@ class FunctionCallingCheckpointLoop:
 
         with bind_detach_signal(detach_signal):
             while cursor.step_state.iteration < max_iterations:
-                cancelled = await self._maybe_build_cancelled_result(
-                    request=request,
-                    cursor=cursor,
-                    cancel_token=cancel_token,
-                    include_payload=True,
-                )
-                if cancelled is not None:
-                    return cancelled
-
-                detached = self._build_detached_result_if_requested(
-                    request=request,
-                    cursor=cursor,
-                    detach_signal=detach_signal,
-                )
-                if detached is not None:
-                    return detached
-
-                await self._drain_pending_steer_turns(
-                    session_id=request.context.session_id,
-                    revision=cursor.revision,
-                    steer_inbox=steer_inbox,
-                    step_state=cursor.step_state,
-                    latest_fact_timestamp=getattr(
-                        request.context.latest_payload, "timestamp", None
-                    ),
-                )
-
-                step_outcome = await self._execute_step(
+                iteration_result = await self._run_iteration(
                     request=request,
                     cursor=cursor,
                     execution_workspace=execution_workspace,
                     cancel_token=cancel_token,
-                )
-                step_result = self._build_step_terminal_result(
-                    request=request,
-                    cursor=cursor,
-                    step_outcome=step_outcome,
-                )
-                if step_result is not None:
-                    return step_result
-                if step_outcome.status == "failed":
-                    break
-
-                detached = self._build_detached_result_if_requested(
-                    request=request,
-                    cursor=cursor,
                     detach_signal=detach_signal,
-                )
-                if detached is not None:
-                    return detached
-
-                if await self._rebuild_from_active_run_if_needed(
-                    request=request,
-                    cursor=cursor,
                     steer_inbox=steer_inbox,
-                ):
-                    continue
-
-                if self._rebuild_from_checkpoint_if_needed(
-                    request=request,
-                    cursor=cursor,
-                ):
+                )
+                if iteration_result.terminal_result is not None:
+                    return iteration_result.terminal_result
+                if iteration_result.stop_for_fallback:
+                    break
+                if iteration_result.continue_loop:
                     continue
 
             return await self._run_fallback(
@@ -132,6 +90,94 @@ class FunctionCallingCheckpointLoop:
                 execution_workspace=execution_workspace,
                 cancel_token=cancel_token,
             )
+
+    async def _run_iteration(
+        self,
+        *,
+        request: FunctionCallingRequest,
+        cursor: _LoopCursor,
+        execution_workspace: str | None,
+        cancel_token: CancelToken,
+        detach_signal: DetachSignal | None,
+        steer_inbox: SteerInbox | None,
+    ) -> _LoopIterationResult:
+        cancelled = await self._maybe_build_cancelled_result(
+            request=request,
+            cursor=cursor,
+            cancel_token=cancel_token,
+            include_payload=True,
+        )
+        if cancelled is not None:
+            return _LoopIterationResult(terminal_result=cancelled)
+
+        detached = self._build_detached_result_if_requested(
+            request=request,
+            cursor=cursor,
+            detach_signal=detach_signal,
+        )
+        if detached is not None:
+            return _LoopIterationResult(terminal_result=detached)
+
+        await self._drain_steer_turns(request, cursor, steer_inbox)
+        step_outcome = await self._execute_step(
+            request=request,
+            cursor=cursor,
+            execution_workspace=execution_workspace,
+            cancel_token=cancel_token,
+        )
+        terminal = self._build_step_terminal_result(
+            request=request,
+            cursor=cursor,
+            step_outcome=step_outcome,
+        )
+        if terminal is not None:
+            return _LoopIterationResult(terminal_result=terminal)
+        if step_outcome.status == "failed":
+            return _LoopIterationResult(stop_for_fallback=True)
+
+        detached = self._build_detached_result_if_requested(
+            request=request,
+            cursor=cursor,
+            detach_signal=detach_signal,
+        )
+        if detached is not None:
+            return _LoopIterationResult(terminal_result=detached)
+        return await self._maybe_rebuild_for_next_iteration(
+            request=request,
+            cursor=cursor,
+            steer_inbox=steer_inbox,
+        )
+
+    async def _drain_steer_turns(
+        self,
+        request: FunctionCallingRequest,
+        cursor: _LoopCursor,
+        steer_inbox: SteerInbox | None,
+    ) -> None:
+        await self._drain_pending_steer_turns(
+            session_id=request.context.session_id,
+            revision=cursor.revision,
+            steer_inbox=steer_inbox,
+            step_state=cursor.step_state,
+            latest_fact_timestamp=getattr(request.context.latest_payload, "timestamp", None),
+        )
+
+    async def _maybe_rebuild_for_next_iteration(
+        self,
+        *,
+        request: FunctionCallingRequest,
+        cursor: _LoopCursor,
+        steer_inbox: SteerInbox | None,
+    ) -> _LoopIterationResult:
+        if await self._rebuild_from_active_run_if_needed(
+            request=request,
+            cursor=cursor,
+            steer_inbox=steer_inbox,
+        ):
+            return _LoopIterationResult(continue_loop=True)
+        if self._rebuild_from_checkpoint_if_needed(request=request, cursor=cursor):
+            return _LoopIterationResult(continue_loop=True)
+        return _LoopIterationResult()
 
     def _initial_cursor(self, request: FunctionCallingRequest) -> _LoopCursor:
         user_message = request.context.latest_user_message
@@ -314,9 +360,7 @@ class FunctionCallingCheckpointLoop:
         cursor: _LoopCursor,
         steer_inbox: SteerInbox | None,
     ) -> bool:
-        active_run = self._deps.session_run_coordinator.get_active_run(
-            request.context.session_id
-        )
+        active_run = self._deps.session_run_coordinator.get_active_run(request.context.session_id)
         if active_run is None or active_run.revision == cursor.revision:
             return False
         cursor.revision = active_run.revision
@@ -380,9 +424,7 @@ class FunctionCallingCheckpointLoop:
             mode=request.mode,
             response_text=execution_outcome.content,
             attachments=list(getattr(execution_outcome, "attachments", []) or []),
-            message_payload=dict(
-                getattr(execution_outcome, "message_payload", {}) or {}
-            ),
+            message_payload=dict(getattr(execution_outcome, "message_payload", {}) or {}),
             root_user_message=cursor.user_message,
             execution_outcome=execution_outcome.to_dict(),
             turn_id=cursor.turn_id,
