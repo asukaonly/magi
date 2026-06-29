@@ -60,122 +60,174 @@ class L2PipelineWorkerMixin:
 
         while True:
             job = await host._extract_queue.get()
-            active_counted = False
             try:
                 if job is None:
                     break
-                host._stats.extract_active += 1
-                active_counted = True
-                logger.info(
-                    "L2 extract started",
-                    job_id=job.job_id,
-                    batch_key=job.bucket_key,
-                    event_ids=job.event_ids,
-                    flush_reason=job.flush_reason,
-                    queue_size=host._extract_queue.qsize(),
-                )
-                if job.event_ids:
-                    transitioned = await host._cognition_store.mark_projection_jobs_running(
-                        job.event_ids,
-                        consumer_name=host._projection_consumer_name,
-                    )
-                    if transitioned == 0:
-                        host._stats.extract_skipped += 1
-                        logger.info(
-                            "L2 extract skipped (stale batch)",
-                            job_id=job.job_id,
-                            event_ids=job.event_ids,
-                            queue_size=host._extract_queue.qsize(),
-                        )
-                        continue
-                result = await host._extract_and_persist(job)
-                if job.event_ids:
-                    await host._cognition_store.complete_projection_jobs(job.event_ids)
-                host._stats.extract_completed += 1
-                if result.get("skipped"):
-                    host._stats.extract_skipped += 1
-                    logger.info(
-                        "L2 extract skipped",
-                        job_id=job.job_id,
-                        event_ids=job.event_ids,
-                        evidence_class=result.get("evidence_class"),
-                        skip_reason=result.get("skip_reason"),
-                        queue_size=host._extract_queue.qsize(),
-                    )
-                else:
-                    logger.info(
-                        "L2 extract completed",
-                        job_id=job.job_id,
-                        event_ids=job.event_ids,
-                        evidence_class=result.get("evidence_class"),
-                        profile_id=result.get("profile_id"),
-                        mention_count=int(result.get("mention_count", 0)),
-                        graph_candidate_count=int(result.get("graph_candidate_count", 0)),
-                        assertion_candidate_count=int(result.get("assertion_candidate_count", 0)),
-                        rejected_graph_candidate_count=int(
-                            result.get("rejected_graph_candidate_count", 0)
-                        ),
-                        rejected_assertion_candidate_count=int(
-                            result.get("rejected_assertion_candidate_count", 0)
-                        ),
-                        relation_count=int(result["relation_count"]),
-                        assertion_count=int(result["assertion_count"]),
-                        contradiction_hint_count=int(result.get("contradiction_hint_count", 0)),
-                        touched_entity_count=len(result.get("touched_entity_ids", [])),
-                        queue_size=host._extract_queue.qsize(),
-                    )
-                host._stats.relations_written += int(result["relation_count"])
-                host._stats.assertions_written += int(result["assertion_count"])
-                touched_entity_ids = result.get("touched_entity_ids", [])
-                if isinstance(touched_entity_ids, list) and touched_entity_ids:
-                    host._accumulate_session_entities(job.session_id, touched_entity_ids)
-                    await host.enqueue_entities(touched_entity_ids)
-                snapshot_refresh_entity_ids = result.get("snapshot_refresh_entity_ids", [])
-                if isinstance(snapshot_refresh_entity_ids, list) and snapshot_refresh_entity_ids:
-                    await host.enqueue_snapshot_refresh(snapshot_refresh_entity_ids)
-                if (
-                    host._cognition_store is not None
-                    and job.event_ids
-                    and not result.get("skipped")
-                ):
-                    try:
-                        candidate_jobs = [
-                            EpisodeCandidateJob(
-                                event_id=eid,
-                                event_timestamp=float(evt.get("timestamp", 0.0) or 0.0),
-                                entity_ids=touched_entity_ids
-                                if isinstance(touched_entity_ids, list)
-                                else [],
-                                place_ids=result.get("touched_place_ids", []) or [],
-                                topic_keys=result.get("touched_topic_keys", []) or [],
-                                episode_type_hint=episode_type_for_event(
-                                    str(evt.get("event_type") or "")
-                                ),
-                            )
-                            for eid, evt in zip(job.event_ids, job.events)
-                        ]
-                        if candidate_jobs:
-                            await assign_events_to_episode(host._cognition_store, candidate_jobs)
-                    except Exception:
-                        logger.debug("Episode candidate formation failed", exc_info=True)
-            except Exception as exc:
-                if host._cognition_store is not None and job is not None and job.event_ids:
-                    await host._cognition_store.fail_projection_jobs(
-                        job.event_ids,
-                        error_text=str(exc),
-                        requeue=True,
-                    )
-                host._stats.extract_failed += 1
-                logger.exception(
-                    "L2 extract failed",
-                    job_id=getattr(job, "job_id", None),
-                    event_ids=getattr(job, "event_ids", []),
-                    queue_size=host._extract_queue.qsize(),
-                )
+                await self._process_extract_job(job)
             finally:
-                if active_counted:
-                    host._stats.extract_active = max(host._stats.extract_active - 1, 0)
                 host._extract_queue.task_done()
+
+    async def _process_extract_job(self, job: L2BatchJob) -> None:
+        host = self._worker_host()
+        host._stats.extract_active += 1
+        try:
+            should_process = await self._start_extract_job(job)
+            if not should_process:
+                return
+            result = await host._extract_and_persist(job)
+            if job.event_ids and host._cognition_store is not None:
+                await host._cognition_store.complete_projection_jobs(job.event_ids)
+            await self._finish_extract_job(job, result)
+        except Exception as exc:
+            await self._fail_extract_job(job, exc)
+        finally:
+            host._stats.extract_active = max(host._stats.extract_active - 1, 0)
+
+    async def _start_extract_job(self, job: L2BatchJob) -> bool:
+        host = self._worker_host()
+        logger.info(
+            "L2 extract started",
+            job_id=job.job_id,
+            batch_key=job.bucket_key,
+            event_ids=job.event_ids,
+            flush_reason=job.flush_reason,
+            queue_size=host._extract_queue.qsize(),
+        )
+        if not job.event_ids or host._cognition_store is None:
+            return True
+
+        transitioned = await host._cognition_store.mark_projection_jobs_running(
+            job.event_ids,
+            consumer_name=host._projection_consumer_name,
+        )
+        if transitioned != 0:
+            return True
+
+        host._stats.extract_skipped += 1
+        logger.info(
+            "L2 extract skipped (stale batch)",
+            job_id=job.job_id,
+            event_ids=job.event_ids,
+            queue_size=host._extract_queue.qsize(),
+        )
+        return False
+
+    async def _finish_extract_job(
+        self,
+        job: L2BatchJob,
+        result: dict[str, Any],
+    ) -> None:
+        host = self._worker_host()
+        host._stats.extract_completed += 1
+        self._log_extract_result(job, result)
+        host._stats.relations_written += int(result["relation_count"])
+        host._stats.assertions_written += int(result["assertion_count"])
+        touched_entity_ids = result.get("touched_entity_ids", [])
+        if isinstance(touched_entity_ids, list) and touched_entity_ids:
+            host._accumulate_session_entities(job.session_id, touched_entity_ids)
+            await host.enqueue_entities(touched_entity_ids)
+
+        snapshot_refresh_entity_ids = result.get("snapshot_refresh_entity_ids", [])
+        if isinstance(snapshot_refresh_entity_ids, list) and snapshot_refresh_entity_ids:
+            await host.enqueue_snapshot_refresh(snapshot_refresh_entity_ids)
+
+        if job.event_ids and not result.get("skipped"):
+            await self._form_episode_candidates(
+                job,
+                result=result,
+                touched_entity_ids=touched_entity_ids,
+            )
+
+    def _log_extract_result(self, job: L2BatchJob, result: dict[str, Any]) -> None:
+        host = self._worker_host()
+        if result.get("skipped"):
+            host._stats.extract_skipped += 1
+            logger.info(
+                "L2 extract skipped",
+                job_id=job.job_id,
+                event_ids=job.event_ids,
+                evidence_class=result.get("evidence_class"),
+                skip_reason=result.get("skip_reason"),
+                queue_size=host._extract_queue.qsize(),
+            )
+            return
+
+        logger.info(
+            "L2 extract completed",
+            job_id=job.job_id,
+            event_ids=job.event_ids,
+            evidence_class=result.get("evidence_class"),
+            profile_id=result.get("profile_id"),
+            mention_count=int(result.get("mention_count", 0)),
+            graph_candidate_count=int(result.get("graph_candidate_count", 0)),
+            assertion_candidate_count=int(result.get("assertion_candidate_count", 0)),
+            rejected_graph_candidate_count=int(result.get("rejected_graph_candidate_count", 0)),
+            rejected_assertion_candidate_count=int(
+                result.get("rejected_assertion_candidate_count", 0)
+            ),
+            relation_count=int(result["relation_count"]),
+            assertion_count=int(result["assertion_count"]),
+            contradiction_hint_count=int(result.get("contradiction_hint_count", 0)),
+            touched_entity_count=len(result.get("touched_entity_ids", [])),
+            queue_size=host._extract_queue.qsize(),
+        )
+
+    async def _form_episode_candidates(
+        self,
+        job: L2BatchJob,
+        *,
+        result: dict[str, Any],
+        touched_entity_ids: Any,
+    ) -> None:
+        host = self._worker_host()
+        if host._cognition_store is None:
+            return
+        try:
+            candidate_jobs = self._build_episode_candidate_jobs(
+                job,
+                result=result,
+                touched_entity_ids=touched_entity_ids,
+            )
+            if candidate_jobs:
+                await assign_events_to_episode(host._cognition_store, candidate_jobs)
+        except Exception:
+            logger.debug("Episode candidate formation failed", exc_info=True)
+
+    def _build_episode_candidate_jobs(
+        self,
+        job: L2BatchJob,
+        *,
+        result: dict[str, Any],
+        touched_entity_ids: Any,
+    ) -> list[EpisodeCandidateJob]:
+        entity_ids = touched_entity_ids if isinstance(touched_entity_ids, list) else []
+        return [
+            EpisodeCandidateJob(
+                event_id=eid,
+                event_timestamp=float(evt.get("timestamp", 0.0) or 0.0),
+                entity_ids=entity_ids,
+                place_ids=result.get("touched_place_ids", []) or [],
+                topic_keys=result.get("touched_topic_keys", []) or [],
+                episode_type_hint=episode_type_for_event(str(evt.get("event_type") or "")),
+            )
+            for eid, evt in zip(job.event_ids, job.events)
+        ]
+
+    async def _fail_extract_job(self, job: L2BatchJob, exc: Exception) -> None:
+        host = self._worker_host()
+        if host._cognition_store is not None and job.event_ids:
+            await host._cognition_store.fail_projection_jobs(
+                job.event_ids,
+                error_text=str(exc),
+                requeue=True,
+            )
+        host._stats.extract_failed += 1
+        logger.exception(
+            "L2 extract failed",
+            job_id=job.job_id,
+            event_ids=job.event_ids,
+            queue_size=host._extract_queue.qsize(),
+        )
 
     async def _run_reconcile_worker(self) -> None:
         host = self._worker_host()
