@@ -44,175 +44,229 @@ class L0CheckpointMixin:
         session["last_checkpoint_at"] = now
 
         async with sqlite_connection_async(self.checkpoint_db_path) as db:
+            await self._upsert_checkpoint_session(db, session=session, now=now)
+            await self._replace_checkpoint_goals(db, session_id=session_id)
+            await self._replace_checkpoint_active_entities(db, session_id=session_id)
+            await self._replace_checkpoint_tactics(db, session_id=session_id)
+            await self._replace_checkpoint_execution_run(db, session_id=session_id)
+            await self._replace_checkpoint_pending_turns(db, session_id=session_id)
+            await self._replace_checkpoint_execution_results(db, session_id=session_id)
+            await db.commit()
+
+    async def _upsert_checkpoint_session(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        session: dict[str, Any],
+        now: float,
+    ) -> None:
+        await db.execute(
+            """
+            INSERT INTO l0_sessions(
+                session_id, user_id, runtime_agent_id, status,
+                started_at, last_active_at, last_checkpoint_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET
+                user_id = excluded.user_id,
+                runtime_agent_id = excluded.runtime_agent_id,
+                status = excluded.status,
+                started_at = excluded.started_at,
+                last_active_at = excluded.last_active_at,
+                last_checkpoint_at = excluded.last_checkpoint_at,
+                metadata = excluded.metadata
+            """,
+            (
+                session["session_id"],
+                session.get("user_id"),
+                session.get("runtime_agent_id"),
+                session.get("status", "active"),
+                float(session["started_at"]),
+                float(session["last_active_at"]),
+                now,
+                encode_json(session.get("metadata", {})),
+            ),
+        )
+
+    async def _replace_checkpoint_goals(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        session_id: str,
+    ) -> None:
+        await db.execute("DELETE FROM l0_goal_stack WHERE session_id = ?", (session_id,))
+        for goal in self._goal_stack.get(session_id, []):
             await db.execute(
                 """
-                INSERT INTO l0_sessions(
-                    session_id, user_id, runtime_agent_id, status,
-                    started_at, last_active_at, last_checkpoint_at, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(session_id) DO UPDATE SET
-                    user_id = excluded.user_id,
-                    runtime_agent_id = excluded.runtime_agent_id,
-                    status = excluded.status,
-                    started_at = excluded.started_at,
-                    last_active_at = excluded.last_active_at,
-                    last_checkpoint_at = excluded.last_checkpoint_at,
-                    metadata = excluded.metadata
+                INSERT INTO l0_goal_stack(
+                    session_id, goal_id, parent_goal_id, goal_type, description,
+                    status, priority, created_at, started_at, completed_at,
+                    result_summary, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    session["session_id"],
-                    session.get("user_id"),
-                    session.get("runtime_agent_id"),
-                    session.get("status", "active"),
-                    float(session["started_at"]),
-                    float(session["last_active_at"]),
-                    now,
-                    encode_json(session.get("metadata", {})),
+                    session_id,
+                    goal["goal_id"],
+                    goal.get("parent_goal_id"),
+                    goal["goal_type"],
+                    goal["description"],
+                    goal["status"],
+                    int(goal["priority"]),
+                    float(goal["created_at"]),
+                    goal.get("started_at"),
+                    goal.get("completed_at"),
+                    goal.get("result_summary"),
+                    encode_json(goal.get("metadata", {})),
                 ),
             )
 
-            await db.execute("DELETE FROM l0_goal_stack WHERE session_id = ?", (session_id,))
-            for goal in self._goal_stack.get(session_id, []):
-                await db.execute(
-                    """
-                    INSERT INTO l0_goal_stack(
-                        session_id, goal_id, parent_goal_id, goal_type, description,
-                        status, priority, created_at, started_at, completed_at,
-                        result_summary, metadata
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        session_id,
-                        goal["goal_id"],
-                        goal.get("parent_goal_id"),
-                        goal["goal_type"],
-                        goal["description"],
-                        goal["status"],
-                        int(goal["priority"]),
-                        float(goal["created_at"]),
-                        goal.get("started_at"),
-                        goal.get("completed_at"),
-                        goal.get("result_summary"),
-                        encode_json(goal.get("metadata", {})),
-                    ),
-                )
+    async def _replace_checkpoint_active_entities(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        session_id: str,
+    ) -> None:
+        await db.execute("DELETE FROM l0_active_entities WHERE session_id = ?", (session_id,))
+        for entity in self._active_entities.get(session_id, {}).values():
+            await db.execute(
+                """
+                INSERT INTO l0_active_entities(
+                    session_id, entity_id, entity_type, relevance_score,
+                    snapshot_json, loaded_at, last_accessed_at, access_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    entity["entity_id"],
+                    entity["entity_type"],
+                    float(entity["relevance_score"]),
+                    encode_json(entity["snapshot"]),
+                    float(entity["loaded_at"]),
+                    float(entity["last_accessed_at"]),
+                    int(entity["access_count"]),
+                ),
+            )
 
-            await db.execute("DELETE FROM l0_active_entities WHERE session_id = ?", (session_id,))
-            for entity in self._active_entities.get(session_id, {}).values():
-                await db.execute(
-                    """
-                    INSERT INTO l0_active_entities(
-                        session_id, entity_id, entity_type, relevance_score,
-                        snapshot_json, loaded_at, last_accessed_at, access_count
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        session_id,
-                        entity["entity_id"],
-                        entity["entity_type"],
-                        float(entity["relevance_score"]),
-                        encode_json(entity["snapshot"]),
-                        float(entity["loaded_at"]),
-                        float(entity["last_accessed_at"]),
-                        int(entity["access_count"]),
-                    ),
-                )
+    async def _replace_checkpoint_tactics(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        session_id: str,
+    ) -> None:
+        await db.execute("DELETE FROM l0_temporary_tactics WHERE session_id = ?", (session_id,))
+        for tactic in self._temporary_tactics.get(session_id, {}).values():
+            await db.execute(
+                """
+                INSERT INTO l0_temporary_tactics(
+                    tactic_id, session_id, scope_type, scope_id, tactic_type,
+                    tactic_payload, source_event_ids, expires_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    tactic["tactic_id"],
+                    session_id,
+                    tactic["scope_type"],
+                    tactic["scope_id"],
+                    tactic["tactic_type"],
+                    encode_json(tactic["tactic_payload"]),
+                    encode_json(tactic["source_event_ids"]),
+                    tactic.get("expires_at"),
+                    float(tactic["created_at"]),
+                ),
+            )
 
-            await db.execute("DELETE FROM l0_temporary_tactics WHERE session_id = ?", (session_id,))
-            for tactic in self._temporary_tactics.get(session_id, {}).values():
-                await db.execute(
-                    """
-                    INSERT INTO l0_temporary_tactics(
-                        tactic_id, session_id, scope_type, scope_id, tactic_type,
-                        tactic_payload, source_event_ids, expires_at, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        tactic["tactic_id"],
-                        session_id,
-                        tactic["scope_type"],
-                        tactic["scope_id"],
-                        tactic["tactic_type"],
-                        encode_json(tactic["tactic_payload"]),
-                        encode_json(tactic["source_event_ids"]),
-                        tactic.get("expires_at"),
-                        float(tactic["created_at"]),
-                    ),
-                )
+    async def _replace_checkpoint_execution_run(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        session_id: str,
+    ) -> None:
+        await db.execute("DELETE FROM l0_execution_runs WHERE session_id = ?", (session_id,))
+        execution_run = self._execution_runs.get(session_id)
+        if execution_run is None:
+            return
+        await db.execute(
+            """
+            INSERT INTO l0_execution_runs(
+                session_id, run_id, status, revision, root_turn_id,
+                root_user_message, response_anchor_turn_id, cancel_requested_at,
+                cancel_reason, cancel_requested_by, cancel_anchor_turn_id,
+                trigger_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                execution_run["run_id"],
+                execution_run["status"],
+                int(execution_run["revision"]),
+                execution_run.get("root_turn_id"),
+                execution_run.get("root_user_message", ""),
+                execution_run.get("response_anchor_turn_id"),
+                execution_run.get("cancel_requested_at"),
+                execution_run.get("cancel_reason"),
+                execution_run.get("cancel_requested_by"),
+                execution_run.get("cancel_anchor_turn_id"),
+                (
+                    encode_json(execution_run["trigger"])
+                    if execution_run.get("trigger") is not None
+                    else None
+                ),
+                float(execution_run["created_at"]),
+                float(execution_run["updated_at"]),
+            ),
+        )
 
-            await db.execute("DELETE FROM l0_execution_runs WHERE session_id = ?", (session_id,))
-            execution_run = self._execution_runs.get(session_id)
-            if execution_run is not None:
-                await db.execute(
-                    """
-                    INSERT INTO l0_execution_runs(
-                        session_id, run_id, status, revision, root_turn_id,
-                        root_user_message, response_anchor_turn_id, cancel_requested_at,
-                        cancel_reason, cancel_requested_by, cancel_anchor_turn_id,
-                        trigger_json, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        session_id,
-                        execution_run["run_id"],
-                        execution_run["status"],
-                        int(execution_run["revision"]),
-                        execution_run.get("root_turn_id"),
-                        execution_run.get("root_user_message", ""),
-                        execution_run.get("response_anchor_turn_id"),
-                        execution_run.get("cancel_requested_at"),
-                        execution_run.get("cancel_reason"),
-                        execution_run.get("cancel_requested_by"),
-                        execution_run.get("cancel_anchor_turn_id"),
-                        (
-                            encode_json(execution_run["trigger"])
-                            if execution_run.get("trigger") is not None
-                            else None
-                        ),
-                        float(execution_run["created_at"]),
-                        float(execution_run["updated_at"]),
-                    ),
-                )
+    async def _replace_checkpoint_pending_turns(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        session_id: str,
+    ) -> None:
+        await db.execute(
+            "DELETE FROM l0_execution_pending_turns WHERE session_id = ?",
+            (session_id,),
+        )
+        for pending_turn in self._execution_pending_turns.get(session_id, []):
+            await db.execute(
+                """
+                INSERT INTO l0_execution_pending_turns(
+                    session_id, run_id, turn_id, content, revision, disposition, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    pending_turn["run_id"],
+                    pending_turn["turn_id"],
+                    pending_turn["content"],
+                    int(pending_turn["revision"]),
+                    str(pending_turn.get("disposition") or "augment"),
+                    float(pending_turn["created_at"]),
+                ),
+            )
 
-            await db.execute("DELETE FROM l0_execution_pending_turns WHERE session_id = ?", (session_id,))
-            for pending_turn in self._execution_pending_turns.get(session_id, []):
-                await db.execute(
-                    """
-                    INSERT INTO l0_execution_pending_turns(
-                        session_id, run_id, turn_id, content, revision, disposition, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        session_id,
-                        pending_turn["run_id"],
-                        pending_turn["turn_id"],
-                        pending_turn["content"],
-                        int(pending_turn["revision"]),
-                        str(pending_turn.get("disposition") or "augment"),
-                        float(pending_turn["created_at"]),
-                    ),
-                )
-
-            await db.execute("DELETE FROM l0_execution_results WHERE session_id = ?", (session_id,))
-            for result in self._execution_results.get(session_id, []):
-                await db.execute(
-                    """
-                    INSERT INTO l0_execution_results(
-                        result_id, session_id, run_id, revision, disposition, payload_json, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        result["result_id"],
-                        session_id,
-                        result["run_id"],
-                        int(result["revision"]),
-                        result["disposition"],
-                        encode_json(result["payload"]),
-                        float(result["created_at"]),
-                    ),
-                )
-
-            await db.commit()
+    async def _replace_checkpoint_execution_results(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        session_id: str,
+    ) -> None:
+        await db.execute("DELETE FROM l0_execution_results WHERE session_id = ?", (session_id,))
+        for result in self._execution_results.get(session_id, []):
+            await db.execute(
+                """
+                INSERT INTO l0_execution_results(
+                    result_id, session_id, run_id, revision, disposition, payload_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    result["result_id"],
+                    session_id,
+                    result["run_id"],
+                    int(result["revision"]),
+                    result["disposition"],
+                    encode_json(result["payload"]),
+                    float(result["created_at"]),
+                ),
+            )
 
     async def checkpoint_all(self) -> None:
         """Persist every active session."""
@@ -254,9 +308,9 @@ class L0CheckpointMixin:
             async with db.execute("SELECT * FROM l0_active_entities") as cursor:
                 async for row in cursor:
                     session_id = str(row["session_id"])
-                    self._active_entities.setdefault(session_id, {})[
-                        active_entity_key(row)
-                    ] = row_to_active_entity(row)
+                    self._active_entities.setdefault(session_id, {})[active_entity_key(row)] = (
+                        row_to_active_entity(row)
+                    )
 
             async with db.execute("SELECT * FROM l0_temporary_tactics") as cursor:
                 async for row in cursor:
