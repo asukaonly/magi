@@ -215,10 +215,10 @@ class _FakeFunctionCallingOrchestrator:
 
 @pytest.mark.asyncio
 async def test_agent_tool_launch_foreground(monkeypatch):
-    from magi.agent.workers import worker_manager as worker_manager_module
+    from magi.agent.workers import worker_execution as worker_execution_module
 
     monkeypatch.setattr(
-        worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator
+        worker_execution_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator
     )
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
@@ -256,7 +256,7 @@ async def test_agent_tool_launch_foreground(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_tool_uses_30_iteration_default_for_workers(monkeypatch):
-    from magi.agent.workers import worker_manager as worker_manager_module
+    from magi.agent.workers import worker_execution as worker_execution_module
 
     fake_orchestrators = []
 
@@ -266,7 +266,9 @@ async def test_agent_tool_uses_30_iteration_default_for_workers(monkeypatch):
             fake_orchestrators.append(self)
 
     monkeypatch.setattr(
-        worker_manager_module, "FunctionCallingOrchestrator", _RecordingFunctionCallingOrchestrator
+        worker_execution_module,
+        "FunctionCallingOrchestrator",
+        _RecordingFunctionCallingOrchestrator,
     )
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
@@ -303,10 +305,10 @@ async def test_agent_tool_persists_worker_trace_nodes_to_runtime_trace_store(
     monkeypatch,
     runtime_paths_with_schema,
 ):
-    from magi.agent.workers import worker_manager as worker_manager_module
+    from magi.agent.workers import worker_execution as worker_execution_module
 
     monkeypatch.setattr(
-        worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator
+        worker_execution_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator
     )
     tool = AgentTool()
     runtime_trace_store = RuntimeTraceStore(
@@ -372,10 +374,10 @@ async def test_agent_tool_persists_worker_trace_nodes_to_runtime_trace_store(
 
 @pytest.mark.asyncio
 async def test_agent_tool_background_then_await(monkeypatch):
-    from magi.agent.workers import worker_manager as worker_manager_module
+    from magi.agent.workers import worker_execution as worker_execution_module
 
     monkeypatch.setattr(
-        worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator
+        worker_execution_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator
     )
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
@@ -430,10 +432,10 @@ async def test_agent_tool_background_then_await(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_tool_batch_workers(monkeypatch):
-    from magi.agent.workers import worker_manager as worker_manager_module
+    from magi.agent.workers import worker_execution as worker_execution_module
 
     monkeypatch.setattr(
-        worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator
+        worker_execution_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator
     )
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
@@ -779,7 +781,7 @@ async def test_cancel_run_workers_prefers_cooperative_token():
 
 @pytest.mark.asyncio
 async def test_empty_worker_result_is_marked_failed(monkeypatch):
-    from magi.agent.workers import worker_manager as worker_manager_module
+    from magi.agent.workers import worker_execution as worker_execution_module
 
     class _EmptyExecutor:
         def __init__(self, *args, **kwargs):
@@ -797,7 +799,7 @@ async def test_empty_worker_result_is_marked_failed(monkeypatch):
                 iterations=2,
             )
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _EmptyExecutor)
+    monkeypatch.setattr(worker_execution_module, "FunctionCallingOrchestrator", _EmptyExecutor)
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
@@ -829,7 +831,7 @@ async def test_empty_worker_result_is_marked_failed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_invalid_json_worker_result_is_marked_failed(monkeypatch):
-    from magi.agent.workers import worker_manager as worker_manager_module
+    from magi.agent.workers import worker_execution as worker_execution_module
 
     class _InvalidJsonExecutor:
         def __init__(self, *args, **kwargs):
@@ -846,7 +848,9 @@ async def test_invalid_json_worker_result_is_marked_failed(monkeypatch):
                 iterations=1,
             )
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _InvalidJsonExecutor)
+    monkeypatch.setattr(
+        worker_execution_module, "FunctionCallingOrchestrator", _InvalidJsonExecutor
+    )
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
@@ -884,7 +888,7 @@ async def test_invalid_json_worker_result_is_marked_failed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_embedded_json_worker_result_is_accepted(monkeypatch):
-    from magi.agent.workers import worker_manager as worker_manager_module
+    from magi.agent.workers import worker_execution as worker_execution_module
 
     class _EmbeddedJsonExecutor:
         def __init__(self, *args, **kwargs):
@@ -907,7 +911,9 @@ async def test_embedded_json_worker_result_is_accepted(monkeypatch):
                 iterations=1,
             )
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _EmbeddedJsonExecutor)
+    monkeypatch.setattr(
+        worker_execution_module, "FunctionCallingOrchestrator", _EmbeddedJsonExecutor
+    )
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
@@ -952,7 +958,7 @@ def test_coding_worker_tool_profile_excludes_todo_write() -> None:
 
 @pytest.mark.asyncio
 async def test_structured_failed_worker_result_is_not_marked_completed(monkeypatch):
-    from magi.agent.workers import worker_manager as worker_manager_module
+    from magi.agent.workers import worker_execution as worker_execution_module
 
     class _StructuredFailureExecutor:
         def __init__(self, *args, **kwargs):
@@ -982,7 +988,7 @@ async def test_structured_failed_worker_result_is_not_marked_completed(monkeypat
             )
 
     monkeypatch.setattr(
-        worker_manager_module, "FunctionCallingOrchestrator", _StructuredFailureExecutor
+        worker_execution_module, "FunctionCallingOrchestrator", _StructuredFailureExecutor
     )
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())

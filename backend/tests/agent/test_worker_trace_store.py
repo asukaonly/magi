@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import time
-import sys
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -20,9 +19,7 @@ from magi.agent.runtime_tools import AgentTool, WorkerRunState
 
 @pytest.fixture
 async def runtime_trace_store(runtime_paths_with_schema):
-    store = RuntimeTraceStore(
-        db_path=str(runtime_paths_with_schema.runtime_trace_db_path)
-    )
+    store = RuntimeTraceStore(db_path=str(runtime_paths_with_schema.runtime_trace_db_path))
     await store.initialize()
     try:
         yield store
@@ -163,7 +160,9 @@ async def test_worker_trace_store_persists_llm_and_tool_rows(
     await flush()
 
     llm_span = await runtime_trace_store.get_span("turn-1:worker_llm:subtask-1:1:final_response:1")
-    llm_call = await runtime_trace_store.get_llm_call("turn-1:worker_llm:subtask-1:1:final_response:1")
+    llm_call = await runtime_trace_store.get_llm_call(
+        "turn-1:worker_llm:subtask-1:1:final_response:1"
+    )
     tool_span = await runtime_trace_store.get_span("turn-1:worker_tool:subtask-1:1:call-1")
     tool_call = await runtime_trace_store.get_tool_call("turn-1:worker_tool:subtask-1:1:call-1")
 
@@ -191,7 +190,9 @@ async def test_worker_trace_store_persists_llm_and_tool_rows(
 
 
 @pytest.mark.asyncio
-async def test_worker_run_marks_stream_events_as_worker_source(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_worker_run_marks_stream_events_as_worker_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: list[LLMStreamEvent] = []
 
     async def sink(event: LLMStreamEvent) -> None:
@@ -228,9 +229,10 @@ async def test_worker_run_marks_stream_events_as_worker_source(monkeypatch: pyte
     manager._emit_worker_completed_trace = AsyncMock()
     manager._emit_worker_failed_trace = AsyncMock()
     manager._orchestration_store.save_worker_result = AsyncMock()
-    worker_manager_module = sys.modules[manager.__class__.__module__]
+    from magi.agent.workers import worker_execution as worker_execution_module
+
     monkeypatch.setattr(
-        worker_manager_module,
+        worker_execution_module,
         "FunctionCallingOrchestrator",
         FakeFunctionCallingOrchestrator,
     )
