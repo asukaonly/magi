@@ -11,6 +11,7 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
 from .learning.updates import (
+    UpdatedSkillRecordState,
     build_new_skill_record_state,
     build_updated_skill_record_state,
 )
@@ -60,120 +61,201 @@ class L4ProceduralRecordingMixin:
             return None
 
         await self.initialize()
-        skill_name: str = identity["skill_name"]
-        skill_category: str = identity["skill_category"]
-        skill_type: str = identity["skill_type"]
-        success: bool = identity["success"]
-        duration_ms: float = identity["duration_ms"]
-        optimized_prompt: Optional[str] = identity["optimized_prompt"]
         now = time.time()
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM procedural_skills WHERE skill_name = ? AND skill_category = ?",
-                (skill_name, skill_category),
-            ) as cursor:
-                existing = await cursor.fetchone()
+            existing = await self._fetch_skill_record(
+                db,
+                skill_name=identity["skill_name"],
+                skill_category=identity["skill_category"],
+            )
 
             if existing is None:
-                skill_id = f"skill_{uuid.uuid4().hex}"
-                record_state = build_new_skill_record_state(
-                    success=success,
-                    duration_ms=duration_ms,
-                    event_timestamp=float(event.timestamp),
-                    breaker_failure_threshold=self.breaker_failure_threshold,
-                )
-                await insert_new_skill_record(
+                return await self._record_new_skill_event(
                     db,
-                    skill_id=skill_id,
-                    skill_name=skill_name,
-                    skill_category=skill_category,
-                    skill_type=skill_type,
-                    record_state=record_state,
-                    optimized_prompt=optimized_prompt,
-                    event_id=event.event_id,
-                    event_timestamp=float(event.timestamp),
-                    now=now,
-                )
-                await db.commit()
-                await sync_skill_fts(
-                    db,
-                    skill_id=skill_id,
-                    skill_name=skill_name,
-                    skill_category=skill_category,
-                    optimized_prompt=optimized_prompt,
-                    replace_existing=False,
-                )
-                await db.commit()
-                await self._schedule_skill_embedding(
-                    skill_id=skill_id,
-                    skill_name=skill_name,
-                    skill_category=skill_category,
-                    optimized_prompt=optimized_prompt,
-                )
-                await insert_execution_trace(
-                    db_path=self.db_path,
-                    skill_id=skill_id,
                     event=event,
                     identity=identity,
+                    now=now,
                 )
-                return skill_id
 
-            record_state = build_updated_skill_record_state(
+            return await self._record_existing_skill_event(
+                db,
                 existing=existing,
-                success=success,
-                duration_ms=duration_ms,
-                event_id=event.event_id,
-                event_timestamp=float(event.timestamp),
-                breaker_failure_threshold=self.breaker_failure_threshold,
-                breaker_recovery_successes=self.breaker_recovery_successes,
-            )
-
-            skill_id = str(existing["skill_id"])
-            await update_skill_record(
-                db,
-                skill_id=skill_id,
-                record_state=record_state,
-                optimized_prompt=optimized_prompt,
-                event_timestamp=float(event.timestamp),
-                now=now,
-            )
-            await db.commit()
-            await sync_skill_fts(
-                db,
-                skill_id=skill_id,
-                skill_name=skill_name,
-                skill_category=skill_category,
-                optimized_prompt=optimized_prompt or existing["optimized_prompt"],
-                replace_existing=True,
-            )
-            await db.commit()
-            await self._schedule_skill_embedding(
-                skill_id=skill_id,
-                skill_name=skill_name,
-                skill_category=skill_category,
-                optimized_prompt=optimized_prompt or existing["optimized_prompt"],
-            )
-            await insert_execution_trace(
-                db_path=self.db_path,
-                skill_id=skill_id,
                 event=event,
                 identity=identity,
+                now=now,
             )
-            adaptive_threshold = self._adaptive_extraction_threshold(
-                self._strategy_extraction_threshold,
-                record_state.total_attempts,
-            )
-            if record_state.pending_trace_count >= adaptive_threshold or record_state.breaker_just_opened:
-                await self._maybe_extract_strategy(
-                    skill_id=skill_id,
-                    skill_name=skill_name,
-                    skill_category=skill_category,
-                    total_attempts=record_state.total_attempts,
-                    success_rate=record_state.success_rate,
-                )
-            return skill_id
+
+    async def _fetch_skill_record(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        skill_name: str,
+        skill_category: str,
+    ) -> aiosqlite.Row | None:
+        async with db.execute(
+            "SELECT * FROM procedural_skills WHERE skill_name = ? AND skill_category = ?",
+            (skill_name, skill_category),
+        ) as cursor:
+            return await cursor.fetchone()
+
+    async def _record_new_skill_event(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        event: MemoryEvent,
+        identity: Dict[str, Any],
+        now: float,
+    ) -> str:
+        skill_id = f"skill_{uuid.uuid4().hex}"
+        skill_name: str = identity["skill_name"]
+        skill_category: str = identity["skill_category"]
+        optimized_prompt: Optional[str] = identity["optimized_prompt"]
+        record_state = build_new_skill_record_state(
+            success=identity["success"],
+            duration_ms=identity["duration_ms"],
+            event_timestamp=float(event.timestamp),
+            breaker_failure_threshold=self.breaker_failure_threshold,
+        )
+        await insert_new_skill_record(
+            db,
+            skill_id=skill_id,
+            skill_name=skill_name,
+            skill_category=skill_category,
+            skill_type=identity["skill_type"],
+            record_state=record_state,
+            optimized_prompt=optimized_prompt,
+            event_id=event.event_id,
+            event_timestamp=float(event.timestamp),
+            now=now,
+        )
+        await db.commit()
+        await self._sync_skill_indexes(
+            db,
+            skill_id=skill_id,
+            skill_name=skill_name,
+            skill_category=skill_category,
+            optimized_prompt=optimized_prompt,
+            replace_existing=False,
+        )
+        await self._insert_execution_trace(skill_id=skill_id, event=event, identity=identity)
+        return skill_id
+
+    async def _record_existing_skill_event(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        existing: aiosqlite.Row,
+        event: MemoryEvent,
+        identity: Dict[str, Any],
+        now: float,
+    ) -> str:
+        record_state = build_updated_skill_record_state(
+            existing=existing,
+            success=identity["success"],
+            duration_ms=identity["duration_ms"],
+            event_id=event.event_id,
+            event_timestamp=float(event.timestamp),
+            breaker_failure_threshold=self.breaker_failure_threshold,
+            breaker_recovery_successes=self.breaker_recovery_successes,
+        )
+
+        skill_id = str(existing["skill_id"])
+        skill_name: str = identity["skill_name"]
+        skill_category: str = identity["skill_category"]
+        optimized_prompt: Optional[str] = identity["optimized_prompt"]
+        effective_prompt = optimized_prompt or existing["optimized_prompt"]
+        await update_skill_record(
+            db,
+            skill_id=skill_id,
+            record_state=record_state,
+            optimized_prompt=optimized_prompt,
+            event_timestamp=float(event.timestamp),
+            now=now,
+        )
+        await db.commit()
+        await self._sync_skill_indexes(
+            db,
+            skill_id=skill_id,
+            skill_name=skill_name,
+            skill_category=skill_category,
+            optimized_prompt=effective_prompt,
+            replace_existing=True,
+        )
+        await self._insert_execution_trace(skill_id=skill_id, event=event, identity=identity)
+        await self._maybe_extract_updated_strategy(
+            skill_id=skill_id,
+            skill_name=skill_name,
+            skill_category=skill_category,
+            record_state=record_state,
+        )
+        return skill_id
+
+    async def _sync_skill_indexes(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        skill_id: str,
+        skill_name: str,
+        skill_category: str,
+        optimized_prompt: Optional[str],
+        replace_existing: bool,
+    ) -> None:
+        await sync_skill_fts(
+            db,
+            skill_id=skill_id,
+            skill_name=skill_name,
+            skill_category=skill_category,
+            optimized_prompt=optimized_prompt,
+            replace_existing=replace_existing,
+        )
+        await db.commit()
+        await self._schedule_skill_embedding(
+            skill_id=skill_id,
+            skill_name=skill_name,
+            skill_category=skill_category,
+            optimized_prompt=optimized_prompt,
+        )
+
+    async def _insert_execution_trace(
+        self,
+        *,
+        skill_id: str,
+        event: MemoryEvent,
+        identity: Dict[str, Any],
+    ) -> None:
+        await insert_execution_trace(
+            db_path=self.db_path,
+            skill_id=skill_id,
+            event=event,
+            identity=identity,
+        )
+
+    async def _maybe_extract_updated_strategy(
+        self,
+        *,
+        skill_id: str,
+        skill_name: str,
+        skill_category: str,
+        record_state: UpdatedSkillRecordState,
+    ) -> None:
+        adaptive_threshold = self._adaptive_extraction_threshold(
+            self._strategy_extraction_threshold,
+            record_state.total_attempts,
+        )
+        if (
+            record_state.pending_trace_count < adaptive_threshold
+            and not record_state.breaker_just_opened
+        ):
+            return
+        await self._maybe_extract_strategy(
+            skill_id=skill_id,
+            skill_name=skill_name,
+            skill_category=skill_category,
+            total_attempts=record_state.total_attempts,
+            success_rate=record_state.success_rate,
+        )
 
     @staticmethod
     def _adaptive_extraction_threshold(
