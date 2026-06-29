@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, status
 
 from ... import i18n as core_i18n
 from ...plugins.install_service import DirectLibraryInstallError, PluginRegistryEntryNotFound
-from ...plugins.installation import InvalidPluginArchiveError
+from ...plugins.package_files import InvalidPluginArchiveError
 from .plugins_common import (
     _plugin_install_service,
     _require_plugin_manager,

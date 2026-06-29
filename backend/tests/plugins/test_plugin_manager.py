@@ -7,14 +7,15 @@ import pytest
 
 from magi.config.models import AppConfig, PluginSettings
 from magi.plugins import Plugin
-from magi.plugins import installation as installation_module
-from magi.plugins.installation import (
+from magi.plugins import dependency_installation as dependency_installation_module
+from magi.plugins import package_files as package_files_module
+from magi.plugins.dependency_installation import (
     PLUGIN_DEPENDENCY_PYTHON_ENV,
     _build_dependency_install_command,
     _filter_installable_dependencies,
     _run_dependency_install_with_progress,
-    replace_plugin_directory,
 )
+from magi.plugins.package_files import replace_plugin_directory
 from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.projections import PluginProjectionService
 from magi.plugins.sensors import SensorRegistry
@@ -420,7 +421,7 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
     monkeypatch.setattr(
         "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
     )
-    monkeypatch.setattr(PluginManager, "_user_plugins_root", staticmethod(lambda: user_root))
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
 
     manager = PluginManager(
         tool_registry=tool_registry,
@@ -476,7 +477,7 @@ def test_install_plugin_from_directory_reports_progress(
     monkeypatch.setattr(
         "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
     )
-    monkeypatch.setattr(PluginManager, "_user_plugins_root", staticmethod(lambda: user_root))
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
 
     manager = PluginManager(
         tool_registry=tool_registry,
@@ -561,7 +562,7 @@ def test_dependency_install_command_rejects_frozen_sidecar_without_python(
         "executable",
         "/Applications/Magi.app/Contents/Resources/sidecar-dist/magi-backend",
     )
-    monkeypatch.setattr(installation_module.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(dependency_installation_module.shutil, "which", lambda _name: None)
 
     lock = tmp_path / "requirements.lock"
     lock.write_text("example-package==1.0.0 --hash=sha256:abc\n", encoding="utf-8")
@@ -602,9 +603,9 @@ def test_replace_plugin_directory_rolls_back_when_promotion_fails(
 def test_filter_installable_dependencies_respects_environment_markers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    environment = installation_module.default_environment()
+    environment = dependency_installation_module.default_environment()
     environment["sys_platform"] = "darwin"
-    monkeypatch.setattr(installation_module, "default_environment", lambda: environment)
+    monkeypatch.setattr(dependency_installation_module, "default_environment", lambda: environment)
 
     installable, skipped = _filter_installable_dependencies(
         [

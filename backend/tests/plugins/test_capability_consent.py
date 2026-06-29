@@ -107,7 +107,7 @@ def test_corrupt_targz_raises_invalid_archive(tmp_path):
     # localized HTTP 400), not an unhandled tarfile/gzip error (→ 500).
     import pytest
 
-    from magi.plugins.installation import InvalidPluginArchiveError
+    from magi.plugins.package_files import InvalidPluginArchiveError
     from magi.plugins.manager import PluginManager
 
     mgr = PluginManager.__new__(PluginManager)
@@ -121,7 +121,7 @@ def test_corrupt_targz_raises_invalid_archive(tmp_path):
 def test_corrupt_zip_raises_invalid_archive(tmp_path):
     import pytest
 
-    from magi.plugins.installation import InvalidPluginArchiveError
+    from magi.plugins.package_files import InvalidPluginArchiveError
     from magi.plugins.manager import PluginManager
 
     mgr = PluginManager.__new__(PluginManager)

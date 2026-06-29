@@ -17,8 +17,7 @@ from .contracts import (
     PluginPermissions,
     PluginRegistryEntry,
 )
-from .installation import replace_plugin_directory
-from .manager import PluginManager
+from . import package_files
 from .registry_client import PluginRegistryClient
 
 
@@ -252,15 +251,15 @@ class PluginInstallService:
 def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> PluginPackageState:
     """Install plugin files without a running PluginManager."""
 
-    manifest_file = PluginManager._find_manifest_in_tree(source_dir)
+    manifest_file = package_files.find_plugin_manifest_in_tree(source_dir)
     if manifest_file is None:
         raise ValueError("Directory does not contain a plugin.toml")
 
     plugin_source = manifest_file.parent
-    user_root = PluginManager._user_plugins_root()
+    user_root = package_files.user_plugins_root()
     user_root.mkdir(parents=True, exist_ok=True)
     dest_dir = user_root / entry.plugin_id
-    replace_plugin_directory(plugin_source, dest_dir)
+    package_files.replace_plugin_directory(plugin_source, dest_dir)
 
     is_library = entry.kind == "library"
     package_config: dict[str, Any] = {"enabled": True}

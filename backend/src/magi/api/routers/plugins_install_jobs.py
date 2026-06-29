@@ -14,7 +14,7 @@ from fastapi import HTTPException, status
 
 from ... import i18n as core_i18n
 from ...plugins.install_service import PluginInstallService
-from ...plugins.installation import InvalidPluginArchiveError
+from ...plugins.package_files import InvalidPluginArchiveError
 from .plugins_common import (
     _get_registry_client,
     _require_plugin_manager,

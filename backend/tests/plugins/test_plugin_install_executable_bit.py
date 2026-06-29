@@ -3,7 +3,7 @@ files inside the plugin's bin/ directory.
 
 Before this fix, marketplace install (registry_client._extract_subdir_from_tarball)
 wrote tarball file contents via target_path.write_bytes() and never restored
-the tar member's mode. ZIP install (installation._extract_archive) called
+the tar member's mode. ZIP install called
 zipfile.extractall() which also drops Unix permissions.
 
 The result: shipped helper binaries (e.g. screenshot_timeline's Swift helper)
@@ -78,8 +78,8 @@ def test_marketplace_extract_preserves_executable_bit(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix mode bits not preserved on Windows")
 def test_archive_install_preserves_executable_bit_for_tar(tmp_path: Path) -> None:
-    """installation._extract_archive's tarfile path: extractall preserves modes."""
-    from magi.plugins.installation import PluginInstallationMixin
+    """Tar archive extraction preserves modes."""
+    from magi.plugins.package_files import extract_plugin_archive
 
     # Build a tar.gz where the plugin tree is at root (not nested under owner-repo-x)
     archive = tmp_path / "plugin.tar.gz"
@@ -97,7 +97,7 @@ def test_archive_install_preserves_executable_bit_for_tar(tmp_path: Path) -> Non
 
     dest = tmp_path / "extracted"
     dest.mkdir()
-    PluginInstallationMixin._extract_archive(archive, dest)
+    extract_plugin_archive(archive, dest)
 
     helper = dest / "bin" / "native-helper"
     assert helper.exists()
@@ -106,8 +106,8 @@ def test_archive_install_preserves_executable_bit_for_tar(tmp_path: Path) -> Non
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix mode bits not preserved on Windows")
 def test_archive_install_preserves_executable_bit_for_zip(tmp_path: Path) -> None:
-    """installation._extract_archive's zip path: we recover mode from external_attr."""
-    from magi.plugins.installation import PluginInstallationMixin
+    """Zip archive extraction recovers modes from external_attr."""
+    from magi.plugins.package_files import extract_plugin_archive
 
     archive = tmp_path / "plugin.zip"
     with zipfile.ZipFile(archive, "w") as zf:
@@ -119,7 +119,7 @@ def test_archive_install_preserves_executable_bit_for_zip(tmp_path: Path) -> Non
 
     dest = tmp_path / "extracted"
     dest.mkdir()
-    PluginInstallationMixin._extract_archive(archive, dest)
+    extract_plugin_archive(archive, dest)
 
     helper = dest / "bin" / "native-helper"
     assert helper.exists()
