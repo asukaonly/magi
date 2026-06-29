@@ -30,6 +30,7 @@ async def test_runtime_exports_register_runtime_trace_store() -> None:
     context.memory.unified_memory = object()
     context.memory.hybrid_retrieval_service = object()
     context.plugins.plugin_manager = object()
+    context.plugins.plugin_projection_service = object()
     context.plugins.sensor_registry = object()
     context.runtime_trace.store = object()
 
