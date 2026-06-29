@@ -76,6 +76,18 @@ class UserPromptResponse:
     note: str | None = None
 
 
+@dataclass(slots=True)
+class _GateContext:
+    tool_name: str
+    arguments: dict[str, Any]
+    agent_id: str
+    origin: ToolOrigin
+    session_id: str | None
+    turn_id: str | None
+    workspace: str | None
+    tool_is_dangerous: bool
+
+
 class PermissionPrompter(Protocol):
     """Callable that publishes a permission prompt and awaits the user.
 
@@ -93,8 +105,7 @@ class PermissionPrompter(Protocol):
         request: PermissionRequest,
         *,
         timeout_seconds: float,
-    ) -> UserPromptResponse:
-        ...
+    ) -> UserPromptResponse: ...
 
 
 # ---------------------------------------------------------------------------
@@ -127,10 +138,9 @@ class PermissionGateway:
         rules: PermissionRuleStore,
         broker: InteractionBroker,
         settings_provider: Callable[[], ControlSettings],
-        session_override_provider: Callable[
-            [str | None], SessionControlOverride | None
-        ]
-        | None = None,
+        session_override_provider: (
+            Callable[[str | None], SessionControlOverride | None] | None
+        ) = None,
         prompter: PermissionPrompter | None = None,
         # Phase H+2: default bumped 120 → 300 to accommodate external
         # channel response latency. WeChat / Telegram users may be away
@@ -152,10 +162,9 @@ class PermissionGateway:
         # run's ``RunTrigger.source_channel`` from the appropriate
         # SessionRunStore (channels-side wire-up in CF-9/CF-10).
         binding_settings_store: Any | None = None,
-        binding_origin_resolver: Callable[
-            [str | None], "Awaitable[tuple[str, str] | None]"
-        ]
-        | None = None,
+        binding_origin_resolver: (
+            Callable[[str | None], "Awaitable[tuple[str, str] | None]"] | None
+        ) = None,
     ) -> None:
         self._classifier = classifier
         self._rules = rules
@@ -207,9 +216,7 @@ class PermissionGateway:
             source=decision.source,
             reason=decision.reason,
             request_id=decision.request_id,
-            rule_recorded=(
-                decision.recorded_rule.rule_id if decision.recorded_rule else None
-            ),
+            rule_recorded=(decision.recorded_rule.rule_id if decision.recorded_rule else None),
             elapsed_ms=int((time.time() - started) * 1000),
         )
         return decision
@@ -226,150 +233,196 @@ class PermissionGateway:
         workspace: str | None,
         tool_is_dangerous: bool,
     ) -> PermissionDecision:
-
-        # 1) Kill-list — hard refusal regardless of mode or rules.
-        kill_match = check_kill_list(tool_name=tool_name, arguments=arguments)
-        if kill_match is not None:
-            request_id = PermissionRequest.new_id()
-            logger.warning(
-                "permission.kill_listed",
-                tool=tool_name,
-                key=kill_match.entry.key,
-                reason=kill_match.reason,
-            )
-            return PermissionDecision(
-                request_id=request_id,
-                outcome=PermissionOutcome.KILL_LISTED,
-                source=f"kill_list:{kill_match.entry.key}",
-                reason=kill_match.reason,
-            )
-
-        # 1b) Plan-mode guard — while plan mode is active only read-only
-        # tools are allowed. This is structural (cannot be rule-overridden)
-        # and lives alongside the kill-list conceptually: a refusal here
-        # is surfaced as ``DENIED`` with ``source=plan_mode`` so the LLM
-        # sees a distinct reason.
-        if self._plan_mode_guard is not None and not self._plan_mode_guard(
-            session_id, tool_name
-        ):
-            return PermissionDecision(
-                request_id=PermissionRequest.new_id(),
-                outcome=PermissionOutcome.DENIED,
-                source="plan_mode",
-                reason=(
-                    "plan mode is active: only read-only tools and the "
-                    "plan-mode tools themselves may run. Call "
-                    "exit_plan_mode once the plan is ready."
-                ),
-            )
-
-        # Classify up front — signals are surfaced to the user prompt
-        # and are used downstream by the trace UI.
-        classification: ClassificationResult = self._classifier.classify(
+        context = _GateContext(
             tool_name=tool_name,
             arguments=arguments,
-            workspace=workspace,
-            tool_is_dangerous=tool_is_dangerous,
-        )
-
-        # 2) Cached-rule lookup.
-        matched_rule = self._rules.find_match(
-            tool_name=tool_name, arguments=arguments, session_id=session_id
-        )
-        if matched_rule is not None:
-            outcome = (
-                PermissionOutcome.ALLOWED
-                if matched_rule.allow
-                else PermissionOutcome.DENIED
-            )
-            return PermissionDecision(
-                request_id=PermissionRequest.new_id(),
-                outcome=outcome,
-                source=f"rule:{matched_rule.rule_id}",
-                reason=matched_rule.note
-                or f"matched {matched_rule.scope.value} rule",
-            )
-
-        # 3) Resolve effective mode + risk table.
-        override = (
-            self._session_override_provider(session_id)
-            if self._session_override_provider
-            else None
-        )
-        effective = resolve_effective_settings(
-            base=self._settings_provider(), override=override
-        )
-
-        if not self._needs_prompt(
-            mode=effective.permission_mode,
-            risk=classification.level,
-            tool_is_dangerous=tool_is_dangerous,
-        ):
-            return PermissionDecision(
-                request_id=PermissionRequest.new_id(),
-                outcome=PermissionOutcome.ALLOWED,
-                source="auto",
-                reason=f"mode={effective.permission_mode.value} risk={classification.level.value}",
-            )
-
-        # 3.5) Phase H+2 per-binding auto-approve bypass.
-        # Fires AFTER kill-list + cached rules + _needs_prompt — so
-        # security floors (kill list) and explicit user-recorded
-        # rules still win over the toggle. The bypass only suppresses
-        # the prompt itself; if no prompt was going to fire anyway
-        # (mode=accept_edits in a low-risk situation), the existing
-        # "auto" decision path catches it above and we never reach
-        # here.
-        if await self._is_auto_approved_binding(session_id):
-            return PermissionDecision(
-                request_id=PermissionRequest.new_id(),
-                outcome=PermissionOutcome.ALLOWED,
-                source="auto_approve_binding",
-                reason=(
-                    "binding auto-approve enabled — prompt suppressed "
-                    "per user toggle"
-                ),
-            )
-
-        # 4) Prompt the user.
-        if self._prompter is None:
-            # Fail-closed: no UI wired yet, but the classifier says we
-            # should have asked. Deny the call with a descriptive
-            # source so the user sees why in the trace.
-            return PermissionDecision(
-                request_id=PermissionRequest.new_id(),
-                outcome=PermissionOutcome.DENIED,
-                source="no_prompter",
-                reason="permission prompt requested but no prompter is configured",
-            )
-
-        created_at = time.time()
-        prompt_timeout_seconds = max(0.0, self._prompt_timeout_seconds)
-        request = PermissionRequest(
-            request_id=PermissionRequest.new_id(),
-            tool_name=tool_name,
-            arguments=arguments,
-            risk_level=classification.level,
-            origin=origin,
             agent_id=agent_id,
+            origin=origin,
             session_id=session_id,
             turn_id=turn_id,
             workspace=workspace,
+            tool_is_dangerous=tool_is_dangerous,
+        )
+        for decision in (
+            self._kill_list_decision(context),
+            self._plan_mode_decision(context),
+        ):
+            if decision is not None:
+                return decision
+
+        classification = self._classify_invocation(context)
+        matched_decision = self._matched_rule_decision(context)
+        if matched_decision is not None:
+            return matched_decision
+
+        effective = self._effective_control_settings(context.session_id)
+        auto_decision = self._auto_decision_if_prompt_not_needed(
+            context,
+            classification=classification,
+            permission_mode=effective.permission_mode,
+        )
+        if auto_decision is not None:
+            return auto_decision
+
+        auto_approve_decision = await self._auto_approve_binding_decision(context.session_id)
+        if auto_approve_decision is not None:
+            return auto_approve_decision
+
+        no_prompter_decision = self._no_prompter_decision()
+        if no_prompter_decision is not None:
+            return no_prompter_decision
+
+        request = self._build_permission_request(context, classification)
+        return await self._prompt_for_decision(request, context.session_id)
+
+    def _kill_list_decision(self, context: _GateContext) -> PermissionDecision | None:
+        kill_match = check_kill_list(
+            tool_name=context.tool_name,
+            arguments=context.arguments,
+        )
+        if kill_match is None:
+            return None
+        logger.warning(
+            "permission.kill_listed",
+            tool=context.tool_name,
+            key=kill_match.entry.key,
+            reason=kill_match.reason,
+        )
+        return PermissionDecision(
+            request_id=PermissionRequest.new_id(),
+            outcome=PermissionOutcome.KILL_LISTED,
+            source=f"kill_list:{kill_match.entry.key}",
+            reason=kill_match.reason,
+        )
+
+    def _plan_mode_decision(self, context: _GateContext) -> PermissionDecision | None:
+        if self._plan_mode_guard is None:
+            return None
+        if self._plan_mode_guard(context.session_id, context.tool_name):
+            return None
+        return PermissionDecision(
+            request_id=PermissionRequest.new_id(),
+            outcome=PermissionOutcome.DENIED,
+            source="plan_mode",
+            reason=(
+                "plan mode is active: only read-only tools and the "
+                "plan-mode tools themselves may run. Call exit_plan_mode "
+                "once the plan is ready."
+            ),
+        )
+
+    def _classify_invocation(self, context: _GateContext) -> ClassificationResult:
+        return self._classifier.classify(
+            tool_name=context.tool_name,
+            arguments=context.arguments,
+            workspace=context.workspace,
+            tool_is_dangerous=context.tool_is_dangerous,
+        )
+
+    def _matched_rule_decision(self, context: _GateContext) -> PermissionDecision | None:
+        matched_rule = self._rules.find_match(
+            tool_name=context.tool_name,
+            arguments=context.arguments,
+            session_id=context.session_id,
+        )
+        if matched_rule is None:
+            return None
+        outcome = PermissionOutcome.ALLOWED if matched_rule.allow else PermissionOutcome.DENIED
+        return PermissionDecision(
+            request_id=PermissionRequest.new_id(),
+            outcome=outcome,
+            source=f"rule:{matched_rule.rule_id}",
+            reason=matched_rule.note or f"matched {matched_rule.scope.value} rule",
+        )
+
+    def _effective_control_settings(self, session_id: str | None) -> ControlSettings:
+        override = (
+            self._session_override_provider(session_id) if self._session_override_provider else None
+        )
+        return resolve_effective_settings(base=self._settings_provider(), override=override)
+
+    def _auto_decision_if_prompt_not_needed(
+        self,
+        context: _GateContext,
+        *,
+        classification: ClassificationResult,
+        permission_mode: PermissionMode,
+    ) -> PermissionDecision | None:
+        if self._needs_prompt(
+            mode=permission_mode,
+            risk=classification.level,
+            tool_is_dangerous=context.tool_is_dangerous,
+        ):
+            return None
+        return PermissionDecision(
+            request_id=PermissionRequest.new_id(),
+            outcome=PermissionOutcome.ALLOWED,
+            source="auto",
+            reason=f"mode={permission_mode.value} risk={classification.level.value}",
+        )
+
+    async def _auto_approve_binding_decision(
+        self,
+        session_id: str | None,
+    ) -> PermissionDecision | None:
+        if not await self._is_auto_approved_binding(session_id):
+            return None
+        return PermissionDecision(
+            request_id=PermissionRequest.new_id(),
+            outcome=PermissionOutcome.ALLOWED,
+            source="auto_approve_binding",
+            reason="binding auto-approve enabled — prompt suppressed per user toggle",
+        )
+
+    def _no_prompter_decision(self) -> PermissionDecision | None:
+        if self._prompter is not None:
+            return None
+        return PermissionDecision(
+            request_id=PermissionRequest.new_id(),
+            outcome=PermissionOutcome.DENIED,
+            source="no_prompter",
+            reason="permission prompt requested but no prompter is configured",
+        )
+
+    def _build_permission_request(
+        self,
+        context: _GateContext,
+        classification: ClassificationResult,
+    ) -> PermissionRequest:
+        created_at = time.time()
+        prompt_timeout_seconds = max(0.0, self._prompt_timeout_seconds)
+        return PermissionRequest(
+            request_id=PermissionRequest.new_id(),
+            tool_name=context.tool_name,
+            arguments=context.arguments,
+            risk_level=classification.level,
+            origin=context.origin,
+            agent_id=context.agent_id,
+            session_id=context.session_id,
+            turn_id=context.turn_id,
+            workspace=context.workspace,
             preview=classification.preview,
             signals=[signal.key for signal in classification.signals],
             created_at=created_at,
             timeout_seconds=prompt_timeout_seconds,
-            expires_at=created_at + prompt_timeout_seconds if prompt_timeout_seconds > 0 else None,
+            expires_at=(
+                created_at + prompt_timeout_seconds if prompt_timeout_seconds > 0 else None
+            ),
         )
 
+    async def _prompt_for_decision(
+        self,
+        request: PermissionRequest,
+        session_id: str | None,
+    ) -> PermissionDecision:
+        prompt_timeout_seconds = max(0.0, self._prompt_timeout_seconds)
+        assert self._prompter is not None
         try:
-            response = await self._prompter(
-                request, timeout_seconds=prompt_timeout_seconds
-            )
+            response = await self._prompter(request, timeout_seconds=prompt_timeout_seconds)
         except InteractionTimeoutError:
             logger.info(
                 "permission.timed_out",
-                tool=tool_name,
+                tool=request.tool_name,
                 request_id=request.request_id,
             )
             return PermissionDecision(
@@ -385,9 +438,7 @@ class PermissionGateway:
         self,
         *,
         binding_settings_store: Any,
-        binding_origin_resolver: Callable[
-            [str | None], "Awaitable[tuple[str, str] | None]"
-        ],
+        binding_origin_resolver: Callable[[str | None], "Awaitable[tuple[str, str] | None]"],
     ) -> None:
         """Late-bind the auto-approve dependencies after construction.
 
@@ -403,9 +454,7 @@ class PermissionGateway:
     # Internals
     # ------------------------------------------------------------------
 
-    async def _is_auto_approved_binding(
-        self, session_id: str | None
-    ) -> bool:
+    async def _is_auto_approved_binding(self, session_id: str | None) -> bool:
         """Check whether the originating channel binding has its
         auto-approve toggle on. Returns False if either dependency
         is unwired (partial bootstrap / tests), if session_id is
@@ -424,8 +473,7 @@ class PermissionGateway:
             binding = await self._binding_origin_resolver(session_id)
         except Exception:
             logger.warning(
-                "permission.binding_origin_resolver_failed "
-                "session_id=%s",
+                "permission.binding_origin_resolver_failed " "session_id=%s",
                 session_id,
                 exc_info=True,
             )
@@ -440,18 +488,16 @@ class PermissionGateway:
             )
         except Exception:
             logger.warning(
-                "permission.binding_settings_lookup_failed "
-                "channel_type=%s external_user_id=%s",
-                channel_type, external_user_id,
+                "permission.binding_settings_lookup_failed " "channel_type=%s external_user_id=%s",
+                channel_type,
+                external_user_id,
                 exc_info=True,
             )
             return False
         return bool(getattr(settings, "auto_approve", False))
 
     @staticmethod
-    def _needs_prompt(
-        *, mode: PermissionMode, risk: RiskLevel, tool_is_dangerous: bool
-    ) -> bool:
+    def _needs_prompt(*, mode: PermissionMode, risk: RiskLevel, tool_is_dangerous: bool) -> bool:
         if mode is PermissionMode.OFF:
             return False
         if mode is PermissionMode.HIGH_ONLY:
@@ -491,9 +537,7 @@ class PermissionGateway:
                 )
                 recorded_rule = rule
 
-        outcome = (
-            PermissionOutcome.ALLOWED if response.allow else PermissionOutcome.DENIED
-        )
+        outcome = PermissionOutcome.ALLOWED if response.allow else PermissionOutcome.DENIED
         return PermissionDecision(
             request_id=request.request_id,
             outcome=outcome,
@@ -503,9 +547,7 @@ class PermissionGateway:
         )
 
 
-def _default_matcher(
-    request: PermissionRequest, scope: PermissionScope
-) -> dict[str, Any]:
+def _default_matcher(request: PermissionRequest, scope: PermissionScope) -> dict[str, Any]:
     """Best-effort matcher when the UI did not supply one explicitly."""
     # Default: match the full argument set exactly.
     if scope is PermissionScope.PERSISTENT_PATTERN:
