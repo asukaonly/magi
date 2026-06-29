@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any, List, Protocol, Tuple, cast
 
 import aiosqlite
@@ -29,6 +30,23 @@ class _L1EventFtsHostProtocol(Protocol):
     db_path: str
 
     async def initialize(self) -> None: ...
+
+
+@dataclass(frozen=True)
+class _Bm25SearchOptions:
+    limit: int
+    user_id: str | None
+    start_time: float | None
+    end_time: float | None
+    strict: bool
+    l1_retrieval_scopes: list[str] | None
+
+
+@dataclass(frozen=True)
+class _Bm25PhaseResult:
+    phase: str
+    rows: list[tuple[Any, Any]]
+    stemmed: str = ""
 
 
 class L1EventFtsMixin:
@@ -60,101 +78,145 @@ class L1EventFtsMixin:
         """
         host = cast(_L1EventFtsHostProtocol, self)
         await host.initialize()
-        tokenized = tokenize_for_fts(query)
-        if not tokenized:
-            return []
-        escaped = escape_fts_query(tokenized)
+        escaped = self._prepare_bm25_query(query)
         if not escaped:
             return []
+        options = _Bm25SearchOptions(
+            limit=limit,
+            user_id=user_id,
+            start_time=start_time,
+            end_time=end_time,
+            strict=strict,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
             try:
-                phase = "none"
-                rows: list[tuple[Any, Any]] = []
-                stemmed = ""
-                if strict:
-                    exact = build_exact_fts_query(escaped)
-                    if exact:
-                        rows = await self._run_bm25_query(
-                            db,
-                            exact,
-                            limit=limit,
-                            user_id=user_id,
-                            start_time=start_time,
-                            end_time=end_time,
-                            l1_retrieval_scopes=l1_retrieval_scopes,
-                        )
-                        if rows:
-                            phase = "exact_and"
-                if not rows:
-                    stemmed = build_stemmed_fts_query(escaped)
-                    if stemmed:
-                        rows = await self._run_bm25_query(
-                            db,
-                            stemmed,
-                            limit=limit,
-                            user_id=user_id,
-                            start_time=start_time,
-                            end_time=end_time,
-                            l1_retrieval_scopes=l1_retrieval_scopes,
-                        )
-                        if rows:
-                            phase = "stemmed_and"
-                    else:
-                        stemmed = ""
-                if not rows:
-                    rows = await self._run_bm25_query(
-                        db,
-                        escaped,
-                        limit=limit,
-                        user_id=user_id,
-                        start_time=start_time,
-                        end_time=end_time,
-                        l1_retrieval_scopes=l1_retrieval_scopes,
-                    )
-                    if rows:
-                        phase = "original_and"
-                if not strict:
-                    if not rows:
-                        for fallback_query in self._build_relaxed_fts_queries(query):
-                            rows = await self._run_bm25_query(
-                                db,
-                                fallback_query,
-                                limit=limit,
-                                user_id=user_id,
-                                start_time=start_time,
-                                end_time=end_time,
-                                l1_retrieval_scopes=l1_retrieval_scopes,
-                            )
-                            if rows:
-                                phase = "relaxed_phrase"
-                                break
-                    if not rows:
-                        or_query = build_or_fts_query(escaped)
-                        if or_query and or_query != escaped:
-                            rows = await self._run_bm25_query(
-                                db,
-                                or_query,
-                                limit=limit,
-                                user_id=user_id,
-                                start_time=start_time,
-                                end_time=end_time,
-                                l1_retrieval_scopes=l1_retrieval_scopes,
-                            )
-                            if rows:
-                                phase = "or_fallback"
-                logger.info(
-                    "BM25 search completed | phase=%s escaped=%r stemmed=%r "
-                    "result_count=%d user_id=%s",
-                    phase,
-                    escaped,
-                    stemmed,
-                    len(rows),
-                    user_id,
+                result = await self._run_bm25_search_phases(
+                    db,
+                    query=query,
+                    escaped=escaped,
+                    options=options,
                 )
-                return [(str(row[0]), float(row[1])) for row in rows]
+                self._log_bm25_result(result, escaped=escaped, user_id=user_id)
+                return self._format_bm25_rows(result.rows)
             except Exception as exc:
                 logger.warning("FTS5 BM25 search failed: %s", exc)
                 return []
+
+    @staticmethod
+    def _prepare_bm25_query(query: str) -> str:
+        tokenized = tokenize_for_fts(query)
+        if not tokenized:
+            return ""
+        return escape_fts_query(tokenized)
+
+    async def _run_bm25_search_phases(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        query: str,
+        escaped: str,
+        options: _Bm25SearchOptions,
+    ) -> _Bm25PhaseResult:
+        required = await self._run_required_bm25_phases(
+            db,
+            escaped=escaped,
+            options=options,
+        )
+        if required.rows or options.strict:
+            return required
+        relaxed = await self._run_relaxed_bm25_phases(
+            db,
+            query=query,
+            escaped=escaped,
+            options=options,
+        )
+        if relaxed.rows:
+            return _Bm25PhaseResult(relaxed.phase, relaxed.rows, stemmed=required.stemmed)
+        return required
+
+    async def _run_required_bm25_phases(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        escaped: str,
+        options: _Bm25SearchOptions,
+    ) -> _Bm25PhaseResult:
+        if options.strict:
+            exact = build_exact_fts_query(escaped)
+            rows = await self._run_bm25_query_with_options(db, exact, options=options)
+            if rows:
+                return _Bm25PhaseResult("exact_and", rows)
+
+        stemmed = build_stemmed_fts_query(escaped) or ""
+        if stemmed:
+            rows = await self._run_bm25_query_with_options(db, stemmed, options=options)
+            if rows:
+                return _Bm25PhaseResult("stemmed_and", rows, stemmed=stemmed)
+
+        rows = await self._run_bm25_query_with_options(db, escaped, options=options)
+        if rows:
+            return _Bm25PhaseResult("original_and", rows, stemmed=stemmed)
+        return _Bm25PhaseResult("none", [], stemmed=stemmed)
+
+    async def _run_relaxed_bm25_phases(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        query: str,
+        escaped: str,
+        options: _Bm25SearchOptions,
+    ) -> _Bm25PhaseResult:
+        for fallback_query in self._build_relaxed_fts_queries(query):
+            rows = await self._run_bm25_query_with_options(db, fallback_query, options=options)
+            if rows:
+                return _Bm25PhaseResult("relaxed_phrase", rows)
+
+        or_query = build_or_fts_query(escaped)
+        if or_query and or_query != escaped:
+            rows = await self._run_bm25_query_with_options(db, or_query, options=options)
+            if rows:
+                return _Bm25PhaseResult("or_fallback", rows)
+        return _Bm25PhaseResult("none", [])
+
+    async def _run_bm25_query_with_options(
+        self,
+        db: aiosqlite.Connection,
+        match_query: str,
+        *,
+        options: _Bm25SearchOptions,
+    ) -> list[tuple[Any, Any]]:
+        if not match_query:
+            return []
+        return await self._run_bm25_query(
+            db,
+            match_query,
+            limit=options.limit,
+            user_id=options.user_id,
+            start_time=options.start_time,
+            end_time=options.end_time,
+            l1_retrieval_scopes=options.l1_retrieval_scopes,
+        )
+
+    @staticmethod
+    def _format_bm25_rows(rows: list[tuple[Any, Any]]) -> List[Tuple[str, float]]:
+        return [(str(row[0]), float(row[1])) for row in rows]
+
+    @staticmethod
+    def _log_bm25_result(
+        result: _Bm25PhaseResult,
+        *,
+        escaped: str,
+        user_id: str | None,
+    ) -> None:
+        logger.info(
+            "BM25 search completed | phase=%s escaped=%r stemmed=%r " "result_count=%d user_id=%s",
+            result.phase,
+            escaped,
+            result.stemmed,
+            len(result.rows),
+            user_id,
+        )
 
     async def _run_bm25_query(
         self,
@@ -199,7 +261,9 @@ class L1EventFtsMixin:
             if l1_retrieval_scopes is not None:
                 placeholders = ", ".join("?" for _ in l1_retrieval_scopes)
                 clauses.append(f"fe.l1_retrieval_scope IN ({placeholders})")
-                params.extend(int(L1RetrievalScope.from_value(scope)) for scope in l1_retrieval_scopes)
+                params.extend(
+                    int(L1RetrievalScope.from_value(scope)) for scope in l1_retrieval_scopes
+                )
             params.append(limit)
             where = " AND ".join(clauses)
             async with db.execute(
@@ -248,13 +312,11 @@ class L1EventFtsMixin:
         await host.initialize()
         indexed = 0
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            async with db.execute(
-                f"""
+            async with db.execute(f"""
                 SELECT event_id, content, author_type, content_type FROM {FACT_EVENTS_TABLE}
                 WHERE deleted_at IS NULL
                 AND event_id NOT IN (SELECT event_id FROM l1_events_fts)
-                """
-            ) as cursor:
+                """) as cursor:
                 batch: list[tuple[str, str]] = []
                 async for row in cursor:
                     event_id = str(row[0])
