@@ -186,150 +186,18 @@ def build_llm_config_model(
 ) -> LLMConfigModel:
     providers: Dict[str, LLMProviderConfigModel] = {}
     for provider_id, provider in getattr(runtime_config.llm, "providers", {}).items():
-        services = getattr(provider, "services", None)
-        chat = getattr(services, "chat", None)
-        embedding = getattr(services, "embedding", None)
-        image_generation = getattr(services, "image_generation", None)
-        tts = getattr(services, "tts", None)
-        provider_api_key = getattr(provider, "api_key", None)
-        chat_api_key = getattr(chat, "api_key", None)
-        embedding_api_key = getattr(embedding, "api_key", None)
-        image_api_key = getattr(image_generation, "api_key", None)
-        tts_api_key = getattr(tts, "api_key", None)
-        providers[provider_id] = LLMProviderConfigModel(
-            enabled=provider.enabled,
-            provider_type=str(getattr(provider.provider_type, "value", provider.provider_type)),
-            display_name=provider.display_name,
-            provider_plan=getattr(provider, "provider_plan", None),
-            api_key=(
-                mask_api_key_value(provider_api_key)
-                if (mask_api_key and provider_api_key)
-                else provider_api_key
-            ),
-            base_url=getattr(provider, "base_url", None),
-            services=LLMProviderServicesConfigModel(
-                chat=LLMProviderConnectionConfigModel(
-                    enabled=getattr(chat, "enabled", True),
-                    api_key=(
-                        mask_api_key_value(chat_api_key)
-                        if (mask_api_key and chat_api_key)
-                        else chat_api_key
-                    ),
-                    base_url=getattr(chat, "base_url", None),
-                ),
-                embedding=LLMProviderConnectionConfigModel(
-                    enabled=getattr(embedding, "enabled", True),
-                    api_key=(
-                        mask_api_key_value(embedding_api_key)
-                        if (mask_api_key and embedding_api_key)
-                        else embedding_api_key
-                    ),
-                    base_url=getattr(embedding, "base_url", None),
-                ),
-                image_generation=LLMProviderImageGenerationConfigModel(
-                    enabled=getattr(image_generation, "enabled", False),
-                    api_key=(
-                        mask_api_key_value(image_api_key)
-                        if (mask_api_key and image_api_key)
-                        else image_api_key
-                    ),
-                    base_url=getattr(image_generation, "base_url", None),
-                    timeout=getattr(image_generation, "timeout", 180),
-                    native_protocol=getattr(image_generation, "native_protocol", None),
-                ),
-                tts=LLMProviderTTSConfigModel(
-                    enabled=getattr(tts, "enabled", False),
-                    api_key=(
-                        mask_api_key_value(tts_api_key)
-                        if (mask_api_key and tts_api_key)
-                        else tts_api_key
-                    ),
-                    base_url=getattr(tts, "base_url", None),
-                    model=getattr(tts, "model", None),
-                    voice=getattr(tts, "voice", None),
-                    response_format=getattr(tts, "response_format", None),
-                ),
-            ),
-            api_format=provider.api_format,
-            custom_models=list(getattr(provider, "custom_models", []) or []),
-            custom_default_model=getattr(provider, "custom_default_model", None),
-            model_metadata_overrides=dict(getattr(provider, "model_metadata_overrides", {}) or {}),
+        providers[provider_id] = _build_llm_provider_config(
+            provider,
+            mask_api_key=mask_api_key,
         )
 
     selections: Dict[str, LLMSelectionConfigModel] = {}
     for selection_id, selection in getattr(runtime_config.llm, "selections", {}).items():
-        provider_settings = runtime_config.llm.providers.get(selection.provider_id)
-        provider_lookup_id = selection.provider_id
-        if provider_settings is not None:
-            provider_lookup_id = str(
-                getattr(
-                    getattr(provider_settings, "provider_type", ""),
-                    "value",
-                    getattr(provider_settings, "provider_type", ""),
-                )
-                or selection.provider_id
-            )
-        if selection_id == "embedding":
-            embedding_meta = find_embedding_model_meta(
-                registry,
-                provider_lookup_id,
-                selection.model,
-                (
-                    getattr(provider_settings, "provider_plan", None)
-                    if provider_settings is not None
-                    else None
-                ),
-            )
-            resolved_dimension = resolve_embedding_dimension(
-                embedding_meta,
-                getattr(selection, "embedding_dimension", None),
-            )
-            if not bool(selection.capability_override_enabled):
-                capabilities = LLMCapabilitiesSettings(
-                    vision=False,
-                    image_output=False,
-                    tool_calling=False,
-                    reasoning=False,
-                    embedding=True,
-                )
-                provider_options = (
-                    dict(embedding_meta.provider_options_example)
-                    if embedding_meta is not None
-                    else dict(selection.provider_options or {})
-                )
-            else:
-                capabilities = selection.capabilities
-                provider_options = dict(selection.provider_options or {})
-
-            selections[selection_id] = LLMSelectionConfigModel(
-                provider_id=selection.provider_id,
-                model=selection.model,
-                embedding_dimension=resolved_dimension,
-                capability_override_enabled=bool(selection.capability_override_enabled),
-                capabilities=capabilities,
-                limits=(
-                    selection_limits_from_registry_limits(embedding_meta.limits)
-                    if embedding_meta is not None
-                    and not bool(selection.capability_override_enabled)
-                    else selection.limits
-                ),
-                provider_options=provider_options,
-            )
-            continue
-
-        resolved = resolve_llm_profile(
-            selection,
-            registry,
-            provider_settings=provider_settings,
-        )
-        selections[selection_id] = LLMSelectionConfigModel(
-            provider_id=selection.provider_id,
-            model=selection.model,
-            embedding_dimension=getattr(selection, "embedding_dimension", None),
-            capability_override_enabled=bool(selection.capability_override_enabled),
-            capabilities=resolved.capabilities,
-            limits=selection_limits_from_registry_limits(resolved.limits),
-            provider_options=resolved.provider_options,
+        selections[selection_id] = _build_llm_selection_config(
+            runtime_config=runtime_config,
+            registry=registry,
+            selection_id=selection_id,
+            selection=selection,
         )
 
     return LLMConfigModel(
@@ -339,6 +207,223 @@ def build_llm_config_model(
             getattr(runtime_config.llm, "model_runtime_overrides", {}) or {}
         ),
     )
+
+
+def _build_llm_provider_config(
+    provider: Any,
+    *,
+    mask_api_key: bool,
+) -> LLMProviderConfigModel:
+    return LLMProviderConfigModel(
+        enabled=provider.enabled,
+        provider_type=str(getattr(provider.provider_type, "value", provider.provider_type)),
+        display_name=provider.display_name,
+        provider_plan=getattr(provider, "provider_plan", None),
+        api_key=_maybe_mask_api_key(getattr(provider, "api_key", None), mask_api_key),
+        base_url=getattr(provider, "base_url", None),
+        services=_build_llm_provider_services_config(provider, mask_api_key=mask_api_key),
+        api_format=provider.api_format,
+        custom_models=list(getattr(provider, "custom_models", []) or []),
+        custom_default_model=getattr(provider, "custom_default_model", None),
+        model_metadata_overrides=dict(getattr(provider, "model_metadata_overrides", {}) or {}),
+    )
+
+
+def _build_llm_provider_services_config(
+    provider: Any,
+    *,
+    mask_api_key: bool,
+) -> LLMProviderServicesConfigModel:
+    services = getattr(provider, "services", None)
+    chat = getattr(services, "chat", None)
+    embedding = getattr(services, "embedding", None)
+    image_generation = getattr(services, "image_generation", None)
+    tts = getattr(services, "tts", None)
+    return LLMProviderServicesConfigModel(
+        chat=_build_provider_connection_config(
+            chat, default_enabled=True, mask_api_key=mask_api_key
+        ),
+        embedding=_build_provider_connection_config(
+            embedding,
+            default_enabled=True,
+            mask_api_key=mask_api_key,
+        ),
+        image_generation=_build_image_generation_connection_config(
+            image_generation,
+            mask_api_key=mask_api_key,
+        ),
+        tts=_build_tts_connection_config(tts, mask_api_key=mask_api_key),
+    )
+
+
+def _build_provider_connection_config(
+    service: Any,
+    *,
+    default_enabled: bool,
+    mask_api_key: bool,
+) -> LLMProviderConnectionConfigModel:
+    return LLMProviderConnectionConfigModel(
+        enabled=getattr(service, "enabled", default_enabled),
+        api_key=_maybe_mask_api_key(getattr(service, "api_key", None), mask_api_key),
+        base_url=getattr(service, "base_url", None),
+    )
+
+
+def _build_image_generation_connection_config(
+    image_generation: Any,
+    *,
+    mask_api_key: bool,
+) -> LLMProviderImageGenerationConfigModel:
+    return LLMProviderImageGenerationConfigModel(
+        enabled=getattr(image_generation, "enabled", False),
+        api_key=_maybe_mask_api_key(getattr(image_generation, "api_key", None), mask_api_key),
+        base_url=getattr(image_generation, "base_url", None),
+        timeout=getattr(image_generation, "timeout", 180),
+        native_protocol=getattr(image_generation, "native_protocol", None),
+    )
+
+
+def _build_tts_connection_config(
+    tts: Any,
+    *,
+    mask_api_key: bool,
+) -> LLMProviderTTSConfigModel:
+    return LLMProviderTTSConfigModel(
+        enabled=getattr(tts, "enabled", False),
+        api_key=_maybe_mask_api_key(getattr(tts, "api_key", None), mask_api_key),
+        base_url=getattr(tts, "base_url", None),
+        model=getattr(tts, "model", None),
+        voice=getattr(tts, "voice", None),
+        response_format=getattr(tts, "response_format", None),
+    )
+
+
+def _build_llm_selection_config(
+    *,
+    runtime_config: Any,
+    registry: LLMProviderRegistryModel,
+    selection_id: str,
+    selection: Any,
+) -> LLMSelectionConfigModel:
+    provider_settings = runtime_config.llm.providers.get(selection.provider_id)
+    provider_lookup_id = _provider_lookup_id_for_selection(selection, provider_settings)
+    if selection_id == "embedding":
+        return _build_embedding_selection_config(
+            registry=registry,
+            selection=selection,
+            provider_settings=provider_settings,
+            provider_lookup_id=provider_lookup_id,
+        )
+    return _build_chat_selection_config(
+        registry=registry,
+        selection=selection,
+        provider_settings=provider_settings,
+    )
+
+
+def _provider_lookup_id_for_selection(selection: Any, provider_settings: Any) -> str:
+    if provider_settings is None:
+        return selection.provider_id
+    return str(
+        getattr(
+            getattr(provider_settings, "provider_type", ""),
+            "value",
+            getattr(provider_settings, "provider_type", ""),
+        )
+        or selection.provider_id
+    )
+
+
+def _build_embedding_selection_config(
+    *,
+    registry: LLMProviderRegistryModel,
+    selection: Any,
+    provider_settings: Any,
+    provider_lookup_id: str,
+) -> LLMSelectionConfigModel:
+    embedding_meta = find_embedding_model_meta(
+        registry,
+        provider_lookup_id,
+        selection.model,
+        (
+            getattr(provider_settings, "provider_plan", None)
+            if provider_settings is not None
+            else None
+        ),
+    )
+    capability_override_enabled = bool(selection.capability_override_enabled)
+    capabilities, provider_options = _embedding_selection_capabilities_and_options(
+        selection,
+        embedding_meta,
+        capability_override_enabled=capability_override_enabled,
+    )
+    return LLMSelectionConfigModel(
+        provider_id=selection.provider_id,
+        model=selection.model,
+        embedding_dimension=resolve_embedding_dimension(
+            embedding_meta,
+            getattr(selection, "embedding_dimension", None),
+        ),
+        capability_override_enabled=capability_override_enabled,
+        capabilities=capabilities,
+        limits=(
+            selection_limits_from_registry_limits(embedding_meta.limits)
+            if embedding_meta is not None and not capability_override_enabled
+            else selection.limits
+        ),
+        provider_options=provider_options,
+    )
+
+
+def _embedding_selection_capabilities_and_options(
+    selection: Any,
+    embedding_meta: Any,
+    *,
+    capability_override_enabled: bool,
+) -> tuple[LLMCapabilitiesSettings, Dict[str, Any]]:
+    if capability_override_enabled:
+        return selection.capabilities, dict(selection.provider_options or {})
+    capabilities = LLMCapabilitiesSettings(
+        vision=False,
+        image_output=False,
+        tool_calling=False,
+        reasoning=False,
+        embedding=True,
+    )
+    provider_options = (
+        dict(embedding_meta.provider_options_example)
+        if embedding_meta is not None
+        else dict(selection.provider_options or {})
+    )
+    return capabilities, provider_options
+
+
+def _build_chat_selection_config(
+    *,
+    registry: LLMProviderRegistryModel,
+    selection: Any,
+    provider_settings: Any,
+) -> LLMSelectionConfigModel:
+    resolved = resolve_llm_profile(
+        selection,
+        registry,
+        provider_settings=provider_settings,
+    )
+    return LLMSelectionConfigModel(
+        provider_id=selection.provider_id,
+        model=selection.model,
+        embedding_dimension=getattr(selection, "embedding_dimension", None),
+        capability_override_enabled=bool(selection.capability_override_enabled),
+        capabilities=resolved.capabilities,
+        limits=selection_limits_from_registry_limits(resolved.limits),
+        provider_options=resolved.provider_options,
+    )
+
+
+def _maybe_mask_api_key(api_key: str | None, should_mask: bool) -> str | None:
+    if should_mask and api_key:
+        return mask_api_key_value(api_key)
+    return api_key
 
 
 def mask_api_key_value(api_key: str) -> str:

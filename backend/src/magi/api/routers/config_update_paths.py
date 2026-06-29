@@ -78,6 +78,14 @@ def normalize_masked_config_secrets(
 def apply_llm_registry_defaults(
     config: SystemConfigModel, registry: LLMProviderRegistryModel
 ) -> None:
+    _apply_provider_registry_defaults(config, registry)
+    _apply_selection_registry_defaults(config, registry)
+
+
+def _apply_provider_registry_defaults(
+    config: SystemConfigModel,
+    registry: LLMProviderRegistryModel,
+) -> None:
     for provider_id, provider in config.llm.providers.items():
         provider_type = _provider_type_value(provider) or provider_id
         base_provider_meta = find_provider_meta(registry, provider_type)
@@ -94,6 +102,11 @@ def apply_llm_registry_defaults(
         if not (provider.base_url or "").strip():
             provider.base_url = provider_meta.default_base_url
 
+
+def _apply_selection_registry_defaults(
+    config: SystemConfigModel,
+    registry: LLMProviderRegistryModel,
+) -> None:
     for selection_id, selection in config.llm.selections.items():
         if not selection.provider_id:
             continue
@@ -103,74 +116,110 @@ def apply_llm_registry_defaults(
             continue
 
         if selection_id == "embedding":
-            embedding_model_meta = find_embedding_model_meta(
-                registry,
-                str(provider_meta.id),
-                selection.model,
-                _provider_plan_value(config.llm.providers.get(selection.provider_id)),
+            _apply_embedding_selection_defaults(
+                config=config,
+                registry=registry,
+                selection_id=selection_id,
+                provider_meta=provider_meta,
             )
-            if embedding_model_meta is None and provider_meta.embedding_models:
-                selection.model = provider_meta.embedding_models[0].id
-                embedding_model_meta = provider_meta.embedding_models[0]
-
-            selection.embedding_dimension = resolve_embedding_dimension(
-                embedding_model_meta,
-                selection.embedding_dimension,
-            )
-
-            if not selection.capability_override_enabled:
-                config.llm.selections[selection_id] = LLMSelectionConfigModel(
-                    provider_id=selection.provider_id,
-                    model=selection.model,
-                    embedding_dimension=selection.embedding_dimension,
-                    capability_override_enabled=False,
-                    capabilities=LLMCapabilitiesSettings(
-                        vision=False,
-                        image_output=False,
-                        tool_calling=False,
-                        reasoning=False,
-                        embedding=True,
-                    ),
-                    limits=(
-                        selection_limits_from_registry_limits(embedding_model_meta.limits)
-                        if embedding_model_meta is not None
-                        else selection.limits
-                    ),
-                    provider_options=(
-                        dict(embedding_model_meta.provider_options_example)
-                        if embedding_model_meta is not None
-                        else {}
-                    ),
-                )
             continue
 
-        if not selection.model:
-            if selection_id == "context_decider":
-                selection.model = (
-                    provider_meta.default_classify_model
-                    or provider_meta.default_model
-                    or (provider_meta.chat_models[0].id if provider_meta.chat_models else "")
-                )
-            else:
-                selection.model = provider_meta.default_model or (
-                    provider_meta.chat_models[0].id if provider_meta.chat_models else ""
-                )
+        _apply_chat_selection_defaults(
+            config=config,
+            registry=registry,
+            selection_id=selection_id,
+            provider_meta=provider_meta,
+        )
 
-        if not selection.capability_override_enabled and selection.model:
-            resolved = resolve_llm_profile(
-                selection,
-                registry,
-                provider_settings=config.llm.providers.get(selection.provider_id),
-            )
-            config.llm.selections[selection_id] = LLMSelectionConfigModel(
-                provider_id=selection.provider_id,
-                model=selection.model,
-                embedding_dimension=selection.embedding_dimension,
-                capability_override_enabled=False,
-                capabilities=resolved.capabilities,
-                limits=selection_limits_from_registry_limits(resolved.limits),
-                provider_options=resolved.provider_options,
-            )
+
+def _apply_embedding_selection_defaults(
+    *,
+    config: SystemConfigModel,
+    registry: LLMProviderRegistryModel,
+    selection_id: str,
+    provider_meta: Any,
+) -> None:
+    selection = config.llm.selections[selection_id]
+    embedding_model_meta = find_embedding_model_meta(
+        registry,
+        str(provider_meta.id),
+        selection.model,
+        _provider_plan_value(config.llm.providers.get(selection.provider_id)),
+    )
+    if embedding_model_meta is None and provider_meta.embedding_models:
+        selection.model = provider_meta.embedding_models[0].id
+        embedding_model_meta = provider_meta.embedding_models[0]
+
+    selection.embedding_dimension = resolve_embedding_dimension(
+        embedding_model_meta,
+        selection.embedding_dimension,
+    )
+    if selection.capability_override_enabled:
+        return
+    config.llm.selections[selection_id] = LLMSelectionConfigModel(
+        provider_id=selection.provider_id,
+        model=selection.model,
+        embedding_dimension=selection.embedding_dimension,
+        capability_override_enabled=False,
+        capabilities=LLMCapabilitiesSettings(
+            vision=False,
+            image_output=False,
+            tool_calling=False,
+            reasoning=False,
+            embedding=True,
+        ),
+        limits=(
+            selection_limits_from_registry_limits(embedding_model_meta.limits)
+            if embedding_model_meta is not None
+            else selection.limits
+        ),
+        provider_options=(
+            dict(embedding_model_meta.provider_options_example)
+            if embedding_model_meta is not None
+            else {}
+        ),
+    )
+
+
+def _apply_chat_selection_defaults(
+    *,
+    config: SystemConfigModel,
+    registry: LLMProviderRegistryModel,
+    selection_id: str,
+    provider_meta: Any,
+) -> None:
+    selection = config.llm.selections[selection_id]
+    if not selection.model:
+        selection.model = _default_chat_model_for_selection(selection_id, provider_meta)
+
+    if selection.capability_override_enabled or not selection.model:
+        return
+    resolved = resolve_llm_profile(
+        selection,
+        registry,
+        provider_settings=config.llm.providers.get(selection.provider_id),
+    )
+    config.llm.selections[selection_id] = LLMSelectionConfigModel(
+        provider_id=selection.provider_id,
+        model=selection.model,
+        embedding_dimension=selection.embedding_dimension,
+        capability_override_enabled=False,
+        capabilities=resolved.capabilities,
+        limits=selection_limits_from_registry_limits(resolved.limits),
+        provider_options=resolved.provider_options,
+    )
+
+
+def _default_chat_model_for_selection(selection_id: str, provider_meta: Any) -> str:
+    if selection_id == "context_decider":
+        return (
+            provider_meta.default_classify_model
+            or provider_meta.default_model
+            or (provider_meta.chat_models[0].id if provider_meta.chat_models else "")
+        )
+    return provider_meta.default_model or (
+        provider_meta.chat_models[0].id if provider_meta.chat_models else ""
+    )
 
 
 def prune_sparse_value(value: Any) -> Any:
@@ -193,7 +242,21 @@ def prune_sparse_value(value: Any) -> Any:
 def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     apply_llm_registry_defaults(config, get_llm_provider_registry())
     personality_settings = config.personalitySettings.normalized()
+    _validate_llm_selections(config)
 
+    updates: Dict[str, Any] = {}
+    updates.update(_agent_update_paths(config))
+    updates.update(_llm_update_paths(config))
+    updates.update(_memory_update_paths(config))
+    updates.update(_preferences_update_paths(config))
+    updates.update(_personality_update_paths(config, personality_settings))
+    updates.update(_timeline_update_paths(config))
+    updates.update(_tool_update_paths(config))
+    updates.update(_tool_provider_update_paths(config))
+    return updates
+
+
+def _validate_llm_selections(config: SystemConfigModel) -> None:
     for selection_id, selection in config.llm.selections.items():
         if not str(selection.provider_id or "").strip():
             continue
@@ -247,6 +310,18 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
                 )
             )
 
+
+def _agent_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
+    return {
+        "agent.name": config.agent.name,
+        "agent.description": config.agent.description,
+        "agent.background_tasks.auto_detect_long_task": (
+            config.agent.background_tasks.auto_detect_long_task
+        ),
+    }
+
+
+def _llm_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     llm_providers: Dict[str, Any] = {}
     for provider_id, provider in config.llm.providers.items():
         llm_providers[provider_id] = prune_sparse_value(provider.model_dump(exclude_none=True))
@@ -256,12 +331,7 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         for runtime_key, limits in config.llm.model_runtime_overrides.items()
     }
 
-    updates: Dict[str, Any] = {
-        "agent.name": config.agent.name,
-        "agent.description": config.agent.description,
-        "agent.background_tasks.auto_detect_long_task": (
-            config.agent.background_tasks.auto_detect_long_task
-        ),
+    return {
         "llm.providers": llm_providers,
         "llm.selections": {
             selection_id: prune_sparse_value(selection.model_dump(exclude_none=True))
@@ -269,6 +339,11 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
             if str(selection.provider_id or "").strip() and str(selection.model or "").strip()
         },
         "llm.model_runtime_overrides": model_runtime_overrides,
+    }
+
+
+def _memory_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
+    return {
         "agent.memory.db_path": config.memory.db_path,
         "agent.memory.embedding.mode": config.memory.embedding.mode,
         "agent.memory.embedding.local.model_source": config.memory.embedding.local.model_source,
@@ -308,6 +383,11 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.l4.vectors_enabled": config.memory.l4.vectors_enabled,
         "agent.memory.l4.inactive_skill_retention_days": config.memory.l4.inactive_skill_retention_days,
         "agent.memory.l4.inactive_skill_min_attempts": config.memory.l4.inactive_skill_min_attempts,
+    }
+
+
+def _preferences_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
+    return {
         # mode="json" is required: preferences.suggestion_dismissals holds
         # DismissalRecord values whose ``kind`` is a DismissalKind enum and
         # ``dismissed_at`` a datetime. A plain model_dump() keeps those as native
@@ -317,13 +397,31 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
             config.preferences.model_dump(mode="json", exclude_none=True)
         ),
         "network": config.network.model_dump(),
+    }
+
+
+def _personality_update_paths(
+    config: SystemConfigModel,
+    personality_settings: Any,
+) -> Dict[str, Any]:
+    return {
         "agent.personality.name": config.personality.name if config.personality.name else "default",
         "agent.personality.path": "~/.magi/personalities",
         "agent.personality.enable_evolution": personality_settings.state_memory_enabled,
         "agent.personality.enable_state_memory": personality_settings.state_memory_enabled,
         "agent.personality.enable_state_transition": personality_settings.state_transition_enabled,
         "agent.personality.enable_deep_persona": personality_settings.deep_persona_enabled,
+    }
+
+
+def _timeline_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
+    return {
         "timeline": prune_sparse_value(config.timeline.model_dump(exclude_none=True)),
+    }
+
+
+def _tool_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
+    return {
         "tools.builtIn": prune_sparse_value(config.tools.builtIn.model_dump(exclude_none=True)),
         "tools.skills": config.tools.skills,
         "tools.weather.enabled": config.tools.builtIn.weather.enabled,
@@ -334,11 +432,21 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "tools.web_fetch.allow_private_network": config.tools.builtIn.webFetch.allowPrivateNetworkFetch,
         "tools.web_fetch.private_network_allowlist": config.tools.builtIn.webFetch.privateNetworkAllowlist,
     }
-    if config.tools.builtIn.weather.provider == "qweather" and config.tools.builtIn.weather.apiKey is not None:
+
+
+def _tool_provider_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
+    updates: Dict[str, Any] = {}
+    if (
+        config.tools.builtIn.weather.provider == "qweather"
+        and config.tools.builtIn.weather.apiKey is not None
+    ):
         updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.api_key"] = (
             config.tools.builtIn.weather.apiKey
         )
-    if config.tools.builtIn.weather.provider == "qweather" and config.tools.builtIn.weather.apiUrl is not None:
+    if (
+        config.tools.builtIn.weather.provider == "qweather"
+        and config.tools.builtIn.weather.apiUrl is not None
+    ):
         updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.base_url"] = (
             config.tools.builtIn.weather.apiUrl
         )
@@ -353,9 +461,9 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         config.tools.builtIn.webSearch.provider in {"duckduckgo", "searxng"}
         and config.tools.builtIn.webSearch.apiUrl is not None
     ):
-        updates[f"tools.web_search.providers.{config.tools.builtIn.webSearch.provider}.base_url"] = (
-            config.tools.builtIn.webSearch.apiUrl
-        )
+        updates[
+            f"tools.web_search.providers.{config.tools.builtIn.webSearch.provider}.base_url"
+        ] = config.tools.builtIn.webSearch.apiUrl
     return updates
 
 
