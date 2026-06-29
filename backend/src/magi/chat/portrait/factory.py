@@ -10,7 +10,6 @@ from typing import Any, Callable
 
 from ...memory.portrait.snippet_fetcher import build_snippet_fetcher
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -80,8 +79,12 @@ class _BridgeJsonAdapter:
                 "portrait %s LLM ▶ model=%s thinking=%s timeout=%s"
                 "\n  system_prompt:\n%s"
                 "\n  user_prompt:\n%s",
-                self._label, model, self._thinking_depth, self._timeout_seconds,
-                system_prompt, user_prompt,
+                self._label,
+                model,
+                self._thinking_depth,
+                self._timeout_seconds,
+                system_prompt,
+                user_prompt,
             )
 
         t0 = _time.monotonic()
@@ -94,9 +97,14 @@ class _BridgeJsonAdapter:
                 " timeout=%s prompt_len=%d"
                 "\n  system_prompt:\n%s"
                 "\n  user_prompt:\n%s",
-                self._label, model, base_url, elapsed_ms,
-                self._timeout_seconds, len(user_prompt),
-                system_prompt, user_prompt,
+                self._label,
+                model,
+                base_url,
+                elapsed_ms,
+                self._timeout_seconds,
+                len(user_prompt),
+                system_prompt,
+                user_prompt,
                 exc_info=True,
             )
             return {}
@@ -106,8 +114,13 @@ class _BridgeJsonAdapter:
         logger.info(
             "portrait %s LLM completed model=%s base_url=%s elapsed_ms=%.1f"
             " timeout=%s prompt_len=%d response_len=%d",
-            self._label, model, base_url, elapsed_ms,
-            self._timeout_seconds, len(user_prompt), len(response_text),
+            self._label,
+            model,
+            base_url,
+            elapsed_ms,
+            self._timeout_seconds,
+            len(user_prompt),
+            len(response_text),
         )
         if debug:
             logger.info("portrait %s LLM ◀ raw_response:\n%s", self._label, response_text)
@@ -116,7 +129,9 @@ class _BridgeJsonAdapter:
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             logger.warning(
                 "portrait %s LLM returned non-JSON (%s); raw=%r",
-                self._label, exc, response_text,
+                self._label,
+                exc,
+                response_text,
             )
             return {}
 
@@ -134,72 +149,100 @@ def build_chat_portrait_service(chat_read_service_factory=None):
     tests that never exercise ``message_loader``) the loader yields no history.
     """
     from ...config.models import ThinkingDepth
-    from ...llm import LLMProviderBridge, LLMScenario
-    from ...llm.provider import get_scenario_llm_pool
+    from ...llm import LLMScenario
     from ...personality.persona_repository import PersonaRepository
-    from ...utils.runtime import get_runtime_paths
-    from ...memory.provider import get_hybrid_retrieval_service
-    from .cache import PortraitCache
     from .persona_lens_renderer import PersonaLensRenderer
     from .service import PortraitService
     from .topic_extractor import TopicExtractor
 
     repo = PersonaRepository()
 
+    return PortraitService(
+        topic_extractor=TopicExtractor(
+            bridge_factory=_build_topic_bridge_factory(LLMScenario, ThinkingDepth)
+        ),
+        renderer=PersonaLensRenderer(
+            bridge_factory=_build_render_bridge_factory(LLMScenario, ThinkingDepth)
+        ),
+        snippet_fetcher=_build_portrait_snippet_fetcher(),
+        persona_loader=_build_persona_loader(repo),
+        message_loader=_build_message_loader(chat_read_service_factory),
+        active_persona_resolver=_build_active_persona_resolver(repo),
+        cache=_build_portrait_cache(),
+    )
+
+
+def _build_portrait_cache():
+    from ...utils.runtime import get_runtime_paths
+    from .cache import PortraitCache
+
     # Disk persistence so the rail survives a backend restart instead of
     # flashing back to the cold-start placeholder for the first ~25s.
     portrait_cache_path = get_runtime_paths().cache_dir / "portrait" / "cache.json"
-    portrait_cache = PortraitCache(persistence_path=portrait_cache_path)
+    return PortraitCache(persistence_path=portrait_cache_path)
 
-    def _build_bridge(
-        label: str,
-        scenarios: tuple[LLMScenario, ...],
-        thinking_depth,
-        *,
-        timeout_seconds: float,
-    ):
-        """Try scenarios in order; return a bridge adapter or None."""
-        try:
-            pool = get_scenario_llm_pool()
-        except RuntimeError:
-            return None
-        if pool is None:
-            return None
-        for scenario in scenarios:
-            try:
-                adapter = pool.get(scenario)
-            except Exception as exc:
-                logger.debug("portrait bridge: scenario %s unavailable (%s)", scenario.value, exc)
-                continue
-            return _BridgeJsonAdapter(
-                LLMProviderBridge(adapter),
-                label=label,
-                thinking_depth=thinking_depth,
-                timeout_seconds=timeout_seconds,
-            )
-        return None
 
+def _build_topic_bridge_factory(llm_scenario_enum: Any, thinking_depth_enum: Any):
     # Topic extraction is essentially intent recognition: no reasoning needed.
     # 25s inner timeout < 30s outer wait_for in TopicExtractor.
     def topic_bridge_factory():
         return _build_bridge(
             "topic",
-            (LLMScenario.CONTEXT_DECIDER, LLMScenario.CORE),
-            ThinkingDepth.NONE,
+            (llm_scenario_enum.CONTEXT_DECIDER, llm_scenario_enum.CORE),
+            thinking_depth_enum.NONE,
             timeout_seconds=25.0,
         )
 
+    return topic_bridge_factory
+
+
+def _build_render_bridge_factory(llm_scenario_enum: Any, thinking_depth_enum: Any):
     # Persona-lens rendering needs to interpret raw memory through the
     # persona's voice — medium reasoning effort is appropriate.
     # 220s inner timeout < 240s outer wait_for in PersonaLensRenderer.
     def render_bridge_factory():
         return _build_bridge(
             "lens",
-            (LLMScenario.MEMORY_SUMMARIZER, LLMScenario.CORE),
-            ThinkingDepth.MEDIUM,
+            (llm_scenario_enum.MEMORY_SUMMARIZER, llm_scenario_enum.CORE),
+            thinking_depth_enum.MEDIUM,
             timeout_seconds=220.0,
         )
 
+    return render_bridge_factory
+
+
+def _build_bridge(
+    label: str,
+    scenarios: tuple[Any, ...],
+    thinking_depth: Any,
+    *,
+    timeout_seconds: float,
+):
+    from ...llm import LLMProviderBridge
+    from ...llm.provider import get_scenario_llm_pool
+
+    try:
+        pool = get_scenario_llm_pool()
+    except RuntimeError:
+        return None
+    if pool is None:
+        return None
+    for scenario in scenarios:
+        try:
+            adapter = pool.get(scenario)
+        except Exception as exc:
+            logger.debug("portrait bridge: scenario %s unavailable (%s)", scenario.value, exc)
+            continue
+        return _BridgeJsonAdapter(
+            LLMProviderBridge(adapter),
+            label=label,
+            thinking_depth=thinking_depth,
+            timeout_seconds=timeout_seconds,
+        )
+    return None
+
+
+def _build_active_persona_resolver(repo: Any):
     async def active_persona_resolver():
         try:
             return await repo.get_active_id()
@@ -207,6 +250,10 @@ def build_chat_portrait_service(chat_read_service_factory=None):
             logger.debug("portrait active persona lookup failed: %s", exc)
             return None
 
+    return active_persona_resolver
+
+
+def _build_persona_loader(repo: Any):
     async def persona_loader(persona_id: str):
         if not persona_id:
             return None
@@ -223,6 +270,10 @@ def build_chat_portrait_service(chat_read_service_factory=None):
             "config": config_dict,
         }
 
+    return persona_loader
+
+
+def _build_message_loader(chat_read_service_factory):
     async def message_loader(user_id: str, session_id: str) -> list[dict[str, str]]:
         if chat_read_service_factory is None:
             return []
@@ -234,18 +285,16 @@ def build_chat_portrait_service(chat_read_service_factory=None):
             return []
         return [_message_to_dict(msg) for msg in history if msg is not None]
 
-    snippet_fetcher = build_snippet_fetcher(
-        retrieval_service_provider=lambda: _safe_get_retrieval_service(get_hybrid_retrieval_service),
-    )
+    return message_loader
 
-    return PortraitService(
-        topic_extractor=TopicExtractor(bridge_factory=topic_bridge_factory),
-        renderer=PersonaLensRenderer(bridge_factory=render_bridge_factory),
-        snippet_fetcher=snippet_fetcher,
-        persona_loader=persona_loader,
-        message_loader=message_loader,
-        active_persona_resolver=active_persona_resolver,
-        cache=portrait_cache,
+
+def _build_portrait_snippet_fetcher():
+    from ...memory.provider import get_hybrid_retrieval_service
+
+    return build_snippet_fetcher(
+        retrieval_service_provider=lambda: _safe_get_retrieval_service(
+            get_hybrid_retrieval_service
+        ),
     )
 
 
@@ -259,8 +308,7 @@ def _safe_get_retrieval_service(getter: Callable[[], Any]) -> Any | None:
 
 def _message_to_dict(msg: Any) -> dict[str, str]:
     if isinstance(msg, dict):
-        return {"role": str(msg.get("role") or "user"),
-                "content": str(msg.get("content") or "")}
+        return {"role": str(msg.get("role") or "user"), "content": str(msg.get("content") or "")}
     # Display history messages typically have to_dict() and role/content attrs.
     if hasattr(msg, "to_dict"):
         try:
@@ -268,8 +316,10 @@ def _message_to_dict(msg: Any) -> dict[str, str]:
         except Exception:
             data = {}
         if isinstance(data, dict):
-            return {"role": str(data.get("role") or "user"),
-                    "content": str(data.get("content") or "")}
+            return {
+                "role": str(data.get("role") or "user"),
+                "content": str(data.get("content") or ""),
+            }
     return {
         "role": str(getattr(msg, "role", None) or "user"),
         "content": str(getattr(msg, "content", None) or ""),

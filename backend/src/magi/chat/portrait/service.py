@@ -26,7 +26,6 @@ from .contracts import (
     TopicResult,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -78,38 +77,74 @@ class PortraitService:
         cold-start again. When the task finishes successfully, cache is
         warm and the next poll returns the real payload.
         """
-        persona_id = (await self._active_persona_resolver()) or ""
+        persona_id = await self._active_persona_id()
         if not persona_id:
             logger.info("portrait cold-start: no_persona session=%s", session_id)
             return self._build_cold_start(
-                session_id, persona_id="", cold_line="", reason="no_persona",
+                session_id,
+                persona_id="",
+                cold_line="",
+                reason="no_persona",
             )
 
-        messages = await self._message_loader(user_id, session_id)
-        if len(messages) > self._message_window:
-            messages = messages[-self._message_window:]
+        messages = await self._recent_messages(user_id, session_id)
         if not messages:
             logger.info("portrait cold-start: no_messages session=%s", session_id)
             return await self._cold_start_for_persona(
-                session_id, persona_id, reason="no_messages",
+                session_id,
+                persona_id,
+                reason="no_messages",
             )
 
         # Cache key uses a hash of recent user-message text, not the
         # LLM-extracted topic — otherwise we'd burn a topic-extraction LLM
         # call on every cache lookup, defeating the cache's purpose.
-        conversation_hash = self._hash_conversation(messages)
-        key: CacheKey = (session_id, conversation_hash, persona_id)
+        key = self._cache_key(session_id, persona_id, messages)
 
         if not force:
             cached = self._cache.get(key)
             if cached is not None:
                 return cached
 
-        # Single-flight: ensure at most one background task per key.
+        await self._ensure_compute_task(
+            user_id=user_id,
+            session_id=session_id,
+            persona_id=persona_id,
+            messages=messages,
+            key=key,
+        )
+        return await self._stale_or_cold_start(session_id, persona_id, key)
+
+    async def _active_persona_id(self) -> str:
+        return (await self._active_persona_resolver()) or ""
+
+    async def _recent_messages(self, user_id: str, session_id: str) -> list[dict[str, str]]:
+        messages = await self._message_loader(user_id, session_id)
+        if len(messages) > self._message_window:
+            return messages[-self._message_window :]
+        return messages
+
+    def _cache_key(
+        self,
+        session_id: str,
+        persona_id: str,
+        messages: list[dict[str, str]],
+    ) -> CacheKey:
+        return (session_id, self._hash_conversation(messages), persona_id)
+
+    async def _ensure_compute_task(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        persona_id: str,
+        messages: list[dict[str, str]],
+        key: CacheKey,
+    ) -> None:
         async with self._pending_lock:
             running = self._pending_jobs.get(key)
             if running is None or running.done():
-                task = asyncio.create_task(
+                self._pending_jobs[key] = asyncio.create_task(
                     self._compute_in_background(
                         user_id=user_id,
                         session_id=session_id,
@@ -118,17 +153,24 @@ class PortraitService:
                         key=key,
                     )
                 )
-                self._pending_jobs[key] = task
                 logger.info(
                     "portrait task spawned: session=%s persona=%s",
-                    session_id, persona_id,
+                    session_id,
+                    persona_id,
                 )
             else:
                 logger.debug(
                     "portrait task already running: session=%s persona=%s",
-                    session_id, persona_id,
+                    session_id,
+                    persona_id,
                 )
 
+    async def _stale_or_cold_start(
+        self,
+        session_id: str,
+        persona_id: str,
+        key: CacheKey,
+    ) -> ChatPortraitPayload:
         # Stale-while-revalidate: if we have a previous successful payload
         # for this key, return it (flagged is_stale) so the UI keeps the
         # last-known portrait visible while the background task computes
@@ -136,20 +178,12 @@ class PortraitService:
         # the cold-start placeholder every TTL cycle.
         stale = self._cache.get_stale(key)
         if stale is not None:
-            return ChatPortraitPayload(
-                session_id=stale.session_id,
-                persona_id=stale.persona_id,
-                topic=stale.topic,
-                generated_at=stale.generated_at,
-                observations=list(stale.observations),
-                is_cold_start=False,
-                cold_start_line=None,
-                cold_start_reason=None,
-                is_stale=True,
-            )
+            return _stale_portrait_payload(stale)
 
         return await self._cold_start_for_persona(
-            session_id, persona_id, reason="computing",
+            session_id,
+            persona_id,
+            reason="computing",
         )
 
     async def _compute_in_background(
@@ -169,7 +203,8 @@ class PortraitService:
             if topic_result.is_empty():
                 logger.info(
                     "portrait compute: topic_empty session=%s messages=%d",
-                    session_id, len(messages),
+                    session_id,
+                    len(messages),
                 )
                 return
 
@@ -177,7 +212,8 @@ class PortraitService:
             if not snippets:
                 logger.info(
                     "portrait compute: no_snippets session=%s topic=%r",
-                    session_id, topic_result.topic,
+                    session_id,
+                    topic_result.topic,
                 )
                 return
 
@@ -194,7 +230,9 @@ class PortraitService:
             if not observations:
                 logger.info(
                     "portrait compute: no_observations session=%s topic=%r snippets=%d",
-                    session_id, topic_result.topic, len(snippets),
+                    session_id,
+                    topic_result.topic,
+                    len(snippets),
                 )
                 return
 
@@ -209,7 +247,9 @@ class PortraitService:
             self._cache.set(key, payload)
             logger.info(
                 "portrait compute: success session=%s topic=%r observations=%d",
-                session_id, topic_result.topic, len(observations),
+                session_id,
+                topic_result.topic,
+                len(observations),
             )
         except Exception as exc:
             logger.exception("portrait compute failed: session=%s err=%s", session_id, exc)
@@ -268,7 +308,10 @@ class PortraitService:
             name = config.get("name") or "AI"
             line = f"{name} 还在认识你 · 跟我多聊聊"
         return self._build_cold_start(
-            session_id, persona_id=persona_id, cold_line=line, reason=reason,
+            session_id,
+            persona_id=persona_id,
+            cold_line=line,
+            reason=reason,
         )
 
     def _build_cold_start(
@@ -289,3 +332,17 @@ class PortraitService:
             cold_start_line=cold_line or None,
             cold_start_reason=reason,
         )
+
+
+def _stale_portrait_payload(stale: ChatPortraitPayload) -> ChatPortraitPayload:
+    return ChatPortraitPayload(
+        session_id=stale.session_id,
+        persona_id=stale.persona_id,
+        topic=stale.topic,
+        generated_at=stale.generated_at,
+        observations=list(stale.observations),
+        is_cold_start=False,
+        cold_start_line=None,
+        cold_start_reason=None,
+        is_stale=True,
+    )
