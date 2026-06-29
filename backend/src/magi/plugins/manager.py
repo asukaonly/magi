@@ -11,21 +11,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover
-    import tomli as tomllib  # type: ignore[no-redef]
-
 from ..config import get_config, save_config
-from ..config.models import PluginSettings
-from ..utils.packaged_paths import get_repo_root
 from .base import Plugin
 from .contribution_registration import PluginContributionRegistrar
 from .contracts import (
-    ContributionType,
-    PluginContribution,
     PluginManifest,
     PluginPackageState,
+)
+from .discovery import (
+    build_package_states,
+    discover_plugin_manifests,
+    load_plugin_manifest,
+    persist_new_plugin_packages,
+    placeholder_contributions,
+    resolve_plugin_search_paths as _resolve_search_paths,
 )
 from .installation import PluginInstallationMixin
 from .projections import PluginProjectionService
@@ -40,20 +39,6 @@ class PluginRuntimeBindings:
     plugin_manager: "PluginManager"
     plugin_projection_service: PluginProjectionService
     sensor_registry: SensorRegistry
-
-
-def _resolve_search_paths() -> list[Path]:
-    config = get_config()
-    repo_root = get_repo_root()
-    builtin_root = repo_root / "plugins"
-    resolved: list[Path] = [builtin_root]
-    for raw_path in config.plugins.scan_paths:
-        path = Path(raw_path).expanduser()
-        if not path.is_absolute():
-            path = (repo_root / raw_path).resolve()
-        if path not in resolved:
-            resolved.append(path)
-    return resolved
 
 
 def build_plugin_runtime(
@@ -146,37 +131,17 @@ class PluginManager(PluginInstallationMixin):
         """Discover plugin manifests in configured scan paths."""
 
         config = get_config()
-        discovered: dict[str, PluginManifest] = {}
-        for root in self._search_paths:
-            if not root.exists():
-                continue
-            source = "builtin" if self._is_builtin_root(root) else "external"
-            for manifest_path in root.rglob("plugin.toml"):
-                manifest = self._load_manifest(manifest_path, source=source)
-                discovered[manifest.plugin_id] = manifest
+        discovered = discover_plugin_manifests(self._search_paths)
 
         if persist_discovery:
-            self._persist_new_packages(discovered)
+            persist_new_plugin_packages(discovered, config=config, save=save_config)
             config = get_config()
 
-        next_states: dict[str, PluginPackageState] = {}
-        for plugin_id, manifest in discovered.items():
-            package_cfg = self._coerce_package_settings(config.plugins.packages.get(plugin_id))
-            enabled = bool(package_cfg.enabled) if package_cfg is not None else False
-            trusted = bool(package_cfg.trusted) if package_cfg is not None else False
-            current_settings = dict(package_cfg.settings) if package_cfg is not None else {}
-            previous_state = self._package_states.get(plugin_id)
-            next_states[plugin_id] = PluginPackageState(
-                manifest=manifest,
-                enabled=enabled,
-                trusted=trusted,
-                loaded=bool(previous_state.loaded) if previous_state is not None else False,
-                healthy=bool(previous_state.healthy) if previous_state is not None else True,
-                last_error=previous_state.last_error if previous_state is not None else None,
-                contributions=list(previous_state.contributions) if previous_state is not None else self._placeholder_contributions(manifest),
-                current_settings=current_settings,
-            )
-        self._package_states = next_states
+        self._package_states = build_package_states(
+            manifests=discovered,
+            packages=config.plugins.packages,
+            previous_states=self._package_states,
+        )
         return self.list_packages()
 
     def activate_enabled_plugins(self) -> None:
@@ -306,7 +271,7 @@ class PluginManager(PluginInstallationMixin):
         state = self._package_states.get(plugin_id)
         if state is not None:
             state.loaded = False
-            state.contributions = self._placeholder_contributions(state.manifest)
+            state.contributions = placeholder_contributions(state.manifest)
         self._purge_plugin_modules(plugin_id)
         self._request_sensor_schedule_refresh()
 
@@ -478,47 +443,6 @@ class PluginManager(PluginInstallationMixin):
             session_id=session_id,
         )
 
-    def _persist_new_packages(self, manifests: dict[str, PluginManifest]) -> None:
-        config = get_config()
-        updates: dict[str, Any] = {}
-        for plugin_id, manifest in manifests.items():
-            if plugin_id in config.plugins.packages:
-                continue
-            if manifest.kind == "library":
-                # Libraries are not user-toggled. Always enabled + trusted
-                # so they pass through the load-time gates if any consumer
-                # plugin references them. (They still don't get instantiated
-                # — see load_plugin.)
-                enabled = True
-                trusted = True
-            else:
-                enabled = bool(manifest.official and manifest.source == "builtin")
-                trusted = enabled
-            updates[f"plugins.packages.{plugin_id}.enabled"] = enabled
-            updates[f"plugins.packages.{plugin_id}.trusted"] = trusted
-            updates[f"plugins.packages.{plugin_id}.source"] = manifest.source
-            updates[f"plugins.packages.{plugin_id}.manifest_path"] = manifest.manifest_path
-            updates[f"plugins.packages.{plugin_id}.official"] = (
-                bool(manifest.official) if manifest.source == "builtin" else False
-            )
-            updates[f"plugins.packages.{plugin_id}.settings"] = {}
-        if updates:
-            save_config(updates)
-
-    def _load_manifest(self, manifest_path: Path, *, source: str) -> PluginManifest:
-        with manifest_path.open("rb") as fp:
-            raw = tomllib.load(fp)
-        plugin_block = raw.get("plugin", raw)
-        manifest = PluginManifest.model_validate(
-            {
-                **plugin_block,
-                "plugin_dir": str(manifest_path.parent),
-                "manifest_path": str(manifest_path),
-                "source": source,
-            }
-        )
-        return manifest
-
     def _instantiate_plugin(self, manifest: PluginManifest, settings: dict[str, Any]) -> Plugin:
         module_path = Path(manifest.plugin_dir) / f"{manifest.entry_module}.py"
 
@@ -564,43 +488,11 @@ class PluginManager(PluginInstallationMixin):
         plugin_instance.configure(manifest=manifest, settings=settings)
         return plugin_instance
 
-    def _placeholder_contributions(self, manifest: PluginManifest) -> list[PluginContribution]:
-        _surface_map = {
-            ContributionType.TOOL: "tools",
-            ContributionType.SENSOR: "timeline",
-            ContributionType.CHANNEL: "extensions",
-        }
-        return [
-            PluginContribution(
-                plugin_id=manifest.plugin_id,
-                contribution_id=f"{manifest.plugin_id}:{contribution_type.value}",
-                contribution_type=contribution_type,
-                display_name=manifest.name,
-                description=manifest.description,
-                surface=_surface_map.get(contribution_type, "extensions"),
-            )
-            for contribution_type in manifest.contribution_types
-        ]
-
     def _require_package(self, plugin_id: str) -> PluginPackageState:
         state = self._package_states.get(plugin_id)
         if state is None:
             raise KeyError(f"Unknown plugin package: {plugin_id}")
         return state
 
-    @staticmethod
-    def _coerce_package_settings(value: Any) -> PluginSettings | None:
-        if value is None:
-            return None
-        if isinstance(value, PluginSettings):
-            return value
-        if isinstance(value, dict):
-            return PluginSettings.model_validate(value)
-        return None
-
-    def _is_builtin_root(self, path: Path) -> bool:
-        return path == self._default_builtin_root()
-
-    @staticmethod
-    def _default_builtin_root() -> Path:
-        return get_repo_root() / "plugins"
+    def _load_manifest(self, manifest_path: Path, *, source: str) -> PluginManifest:
+        return load_plugin_manifest(manifest_path, source=source)
