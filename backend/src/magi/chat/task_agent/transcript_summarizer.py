@@ -67,6 +67,16 @@ class TranscriptSummaryResult:
     token_count_after: int | None = None
 
 
+@dataclass(slots=True)
+class _TranscriptSummaryPlan:
+    active_summary: ChatContextSummaryRecord | None
+    transcript_messages: list[TranscriptMessageForSummary]
+    tail_start_index: int
+    current_token_count: int
+    messages_to_summarize: list[TranscriptMessageForSummary]
+    session_origin: str
+
+
 class ChatTranscriptSummarizer:
     """Create persistent rolling summaries for long chat sessions."""
 
@@ -116,6 +126,34 @@ class ChatTranscriptSummarizer:
         transcript_messages = self._prompt_messages_from_records(
             await self._chat_store.list_messages(session_id=session_id)
         )
+        summary_plan = self._build_summary_plan(
+            active_summary=active_summary,
+            transcript_messages=transcript_messages,
+        )
+        if isinstance(summary_plan, TranscriptSummaryResult):
+            return summary_plan
+
+        summary_text = await self._generate_summary(
+            self._build_summary_input(session_id, summary_plan)
+        )
+        if not summary_text:
+            return TranscriptSummaryResult(created=False, reason="summary_unavailable")
+
+        summary_record = self._build_summary_record(
+            session_id=session_id,
+            summary_plan=summary_plan,
+            summary_text=summary_text,
+        )
+        await self._chat_store.activate_context_summary(summary_record)
+        self._log_activated_context_summary(session_id, summary_record)
+        return self._created_summary_result(summary_record)
+
+    def _build_summary_plan(
+        self,
+        *,
+        active_summary: ChatContextSummaryRecord | None,
+        transcript_messages: list[TranscriptMessageForSummary],
+    ) -> _TranscriptSummaryPlan | TranscriptSummaryResult:
         if len(transcript_messages) < self._min_messages:
             return TranscriptSummaryResult(created=False, reason="too_few_messages")
 
@@ -150,29 +188,52 @@ class ChatTranscriptSummarizer:
             if active_summary is not None and active_summary.session_origin.strip()
             else self._derive_session_origin(transcript_messages)
         )
-        summary_input = TranscriptSummaryInput(
-            session_id=session_id,
-            previous_summary=(active_summary.summary_text if active_summary is not None else None),
+        return _TranscriptSummaryPlan(
+            active_summary=active_summary,
+            transcript_messages=transcript_messages,
+            tail_start_index=tail_start_index,
+            current_token_count=current_token_count,
+            messages_to_summarize=messages_to_summarize,
             session_origin=session_origin,
-            messages=messages_to_summarize,
         )
-        summary_text = await self._generate_summary(summary_input)
-        if not summary_text:
-            return TranscriptSummaryResult(created=False, reason="summary_unavailable")
 
-        first_kept_message = transcript_messages[tail_start_index]
-        covered_to_message = messages_to_summarize[-1]
+    @staticmethod
+    def _build_summary_input(
+        session_id: str,
+        summary_plan: _TranscriptSummaryPlan,
+    ) -> TranscriptSummaryInput:
+        return TranscriptSummaryInput(
+            session_id=session_id,
+            previous_summary=(
+                summary_plan.active_summary.summary_text
+                if summary_plan.active_summary is not None
+                else None
+            ),
+            session_origin=summary_plan.session_origin,
+            messages=summary_plan.messages_to_summarize,
+        )
+
+    def _build_summary_record(
+        self,
+        *,
+        session_id: str,
+        summary_plan: _TranscriptSummaryPlan,
+        summary_text: str,
+    ) -> ChatContextSummaryRecord:
+        active_summary = summary_plan.active_summary
+        first_kept_message = summary_plan.transcript_messages[summary_plan.tail_start_index]
+        covered_to_message = summary_plan.messages_to_summarize[-1]
         covered_from_message_id = (
             active_summary.covered_from_message_id
             if active_summary is not None and active_summary.covered_from_message_id
-            else messages_to_summarize[0].message_id
+            else summary_plan.messages_to_summarize[0].message_id
         )
         now_ms = now_wall_ms()
         token_count_after = self._estimate_current_prompt_tokens(
             active_summary_text=summary_text,
-            messages=transcript_messages[tail_start_index:],
+            messages=summary_plan.transcript_messages[summary_plan.tail_start_index :],
         )
-        summary_record = ChatContextSummaryRecord(
+        return ChatContextSummaryRecord(
             summary_id=f"summary_{uuid.uuid4().hex[:16]}",
             session_id=session_id,
             parent_summary_id=active_summary.summary_id if active_summary is not None else None,
@@ -183,18 +244,23 @@ class ChatTranscriptSummarizer:
             covered_to_message_id=covered_to_message.message_id,
             first_kept_message_id=first_kept_message.message_id,
             covered_to_sequence_no=covered_to_message.sequence_no,
-            session_origin=session_origin,
+            session_origin=summary_plan.session_origin,
             summary_text=summary_text,
             prompt_profile="general_chat",
             model_provider=self._resolve_model_provider(),
             model_id=self._resolve_model_id(),
-            token_count_before=current_token_count,
+            token_count_before=summary_plan.current_token_count,
             token_count_after=token_count_after,
             quality_status="generated",
             created_at_ms=now_ms,
             updated_at_ms=now_ms,
         )
-        await self._chat_store.activate_context_summary(summary_record)
+
+    @staticmethod
+    def _log_activated_context_summary(
+        session_id: str,
+        summary_record: ChatContextSummaryRecord,
+    ) -> None:
         logger.info(
             "Activated chat context summary | session_id=%s summary_id=%s covered_to=%s first_kept=%s",
             session_id,
@@ -202,6 +268,11 @@ class ChatTranscriptSummarizer:
             summary_record.covered_to_message_id,
             summary_record.first_kept_message_id,
         )
+
+    @staticmethod
+    def _created_summary_result(
+        summary_record: ChatContextSummaryRecord,
+    ) -> TranscriptSummaryResult:
         return TranscriptSummaryResult(
             created=True,
             reason="created",
@@ -209,8 +280,8 @@ class ChatTranscriptSummarizer:
             parent_summary_id=summary_record.parent_summary_id,
             covered_to_message_id=summary_record.covered_to_message_id,
             first_kept_message_id=summary_record.first_kept_message_id,
-            token_count_before=current_token_count,
-            token_count_after=token_count_after,
+            token_count_before=summary_record.token_count_before,
+            token_count_after=summary_record.token_count_after,
         )
 
     async def _generate_summary(self, summary_input: TranscriptSummaryInput) -> str:
@@ -242,7 +313,9 @@ class ChatTranscriptSummarizer:
             try:
                 return self._scenario_llm_pool.get(LLMScenario.CONTEXT_COMPACT)
             except (ValueError, KeyError):
-                logger.info("CONTEXT_COMPACT scenario not configured, falling back to CORE for chat transcript summary")
+                logger.info(
+                    "CONTEXT_COMPACT scenario not configured, falling back to CORE for chat transcript summary"
+                )
                 try:
                     return self._scenario_llm_pool.get(LLMScenario.CORE)
                 except (ValueError, KeyError):
@@ -264,7 +337,9 @@ class ChatTranscriptSummarizer:
         return str(model_id) if model_id is not None else None
 
     @staticmethod
-    def _prompt_messages_from_records(records: list[ChatMessageRecord]) -> list[TranscriptMessageForSummary]:
+    def _prompt_messages_from_records(
+        records: list[ChatMessageRecord],
+    ) -> list[TranscriptMessageForSummary]:
         messages: list[TranscriptMessageForSummary] = []
         for record in records:
             if not record.is_visible or record.replaced_by_message_id is not None:
@@ -370,17 +445,21 @@ Rules:
             "",
         ]
         if summary_input.previous_summary:
-            sections.extend([
-                "# Previous Active Summary",
-                summary_input.previous_summary,
+            sections.extend(
+                [
+                    "# Previous Active Summary",
+                    summary_input.previous_summary,
+                    "",
+                ]
+            )
+        sections.extend(
+            [
+                "# New Transcript Range",
+                ChatTranscriptSummarizer._render_messages(summary_input.messages),
                 "",
-            ])
-        sections.extend([
-            "# New Transcript Range",
-            ChatTranscriptSummarizer._render_messages(summary_input.messages),
-            "",
-            "Return the new cumulative active summary only.",
-        ])
+                "Return the new cumulative active summary only.",
+            ]
+        )
         return "\n".join(sections).strip()
 
     @staticmethod
