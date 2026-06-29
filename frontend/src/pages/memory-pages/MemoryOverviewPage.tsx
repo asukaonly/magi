@@ -1,263 +1,23 @@
-import { type ComponentType, useEffect, useMemo, useState } from 'react';
-import { Box, Check, FileText, HardDrive, UserRound, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { PluginIcon } from '@/components/plugins/PluginIcon';
-import { memoryApi, type L2Assertion, type MemoryDashboard, type MemorySourceCount } from '@/api/modules/memory';
-import { sensorsApi, type SensorSourceStatusItem, type SensorSourceStatusResponse } from '@/api/modules/sensors';
+import { memoryApi, type MemoryDashboard } from '@/api/modules/memory';
+import { sensorsApi, type SensorSourceStatusResponse } from '@/api/modules/sensors';
 import { memoryStoriesApi, type StoryItem } from '@/api/modules/memoryStories';
-import { getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
-import { getMemorySourceLabel } from '@/utils/memory-source-copy';
-import MemoryPageFrame, {
-  MEMORY_ACTION_BUTTON_CLASS,
-  MEMORY_EMPTY_PANEL_CLASS,
-  MEMORY_SECTION_CARD_CLASS,
-} from './MemoryPageFrame';
-import { isMemoryUpdateStory } from './storyFilters';
-
-type PendingOverviewItem =
-  | {
-      kind: 'assertion';
-      id: string;
-      title: string;
-      body: string;
-      status: string;
-      updatedAt: number;
-      payload: L2Assertion;
-    }
-  | {
-      kind: 'story';
-      id: string;
-      title: string;
-      body: string;
-      status: string;
-      updatedAt: number;
-      payload: StoryItem;
-    };
-
-interface SourceCoverageRow {
-  key: string;
-  label: string;
-  pluginId: string | null;
-  icon: string | null;
-  status: string;
-  eventCount: number;
-  lastResultCount: number | null;
-  enabled: boolean | null;
-  running: boolean | null;
-  lastSyncAt: number | string | null;
-  lastEventAt: number | null;
-}
-
-type OverviewTranslateFn = (key: string, options?: Record<string, unknown>) => string;
-
-const formatBytes = (bytes?: number | null): string => {
-  const value = Number(bytes || 0);
-  if (!Number.isFinite(value) || value <= 0) {
-    return '0 B';
-  }
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let size = value;
-  let unitIndex = 0;
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-  const precision = unitIndex === 0 || size >= 10 ? 0 : 1;
-  return `${size.toFixed(precision)} ${units[unitIndex]}`;
-};
-
-const sourceKey = (value: string | null | undefined): string => String(value || '').trim().toLowerCase();
-
-const formatInteger = (value: number): string => Number(value || 0).toLocaleString();
-
-const timestampToDate = (value: number | string | null | undefined): Date | null => {
-  if (value == null || value === '') {
-    return null;
-  }
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value) || value <= 0) {
-      return null;
-    }
-    return new Date(value > 1_000_000_000_000 ? value : value * 1000);
-  }
-  const trimmed = String(value).trim();
-  if (!trimmed) {
-    return null;
-  }
-  const numeric = Number(trimmed);
-  if (Number.isFinite(numeric)) {
-    return timestampToDate(numeric);
-  }
-  const parsed = Date.parse(trimmed);
-  return Number.isFinite(parsed) ? new Date(parsed) : null;
-};
-
-const formatOverviewTimestamp = (value: number | string | null | undefined, locale: string): string | null => {
-  const date = timestampToDate(value);
-  if (!date) {
-    return null;
-  }
-  return new Intl.DateTimeFormat(locale || undefined, {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-};
-
-const sanitizeMemoryText = (value: string, t: OverviewTranslateFn): string => {
-  const chatLabel = getMemorySourceLabel(t, 'chat');
-  return String(value || '').replace(/\bchat[_\s-]?projector\b/gi, chatLabel);
-};
-
-const storyDisplayTitle = (story: StoryItem, t: OverviewTranslateFn): string => {
-  const title = sanitizeMemoryText(String(story.title || '').trim(), t);
-  if (title) {
-    return title;
-  }
-  const key = `memory.stories.categories.${story.summary_category}`;
-  const translated = t(key);
-  return translated !== key ? translated : story.summary_category;
-};
-
-const getSensorLabel = (sensor?: SensorSourceStatusItem): string | null => {
-  if (!sensor) {
-    return null;
-  }
-  return (
-    String(sensor.display_name_translated || '').trim()
-    || String(sensor.display_name || '').trim()
-    || String(sensor.source_name || '').trim()
-    || null
-  );
-};
-
-const findSensorForSource = (
-  source: MemorySourceCount,
-  sensors: SensorSourceStatusItem[],
-): SensorSourceStatusItem | undefined => {
-  const sourceName = sourceKey(source.source);
-  return sensors.find((sensor) => {
-    const candidates = [
-      sensor.source_name,
-      sensor.contribution_id,
-      sensor.plugin_id,
-    ].map(sourceKey);
-    return candidates.includes(sourceName);
-  });
-};
-
-const buildSourceRows = (
-  counts: MemorySourceCount[],
-  status?: SensorSourceStatusResponse | null,
-  t?: OverviewTranslateFn,
-): SourceCoverageRow[] => {
-  const sensors = status?.sources || [];
-  return counts.map((source) => {
-    const sensor = findSensorForSource(source, sensors);
-    return {
-      key: source.source,
-      label: getSensorLabel(sensor) || getMemorySourceLabel(t || ((key: string) => key), source.source),
-      pluginId: sensor?.plugin_id ?? null,
-      icon: sensor?.icon ?? null,
-      status: sensor?.status || (sensor ? (sensor.enabled === false ? 'disabled' : 'ready') : 'ready'),
-      eventCount: source.event_count,
-      lastResultCount: sensor?.last_result_count ?? sensor?.last_raw_result_count ?? null,
-      enabled: sensor ? Boolean(sensor.enabled) : null,
-      running: sensor?.running == null ? null : Boolean(sensor.running),
-      lastSyncAt: sensor?.last_sync_at ?? sensor?.last_run_at ?? null,
-      lastEventAt: source.last_event_at,
-    };
-  }).sort((left, right) => right.eventCount - left.eventCount || left.label.localeCompare(right.label));
-};
-
-const buildPendingItems = (
-  dashboard: MemoryDashboard | null,
-  stories: StoryItem[],
-  dismissedIds: Set<string>,
-  t: OverviewTranslateFn,
-): PendingOverviewItem[] => {
-  const assertionItems: PendingOverviewItem[] = (dashboard?.pending_assertions.items || []).map((assertion) => {
-    const copy = getPendingAssertionCopy(assertion, t);
-    return {
-      kind: 'assertion',
-      id: `assertion:${assertion.assertion_id}`,
-      title: copy.title,
-      body: copy.body,
-      status: assertion.validation_state,
-      updatedAt: assertion.last_validated_at || assertion.first_inferred_at || 0,
-      payload: assertion,
-    };
-  });
-  const storyItems: PendingOverviewItem[] = stories
-    .filter((story) => story.review_state === 'pending_confirmation' && isMemoryUpdateStory(story))
-    .map((story) => ({
-      kind: 'story',
-      id: `story:${story.summary_id}`,
-      title: storyDisplayTitle(story, t),
-      body: sanitizeMemoryText(story.detail_lead_text || story.content, t),
-      status: story.review_state,
-      updatedAt: story.display_timestamp || 0,
-      payload: story,
-    }));
-  return [...assertionItems, ...storyItems]
-    .filter((item) => !dismissedIds.has(item.id))
-    .sort((left, right) => {
-      const leftPriority = left.kind === 'assertion' && left.status === 'contradicted' ? 0 : left.kind === 'story' ? 1 : 2;
-      const rightPriority = right.kind === 'assertion' && right.status === 'contradicted' ? 0 : right.kind === 'story' ? 1 : 2;
-      return leftPriority - rightPriority || right.updatedAt - left.updatedAt;
-    });
-};
-
-const buildRecentStories = (stories: StoryItem[], t: OverviewTranslateFn): StoryItem[] => {
-  const seen = new Set<string>();
-  const items: StoryItem[] = [];
-  stories
-    .filter((story) => (
-      story.review_state !== 'archived'
-      && story.review_state !== 'pending_confirmation'
-      && story.summary_feed_visible
-    ))
-    .forEach((story) => {
-      const contentKey = sanitizeMemoryText(story.preview_text || story.content, t).replace(/\s+/g, ' ').trim().toLowerCase();
-      const fallbackKey = `${story.summary_type}:${story.summary_category}:${story.display_timestamp || ''}`;
-      const key = contentKey || fallbackKey;
-      if (!key || seen.has(key)) {
-        return;
-      }
-      seen.add(key);
-      items.push(story);
-    });
-  return items.slice(0, 5);
-};
-
-const sourceStatusDotClassName = (status: string): string => {
-  switch (status) {
-    case 'running':
-      return 'bg-blue-500';
-    case 'stale':
-      return 'bg-amber-500';
-    case 'error':
-      return 'bg-red-500';
-    case 'disabled':
-    case 'setup_required':
-    case 'never_synced':
-      return 'bg-[hsl(var(--memory-muted))]';
-    default:
-      return 'bg-emerald-500';
-  }
-};
-
-const sourceStatusLabel = (status: string, t: OverviewTranslateFn): string => {
-  const key = `memory.overview.sourceStatus.${status}`;
-  const label = t(key);
-  return label === key ? t('memory.overview.sourceStatus.ready') : label;
-};
+import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS } from './MemoryPageFrame';
+import { OverviewMetricCards } from './overview/OverviewMetricCards';
+import { OverviewPendingSection } from './overview/OverviewPendingSection';
+import { OverviewRecentStories } from './overview/OverviewRecentStories';
+import { OverviewSourceCoverage } from './overview/OverviewSourceCoverage';
+import {
+  buildPendingItems,
+  buildRecentStories,
+  buildSourceRows,
+  type PendingOverviewItem,
+} from './overview/overviewModel';
 
 export const MemoryOverviewPage = () => {
-  const { t, i18n } = useTranslation('app');
+  const { t } = useTranslation('app');
   const [dashboard, setDashboard] = useState<MemoryDashboard | null>(null);
   const [sensorStatus, setSensorStatus] = useState<SensorSourceStatusResponse | null>(null);
   const [stories, setStories] = useState<StoryItem[]>([]);
@@ -311,7 +71,6 @@ export const MemoryOverviewPage = () => {
     () => buildRecentStories(stories, t),
     [stories, t],
   );
-  const processingBacklog = dashboard?.processing_backlog?.total_pending ?? 0;
 
   const dismissItem = (id: string) => {
     setDismissedIds((current) => new Set([...current, id]));
@@ -331,38 +90,6 @@ export const MemoryOverviewPage = () => {
     }
   };
 
-  const todayDeltas = dashboard?.deltas?.today;
-  const metrics = [
-    {
-      key: 'total',
-      label: t('memory.overview.metrics.totalMemories'),
-      value: formatInteger(dashboard?.statistics.total_memories ?? 0),
-      secondary: t('memory.overview.metricDelta.today', { value: formatInteger(todayDeltas?.total_memories ?? 0) }),
-      icon: Box,
-    },
-    {
-      key: 'understanding',
-      label: t('memory.overview.metrics.understanding'),
-      value: formatInteger(dashboard?.statistics.l2.assertion_count ?? 0),
-      secondary: t('memory.overview.metricDelta.today', { value: formatInteger(todayDeltas?.l2_assertions ?? 0) }),
-      icon: UserRound,
-    },
-    {
-      key: 'summaries',
-      label: t('memory.overview.metrics.summaries'),
-      value: formatInteger(dashboard?.statistics.l3.summary_count ?? 0),
-      secondary: t('memory.overview.metricDelta.today', { value: formatInteger(todayDeltas?.l3_summaries ?? 0) }),
-      icon: FileText,
-    },
-    {
-      key: 'storage',
-      label: t('memory.overview.metrics.storage'),
-      value: formatBytes(dashboard?.statistics.disk_usage_bytes),
-      secondary: t('memory.overview.metricDelta.current'),
-      icon: HardDrive,
-    },
-  ] satisfies Array<{ key: string; label: string; value: string; secondary: string; icon: ComponentType<{ className?: string }> }>;
-
   return (
     <MemoryPageFrame title={t('memory.overview.title')} description={t('memory.overview.subtitle')} hideHeader>
       {loading ? (
@@ -376,161 +103,19 @@ export const MemoryOverviewPage = () => {
         <section className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.overview.empty.error')}</section>
       ) : (
         <div className="space-y-4">
-          <section className="grid gap-3 md:grid-cols-4">
-            {metrics.map((metric) => (
-              <div key={metric.key} className={MEMORY_SECTION_CARD_CLASS}>
-                <div className="flex min-h-[92px] items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.72)] text-[hsl(var(--memory-accent))]">
-                    <metric.icon className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 pt-0.5">
-                    <div className="truncate text-sm font-medium text-[hsl(var(--memory-body))]">{metric.label}</div>
-                    <div className="mt-2 text-3xl font-semibold leading-none text-[hsl(var(--memory-title))]">{metric.value}</div>
-                    <div className="mt-3 text-xs leading-4 text-[hsl(var(--memory-muted))]">{metric.secondary}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </section>
-
-          <section className={MEMORY_SECTION_CARD_CLASS}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
-                {t('memory.overview.sections.sources')}
-              </h2>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
-                <span>{t('memory.overview.sourceCount', { count: sourceRows.length })}</span>
-                <span className="text-[hsl(var(--memory-divider))]">/</span>
-                <span>{t('memory.overview.processingBacklog', { count: processingBacklog })}</span>
-              </div>
-            </div>
-            <div className="mt-3 divide-y divide-[hsl(var(--memory-divider)/0.6)]">
-              {sourceRows.length > 0 ? (
-                <>
-                  <div className="hidden grid-cols-[minmax(0,1fr)_120px_180px_140px] gap-2 pb-2 text-xs text-[hsl(var(--memory-muted))] md:grid">
-                    <div>{t('memory.overview.sourceColumns.source')}</div>
-                    <div>{t('memory.overview.sourceColumns.status')}</div>
-                    <div>{t('memory.overview.sourceColumns.sync')}</div>
-                    <div>{t('memory.overview.sourceColumns.events')}</div>
-                  </div>
-                  {sourceRows.map((row) => {
-                    const syncLabel = formatOverviewTimestamp(row.lastSyncAt ?? row.lastEventAt, i18n.language)
-                      || t('memory.overview.sourceStatus.noEvents');
-                    const statusLabel = sourceStatusLabel(row.status, t);
-                    return (
-                      <div key={row.key} className="grid gap-2 py-3 md:grid-cols-[minmax(0,1fr)_120px_180px_140px] md:items-center">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.72)]">
-                            <PluginIcon
-                              iconId={row.icon}
-                              pluginId={row.pluginId}
-                              sourceName={row.key}
-                              className="h-4 w-4 text-[hsl(var(--memory-body))]"
-                            />
-                          </span>
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-[hsl(var(--memory-title))]">{row.label}</div>
-                            <div className="text-xs text-[hsl(var(--memory-muted))] md:hidden">{statusLabel}</div>
-                          </div>
-                        </div>
-                        <div className="hidden items-center gap-2 text-xs text-[hsl(var(--memory-body))] md:flex">
-                          <span className={`h-2 w-2 rounded-full ${sourceStatusDotClassName(row.status)}`} aria-hidden="true" />
-                          <span>{statusLabel}</span>
-                        </div>
-                        <div className="text-xs leading-5 text-[hsl(var(--memory-muted))]">
-                          <div>{syncLabel}</div>
-                          {row.lastResultCount != null ? (
-                            <div>{t('memory.overview.sourceLastResult', { count: row.lastResultCount })}</div>
-                          ) : null}
-                        </div>
-                        <div>
-                          <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{formatInteger(row.eventCount)}</div>
-                          <div className="text-xs text-[hsl(var(--memory-muted))] md:hidden">{t('memory.overview.sourceColumns.events')}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </>
-              ) : (
-                <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.overview.empty.sources')}</div>
-              )}
-            </div>
-          </section>
-
+          <OverviewMetricCards dashboard={dashboard} />
+          <OverviewSourceCoverage
+            rows={sourceRows}
+            processingBacklog={dashboard?.processing_backlog?.total_pending ?? 0}
+          />
           {pendingItems.length > 0 ? (
-            <section className={MEMORY_SECTION_CARD_CLASS}>
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
-                  {t('memory.overview.sections.pending')}
-                </h2>
-                <span className="text-xs text-[hsl(var(--memory-muted))]">
-                  {t('memory.overview.pendingCount', { count: pendingItems.length })}
-                </span>
-              </div>
-              <div className="mt-3 space-y-2">
-                {pendingItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="grid gap-3 rounded-xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.55)] px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{item.title}</div>
-                      <div className="mt-1 line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{item.body}</div>
-                      <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
-                        {item.kind === 'assertion' ? t('memory.overview.pendingKinds.assertion') : t('memory.overview.pendingKinds.story')}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className={MEMORY_ACTION_BUTTON_CLASS}
-                        aria-label={item.kind === 'assertion' ? t('memory.overview.actions.confirmAssertion') : t('memory.overview.actions.confirmStory')}
-                        disabled={actionBusyId === item.id}
-                        onClick={() => void handlePendingAction(item, 'confirmed')}
-                      >
-                        <Check className="mr-1 h-3.5 w-3.5" />
-                        {t('memory.overview.actions.confirm')}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className={MEMORY_ACTION_BUTTON_CLASS}
-                        aria-label={item.kind === 'assertion' ? t('memory.overview.actions.rejectAssertion') : t('memory.overview.actions.rejectStory')}
-                        disabled={actionBusyId === item.id}
-                        onClick={() => void handlePendingAction(item, 'rejected')}
-                      >
-                        <X className="mr-1 h-3.5 w-3.5" />
-                        {t('memory.overview.actions.reject')}
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
+            <OverviewPendingSection
+              items={pendingItems}
+              actionBusyId={actionBusyId}
+              onAction={handlePendingAction}
+            />
           ) : null}
-
-          <section className={MEMORY_SECTION_CARD_CLASS}>
-            <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
-              {t('memory.overview.sections.recent')}
-            </h2>
-            <div className="mt-3 divide-y divide-[hsl(var(--memory-divider)/0.6)]">
-              {recentStories.length > 0 ? recentStories.map((story) => (
-                <article key={story.summary_id} className="py-3">
-                  <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">
-                    {storyDisplayTitle(story, t)}
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-body))]">
-                    {sanitizeMemoryText(story.preview_text || story.content, t)}
-                  </p>
-                </article>
-              )) : (
-                <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.overview.empty.recent')}</div>
-              )}
-            </div>
-          </section>
+          <OverviewRecentStories stories={recentStories} />
         </div>
       )}
     </MemoryPageFrame>
