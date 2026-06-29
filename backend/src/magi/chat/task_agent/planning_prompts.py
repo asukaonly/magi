@@ -10,6 +10,11 @@ from magi.tools.schema import ToolExecutionContext
 from magi.tools.tool_hint_resolver import ToolHintResolver
 from magi.tools.capabilities import build_tool_capabilities
 from magi.agent.orchestration import PlannedSubtask
+from .planning_prompt_rendering import (
+    LeafWorkerPromptInput,
+    build_leaf_worker_prompt,
+    render_planning_prompt_markdown,
+)
 from .planning_heuristics import (
     build_research_seed_subtasks,
     classify_request_profile,
@@ -126,10 +131,6 @@ class ChatPlanningPromptMixin:
         subagent_type: str | None = None,
     ) -> str:
         target_language = llm_language_label()
-        response_language_line = (
-            f"Response language: {target_language}. Write natural-language JSON values, findings, gaps, "
-            "and next_steps in this language unless quoting exact source titles, identifiers, paths, or commands."
-        )
         tool_guidance = self._tool_hint_resolver.render_guidance_block(
             self._resolve_leaf_task_hint(
                 root_user_message=root_user_message,
@@ -138,69 +139,21 @@ class ChatPlanningPromptMixin:
                 subagent_type=subagent_type,
             )
         )
-        if request_profile == "research":
-            date_range_hint = self._extract_date_range_hint(root_user_message)
-            lines = [
-                f"Parent user request: {root_user_message}",
-                f"Assigned subtask: {subtask_description}",
-                response_language_line,
-                "Task-specific instructions:",
-                subtask_prompt,
-                *([tool_guidance] if tool_guidance else []),
-                "Success criteria:",
-                "- Stay strictly within this subtask scope.",
-                "- Prefer web-search for discovery and only use web-fetch when the task explicitly requires article details or verification.",
-                "- When a normalized date range is available, pass it to web-search via `start_date` and `end_date` instead of relying on a fuzzy year in the query.",
-                "- Preserve concrete evidence for each usable result: title, date, source, canonical link, and a short summary when available.",
-                "- In findings, use `title` for the headline, `detail` for `DATE | SOURCE | SUMMARY`, and `path` for the canonical article URL.",
-                "- If the available evidence is thin or conflicting, record it in gaps instead of guessing.",
-                "- Gather evidence directly from your own sources; do not depend on sibling worker outputs or produce the final cross-source synthesis.",
-                "- Do not fabricate publication dates, links, or sources.",
-            ]
-            if date_range_hint:
-                lines.insert(
-                    4,
-                    f"Normalized date range: {date_range_hint['start_date']} to {date_range_hint['end_date']} (inclusive).",
-                )
-            return "\n".join(lines)
-        if str(subagent_type or "").strip() == "general-purpose":
-            return "\n".join(
-                [
-                    f"Parent user request: {root_user_message}",
-                    f"Assigned subtask: {subtask_description}",
-                    response_language_line,
-                    "Task-specific instructions:",
-                    subtask_prompt,
-                    *([tool_guidance] if tool_guidance else []),
-                    "Success criteria:",
-                    "- Stay strictly within this subtask scope.",
-                    "- Choose the evidence sources that fit the task: current workspace, official docs, public sources, or a bounded combination.",
-                    "- If the target is not guaranteed to exist in the current workspace, do not assume local files exist; use external discovery first.",
-                    "- When you reference repo-local code, verify the exact file or symbol before relying on it.",
-                    "- When you reference external evidence, preserve title, date, source, and canonical link when available.",
-                    "- Gather evidence directly; do not depend on sibling worker outputs or write the final cross-worker synthesis.",
-                    "- Prefer validated findings over speculation.",
-                    "- If information is missing, put it into gaps instead of guessing.",
-                ]
+        return build_leaf_worker_prompt(
+            LeafWorkerPromptInput(
+                root_user_message=root_user_message,
+                subtask_description=subtask_description,
+                subtask_prompt=subtask_prompt,
+                request_profile=request_profile,
+                subagent_type=subagent_type,
+                target_language=target_language,
+                tool_guidance=tool_guidance,
+                date_range_hint=(
+                    self._extract_date_range_hint(root_user_message)
+                    if request_profile == "research"
+                    else None
+                ),
             )
-        return "\n".join(
-            [
-                f"Parent user request: {root_user_message}",
-                f"Assigned subtask: {subtask_description}",
-                response_language_line,
-                "Task-specific instructions:",
-                subtask_prompt,
-                *([tool_guidance] if tool_guidance else []),
-                "Success criteria:",
-                "- Stay strictly within this subtask scope.",
-                "- Start from the most concrete anchor available: an entry file, symbol, path, interface, or directly controlling module.",
-                "- If you name a file, symbol, route, config key, or flag, verify it exists in the current code before relying on it.",
-                "- Prefer focused glob/grep/read steps over broad repository scans.",
-                "- Use absolute file paths in findings and evidence when you reference code.",
-                "- Prefer validated findings over speculation.",
-                "- If information is missing, put it into gaps instead of guessing.",
-                "- Do not duplicate likely sibling subtasks unless it is necessary evidence.",
-            ]
         )
 
     def _resolve_planning_task_hint(
@@ -271,188 +224,10 @@ class ChatPlanningPromptMixin:
         }
 
     def _render_planning_prompt_markdown(self, planning_prompt: dict[str, Any]) -> str:
-        lines: list[str] = ["# Planning Brief", ""]
-
-        planning_profile = str(planning_prompt.get("planning_profile") or "generic").strip()
-        default_leaf_type = str(
-            planning_prompt.get("default_leaf_type") or CODE_EXPLORE_LEAF_TYPE
-        ).strip()
-        allow_parallel = bool(planning_prompt.get("allow_parallel", True))
-
-        lines.extend(
-            [
-                "## Planning Context",
-                f"- Planning profile: {planning_profile}",
-                f"- Default leaf type: {default_leaf_type}",
-                f"- Parallel execution allowed: {'yes' if allow_parallel else 'no'}",
-                "",
-            ]
+        return render_planning_prompt_markdown(
+            planning_prompt,
+            default_target_language=llm_language_label(),
         )
-
-        target_language = str(
-            planning_prompt.get("target_language") or llm_language_label()
-        ).strip()
-        lines.extend(
-            [
-                "## Response Language",
-                f"- Target language: {target_language}",
-                "- Keep all natural-language JSON values in this language unless preserving exact names, paths, commands, or source titles.",
-                "",
-            ]
-        )
-
-        user_request = str(planning_prompt.get("user_request") or "").strip()
-        if user_request:
-            lines.extend(
-                [
-                    "## User Request",
-                    user_request,
-                    "",
-                ]
-            )
-
-        recent_history = (
-            planning_prompt.get("recent_history")
-            if isinstance(planning_prompt.get("recent_history"), list)
-            else []
-        )
-        if recent_history:
-            lines.append("## Recent History")
-            for item in recent_history:
-                if not isinstance(item, dict):
-                    continue
-                role = str(item.get("role") or "unknown").strip() or "unknown"
-                content = str(item.get("content") or "").strip()
-                if content:
-                    lines.append(f"- {role}: {content}")
-            lines.append("")
-
-        workspace_context = (
-            planning_prompt.get("workspace_context")
-            if isinstance(planning_prompt.get("workspace_context"), dict)
-            else None
-        )
-        if workspace_context:
-            lines.extend(
-                [
-                    "## Workspace Context",
-                    f"- Workspace root: {str(workspace_context.get('workspace_root') or '').strip()}",
-                    f"- Workspace name: {str(workspace_context.get('workspace_name') or '').strip()}",
-                    "",
-                ]
-            )
-
-        date_range_hint = (
-            planning_prompt.get("date_range_hint")
-            if isinstance(planning_prompt.get("date_range_hint"), dict)
-            else None
-        )
-        if date_range_hint:
-            lines.extend(
-                [
-                    "## Date Range Hint",
-                    f"- Start date: {str(date_range_hint.get('start_date') or '').strip()}",
-                    f"- End date: {str(date_range_hint.get('end_date') or '').strip()}",
-                    "",
-                ]
-            )
-
-        task_hint_lines = self._render_planning_task_hint_markdown(
-            planning_prompt.get("task_hints")
-        )
-        if task_hint_lines:
-            lines.append("## Task Hints")
-            lines.extend(task_hint_lines)
-            lines.append("")
-
-        seed_subtasks = (
-            planning_prompt.get("seed_subtasks")
-            if isinstance(planning_prompt.get("seed_subtasks"), list)
-            else []
-        )
-        if seed_subtasks:
-            lines.append("## Seed Subtasks")
-            for index, item in enumerate(seed_subtasks, start=1):
-                if not isinstance(item, dict):
-                    continue
-                description = str(item.get("description") or f"Seed subtask {index}").strip()
-                subagent_type = str(item.get("subagent_type") or "").strip()
-                parallel_group = str(item.get("parallel_group") or "").strip()
-                prompt = str(item.get("prompt") or "").strip()
-                summary_parts = [description]
-                if subagent_type:
-                    summary_parts.append(f"type={subagent_type}")
-                if parallel_group:
-                    summary_parts.append(f"parallel_group={parallel_group}")
-                lines.append(f"- {' | '.join(summary_parts)}")
-                if prompt:
-                    lines.append(f"  Prompt: {prompt}")
-            lines.append("")
-
-        requirements = (
-            planning_prompt.get("requirements")
-            if isinstance(planning_prompt.get("requirements"), list)
-            else []
-        )
-        if requirements:
-            lines.append("## Requirements")
-            for item in requirements:
-                requirement = str(item or "").strip()
-                if requirement:
-                    lines.append(f"- {requirement}")
-            lines.append("")
-
-        lines.extend(
-            [
-                "## Output Contract",
-                "- Return ONLY valid JSON that matches the system prompt schema.",
-                "- Produce execution-ready leaf tasks rather than answering the user directly.",
-                "- Keep summary, description, prompt, findings, gaps, and next_steps values in the target language.",
-            ]
-        )
-        return "\n".join(lines).strip()
-
-    @staticmethod
-    def _render_planning_task_hint_markdown(task_hint: Any) -> list[str]:
-        if not isinstance(task_hint, dict):
-            return []
-
-        lines: list[str] = []
-        field_labels = [
-            ("task_intent", "Task intent"),
-            ("domain", "Domain"),
-            ("operation", "Operation"),
-            ("target_locality", "Target locality"),
-            ("preferred_resolution_order", "Preferred resolution order"),
-        ]
-        for field_name, label in field_labels:
-            value = str(task_hint.get(field_name) or "").strip()
-            if value:
-                lines.append(f"- {label}: {value}")
-
-        if "requires_clarification" in task_hint:
-            lines.append(
-                f"- Requires clarification: {'yes' if bool(task_hint.get('requires_clarification')) else 'no'}"
-            )
-
-        tool_hints = (
-            task_hint.get("tool_hints") if isinstance(task_hint.get("tool_hints"), list) else []
-        )
-        if tool_hints:
-            lines.append("- Preferred tools:")
-            for item in tool_hints:
-                if not isinstance(item, dict):
-                    continue
-                tool_name = str(item.get("tool") or "unknown").strip()
-                priority = item.get("priority")
-                reason = str(item.get("reason") or "").strip()
-                tool_line = f"  - {tool_name}"
-                if priority not in (None, ""):
-                    tool_line += f" (priority {priority})"
-                if reason:
-                    tool_line += f": {reason}"
-                lines.append(tool_line)
-        return lines
 
     def _normalize_leaf_subagent_type(
         self,
