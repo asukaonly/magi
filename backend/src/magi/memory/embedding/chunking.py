@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-
 DEFAULT_CHUNK_MAX_CHARS = 600
 DEFAULT_CHUNK_OVERLAP_CHARS = 120
 _MIN_BREAK_RATIO = 0.6
@@ -21,6 +20,7 @@ def _weighted_len(text: str) -> float:
     """Character length with CJK chars counted as 2.5 (higher semantic density)."""
     cjk_count = len(_CJK_RE.findall(text))
     return len(text) + cjk_count * 1.5
+
 
 # Matches boundaries between sentences (the separator consumed by split).
 _SENTENCE_BOUNDARY_RE = re.compile(
@@ -40,6 +40,28 @@ class ChunkedText:
     char_start: int
     char_end: int
     token_estimate: int
+
+
+@dataclass(frozen=True, slots=True)
+class _TextSegment:
+    """A stripped text segment and its offsets in the normalized source."""
+
+    char_start: int
+    char_end: int
+    text: str
+
+
+def _single_chunk(text: str) -> list[ChunkedText]:
+    return [
+        ChunkedText(
+            chunk_id="chunk-0",
+            text=text,
+            chunk_index=0,
+            char_start=0,
+            char_end=len(text),
+            token_estimate=max(1, len(text) // 4),
+        )
+    ]
 
 
 def chunk_text(
@@ -142,109 +164,124 @@ def chunk_sentences(
 
     safe_target = max(1, int(target_chars))
 
-    # Fast path: whole text fits in one chunk.
     if _weighted_len(normalized) <= safe_target:
-        return [
-            ChunkedText(
-                chunk_id="chunk-0",
-                text=normalized,
-                chunk_index=0,
-                char_start=0,
-                char_end=len(normalized),
-                token_estimate=max(1, len(normalized) // 4),
-            )
-        ]
+        return _single_chunk(normalized)
 
-    # Find sentence boundary positions.
-    split_ends: list[int] = [m.end() for m in _SENTENCE_BOUNDARY_RE.finditer(normalized)]
+    raw_segments = _sentence_segments(normalized)
+    if not raw_segments:
+        return _single_chunk(normalized)
 
+    merged = _merge_short_sentence_segments(
+        normalized,
+        raw_segments,
+        min_chars=min_chars,
+    )
+    grouped = _group_sentence_segments(
+        normalized,
+        merged,
+        target_chars=safe_target,
+    )
+    return _chunks_from_segments(grouped)
+
+
+def _sentence_segments(normalized: str) -> list[_TextSegment]:
+    split_ends = [m.end() for m in _SENTENCE_BOUNDARY_RE.finditer(normalized)]
     if not split_ends:
-        # No sentence boundary found → single chunk (same as whole text).
-        return [
-            ChunkedText(
-                chunk_id="chunk-0",
-                text=normalized,
-                chunk_index=0,
-                char_start=0,
-                char_end=len(normalized),
-                token_estimate=max(1, len(normalized) // 4),
-            )
-        ]
+        return []
 
-    # Cut text at boundary positions.
     cuts = [0, *split_ends]
     if cuts[-1] < len(normalized):
         cuts.append(len(normalized))
 
-    raw_segments: list[tuple[int, int, str]] = []
-    for i in range(len(cuts) - 1):
-        seg_start = cuts[i]
-        seg_end = cuts[i + 1]
-        seg_text = normalized[seg_start:seg_end].strip()
-        if not seg_text:
+    segments: list[_TextSegment] = []
+    for index in range(len(cuts) - 1):
+        segment = _stripped_segment(normalized, cuts[index], cuts[index + 1])
+        if segment is not None:
+            segments.append(segment)
+    return segments
+
+
+def _stripped_segment(
+    normalized: str,
+    start: int,
+    end: int,
+) -> _TextSegment | None:
+    raw_text = normalized[start:end]
+    segment_text = raw_text.strip()
+    if not segment_text:
+        return None
+    left_trim = len(raw_text) - len(raw_text.lstrip())
+    right_trim = len(raw_text) - len(raw_text.rstrip())
+    return _TextSegment(
+        char_start=start + left_trim,
+        char_end=end - right_trim,
+        text=segment_text,
+    )
+
+
+def _merge_short_sentence_segments(
+    normalized: str,
+    segments: list[_TextSegment],
+    *,
+    min_chars: int,
+) -> list[_TextSegment]:
+    merged = [segments[0]]
+    for segment in segments[1:]:
+        if _weighted_len(segment.text) < min_chars and merged:
+            prev_start = merged[-1].char_start
+            combined = _stripped_segment(normalized, prev_start, segment.char_end)
+            if combined is not None:
+                merged[-1] = combined
             continue
-        # Compute char offsets in the stripped source.
-        actual_start = seg_start + (len(normalized[seg_start:seg_end]) - len(normalized[seg_start:seg_end].lstrip()))
-        actual_end = seg_end - (len(normalized[seg_start:seg_end]) - len(normalized[seg_start:seg_end].rstrip()))
-        raw_segments.append((actual_start, actual_end, seg_text))
+        merged.append(segment)
+    return merged
 
-    if not raw_segments:
-        return [
-            ChunkedText(
-                chunk_id="chunk-0",
-                text=normalized,
-                chunk_index=0,
-                char_start=0,
-                char_end=len(normalized),
-                token_estimate=max(1, len(normalized) // 4),
+
+def _group_sentence_segments(
+    normalized: str,
+    segments: list[_TextSegment],
+    *,
+    target_chars: int,
+) -> list[_TextSegment]:
+    grouped: list[_TextSegment] = []
+    group_start = segments[0].char_start
+    group_end = segments[0].char_end
+
+    for segment in segments[1:]:
+        candidate = normalized[group_start : segment.char_end]
+        if _weighted_len(candidate) > target_chars:
+            grouped.append(
+                _TextSegment(
+                    char_start=group_start,
+                    char_end=group_end,
+                    text=normalized[group_start:group_end],
+                )
             )
-        ]
+            group_start = segment.char_start
+        group_end = segment.char_end
 
-    # Merge very short segments (< min_chars) into the preceding one.
-    merged: list[tuple[int, int, str]] = [raw_segments[0]]
-    for seg_start, seg_end, seg_text in raw_segments[1:]:
-        if _weighted_len(seg_text) < min_chars and merged:
-            prev_start, _, _ = merged[-1]
-            combined_text = normalized[prev_start:seg_end].strip()
-            combined_actual_start = prev_start + (
-                len(normalized[prev_start:seg_end]) - len(normalized[prev_start:seg_end].lstrip())
-            )
-            combined_actual_end = seg_end - (
-                len(normalized[prev_start:seg_end]) - len(normalized[prev_start:seg_end].rstrip())
-            )
-            merged[-1] = (combined_actual_start, combined_actual_end, combined_text)
-        else:
-            merged.append((seg_start, seg_end, seg_text))
-
-    # Group adjacent segments until reaching target_chars.
-    grouped: list[tuple[int, int, str]] = []
-    g_start = merged[0][0]
-    g_end = merged[0][1]
-
-    for seg_start, seg_end, _ in merged[1:]:
-        candidate = normalized[g_start:seg_end]
-        if _weighted_len(candidate) > safe_target:
-            # Finalize current group.
-            grouped.append((g_start, g_end, normalized[g_start:g_end]))
-            g_start = seg_start
-        g_end = seg_end
-
-    # Finalize last group.
-    grouped.append((g_start, g_end, normalized[g_start:g_end]))
-
-    chunks: list[ChunkedText] = []
-    for idx, (c_start, c_end, c_text) in enumerate(grouped):
-        chunks.append(
-            ChunkedText(
-                chunk_id=f"chunk-{idx}",
-                text=c_text,
-                chunk_index=idx,
-                char_start=c_start,
-                char_end=c_end,
-                token_estimate=max(1, len(c_text) // 4),
-            )
+    grouped.append(
+        _TextSegment(
+            char_start=group_start,
+            char_end=group_end,
+            text=normalized[group_start:group_end],
         )
-    return chunks
+    )
+    return grouped
+
+
+def _chunks_from_segments(segments: list[_TextSegment]) -> list[ChunkedText]:
+    return [
+        ChunkedText(
+            chunk_id=f"chunk-{index}",
+            text=segment.text,
+            chunk_index=index,
+            char_start=segment.char_start,
+            char_end=segment.char_end,
+            token_estimate=max(1, len(segment.text) // 4),
+        )
+        for index, segment in enumerate(segments)
+    ]
 
 
 __all__ = ["ChunkedText", "chunk_sentences", "chunk_text"]
