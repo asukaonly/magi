@@ -2,12 +2,9 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import importlib
-import inspect
 import importlib.util
 import logging
-import secrets
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -23,18 +20,17 @@ from ..config import get_config, save_config
 from ..config.models import PluginSettings
 from ..utils.packaged_paths import get_repo_root
 from .base import Plugin
+from .contribution_registration import PluginContributionRegistrar
 from .contracts import (
     ContributionType,
     PluginContribution,
     PluginManifest,
     PluginPackageState,
-    PluginSettingsActionResult,
-    PluginSettingsActionSpec,
-    PluginSettingsResourcePayload,
 )
 from .installation import PluginInstallationMixin
-from .projections import MergedSummaryProfile, PluginProjectionMixin
-from .sensors import SensorRegistry, SensorSpec
+from .projections import PluginProjectionMixin
+from .sensors import SensorRegistry
+from .settings_service import PluginSettingsActionRun, PluginSettingsService
 
 logger = logging.getLogger(__name__)
 
@@ -43,14 +39,6 @@ logger = logging.getLogger(__name__)
 class PluginRuntimeBindings:
     plugin_manager: "PluginManager"
     sensor_registry: SensorRegistry
-
-
-@dataclass(frozen=True)
-class PluginSettingsActionRun:
-    """Host-owned envelope for one plugin settings action session response."""
-
-    session_id: str
-    result: PluginSettingsActionResult
 
 
 def _resolve_search_paths() -> list[Path]:
@@ -107,15 +95,20 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         search_paths: list[Path],
         request_sensor_schedule_refresh: Callable[[], None],
     ) -> None:
-        self._tool_registry = tool_registry
-        self._sensor_registry = sensor_registry
         self._search_paths = list(search_paths)
         self._request_sensor_schedule_refresh = request_sensor_schedule_refresh
         self._package_states: dict[str, PluginPackageState] = {}
         self._plugin_instances: dict[str, Plugin] = {}
-        self._registered_tools: dict[str, list[str]] = {}
-        self._registered_sensors: dict[str, list[str]] = {}
-        self._registered_hooks: dict[str, list[tuple[Any, Any]]] = {}
+        self._contribution_registrar = PluginContributionRegistrar(
+            tool_registry=tool_registry,
+            sensor_registry=sensor_registry,
+        )
+        self._settings_service = PluginSettingsService(
+            get_package=self.get_package,
+            load_plugin=self.load_plugin,
+            get_loaded_plugin=self.get_loaded_plugin,
+            update_plugin_settings=self.update_plugin_settings,
+        )
         # Tasks spawned by unload_plugin to run plugins' shutdown coroutines.
         # We hold strong refs so they're not GC'd while pending; entries
         # remove themselves via a done callback.
@@ -124,6 +117,10 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
     @property
     def search_paths(self) -> list[Path]:
         return list(self._search_paths)
+
+    @property
+    def settings_service(self) -> PluginSettingsService:
+        return self._settings_service
 
     @staticmethod
     def _module_name_prefix(plugin_id: str) -> str:
@@ -229,6 +226,12 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
     def get_package(self, plugin_id: str) -> Optional[PluginPackageState]:
         return self._package_states.get(plugin_id)
 
+    def installed_plugin_ids(self) -> set[str]:
+        return set(self._package_states.keys())
+
+    def get_loaded_plugin(self, plugin_id: str) -> Plugin | None:
+        return self._plugin_instances.get(plugin_id)
+
     def iter_loaded_plugins(self) -> list[Plugin]:
         """Return currently loaded plugin instances."""
         return list(self._plugin_instances.values())
@@ -254,7 +257,6 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
             return state
 
         self._purge_plugin_modules(plugin_id)
-        registered_contributions: list[PluginContribution] = []
         try:
             # _instantiate_plugin can raise (missing dep, syntax error in
             # plugin code, etc.). Keep it inside the try so any failure
@@ -262,98 +264,11 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
             # this guard, import-time errors would bypass error recording
             # entirely and propagate as a bare exception.
             plugin_instance = self._instantiate_plugin(state.manifest, state.current_settings)
-            settings_actions = self._collect_settings_actions(plugin_instance)
-            tool_names: list[str] = []
-            for tool_class in plugin_instance.get_tools():
-                tool_instance = tool_class()
-                tool_name = tool_instance.get_schema().name
-                setattr(tool_class, "_plugin_package_id", plugin_id)
-                self._tool_registry.register(tool_class)
-                tool_names.append(tool_name)
-                tool_action_metadata = self._settings_actions_for_contribution(
-                    settings_actions,
-                    contribution_id=tool_name,
-                    contribution_type=ContributionType.TOOL,
-                    surface="tools",
-                )
-                registered_contributions.append(
-                    PluginContribution(
-                        plugin_id=plugin_id,
-                        contribution_id=tool_name,
-                        contribution_type=ContributionType.TOOL,
-                        display_name=tool_instance.get_schema().name,
-                        description=tool_instance.get_schema().description,
-                        surface="tools",
-                        metadata={"settings_actions": tool_action_metadata} if tool_action_metadata else {},
-                    )
-                )
-            self._registered_tools[plugin_id] = tool_names
-
-            sensor_ids: list[str] = []
-            for sensor_id, sensor, spec in plugin_instance.get_sensors():
-                bind_plugin_context = getattr(sensor, "bind_plugin_context", None)
-                if callable(bind_plugin_context):
-                    bind_plugin_context(plugin_id=plugin_id, plugin_dir=state.manifest.plugin_dir)
-                self._sensor_registry.register(plugin_id, sensor_id, sensor, spec)
-                sensor_ids.append(sensor_id)
-                sensor_metadata = {"domain": spec.domain, **dict(spec.metadata)}
-                sensor_action_metadata = self._settings_actions_for_contribution(
-                    settings_actions,
-                    contribution_id=sensor_id,
-                    contribution_type=ContributionType.SENSOR,
-                    surface=spec.surface if spec.surface in {"extensions", "tools", "timeline"} else "extensions",
-                )
-                if sensor_action_metadata:
-                    sensor_metadata["settings_actions"] = sensor_action_metadata
-                registered_contributions.append(
-                    PluginContribution(
-                        plugin_id=plugin_id,
-                        contribution_id=sensor_id,
-                        contribution_type=ContributionType.SENSOR,
-                        display_name=spec.display_name,
-                        description=spec.description,
-                        surface=spec.surface if spec.surface in {"extensions", "tools", "timeline"} else "extensions",
-                        fields=list(spec.fields),
-                        metadata=sensor_metadata,
-                    )
-                )
-            self._registered_sensors[plugin_id] = sensor_ids
-
-            channel = plugin_instance.get_channel()
-            if channel is not None:
-                channel_fields = plugin_instance.get_channel_fields()
-                channel_contribution_id = f"{plugin_id}:channel"
-                channel_action_metadata = self._settings_actions_for_contribution(
-                    settings_actions,
-                    contribution_id=channel_contribution_id,
-                    contribution_type=ContributionType.CHANNEL,
-                    surface="extensions",
-                )
-                registered_contributions.append(
-                    PluginContribution(
-                        plugin_id=plugin_id,
-                        contribution_id=channel_contribution_id,
-                        contribution_type=ContributionType.CHANNEL,
-                        display_name=state.manifest.name,
-                        description=state.manifest.description,
-                        surface="extensions",
-                        fields=list(channel_fields),
-                        metadata={"settings_actions": channel_action_metadata} if channel_action_metadata else {},
-                    )
-                )
-
-            # Phase 4: optional hook contributions. Defensively wrapped — a plugin
-            # without get_hooks() (older SDK) simply contributes nothing.
-            hook_ids: list[tuple[str, Any]] = []
-            try:
-                hook_specs = list(plugin_instance.get_hooks() or [])
-            except AttributeError:
-                hook_specs = []
-            except Exception:
-                hook_specs = []
-            if hook_specs:
-                self._register_plugin_hooks(plugin_id, hook_specs, registered_contributions)
-
+            registered_contributions = self._contribution_registrar.register(
+                plugin_id=plugin_id,
+                manifest=state.manifest,
+                plugin_instance=plugin_instance,
+            )
             state.loaded = True
             state.healthy = True
             state.last_error = None
@@ -368,72 +283,6 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
             self.unload_plugin(plugin_id)
             raise
 
-    def _resolve_hook_registry(self):
-        """Best-effort resolve of the shared HookRegistry."""
-        try:
-            from ..core.container import get_container
-
-            registry = get_container().hook_registry()
-        except Exception:
-            return None
-        if registry is None or type(registry).__name__ == "object":
-            return None
-        return registry
-
-    def _register_plugin_hooks(
-        self,
-        plugin_id: str,
-        hook_specs: list[tuple[Any, ...]],
-        registered_contributions: list[PluginContribution],
-    ) -> None:
-        registry = self._resolve_hook_registry()
-        if registry is None:
-            return
-        try:
-            from ..hooks.contracts import HookEventType
-        except Exception:
-            return
-
-        recorded: list[tuple[Any, Any]] = []
-        for raw_index, spec in enumerate(hook_specs):
-            if not isinstance(spec, tuple) or len(spec) < 2:
-                continue
-            event_value = spec[0]
-            handler = spec[1]
-            matcher = spec[2] if len(spec) >= 3 else None
-            try:
-                event_type = HookEventType(event_value)
-            except ValueError:
-                continue
-            try:
-                registry.register(
-                    event_type,
-                    handler,
-                    matcher=str(matcher) if matcher else None,
-                    source=f"plugin:{plugin_id}",
-                )
-            except TypeError:
-                # Sync handler — skip without crashing the plugin load.
-                continue
-            recorded.append((event_type, handler))
-            contribution_id = f"{plugin_id}:hook:{event_type.value}:{raw_index}"
-            registered_contributions.append(
-                PluginContribution(
-                    plugin_id=plugin_id,
-                    contribution_id=contribution_id,
-                    contribution_type=ContributionType.HOOK,
-                    display_name=f"{event_type.value} hook",
-                    description=f"Hook contributed by {plugin_id}",
-                    surface="extensions",
-                    metadata={
-                        "event_type": event_type.value,
-                        "matcher": matcher,
-                    },
-                )
-            )
-        if recorded:
-            self._registered_hooks[plugin_id] = recorded
-
     def unload_plugin(self, plugin_id: str) -> None:
         """Unload a plugin and unregister its contributions.
 
@@ -445,19 +294,7 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         stacking up after each reload.
         """
 
-        for tool_name in self._registered_tools.pop(plugin_id, []):
-            self._tool_registry.unregister(tool_name)
-        for sensor_id in self._registered_sensors.pop(plugin_id, []):
-            self._sensor_registry.unregister(sensor_id)
-        hook_entries = self._registered_hooks.pop(plugin_id, [])
-        if hook_entries:
-            registry = self._resolve_hook_registry()
-            if registry is not None:
-                for event_type, handler in hook_entries:
-                    try:
-                        registry.unregister(event_type, handler)
-                    except Exception:
-                        pass
+        self._contribution_registrar.unregister(plugin_id)
         plugin_instance = self._plugin_instances.pop(plugin_id, None)
         if plugin_instance is not None:
             self._fire_plugin_shutdown(plugin_id, plugin_instance)
@@ -592,33 +429,8 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         self._request_sensor_schedule_refresh()
         return state
 
-    def read_plugin_settings_resource(self, plugin_id: str, resource_name: str) -> PluginSettingsResourcePayload:
-        """Read a plugin-owned settings resource through the loaded plugin instance."""
-
-        state = self._require_package(plugin_id)
-        if not state.loaded:
-            if not state.enabled:
-                raise RuntimeError(f"Plugin {plugin_id} must be enabled before reading settings resources")
-            state = self.load_plugin(plugin_id)
-
-        plugin_instance = self._plugin_instances.get(plugin_id)
-        if plugin_instance is None:
-            raise RuntimeError(f"Plugin {plugin_id} is not loaded")
-
-        resource_specs = {
-            spec.resource_name: spec
-            for spec in plugin_instance.get_settings_resources()
-        }
-        spec = resource_specs.get(resource_name)
-        if spec is None:
-            raise KeyError(resource_name)
-
-        return PluginSettingsResourcePayload(
-            plugin_id=plugin_id,
-            resource_name=resource_name,
-            resource_type=spec.resource_type,
-            data=plugin_instance.read_settings_resource(resource_name),
-        )
+    def read_plugin_settings_resource(self, plugin_id: str, resource_name: str):
+        return self._settings_service.read_plugin_settings_resource(plugin_id, resource_name)
 
     async def start_plugin_settings_action(
         self,
@@ -627,18 +439,11 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         *,
         field_values: dict[str, Any] | None = None,
     ) -> PluginSettingsActionRun:
-        """Start a plugin-owned settings action and return its session envelope."""
-
-        spec, plugin_instance = self._resolve_settings_action(plugin_id, action_id)
-        session_id = secrets.token_urlsafe(18)
-        result = await self._call_settings_action_start(
-            plugin_instance,
+        return await self._settings_service.start_plugin_settings_action(
+            plugin_id,
             action_id,
-            session_id=session_id,
             field_values=field_values,
         )
-        self._persist_successful_action_updates(plugin_id, spec, result)
-        return PluginSettingsActionRun(session_id=session_id, result=result)
 
     async def poll_plugin_settings_action(
         self,
@@ -648,17 +453,12 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         session_id: str,
         field_values: dict[str, Any] | None = None,
     ) -> PluginSettingsActionRun:
-        """Poll a plugin-owned settings action session."""
-
-        spec, plugin_instance = self._resolve_settings_action(plugin_id, action_id)
-        result = await self._call_settings_action_poll(
-            plugin_instance,
+        return await self._settings_service.poll_plugin_settings_action(
+            plugin_id,
             action_id,
             session_id=session_id,
             field_values=field_values,
         )
-        self._persist_successful_action_updates(plugin_id, spec, result)
-        return PluginSettingsActionRun(session_id=session_id, result=result)
 
     async def cancel_plugin_settings_action(
         self,
@@ -667,15 +467,10 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
         *,
         session_id: str,
     ) -> PluginSettingsActionRun:
-        """Cancel a plugin-owned settings action session."""
-
-        _, plugin_instance = self._resolve_settings_action(plugin_id, action_id)
-        result = plugin_instance.cancel_settings_action(action_id, session_id=session_id)
-        if inspect.isawaitable(result):
-            result = await result
-        return PluginSettingsActionRun(
+        return await self._settings_service.cancel_plugin_settings_action(
+            plugin_id,
+            action_id,
             session_id=session_id,
-            result=self._coerce_settings_action_result(result),
         )
 
     def _persist_new_packages(self, manifests: dict[str, PluginManifest]) -> None:
@@ -781,112 +576,6 @@ class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
             )
             for contribution_type in manifest.contribution_types
         ]
-
-    def _collect_settings_actions(self, plugin_instance: Plugin) -> list[PluginSettingsActionSpec]:
-        actions: list[PluginSettingsActionSpec] = []
-        for raw_action in plugin_instance.get_settings_actions():
-            if isinstance(raw_action, PluginSettingsActionSpec):
-                actions.append(raw_action)
-            else:
-                actions.append(PluginSettingsActionSpec.model_validate(raw_action))
-        return actions
-
-    @staticmethod
-    def _settings_actions_for_contribution(
-        actions: list[PluginSettingsActionSpec],
-        *,
-        contribution_id: str,
-        contribution_type: ContributionType,
-        surface: str,
-    ) -> list[dict[str, Any]]:
-        matched: list[dict[str, Any]] = []
-        for action in actions:
-            if action.surface != surface:
-                continue
-            if action.contribution_id:
-                if action.contribution_id != contribution_id:
-                    continue
-            elif action.contribution_type != contribution_type:
-                continue
-            matched.append(action.model_dump(mode="json"))
-        return sorted(matched, key=lambda item: int(item.get("order") or 0))
-
-    def _resolve_settings_action(
-        self,
-        plugin_id: str,
-        action_id: str,
-    ) -> tuple[PluginSettingsActionSpec, Plugin]:
-        state = self._require_package(plugin_id)
-        if not state.loaded:
-            if not state.enabled:
-                raise RuntimeError(f"Plugin {plugin_id} must be enabled before running settings actions")
-            state = self.load_plugin(plugin_id)
-
-        plugin_instance = self._plugin_instances.get(plugin_id)
-        if plugin_instance is None:
-            raise RuntimeError(f"Plugin {plugin_id} is not loaded")
-
-        actions = {action.action_id: action for action in self._collect_settings_actions(plugin_instance)}
-        spec = actions.get(action_id)
-        if spec is None:
-            raise KeyError(action_id)
-        if spec.requires_enabled and not state.enabled:
-            raise RuntimeError(f"Plugin {plugin_id} must be enabled before running {action_id}")
-        return spec, plugin_instance
-
-    async def _call_settings_action_start(
-        self,
-        plugin_instance: Plugin,
-        action_id: str,
-        *,
-        session_id: str,
-        field_values: dict[str, Any] | None,
-    ) -> PluginSettingsActionResult:
-        result = plugin_instance.start_settings_action(
-            action_id,
-            session_id=session_id,
-            field_values=field_values,
-        )
-        if inspect.isawaitable(result):
-            result = await result
-        return self._coerce_settings_action_result(result)
-
-    async def _call_settings_action_poll(
-        self,
-        plugin_instance: Plugin,
-        action_id: str,
-        *,
-        session_id: str,
-        field_values: dict[str, Any] | None,
-    ) -> PluginSettingsActionResult:
-        result = plugin_instance.poll_settings_action(
-            action_id,
-            session_id=session_id,
-            field_values=field_values,
-        )
-        if inspect.isawaitable(result):
-            result = await result
-        return self._coerce_settings_action_result(result)
-
-    @staticmethod
-    def _coerce_settings_action_result(raw_result: Any) -> PluginSettingsActionResult:
-        if isinstance(raw_result, PluginSettingsActionResult):
-            return raw_result
-        if isinstance(raw_result, dict):
-            return PluginSettingsActionResult.model_validate(raw_result)
-        raise RuntimeError("Plugin settings action returned an invalid response")
-
-    def _persist_successful_action_updates(
-        self,
-        plugin_id: str,
-        spec: PluginSettingsActionSpec,
-        result: PluginSettingsActionResult,
-    ) -> None:
-        if result.status != "succeeded" or not spec.persist_settings_on_success:
-            return
-        if not result.settings_updates:
-            return
-        self.update_plugin_settings(plugin_id, result.settings_updates)
 
     def _require_package(self, plugin_id: str) -> PluginPackageState:
         state = self._package_states.get(plugin_id)

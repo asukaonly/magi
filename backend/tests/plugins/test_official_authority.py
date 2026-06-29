@@ -73,6 +73,9 @@ class _FakeManager:
         self._package_states = {}
         self.installed_dirs = []
 
+    def installed_plugin_ids(self):
+        return set(self._package_states)
+
     def install_plugin_from_directory(self, plugin_dir, *, progress_reporter=None):
         # Mirror the real manager: scan -> _persist_new_packages would have
         # written official=False for an external plugin. We don't run a real

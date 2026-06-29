@@ -104,7 +104,8 @@ def _get_plugin_i18n(plugin_id: str, plugin_dir: str) -> PluginI18n:
     legacy = legacy_plugins_module()
     manager = legacy._try_plugin_manager()
     if manager is not None:
-        plugin_instance = manager._plugin_instances.get(plugin_id)
+        get_loaded_plugin = getattr(manager, "get_loaded_plugin", None)
+        plugin_instance = get_loaded_plugin(plugin_id) if callable(get_loaded_plugin) else None
         if plugin_instance:
             return plugin_instance.i18n
     return legacy.PluginI18n(plugin_id, Path(plugin_dir))
@@ -617,7 +618,14 @@ async def install_with_closure(
     layer so a later scan picks them up identically.
     """
     if manager is not None:
-        already_installed = set(manager._package_states.keys())  # noqa: SLF001
+        installed_plugin_ids = getattr(manager, "installed_plugin_ids", None)
+        if callable(installed_plugin_ids):
+            already_installed = set(installed_plugin_ids())
+        else:
+            already_installed = {
+                state.manifest.plugin_id
+                for state in manager.list_packages()
+            }
     else:
         from ...config import get_config
 

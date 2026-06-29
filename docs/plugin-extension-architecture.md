@@ -40,12 +40,14 @@ At runtime the flow is:
 2. discovered packages are persisted into split plugin config files under `~/.magi/config/plugins/`
 3. packages are disabled by default unless they are official built-in packages enabled by default config
 4. enabled packages are instantiated through the shared `Plugin` base class
-5. contributions are registered into dedicated registries:
+5. `PluginContributionRegistrar` registers or records host-facing contributions:
    - `ToolRegistry`
    - `SensorRegistry`
-   - `ChannelRegistry`
-6. plugin ingress handlers are collected by the plugin ingress processor
-7. APIs and frontend settings surfaces read registry state and plugin package state rather than hardcoded lists
+   - hook registry
+   - channel contribution metadata consumed by the channel lifecycle module
+6. `PluginSettingsService` serves plugin-owned settings resources and settings actions
+7. plugin ingress handlers are collected by the plugin ingress processor
+8. APIs and frontend settings surfaces read registry state and plugin package state rather than hardcoded lists
 
 ## Scan Paths
 
@@ -121,11 +123,16 @@ The manager binds two pieces of runtime state before registration:
 - parsed manifest
 - persisted plugin settings
 
-## Registries
+## Runtime Services
 
 The plugin manager is the package lifecycle owner, but it does not act as the execution surface itself.
 
-Instead it registers contributions into dedicated registries.
+Instead, lifecycle work is split across runtime services:
+
+- `PluginManager` owns package discovery, package state, enable/disable/reload coordination, and plugin instance lifetime
+- `PluginContributionRegistrar` owns host registry registration and unregistration for tools, sensors, channels, and hooks
+- `PluginSettingsService` owns plugin settings resources and settings action sessions
+- dedicated runtime modules own execution after registration, such as tool execution, sensor sync, channel delivery, memory projection, and plugin ingress processing
 
 ## Plugin Ingress Events
 
@@ -536,6 +543,8 @@ Examples:
 For these cases, plugins may expose read-only settings resources through the backend plugin contract.
 
 The host API remains generic. It does not add per-plugin endpoints.
+The API delegates settings reads and settings action sessions to `PluginSettingsService`;
+it does not inspect loaded plugin instances directly.
 
 The current shape is:
 

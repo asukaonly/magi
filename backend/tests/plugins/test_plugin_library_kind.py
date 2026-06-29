@@ -344,7 +344,13 @@ def test_broken_plugin_does_not_crash_other_plugins(
     config = AppConfig()
     _patch_config(monkeypatch, config)
 
-    manager = _make_manager(tmp_path)
+    tool_registry = ToolRegistry()
+    manager = PluginManager(
+        tool_registry=tool_registry,
+        sensor_registry=SensorRegistry(),
+        search_paths=[tmp_path],
+        request_sensor_schedule_refresh=lambda: None,
+    )
     manager.scan(persist_discovery=True)
     config.plugins.packages["broken-plugin"] = PluginSettings(
         enabled=True, trusted=True, source="external", settings={}
@@ -361,7 +367,7 @@ def test_broken_plugin_does_not_crash_other_plugins(
     assert broken is not None and broken.healthy is False
     assert broken.last_error is not None
     assert healthy is not None and healthy.healthy is True
-    assert "healthy-hello" in manager._tool_registry.list_tools()
+    assert "healthy-hello" in tool_registry.list_tools()
 
 
 def test_enable_and_disable_reject_libraries(

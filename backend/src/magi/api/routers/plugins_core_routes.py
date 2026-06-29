@@ -53,6 +53,10 @@ async def _refresh_channels_after_plugin_change(plugin_id: str, reason: str) -> 
     await _enqueue_runtime_channels_refresh_command(reason=f"plugin_{plugin_id}_{reason}")
 
 
+def _plugin_settings_service(manager):
+    return getattr(manager, "settings_service", manager)
+
+
 @plugins_core_router.get("", response_model=PluginsListResponse)
 async def list_plugins(
     include: str | None = Query(
@@ -205,8 +209,9 @@ def _translate_resource_payload(payload_dict: dict[str, Any], plugin_id: str) ->
 async def read_plugin_settings_resource(plugin_id: str, resource_name: str):
     legacy = legacy_plugins_module()
     manager, _ = legacy._require_package(plugin_id)
+    settings_service = _plugin_settings_service(manager)
     try:
-        payload = manager.read_plugin_settings_resource(plugin_id, resource_name)
+        payload = settings_service.read_plugin_settings_resource(plugin_id, resource_name)
     except KeyError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -250,8 +255,9 @@ async def start_plugin_settings_action(
 ):
     legacy = legacy_plugins_module()
     manager, _ = legacy._require_package(plugin_id)
+    settings_service = _plugin_settings_service(manager)
     try:
-        run = await manager.start_plugin_settings_action(
+        run = await settings_service.start_plugin_settings_action(
             plugin_id,
             action_id,
             field_values=request.field_values,
@@ -287,8 +293,9 @@ async def poll_plugin_settings_action(
 ):
     legacy = legacy_plugins_module()
     manager, _ = legacy._require_package(plugin_id)
+    settings_service = _plugin_settings_service(manager)
     try:
-        run = await manager.poll_plugin_settings_action(
+        run = await settings_service.poll_plugin_settings_action(
             plugin_id,
             action_id,
             session_id=session_id,
@@ -324,8 +331,9 @@ async def cancel_plugin_settings_action(
 ):
     legacy = legacy_plugins_module()
     manager, _ = legacy._require_package(plugin_id)
+    settings_service = _plugin_settings_service(manager)
     try:
-        run = await manager.cancel_plugin_settings_action(
+        run = await settings_service.cancel_plugin_settings_action(
             plugin_id,
             action_id,
             session_id=session_id,

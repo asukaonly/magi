@@ -621,7 +621,14 @@ def test_build_plugin_runtime_threads_injected_tool_registry(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    _write_external_tool_plugin(tmp_path)
     config = AppConfig()
+    config.plugins.packages["external-tool"] = PluginSettings(
+        enabled=True,
+        trusted=True,
+        source="external",
+        settings={},
+    )
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
     monkeypatch.setattr(
@@ -629,13 +636,16 @@ def test_build_plugin_runtime_threads_injected_tool_registry(
     )
     monkeypatch.setattr("magi.plugins.manager._resolve_search_paths", lambda: [tmp_path])
 
-    bindings = build_plugin_runtime(
-        tool_registry=shared_tool_registry,
-        request_sensor_schedule_refresh=lambda: None,
-        sensor_registry=SensorRegistry(),
-    )
+    try:
+        build_plugin_runtime(
+            tool_registry=shared_tool_registry,
+            request_sensor_schedule_refresh=lambda: None,
+            sensor_registry=SensorRegistry(),
+        )
 
-    assert bindings.plugin_manager._tool_registry is shared_tool_registry
+        assert "external-hello" in shared_tool_registry.list_tools()
+    finally:
+        shared_tool_registry.unregister("external-hello")
 
 
 def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins() -> None:
