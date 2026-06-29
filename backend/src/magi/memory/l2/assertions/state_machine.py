@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional
 
 from .settings import (
@@ -37,7 +38,36 @@ HISTORICAL_VALIDATION_STATES: tuple[str, ...] = ACTIVE_VALIDATION_STATES + ("sup
 # Governance statuses set by forget/reject cascades. They leave validation_state
 # untouched, so read paths must exclude them by `status` regardless of
 # validation_state, or forgotten data leaks back into retrieval.
-RETRIEVAL_EXCLUDED_STATUSES: tuple[str, ...] = ("archived", "invalidated", "user_rejected", "shadow")
+RETRIEVAL_EXCLUDED_STATUSES: tuple[str, ...] = (
+    "archived",
+    "invalidated",
+    "user_rejected",
+    "shadow",
+)
+
+
+@dataclass(frozen=True)
+class _ValidationThresholds:
+    stable_count: int
+    stable_span_hours: float
+    corroborated_count: int
+
+    @classmethod
+    def from_config(cls) -> "_ValidationThresholds":
+        return cls(
+            stable_count=assertion_int_setting(
+                "stable_evidence_count",
+                STABLE_EVIDENCE_COUNT,
+            ),
+            stable_span_hours=assertion_float_setting(
+                "stable_time_span_hours",
+                STABLE_TIME_SPAN_HOURS,
+            ),
+            corroborated_count=assertion_int_setting(
+                "corroborated_evidence_count",
+                CORROBORATED_EVIDENCE_COUNT,
+            ),
+        )
 
 
 def compute_confidence(evidence_count: int) -> float:
@@ -64,6 +94,46 @@ def derive_validation_state(
     """
     is_temporary = trait_name in _TEMPORARY_STATE_TRAITS
 
+    feedback_result = _state_from_user_feedback(
+        user_feedback,
+        current_confidence=current_confidence,
+        is_temporary=is_temporary,
+    )
+    if feedback_result is not None:
+        return feedback_result
+
+    terminal_result = _state_from_terminal_current_state(
+        current_state,
+        current_confidence=current_confidence,
+    )
+    if terminal_result is not None:
+        return terminal_result
+
+    thresholds = _ValidationThresholds.from_config()
+    if is_temporary:
+        temporary_result = _state_for_temporary_trait(
+            current_confidence=current_confidence,
+            evidence_count=evidence_count,
+            time_span_hours=time_span_hours,
+            thresholds=thresholds,
+        )
+        if temporary_result is not None:
+            return temporary_result
+
+    return _state_for_general_trait(
+        current_confidence=current_confidence,
+        evidence_count=evidence_count,
+        time_span_hours=time_span_hours,
+        thresholds=thresholds,
+    )
+
+
+def _state_from_user_feedback(
+    user_feedback: Optional[str],
+    *,
+    current_confidence: float,
+    is_temporary: bool,
+) -> tuple[str, float, str] | None:
     if user_feedback == "rejected":
         return (
             "user_rejected",
@@ -84,7 +154,14 @@ def derive_validation_state(
             ),
             stability_kind,
         )
+    return None
 
+
+def _state_from_terminal_current_state(
+    current_state: str,
+    *,
+    current_confidence: float,
+) -> tuple[str, float, str] | None:
     if current_state == "user_rejected":
         return (
             "user_rejected",
@@ -117,38 +194,54 @@ def derive_validation_state(
             ),
             "volatile_pattern",
         )
+    return None
 
-    stable_count = assertion_int_setting("stable_evidence_count", STABLE_EVIDENCE_COUNT)
-    stable_span = assertion_float_setting("stable_time_span_hours", STABLE_TIME_SPAN_HOURS)
-    corroborated_count = assertion_int_setting(
-        "corroborated_evidence_count",
-        CORROBORATED_EVIDENCE_COUNT,
-    )
 
-    if is_temporary:
-        if evidence_count >= stable_count and time_span_hours >= stable_span:
-            return (
-                "stable",
-                max(
-                    current_confidence,
-                    assertion_float_setting("stable_confidence_floor", STABLE_CONFIDENCE_FLOOR),
+def _state_for_temporary_trait(
+    *,
+    current_confidence: float,
+    evidence_count: int,
+    time_span_hours: float,
+    thresholds: _ValidationThresholds,
+) -> tuple[str, float, str] | None:
+    if (
+        evidence_count >= thresholds.stable_count
+        and time_span_hours >= thresholds.stable_span_hours
+    ):
+        return (
+            "stable",
+            max(
+                current_confidence,
+                assertion_float_setting("stable_confidence_floor", STABLE_CONFIDENCE_FLOOR),
+            ),
+            "temporary_state",
+        )
+    if evidence_count >= 1:
+        return (
+            "corroborated",
+            max(
+                current_confidence,
+                assertion_float_setting(
+                    "temporary_corroborated_confidence_floor",
+                    TEMPORARY_CORROBORATED_CONFIDENCE_FLOOR,
                 ),
-                "temporary_state",
-            )
-        if evidence_count >= 1:
-            return (
-                "corroborated",
-                max(
-                    current_confidence,
-                    assertion_float_setting(
-                        "temporary_corroborated_confidence_floor",
-                        TEMPORARY_CORROBORATED_CONFIDENCE_FLOOR,
-                    ),
-                ),
-                "temporary_state",
-            )
+            ),
+            "temporary_state",
+        )
+    return None
 
-    if evidence_count >= stable_count and time_span_hours >= stable_span:
+
+def _state_for_general_trait(
+    *,
+    current_confidence: float,
+    evidence_count: int,
+    time_span_hours: float,
+    thresholds: _ValidationThresholds,
+) -> tuple[str, float, str]:
+    if (
+        evidence_count >= thresholds.stable_count
+        and time_span_hours >= thresholds.stable_span_hours
+    ):
         return (
             "stable",
             max(
@@ -158,7 +251,7 @@ def derive_validation_state(
             "stable_trait",
         )
 
-    if evidence_count >= corroborated_count:
+    if evidence_count >= thresholds.corroborated_count:
         return (
             "corroborated",
             max(
