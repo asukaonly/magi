@@ -32,73 +32,23 @@ class WorkerPublicationMixin:
         public_payload: Optional[Dict[str, Any]] = None,
     ) -> None:
         host = cast(_WorkerPublicationHostProtocol, self)
-        try:
-            from ...agent.runtime.contracts import FactRecord
-
-            manager = host._task_agent_manager
-            if manager is None:
-                raise RuntimeError("task agent manager unavailable")
-        except Exception as exc:
-            logger.debug(
-                "Worker fact publish skipped (runtime unavailable) | worker_id=%s error=%s",
-                run_state.worker_id,
-                exc,
-            )
+        manager = _resolve_task_agent_manager(host, run_state)
+        if manager is None:
             return
 
         now = time.time()
-        internal_data = {
-            "worker_id": run_state.worker_id,
-            "worker_status": run_state.status,
-            "worker_subagent_type": run_state.subagent_type,
-            "worker_description": run_state.description,
-            "failure_reason": run_state.failure_reason,
-            "orchestration_id": run_state.orchestration_id,
-            "subtask_id": run_state.subtask_id,
-            "parent_task_agent_type": run_state.parent_task_agent_type,
-            "parent_task_agent_id": run_state.parent_task_agent_id,
-            "target_task_agent_type": run_state.target_task_agent_type,
-            "target_task_agent_id": run_state.target_task_agent_id,
-            "user_id": run_state.user_id,
-            "session_id": run_state.session_id,
-            "turn_id": run_state.turn_id,
-            "run_id": run_state.run_id,
-            "run_revision": run_state.run_revision,
-            "timestamp": now,
-            **internal_payload,
-        }
-        fact = FactRecord(
-            agent_id=f"{run_state.target_task_agent_type}:{run_state.target_task_agent_id}",
+        await _add_worker_fact_to_target(
+            manager,
+            run_state,
             event_type=event_type,
-            payload=internal_data,
-            agent_type=run_state.target_task_agent_type,
-            agent_instance_id=run_state.target_task_agent_id,
+            payload=_build_internal_worker_payload(run_state, internal_payload, now),
             timestamp=now,
-            correlation_id=run_state.worker_id,
         )
-        await manager.add_fact_to_agent(
-            run_state.target_task_agent_type,
-            run_state.target_task_agent_id,
-            fact,
+        external_data = _build_external_worker_payload(
+            run_state,
+            public_payload or internal_payload,
+            now,
         )
-        external_data = {
-            "worker_id": run_state.worker_id,
-            "worker_status": run_state.status,
-            "worker_subagent_type": run_state.subagent_type,
-            "worker_description": run_state.description,
-            "failure_reason": run_state.failure_reason,
-            "orchestration_id": run_state.orchestration_id,
-            "subtask_id": run_state.subtask_id,
-            "target_task_agent_type": run_state.target_task_agent_type,
-            "target_task_agent_id": run_state.target_task_agent_id,
-            "user_id": run_state.user_id,
-            "session_id": run_state.session_id,
-            "turn_id": run_state.turn_id,
-            "run_id": run_state.run_id,
-            "run_revision": run_state.run_revision,
-            "timestamp": now,
-            **(public_payload or internal_payload),
-        }
         await self._publish_worker_bus_event(
             event_type=event_type,
             payload=external_data,
@@ -157,3 +107,94 @@ class WorkerPublicationMixin:
                 created_at_ms=now_wall_ms(),
             )
         )
+
+
+def _resolve_task_agent_manager(
+    host: _WorkerPublicationHostProtocol,
+    run_state: WorkerRunState,
+) -> Any | None:
+    try:
+        manager = host._task_agent_manager
+        if manager is None:
+            raise RuntimeError("task agent manager unavailable")
+        return manager
+    except Exception as exc:
+        logger.debug(
+            "Worker fact publish skipped (runtime unavailable) | worker_id=%s error=%s",
+            run_state.worker_id,
+            exc,
+        )
+        return None
+
+
+async def _add_worker_fact_to_target(
+    manager: Any,
+    run_state: WorkerRunState,
+    *,
+    event_type: str,
+    payload: Dict[str, Any],
+    timestamp: float,
+) -> None:
+    from ...agent.runtime.contracts import FactRecord
+
+    fact = FactRecord(
+        agent_id=f"{run_state.target_task_agent_type}:{run_state.target_task_agent_id}",
+        event_type=event_type,
+        payload=payload,
+        agent_type=run_state.target_task_agent_type,
+        agent_instance_id=run_state.target_task_agent_id,
+        timestamp=timestamp,
+        correlation_id=run_state.worker_id,
+    )
+    await manager.add_fact_to_agent(
+        run_state.target_task_agent_type,
+        run_state.target_task_agent_id,
+        fact,
+    )
+
+
+def _build_internal_worker_payload(
+    run_state: WorkerRunState,
+    payload: Dict[str, Any],
+    timestamp: float,
+) -> Dict[str, Any]:
+    return {
+        **_base_worker_payload(run_state, timestamp),
+        "parent_task_agent_type": run_state.parent_task_agent_type,
+        "parent_task_agent_id": run_state.parent_task_agent_id,
+        **payload,
+    }
+
+
+def _build_external_worker_payload(
+    run_state: WorkerRunState,
+    payload: Dict[str, Any],
+    timestamp: float,
+) -> Dict[str, Any]:
+    return {
+        **_base_worker_payload(run_state, timestamp),
+        **payload,
+    }
+
+
+def _base_worker_payload(
+    run_state: WorkerRunState,
+    timestamp: float,
+) -> Dict[str, Any]:
+    return {
+        "worker_id": run_state.worker_id,
+        "worker_status": run_state.status,
+        "worker_subagent_type": run_state.subagent_type,
+        "worker_description": run_state.description,
+        "failure_reason": run_state.failure_reason,
+        "orchestration_id": run_state.orchestration_id,
+        "subtask_id": run_state.subtask_id,
+        "target_task_agent_type": run_state.target_task_agent_type,
+        "target_task_agent_id": run_state.target_task_agent_id,
+        "user_id": run_state.user_id,
+        "session_id": run_state.session_id,
+        "turn_id": run_state.turn_id,
+        "run_id": run_state.run_id,
+        "run_revision": run_state.run_revision,
+        "timestamp": timestamp,
+    }
