@@ -10,7 +10,6 @@ from typing import Any, Dict
 
 from ..core.sqlite import sqlite_connection_async, sqlite_transaction_async
 
-
 _L2_EPISODE_TERMINAL_STATUSES = ("merged", "invalidated", "archived")
 _L2_EXPERIENCE_TERMINAL_STATUSES = ("merged", "invalidated")
 _L2_SEED_ACTIVE_STATUSES = ("candidate", "accepted")
@@ -85,6 +84,260 @@ def _summary_metadata(summary: Dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+async def _sqlite_table_names(db: Any) -> set[str]:
+    async with db.execute("SELECT name FROM sqlite_master WHERE type = 'table'") as cursor:
+        table_rows = await cursor.fetchall()
+    return {str(row[0]) for row in table_rows}
+
+
+async def _collect_l2_referenced_event_ids(
+    db: Any,
+    tables: set[str],
+    event_ids: list[str],
+    protected: set[str],
+) -> None:
+    await _collect_l2_episode_event_refs(db, tables, event_ids, protected)
+    await _collect_l2_experience_event_refs(db, tables, event_ids, protected)
+    await _collect_l2_experience_episode_refs(db, tables, event_ids, protected)
+    await _collect_l2_experience_key_event_refs(db, tables, event_ids, protected)
+    await _collect_l2_seed_event_refs(db, tables, event_ids, protected)
+    await _collect_l2_seed_episode_refs(db, tables, event_ids, protected)
+    await _collect_l2_json_event_refs(
+        db,
+        tables,
+        event_ids,
+        protected,
+        table_name="knowledge_graph",
+        table_alias="kg",
+        json_column="evidence_event_ids",
+        status_column="status",
+        statuses=_L2_GRAPH_ACTIVE_STATUSES,
+        status_operator="IN",
+    )
+    await _collect_l2_json_event_refs(
+        db,
+        tables,
+        event_ids,
+        protected,
+        table_name="tom_trait_assertions",
+        table_alias="a",
+        json_column="evidence_events",
+        status_column="status",
+        statuses=_L2_ASSERTION_TERMINAL_STATUSES,
+        status_operator="NOT IN",
+    )
+    await _collect_l2_json_event_refs(
+        db,
+        tables,
+        event_ids,
+        protected,
+        table_name="entity_facets",
+        table_alias="f",
+        json_column="evidence_event_ids",
+        status_column="status",
+        statuses=_L2_FACET_ACTIVE_STATUSES,
+        status_operator="IN",
+    )
+
+
+async def _collect_first_column(
+    db: Any,
+    protected: set[str],
+    sql: str,
+    args: tuple[Any, ...],
+) -> None:
+    async with db.execute(sql, args) as cursor:
+        rows = await cursor.fetchall()
+    protected.update(str(row[0]) for row in rows if row[0])
+
+
+async def _collect_l2_episode_event_refs(
+    db: Any,
+    tables: set[str],
+    event_ids: list[str],
+    protected: set[str],
+) -> None:
+    if not {"episode_events", "episodes"}.issubset(tables):
+        return
+    event_placeholders = _placeholders(len(event_ids))
+    status_placeholders = _placeholders(len(_L2_EPISODE_TERMINAL_STATUSES))
+    await _collect_first_column(
+        db,
+        protected,
+        f"""
+        SELECT DISTINCT ee.event_id
+        FROM episode_events AS ee
+        JOIN episodes AS e ON e.episode_id = ee.episode_id
+        WHERE ee.event_id IN ({event_placeholders})
+          AND ee.membership_role != 'excluded'
+          AND e.status NOT IN ({status_placeholders})
+        """,
+        (*event_ids, *_L2_EPISODE_TERMINAL_STATUSES),
+    )
+
+
+async def _collect_l2_experience_event_refs(
+    db: Any,
+    tables: set[str],
+    event_ids: list[str],
+    protected: set[str],
+) -> None:
+    if not {"experience_members", "experiences"}.issubset(tables):
+        return
+    event_placeholders = _placeholders(len(event_ids))
+    status_placeholders = _placeholders(len(_L2_EXPERIENCE_TERMINAL_STATUSES))
+    await _collect_first_column(
+        db,
+        protected,
+        f"""
+        SELECT DISTINCT em.member_id
+        FROM experience_members AS em
+        JOIN experiences AS x ON x.experience_id = em.experience_id
+        WHERE em.member_type = 'event'
+          AND em.member_id IN ({event_placeholders})
+          AND em.role != 'excluded'
+          AND x.status NOT IN ({status_placeholders})
+        """,
+        (*event_ids, *_L2_EXPERIENCE_TERMINAL_STATUSES),
+    )
+
+
+async def _collect_l2_experience_episode_refs(
+    db: Any,
+    tables: set[str],
+    event_ids: list[str],
+    protected: set[str],
+) -> None:
+    if not {"experience_members", "experiences", "episode_events"}.issubset(tables):
+        return
+    event_placeholders = _placeholders(len(event_ids))
+    status_placeholders = _placeholders(len(_L2_EXPERIENCE_TERMINAL_STATUSES))
+    await _collect_first_column(
+        db,
+        protected,
+        f"""
+        SELECT DISTINCT ee.event_id
+        FROM experience_members AS em
+        JOIN experiences AS x ON x.experience_id = em.experience_id
+        JOIN episode_events AS ee ON ee.episode_id = em.member_id
+        WHERE em.member_type = 'episode'
+          AND ee.event_id IN ({event_placeholders})
+          AND em.role != 'excluded'
+          AND ee.membership_role != 'excluded'
+          AND x.status NOT IN ({status_placeholders})
+        """,
+        (*event_ids, *_L2_EXPERIENCE_TERMINAL_STATUSES),
+    )
+
+
+async def _collect_l2_experience_key_event_refs(
+    db: Any,
+    tables: set[str],
+    event_ids: list[str],
+    protected: set[str],
+) -> None:
+    if not {"experience_key_events", "experiences"}.issubset(tables):
+        return
+    event_placeholders = _placeholders(len(event_ids))
+    status_placeholders = _placeholders(len(_L2_EXPERIENCE_TERMINAL_STATUSES))
+    await _collect_first_column(
+        db,
+        protected,
+        f"""
+        SELECT DISTINCT eke.event_id
+        FROM experience_key_events AS eke
+        JOIN experiences AS x ON x.experience_id = eke.experience_id
+        WHERE eke.event_id IN ({event_placeholders})
+          AND x.status NOT IN ({status_placeholders})
+        """,
+        (*event_ids, *_L2_EXPERIENCE_TERMINAL_STATUSES),
+    )
+
+
+async def _collect_l2_seed_event_refs(
+    db: Any,
+    tables: set[str],
+    event_ids: list[str],
+    protected: set[str],
+) -> None:
+    if not {"experience_seed_evidence", "experience_seeds"}.issubset(tables):
+        return
+    event_placeholders = _placeholders(len(event_ids))
+    status_placeholders = _placeholders(len(_L2_SEED_ACTIVE_STATUSES))
+    await _collect_first_column(
+        db,
+        protected,
+        f"""
+        SELECT DISTINCT ese.ref_id
+        FROM experience_seed_evidence AS ese
+        JOIN experience_seeds AS s ON s.seed_id = ese.seed_id
+        WHERE ese.ref_type = 'event'
+          AND ese.ref_id IN ({event_placeholders})
+          AND s.status IN ({status_placeholders})
+        """,
+        (*event_ids, *_L2_SEED_ACTIVE_STATUSES),
+    )
+
+
+async def _collect_l2_seed_episode_refs(
+    db: Any,
+    tables: set[str],
+    event_ids: list[str],
+    protected: set[str],
+) -> None:
+    if not {"experience_seed_evidence", "experience_seeds", "episode_events"}.issubset(tables):
+        return
+    event_placeholders = _placeholders(len(event_ids))
+    status_placeholders = _placeholders(len(_L2_SEED_ACTIVE_STATUSES))
+    await _collect_first_column(
+        db,
+        protected,
+        f"""
+        SELECT DISTINCT ee.event_id
+        FROM experience_seed_evidence AS ese
+        JOIN experience_seeds AS s ON s.seed_id = ese.seed_id
+        JOIN episode_events AS ee ON ee.episode_id = ese.ref_id
+        WHERE ese.ref_type = 'episode'
+          AND ee.event_id IN ({event_placeholders})
+          AND ee.membership_role != 'excluded'
+          AND s.status IN ({status_placeholders})
+        """,
+        (*event_ids, *_L2_SEED_ACTIVE_STATUSES),
+    )
+
+
+async def _collect_l2_json_event_refs(
+    db: Any,
+    tables: set[str],
+    event_ids: list[str],
+    protected: set[str],
+    *,
+    table_name: str,
+    table_alias: str,
+    json_column: str,
+    status_column: str,
+    statuses: tuple[str, ...],
+    status_operator: str,
+) -> None:
+    if table_name not in tables:
+        return
+    event_placeholders = _placeholders(len(event_ids))
+    status_placeholders = _placeholders(len(statuses))
+    qualified_json_column = f"{table_alias}.{json_column}"
+    await _collect_first_column(
+        db,
+        protected,
+        f"""
+        SELECT DISTINCT evidence.value
+        FROM {table_name} AS {table_alias},
+             json_each({_json_array_expr(qualified_json_column)}) AS evidence
+        WHERE evidence.value IN ({event_placeholders})
+          AND {table_alias}.{status_column} {status_operator} ({status_placeholders})
+        """,
+        (*event_ids, *statuses),
+    )
+
+
 class UnifiedMemoryMaintenanceMixin:
     """Expose lightweight search and retention maintenance operations."""
 
@@ -121,8 +374,7 @@ class UnifiedMemoryMaintenanceMixin:
         archive_db_path = self._archive_db_path_for_date(archive_date)
         payload_json = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
         async with sqlite_transaction_async(archive_db_path, profile="mixed") as db:
-            await db.execute(
-                """
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS archived_l1_events (
                     event_id TEXT PRIMARY KEY,
                     archived_date TEXT NOT NULL,
@@ -134,8 +386,7 @@ class UnifiedMemoryMaintenanceMixin:
                     user_id TEXT,
                     payload_json TEXT NOT NULL
                 )
-                """
-            )
+                """)
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_archived_l1_events_date ON archived_l1_events(archived_date, event_timestamp)"
             )
@@ -174,8 +425,7 @@ class UnifiedMemoryMaintenanceMixin:
         archive_db_path = self._archive_db_path_for_date(archive_date)
         payload_json = json.dumps(summary_payload, ensure_ascii=False, separators=(",", ":"))
         async with sqlite_transaction_async(archive_db_path, profile="mixed") as db:
-            await db.execute(
-                """
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS archived_l3_summaries (
                     summary_id TEXT PRIMARY KEY,
                     archived_date TEXT NOT NULL,
@@ -186,8 +436,7 @@ class UnifiedMemoryMaintenanceMixin:
                     summary_category TEXT NOT NULL,
                     payload_json TEXT NOT NULL
                 )
-                """
-            )
+                """)
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_archived_l3_summaries_date ON archived_l3_summaries(archived_date, period_end)"
             )
@@ -259,143 +508,9 @@ class UnifiedMemoryMaintenanceMixin:
 
         protected: set[str] = set()
         async with sqlite_connection_async(db_path) as db:
-            async with db.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            ) as cursor:
-                table_rows = await cursor.fetchall()
-            tables = {str(row[0]) for row in table_rows}
-
-            async def collect(sql: str, args: tuple[Any, ...]) -> None:
-                async with db.execute(sql, args) as cursor:
-                    rows = await cursor.fetchall()
-                protected.update(str(row[0]) for row in rows if row[0])
-
+            tables = await _sqlite_table_names(db)
             for chunk in _chunked(normalized_event_ids):
-                event_placeholders = _placeholders(len(chunk))
-
-                if {"episode_events", "episodes"}.issubset(tables):
-                    status_placeholders = _placeholders(len(_L2_EPISODE_TERMINAL_STATUSES))
-                    await collect(
-                        f"""
-                        SELECT DISTINCT ee.event_id
-                        FROM episode_events AS ee
-                        JOIN episodes AS e ON e.episode_id = ee.episode_id
-                        WHERE ee.event_id IN ({event_placeholders})
-                          AND ee.membership_role != 'excluded'
-                          AND e.status NOT IN ({status_placeholders})
-                        """,
-                        (*chunk, *_L2_EPISODE_TERMINAL_STATUSES),
-                    )
-
-                if {"experience_members", "experiences"}.issubset(tables):
-                    status_placeholders = _placeholders(len(_L2_EXPERIENCE_TERMINAL_STATUSES))
-                    await collect(
-                        f"""
-                        SELECT DISTINCT em.member_id
-                        FROM experience_members AS em
-                        JOIN experiences AS x ON x.experience_id = em.experience_id
-                        WHERE em.member_type = 'event'
-                          AND em.member_id IN ({event_placeholders})
-                          AND em.role != 'excluded'
-                          AND x.status NOT IN ({status_placeholders})
-                        """,
-                        (*chunk, *_L2_EXPERIENCE_TERMINAL_STATUSES),
-                    )
-                    if "episode_events" in tables:
-                        await collect(
-                            f"""
-                            SELECT DISTINCT ee.event_id
-                            FROM experience_members AS em
-                            JOIN experiences AS x ON x.experience_id = em.experience_id
-                            JOIN episode_events AS ee ON ee.episode_id = em.member_id
-                            WHERE em.member_type = 'episode'
-                              AND ee.event_id IN ({event_placeholders})
-                              AND em.role != 'excluded'
-                              AND ee.membership_role != 'excluded'
-                              AND x.status NOT IN ({status_placeholders})
-                            """,
-                            (*chunk, *_L2_EXPERIENCE_TERMINAL_STATUSES),
-                        )
-
-                if {"experience_key_events", "experiences"}.issubset(tables):
-                    status_placeholders = _placeholders(len(_L2_EXPERIENCE_TERMINAL_STATUSES))
-                    await collect(
-                        f"""
-                        SELECT DISTINCT eke.event_id
-                        FROM experience_key_events AS eke
-                        JOIN experiences AS x ON x.experience_id = eke.experience_id
-                        WHERE eke.event_id IN ({event_placeholders})
-                          AND x.status NOT IN ({status_placeholders})
-                        """,
-                        (*chunk, *_L2_EXPERIENCE_TERMINAL_STATUSES),
-                    )
-
-                if {"experience_seed_evidence", "experience_seeds"}.issubset(tables):
-                    status_placeholders = _placeholders(len(_L2_SEED_ACTIVE_STATUSES))
-                    await collect(
-                        f"""
-                        SELECT DISTINCT ese.ref_id
-                        FROM experience_seed_evidence AS ese
-                        JOIN experience_seeds AS s ON s.seed_id = ese.seed_id
-                        WHERE ese.ref_type = 'event'
-                          AND ese.ref_id IN ({event_placeholders})
-                          AND s.status IN ({status_placeholders})
-                        """,
-                        (*chunk, *_L2_SEED_ACTIVE_STATUSES),
-                    )
-                    if "episode_events" in tables:
-                        await collect(
-                            f"""
-                            SELECT DISTINCT ee.event_id
-                            FROM experience_seed_evidence AS ese
-                            JOIN experience_seeds AS s ON s.seed_id = ese.seed_id
-                            JOIN episode_events AS ee ON ee.episode_id = ese.ref_id
-                            WHERE ese.ref_type = 'episode'
-                              AND ee.event_id IN ({event_placeholders})
-                              AND ee.membership_role != 'excluded'
-                              AND s.status IN ({status_placeholders})
-                            """,
-                            (*chunk, *_L2_SEED_ACTIVE_STATUSES),
-                        )
-
-                if "knowledge_graph" in tables:
-                    status_placeholders = _placeholders(len(_L2_GRAPH_ACTIVE_STATUSES))
-                    await collect(
-                        f"""
-                        SELECT DISTINCT evidence.value
-                        FROM knowledge_graph AS kg,
-                             json_each({_json_array_expr("kg.evidence_event_ids")}) AS evidence
-                        WHERE evidence.value IN ({event_placeholders})
-                          AND kg.status IN ({status_placeholders})
-                        """,
-                        (*chunk, *_L2_GRAPH_ACTIVE_STATUSES),
-                    )
-
-                if "tom_trait_assertions" in tables:
-                    status_placeholders = _placeholders(len(_L2_ASSERTION_TERMINAL_STATUSES))
-                    await collect(
-                        f"""
-                        SELECT DISTINCT evidence.value
-                        FROM tom_trait_assertions AS a,
-                             json_each({_json_array_expr("a.evidence_events")}) AS evidence
-                        WHERE evidence.value IN ({event_placeholders})
-                          AND a.status NOT IN ({status_placeholders})
-                        """,
-                        (*chunk, *_L2_ASSERTION_TERMINAL_STATUSES),
-                    )
-
-                if "entity_facets" in tables:
-                    status_placeholders = _placeholders(len(_L2_FACET_ACTIVE_STATUSES))
-                    await collect(
-                        f"""
-                        SELECT DISTINCT evidence.value
-                        FROM entity_facets AS f,
-                             json_each({_json_array_expr("f.evidence_event_ids")}) AS evidence
-                        WHERE evidence.value IN ({event_placeholders})
-                          AND f.status IN ({status_placeholders})
-                        """,
-                        (*chunk, *_L2_FACET_ACTIVE_STATUSES),
-                    )
+                await _collect_l2_referenced_event_ids(db, tables, chunk, protected)
 
         return protected
 
@@ -406,7 +521,9 @@ class UnifiedMemoryMaintenanceMixin:
         protected_event_ids = await self._l2_referenced_l1_event_ids(normalized_event_ids)
         if not protected_event_ids:
             return normalized_event_ids
-        return [event_id for event_id in normalized_event_ids if event_id not in protected_event_ids]
+        return [
+            event_id for event_id in normalized_event_ids if event_id not in protected_event_ids
+        ]
 
     def _is_l3_summary_retention_protected(self, summary: Dict[str, Any]) -> bool:
         review_state = str(summary.get("review_state") or "").strip()
