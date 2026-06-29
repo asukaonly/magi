@@ -3,208 +3,31 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import re
-import time
 from typing import Any
 
-from ... import i18n as core_i18n
 from ...llm import LLMProviderBridge, LLMScenario, ScenarioLLMPool
-from .models import L3Candidate, TemporalEvidencePack, TemporalGenerationResult, TemporalSummaryLLMOutput
+from .models import (
+    L3Candidate,
+    TemporalEvidencePack,
+    TemporalGenerationResult,
+    TemporalSummaryLLMOutput,
+)
 from .temporal_evidence import TemporalEvidencePackMixin
+from .temporal_fallback import TemporalFallbackBuilder
+from .temporal_language import TemporalLanguageGuard
+from .temporal_language import render_temporal_summary_system_prompt
+from .temporal_model_client import TemporalSummaryModelClient
 from .temporal_output import TemporalOutputParsingMixin
+from .temporal_policy import LEGACY_FLAT_TIMEOUT_SECONDS, TemporalSummaryPolicy
+from .temporal_prompt_renderer import TemporalPromptRenderer
 from .temporal_prompts import TEMPORAL_SUMMARY_OUTPUT_SCHEMA, TEMPORAL_SUMMARY_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
-_CJK_PATTERN = re.compile(r"[\u3400-\u9fff]")
-_LATIN_WORD_PATTERN = re.compile(r"[A-Za-z]{3,}")
-_LEGACY_FLAT_TIMEOUT_SECONDS = 3.0
-_PERIOD_TIMEOUT_SECONDS = {
-    "hour": 180.0,
-    "day": 300.0,
-    "week": 600.0,
-    "month": 600.0,
-    "quarter": 600.0,
-    "year": 600.0,
-}
-_PERIOD_DISABLE_THINKING = {
-    "hour": True,
-    "day": False,
-    "week": False,
-    "month": False,
-    "quarter": False,
-    "year": False,
-}
-_PERIOD_FOCUS_INSTRUCTIONS = {
-    "hour": (
-        "- Hour focus: capture the local sequence, immediate context, and short-lived shifts inside this hour.\n"
-        "- Avoid turning one hour of activity into a durable preference or long-term trend."
-    ),
-    "day": (
-        "- Day focus: identify the main blocks of the day, attention shifts, explicit decisions, and repeated constraints.\n"
-        "- Preserve concrete anchors such as projects, tools, services, sites, people, media titles, and action items when evidence supports them.\n"
-        "- Separate meaningful patterns from ordinary single-event noise."
-    ),
-    "week": (
-        "- Week focus: synthesize durable themes, recurring interests, cross-source patterns, and notable changes across the week.\n"
-        "- Keep representative anchors such as projects, tools, sites, media titles, source clusters, and decisions so future recall can recover specifics.\n"
-        "- Avoid listing every event, but do not compress the week into a single generic theme."
-    ),
-    "month": (
-        "- Month focus: synthesize cross-week themes, stage changes, sustained interests, project progress, and unusually frequent activities across the month.\n"
-        "- Prefer a timeline-oriented month recap over listing weekly summaries one by one.\n"
-        "- Keep representative anchors for ongoing projects, source-specific habits, decisions, purchases, and open threads."
-    ),
-    "quarter": (
-        "- Long-window focus: synthesize durable themes, recurring interests, cross-source patterns, and notable changes across the window.\n"
-        "- Keep representative anchors for durable projects, decisions, constraints, and source-specific habits without listing every event."
-    ),
-    "year": (
-        "- Long-window focus: synthesize durable themes, recurring interests, cross-source patterns, and notable changes across the window.\n"
-        "- Keep representative anchors for durable projects, decisions, constraints, and source-specific habits without listing every event."
-    ),
-}
-_SECTION_LABELS = {
-    "zh": {
-        "headline": "## 要点",
-        "subperiod": "## 子周期脉络",
-        "timeline": "## 时间线",
-        "decisions": "## 决策与行动",
-        "open_threads": "## 未闭合",
-        "vs_yesterday": "## 与昨日对比",
-        "vs_last_week": "## 与上周对比",
-        "vs_last_month": "## 与上月对比",
-        "vs_last_quarter": "## 与上季度对比",
-        "vs_last_year": "## 与去年对比",
-    },
-    "en": {
-        "headline": "## Highlights",
-        "subperiod": "## Subperiod arc",
-        "timeline": "## Timeline",
-        "decisions": "## Decisions and actions",
-        "open_threads": "## Open threads",
-        "vs_yesterday": "## vs yesterday",
-        "vs_last_week": "## vs last week",
-        "vs_last_month": "## vs last month",
-        "vs_last_quarter": "## vs last quarter",
-        "vs_last_year": "## vs last year",
-    },
-}
-
-
-def _section_labels() -> dict[str, str]:
-    return _SECTION_LABELS["zh" if _target_language_code() == "zh" else "en"]
-
-
-def _period_structure_instruction_text(category: str) -> str:
-    s = _section_labels()
-    templates = {
-        "hour": (
-            "- content (markdown): a single short paragraph (1-3 sentences). Section headings are optional for hour summaries; if used, only `{headline}` and `{timeline}`.\n"
-            "- change_and_pattern.headline: one short sentence mirroring the content paragraph.\n"
-            "- change_and_pattern.timeline: 1-3 ordered activity blocks when supported.\n"
-            "- change_and_pattern.source_signals: 0-3 source-specific signals.\n"
-            "- daily_breakdown / weekly_breakdown / trend_shifts / metrics: leave empty for hour windows.\n"
-            "- Leave unsupported arrays empty rather than filling them with guesses."
-        ),
-        "day": (
-            "- content (markdown): use sections `{headline}`, `{timeline}`, `{decisions}`, `{open_threads}`, and `{vs_yesterday}` when previous_period_summaries supports it. Each section body is a tight bullet list; total length 4-8 lines of bullets plus a one-line headline.\n"
-            "- change_and_pattern.headline: one short sentence; same as the `{headline}` line.\n"
-            "- change_and_pattern.timeline: 2-5 ordered blocks or phase shifts.\n"
-            "- change_and_pattern.source_signals: 2-5 source-specific signals when multiple sources or repeated source behavior appear.\n"
-            "- change_and_pattern.decisions_and_actions and open_threads: preserve concrete tasks, purchases, choices, or unresolved follow-ups.\n"
-            "- change_and_pattern.trend_shifts: populate rising/falling/new/persisting only when previous_period_summaries supports the comparison; otherwise leave the arrays empty.\n"
-            "- change_and_pattern.metrics: fill event_count, dominant_sources, and any other numeric signals you can ground in source_distribution and event_type_distribution; leave unknown numeric fields out.\n"
-            "- daily_breakdown and weekly_breakdown: leave empty for day windows."
-        ),
-        "week": (
-            "- content (markdown): use sections `{headline}`, `{subperiod}` (per-day bullets covering each day in the window, sourced from child_period_summaries headlines), `{timeline}` (3-6 phase-level bullets), `{decisions}`, `{open_threads}`, `{vs_last_week}`. Total length should remain compact - aim for 12-20 bullet lines.\n"
-            "- change_and_pattern.headline: one short sentence capturing the week-level arc.\n"
-            "- change_and_pattern.daily_breakdown: 5-8 entries, one per day in the window, each a `MM-DD: one-line` string sourced from child day headlines or your synthesis when child summaries are missing for some days.\n"
-            "- change_and_pattern.timeline: 3-6 ordered phases, day clusters, or stage shifts.\n"
-            "- change_and_pattern.source_signals: 3-6 source-specific signals covering dominant sources and unusual repeated behavior.\n"
-            "- change_and_pattern.decisions_and_actions and open_threads: keep representative concrete anchors that future recall may query; for open_threads, include since-date when known.\n"
-            "- change_and_pattern.trend_shifts: rising/falling reserved for sustained multi-week trajectories visible across previous_period_summaries; use `new` for themes appearing only this week and `persisting` for themes stable across the comparison series.\n"
-            "- change_and_pattern.metrics: fill event_count, covered_children (number of distinct child days), deep_work_blocks, fragmentation_score, dominant_sources where evidence supports.\n"
-            "- weekly_breakdown: leave empty for week windows."
-        ),
-        "month": (
-            "- content (markdown): use sections `{headline}`, `{subperiod}` (per-week bullets sourced from child_period_summaries), `{timeline}`, `{decisions}`, `{open_threads}`, `{vs_last_month}`. Total length should remain compact - aim for 14-22 bullet lines.\n"
-            "- change_and_pattern.headline: one short sentence capturing the month-level arc.\n"
-            "- change_and_pattern.weekly_breakdown: 4-5 entries, one per ISO-week in the window, each `Week N (MM-DD~MM-DD): one-line`, sourced from child week headlines.\n"
-            "- change_and_pattern.timeline: 3-7 ordered phases or week-to-week stage shifts.\n"
-            "- change_and_pattern.source_signals: 3-7 source-specific signals covering dominant sources and unusual repeated behavior.\n"
-            "- change_and_pattern.decisions_and_actions and open_threads: retain representative project, purchase, planning, and interest anchors; carry open_threads forward from child summaries when still unresolved.\n"
-            "- change_and_pattern.trend_shifts: rising/falling reserved for sustained multi-month trajectories visible across previous_period_summaries.\n"
-            "- change_and_pattern.metrics: fill event_count, covered_children (number of distinct child weeks), deep_work_blocks, fragmentation_score, dominant_sources where evidence supports.\n"
-            "- daily_breakdown: leave empty for month windows."
-        ),
-        "quarter": (
-            "- content (markdown): use sections `{headline}`, `{timeline}`, `{decisions}`, `{open_threads}`, `{vs_last_quarter}`. Aim for 12-20 bullet lines.\n"
-            "- change_and_pattern.headline, timeline, source_signals, decisions_and_actions, open_threads, trend_shifts, metrics: populate as for month windows, scaled to quarter granularity.\n"
-            "- Use structured arrays to retain representative anchors rather than exhaustive event lists."
-        ),
-        "year": (
-            "- content (markdown): use sections `{headline}`, `{timeline}`, `{decisions}`, `{open_threads}`, `{vs_last_year}`. Aim for 14-22 bullet lines.\n"
-            "- change_and_pattern.headline, timeline, source_signals, decisions_and_actions, open_threads, trend_shifts, metrics: populate at year granularity.\n"
-            "- Use structured arrays to retain representative anchors rather than exhaustive event lists."
-        ),
-    }
-    template = templates.get(category, templates["week"])
-    return template.format(**s)
-_PERIOD_LABELS_ZH = {
-    "hour": "这一小时",
-    "day": "这一天",
-    "week": "这一周",
-    "month": "这个月",
-    "quarter": "这个季度",
-    "year": "这一年",
-}
-_SOURCE_LABELS_ZH = {
-    "chat": "对话",
-    "chat_projector": "对话",
-    "chrome_history": "浏览记录",
-    "chrome-history": "浏览记录",
-    "git_activity": "Git 活动",
-    "git-activity": "Git 活动",
-    "system_media": "媒体播放",
-    "system-media": "媒体播放",
-    "netease_music": "网易云音乐",
-    "netease-music": "网易云音乐",
-    "calendar": "日历",
-    "terminal_history": "终端记录",
-    "terminal-history": "终端记录",
-}
-
-
-def _target_language_code() -> str:
-    return core_i18n.effective_app_language_code(default="en")
-
-
-def _target_language_label() -> str:
-    return core_i18n.llm_language_label(default="en")
-
-
-def _target_language_instruction() -> str:
-    target = _target_language_label()
-    return (
-        f"- The target language is {target}.\n"
-        f"- Write every user-facing generated field in {target}: content, essence_prose, key_topics, "
-        "sentiment_summary natural-language strings, and change_and_pattern strings.\n"
-        "- This language rule is mandatory even when evidence, rule_hints, or plugin_summary_features are written in another language.\n"
-        "- Preserve event ids, entity ids, URLs, file paths, source names, product names, song titles, and quoted user text as evidence presents them."
-    )
 
 
 def _render_temporal_summary_system_prompt() -> str:
-    return (
-        TEMPORAL_SUMMARY_SYSTEM_PROMPT
-        + "\nLanguage Rules:\n"
-        + f"- Target language: {_target_language_label()}.\n"
-        + "- All user-facing JSON string values MUST use the target language.\n"
-        + "- Evidence text may be in another language; summarize it in the target language unless preserving a name, URL, ID, path, title, or direct quote.\n"
-    )
+    return render_temporal_summary_system_prompt()
 
 
 class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsingMixin):
@@ -221,10 +44,19 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         self._enabled = bool(enabled)
         normalized_timeout = float(llm_timeout_seconds)
         self._llm_timeout_seconds = (
-            None if normalized_timeout == _LEGACY_FLAT_TIMEOUT_SECONDS else normalized_timeout
+            None if normalized_timeout == LEGACY_FLAT_TIMEOUT_SECONDS else normalized_timeout
         )
         self._min_event_count_for_llm = max(1, int(min_event_count_for_llm))
         self._scenario_llm_pool = scenario_llm_pool
+        self._policy = TemporalSummaryPolicy(timeout_override_seconds=self._llm_timeout_seconds)
+        self._prompt_renderer = TemporalPromptRenderer(policy=self._policy)
+        self._fallback_builder = TemporalFallbackBuilder()
+        self._language_guard = TemporalLanguageGuard()
+        self._model_client = TemporalSummaryModelClient(
+            target_resolver=lambda: self._get_llm_target(),
+            prompt_renderer=self._prompt_renderer,
+            policy=self._policy,
+        )
 
     async def generate_temporal_candidate(
         self,
@@ -333,58 +165,11 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         disable_thinking: bool | None = None,
     ) -> str | None:
         """Call the configured LLM for user-facing temporal summary prose."""
-        llm_target = self._get_llm_target()
-        if llm_target is None:
-            return None
-        adapter, provider_bridge = llm_target
-        prompt = self._render_temporal_prose_prompt(pack)
-        system_prompt = _render_temporal_summary_system_prompt()
-        resolved_timeout_seconds = timeout_seconds or self._timeout_seconds_for_pack(pack)
-        resolved_disable_thinking = (
-            disable_thinking if disable_thinking is not None else self._disable_thinking_for_pack(pack)
+        return await self._model_client.call_prose_model(
+            pack,
+            timeout_seconds=timeout_seconds,
+            disable_thinking=disable_thinking,
         )
-        started_at = time.perf_counter()
-        provider = str(getattr(adapter, "provider_name", "unknown") or "unknown")
-        model = str(getattr(adapter, "model_name", "unknown") or "unknown")
-        log_context = {
-            "request_kind": "memory:l3_temporal_summary_prose",
-            "provider": provider,
-            "model": model,
-            "event_count": pack.source_event_count,
-            "summary_category": pack.summary_category,
-            "timeout_seconds": resolved_timeout_seconds,
-            "thinking_enabled": not resolved_disable_thinking,
-        }
-        logger.info("L3 temporal prose LLM call started", extra=log_context)
-        try:
-            response = await provider_bridge.chat_response(
-                system_prompt=system_prompt,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                json_mode=False,
-                disable_thinking=resolved_disable_thinking,
-                cache_system=True,
-                timeout_seconds=resolved_timeout_seconds,
-                event_context={
-                    "request_kind": "memory:l3_temporal_summary_prose",
-                    "turn_id": pack.source_event_ids[0] if pack.source_event_ids else None,
-                    "agent_id": "memory:l3",
-                },
-            )
-        except Exception as exc:
-            logger.warning("L3 temporal prose LLM call failed", extra={**log_context, "error": str(exc)})
-            raise
-
-        raw = str(response.content or "").strip()
-        logger.info(
-            "L3 temporal prose LLM call completed",
-            extra={
-                **log_context,
-                "duration_ms": round((time.perf_counter() - started_at) * 1000.0, 2),
-                "response_char_count": len(raw),
-            },
-        )
-        return raw or None
 
     async def _call_temporal_structure_model(
         self,
@@ -395,63 +180,12 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         disable_thinking: bool | None = None,
     ) -> dict[str, Any] | None:
         """Call the configured LLM for optional temporal summary structure."""
-        llm_target = self._get_llm_target()
-        if llm_target is None:
-            return None
-        adapter, provider_bridge = llm_target
-        prompt = self._render_temporal_structure_prompt(pack, prose_content=prose_content)
-        system_prompt = _render_temporal_summary_system_prompt()
-        resolved_timeout_seconds = timeout_seconds or self._timeout_seconds_for_pack(pack)
-        resolved_disable_thinking = (
-            disable_thinking if disable_thinking is not None else self._disable_thinking_for_pack(pack)
+        return await self._model_client.call_structure_model(
+            pack,
+            prose_content=prose_content,
+            timeout_seconds=timeout_seconds,
+            disable_thinking=disable_thinking,
         )
-        started_at = time.perf_counter()
-        provider = str(getattr(adapter, "provider_name", "unknown") or "unknown")
-        model = str(getattr(adapter, "model_name", "unknown") or "unknown")
-        log_context = {
-            "request_kind": "memory:l3_temporal_summary_structure",
-            "provider": provider,
-            "model": model,
-            "event_count": pack.source_event_count,
-            "summary_category": pack.summary_category,
-            "timeout_seconds": resolved_timeout_seconds,
-            "thinking_enabled": not resolved_disable_thinking,
-        }
-        logger.info("L3 temporal structure LLM call started", extra=log_context)
-        try:
-            response = await provider_bridge.chat_response(
-                system_prompt=system_prompt,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                json_mode=True,
-                disable_thinking=resolved_disable_thinking,
-                cache_system=True,
-                timeout_seconds=resolved_timeout_seconds,
-                event_context={
-                    "request_kind": "memory:l3_temporal_summary_structure",
-                    "turn_id": pack.source_event_ids[0] if pack.source_event_ids else None,
-                    "agent_id": "memory:l3",
-                },
-            )
-        except Exception as exc:
-            logger.warning("L3 temporal structure LLM call failed", extra={**log_context, "error": str(exc)})
-            raise
-
-        raw = str(response.content or "").strip()
-        logger.info(
-            "L3 temporal structure LLM call completed",
-            extra={
-                **log_context,
-                "duration_ms": round((time.perf_counter() - started_at) * 1000.0, 2),
-                "response_char_count": len(raw),
-            },
-        )
-        try:
-            parsed = json.loads(raw)
-        except Exception:
-            logger.warning("L3 temporal structure LLM returned invalid JSON", extra=log_context)
-            return None
-        return parsed if isinstance(parsed, dict) else None
 
     async def _call_temporal_model(
         self,
@@ -461,118 +195,27 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         disable_thinking: bool | None = None,
     ) -> dict[str, Any] | None:
         """Call the configured LLM adapter for temporal summary generation."""
-        llm_target = self._get_llm_target()
-        if llm_target is None:
-            return None
-        adapter, provider_bridge = llm_target
-        prompt = self._render_temporal_summary_prompt(pack)
-        system_prompt = _render_temporal_summary_system_prompt()
-        resolved_timeout_seconds = timeout_seconds or self._timeout_seconds_for_pack(pack)
-        resolved_disable_thinking = (
-            disable_thinking if disable_thinking is not None else self._disable_thinking_for_pack(pack)
+        return await self._model_client.call_model(
+            pack,
+            timeout_seconds=timeout_seconds,
+            disable_thinking=disable_thinking,
         )
-        started_at = time.perf_counter()
-        provider = str(getattr(adapter, "provider_name", "unknown") or "unknown")
-        model = str(getattr(adapter, "model_name", "unknown") or "unknown")
-        log_context = {
-            "request_kind": "memory:l3_temporal_summary",
-            "provider": provider,
-            "model": model,
-            "event_count": pack.source_event_count,
-            "summary_category": pack.summary_category,
-            "timeout_seconds": resolved_timeout_seconds,
-            "thinking_enabled": not resolved_disable_thinking,
-        }
-        logger.info("L3 temporal LLM call started", extra=log_context)
-        try:
-            response = await provider_bridge.chat_response(
-                system_prompt=system_prompt,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                json_mode=True,
-                disable_thinking=resolved_disable_thinking,
-                cache_system=True,  # constant + per-language system prompt
-                timeout_seconds=resolved_timeout_seconds,
-                event_context={
-                    "request_kind": "memory:l3_temporal_summary",
-                    "turn_id": pack.source_event_ids[0] if pack.source_event_ids else None,
-                    "agent_id": "memory:l3",
-                },
-            )
-        except Exception as exc:
-            logger.warning("L3 temporal LLM call failed", extra={**log_context, "error": str(exc)})
-            raise
-
-        raw = response.content
-        logger.info(
-            "L3 temporal LLM call completed",
-            extra={
-                **log_context,
-                "duration_ms": round((time.perf_counter() - started_at) * 1000.0, 2),
-                "response_char_count": len(raw or ""),
-            },
-        )
-        try:
-            parsed = json.loads(raw)
-        except Exception:
-            logger.warning("L3 temporal LLM returned invalid JSON", extra=log_context)
-            return None
-        return parsed if isinstance(parsed, dict) else None
 
     def _timeout_seconds_for_pack(self, pack: TemporalEvidencePack) -> float:
-        if self._llm_timeout_seconds is not None:
-            return self._llm_timeout_seconds
-        return _PERIOD_TIMEOUT_SECONDS.get(str(pack.summary_category), _PERIOD_TIMEOUT_SECONDS["week"])
+        return self._policy.timeout_seconds_for_category(pack.summary_category)
 
     def _disable_thinking_for_pack(self, pack: TemporalEvidencePack) -> bool:
-        return _PERIOD_DISABLE_THINKING.get(str(pack.summary_category), False)
+        return self._policy.disable_thinking_for_category(pack.summary_category)
 
     def _build_fallback_result(
         self,
         pack: TemporalEvidencePack,
         fallback_summary: str,
     ) -> TemporalGenerationResult:
-        raw_feature_lines = self._raw_plugin_summary_lines(pack)
-        target_zh = _target_language_code() == "zh"
-        fallback_content = self._build_fallback_content(
-            pack,
-            fallback_summary=fallback_summary,
-            raw_feature_lines=raw_feature_lines,
-        )
-        candidate = L3Candidate(
-            summary_type="temporal",
-            summary_category=pack.summary_category,
-            content=fallback_content,
-            source_event_ids=list(pack.source_event_ids),
-        )
-        summary_overrides: dict[str, object] = {
-            "importance_aggregate": pack.importance_aggregate,
-            "event_type_distribution": dict(pack.event_type_distribution),
-        }
-        if raw_feature_lines:
-            summary_overrides["plugin_summary_features"] = dict(pack.plugin_summary_features)
-        if raw_feature_lines and not target_zh:
-            stitched = [fallback_content, *raw_feature_lines]
-            candidate.content = "\n".join(part for part in stitched if part).strip()
-        return TemporalGenerationResult(
-            candidate=candidate,
-            summary_overrides=summary_overrides,
-            used_fallback=True,
-        )
+        return self._fallback_builder.build_result(pack, fallback_summary)
 
     def _raw_plugin_summary_lines(self, pack: TemporalEvidencePack) -> list[str]:
-        feature_lines: list[str] = []
-        for feature in pack.plugin_summary_features.values():
-            if not isinstance(feature, dict):
-                continue
-            raw_lines = feature.get("summary_lines")
-            if not isinstance(raw_lines, list):
-                continue
-            for item in raw_lines:
-                line = str(item).strip()
-                if line and line not in feature_lines:
-                    feature_lines.append(line)
-        return feature_lines
+        return self._fallback_builder.raw_plugin_summary_lines(pack)
 
     def _build_fallback_content(
         self,
@@ -581,157 +224,41 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         fallback_summary: str,
         raw_feature_lines: list[str],
     ) -> str:
-        if _target_language_code() != "zh":
-            return str(fallback_summary).strip()
-
-        period_label = _PERIOD_LABELS_ZH.get(str(pack.summary_category), "这段时间")
-        source_labels = self._zh_source_labels(pack.source_distribution)
-        if source_labels:
-            parts = [f"{period_label}的记忆主要围绕{self._join_zh(source_labels)}展开"]
-        else:
-            parts = [f"{period_label}留下了一组可用于回顾的活动线索"]
-        feature_lines = self._build_zh_feature_lines(pack)[:3]
-        parts.extend(feature_lines)
-        if len(parts) == 1 and _CJK_PATTERN.search(str(fallback_summary)):
-            parts.append(str(fallback_summary).strip())
-        if len(parts) == 1 and raw_feature_lines:
-            parts.append("插件提供了结构化摘要特征，可作为后续回顾的线索")
-        return "。".join(part.strip().rstrip("。") for part in parts if part.strip()) + "。"
+        return self._fallback_builder.build_content(
+            pack,
+            fallback_summary=fallback_summary,
+            raw_feature_lines=raw_feature_lines,
+        )
 
     def _zh_source_labels(self, source_distribution: dict[str, object]) -> list[str]:
-        labels: list[str] = []
-        for key in source_distribution:
-            label = _SOURCE_LABELS_ZH.get(str(key), str(key).replace("_", " "))
-            if label and label not in labels:
-                labels.append(label)
-        return labels[:4]
+        return self._fallback_builder.zh_source_labels(source_distribution)
 
     def _join_zh(self, values: list[str]) -> str:
-        cleaned = [item.strip() for item in values if item.strip()]
-        if not cleaned:
-            return ""
-        if len(cleaned) == 1:
-            return cleaned[0]
-        if len(cleaned) == 2:
-            return "和".join(cleaned)
-        return "、".join(cleaned[:-1]) + f"和{cleaned[-1]}"
+        return self._fallback_builder.join_zh(values)
 
     def _build_zh_feature_lines(self, pack: TemporalEvidencePack) -> list[str]:
-        lines: list[str] = []
-        for feature in pack.plugin_summary_features.values():
-            if not isinstance(feature, dict):
-                continue
-            focus_domain = str(feature.get("focus_domain") or "").strip()
-            if focus_domain:
-                lines.append(f"浏览活动主要集中在 {focus_domain}")
-            top_domains = feature.get("top_domains")
-            if isinstance(top_domains, list):
-                domains = [str(item.get("domain") or "").strip() for item in top_domains if isinstance(item, dict)]
-                domains = [domain for domain in domains if domain]
-                if domains:
-                    other_domains = [domain for domain in domains if domain != focus_domain]
-                    domain_line = other_domains[:4] if other_domains else domains[:4]
-                    lines.append(f"高频访问还包括 {'、'.join(domain_line)}")
-        return lines
+        return self._fallback_builder.build_zh_feature_lines(pack)
 
     def _validate_target_language(self, output: TemporalSummaryLLMOutput) -> None:
-        if _target_language_code() != "zh":
-            return
-        for text in self._user_facing_strings(output):
-            if self._looks_like_non_zh_user_text(text):
-                raise ValueError("Temporal LLM output does not match target language zh-CN")
+        self._language_guard.validate_output(output)
 
     def _user_facing_strings(self, output: TemporalSummaryLLMOutput) -> list[str]:
-        strings = [output.content]
-        if output.essence_prose:
-            strings.append(output.essence_prose)
-        strings.extend(output.key_topics)
-        if isinstance(output.sentiment_summary, dict):
-            strings.extend(str(value) for value in output.sentiment_summary.values() if isinstance(value, str))
-        if isinstance(output.change_and_pattern, dict):
-            for value in output.change_and_pattern.values():
-                if isinstance(value, list):
-                    strings.extend(str(item) for item in value if isinstance(item, str))
-                elif isinstance(value, str):
-                    strings.append(value)
-        return [item.strip() for item in strings if item.strip()]
+        return self._language_guard.user_facing_strings(output)
 
     def _validate_temporal_prose(self, content: str) -> None:
-        if _target_language_code() == "zh" and self._looks_like_non_zh_user_text(content):
-            raise ValueError("Temporal LLM prose does not match target language zh-CN")
+        self._language_guard.validate_prose(content)
 
     def _looks_like_non_zh_user_text(self, text: str) -> bool:
-        if _CJK_PATTERN.search(text):
-            return False
-        return bool(_LATIN_WORD_PATTERN.search(text))
+        return self._language_guard.looks_like_non_zh_user_text(text)
 
     def _temporal_prompt_payload(self, pack: TemporalEvidencePack) -> dict[str, object]:
-        return {
-            "summary_type": "temporal",
-            "summary_category": pack.summary_category,
-            "period_start": pack.period_start,
-            "period_end": pack.period_end,
-            "window_event_count": pack.window_event_count if pack.window_event_count is not None else pack.source_event_count,
-            "source_event_count": pack.source_event_count,
-            "omitted_event_count": pack.omitted_event_count,
-            "source_event_ids": pack.source_event_ids,
-            "importance_aggregate": pack.importance_aggregate,
-            "event_type_distribution": pack.event_type_distribution,
-            "rule_hints": pack.rule_hints,
-            "plugin_summary_features": pack.plugin_summary_features,
-            "source_distribution": pack.source_distribution,
-            "selection_policy": pack.selection_policy,
-            "previous_period_summaries": pack.previous_period_summaries,
-            "child_period_summaries": pack.child_period_summaries,
-            "events": [
-                {
-                    "event_id": item.event_id,
-                    "event_type": item.event_type,
-                    "timestamp": item.timestamp,
-                    "memory_domain": item.memory_domain,
-                    "importance_score": item.importance_score,
-                    "content": item.content,
-                }
-                for item in pack.events
-            ],
-        }
+        return self._prompt_renderer.prompt_payload(pack)
 
     def _render_temporal_context_prompt(self, pack: TemporalEvidencePack) -> str:
-        payload = self._temporal_prompt_payload(pack)
-        evidence = json.dumps(payload, ensure_ascii=False, indent=2)
-        period_focus = self._period_focus_instruction(pack)
-        period_structure = self._period_structure_instruction(pack)
-        return (
-            "Shared Context:\n"
-            "You are working on one temporal memory summary for the provided memory window.\n"
-            "Use the rule_hints as guidance, not as independent evidence.\n"
-            "When plugin_summary_features are present, use them to surface source-specific behavior patterns such as concentration, revisits, and session structure.\n"
-            "Use source_distribution, window_event_count, and omitted_event_count to understand coverage and avoid treating representative events as exhaustive.\n"
-            "Prioritize explicit changes, recurring constraints, and high-importance events.\n\n"
-            "Use previous_period_summaries as an ordered comparison series for trend_shifts and vs-previous-period sections; the current evidence pack remains the source of truth.\n"
-            "When child_period_summaries are present (week/month/quarter/year), treat them as the primary skeleton: synthesize from child headlines, decisions, and open threads, and fall back to raw events only to fill gaps.\n"
-            "Do not promote old summary content into a current-window fact unless current evidence also supports it.\n"
-            "Do not lead with raw event counts or internal event type names; mention counts only when they change the interpretation.\n\n"
-            "Period Focus:\n"
-            f"{period_focus}\n\n"
-            "Structure Contract:\n"
-            f"{period_structure}\n\n"
-            "Language Rules:\n"
-            f"{_target_language_instruction()}\n\n"
-            "Evidence Pack:\n"
-            f"{evidence}\n"
-        )
+        return self._prompt_renderer.render_context_prompt(pack)
 
     def _render_temporal_prose_prompt(self, pack: TemporalEvidencePack) -> str:
-        return (
-            self._render_temporal_context_prompt(pack)
-            + "\nGeneration Task / 生成用户可读正文:\n"
-            "- Write only the user-facing summary body.\n"
-            "- Do not return JSON.\n"
-            "- Keep the tone concrete, neutral, and compact; avoid literary prose.\n"
-            "- Use Markdown only when section headings or bullets help clarity.\n"
-            "- Preserve concrete names that improve future recall, but do not dump raw event lists.\n"
-        )
+        return self._prompt_renderer.render_prose_prompt(pack)
 
     def _render_temporal_structure_prompt(
         self,
@@ -739,49 +266,16 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         *,
         prose_content: str,
     ) -> str:
-        schema = json.dumps(TEMPORAL_SUMMARY_OUTPUT_SCHEMA, ensure_ascii=False, indent=2)
-        return (
-            self._render_temporal_context_prompt(pack)
-            + "\nAccepted User-Facing Summary:\n"
-            f"{prose_content.strip()}\n\n"
-            "Extraction Task / 提取结构化字段:\n"
-            "- Extract optional structured fields from the same evidence and accepted summary.\n"
-            "- Do not rewrite the accepted summary.\n"
-            "- Write `essence_prose` as a short card preview: 1-2 natural sentences, grounded in the accepted summary and evidence, with no section headings.\n"
-            "- Return one JSON object only.\n"
-            "- `content` is optional here; when present it must exactly match the accepted summary.\n"
-            "- Use empty lists or nulls when a field has no support; never fabricate metrics.\n\n"
-            "Output JSON Schema:\n"
-            f"{schema}\n"
-        )
+        return self._prompt_renderer.render_structure_prompt(pack, prose_content=prose_content)
 
     def _render_temporal_summary_prompt(self, pack: TemporalEvidencePack) -> str:
-        schema = json.dumps(TEMPORAL_SUMMARY_OUTPUT_SCHEMA, ensure_ascii=False, indent=2)
-        return (
-            "Task:\n"
-            "Write a temporal summary for the provided memory window.\n"
-            f"{self._render_temporal_context_prompt(pack)}\n"
-            "Output Requirements:\n"
-            "- Return one JSON object only.\n"
-            "- The `content` field must be user-facing Markdown (no top-level `#`). Prefer a short natural recap plus only the sections or bullets that help clarity; omit unsupported sections entirely.\n"
-            "- The `essence_prose` field must be a short card preview: 1-2 natural sentences with no headings or bullets.\n"
-            "- `change_and_pattern.headline` is REQUIRED and must mirror the headline section's one-line summary in `content`.\n"
-            "- Keep `content` and `change_and_pattern` consistent: every concrete anchor in content should also appear in the appropriate structured array.\n"
-            "- Preserve concrete names and short phrases that improve future retrieval.\n"
-            f"{_target_language_instruction()}\n"
-            "- Use empty lists or nulls when a field has no support; never fabricate metrics.\n\n"
-            "Output JSON Schema:\n"
-            f"{schema}\n"
-        )
+        return self._prompt_renderer.render_summary_prompt(pack)
 
     def _period_focus_instruction(self, pack: TemporalEvidencePack) -> str:
-        return _PERIOD_FOCUS_INSTRUCTIONS.get(
-            str(pack.summary_category),
-            _PERIOD_FOCUS_INSTRUCTIONS["week"],
-        )
+        return self._policy.focus_instruction(pack.summary_category)
 
     def _period_structure_instruction(self, pack: TemporalEvidencePack) -> str:
-        return _period_structure_instruction_text(str(pack.summary_category))
+        return self._policy.structure_instruction(pack.summary_category)
 
     def _get_adapter(self) -> Any | None:
         if self._scenario_llm_pool is None:
