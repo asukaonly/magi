@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import replace as dc_replace
+from dataclasses import dataclass, replace as dc_replace
 from typing import Any, Callable, Dict, List, Optional
 
 from ...config import AppConfig
@@ -96,6 +96,19 @@ _TRACE_KEYS_LOGGED: tuple[str, ...] = (
     "structured_recall",
     "dropped_unresolved_entity_count",
 )
+
+
+@dataclass(frozen=True)
+class _QueryModeContext:
+    request: RetrievalQuery
+    indexical: Any
+    indexical_trace: Dict[str, Any]
+    resolved_mode: str
+    raw_query_mode: str
+    mode_explicit: bool
+    mode_plan: Any
+    caller_supplied_query_mode: bool
+    intent_query_mode_hint: str | None
 
 
 def _log_retrieval_trace(payload: "RetrievalPayload") -> None:
@@ -221,48 +234,94 @@ class HybridRetrievalService(
         self._refresh_runtime_config()
         self._refresh_handlers()
 
-        # Capture original caller intent BEFORE any inference / indexical
-        # override mutates request.query_mode. This flag — combined with the
-        # indexical-override flag below — gates RRF profile selection further
-        # down. Heuristic-inferred modes (Phase 4) must NOT distort RRF
-        # weights; only caller-authored modes (or the high-confidence
-        # indexical resolver) are authoritative enough to swap profiles.
-        caller_supplied_query_mode = bool(request.query_mode)
+        mode_context = self._resolve_query_mode_context(request)
+        request = mode_context.request
+        payload = self._build_initial_payload(request, mode_context)
 
-        # 0. Indexical resolution — must run BEFORE the intent decider so its
-        #    overrides are authoritative. When a query contains an indexical
-        #    cue (e.g. '当时', 'just now') AND conversation context exists,
-        #    force episode_recall mode (which routes to L1 conversation_only
-        #    via mode_plan.l1_retrieval_scopes). dataclasses.replace keeps the
-        #    caller's request object untouched.
-        #
-        #    Design correction (2026-05-22): the resolver no longer mutates
-        #    request.time_range. '当时/那时/上次' typically reference deep
-        #    historical context, not the immediate prior turn ±2min. L1
-        #    content matching (BM25 + vector) finds the actually-referenced
-        #    events across all conversation history. See
-        #    indexical_resolver.py module docstring for the full rationale.
+        recall_shape = classify_recall_shape(request.query)
+        payload.trace["recall_shape"] = recall_shape.to_dict()
+
+        await self._load_l0_workbench_if_available(request, payload)
+
+        intent_input = self._build_intent_input(request, mode_context)
+        decision = await self._intent_decider.decide(intent_input)
+        _, mode_plan = self._apply_intent_decision(
+            decision=decision,
+            mode_context=mode_context,
+            payload=payload,
+        )
+        effective_l1 = self._effective_l1_for_mode(
+            mode_context=mode_context,
+            mode_plan=mode_plan,
+            payload=payload,
+        )
+
+        result = await self._execute_query(
+            request,
+            decision,
+            intent_input,
+            payload,
+            effective_l1=effective_l1,
+            mode_plan=mode_plan,
+        )
+        return await self._finalize_query_result(
+            request=request,
+            recall_shape=recall_shape,
+            payload=result,
+        )
+
+    def _resolve_query_mode_context(self, request: RetrievalQuery) -> _QueryModeContext:
+        caller_supplied_query_mode = bool(request.query_mode)
+        request, indexical, indexical_trace = self._apply_indexical_resolution(request)
+        request, indexical_trace = self._apply_mode_source_resolution(
+            request,
+            indexical=indexical,
+            indexical_trace=indexical_trace,
+        )
+        resolved_mode = normalize_query_mode(request.query_mode)
+        mode_explicit = resolved_mode is not None and resolved_mode in VALID_MODES
+        if not mode_explicit:
+            resolved_mode = "exact_fact"
+        raw_query_mode = str(request.query_mode or "").strip().lower()
+        intent_query_mode_hint = (
+            "graph" if raw_query_mode == "graph" else (resolved_mode if mode_explicit else None)
+        )
+        return _QueryModeContext(
+            request=request,
+            indexical=indexical,
+            indexical_trace=indexical_trace,
+            resolved_mode=resolved_mode,
+            raw_query_mode=raw_query_mode,
+            mode_explicit=mode_explicit,
+            mode_plan=MODE_REGISTRY[resolved_mode],
+            caller_supplied_query_mode=caller_supplied_query_mode,
+            intent_query_mode_hint=intent_query_mode_hint,
+        )
+
+    @staticmethod
+    def _apply_indexical_resolution(
+        request: RetrievalQuery,
+    ) -> tuple[RetrievalQuery, Any, Dict[str, Any]]:
         indexical = resolve_indexical(
             query=request.query,
             conversation_context=request.conversation_context,
         )
         indexical_trace: Dict[str, Any] = {}
         if indexical.is_indexical:
-            request = dc_replace(
-                request,
-                query_mode=indexical.force_mode,
-            )
+            request = dc_replace(request, query_mode=indexical.force_mode)
             indexical_trace["indexical_resolved"] = True
             indexical_trace["indexical_cue"] = indexical.cue_matched
         elif indexical.cue_matched:
             indexical_trace["indexical_cue_orphaned"] = indexical.cue_matched
+        return request, indexical, indexical_trace
 
-        # 0b. Mode source resolution — runs AFTER the indexical block so the
-        #     resolver's authoritative override wins. Three branches:
-        #       - indexical_override : Phase 3 already set request.query_mode.
-        #       - caller             : caller supplied a non-empty query_mode.
-        #       - inferred           : caller omitted it; run the heuristic
-        #                              inference module and apply the result.
+    @staticmethod
+    def _apply_mode_source_resolution(
+        request: RetrievalQuery,
+        *,
+        indexical: Any,
+        indexical_trace: Dict[str, Any],
+    ) -> tuple[RetrievalQuery, Dict[str, Any]]:
         if indexical.is_indexical:
             indexical_trace["mode_source"] = "indexical_override"
         elif request.query_mode:
@@ -272,41 +331,41 @@ class HybridRetrievalService(
             request = dc_replace(request, query_mode=inferred_mode)
             indexical_trace["mode_source"] = "inferred"
             indexical_trace["inferred_mode"] = inferred_mode
+        return request, indexical_trace
 
-        # 1. Resolve query mode — normalize legacy names first
-        resolved_mode = normalize_query_mode(request.query_mode)
-        mode_explicit = resolved_mode is not None and resolved_mode in VALID_MODES
-        if not mode_explicit:
-            resolved_mode = "exact_fact"
-        raw_query_mode = str(request.query_mode or "").strip().lower()
-        intent_query_mode_hint = (
-            "graph" if raw_query_mode == "graph" else (resolved_mode if mode_explicit else None)
-        )
-
-        mode_plan = MODE_REGISTRY[resolved_mode]
-
+    @staticmethod
+    def _build_initial_payload(
+        request: RetrievalQuery,
+        mode_context: _QueryModeContext,
+    ) -> RetrievalPayload:
         payload = RetrievalPayload(
             trace={
                 "query": request.query,
-                "query_mode": resolved_mode,
-                "requested_query_mode": raw_query_mode or None,
-                "resolved_query_mode": resolved_mode,
+                "query_mode": mode_context.resolved_mode,
+                "requested_query_mode": mode_context.raw_query_mode or None,
+                "resolved_query_mode": mode_context.resolved_mode,
                 "sources": request.source_filters,
                 "domains": request.domain_filters,
             }
         )
-        if indexical_trace:
-            payload.trace.update(indexical_trace)
+        if mode_context.indexical_trace:
+            payload.trace.update(mode_context.indexical_trace)
+        return payload
 
-        recall_shape = classify_recall_shape(request.query)
-        payload.trace["recall_shape"] = recall_shape.to_dict()
-
-        # 2. L0 unconditional
+    async def _load_l0_workbench_if_available(
+        self,
+        request: RetrievalQuery,
+        payload: RetrievalPayload,
+    ) -> None:
         if request.session_id and self._memory.l0 is not None:
             payload.l0_workbench = await self._load_l0(request.session_id)
 
-        # 3. Intent decision
-        intent_input = IntentDeciderInput(
+    @staticmethod
+    def _build_intent_input(
+        request: RetrievalQuery,
+        mode_context: _QueryModeContext,
+    ) -> IntentDeciderInput:
+        return IntentDeciderInput(
             query=request.query,
             user_id=request.user_id,
             session_id=request.session_id,
@@ -314,11 +373,20 @@ class HybridRetrievalService(
             source_filters=request.source_filters,
             domain_filters=request.domain_filters,
             summary_categories=list(request.summary_categories or []),
-            query_mode_hint=intent_query_mode_hint,
+            query_mode_hint=mode_context.intent_query_mode_hint,
             l1_limit=request.limit,
         )
-        decision = await self._intent_decider.decide(intent_input)
-        if not mode_explicit:
+
+    def _apply_intent_decision(
+        self,
+        *,
+        decision: Any,
+        mode_context: _QueryModeContext,
+        payload: RetrievalPayload,
+    ) -> tuple[str, Any]:
+        resolved_mode = mode_context.resolved_mode
+        mode_plan = mode_context.mode_plan
+        if not mode_context.mode_explicit:
             inferred_mode = self._infer_mode_from_plans(decision.plans, resolved_mode)
             if inferred_mode != resolved_mode:
                 payload.trace["mode_auto_inferred"] = True
@@ -331,19 +399,25 @@ class HybridRetrievalService(
         payload.trace["planned_layers"] = [
             {"layer": plan.layer, "fallback": plan.is_fallback} for plan in decision.plans
         ]
+        return resolved_mode, mode_plan
 
-        # 4. Build mode-adapted L1 handler with RRF weights from mode plan.
-        #    Only apply RRF overrides when the mode is AUTHORITATIVE:
-        #      - caller-supplied (tool call / API caller chose this mode), OR
-        #      - indexical-override (Phase 3 resolver fired with confidence
-        #        >= 0.9 on an indexical cue).
-        #    Heuristic-inferred modes (Phase 4 infer_query_mode) MUST NOT
-        #    drive RRF profile selection — keyword-heuristic errors would
-        #    distort retrieval. They still route to the right layers but use
-        #    default RRF weights.
+    def _effective_l1_for_mode(
+        self,
+        *,
+        mode_context: _QueryModeContext,
+        mode_plan: Any,
+        payload: RetrievalPayload,
+    ) -> L1Handler | None:
         effective_l1 = self._l1
-        authoritative_mode = caller_supplied_query_mode or indexical.is_indexical
-        if authoritative_mode and mode_explicit and mode_plan.rrf_profile and self._l1 is not None:
+        authoritative_mode = (
+            mode_context.caller_supplied_query_mode or mode_context.indexical.is_indexical
+        )
+        if (
+            authoritative_mode
+            and mode_context.mode_explicit
+            and mode_plan.rrf_profile
+            and self._l1 is not None
+        ):
             adapted_config = dc_replace(
                 self._config,
                 **{k: v for k, v in mode_plan.rrf_profile.items() if hasattr(self._config, k)},
@@ -354,37 +428,29 @@ class HybridRetrievalService(
         if effective_l1 is not None and mode_plan.l1_retrieval_scopes is not None:
             effective_l1 = effective_l1.with_l1_retrieval_scopes(mode_plan.l1_retrieval_scopes)
             payload.trace["l1_retrieval_scopes"] = list(mode_plan.l1_retrieval_scopes)
-        # Indexical resolver's scope override is authoritative — applies after
-        # the mode-plan scope so it wins for episode_recall (which has no
-        # default L1 scope in the registry). Trace is set even when no L1
-        # handler is wired up so the override intent is observable.
-        if indexical.is_indexical and indexical.l1_retrieval_scope:
-            indexical_scopes = [indexical.l1_retrieval_scope]
+        if mode_context.indexical.is_indexical and mode_context.indexical.l1_retrieval_scope:
+            indexical_scopes = [mode_context.indexical.l1_retrieval_scope]
             if effective_l1 is not None:
                 effective_l1 = effective_l1.with_l1_retrieval_scopes(indexical_scopes)
             payload.trace["l1_retrieval_scopes"] = list(indexical_scopes)
-        payload.trace["mode_explicit"] = mode_explicit
+        payload.trace["mode_explicit"] = mode_context.mode_explicit
+        return effective_l1
 
-        result = await self._execute_query(
-            request,
-            decision,
-            intent_input,
-            payload,
-            effective_l1=effective_l1,
-            mode_plan=mode_plan,
-        )
-        # Trim noise BEFORE the answer LLM sees this. The filter is
-        # additive — if it can't run (no bridge / timeout / etc) the
-        # raw payload flows through unchanged, with the reason logged
-        # in trace.grounding_filter.
-        result = await self._grounding_filter.apply(result, request)
-        result = await self._apply_structured_recall(
+    async def _finalize_query_result(
+        self,
+        *,
+        request: RetrievalQuery,
+        recall_shape: RecallShape,
+        payload: RetrievalPayload,
+    ) -> RetrievalPayload:
+        payload = await self._grounding_filter.apply(payload, request)
+        payload = await self._apply_structured_recall(
             request=request,
             recall_shape=recall_shape,
-            payload=result,
+            payload=payload,
         )
-        _log_retrieval_trace(result)
-        return result
+        _log_retrieval_trace(payload)
+        return payload
 
     async def _apply_structured_recall(
         self,
