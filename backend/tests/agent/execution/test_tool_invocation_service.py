@@ -10,6 +10,7 @@ from magi.agent.execution.tool_invocation_service import (
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SpanCompleted, TaskContext
 from magi.events.tracing import drain_pending
+from magi.hooks.contracts import HookDecision
 
 
 @pytest.fixture
@@ -103,3 +104,36 @@ async def test_publish_failure_does_not_break_caller(fake_bus, fake_registry, ct
         # must not raise — publish failure is swallowed
         await svc.invoke(ToolCall(name="x", args={}), ctx)
         await drain_pending()
+
+
+@pytest.mark.asyncio
+async def test_pre_tool_hook_denial_skips_execution(fake_registry, ctx):
+    fake_registry.execute = AsyncMock()
+
+    svc = ToolInvocationService(fake_registry)
+    with patch(
+        "magi.hooks.dispatch.dispatch_hook",
+        new=AsyncMock(return_value=HookDecision.deny("blocked")),
+    ):
+        result = await svc.invoke(ToolCall(name="x", args={"a": 1}), ctx)
+
+    fake_registry.execute.assert_not_called()
+    assert result.success is False
+    assert result.error == "blocked"
+    assert result.error_code == "HOOK_DENIED"
+
+
+@pytest.mark.asyncio
+async def test_pre_tool_hook_modification_updates_arguments(fake_registry, ctx):
+    fake_result = MagicMock(success=True, error=None, error_code=None, data="ok")
+    fake_registry.execute = AsyncMock(return_value=fake_result)
+
+    svc = ToolInvocationService(fake_registry)
+    with patch(
+        "magi.hooks.dispatch.dispatch_hook",
+        new=AsyncMock(return_value=HookDecision.modify(arguments={"a": 2})),
+    ):
+        result = await svc.invoke(ToolCall(name="x", args={"a": 1}), ctx)
+
+    assert result is fake_result
+    fake_registry.execute.assert_awaited_once_with("x", {"a": 2}, ctx.execution_context)

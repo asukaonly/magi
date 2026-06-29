@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Dict, Optional, Protocol, cast
 
 from .types import ToolCall, ToolCallResult
@@ -13,14 +14,33 @@ logger = logging.getLogger(__name__)
 
 
 class _ToolRegistryProtocol(Protocol):
-    def get_tool_info(self, tool_name: str) -> dict[str, Any] | None:
-        ...
+    def get_tool_info(self, tool_name: str) -> dict[str, Any] | None: ...
 
 
 class _PermissionHostProtocol(Protocol):
     permission_gateway: Any
     _permission_gateway_provider: Callable[[], Any] | None
     tool_registry: _ToolRegistryProtocol
+
+
+@dataclass(slots=True)
+class _PermissionGateImports:
+    permission_outcome: Any
+    tool_origin: Any
+    tool_error_code: Any
+
+
+@dataclass(slots=True)
+class _PermissionGateRequest:
+    tool_call: ToolCall
+    tool_name: str
+    arguments: Dict[str, Any]
+    agent_id: str
+    session_id: Optional[str]
+    turn_id: Optional[str]
+    workspace: Optional[str]
+    intent: str
+    start_time: float
 
 
 class FunctionCallingPermissionMixin:
@@ -52,47 +72,25 @@ class FunctionCallingPermissionMixin:
         gateway: Any = None,
     ) -> Optional[ToolCallResult]:
         """Run the permission gateway; return a failure result if blocked."""
-        try:
-            from magi.control.permission import (
-                PermissionOutcome,
-                ToolOrigin,
-            )
-            from ....tools.schema import ToolErrorCode
-        except Exception as exc:  # defensive -- should never fire post-wiring
-            logger.error(f"[FunctionCalling] permission gateway import failed: {exc}")
+        imports = _load_permission_gate_imports()
+        if imports is None:
             return None
 
         host = cast(_PermissionHostProtocol, self)
-        tool_info = host.tool_registry.get_tool_info(tool_name) or {}
-        origin = (
-            ToolOrigin.SUBAGENT
-            if isinstance(intent, str) and intent.startswith("worker_")
-            else ToolOrigin.CHAT
+        request = _PermissionGateRequest(
+            tool_call=tool_call,
+            tool_name=tool_name,
+            arguments=arguments,
+            agent_id=agent_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            workspace=workspace,
+            intent=intent,
+            start_time=start_time,
         )
+        tool_info = host.tool_registry.get_tool_info(tool_name) or {}
 
-        # Claude Code spec: a skill's ``allowed-tools`` field
-        # pre-approves matching tool calls. If any currently-active
-        # skill pre-approves this call we skip the permission gateway
-        # entirely (no prompt, no kill-list check, no cached-rule
-        # lookup) — semantics match the spec's "without asking
-        # permission" wording.
-        try:
-            from ....skills.active_restrictions import (
-                is_call_preapproved,
-                matched_rule,
-            )
-        except Exception:
-            is_call_preapproved = None  # type: ignore[assignment]
-            matched_rule = None  # type: ignore[assignment]
-        if is_call_preapproved is not None and is_call_preapproved(tool_name, arguments):
-            if matched_rule is not None:
-                rule = matched_rule(tool_name, arguments)
-                logger.info(
-                    "[FunctionCalling] permission skipped by skill pre-approval "
-                    "tool=%s rule=%s",
-                    tool_name,
-                    rule.display if rule else "<unknown>",
-                )
+        if _is_skill_preapproved(tool_name, arguments):
             return None
 
         try:
@@ -103,7 +101,7 @@ class FunctionCallingPermissionMixin:
                 tool_name=tool_name,
                 arguments=arguments,
                 agent_id=agent_id,
-                origin=origin,
+                origin=_tool_origin(imports, intent),
                 session_id=session_id,
                 turn_id=turn_id,
                 workspace=workspace,
@@ -111,55 +109,111 @@ class FunctionCallingPermissionMixin:
             )
         except Exception as exc:
             logger.exception("[FunctionCalling] permission gateway raised")
-            return ToolCallResult(
-                tool_call_id=tool_call.id,
-                tool_name=tool_name,
-                success=False,
-                error=f"permission gateway error: {exc}",
-                error_code=ToolErrorCode.PERMISSION_DENIED.value,
-                execution_time=time.time() - start_time,
-            )
+            return _permission_error_result(request, imports, exc)
 
         if decision.allowed:
             return None
+        return _blocked_tool_result(request, imports, decision)
 
-        if decision.outcome is PermissionOutcome.KILL_LISTED:
-            message = (
-                f"This invocation is blocked by the system safety fuse: "
-                f"{decision.reason or 'kill-listed pattern'}. Rephrase your "
-                f"approach -- do not retry this exact command."
-            )
-        elif decision.outcome is PermissionOutcome.TIMED_OUT:
-            message = (
-                "The user did not respond to the permission prompt in time; "
-                "the call was not executed. Ask the user how they want to proceed."
-            )
-        elif decision.outcome is PermissionOutcome.DENIED:
-            if decision.source == "plan_mode":
-                message = (
-                    decision.reason
-                    or "plan mode is active: only read-only tools are allowed"
-                )
-            else:
-                message = (
-                    f"The user denied this tool invocation"
-                    + (f": {decision.reason}" if decision.reason else "")
-                    + ". Respect the decision and choose a different approach."
-                )
-        else:
-            message = f"permission gateway blocked the call ({decision.outcome.value})"
 
-        logger.info(
-            "[FunctionCalling] permission blocked tool=%s outcome=%s source=%s",
-            tool_name,
-            decision.outcome.value,
-            decision.source,
+def _load_permission_gate_imports() -> _PermissionGateImports | None:
+    try:
+        from magi.control.permission import PermissionOutcome, ToolOrigin
+        from ....tools.schema import ToolErrorCode
+    except Exception as exc:  # defensive -- should never fire post-wiring
+        logger.error(f"[FunctionCalling] permission gateway import failed: {exc}")
+        return None
+    return _PermissionGateImports(
+        permission_outcome=PermissionOutcome,
+        tool_origin=ToolOrigin,
+        tool_error_code=ToolErrorCode,
+    )
+
+
+def _tool_origin(imports: _PermissionGateImports, intent: str) -> Any:
+    if isinstance(intent, str) and intent.startswith("worker_"):
+        return imports.tool_origin.SUBAGENT
+    return imports.tool_origin.CHAT
+
+
+def _is_skill_preapproved(tool_name: str, arguments: Dict[str, Any]) -> bool:
+    # Claude Code spec: a skill's ``allowed-tools`` field pre-approves matching
+    # tool calls. Matching calls skip prompts, kill-list checks, and cached rules.
+    try:
+        from ....skills.active_restrictions import is_call_preapproved, matched_rule
+    except Exception:
+        return False
+    if not is_call_preapproved(tool_name, arguments):
+        return False
+
+    rule = matched_rule(tool_name, arguments)
+    logger.info(
+        "[FunctionCalling] permission skipped by skill pre-approval tool=%s rule=%s",
+        tool_name,
+        rule.display if rule else "<unknown>",
+    )
+    return True
+
+
+def _permission_error_result(
+    request: _PermissionGateRequest,
+    imports: _PermissionGateImports,
+    exc: Exception,
+) -> ToolCallResult:
+    return ToolCallResult(
+        tool_call_id=request.tool_call.id,
+        tool_name=request.tool_name,
+        success=False,
+        error=f"permission gateway error: {exc}",
+        error_code=imports.tool_error_code.PERMISSION_DENIED.value,
+        execution_time=time.time() - request.start_time,
+    )
+
+
+def _blocked_tool_result(
+    request: _PermissionGateRequest,
+    imports: _PermissionGateImports,
+    decision: Any,
+) -> ToolCallResult:
+    logger.info(
+        "[FunctionCalling] permission blocked tool=%s outcome=%s source=%s",
+        request.tool_name,
+        decision.outcome.value,
+        decision.source,
+    )
+    return ToolCallResult(
+        tool_call_id=request.tool_call.id,
+        tool_name=request.tool_name,
+        success=False,
+        error=_blocked_tool_message(imports, decision),
+        error_code=imports.tool_error_code.PERMISSION_DENIED.value,
+        execution_time=time.time() - request.start_time,
+    )
+
+
+def _blocked_tool_message(imports: _PermissionGateImports, decision: Any) -> str:
+    outcome = imports.permission_outcome
+    if decision.outcome is outcome.KILL_LISTED:
+        return (
+            f"This invocation is blocked by the system safety fuse: "
+            f"{decision.reason or 'kill-listed pattern'}. Rephrase your "
+            f"approach -- do not retry this exact command."
         )
-        return ToolCallResult(
-            tool_call_id=tool_call.id,
-            tool_name=tool_name,
-            success=False,
-            error=message,
-            error_code=ToolErrorCode.PERMISSION_DENIED.value,
-            execution_time=time.time() - start_time,
+    if decision.outcome is outcome.TIMED_OUT:
+        return (
+            "The user did not respond to the permission prompt in time; "
+            "the call was not executed. Ask the user how they want to proceed."
         )
+    if decision.outcome is outcome.DENIED:
+        return _denied_tool_message(decision)
+    return f"permission gateway blocked the call ({decision.outcome.value})"
+
+
+def _denied_tool_message(decision: Any) -> str:
+    if decision.source == "plan_mode":
+        return decision.reason or "plan mode is active: only read-only tools are allowed"
+    return (
+        "The user denied this tool invocation"
+        + (f": {decision.reason}" if decision.reason else "")
+        + ". Respect the decision and choose a different approach."
+    )
