@@ -6,6 +6,7 @@ from magi.agent.execution.tool_context_formatters import (
     compact_read_chat_attachment_tool_data,
 )
 from magi.memory.tool_context_formatter import compact_memory_tool_data
+from magi.memory.tool_context_rendering import render_memory_context
 
 
 def test_compact_glob_tool_data_trims_matches() -> None:
@@ -93,3 +94,96 @@ def test_compact_memory_tool_data_renders_l2_experiences() -> None:
     assert "Experiences:" in compact["memory_context"]
     assert "日本旅行" in compact["memory_context"]
     assert compact["meta"]["l2_experience_count"] == 1
+
+
+def test_render_memory_context_includes_all_supported_sections() -> None:
+    rendered = render_memory_context(
+        {
+            "l1_timeline_summary": [
+                {
+                    "session_id": "s1",
+                    "turn_id": "t1",
+                    "author_type": "user",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "summary_preview": "planned a trip",
+                }
+            ],
+            "l1_events": [
+                {
+                    "session_id": "s1",
+                    "turn_id": "t2",
+                    "author_type": "assistant",
+                    "score": 0.9,
+                    "content_preview": "shared route options",
+                }
+            ],
+            "l2_entity_cards": [
+                {
+                    "name": "Tokyo",
+                    "entity_type": "place",
+                    "summary_preview": "favorite stop",
+                }
+            ],
+            "l2_relationships": [
+                {
+                    "subject": "user",
+                    "predicate": "LIKES",
+                    "object": "Tokyo",
+                    "confidence": 0.8,
+                    "evidence": "repeat mentions",
+                }
+            ],
+            "l2_assertions": [
+                {
+                    "subject": "user",
+                    "predicate": "prefers",
+                    "claim_preview": "quiet routes",
+                    "confidence": 0.7,
+                }
+            ],
+            "l2_experiences": [
+                {
+                    "title": "Japan planning",
+                    "magi_interpretation": "balancing city hops",
+                    "source_event_count": 3,
+                }
+            ],
+            "l3_reflections": [
+                {
+                    "summary_type": "temporal",
+                    "summary_category": "travel",
+                    "summary_preview": "kept refining the route",
+                }
+            ],
+            "l4_procedures": [
+                {
+                    "skill_name": "route-search",
+                    "skill_category": "tool",
+                    "success_rate": 0.75,
+                    "total_attempts": 4,
+                    "breaker_state": "half_open",
+                    "description_preview": "use when travel dates are known",
+                }
+            ],
+        }
+    )
+
+    assert (
+        rendered == "Timeline Summary:\n"
+        "- session=s1 turn=t1 role=user t=2026-01-01T00:00:00Z: planned a trip\n\n"
+        "Key Events:\n"
+        "- session=s1 turn=t2 role=assistant score=0.9: shared route options\n\n"
+        "Entity Cards:\n"
+        "- Tokyo (place): favorite stop\n\n"
+        "Relationships:\n"
+        "- user LIKES Tokyo (confidence=0.8) [repeat mentions]\n\n"
+        "Assertions:\n"
+        "- user prefers: quiet routes (confidence=0.7)\n\n"
+        "Experiences:\n"
+        "- Japan planning: balancing city hops (events=3)\n\n"
+        "Reflections:\n"
+        "- temporal/travel: kept refining the route\n\n"
+        "Execution Experience:\n"
+        "- route-search (tool, 75% success over 4 uses) [recovering]: "
+        "use when travel dates are known"
+    )
