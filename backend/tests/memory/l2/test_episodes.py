@@ -47,7 +47,9 @@ async def test_update_episode(tmp_path):
 
     eid = str(uuid.uuid4())
     await store.create_episode(
-        episode_id=eid, time_start=100.0, time_end=200.0,
+        episode_id=eid,
+        time_start=100.0,
+        time_end=200.0,
     )
 
     ok = await store.update_episode(
@@ -141,7 +143,9 @@ async def test_episode_events_crud(tmp_path):
 
     eid = str(uuid.uuid4())
     await store.create_episode(
-        episode_id=eid, time_start=100.0, time_end=200.0,
+        episode_id=eid,
+        time_start=100.0,
+        time_end=200.0,
     )
 
     added = await store.add_episode_events(
@@ -165,9 +169,7 @@ async def test_episode_events_crud(tmp_path):
     assert len(events_after) == 4
 
     # Remove events
-    removed = await store.remove_episode_events(
-        episode_id=eid, event_ids=["evt-1", "evt-3"]
-    )
+    removed = await store.remove_episode_events(episode_id=eid, event_ids=["evt-1", "evt-3"])
     assert removed == 2
     remaining = await store.list_episode_events(episode_id=eid)
     assert len(remaining) == 2
@@ -177,9 +179,7 @@ async def test_episode_events_crud(tmp_path):
 async def test_count_episode_events_dedups_and_matches_membership(l2_store_with_schema):
     """count_episode_events reflects true distinct membership despite re-adds."""
     store = l2_store_with_schema
-    await store.create_episode(
-        episode_id="a", time_start=1, time_end=2, source_event_count=0
-    )
+    await store.create_episode(episode_id="a", time_start=1, time_end=2, source_event_count=0)
     await store.add_episode_events(episode_id="a", event_ids=["e1", "e2"])
     await store.add_episode_events(
         episode_id="a", event_ids=["e2", "e3"]
@@ -228,7 +228,9 @@ async def test_merge_episodes_moves_events_and_terminates_absorbed(l2_store_with
 
 
 @pytest.mark.asyncio
-async def test_split_episode_creates_two_active_children_and_invalidates_original(l2_store_with_schema):
+async def test_split_episode_creates_two_active_children_and_invalidates_original(
+    l2_store_with_schema,
+):
     store = l2_store_with_schema
     await store.create_episode(
         episode_id="ep",
@@ -266,6 +268,49 @@ async def test_split_episode_creates_two_active_children_and_invalidates_origina
 
 
 @pytest.mark.asyncio
+async def test_split_episode_preserves_membership_metadata(l2_store_with_schema):
+    store = l2_store_with_schema
+    await store.create_episode(
+        episode_id="ep",
+        status="active",
+        time_start=1,
+        time_end=4,
+    )
+    await store.add_episode_events(
+        episode_id="ep",
+        event_ids=["e1"],
+        membership_role="anchor",
+        membership_confidence=0.9,
+    )
+    await store.add_episode_events(
+        episode_id="ep",
+        event_ids=["e2"],
+        membership_role="supporting",
+        membership_confidence=0.4,
+    )
+
+    result = await store.split_episode(
+        source_episode_id="ep",
+        left_episode_id="ep-a",
+        right_episode_id="ep-b",
+        left_event_ids=["e1"],
+        right_event_ids=["e2"],
+        left_time_start=1,
+        left_time_end=2,
+        right_time_start=3,
+        right_time_end=4,
+    )
+
+    assert result is not None
+    left_events = await store.list_episode_events(episode_id="ep-a")
+    right_events = await store.list_episode_events(episode_id="ep-b")
+    assert left_events[0]["membership_role"] == "anchor"
+    assert left_events[0]["membership_confidence"] == 0.9
+    assert right_events[0]["membership_role"] == "supporting"
+    assert right_events[0]["membership_confidence"] == 0.4
+
+
+@pytest.mark.asyncio
 async def test_find_episode_for_event(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
@@ -274,7 +319,9 @@ async def test_find_episode_for_event(tmp_path):
 
     eid = str(uuid.uuid4())
     await store.create_episode(
-        episode_id=eid, time_start=100.0, time_end=200.0,
+        episode_id=eid,
+        time_start=100.0,
+        time_end=200.0,
     )
     await store.add_episode_events(episode_id=eid, event_ids=["evt-x"])
 
@@ -493,24 +540,16 @@ async def test_extend_path_source_event_count_does_not_drift_on_overlap(tmp_path
     now = time.time()
     # First batch creates an episode with evt-1, evt-2
     first_jobs = [
-        EpisodeCandidateJob(
-            event_id="evt-1", event_timestamp=now, entity_ids=["user:alice"]
-        ),
-        EpisodeCandidateJob(
-            event_id="evt-2", event_timestamp=now + 1, entity_ids=["user:alice"]
-        ),
+        EpisodeCandidateJob(event_id="evt-1", event_timestamp=now, entity_ids=["user:alice"]),
+        EpisodeCandidateJob(event_id="evt-2", event_timestamp=now + 1, entity_ids=["user:alice"]),
     ]
     ep1_id = await assign_events_to_episode(store, first_jobs)
 
     # Second batch 10 min later lands on the SAME candidate, but re-includes
     # evt-2 (already a member) alongside a fresh evt-3.
     second_jobs = [
-        EpisodeCandidateJob(
-            event_id="evt-2", event_timestamp=now + 600, entity_ids=["user:alice"]
-        ),
-        EpisodeCandidateJob(
-            event_id="evt-3", event_timestamp=now + 601, entity_ids=["user:alice"]
-        ),
+        EpisodeCandidateJob(event_id="evt-2", event_timestamp=now + 600, entity_ids=["user:alice"]),
+        EpisodeCandidateJob(event_id="evt-3", event_timestamp=now + 601, entity_ids=["user:alice"]),
     ]
     ep2_id = await assign_events_to_episode(store, second_jobs)
     assert ep2_id == ep1_id  # same candidate extended
@@ -650,6 +689,7 @@ async def test_consolidation_promotes_mature_candidates(tmp_path):
     )
     # Backdate created_at
     from magi.core.sqlite import sqlite_connection_async
+
     async with sqlite_connection_async(store.db_path) as db:
         await db.execute(
             "UPDATE episodes SET created_at = ? WHERE episode_id = ?",
@@ -720,9 +760,7 @@ async def test_consolidation_merges_adjacent(tmp_path):
     await store.add_episode_events(
         episode_id=eid1, event_ids=["evt-1", "evt-2", "evt-3", "evt-4", "evt-5"]
     )
-    await store.add_episode_events(
-        episode_id=eid2, event_ids=["evt-a", "evt-b", "evt-c"]
-    )
+    await store.add_episode_events(episode_id=eid2, event_ids=["evt-a", "evt-b", "evt-c"])
 
     # Promote both manually
     await store.update_episode(episode_id=eid1, status="active")
@@ -737,9 +775,7 @@ async def test_consolidation_merges_adjacent(tmp_path):
     assert ep1["status"] == "active"
     # Survivor count is derived from true membership: 5 (eid1) + 3 moved (eid2).
     assert ep1["source_event_count"] == 8
-    assert ep1["source_event_count"] == await store.count_episode_events(
-        episode_id=eid1
-    )
+    assert ep1["source_event_count"] == await store.count_episode_events(episode_id=eid1)
 
 
 @pytest.mark.asyncio
@@ -857,7 +893,9 @@ async def test_clear_includes_episodes(tmp_path):
 
     eid = str(uuid.uuid4())
     await store.create_episode(
-        episode_id=eid, time_start=100.0, time_end=200.0,
+        episode_id=eid,
+        time_start=100.0,
+        time_end=200.0,
     )
     await store.add_episode_events(episode_id=eid, event_ids=["evt-1"])
 
@@ -907,7 +945,9 @@ async def test_promoted_non_standout_visible_via_status_active(l2_store_with_sch
     # 4 events: above MIN_EVENTS_TO_PROMOTE (3), below STANDOUT_MIN_EVENTS →
     # gets promoted to active but NOT flagged standout.
     await _make_mature_candidate(
-        store, episode_id="ep-plain", source_event_count=4,
+        store,
+        episode_id="ep-plain",
+        source_event_count=4,
         primary_entity_ids=["a"],
     )
 
@@ -930,7 +970,9 @@ async def test_consolidate_does_not_flip_standout_between_passes(l2_store_with_s
     store = l2_store_with_schema
     # 10 events + 2 entities + 1h duration → passes the standout gate.
     await _make_mature_candidate(
-        store, episode_id="ep-standout", source_event_count=10,
+        store,
+        episode_id="ep-standout",
+        source_event_count=10,
         primary_entity_ids=["a", "b"],
     )
 

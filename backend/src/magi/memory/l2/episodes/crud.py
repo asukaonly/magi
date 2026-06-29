@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import aiosqlite
@@ -29,6 +30,288 @@ def _merge_json_lists(*raw_values: Any) -> list[str]:
                 seen.add(text)
                 merged.append(text)
     return merged
+
+
+@dataclass(frozen=True)
+class _EpisodeChildSpec:
+    episode_id: str
+    event_ids: List[str]
+    time_start: float
+    time_end: float
+
+    @property
+    def source_event_count(self) -> int:
+        return len(self.event_ids)
+
+
+@dataclass(frozen=True)
+class _EpisodeSplitRequest:
+    source_episode_id: str
+    left: _EpisodeChildSpec
+    right: _EpisodeChildSpec
+
+    def is_valid(self) -> bool:
+        if not self.left.event_ids or not self.right.event_ids:
+            return False
+        if self.source_episode_id in {self.left.episode_id, self.right.episode_id}:
+            return False
+        return self.left.episode_id != self.right.episode_id
+
+    @property
+    def children(self) -> tuple[_EpisodeChildSpec, _EpisodeChildSpec]:
+        return (self.left, self.right)
+
+
+async def _fetch_episode_row(db: aiosqlite.Connection, *, episode_id: str) -> aiosqlite.Row | None:
+    async with db.execute(
+        "SELECT * FROM episodes WHERE episode_id = ?",
+        (episode_id,),
+    ) as cursor:
+        return await cursor.fetchone()
+
+
+async def _fetch_merge_episode_rows(
+    db: aiosqlite.Connection,
+    *,
+    survivor_id: str,
+    absorbed_id: str,
+) -> tuple[aiosqlite.Row | None, aiosqlite.Row | None]:
+    async with db.execute(
+        "SELECT * FROM episodes WHERE episode_id IN (?, ?)",
+        (survivor_id, absorbed_id),
+    ) as cursor:
+        rows = await cursor.fetchall()
+    episodes = {str(row["episode_id"]): row for row in rows}
+    return episodes.get(survivor_id), episodes.get(absorbed_id)
+
+
+async def _move_absorbed_episode_memberships(
+    db: aiosqlite.Connection,
+    *,
+    survivor_id: str,
+    absorbed_id: str,
+    now: float,
+) -> None:
+    async with db.execute(
+        "SELECT event_id FROM episode_events WHERE episode_id = ? ORDER BY added_at ASC",
+        (absorbed_id,),
+    ) as cursor:
+        absorbed_event_rows = await cursor.fetchall()
+    absorbed_event_ids = [
+        str(row["event_id"]) for row in absorbed_event_rows if row and row["event_id"]
+    ]
+    for event_id in absorbed_event_ids:
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO episode_events(
+                episode_id, event_id, membership_role, membership_confidence, added_at
+            ) VALUES (?, ?, 'member', 0.5, ?)
+            """,
+            (survivor_id, event_id, now),
+        )
+    await db.execute(
+        "DELETE FROM episode_events WHERE episode_id = ?",
+        (absorbed_id,),
+    )
+
+
+async def _count_episode_memberships(db: aiosqlite.Connection, *, episode_id: str) -> int:
+    async with db.execute(
+        "SELECT COUNT(*) FROM episode_events WHERE episode_id = ?",
+        (episode_id,),
+    ) as cursor:
+        count_row = await cursor.fetchone()
+    return int(count_row[0]) if count_row else 0
+
+
+async def _update_merged_survivor_episode(
+    db: aiosqlite.Connection,
+    *,
+    survivor_id: str,
+    survivor: aiosqlite.Row,
+    absorbed: aiosqlite.Row,
+    source_event_count: int,
+    now: float,
+) -> None:
+    primary_entity_ids = _merge_json_lists(
+        survivor["primary_entity_ids"], absorbed["primary_entity_ids"]
+    )
+    primary_place_ids = _merge_json_lists(
+        survivor["primary_place_ids"], absorbed["primary_place_ids"]
+    )
+    primary_topic_keys = _merge_json_lists(
+        survivor["primary_topic_keys"], absorbed["primary_topic_keys"]
+    )
+    continuity_signals = _merge_json_lists(
+        survivor["continuity_signals"], absorbed["continuity_signals"]
+    )
+    await db.execute(
+        """
+        UPDATE episodes
+        SET time_start = ?, time_end = ?,
+            primary_entity_ids = ?, primary_place_ids = ?,
+            primary_topic_keys = ?, continuity_signals = ?,
+            source_event_count = ?, updated_at = ?
+        WHERE episode_id = ?
+        """,
+        (
+            min(float(survivor["time_start"]), float(absorbed["time_start"])),
+            max(float(survivor["time_end"]), float(absorbed["time_end"])),
+            json.dumps(primary_entity_ids, ensure_ascii=False),
+            json.dumps(primary_place_ids, ensure_ascii=False),
+            json.dumps(primary_topic_keys, ensure_ascii=False),
+            json.dumps(continuity_signals, ensure_ascii=False),
+            source_event_count,
+            now,
+            survivor_id,
+        ),
+    )
+
+
+async def _mark_episode_merged(
+    db: aiosqlite.Connection,
+    *,
+    absorbed_id: str,
+    survivor_id: str,
+    now: float,
+) -> None:
+    await db.execute(
+        """
+        UPDATE episodes
+        SET status = 'merged',
+            parent_episode_id = ?,
+            source_event_count = 0,
+            updated_at = ?
+        WHERE episode_id = ?
+        """,
+        (survivor_id, now, absorbed_id),
+    )
+
+
+async def _insert_split_child_episodes(
+    db: aiosqlite.Connection,
+    split_request: _EpisodeSplitRequest,
+    source: aiosqlite.Row,
+    *,
+    now: float,
+) -> None:
+    for child in split_request.children:
+        await db.execute(
+            """
+            INSERT INTO episodes(
+                episode_id, episode_type, status, time_start, time_end,
+                parent_episode_id, label, summary, dominant_mode,
+                primary_entity_ids, primary_place_ids, primary_topic_keys,
+                continuity_signals, formation_method, confidence,
+                source_event_count,
+                slice_narrative, slice_sensory_detail, magi_standout,
+                standout_score, standout_reason, representative_asset_ref,
+                created_at, updated_at
+            ) VALUES (?, ?, 'active', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 'user_split', ?, ?, NULL, NULL, 0, 0.0, NULL, NULL, ?, ?)
+            """,
+            (
+                child.episode_id,
+                str(source["episode_type"]),
+                child.time_start,
+                child.time_end,
+                split_request.source_episode_id,
+                source["dominant_mode"],
+                source["primary_entity_ids"],
+                source["primary_place_ids"],
+                source["primary_topic_keys"],
+                source["continuity_signals"],
+                float(source["confidence"]),
+                child.source_event_count,
+                now,
+                now,
+            ),
+        )
+
+
+async def _load_episode_memberships(
+    db: aiosqlite.Connection,
+    episode_id: str,
+) -> dict[str, aiosqlite.Row]:
+    async with db.execute(
+        "SELECT * FROM episode_events WHERE episode_id = ?",
+        (episode_id,),
+    ) as cursor:
+        membership_rows = await cursor.fetchall()
+    return {str(row["event_id"]): row for row in membership_rows}
+
+
+async def _insert_split_child_memberships(
+    db: aiosqlite.Connection,
+    split_request: _EpisodeSplitRequest,
+    memberships: dict[str, aiosqlite.Row],
+    *,
+    now: float,
+) -> None:
+    for child in split_request.children:
+        for event_id in child.event_ids:
+            membership = memberships.get(str(event_id))
+            await _insert_split_child_membership(
+                db,
+                child_episode_id=child.episode_id,
+                event_id=str(event_id),
+                membership=membership,
+                now=now,
+            )
+
+
+async def _insert_split_child_membership(
+    db: aiosqlite.Connection,
+    *,
+    child_episode_id: str,
+    event_id: str,
+    membership: aiosqlite.Row | None,
+    now: float,
+) -> None:
+    await db.execute(
+        """
+        INSERT OR IGNORE INTO episode_events(
+            episode_id, event_id, membership_role, membership_confidence, added_at
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            child_episode_id,
+            event_id,
+            str(membership["membership_role"]) if membership else "member",
+            float(membership["membership_confidence"]) if membership else 0.5,
+            now,
+        ),
+    )
+
+
+async def _invalidate_split_source_episode(
+    db: aiosqlite.Connection,
+    source_episode_id: str,
+    *,
+    now: float,
+) -> None:
+    await db.execute(
+        "DELETE FROM episode_events WHERE episode_id = ?",
+        (source_episode_id,),
+    )
+    await db.execute(
+        """
+        UPDATE episodes
+        SET status = 'invalidated',
+            source_event_count = 0,
+            updated_at = ?
+        WHERE episode_id = ?
+        """,
+        (now, source_episode_id),
+    )
+
+
+async def _fetch_split_children(
+    db: aiosqlite.Connection,
+    split_request: _EpisodeSplitRequest,
+) -> tuple[aiosqlite.Row | None, aiosqlite.Row | None]:
+    left_after = await _fetch_episode_row(db, episode_id=split_request.left.episode_id)
+    right_after = await _fetch_episode_row(db, episode_id=split_request.right.episode_id)
+    return left_after, right_after
 
 
 class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
@@ -128,15 +411,33 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
     ) -> bool:
         """Update mutable fields of an episode. Returns True if found."""
         allowed = {
-            "status", "time_start", "time_end", "label", "summary",
-            "dominant_mode", "primary_entity_ids", "primary_place_ids",
-            "primary_topic_keys", "continuity_signals", "confidence",
-            "source_event_count", "parent_episode_id", "user_label",
-            "user_note", "user_pinned", "embedding_status",
-            "embedding_profile_id", "last_embedded_at", "last_recomputed_at",
+            "status",
+            "time_start",
+            "time_end",
+            "label",
+            "summary",
+            "dominant_mode",
+            "primary_entity_ids",
+            "primary_place_ids",
+            "primary_topic_keys",
+            "continuity_signals",
+            "confidence",
+            "source_event_count",
+            "parent_episode_id",
+            "user_label",
+            "user_note",
+            "user_pinned",
+            "embedding_status",
+            "embedding_profile_id",
+            "last_embedded_at",
+            "last_recomputed_at",
             # Immersive timeline fields (Plan 1)
-            "slice_narrative", "slice_sensory_detail", "magi_standout",
-            "standout_score", "standout_reason", "representative_asset_ref",
+            "slice_narrative",
+            "slice_sensory_detail",
+            "magi_standout",
+            "standout_score",
+            "standout_reason",
+            "representative_asset_ref",
         }
         updates = {key: value for key, value in fields.items() if key in allowed}
         if not updates:
@@ -254,100 +555,40 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             try:
-                async with db.execute(
-                    "SELECT * FROM episodes WHERE episode_id IN (?, ?)",
-                    (survivor_id, absorbed_id),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-                episodes = {str(row["episode_id"]): row for row in rows}
-                survivor = episodes.get(survivor_id)
-                absorbed = episodes.get(absorbed_id)
+                survivor, absorbed = await _fetch_merge_episode_rows(
+                    db,
+                    survivor_id=survivor_id,
+                    absorbed_id=absorbed_id,
+                )
                 if survivor is None or absorbed is None:
                     await db.rollback()
                     return None
 
-                async with db.execute(
-                    "SELECT event_id FROM episode_events WHERE episode_id = ? ORDER BY added_at ASC",
-                    (absorbed_id,),
-                ) as cursor:
-                    absorbed_event_rows = await cursor.fetchall()
-                absorbed_event_ids = [
-                    str(row["event_id"])
-                    for row in absorbed_event_rows
-                    if row and row["event_id"]
-                ]
-                for event_id in absorbed_event_ids:
-                    await db.execute(
-                        """
-                        INSERT OR IGNORE INTO episode_events(
-                            episode_id, event_id, membership_role, membership_confidence, added_at
-                        ) VALUES (?, ?, 'member', 0.5, ?)
-                        """,
-                        (survivor_id, event_id, now),
-                    )
-                await db.execute(
-                    "DELETE FROM episode_events WHERE episode_id = ?",
-                    (absorbed_id,),
+                await _move_absorbed_episode_memberships(
+                    db,
+                    survivor_id=survivor_id,
+                    absorbed_id=absorbed_id,
+                    now=now,
                 )
-
-                async with db.execute(
-                    "SELECT COUNT(*) FROM episode_events WHERE episode_id = ?",
-                    (survivor_id,),
-                ) as cursor:
-                    count_row = await cursor.fetchone()
-                source_event_count = int(count_row[0]) if count_row else 0
-
-                primary_entity_ids = _merge_json_lists(
-                    survivor["primary_entity_ids"], absorbed["primary_entity_ids"]
+                source_event_count = await _count_episode_memberships(
+                    db,
+                    episode_id=survivor_id,
                 )
-                primary_place_ids = _merge_json_lists(
-                    survivor["primary_place_ids"], absorbed["primary_place_ids"]
+                await _update_merged_survivor_episode(
+                    db,
+                    survivor_id=survivor_id,
+                    survivor=survivor,
+                    absorbed=absorbed,
+                    source_event_count=source_event_count,
+                    now=now,
                 )
-                primary_topic_keys = _merge_json_lists(
-                    survivor["primary_topic_keys"], absorbed["primary_topic_keys"]
+                await _mark_episode_merged(
+                    db,
+                    absorbed_id=absorbed_id,
+                    survivor_id=survivor_id,
+                    now=now,
                 )
-                continuity_signals = _merge_json_lists(
-                    survivor["continuity_signals"], absorbed["continuity_signals"]
-                )
-
-                await db.execute(
-                    """
-                    UPDATE episodes
-                    SET time_start = ?, time_end = ?,
-                        primary_entity_ids = ?, primary_place_ids = ?,
-                        primary_topic_keys = ?, continuity_signals = ?,
-                        source_event_count = ?, updated_at = ?
-                    WHERE episode_id = ?
-                    """,
-                    (
-                        min(float(survivor["time_start"]), float(absorbed["time_start"])),
-                        max(float(survivor["time_end"]), float(absorbed["time_end"])),
-                        json.dumps(primary_entity_ids, ensure_ascii=False),
-                        json.dumps(primary_place_ids, ensure_ascii=False),
-                        json.dumps(primary_topic_keys, ensure_ascii=False),
-                        json.dumps(continuity_signals, ensure_ascii=False),
-                        source_event_count,
-                        now,
-                        survivor_id,
-                    ),
-                )
-                await db.execute(
-                    """
-                    UPDATE episodes
-                    SET status = 'merged',
-                        parent_episode_id = ?,
-                        source_event_count = 0,
-                        updated_at = ?
-                    WHERE episode_id = ?
-                    """,
-                    (survivor_id, now, absorbed_id),
-                )
-
-                async with db.execute(
-                    "SELECT * FROM episodes WHERE episode_id = ?",
-                    (survivor_id,),
-                ) as cursor:
-                    survivor_after = await cursor.fetchone()
+                survivor_after = await _fetch_episode_row(db, episode_id=survivor_id)
                 await db.commit()
             except Exception:
                 await db.rollback()
@@ -369,12 +610,22 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
         right_time_end: float,
     ) -> Optional[Dict[str, Any]]:
         """Split one episode into two active child episodes."""
-        if (
-            not left_event_ids
-            or not right_event_ids
-            or source_episode_id in {left_episode_id, right_episode_id}
-            or left_episode_id == right_episode_id
-        ):
+        split_request = _EpisodeSplitRequest(
+            source_episode_id=source_episode_id,
+            left=_EpisodeChildSpec(
+                episode_id=left_episode_id,
+                event_ids=left_event_ids,
+                time_start=float(left_time_start),
+                time_end=float(left_time_end),
+            ),
+            right=_EpisodeChildSpec(
+                episode_id=right_episode_id,
+                event_ids=right_event_ids,
+                time_start=float(right_time_start),
+                time_end=float(right_time_end),
+            ),
+        )
+        if not split_request.is_valid():
             return None
 
         await self.initialize()
@@ -383,117 +634,16 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             try:
-                async with db.execute(
-                    "SELECT * FROM episodes WHERE episode_id = ?",
-                    (source_episode_id,),
-                ) as cursor:
-                    source = await cursor.fetchone()
+                source = await _fetch_episode_row(db, episode_id=source_episode_id)
                 if source is None:
                     await db.rollback()
                     return None
 
-                child_rows = [
-                    (
-                        left_episode_id,
-                        float(left_time_start),
-                        float(left_time_end),
-                        len(left_event_ids),
-                    ),
-                    (
-                        right_episode_id,
-                        float(right_time_start),
-                        float(right_time_end),
-                        len(right_event_ids),
-                    ),
-                ]
-                for episode_id, time_start, time_end, source_event_count in child_rows:
-                    await db.execute(
-                        """
-                        INSERT INTO episodes(
-                            episode_id, episode_type, status, time_start, time_end,
-                            parent_episode_id, label, summary, dominant_mode,
-                            primary_entity_ids, primary_place_ids, primary_topic_keys,
-                            continuity_signals, formation_method, confidence,
-                            source_event_count,
-                            slice_narrative, slice_sensory_detail, magi_standout,
-                            standout_score, standout_reason, representative_asset_ref,
-                            created_at, updated_at
-                        ) VALUES (?, ?, 'active', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 'user_split', ?, ?, NULL, NULL, 0, 0.0, NULL, NULL, ?, ?)
-                        """,
-                        (
-                            episode_id,
-                            str(source["episode_type"]),
-                            time_start,
-                            time_end,
-                            source_episode_id,
-                            source["dominant_mode"],
-                            source["primary_entity_ids"],
-                            source["primary_place_ids"],
-                            source["primary_topic_keys"],
-                            source["continuity_signals"],
-                            float(source["confidence"]),
-                            source_event_count,
-                            now,
-                            now,
-                        ),
-                    )
-
-                async with db.execute(
-                    "SELECT * FROM episode_events WHERE episode_id = ?",
-                    (source_episode_id,),
-                ) as cursor:
-                    membership_rows = await cursor.fetchall()
-                memberships = {str(row["event_id"]): row for row in membership_rows}
-                for episode_id, event_ids in (
-                    (left_episode_id, left_event_ids),
-                    (right_episode_id, right_event_ids),
-                ):
-                    for event_id in event_ids:
-                        membership = memberships.get(str(event_id))
-                        await db.execute(
-                            """
-                            INSERT OR IGNORE INTO episode_events(
-                                episode_id, event_id, membership_role, membership_confidence, added_at
-                            ) VALUES (?, ?, ?, ?, ?)
-                            """,
-                            (
-                                episode_id,
-                                str(event_id),
-                                str(membership["membership_role"]) if membership else "member",
-                                (
-                                    float(membership["membership_confidence"])
-                                    if membership
-                                    else 0.5
-                                ),
-                                now,
-                            ),
-                        )
-
-                await db.execute(
-                    "DELETE FROM episode_events WHERE episode_id = ?",
-                    (source_episode_id,),
-                )
-                await db.execute(
-                    """
-                    UPDATE episodes
-                    SET status = 'invalidated',
-                        source_event_count = 0,
-                        updated_at = ?
-                    WHERE episode_id = ?
-                    """,
-                    (now, source_episode_id),
-                )
-
-                async with db.execute(
-                    "SELECT * FROM episodes WHERE episode_id = ?",
-                    (left_episode_id,),
-                ) as cursor:
-                    left_after = await cursor.fetchone()
-                async with db.execute(
-                    "SELECT * FROM episodes WHERE episode_id = ?",
-                    (right_episode_id,),
-                ) as cursor:
-                    right_after = await cursor.fetchone()
+                await _insert_split_child_episodes(db, split_request, source, now=now)
+                memberships = await _load_episode_memberships(db, source_episode_id)
+                await _insert_split_child_memberships(db, split_request, memberships, now=now)
+                await _invalidate_split_source_episode(db, source_episode_id, now=now)
+                left_after, right_after = await _fetch_split_children(db, split_request)
                 await db.commit()
             except Exception:
                 await db.rollback()
